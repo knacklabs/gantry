@@ -186,18 +186,19 @@ describe('skill CLI', () => {
         }
         if (
           req.method === 'GET' &&
-          req.url === '/v1/agents/agent%3Amain_agent/capabilities'
+          req.url === '/v1/agents/agent%3Amain_agent/access'
         ) {
           res.end(
             JSON.stringify({
-              capabilities: [{ id: 'browser.use', version: 'builtin' }],
+              sources: { skills: [], mcpServers: [], tools: [] },
+              selections: [{ id: 'browser.use', version: 'builtin' }],
             }),
           );
           return;
         }
         if (
           req.method === 'PUT' &&
-          req.url === '/v1/agents/agent%3Amain_agent/capabilities'
+          req.url === '/v1/agents/agent%3Amain_agent/access'
         ) {
           res.end(JSON.stringify({ ok: true }));
           return;
@@ -228,11 +229,12 @@ describe('skill CLI', () => {
     expect(seen.map((request) => `${request.method} ${request.url}`)).toEqual([
       'POST /v1/skills/install?agentId=agent%3Amain_agent&createdBy=cli',
       'PUT /v1/agents/agent%3Amain_agent/skills/skill%3Ainstalled',
-      'GET /v1/agents/agent%3Amain_agent/capabilities',
-      'PUT /v1/agents/agent%3Amain_agent/capabilities',
+      'GET /v1/agents/agent%3Amain_agent/access',
+      'PUT /v1/agents/agent%3Amain_agent/access',
     ]);
     expect(JSON.parse(seen.at(-1)!.body)).toEqual({
-      capabilities: [
+      sources: { skills: [], mcpServers: [], tools: [] },
+      selections: [
         { id: 'browser.use', version: 'builtin' },
         { id: 'skill.linkedin-posting.publish', version: 'builtin' },
       ],

@@ -147,6 +147,7 @@ export async function sendTeamsTextMessage(
           totalChunks: queue.length,
         });
         Object.assign(partial, {
+          provider: 'teams',
           deliveredParts,
           totalParts: queue.length,
           externalMessageIds,

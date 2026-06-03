@@ -3192,7 +3192,7 @@ describe('createGroupProcessor', () => {
         group,
         expect.objectContaining({
           prompt: 'formatted prompt',
-          groupFolder: 'my-group',
+          workspaceFolder: 'my-group',
           chatJid: 'group1@g.us',
           assistantName: 'Andy',
           thinking: { mode: 'adaptive' },

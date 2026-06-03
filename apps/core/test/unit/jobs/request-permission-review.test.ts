@@ -5,12 +5,13 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  formatPersistentPermissionRulesForUser,
+  formatDurableAccessRulesForUser,
   persistRequestPermissionRules,
   requestPermissionDescription,
   requestPermissionQueuedMessage,
   requestPermissionReviewSuggestions,
   requestPermissionSetupDecisionOptions,
+  semanticCapabilityDefinitionsForToolInput,
 } from '@core/jobs/request-permission-review.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
 
@@ -49,6 +50,29 @@ const acmeAdapterCapability: SemanticCapabilityDefinition = {
   ],
 };
 
+const skillPublishCapability: SemanticCapabilityDefinition = {
+  capabilityId: 'skill.publisher.publish',
+  displayName: 'Publisher publish',
+  category: 'Publisher',
+  risk: 'write',
+  can: 'Publish prepared content through the selected skill.',
+  cannot: 'Use unrelated skills or credentials.',
+  credentialSource: 'skill_secret',
+  implementationBindings: [
+    {
+      kind: 'tool_rule',
+      rule: 'RunCommand(skills/publisher/publish.py *)',
+    },
+  ],
+  preflight: { kind: 'none' },
+  source: {
+    kind: 'skill_action',
+    skillId: 'skill:publisher',
+    skillName: 'publisher',
+    actionId: 'publish',
+  },
+};
+
 function depsWith(repository: unknown) {
   return {
     getToolRepository: () => repository as never,
@@ -76,7 +100,7 @@ describe('request permission review helpers', () => {
     ).toBeUndefined();
     expect(
       requestPermissionReviewSuggestions({
-        permissionKind: 'provider_capability',
+        permissionKind: 'provider',
         toolName: 'Bash',
       }),
     ).toBeUndefined();
@@ -116,8 +140,8 @@ describe('request permission review helpers', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
         capabilityId: 'acme.records.append',
-        semanticCapabilityDefinition: acmeAppendCapability,
       }),
     ).toEqual([
       {
@@ -129,10 +153,20 @@ describe('request permission review helpers', () => {
     ]);
   });
 
-  it('suggests reviewed non-local semantic capability grants from explicit definitions', () => {
+  it('does not trust agent-authored semantic capability definitions', () => {
+    expect(
+      semanticCapabilityDefinitionsForToolInput({
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        capabilityId: 'acme.records.get',
+        semanticCapabilityDefinition: acmeAdapterCapability,
+      }),
+    ).toBeUndefined();
+
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
         capabilityId: 'acme.records.get',
         semanticCapabilityDefinition: acmeAdapterCapability,
       }),
@@ -210,7 +244,7 @@ describe('request permission review helpers', () => {
     ).toBeUndefined();
   });
 
-  it('persists reviewed local CLI capabilities with scoped command templates', async () => {
+  it('does not register agent-authored local CLI capability definitions from request_permission', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => []),
@@ -240,6 +274,7 @@ describe('request permission review helpers', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
         temporaryOnly: false,
         ...toolInput,
       }),
@@ -252,41 +287,27 @@ describe('request permission review helpers', () => {
       },
     ]);
 
-    await persistRequestPermissionRules({
-      appId: 'app:test' as never,
-      agentId: 'agent:test' as never,
-      deps: depsWith(repository),
-      sourceAgentFolder: 'main_agent',
-      toolInput,
-      updates: [
-        {
-          type: 'addRules',
-          behavior: 'allow',
-          rules: [{ toolName: 'capability:acme.invoices.read' }],
-        },
-      ],
-    });
-    expect(repository.saveTool).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'tool:capability:acme.invoices.read',
-        name: 'capability:acme.invoices.read',
-        kind: 'local_cli',
-        inputSchema: expect.objectContaining({
-          schema: expect.objectContaining({
-            networkHosts: ['api.acme.test', 'oauth2.acme.test'],
-          }),
-        }),
+    await expect(
+      persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        deps: depsWith(repository),
+        sourceAgentFolder: 'main_agent',
+        toolInput,
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:acme.invoices.read' }],
+          },
+        ],
       }),
-    );
-    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolId: 'tool:capability:acme.invoices.read',
-        status: 'active',
-      }),
-    );
+    ).rejects.toThrow('Unknown semantic capability acme.invoices.read');
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
-  it('allows reviewed local CLI implementation for an existing semantic id', async () => {
+  it('rejects agent-authored local CLI implementation for an existing semantic id', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => []),
@@ -313,6 +334,7 @@ describe('request permission review helpers', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
         temporaryOnly: false,
         ...toolInput,
       }),
@@ -325,36 +347,27 @@ describe('request permission review helpers', () => {
       },
     ]);
 
-    await persistRequestPermissionRules({
-      appId: 'app:test' as never,
-      agentId: 'agent:test' as never,
-      deps: depsWith(repository),
-      sourceAgentFolder: 'main_agent',
-      toolInput,
-      updates: [
-        {
-          type: 'addRules',
-          behavior: 'allow',
-          rules: [{ toolName: 'capability:acme.records.append' }],
-        },
-      ],
-    });
-    expect(repository.saveTool).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'tool:capability:acme.records.append',
-        name: 'capability:acme.records.append',
-        kind: 'local_cli',
+    await expect(
+      persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        deps: depsWith(repository),
+        sourceAgentFolder: 'main_agent',
+        toolInput,
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:acme.records.append' }],
+          },
+        ],
       }),
-    );
-    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolId: 'tool:capability:acme.records.append',
-        status: 'active',
-      }),
-    );
+    ).rejects.toThrow('Unknown semantic capability acme.records.append');
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
-  it('rejects rebinding existing local CLI catalog rows through request_permission', async () => {
+  it('grants existing catalog semantic capabilities without trusting request payload definitions', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => [
@@ -395,22 +408,26 @@ describe('request permission review helpers', () => {
       disableAgentToolBinding: vi.fn(async () => null),
     };
 
-    await expect(
-      persistRequestPermissionRules({
-        appId: 'app:test' as never,
-        agentId: 'agent:test' as never,
-        deps: depsWith(repository),
-        sourceAgentFolder: 'main_agent',
-        updates: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'capability:acme.invoices.read' }],
-          },
-        ],
+    await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: depsWith(repository),
+      sourceAgentFolder: 'main_agent',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.invoices.read' }],
+        },
+      ],
+    });
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: 'tool:capability:acme.invoices.read',
+        status: 'active',
       }),
-    ).rejects.toThrow('Unknown semantic capability acme.invoices.read');
-    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+    );
   });
 
   it('stores scoped RunCommand permission rules as synthetic permission tools', async () => {
@@ -799,7 +816,7 @@ describe('request permission review helpers', () => {
     }
   });
 
-  it('does not suggest persistent grants for unknown semantic capabilities without a reviewed definition', () => {
+  it('only suggests semantic capability grants from the request_access path', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
@@ -807,6 +824,87 @@ describe('request permission review helpers', () => {
         temporaryOnly: false,
       }),
     ).toBeUndefined();
+    expect(
+      requestPermissionReviewSuggestions(
+        {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityId: 'acme.invoices.read',
+          temporaryOnly: false,
+        },
+        {
+          semanticCapabilityDefinitions: {
+            'acme.records.append': acmeAppendCapability,
+          },
+        },
+      ),
+    ).toBeUndefined();
+    expect(
+      requestPermissionReviewSuggestions(
+        {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityId: 'acme.invoices.read',
+          temporaryOnly: false,
+        },
+        {
+          semanticCapabilityDefinitions: {
+            'acme.invoices.read': {
+              ...acmeAppendCapability,
+              capabilityId: 'acme.invoices.read',
+            },
+          },
+        },
+      ),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'capability:acme.invoices.read' }],
+      },
+    ]);
+  });
+
+  it('persists host-supplied selected skill capability definitions', async () => {
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      listAgentToolBindings: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: depsWith(repository),
+      sourceAgentFolder: 'main_agent',
+      semanticCapabilityDefinitions: {
+        'skill.publisher.publish': skillPublishCapability,
+      },
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:skill.publisher.publish' }],
+        },
+      ],
+    });
+
+    expect(persisted).toEqual(['capability:skill.publisher.publish']);
+    expect(repository.saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tool:capability:skill.publisher.publish',
+        name: 'capability:skill.publisher.publish',
+      }),
+    );
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: 'tool:capability:skill.publisher.publish',
+      }),
+    );
   });
 
   it('rejects unknown semantic capability persistent approval updates without trusted definitions', async () => {
@@ -937,8 +1035,8 @@ describe('request permission review helpers', () => {
     }
   });
 
-  it('formats public persistent-rule receipts without raw Bash command material', () => {
-    const formatted = formatPersistentPermissionRulesForUser(
+  it('formats public persistent-rule receipts with redacted command scope', () => {
+    const formatted = formatDurableAccessRulesForUser(
       [
         'RunCommand(curl https://example.com -H Authorization:Bearer abcdefghijklmnopqrstuvwxyz123456)',
         'capability:acme.records.append',
@@ -952,7 +1050,7 @@ describe('request permission review helpers', () => {
 
     expect(formatted).toContain('matching command access');
     expect(formatted).toContain('Acme records append');
-    expect(formatted).not.toContain('curl https://example.com');
+    expect(formatted).toContain('curl https://example.com');
     expect(formatted).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });
 
@@ -1085,7 +1183,7 @@ describe('request permission review helpers', () => {
           },
         ],
       }),
-    ).rejects.toThrow('Persistent request_permission approvals support');
+    ).rejects.toThrow('Persistent access approvals support');
     expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
@@ -1527,6 +1625,7 @@ describe('request permission review helpers', () => {
   it('rejects persistent Gantry MCP wildcard approvals', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),
@@ -1573,13 +1672,14 @@ describe('request permission review helpers', () => {
           },
         ],
       }),
-    ).rejects.toThrow('request the MCP server capability');
+    ).rejects.toThrow('request a reviewed semantic capability');
     expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
   it('rejects Gantry MCP wildcard approvals even when SDK sends rule content', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),

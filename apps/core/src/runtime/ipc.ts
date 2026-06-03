@@ -3,7 +3,7 @@ import path from 'path';
 
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
 import { ensurePrivateDirSync } from '../shared/private-fs.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { logger } from '../infrastructure/logging/logger.js';
 // prettier-ignore
 import { processMemoryRequest, writeMemoryResponse } from '../memory/memory-ipc.js';
@@ -15,7 +15,7 @@ import { writeTaskIpcResponse } from '../jobs/ipc-shared.js';
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
 // prettier-ignore
-import { acquireIpcRootLock, archiveIpcErrorFile, claimIpcFile, ensureGroupIpcLayout, hasCompleteTrustedGroupIpcLayout, isPendingIpcJsonFile, isTrustedDirectory, readIpcRootLockDetails, recoverStaleIpcRootLock } from './ipc-filesystem.js';
+import { acquireIpcRootLock, archiveIpcErrorFile, claimIpcFile, ensureWorkspaceIpcLayout, hasCompleteTrustedWorkspaceIpcLayout, isPendingIpcJsonFile, isTrustedDirectory, readIpcRootLockDetails, recoverStaleIpcRootLock } from './ipc-filesystem.js';
 // prettier-ignore
 import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
@@ -83,7 +83,7 @@ export function resolveIpcFoldersFromGroups(
     new Set(
       Object.values(groupRegistry)
         .map((group) => group.folder)
-        .filter((folder): folder is string => isValidGroupFolder(folder)),
+        .filter((folder): folder is string => isValidWorkspaceFolder(folder)),
     ),
   );
 }
@@ -129,10 +129,10 @@ export async function validatePermissionIpcJobExecutionTarget(input: {
       'Scheduled job permission IPC requires canonical execution_context',
     );
   }
-  const executionGroupScope =
-    normalizeNullableString(execution.groupScope) ??
-    normalizeNullableString(job.group_scope);
-  if (executionGroupScope && executionGroupScope !== sourceAgentFolder) {
+  const executionWorkspaceKey =
+    normalizeNullableString(execution.workspaceKey) ??
+    normalizeNullableString(job.workspace_key);
+  if (executionWorkspaceKey && executionWorkspaceKey !== sourceAgentFolder) {
     throw new Error(
       'Scheduled job permission IPC source does not match job execution context',
     );
@@ -272,13 +272,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
     for (const folder of ipcFolders) {
       if (
         initializedLayoutFolders.has(folder) &&
-        hasCompleteTrustedGroupIpcLayout(ipcBaseDir, folder)
+        hasCompleteTrustedWorkspaceIpcLayout(ipcBaseDir, folder)
       ) {
         continue;
       }
       try {
-        ensureGroupIpcLayout(ipcBaseDir, folder);
-        if (hasCompleteTrustedGroupIpcLayout(ipcBaseDir, folder)) {
+        ensureWorkspaceIpcLayout(ipcBaseDir, folder);
+        if (hasCompleteTrustedWorkspaceIpcLayout(ipcBaseDir, folder)) {
           initializedLayoutFolders.add(folder);
         } else {
           initializedLayoutFolders.delete(folder);

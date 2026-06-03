@@ -179,6 +179,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'neutral-ca-trust-env.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/network-host-declaration.ts'),
+    path.join(sharedDir, 'network-host-declaration.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/object.ts'),
     path.join(sharedDir, 'object.ts'),
   );
@@ -209,6 +213,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/sdk-native-skill-names.ts'),
     path.join(sharedDir, 'sdk-native-skill-names.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/operator-error.ts'),
+    path.join(sharedDir, 'operator-error.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
@@ -279,8 +287,8 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'permission-tool-rules.ts'),
   );
   fs.copyFileSync(
-    path.resolve('apps/core/src/shared/persistent-permission-rules.ts'),
-    path.join(sharedDir, 'persistent-permission-rules.ts'),
+    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
+    path.join(sharedDir, 'durable-access-policy.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/yolo-mode-policy.ts'),
@@ -723,7 +731,7 @@ function baseInput(
 ): Record<string, unknown> {
   return {
     prompt: 'initial prompt',
-    groupFolder: 'team',
+    workspaceFolder: 'team',
     chatJid: 'tg:team',
     compiledSystemPrompt: 'compiled system profile',
     ...overrides,
@@ -867,18 +875,10 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.DENO_CERT).toBe('/tmp/model_gateway-ca.pem');
       expect(sdkEnv.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1');
       expect(sdkEnv.NO_PROXY?.split(',')).toEqual(
-        expect.arrayContaining([
-          '127.0.0.1',
-          'localhost',
-          '::1',
-          'github.com',
-          '.github.com',
-          'api.github.com',
-          'raw.githubusercontent.com',
-          'objects.githubusercontent.com',
-          'codeload.github.com',
-        ]),
+        expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
       );
+      expect(sdkEnv.NO_PROXY).not.toContain('api.github.com');
+      expect(sdkEnv.NO_PROXY).not.toContain('.github.com');
       expect(sdkEnv.no_proxy).toBe(sdkEnv.NO_PROXY);
       expect(sdkEnv.GANTRY_IPC_AUTH_TOKEN).toBeUndefined();
       expect(sdkEnv.GANTRY_IPC_RESPONSE_VERIFY_KEY).toBeUndefined();
@@ -2462,7 +2462,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs request missing tool approval before denying current run',
+    'scheduled jobs deny unsupported exact tool grants without permission prompts',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2485,19 +2485,15 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionDecision).toEqual(
         expect.objectContaining({
           behavior: 'deny',
-          interrupt: true,
-          decisionClassification: 'user_reject',
+          interrupt: false,
         }),
       );
       expect(String(call?.permissionDecision?.message)).toContain(
-        'Unattended jobs do not wait for approval during the active tool call',
-      );
-      expect(String(call?.permissionDecision?.message)).toContain(
-        'request_permission { "permissionKind": "tool", "toolName": "WebSearch", "temporaryOnly": false, "reason": "This autonomous run needs WebSearch access." }',
+        'Use a reviewed semantic capability from the Agent Access summary for WebSearch',
       );
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
-      ).toBe(true);
+      ).toBe(false);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

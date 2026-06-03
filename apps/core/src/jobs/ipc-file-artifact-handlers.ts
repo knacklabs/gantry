@@ -7,7 +7,7 @@ import {
   normalizeFileArtifactPath,
   normalizeFileArtifactScope,
 } from '../domain/file-artifacts/virtual-path.js';
-import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { sourceAgentHasAdminToolCapability } from './ipc-admin-authorization.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskContext, TaskHandler } from './ipc-types.js';
@@ -59,7 +59,7 @@ const fileArtifactHandler: TaskHandler = async (context) => {
     }
     const owner = {
       appId: data.appId,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
     };
 
     if (action === 'list') {

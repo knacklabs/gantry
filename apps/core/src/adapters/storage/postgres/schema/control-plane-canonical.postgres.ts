@@ -48,7 +48,8 @@ export function mapSession(row: CanonicalControlRow): AppSessionRecord {
     column(row, 'external_ref_json', 'externalRefJson'),
   );
   const agentId = String(column(row, 'agent_id', 'agentId'));
-  const workspaceKey = text(external.groupFolder) ?? folderFromAgentId(agentId);
+  const workspaceKey =
+    text(external.workspaceFolder) ?? folderFromAgentId(agentId);
   const conversationId = String(
     column(row, 'external_conversation_id', 'externalConversationId'),
   );
@@ -60,7 +61,7 @@ export function mapSession(row: CanonicalControlRow): AppSessionRecord {
       text(external.chatJid) ??
       text(external.externalConversationRef) ??
       conversationId,
-    groupFolder: workspaceKey,
+    workspaceFolder: workspaceKey,
     workspaceKey,
     title: text(external.title),
     defaultResponseMode:

@@ -283,7 +283,7 @@ export function validateReadableAgentToolRule(
     return {
       ok: false,
       reason:
-        'Persistent MCP wildcard tool grants are not supported; request the MCP server capability or one exact MCP tool name.',
+        'Persistent MCP wildcard tool grants are not supported; connect the MCP source and request a reviewed semantic capability for the exact action.',
     };
   }
   if (rule.includes('*')) {

@@ -17,15 +17,7 @@ import {
   requireJobNotificationRouteApproval,
   routesBeyondAuthenticatedContext,
 } from './job-management-helpers.js';
-import {
-  normalizeRequiredMcpServersInput,
-  normalizeToolAccessRequirements,
-  normalizeToolAccessRequirementsInput,
-} from './job-tool-access-requirements.js';
-import {
-  capabilityRequirementToolRules,
-  normalizeCapabilityRequirements,
-} from './job-capability-requirements.js';
+import { normalizeAccessRequirementsInput } from './job-access-requirements.js';
 import {
   applyJobReadinessToUpdates,
   evaluateManagedJobReadiness,
@@ -45,7 +37,7 @@ export async function updateManagedJob(
   const job = await requireJob(deps, input.jobId);
   await assertAccess(deps, job, input);
   const patch = { ...input.patch };
-  const targetGroupScope = patch.groupScope ?? job.group_scope;
+  const targetWorkspaceKey = patch.workspaceKey ?? job.workspace_key;
   const targetScheduleType = patch.scheduleType ?? job.schedule_type;
   if (typeof patch.model === 'string') {
     patch.model = resolveOptionalJobModel(
@@ -60,7 +52,7 @@ export async function updateManagedJob(
     job,
     appId: input.appId,
     access: input.access,
-    groupScope: targetGroupScope,
+    workspaceKey: targetWorkspaceKey,
     patchExecutionContext: patch.executionContext,
   });
   const normalizedExecutionContext =
@@ -78,8 +70,8 @@ export async function updateManagedJob(
     authenticatedContext &&
     (normalizedExecutionContext.conversationJid !==
       authenticatedContext.conversationJid ||
-      normalizedExecutionContext.groupScope !==
-        authenticatedContext.groupScope ||
+      normalizedExecutionContext.workspaceKey !==
+        authenticatedContext.workspaceKey ||
       (input.access &&
         (normalizedExecutionContext.threadId ?? null) !==
           (authenticatedContext.threadId ?? null)))
@@ -101,33 +93,9 @@ export async function updateManagedJob(
       job,
       routes: normalizedNotificationRoutes,
     });
-  const normalizedToolAccessRequirements = normalizeToolAccessRequirementsInput(
-    patch.toolAccessRequirements,
-    'toolAccessRequirements',
-  );
-  const normalizedCapabilityRequirements =
-    patch.capabilityRequirements !== undefined
-      ? normalizeCapabilityRequirements(patch.capabilityRequirements)
-      : undefined;
-  const effectiveCapabilityRequirements =
-    normalizedCapabilityRequirements ?? job.capability_requirements ?? [];
-  const previousCapabilityRules =
-    normalizedCapabilityRequirements !== undefined
-      ? new Set(capabilityRequirementToolRules(job.capability_requirements))
-      : undefined;
-  const toolAccessRequirementsForUpdate =
-    normalizedToolAccessRequirements !== undefined
-      ? normalizedToolAccessRequirements
-      : (job.tool_access_requirements ?? []).filter(
-          (rule) => !previousCapabilityRules?.has(rule),
-        );
-  const effectiveToolAccessRequirements = normalizeToolAccessRequirements([
-    ...toolAccessRequirementsForUpdate,
-    ...capabilityRequirementToolRules(effectiveCapabilityRequirements),
-  ]);
-  const normalizedRequiredMcpServers = normalizeRequiredMcpServersInput(
-    patch.requiredMcpServers,
-    'requiredMcpServers',
+  const normalizedAccessRequirements = normalizeAccessRequirementsInput(
+    patch.accessRequirements,
+    'accessRequirements',
   );
 
   if (normalizedNotificationRoutes) {
@@ -166,15 +134,8 @@ export async function updateManagedJob(
       ...(normalizedNotificationRoutes
         ? { notificationRoutes: normalizedNotificationRoutes }
         : {}),
-      ...(normalizedToolAccessRequirements !== undefined ||
-      normalizedCapabilityRequirements !== undefined
-        ? { toolAccessRequirements: effectiveToolAccessRequirements }
-        : {}),
-      ...(normalizedCapabilityRequirements !== undefined
-        ? { capabilityRequirements: normalizedCapabilityRequirements }
-        : {}),
-      ...(normalizedRequiredMcpServers !== undefined
-        ? { requiredMcpServers: normalizedRequiredMcpServers }
+      ...(normalizedAccessRequirements !== undefined
+        ? { accessRequirements: normalizedAccessRequirements }
         : {}),
     },
     deps.schedulePlanner,
@@ -189,9 +150,7 @@ export async function updateManagedJob(
     | undefined;
   if (
     mergedForReadiness.status === 'active' ||
-    normalizedToolAccessRequirements !== undefined ||
-    normalizedCapabilityRequirements !== undefined ||
-    normalizedRequiredMcpServers !== undefined
+    normalizedAccessRequirements !== undefined
   ) {
     const readiness = await evaluateManagedJobReadiness({
       deps,
@@ -224,7 +183,7 @@ function defaultRuntimeSameConversationRouteContext(input: {
 }): {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
 } | null {
   if (input.appId !== 'default' || !input.routes?.length) return null;
   const existingConversationJid =
@@ -248,7 +207,7 @@ function defaultRuntimeSameConversationRouteContext(input: {
   return {
     conversationJid: existingConversationJid,
     threadId: targetThreadId,
-    groupScope: input.job.group_scope,
+    workspaceKey: input.job.workspace_key,
   };
 }
 

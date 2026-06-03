@@ -1,11 +1,8 @@
 import { ModelCredentialService } from '../application/model-credentials/model-credential-service.js';
+import { requiredModelCredentialProviders } from '../application/model-resolution/required-model-credential-providers.js';
 import type { AppId } from '../domain/app/app.js';
-import {
-  DEFAULT_SETUP_MODEL_ALIAS,
-  resolveModelSelectionForWorkload,
-  type ModelWorkload,
-} from '../shared/model-catalog.js';
 import type { DoctorCheck } from './doctor.js';
+import type { GuidedActionRef } from '../application/guided-actions/guided-action-model.js';
 
 type ModelCredentialReadinessSettings = {
   credentialBroker: { mode: string };
@@ -53,6 +50,11 @@ export async function inspectModelCredentialReadiness(
         'Model Access is disabled; no provider credentials can be checked.',
       nextAction:
         'Set model_access.enabled to true and add model credentials before running agents.',
+      action: {
+        type: 'connect_provider',
+        label:
+          'Set model_access.enabled to true and add model credentials before running agents.',
+      },
     };
   }
   const requiredProviders = requiredModelCredentialProviders(settings);
@@ -82,14 +84,19 @@ export async function inspectModelCredentialReadiness(
       (providerId) => healthByProvider.get(providerId) !== 'ready',
     );
     if (missing.length > 0) {
+      const missingCredentialAction: GuidedActionRef = {
+        type: 'connect_provider',
+        label: `Run ${missing
+          .map((providerId) => `\`gantry credentials model set ${providerId}\``)
+          .join(' and ')}.`,
+      };
       return {
         id: 'model-access-credentials',
         title: 'Model Access Credentials',
         status: 'fail',
         message: `Missing active model credentials for selected defaults: ${missing.join(', ')}.`,
-        nextAction: `Run ${missing
-          .map((providerId) => `\`gantry credentials model set ${providerId}\``)
-          .join(' and ')}.`,
+        nextAction: missingCredentialAction.label,
+        action: missingCredentialAction,
       };
     }
     return {
@@ -108,57 +115,14 @@ export async function inspectModelCredentialReadiness(
       }`,
       nextAction:
         'Confirm Postgres is reachable, migrations have run, and SECRET_ENCRYPTION_KEY is configured.',
+      action: {
+        type: 'run_verification',
+        label:
+          'Confirm Postgres is reachable, migrations have run, and SECRET_ENCRYPTION_KEY is configured.',
+      },
     };
   } finally {
     await storage?.runtimeEventNotifier.close().catch(() => undefined);
     await storage?.service.close().catch(() => undefined);
   }
-}
-
-function requiredModelCredentialProviders(
-  settings: ModelCredentialReadinessSettings,
-): string[] {
-  const slots: Array<{ alias: string; workload: ModelWorkload }> = [];
-  const providers = new Set<string>();
-  const chatAlias = settings.agent.defaultModel || DEFAULT_SETUP_MODEL_ALIAS;
-  slots.push(
-    { alias: chatAlias, workload: 'chat' },
-    {
-      alias: settings.agent.oneTimeJobDefaultModel || chatAlias,
-      workload: 'one_time_job',
-    },
-    {
-      alias: settings.agent.recurringJobDefaultModel || chatAlias,
-      workload: 'recurring_job',
-    },
-  );
-  if (settings.memory.enabled) {
-    const memoryModels = settings.memory.llm.models;
-    for (const [alias, workload] of [
-      [memoryModels.extractor, 'memory_extractor'],
-      [memoryModels.dreaming, 'memory_dreaming'],
-      [memoryModels.consolidation, 'memory_consolidation'],
-    ] as const) {
-      slots.push({ alias, workload });
-    }
-    const embeddingProviders = [
-      settings.memory.embeddings.enabled
-        ? settings.memory.embeddings.provider
-        : 'disabled',
-      settings.memory.dreaming.embeddings.enabled
-        ? settings.memory.dreaming.embeddings.provider
-        : 'disabled',
-    ];
-    for (const providerId of embeddingProviders) {
-      if (providerId !== 'disabled') providers.add(providerId);
-    }
-  }
-  for (const slot of slots) {
-    const resolved = resolveModelSelectionForWorkload(
-      slot.alias,
-      slot.workload,
-    );
-    if (resolved.ok) providers.add(resolved.entry.modelRoute.id);
-  }
-  return [...providers].sort();
 }

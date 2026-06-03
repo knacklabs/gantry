@@ -9,18 +9,13 @@ export type OnboardingStep =
   | 'welcome'
   | 'runtime_home'
   | 'storage'
-  | 'prerequisites'
   | 'channel'
   | 'credentials'
   | 'model'
   | 'telegram'
   | 'slack'
-  | 'memory'
-  | 'embeddings'
-  | 'dreaming'
   | 'config'
   | 'group'
-  | 'service'
   | 'verify'
   | 'ready';
 
@@ -29,13 +24,14 @@ export interface OnboardingData {
   postgresSetupKind?: 'local' | 'hosted' | 'existing';
   postgresSchema?: string;
   primaryProvider?: 'telegram' | 'slack';
-  serviceChoice?: 'skip' | 'install' | 'install_start';
   telegramBotUsername?: string;
   telegramChatJid?: string;
+  telegramDisplayName?: string;
   telegramAdminSenderId?: string;
   telegramAdminSenderName?: string;
   telegramPermissionApproverIds?: string;
   slackChatJid?: string;
+  slackDisplayName?: string;
   slackPermissionApproverIds?: string;
   memoryEnabled?: boolean;
   embeddingsEnabled?: boolean;
@@ -44,6 +40,8 @@ export interface OnboardingData {
   agentName?: string;
   modelPreset?: ModelPresetId;
   selectedModel?: string;
+  workspaceKey?: string;
+  conversationLabel?: string;
 }
 
 export interface OnboardingState {

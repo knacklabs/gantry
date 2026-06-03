@@ -8,7 +8,7 @@ import {
   resolveModelAlias,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
-import { resolveGroupFolderPath } from '../platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AvailableGroup } from './agent-spawn.js';
 import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
@@ -64,7 +64,7 @@ export async function registerGroup(
 
   let groupDir: string;
   try {
-    groupDir = resolveGroupFolderPath(group.folder);
+    groupDir = resolveWorkspaceFolderPath(group.folder);
   } catch (err) {
     logger.warn(
       { jid, folder: group.folder, err },

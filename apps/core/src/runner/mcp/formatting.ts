@@ -137,6 +137,72 @@ export function formatMemoryReviewDecisionResponse(response: {
   ].join('\n');
 }
 
+/**
+ * Concise human-readable acknowledgement for memory WRITE actions
+ * (save/patch/demote/procedure/consolidate/dream). Avoids dumping the raw
+ * provider JSON / internal ids. Read actions (memory_search, continuity_summary)
+ * must NOT use this — the agent consumes their full data.
+ */
+export function formatMemoryWriteResponse(
+  action: string,
+  response: { provider?: string; data?: unknown },
+): string {
+  const data = objectRecord(response.data);
+  const memory = objectRecord(data?.memory);
+  if (memory) {
+    const verb =
+      action === 'memory_demote'
+        ? 'demoted'
+        : action === 'memory_patch'
+          ? 'updated'
+          : 'saved';
+    const label = formatReviewValue(memory);
+    return label ? `Memory ${verb}: ${label}` : `Memory ${verb}.`;
+  }
+  const procedure = objectRecord(data?.procedure);
+  if (procedure) {
+    const verb = action === 'procedure_patch' ? 'updated' : 'saved';
+    const name =
+      stringValue(procedure.name) ||
+      stringValue(procedure.key) ||
+      stringValue(procedure.title);
+    return name ? `Procedure ${verb}: ${name}` : `Procedure ${verb}.`;
+  }
+  const consolidation = objectRecord(data?.consolidation);
+  if (consolidation) {
+    const summary = scalarSummary(consolidation);
+    return summary
+      ? `Memory consolidated — ${summary}.`
+      : 'Memory consolidated.';
+  }
+  const dreaming = objectRecord(data?.dreaming);
+  if (dreaming) {
+    const summary = scalarSummary(dreaming);
+    return summary
+      ? `Memory maintenance complete — ${summary}.`
+      : 'Memory maintenance complete.';
+  }
+  return 'Done.';
+}
+
+function scalarSummary(record: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(record)) {
+    if (parts.length >= 6) break;
+    if (typeof value === 'number') parts.push(`${labelizeKey(key)}: ${value}`);
+    else if (typeof value === 'boolean' && value) parts.push(labelizeKey(key));
+  }
+  return parts.join(', ');
+}
+
+function labelizeKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export function formatBrowserToolResponse(response: {
   data?: unknown;
 }): string {

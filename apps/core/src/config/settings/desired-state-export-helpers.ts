@@ -52,6 +52,9 @@ export function activeSources(
       .filter((binding) => binding.status === 'active')
       .map((binding) => ({
         id: String(binding.serverId),
+        ...(binding.allowedToolPatterns?.length
+          ? { tools: [...binding.allowedToolPatterns] }
+          : {}),
       })),
     tools: toolSources
       .filter((source) => source.status === 'active')

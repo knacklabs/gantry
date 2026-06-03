@@ -3,7 +3,7 @@ import {
   parseAutonomousToolDenial,
   type AutonomousToolDenial,
 } from '../shared/autonomous-tool-denial.js';
-import { formatDuration, formatRunLabel } from '../shared/human-format.js';
+import { formatDuration } from '../shared/human-format.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
 export function formatRunStatusMessage(args: {
@@ -20,16 +20,14 @@ export function formatRunStatusMessage(args: {
   const denial = parseAutonomousToolDenial(args.summary);
   const displaySummary = selectJobNotificationSummary(args.summary);
   const statusText = statusLabel(args.runStatus, displaySummary, denial);
-  const runLabel = formatRunLabel({
-    id: args.runId,
-    shortId: args.runShortId,
-  });
   const duration =
-    args.durationMs === undefined ? '' : `, ${formatDuration(args.durationMs)}`;
+    args.durationMs === undefined
+      ? ''
+      : ` · ${formatDuration(args.durationMs)}`;
   const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const lines = [
-    `${statusText}: ${args.job.name} (${runLabel}${duration})`,
-    `Outcome: ${summary}`,
+    `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
+    summary,
   ];
   const action = notificationAction(
     args.runStatus,
@@ -38,8 +36,28 @@ export function formatRunStatusMessage(args: {
     args.pauseReason,
   );
   if (action) lines.push(`Action: ${action}`);
-  lines.push(`Next: ${nextRunLabel(args.nextRun, args.runStatus)}`);
+  const next = nextRunLabel(args.nextRun, args.runStatus);
+  if (next) lines.push(`Next: ${next}`);
   return lines.join('\n');
+}
+
+function statusEmoji(statusText: string): string {
+  switch (statusText) {
+    case 'Completed':
+    case 'Completed, no report':
+      return '✅';
+    case 'Needs permission':
+      return '🔐';
+    case 'Needs memory review':
+      return '📝';
+    case 'Timed out':
+      return '⏱️';
+    case 'Interrupted':
+    case 'Paused after failures':
+      return '⏸️';
+    default:
+      return '❌';
+  }
 }
 
 export function selectJobNotificationSummary(summary: string): string {
@@ -225,9 +243,9 @@ function hasPendingMemoryReviewSummary(summary: string): boolean {
 function nextRunLabel(
   nextRun: string | null,
   status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
-): string {
+): string | null {
   if (nextRun) return `Runs again ${formatNextRun(nextRun)}.`;
-  if (status === 'completed') return 'No next run.';
+  if (status === 'completed') return null;
   return 'Stopped until the job is fixed or rerun.';
 }
 

@@ -72,6 +72,7 @@ function createMcpFixture(): {
   const channelsDir = path.join(root, 'channels');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
+  const guidedActionsDir = path.join(root, 'application', 'guided-actions');
   const serverPath = path.join(runnerMcpDir, 'stdio.ts');
   const ipcDir = path.join(root, 'ipc', 'team');
   const resultPath = path.join(root, 'mcp-result.json');
@@ -87,6 +88,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(jobsDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
+  fs.mkdirSync(guidedActionsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   fs.mkdirSync(sdkServerDir, { recursive: true });
@@ -120,6 +122,22 @@ function createMcpFixture(): {
     path.join(sharedDir, 'human-format.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/operator-error.ts'),
+    path.join(sharedDir, 'operator-error.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve(
+      'apps/core/src/application/guided-actions/guided-action-model.ts',
+    ),
+    path.join(guidedActionsDir, 'guided-action-model.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve(
+      'apps/core/src/application/guided-actions/guided-action-service.ts',
+    ),
+    path.join(guidedActionsDir, 'guided-action-service.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
     path.join(sharedDir, 'admin-mcp-tools.ts'),
   );
@@ -136,12 +154,24 @@ function createMcpFixture(): {
     path.join(sharedDir, 'bash-command-parser.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
+    path.join(sharedDir, 'durable-access-policy.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/sensitive-material.ts'),
+    path.join(sharedDir, 'sensitive-material.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
     path.join(sharedDir, 'semantic-capability-ids.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/neutral-ca-trust-env.ts'),
     path.join(sharedDir, 'neutral-ca-trust-env.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/network-host-declaration.ts'),
+    path.join(sharedDir, 'network-host-declaration.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/semantic-capabilities.ts'),
@@ -414,7 +444,7 @@ async function runMcpFixture(
         GANTRY_IPC_RESPONSE_KEY_ID: 'mcp-test-response-key-id',
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         GANTRY_CHAT_JID: 'tg:team',
-        GANTRY_GROUP_FOLDER: 'team',
+        GANTRY_WORKSPACE_KEY: 'team',
         GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
@@ -503,153 +533,6 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.responseFiles).toHaveLength(0);
   });
 
-  it('shows unavailable admin tools without exposing raw grant internals', async () => {
-    const fixture = createMcpFixture();
-
-    const result = await runMcpFixture(fixture, 'capability_status', {});
-
-    expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain(
-      'available: mcp__gantry__scheduler_list_jobs',
-    );
-    expect(record.result.content[0].text).toContain(
-      'requestable: mcp__gantry__service_restart',
-    );
-    expect(record.result.content[0].text).not.toContain(
-      'tool_id: tool:mcp__gantry__service_restart',
-    );
-    expect(record.result.content[0].text).not.toContain(
-      'request_permission: permissionKind=tool toolName=mcp__gantry__service_restart temporaryOnly=false',
-    );
-    expect(record.result.content[0].text).toContain('requestable: Browser');
-    expect(record.result.content[0].text).not.toContain(
-      'tool_id: tool:Browser',
-    );
-    expect(record.result.content[0].text).not.toContain(
-      'request_permission: permissionKind=tool toolName=Browser toolCategory=browser temporaryOnly=false',
-    );
-    expect(record.result.content[0].text).toContain(
-      'Browser approval exposes Gantry-owned browser_* tools',
-    );
-  });
-
-  it('shows configured tools, selected skills, and selected MCP servers', async () => {
-    const fixture = createMcpFixture();
-    const cawAtsCapability = {
-      capabilityId: 'mcp.caw-ats.access',
-      version: '1',
-      displayName: 'caw-ats MCP access',
-      category: 'MCP',
-      risk: 'write',
-      can: 'Call approved tools on the caw-ats MCP server.',
-      cannot: 'Call unapproved MCP tools or receive raw credentials.',
-      credentialSource: 'none',
-      implementationBindings: [
-        {
-          kind: 'mcp_tool',
-          mcpTool: 'mcp__caw-ats__ats_list_positions',
-        },
-      ],
-      source: {
-        source: 'mcp',
-        serverName: 'caw-ats',
-        allowedToolPatterns: ['ats_list_positions'],
-      },
-    };
-
-    const result = await runMcpFixture(
-      fixture,
-      'capability_status',
-      {},
-      {
-        GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '["RunCommand(npm test *)"]',
-        GANTRY_SELECTED_SKILLS_JSON: '["skill:release"]',
-        GANTRY_SELECTED_SKILL_DISPLAYS_JSON: '["release (skill:release)"]',
-        GANTRY_SELECTED_MCP_SERVERS_JSON: '["mcp:github"]',
-        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([cawAtsCapability]),
-      },
-    );
-
-    expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain(
-      'Configured tools: RunCommand(npm test *)',
-    );
-    expect(record.result.content[0].text).toContain(
-      'ready: release (skill:release)',
-    );
-    expect(record.result.content[0].text).toContain('ready source: caw-ats');
-    expect(record.result.content[0].text).toContain(
-      'selected capabilities: mcp.caw-ats.access',
-    );
-    expect(record.result.content[0].text).toContain(
-      'use: mcp_list_tools with serverName="caw-ats", then mcp_call_tool with serverName="caw-ats"',
-    );
-    expect(record.result.content[0].text).toContain(
-      'Do not request the same MCP capability again',
-    );
-    expect(record.result.content[0].text).toContain(
-      'Do not use Bash, RunCommand, curl, node, browser automation, or file tools',
-    );
-    expect(record.result.content[0].text).toContain(
-      'Attached MCP source ids: mcp:github',
-    );
-  });
-
-  it('rejects RunCommand fallback permission requests when MCP access is already selected', async () => {
-    const fixture = createMcpFixture();
-    const cawAtsCapability = {
-      capabilityId: 'mcp.caw-ats.access',
-      version: '1',
-      displayName: 'caw-ats MCP access',
-      category: 'MCP',
-      risk: 'write',
-      can: 'Call approved tools on the caw-ats MCP server.',
-      cannot: 'Call unapproved MCP tools or receive raw credentials.',
-      credentialSource: 'none',
-      implementationBindings: [
-        {
-          kind: 'mcp_tool',
-          mcpTool: 'mcp__caw-ats__ats_list_positions',
-        },
-      ],
-      source: {
-        source: 'mcp',
-        serverName: 'caw-ats',
-        allowedToolPatterns: ['ats_list_positions'],
-      },
-    };
-
-    const result = await runMcpFixture(
-      fixture,
-      'request_permission',
-      {
-        permissionKind: 'tool',
-        toolName: 'RunCommand',
-        rule: "jq '.[1].content' -r",
-        reason: 'List Manipal projects from caw-ats.',
-      },
-      {
-        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([cawAtsCapability]),
-      },
-    );
-
-    expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.isError).toBe(true);
-    expect(record.result.content[0].text).toContain(
-      'RunCommand/Bash permission is not available as a fallback',
-    );
-    expect(record.result.content[0].text).toContain(
-      'Selected MCP capabilities: mcp.caw-ats.access',
-    );
-    expect(record.result.content[0].text).toContain(
-      'Use mcp_list_tools to inspect the ready source, then mcp_call_tool',
-    );
-    expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
-  });
-
   it('registers selected admin tools and reports remaining requestable tools', async () => {
     const fixture = createMcpFixture();
 
@@ -675,24 +558,6 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(task.type).toBe('service_restart');
     expect(task.chatJid).toBe('tg:team');
     expect(task.targetJid).toBe('tg:team');
-
-    const statusFixture = createMcpFixture();
-    const statusResult = await runMcpFixture(
-      statusFixture,
-      'capability_status',
-      {},
-      { GANTRY_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
-    );
-    expect(statusResult.exitCode, statusResult.stderr).toBe(0);
-    const statusRecord = JSON.parse(
-      fs.readFileSync(statusFixture.resultPath, 'utf-8'),
-    );
-    expect(statusRecord.result.content[0].text).toContain(
-      'available: mcp__gantry__service_restart',
-    );
-    expect(statusRecord.result.content[0].text).toContain(
-      'requestable: mcp__gantry__register_agent',
-    );
   }, 40_000);
 
   it('keeps unselected admin tools gated at call time', async () => {
@@ -712,15 +577,22 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
 
-  it('lists admin permissions from the runner read-only view when selected', async () => {
+  it('lists admin permissions from the runner read-only view without a grant', async () => {
     const fixture = createMcpFixture();
+    fs.mkdirSync(path.join(fixture.ipcDir, 'live-tool-rules'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(fixture.ipcDir, 'live-tool-rules', 'run-1.json'),
+      JSON.stringify(['capability:acme.records.append']),
+    );
 
     const result = await runMcpFixture(
       fixture,
       'admin_permission_list',
       {},
       {
-        GANTRY_ADMIN_MCP_TOOLS_JSON: '["admin_permission_list"]',
+        GANTRY_AGENT_RUN_HANDLE: 'run-1',
         GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '["RunCommand(npm test *)"]',
       },
     );
@@ -731,9 +603,12 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Admin permission inventory (read-only runner view):',
     );
     expect(record.result.content[0].text).toContain(
-      'mcp__gantry__admin_permission_list: approved',
+      'mcp__gantry__admin_permission_list: available (read-only)',
     );
     expect(record.result.content[0].text).toContain('RunCommand(npm test *)');
+    expect(record.result.content[0].text).toContain(
+      'capability:acme.records.append',
+    );
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
 
@@ -784,21 +659,41 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       JSON.stringify(['mcp__gantry__service_restart']),
     );
 
-    const statusResult = await runMcpFixture(fixture, 'capability_status', {});
-    expect(statusResult.exitCode, statusResult.stderr).toBe(0);
-    const statusRecord = JSON.parse(
-      fs.readFileSync(fixture.resultPath, 'utf-8'),
-    );
-    expect(statusRecord.result.content[0].text).toContain(
-      'available: mcp__gantry__service_restart',
-    );
-
     const result = await runMcpFixture(fixture, 'service_restart', {});
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result.content[0].text).toContain(
       'Scheduler task confirmed.',
     );
+  });
+
+  it('includes the current run handle on proxied MCP tool calls', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'mcp_call_tool', {
+      serverName: 'github',
+      toolName: 'create_issue',
+      arguments: { title: 'Bug' },
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'mcp_call_tool',
+      runHandle: 'mcp-test-run',
+      payload: {
+        serverName: 'github',
+        toolName: 'create_issue',
+        arguments: { title: 'Bug' },
+      },
+    });
   });
 
   it('keeps default first-party MCP tools registered despite stale runner projection', async () => {
@@ -814,8 +709,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'request_skill_proposal',
       'request_skill_dependency_install',
       'request_mcp_server',
-      'request_permission',
-      'capability_status',
+      'request_access',
       'mcp_list_tools',
       'mcp_call_tool',
     ]);
@@ -902,7 +796,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: 'trusted-thread',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notificationRoutes: [
             {
@@ -934,7 +828,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       expect.objectContaining({
         conversationJid: 'tg:team',
         threadId: 'trusted-thread',
-        groupScope: 'team',
+        workspaceKey: 'team',
       }),
     );
     expect(task.notificationRoutes).toEqual(
@@ -1084,52 +978,6 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         reason: 'The reviewed skill needs tsx.',
       },
     ],
-    [
-      'request_permission',
-      {
-        permissionKind: 'tool',
-        toolName: 'Bash',
-        toolNames: ['Read'],
-        rule: 'npm run test *',
-        temporaryOnly: false,
-        broadAccess: false,
-        toolCategory: 'sdk',
-        permissionPolicy: 'persistent',
-        sandboxProfile: 'workspace-write',
-        reason: 'Run project tests and inspect files.',
-      },
-      {
-        permissionKind: 'tool',
-        toolName: 'Bash',
-        toolNames: ['Read'],
-        rule: 'npm run test *',
-        temporaryOnly: false,
-        broadAccess: false,
-        toolCategory: 'sdk',
-        permissionPolicy: 'persistent',
-        sandboxProfile: 'workspace-write',
-        reason: 'Run project tests and inspect files.',
-      },
-    ],
-    [
-      'request_permission',
-      {
-        permissionKind: 'provider_capability',
-        channelTool: 'slack_file_access',
-        providerId: 'slack',
-        requiredScopes: ['files:read'],
-        affectedConversations: ['C123'],
-        reason: 'Read files shared in the active channel.',
-      },
-      {
-        permissionKind: 'provider_capability',
-        channelTool: 'slack_file_access',
-        providerId: 'slack',
-        requiredScopes: ['files:read'],
-        affectedConversations: ['C123'],
-        reason: 'Read files shared in the active channel.',
-      },
-    ],
   ])(
     'submits %s as a host-reviewed capability task',
     async (toolName, args, payload) => {
@@ -1155,27 +1003,206 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     },
   );
 
-  it('submits local CLI propose_capability as a reviewed capability proposal even for a built-in capability id', async () => {
+  it.each([
+    [
+      { kind: 'run_command', argvPattern: 'npm test *' },
+      { temporaryOnly: true },
+      {
+        permissionKind: 'tool',
+        toolName: 'RunCommand',
+        rule: 'npm test *',
+        temporaryOnly: true,
+        reason: 'Run the project test suite on schedule.',
+      },
+    ],
+  ])(
+    'submits request_access %o as a request_permission review task',
+    async (target, extra, payload) => {
+      const fixture = createMcpFixture();
+
+      const result = await runMcpFixture(fixture, 'request_access', {
+        target,
+        reason: payload.reason,
+        ...extra,
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+      expect(taskFiles).toHaveLength(1);
+      const task = JSON.parse(
+        fs.readFileSync(
+          path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+          'utf-8',
+        ),
+      );
+      expect(task).toMatchObject({
+        type: 'request_permission',
+        targetJid: 'tg:team',
+        chatJid: 'tg:team',
+        payload,
+      });
+    },
+  );
+
+  it('rejects broad durable request_access run_command fallbacks before queuing review', async () => {
     const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(fixture, 'propose_capability', {
-      capabilityId: 'acme.records.append',
-      displayName: 'Acme records append using acme',
-      category: 'Local CLI',
-      risk: 'write',
-      source: 'local_cli',
-      credentialSource: 'local_cli',
-      accountLabel: 'acme',
-      can: 'Append reviewed rows to Acme Records through acme.',
-      cannot: 'Run commands outside the reviewed templates.',
-      executablePath: '/usr/local/bin/acme',
-      executableVersion: 'v0.9.0',
-      executableHash: 'sha256:abc123',
-      commandTemplates: ['/usr/local/bin/acme records append *'],
-      authPreflightCommand: '/usr/local/bin/acme auth status',
-      protectedPaths: ['~/.config/acme/*'],
-      reason: 'This job writes lead rows after each run.',
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'run_command', argvPattern: 'gh *' },
+      reason: 'Run GitHub commands on schedule.',
     });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'Invalid durable run_command access request',
+    );
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+  });
+
+  it('shows selected MCP capabilities as ready sources', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'mcp_list_tools',
+      { serverName: 'caw-ats' },
+      {
+        TEST_MCP_AUTO_RESPOND_TASKS: '1',
+        TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify({
+          servers: [
+            {
+              name: 'caw-ats',
+              tools: [{ name: 'ats_list_positions' }],
+            },
+          ],
+        }),
+        GANTRY_SELECTED_MCP_SERVERS_JSON: '["mcp:caw-ats"]',
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([
+          {
+            capabilityId: 'mcp.caw-ats.access',
+            version: '1',
+            displayName: 'caw-ats MCP access',
+            category: 'MCP',
+            risk: 'write',
+            can: 'Call approved tools on the caw-ats MCP server.',
+            cannot: 'Call unapproved MCP tools or receive raw credentials.',
+            credentialSource: 'none',
+            implementationBindings: [
+              {
+                kind: 'mcp_tool',
+                mcpTool: 'mcp__caw-ats__ats_list_positions',
+              },
+            ],
+            source: {
+              source: 'mcp',
+              serverName: 'caw-ats',
+              allowedToolPatterns: ['ats_list_positions'],
+            },
+          },
+        ]),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('ready source: caw-ats');
+    expect(record.result.content[0].text).toContain(
+      'selected capabilities: mcp.caw-ats.access',
+    );
+    expect(record.result.content[0].text).toContain(
+      'use: mcp_list_tools with serverName="caw-ats", then mcp_call_tool with serverName="caw-ats"',
+    );
+    expect(record.result.content[0].text).toContain(
+      'Do not request the same MCP capability again',
+    );
+  });
+
+  it('rejects request_access run_command fallbacks when MCP access is selected', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'request_access',
+      {
+        target: { kind: 'run_command', argvPattern: "jq '.[1].content' -r" },
+        reason: 'List Manipal projects from caw-ats.',
+        temporaryOnly: true,
+      },
+      {
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([
+          {
+            capabilityId: 'mcp.caw-ats.access',
+            version: '1',
+            displayName: 'caw-ats MCP access',
+            category: 'MCP',
+            risk: 'write',
+            can: 'Call approved tools on the caw-ats MCP server.',
+            cannot: 'Call unapproved MCP tools or receive raw credentials.',
+            credentialSource: 'none',
+            implementationBindings: [
+              {
+                kind: 'mcp_tool',
+                mcpTool: 'mcp__caw-ats__ats_list_positions',
+              },
+            ],
+            source: {
+              source: 'mcp',
+              serverName: 'caw-ats',
+              allowedToolPatterns: ['ats_list_positions'],
+            },
+          },
+        ]),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'RunCommand/Bash permission is not available as a fallback',
+    );
+    expect(record.result.content[0].text).toContain(
+      'Selected MCP capabilities: mcp.caw-ats.access',
+    );
+    expect(record.result.content[0].text).toContain(
+      'Use mcp_list_tools to inspect the ready source, then mcp_call_tool',
+    );
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+  });
+
+  it('submits a request_access capability target as a reviewed capability request', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'request_access',
+      {
+        target: { kind: 'capability', id: 'acme.records.append' },
+        reason: 'Append reviewed rows after each run.',
+      },
+      {
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([
+          {
+            capabilityId: 'acme.records.append',
+            version: '1',
+            displayName: 'Acme records append',
+            category: 'Acme',
+            risk: 'write',
+            can: 'Append reviewed records through an approved source action.',
+            cannot: 'Read unrelated records or receive raw credentials.',
+            credentialSource: 'configured_access',
+            preflight: { kind: 'none' },
+            implementationBindings: [
+              { kind: 'tool_rule', rule: 'google_sheets_append' },
+            ],
+          },
+        ]),
+      },
+    );
 
     expect(result.exitCode, result.stderr).toBe(0);
     const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
@@ -1188,77 +1215,11 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     );
     expect(task).toMatchObject({
       type: 'request_permission',
-      targetJid: 'tg:team',
-      chatJid: 'tg:team',
       payload: {
-        capabilityRequestSource: 'propose_capability',
+        capabilityRequestSource: 'request_access',
         capabilityId: 'acme.records.append',
-        source: 'local_cli',
-        credentialSource: 'local_cli',
-        executablePath: '/usr/local/bin/acme',
-        executableVersion: 'v0.9.0',
-        executableHash: 'sha256:abc123',
-        commandTemplates: ['/usr/local/bin/acme records append *'],
       },
     });
-  });
-
-  it('returns only reviewed capabilities from capability_search and gives source review guidance when none match', async () => {
-    const fixture = createMcpFixture();
-
-    const reviewedCapabilities = [
-      {
-        capabilityId: 'acme.records.append',
-        version: '1',
-        displayName: 'Acme records append',
-        category: 'Acme',
-        risk: 'write',
-        can: 'Append reviewed records through an approved source action.',
-        cannot: 'Read unrelated records or receive raw credentials.',
-        credentialSource: 'local_cli',
-        implementationBindings: [
-          {
-            kind: 'local_cli',
-            executablePath: '/usr/local/bin/acme',
-            executableVersion: '1.0.0',
-            executableHash: 'sha256:abc123',
-            commandTemplates: ['/usr/local/bin/acme records append *'],
-          },
-        ],
-      },
-    ];
-
-    const match = await runMcpFixture(
-      fixture,
-      'capability_search',
-      { query: 'records' },
-      {
-        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(reviewedCapabilities),
-      },
-    );
-    expect(match.exitCode, match.stderr).toBe(0);
-    const matchResult = JSON.parse(
-      fs.readFileSync(fixture.resultPath, 'utf-8'),
-    );
-    expect(JSON.stringify(matchResult.result)).toContain('acme.records.append');
-    expect(JSON.stringify(matchResult.result)).not.toContain(
-      'mcp__github__search_repositories',
-    );
-
-    const miss = await runMcpFixture(
-      fixture,
-      'capability_search',
-      { query: 'github search' },
-      {
-        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(reviewedCapabilities),
-      },
-    );
-    expect(miss.exitCode, miss.stderr).toBe(0);
-    const missResult = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    const missText = JSON.stringify(missResult.result);
-    expect(missText).toContain('No reviewed capabilities matched.');
-    expect(missText).toContain('request source install/connect/attach');
-    expect(missText).toContain('request_permission');
   });
 
   it('rejects browser-control skill install requests with request_permission guidance', async () => {
@@ -1341,7 +1302,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notificationRoutes: [
             {
@@ -1375,14 +1336,16 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       },
       {
         TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify({
-          jobs: [{ id: 'job-1', status: 'active', group_scope: 'team' }],
+          jobs: [{ id: 'job-1', status: 'active', workspace_key: 'team' }],
         }),
       },
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain('"id": "job-1"');
+    // Rendered as a clean job-list row (no raw JSON dump).
+    expect(record.result.content[0].text).toContain('Scheduler jobs (1)');
+    expect(record.result.content[0].text).toContain('job-1');
 
     const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
     const task = JSON.parse(
@@ -1518,7 +1481,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       expect.objectContaining({
         conversationJid: 'tg:team',
         threadId: 'trusted-thread',
-        groupScope: 'team',
+        workspaceKey: 'team',
       }),
     );
     expect(task.notificationRoutes).toEqual(
@@ -1544,7 +1507,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         execution_context: {
           conversation_jid: 'tg:team',
           thread_id: null,
-          group_scope: 'team',
+          workspace_key: 'team',
         },
         notification_routes: [
           {
@@ -1571,7 +1534,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       expect.objectContaining({
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       }),
     );
     expect(task.notificationRoutes).toEqual(

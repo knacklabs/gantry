@@ -89,7 +89,7 @@ describe('ToolExecutionPolicyService', () => {
         reason: expect.stringContaining(
           'Tool not on autonomous run allowlist: mcp__gantry__browser_act.',
         ),
-        recoveryAction: expect.stringContaining('"toolName": "Browser"'),
+        recoveryAction: expect.stringContaining('"id": "browser.use"'),
       }),
     );
     expect(
@@ -98,7 +98,7 @@ describe('ToolExecutionPolicyService', () => {
     ).not.toContain('scheduler_grant_tool');
   });
 
-  it('recovers admin tool denials through request_permission', () => {
+  it('recovers admin tool denials through reviewed capability guidance', () => {
     const request = classifier.classify({
       origin: 'mcp',
       toolName: 'mcp__gantry__service_restart',
@@ -112,13 +112,13 @@ describe('ToolExecutionPolicyService', () => {
     ).toEqual(
       expect.objectContaining({
         status: 'deny',
-        recoveryAction: expect.stringContaining('request_permission'),
+        recoveryAction: expect.stringContaining('reviewed admin capability'),
       }),
     );
     expect(
       policy.evaluate({ request, autonomousAllowedToolRules: [] })
         .recoveryAction,
-    ).toContain('"toolName": "mcp__gantry__service_restart"');
+    ).toContain('exact tool grants are not accepted');
   });
 
   it('denies protected capability file targets through canonical policy', () => {
@@ -388,7 +388,7 @@ describe('ToolExecutionPolicyService', () => {
           'Tool not on autonomous run allowlist: RunCommand.',
         ),
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "RunCommand", "rule": "npm test", "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
+          'request_access { "target": { "kind": "run_command", "argvPattern": "npm test" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
       }),
     );
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
@@ -480,6 +480,75 @@ describe('ToolExecutionPolicyService', () => {
           'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.',
       }),
     );
+  });
+
+  it('allows autonomous reviewed commands despite runtime-owned env aliases', () => {
+    const skillRequest = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          'REQUESTS_CA_BUNDLE=$NODE_EXTRA_CA_CERTS /opt/homebrew/bin/python3 "$CLAUDE_PROJECT_DIR/skills/linkedin-posting/post.py" --file /tmp/post.md --json',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-skill' },
+    });
+
+    expect(
+      policy.evaluate({
+        request: skillRequest,
+        autonomousAllowedToolRules: [
+          'RunCommand(skills/linkedin-posting/post.py *)',
+        ],
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule: 'RunCommand(skills/linkedin-posting/post.py *)',
+    });
+
+    const cliRequest = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          'GODEBUG=netdns=go /opt/homebrew/bin/acme records get leads --json',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-cli' },
+    });
+
+    expect(
+      policy.evaluate({
+        request: cliRequest,
+        autonomousAllowedToolRules: [
+          'RunCommand(/opt/homebrew/bin/acme records get *)',
+        ],
+      }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule: 'RunCommand(/opt/homebrew/bin/acme records get *)',
+    });
+  });
+
+  it('recovers autonomous runtime-owned env aliases as plain scoped commands', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          'GODEBUG=netdns=go /opt/homebrew/bin/acme records get leads --json',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-cli' },
+    });
+
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toMatchObject({
+      status: 'deny',
+      recoveryAction:
+        'request_access { "target": { "kind": "run_command", "argvPattern": "/opt/homebrew/bin/acme records get leads --json" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }',
+    });
   });
 
   it('preserves closest-rule mismatch details on autonomous denials', () => {

@@ -212,7 +212,7 @@ export async function runQuery(
     ...protectedFilesystemPaths.denyWrite,
     ...localCliCredentialDirectories,
   ];
-  const workspaceFolder = agentInput.groupFolder;
+  const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
   const isolatedSdkEnv = {
     ...sdkEnv,
@@ -223,7 +223,7 @@ export async function runQuery(
     appId: agentInput.appId,
     agentId: agentInput.agentId,
     chatJid: agentInput.chatJid,
-    groupFolder: workspaceFolder,
+    workspaceFolder: workspaceFolder,
     threadId: agentInput.threadId,
     memoryUserId: agentInput.memoryUserId,
     memoryDefaultScope: agentInput.memoryDefaultScope,

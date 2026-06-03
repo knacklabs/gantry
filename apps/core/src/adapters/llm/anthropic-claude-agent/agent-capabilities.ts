@@ -36,7 +36,7 @@ export interface AgentCapabilityContext {
   appId?: string;
   agentId?: string;
   chatJid: string;
-  groupFolder: string;
+  workspaceFolder: string;
   threadId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
@@ -94,6 +94,8 @@ const CONFIGURABLE_NATIVE_SDK_TOOL_NAMES = new Set<string>([
 const GANTRY_MCP_ALLOWED_TOOLS = DEFAULT_GANTRY_MCP_TOOL_NAMES.map(
   gantryMcpFullToolName,
 );
+const REQUEST_PERMISSION_TOOL_RULE =
+  gantryMcpFullToolName('request_permission');
 
 const DEFAULT_ALLOWED_TOOLS = [
   ...SAFE_NATIVE_SDK_TOOLS,
@@ -138,6 +140,11 @@ const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
   provide: (ctx) => {
     const persona = resolveAgentPersona(ctx.persona);
+    const defaultAllowedTools = shouldSuppressRequestPermission(ctx)
+      ? DEFAULT_ALLOWED_TOOLS.filter(
+          (toolName) => toolName !== REQUEST_PERMISSION_TOOL_RULE,
+        )
+      : DEFAULT_ALLOWED_TOOLS;
     const baseAvailableTools =
       persona === 'developer'
         ? ctx.isScheduledJob
@@ -147,8 +154,8 @@ const sdkToolsProvider: AgentCapabilityProvider = {
     return {
       allowedTools:
         persona === 'developer'
-          ? [...DEVELOPER_NATIVE_SDK_TOOLS, ...DEFAULT_ALLOWED_TOOLS]
-          : DEFAULT_ALLOWED_TOOLS,
+          ? [...DEVELOPER_NATIVE_SDK_TOOLS, ...defaultAllowedTools]
+          : defaultAllowedTools,
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
     };
@@ -166,11 +173,12 @@ const permissionProvider: AgentCapabilityProvider = {
 const gantryMcpProvider: AgentCapabilityProvider = {
   id: 'gantry-mcp',
   provide: (ctx) => {
+    const mcpToolSelectionOptions = gantryMcpToolSelectionOptions(ctx);
     const env: Record<string, string> = {
       ...(ctx.appId ? { GANTRY_APP_ID: ctx.appId } : {}),
       ...(ctx.agentId ? { GANTRY_AGENT_ID: ctx.agentId } : {}),
       GANTRY_CHAT_JID: ctx.chatJid,
-      GANTRY_GROUP_FOLDER: ctx.groupFolder,
+      GANTRY_WORKSPACE_KEY: ctx.workspaceFolder,
       GANTRY_THREAD_ID: ctx.threadId || '',
       GANTRY_MEMORY_USER_ID: ctx.memoryUserId || '',
       GANTRY_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
@@ -196,9 +204,10 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         ctx.semanticCapabilities ?? [],
       ),
       GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
-        selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {
-          memoryReviewerIsControlApprover: ctx.memoryReviewerIsControlApprover,
-        }),
+        selectedGantryMcpToolNames(
+          ctx.configuredAllowedTools ?? [],
+          mcpToolSelectionOptions,
+        ),
       ),
       GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
         selectedMemoryIpcActions(ctx.configuredAllowedTools ?? [], {
@@ -258,7 +267,7 @@ function isPublicExternalMcpServerConfig(
 }
 
 const PUBLIC_EXTERNAL_MCP_TOOL_RULE_RE =
-  /^mcp__[A-Za-z0-9_-]+__(?:[A-Za-z0-9_-]+|\*)$/;
+  /^mcp__[A-Za-z0-9_-]+__(?:[A-Za-z0-9_.-]+|\*)$/;
 
 export function isPublicExternalMcpToolRule(toolRule: string): boolean {
   const value = toolRule.trim();
@@ -304,6 +313,7 @@ const configuredMcpProvider: AgentCapabilityProvider = {
 const configuredToolProvider: AgentCapabilityProvider = {
   id: 'configured-tools',
   provide: (ctx) => {
+    const mcpToolSelectionOptions = gantryMcpToolSelectionOptions(ctx);
     const allowedTools = (ctx.configuredAllowedTools ?? []).flatMap(
       configuredToolAllowedSdkNames,
     );
@@ -313,9 +323,10 @@ const configuredToolProvider: AgentCapabilityProvider = {
     return {
       allowedTools: mergeUnique(
         allowedTools,
-        selectedGantryMcpFullToolNames(ctx.configuredAllowedTools ?? [], {
-          memoryReviewerIsControlApprover: ctx.memoryReviewerIsControlApprover,
-        }),
+        selectedGantryMcpFullToolNames(
+          ctx.configuredAllowedTools ?? [],
+          mcpToolSelectionOptions,
+        ),
       ),
       availableTools,
     };
@@ -377,11 +388,47 @@ export function composeAgentCapabilities(
   }
 
   return {
-    allowedTools,
+    allowedTools: shouldSuppressRequestPermission(ctx)
+      ? allowedTools.filter(
+          (toolName) => toolName !== REQUEST_PERMISSION_TOOL_RULE,
+        )
+      : allowedTools,
     availableTools,
     disallowedTools,
     mcpServers,
     permissionMode,
-    alwaysAllowedTools,
+    alwaysAllowedTools: shouldSuppressRequestPermission(ctx)
+      ? alwaysAllowedTools.filter(
+          (toolName) => toolName !== REQUEST_PERMISSION_TOOL_RULE,
+        )
+      : alwaysAllowedTools,
   };
+}
+
+function gantryMcpToolSelectionOptions(
+  ctx: AgentCapabilityContext,
+): Parameters<typeof selectedGantryMcpToolNames>[1] {
+  return {
+    memoryReviewerIsControlApprover: ctx.memoryReviewerIsControlApprover,
+    suppressRequestPermission: shouldSuppressRequestPermission(ctx),
+  };
+}
+
+function shouldSuppressRequestPermission(ctx: AgentCapabilityContext): boolean {
+  if ((ctx.attachedMcpSourceIds ?? []).some((sourceId) => sourceId.trim())) {
+    return true;
+  }
+  return (ctx.semanticCapabilities ?? []).some(
+    (capability) => mcpSourceServerName(capability.source) !== null,
+  );
+}
+
+function mcpSourceServerName(source: unknown): string | null {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return null;
+  }
+  const record = source as Record<string, unknown>;
+  return record.source === 'mcp' && typeof record.serverName === 'string'
+    ? record.serverName
+    : null;
 }

@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '@core/domain/messages/durable-delivery.js';
 import {
+  formatDeliveryIncomplete,
   sendJobNotification,
   settleDeliveryAttempt,
 } from '@core/jobs/delivery.js';
 import type { Job } from '@core/domain/types.js';
+import { logger } from '@core/infrastructure/logging/logger.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -32,6 +34,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 
 describe('jobs/delivery', () => {
   it('classifies partial delivery exceptions as delivery_incomplete', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const partial = new PartialMessageDeliveryError({
       cause: new Error('second chunk failed'),
       deliveredChunks: 1,
@@ -39,6 +42,7 @@ describe('jobs/delivery', () => {
       name: 'PartialDelivery',
       message: 'partial',
     });
+    Object.assign(partial, { provider: 'telegram' });
 
     const settlement = await settleDeliveryAttempt(
       async () => {
@@ -48,6 +52,34 @@ describe('jobs/delivery', () => {
     );
 
     expect(settlement).toBe('delivery_incomplete');
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'telegram',
+        operatorMessage: [
+          'Message delivery incomplete.',
+          'cause: telegram rejected part 2/2',
+          'recover: see logs for the full output and retry after fixing delivery.',
+        ].join('\n'),
+      }),
+      'Delivery attempt ended in partial visibility; marking as delivery_incomplete',
+    );
+    warn.mockRestore();
+  });
+
+  it('formats partial delivery operator copy', () => {
+    expect(
+      formatDeliveryIncomplete({
+        provider: 'telegram',
+        rejectedPart: 2,
+        totalParts: 3,
+      }),
+    ).toBe(
+      [
+        'Message delivery incomplete.',
+        'cause: telegram rejected part 2/3',
+        'recover: see logs for the full output and retry after fixing delivery.',
+      ].join('\n'),
+    );
   });
 
   it('classifies ambiguous durable send settlement as delivery_incomplete', async () => {
@@ -197,6 +229,7 @@ describe('jobs/delivery', () => {
       name: 'PartialDelivery',
       message: 'partial',
     });
+    Object.assign(partial, { provider: 'telegram' });
     const send = vi
       .fn<(...args: [string, string, { threadId: string }?]) => Promise<void>>()
       .mockRejectedValueOnce(partial);
@@ -214,6 +247,40 @@ describe('jobs/delivery', () => {
     expect(send).toHaveBeenNthCalledWith(1, 'tg:1', 'hello');
     expect(send).toHaveBeenNthCalledWith(2, 'sl:C123', 'hello', {
       threadId: 'thread-1',
+    });
+  });
+
+  it('sends notifications to saved notification routes instead of execution context', async () => {
+    const job = makeJob({
+      execution_context: {
+        conversationJid: 'tg:team',
+        threadId: 'trigger-topic',
+        workspaceKey: 'team',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'tg:team',
+          threadId: 'job-topic',
+          label: 'primary',
+        },
+      ],
+    });
+    const send = vi
+      .fn<(...args: [string, string, { threadId: string }?]) => Promise<void>>()
+      .mockResolvedValue(undefined);
+
+    const delivered = await sendJobNotification({
+      job,
+      text: 'done',
+      phase: 'summary',
+      runId: 'run-1',
+      sendMessage: send as any,
+    });
+
+    expect(delivered).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith('tg:team', 'done', {
+      threadId: 'job-topic',
     });
   });
 

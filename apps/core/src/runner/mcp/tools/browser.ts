@@ -3,6 +3,7 @@ import type { BrowserBackendAction } from '../../../shared/browser-backend-actio
 import { z } from 'zod';
 import { formatBrowserToolResponse } from '../formatting.js';
 import { requestBrowserAction } from '../ipc.js';
+import { formatOperatorError } from '../../../shared/operator-error.js';
 
 type BrowserToolSchema = Record<string, z.ZodTypeAny>;
 type PublicBrowserToolName =
@@ -69,7 +70,11 @@ function formatBrowserFailure(action: string, error: string | undefined) {
     content: [
       {
         type: 'text' as const,
-        text: `Browser ${action} failed: ${error || 'unknown error'}`,
+        text: formatOperatorError({
+          summary: 'Browser action failed.',
+          cause: `${action}: ${error || 'unknown error'}`,
+          recover: 'run gantry status and retry after the browser is ready.',
+        }),
       },
     ],
     isError: true,

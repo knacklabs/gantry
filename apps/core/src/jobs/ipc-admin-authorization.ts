@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import type { TaskContext } from './ipc-types.js';
 import {
   adminMcpToolFullName,
@@ -25,7 +25,9 @@ export async function sourceAgentHasAdminToolCapability(
   const toolId = adminMcpToolIdForFullName(fullName);
   const bindings = await repository.listAgentToolBindings({
     appId: context.data.appId as never,
-    agentId: memoryAgentIdForGroupFolder(context.sourceAgentFolder) as never,
+    agentId: memoryAgentIdForWorkspaceFolder(
+      context.sourceAgentFolder,
+    ) as never,
   });
   const hasActiveBinding = bindings.some(
     (binding) =>

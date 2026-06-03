@@ -14,7 +14,7 @@ tools are:
 - `request_skill_proposal`
 - `request_skill_dependency_install`
 - `request_mcp_server`
-- `request_permission`
+- `request_access`
 - `service_restart`
 - `register_agent`
 

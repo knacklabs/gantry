@@ -3,6 +3,7 @@ import {
   type RuntimeEventType,
 } from '../domain/events/runtime-event-types.js';
 import type { Job } from '../domain/types.js';
+import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import { nowMs } from '../shared/time/datetime.js';
 import {
@@ -27,7 +28,8 @@ export async function closeBrowserAfterJobRun(input: {
   if (
     input.diagnostics.browserActivityCount <= 0 &&
     !toolAccessRequirementsIncludeBrowser(
-      input.currentJob.tool_access_requirements ?? [],
+      splitAccessRequirements(input.currentJob.access_requirements)
+        .toolAccessRequirements,
     )
   )
     return;

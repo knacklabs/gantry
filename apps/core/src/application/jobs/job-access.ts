@@ -10,6 +10,25 @@ export function isDefaultRuntimeJobScope(appId: string): boolean {
   return appId === DEFAULT_JOB_RUNTIME_APP_ID;
 }
 
+export interface JobAppSessionLookupRecord {
+  sessionId: string;
+  appId: string;
+  conversationJid?: string;
+  chatJid?: string;
+}
+
+export interface JobAppSessionLookupPort {
+  getAppSessionsByIds(
+    sessionIds: readonly string[],
+  ): Promise<JobAppSessionLookupRecord[]>;
+  getAppSessionsByChatJids?(
+    conversationJids: readonly string[],
+  ): Promise<JobAppSessionLookupRecord[]>;
+  getAppSessionByChatJid(
+    conversationJid: string,
+  ): Promise<JobAppSessionLookupRecord | undefined>;
+}
+
 export async function resolveJobAppSession(input: {
   control: JobControlPort;
   job: Job;
@@ -32,7 +51,7 @@ export async function resolveJobAppSession(input: {
       sessionId: '',
       appId,
       conversationJid: conversationJid ?? '',
-      workspaceKey: job.group_scope,
+      workspaceKey: job.workspace_key,
       defaultResponseMode: 'none',
       defaultWebhookId: null,
     };
@@ -41,7 +60,7 @@ export async function resolveJobAppSession(input: {
 }
 
 export async function filterJobsByCanonicalAppSession(input: {
-  control: JobControlPort;
+  control: JobAppSessionLookupPort;
   jobs: readonly Job[];
   appId: string;
 }): Promise<Job[]> {
@@ -91,10 +110,13 @@ export async function filterJobsByCanonicalAppSession(input: {
   const allowedConversationJids = new Set(
     conversationSessions
       .filter((session) => session.appId === input.appId)
-      .map((session) => session.conversationJid),
+      .map(sessionConversationJid)
+      .filter((jid): jid is string => Boolean(jid)),
   );
   const knownConversationJids = new Set(
-    conversationSessions.map((session) => session.conversationJid),
+    conversationSessions
+      .map(sessionConversationJid)
+      .filter((jid): jid is string => Boolean(jid)),
   );
   return input.jobs.filter((job) =>
     job.session_id
@@ -105,4 +127,10 @@ export async function filterJobsByCanonicalAppSession(input: {
             !knownConversationJids.has(job.execution_context.conversationJid))
         : includeHostOwnedJobs,
   );
+}
+
+function sessionConversationJid(
+  session: JobAppSessionLookupRecord,
+): string | undefined {
+  return session.conversationJid ?? session.chatJid;
 }

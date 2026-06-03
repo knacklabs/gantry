@@ -39,18 +39,6 @@ export const PERMISSION_REQUEST_TIMEOUT_MS = getPermissionTimeoutMs(
 export const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 export const IPC_POLL_MS = 500;
 
-function copyEnv(
-  target: Record<string, string | undefined>,
-  keys: string[],
-): void {
-  for (const key of keys) {
-    const value = process.env[key];
-    if (typeof value === 'string' && value.length > 0) {
-      target[key] = value;
-    }
-  }
-}
-
 function copyPlaceholderEnv(
   target: Record<string, string | undefined>,
   keys: string[],
@@ -157,9 +145,8 @@ export function buildSdkEnv(
   Object.assign(sdkEnv, readModelCredentialEnv(modelCredentialEnv));
   applyNeutralCaTrustAliases(sdkEnv);
   copyPlaceholderEnv(sdkEnv, ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
-  copyEnv(sdkEnv, ['NO_PROXY', 'no_proxy']);
   stripNonModelProxyEnv(sdkEnv);
-  applyAgentEgressNoProxyEnv(sdkEnv);
+  applyAgentEgressNoProxyEnv(sdkEnv, { externalBypass: false });
   delete sdkEnv.GANTRY_IPC_AUTH_TOKEN;
   delete sdkEnv.GANTRY_IPC_RESPONSE_VERIFY_KEY;
   delete sdkEnv.GANTRY_IPC_RESPONSE_KEY_ID;
@@ -187,11 +174,11 @@ export function resolveMcpServerPath(importMetaUrl: string): string {
   );
 }
 
-export function resolveGroupIpcDir(groupFolder: string): string {
-  if (path.basename(IPC_BASE_DIR) === groupFolder) {
+export function resolveWorkspaceIpcDir(workspaceFolder: string): string {
+  if (path.basename(IPC_BASE_DIR) === workspaceFolder) {
     return IPC_BASE_DIR;
   }
-  return path.join(IPC_BASE_DIR, groupFolder);
+  return path.join(IPC_BASE_DIR, workspaceFolder);
 }
 
 export function discoverAdditionalDirectories(): string[] {

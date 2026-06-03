@@ -14,6 +14,7 @@ export const SkillActionPermissionResponseSchema = z.object({
   cannot: z.string(),
   requiredEnvVars: z.array(z.string()),
   commandTemplates: z.array(z.string()),
+  networkHosts: z.array(z.string()).optional(),
 });
 
 export const SkillCatalogItemResponseSchema = z.object({

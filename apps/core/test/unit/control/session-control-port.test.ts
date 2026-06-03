@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { adaptSessionControlPort } from '@core/control/server/session-control-port.js';
 
 describe('adaptSessionControlPort', () => {
-  it('maps ensureAppSession.folder into repository groupFolder', async () => {
+  it('maps ensureAppSession.folder into repository workspaceFolder', async () => {
     const ensureAppSession = vi.fn(async (input: unknown) => input);
     const control = {
       ensureAppSession,
@@ -31,7 +31,7 @@ describe('adaptSessionControlPort', () => {
       appId: 'app-one',
       conversationId: 'conv-one',
       chatJid: 'app:app-one:conv-one',
-      groupFolder: 'app_scope_folder',
+      workspaceFolder: 'app_scope_folder',
       title: 'Conversation One',
       defaultResponseMode: 'sse',
       defaultWebhookId: 'webhook-1',

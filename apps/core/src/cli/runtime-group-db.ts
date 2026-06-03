@@ -1,5 +1,5 @@
 import { NewMessage, ConversationRoute } from '../domain/types.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { createStorageRuntime } from '../adapters/storage/postgres/factory.js';
 import type { StorageRuntime } from '../adapters/storage/postgres/factory.js';
 import type { ResolvedStorageConfig } from '../adapters/storage/postgres/storage-service.js';
@@ -18,7 +18,7 @@ export interface RuntimeGroupDb {
   ): Promise<NewMessage[]>;
   setConversationRoute(jid: string, group: ConversationRoute): Promise<void>;
   deleteConversationRoute(jid: string): Promise<void>;
-  deleteSession(groupFolder: string): Promise<void>;
+  deleteSession(workspaceFolder: string): Promise<void>;
   getFileArtifactStore(): FileArtifactStore;
   close(): Promise<void>;
 }
@@ -69,9 +69,9 @@ function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
       jid: string,
       group: ConversationRoute,
     ): Promise<void> {
-      if (!isValidGroupFolder(group.folder)) {
+      if (!isValidWorkspaceFolder(group.folder)) {
         throw new Error(
-          `Invalid group folder "${group.folder}" for JID ${jid}`,
+          `Invalid workspace folder "${group.folder}" for JID ${jid}`,
         );
       }
       await runtime.ops.setConversationRoute(jid, group);
@@ -81,8 +81,8 @@ function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
       await runtime.ops.deleteConversationRoute(jid);
     },
 
-    async deleteSession(groupFolder: string): Promise<void> {
-      await runtime.ops.deleteSessionsByAgentFolder(groupFolder);
+    async deleteSession(workspaceFolder: string): Promise<void> {
+      await runtime.ops.deleteSessionsByAgentFolder(workspaceFolder);
     },
 
     getFileArtifactStore(): FileArtifactStore {

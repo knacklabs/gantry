@@ -52,7 +52,13 @@ describe('MCP server registry handler parity', () => {
         ]),
         registeredHandlers: new Set(['scheduler_list_models']),
       }),
-    ).toThrow(/browser.*scheduler_list_notification_targets/);
+    ).toThrow(
+      [
+        'Gantry could not start because browser is registered without a handler.',
+        'cause: MCP tool registry mismatch',
+        'recover: remove the tool registration or add its handler before starting Gantry.',
+      ].join('\n'),
+    );
   });
 
   it('allows boot when every enabled MCP tool has a handler', async () => {

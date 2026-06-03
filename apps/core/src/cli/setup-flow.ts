@@ -12,20 +12,13 @@ import { runCredentialsStep } from './setup-credentials.js';
 import {
   runChannelStep,
   runModelStep,
-  runPrerequisitesStep,
   runRuntimeHomeStep,
   runStorageStep,
   runWelcomeStep,
 } from './setup-flow-core-steps.js';
 import {
-  applyServiceChoice,
-  applyServiceStartChoice,
   runConfigStep,
-  runDreamingStep,
-  runEmbeddingsStep,
   runGroupStep,
-  runMemoryStep,
-  runServiceStep,
   runVerifyStep,
 } from './setup-flow-final-steps.js';
 import { runSlackStep, runTelegramStep } from './setup-flow-provider-steps.js';
@@ -104,8 +97,6 @@ export async function runSetupFlow(
       }
     } else if (step === 'storage') {
       action = await runStorageStep(draft);
-    } else if (step === 'prerequisites') {
-      action = await runPrerequisitesStep();
     } else if (step === 'channel') {
       action = await runChannelStep(draft);
     } else if (step === 'credentials') {
@@ -116,26 +107,12 @@ export async function runSetupFlow(
       action = await runTelegramStep(draft);
     } else if (step === 'slack') {
       action = await runSlackStep(draft);
-    } else if (step === 'memory') {
-      action = await runMemoryStep(draft);
-    } else if (step === 'embeddings') {
-      action = await runEmbeddingsStep(draft);
-    } else if (step === 'dreaming') {
-      action = await runDreamingStep(draft);
-    } else if (step === 'service') {
-      action = await runServiceStep(draft);
     } else if (step === 'config') {
       action = await runConfigStep(draft);
     } else if (step === 'group') {
       action = await runGroupStep(draft);
-      if (action.type === 'next') {
-        await applyServiceChoice(options.importMetaUrl, draft);
-      }
     } else if (step === 'verify') {
       action = await runVerifyStep(options.importMetaUrl, draft);
-      if (action.type === 'next') {
-        await applyServiceStartChoice(draft);
-      }
     } else if (step === 'ready') {
       action = await runReadyStep(draft);
     }
@@ -162,7 +139,7 @@ export async function runSetupFlow(
     }
 
     if (action.type === 'start_now') {
-      draft.startAfterSetup = !draft.serviceStartedAfterSetup;
+      draft.startAfterSetup = true;
       index += 1;
       continue;
     }
@@ -182,7 +159,7 @@ export async function runSetupFlow(
   state.currentStep = 'ready';
   updateStateData(state, draft);
   clearOnboardingState(runtimeHome);
-  p.outro('Gantry is ready.');
+  p.outro('Setup complete.');
   return {
     status: 'completed',
     runtimeHome,

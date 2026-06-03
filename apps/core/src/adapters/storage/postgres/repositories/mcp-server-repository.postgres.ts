@@ -103,6 +103,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
           definition.autoApproveToolPatterns,
         ),
         credentialRefsJson: encodeJson(definition.credentialRefs),
+        networkHostsJson: encodeJson(definition.networkHosts),
         sandboxProfileId: definition.sandboxProfileId ?? null,
         disabledBy: definition.disabledBy ?? null,
         disabledAt: definition.disabledAt ?? null,
@@ -125,6 +126,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
             definition.autoApproveToolPatterns,
           ),
           credentialRefsJson: encodeJson(definition.credentialRefs),
+          networkHostsJson: encodeJson(definition.networkHosts),
           sandboxProfileId: definition.sandboxProfileId ?? null,
           disabledBy: definition.disabledBy ?? null,
           disabledAt: definition.disabledAt ?? null,
@@ -182,6 +184,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         status: binding.status,
         required: binding.required,
         permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
+        allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
         conversationId: binding.conversationId ?? null,
         threadId: binding.threadId ?? null,
         createdAt: binding.createdAt,
@@ -193,6 +196,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
           status: binding.status,
           required: binding.required,
           permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
+          allowedToolPatternsJson: encodeJson(binding.allowedToolPatterns),
           conversationId: binding.conversationId ?? null,
           threadId: binding.threadId ?? null,
           updatedAt: binding.updatedAt,
@@ -389,6 +393,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       credentialRefs: JSON.parse(
         row.credentialRefsJson || '[]',
       ) as McpServerDefinition['credentialRefs'],
+      networkHosts: parseJsonArray(row.networkHostsJson),
       sandboxProfileId: row.sandboxProfileId ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -410,6 +415,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       permissionPolicyIds: parseJsonArray(
         row.permissionPolicyIdsJson,
       ) as AgentMcpServerBinding['permissionPolicyIds'],
+      allowedToolPatterns: parseJsonArray(row.allowedToolPatternsJson),
       conversationId:
         row.conversationId as AgentMcpServerBinding['conversationId'],
       threadId: row.threadId as AgentMcpServerBinding['threadId'],

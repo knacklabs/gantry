@@ -65,7 +65,7 @@ export function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     value,
     scope: scope(input.scope),
     kind,
-    group_folder: str(input, 'group_folder', 128),
+    workspace_folder: str(input, 'workspace_folder', 128),
     user_id: str(input, 'user_id', 255),
     confidence: num(input, 'confidence', { min: 0, max: 1 }),
     why: str(input, 'why', 500),
@@ -149,7 +149,7 @@ export function parseSaveProcedureInput(payload: unknown): SaveProcedureInput {
     title,
     body,
     scope: scope(input.scope),
-    group_folder: str(input, 'group_folder', 128),
+    workspace_folder: str(input, 'workspace_folder', 128),
     user_id: str(input, 'user_id', 255),
     tags: stringList(input.tags, 64),
     origin:

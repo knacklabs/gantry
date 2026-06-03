@@ -2,11 +2,18 @@ import {
   jobSetupBlockerFromUnknown,
   setupActionLabel,
   setupActionLabelFromNextAction,
+  setupReadinessLabel,
 } from '../../../shared/job-setup-labels.js';
 import {
   deliveryLabel as providerDeliveryLabel,
   ownerLabel as providerOwnerLabel,
 } from '../../../channels/provider-delivery-labels.js';
+import {
+  parseSemanticCapabilityRule,
+  semanticCapabilityRule,
+} from '../../../shared/semantic-capability-ids.js';
+import { formatDurableAccessRulesForUser } from '../../../shared/durable-access-policy.js';
+import { redactSensitiveText } from '../../../shared/sensitive-material.js';
 
 export function schedulerJobSummary(job: unknown): string {
   const record =
@@ -32,21 +39,25 @@ export function schedulerJobSummary(job: unknown): string {
     : 0;
   const staleness =
     typeof visibility.staleness === 'string' ? visibility.staleness : 'none';
-  const toolAccess = toolAccessRecord(visibility.toolAccess);
+  const prompt = promptSummary(record, visibility);
+  // Surface a missing-canonical-toolAccess diagnostic, but never dump the raw
+  // inherited/effective/projected tool-id lists (those leak internal tool ids).
+  const toolAccessMissing = !(
+    typeof visibility.toolAccess === 'object' && visibility.toolAccess !== null
+  );
+  const recordAccess = Array.isArray(record.access_requirements)
+    ? splitRecordAccessRequirements(record.access_requirements)
+    : undefined;
   const toolAccessRequirements = stringArray(
-    Array.isArray(record.tool_access_requirements)
-      ? record.tool_access_requirements
-      : visibility.toolAccessRequirements,
+    recordAccess ? recordAccess.toolRules : visibility.toolAccessRequirements,
   );
   const capabilityRequirements = capabilityRequirementLabels(
-    Array.isArray(record.capability_requirements)
-      ? record.capability_requirements
+    recordAccess
+      ? recordAccess.capabilities
       : visibility.capabilityRequirements,
   );
   const requiredMcpServers = stringArray(
-    Array.isArray(record.required_mcp_servers)
-      ? record.required_mcp_servers
-      : visibility.requiredMcpServers,
+    recordAccess ? recordAccess.mcpServers : visibility.requiredMcpServers,
   );
   const health =
     typeof visibility.health === 'object' && visibility.health !== null
@@ -60,9 +71,6 @@ export function schedulerJobSummary(job: unknown): string {
     typeof visibility.recovery === 'object' && visibility.recovery !== null
       ? (visibility.recovery as Record<string, any>)
       : {};
-  const toolAccessLine = toolAccess.present
-    ? `Tool access: inherited ${formatTools(toolAccess.inheritedAgentTools)}, effective ${formatTools(toolAccess.effectiveAllowedTools)}, projected ${formatTools(toolAccess.projectedRuntimeTools)}`
-    : 'Tool access: missing canonical toolAccess';
   const nextAction =
     typeof health.nextAction === 'string' && health.nextAction.trim()
       ? setupActionLabelFromNextAction(health.nextAction, 'none')
@@ -103,21 +111,29 @@ export function schedulerJobSummary(job: unknown): string {
     `Next action: ${nextActionLabelText}`,
     `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
     `Recovery: ${recoverySummary(recovery)}`,
-    `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
-    `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | group ${String(executionContext.groupScope ?? record.group_scope ?? 'unknown')}`,
+    ...(prompt ? [`Prompt: ${prompt}`] : []),
     `Notification routes: ${notificationRoutes.length}`,
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
     `Staleness: ${staleness}`,
-    `Capability requirements: ${formatTools(capabilityRequirements)}`,
-    `Tool access requirements: ${formatTools(toolAccessRequirements)}`,
-    `Required MCP servers: ${formatTools(requiredMcpServers)}`,
-    toolAccessLine,
+    `Access requirements: ${formatAccessRequirementSummary({
+      capabilityRequirements,
+      toolAccessRequirements,
+      requiredMcpServers,
+    })}`,
+    ...(toolAccessMissing ? ['Tool access: missing canonical toolAccess'] : []),
     `Recent run errors: ${recentErrors}`,
-    '',
-    'Structured JSON:',
-    JSON.stringify(record, null, 2),
   ].join('\n');
+}
+
+function promptSummary(
+  record: Record<string, any>,
+  visibility: Record<string, any>,
+): string | undefined {
+  return compactText(
+    visibility.fullPrompt ?? record.prompt ?? visibility.promptPreview,
+    600,
+  );
 }
 
 function preferredOwnerLabel(input: {
@@ -143,12 +159,6 @@ function preferredDeliveryLabel(input: {
     input.visibility.deliveryLabel
     ? input.visibility.deliveryLabel
     : inferred;
-}
-
-function setupReadinessLabel(state: string | undefined): string {
-  if (state === 'ready' || !state) return 'Ready';
-  if (state === 'missing_capability') return 'Needs approval';
-  return 'Needs setup';
 }
 
 function setupActionSummary(setup: Record<string, any>): string {
@@ -177,22 +187,6 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       visibility.executionContext !== null
         ? (visibility.executionContext as Record<string, any>)
         : {};
-    const toolAccess = toolAccessRecord(visibility.toolAccess);
-    const toolAccessRequirements = stringArray(
-      Array.isArray(record.tool_access_requirements)
-        ? record.tool_access_requirements
-        : visibility.toolAccessRequirements,
-    );
-    const capabilityRequirements = capabilityRequirementLabels(
-      Array.isArray(record.capability_requirements)
-        ? record.capability_requirements
-        : visibility.capabilityRequirements,
-    );
-    const requiredMcpServers = stringArray(
-      Array.isArray(record.required_mcp_servers)
-        ? record.required_mcp_servers
-        : visibility.requiredMcpServers,
-    );
     const health =
       typeof visibility.health === 'object' && visibility.health !== null
         ? (visibility.health as Record<string, any>)
@@ -201,28 +195,25 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       typeof visibility.setup === 'object' && visibility.setup !== null
         ? (visibility.setup as Record<string, any>)
         : {};
-    const recovery =
-      typeof visibility.recovery === 'object' && visibility.recovery !== null
-        ? (visibility.recovery as Record<string, any>)
-        : {};
-    const toolsLabel = toolAccess.present
-      ? formatTools(toolAccess.effectiveAllowedTools)
-      : '(missing toolAccess)';
-    const ownerLabelText = preferredOwnerLabel({
-      visibility,
-      conversationJid: String(
-        executionContext.conversationJid ?? target.conversationJids?.[0] ?? '',
-      ),
-    });
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | recovery: ${recovery.state ?? 'none'} | ${ownerLabelText} | capabilities: ${formatTools(capabilityRequirements)} | access: ${formatTools(toolAccessRequirements)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
+    const setupAction = setupActionSummary(setup);
+    const nextAction =
+      typeof visibility.nextActionLabel === 'string' &&
+      visibility.nextActionLabel
+        ? visibility.nextActionLabel
+        : setupAction !== 'none'
+          ? setupAction
+          : setupActionLabelFromNextAction(health.nextAction, 'none');
+    const setupLabel =
+      typeof visibility.setupLabel === 'string' && visibility.setupLabel
+        ? visibility.setupLabel
+        : setupReadinessLabel(String(setup.state ?? 'ready'));
+    const workspaceKey = String(
+      executionContext.workspaceKey ?? record.workspace_key ?? 'unknown',
+    );
+    const agent = String(target.agentId ?? record.agent_id ?? 'unknown');
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${setupLabel} | Workspace: ${workspaceKey} | Agent: ${agent} | Next: ${nextAction}`;
   });
-  return [
-    `Scheduler jobs (${jobs.length})`,
-    ...lines,
-    '',
-    'Structured JSON:',
-    JSON.stringify(jobs, null, 2),
-  ].join('\n');
+  return [`Scheduler jobs (${jobs.length})`, ...lines].join('\n');
 }
 
 function recoverySummary(recovery: Record<string, any>): string {
@@ -259,32 +250,61 @@ export function schedulerEventsSummary(events: unknown[]): string {
         : '';
     return `- ${String(record.id ?? 'unknown')} | ${String(record.event_type ?? '')} | run ${String(record.run_id ?? 'none')} | ${diagnostic || 'event'}${browserCount}${error}`;
   });
-  return [
-    `Scheduler events (${events.length})`,
-    ...lines,
-    '',
-    'Structured JSON:',
-    JSON.stringify(events, null, 2),
-  ].join('\n');
+  return [`Scheduler events (${events.length})`, ...lines].join('\n');
 }
 
-function toolAccessRecord(value: unknown): {
-  present: boolean;
-  inheritedAgentTools: string[];
-  effectiveAllowedTools: string[];
-  projectedRuntimeTools: string[];
-} {
-  const present = typeof value === 'object' && value !== null;
-  const record =
-    typeof value === 'object' && value !== null
-      ? (value as Record<string, unknown>)
-      : {};
-  return {
-    present,
-    inheritedAgentTools: stringArray(record.inheritedAgentTools),
-    effectiveAllowedTools: stringArray(record.effectiveAllowedTools),
-    projectedRuntimeTools: stringArray(record.projectedRuntimeTools),
-  };
+export function schedulerNotificationTargetsSummary(
+  targets: unknown[],
+): string {
+  const lines = targets.map((target) => {
+    const record =
+      typeof target === 'object' && target !== null
+        ? (target as Record<string, any>)
+        : {};
+    const executionContext =
+      typeof record.executionContext === 'object' &&
+      record.executionContext !== null
+        ? (record.executionContext as Record<string, any>)
+        : {};
+    const notificationRoutes = Array.isArray(record.notificationRoutes)
+      ? record.notificationRoutes
+      : [];
+    const routeSummary = notificationRoutes
+      .map((route) =>
+        typeof route === 'object' && route !== null
+          ? routeLabel(route as Record<string, any>)
+          : undefined,
+      )
+      .filter((route): route is string => Boolean(route))
+      .join(', ');
+    return [
+      `- ${String(record.shortcut ?? 'unknown')}`,
+      compactText(record.label, 120) ?? 'unnamed target',
+      `execution_context ${executionContextSummary(executionContext)}`,
+      `notification_routes ${notificationRoutes.length}${routeSummary ? ` (${routeSummary})` : ''}`,
+    ].join(' | ');
+  });
+  return [`Scheduler notification targets (${targets.length})`, ...lines].join(
+    '\n',
+  );
+}
+
+function executionContextSummary(context: Record<string, any>): string {
+  return [
+    `conversation_jid=${String(context.conversationJid ?? 'unknown')}`,
+    `thread_id=${context.threadId === null || context.threadId === undefined ? 'none' : String(context.threadId)}`,
+    `workspace_key=${String(context.workspaceKey ?? 'unknown')}`,
+  ].join(' ');
+}
+
+function routeLabel(route: Record<string, any>): string {
+  return [
+    compactText(route.label, 80) ?? 'route',
+    String(route.conversationJid ?? 'unknown'),
+    route.threadId === null || route.threadId === undefined
+      ? 'none'
+      : String(route.threadId),
+  ].join(':');
 }
 
 function stringArray(value: unknown): string[] {
@@ -319,8 +339,88 @@ function capabilityRequirementLabels(value: unknown): string[] {
     .filter((item): item is string => Boolean(item));
 }
 
+function splitRecordAccessRequirements(value: readonly unknown[]): {
+  toolRules: string[];
+  capabilities: Array<Record<string, unknown>>;
+  mcpServers: string[];
+} {
+  const toolRules: string[] = [];
+  const capabilities: Array<Record<string, unknown>> = [];
+  const mcpServers: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue;
+    const target = (item as Record<string, unknown>).target;
+    if (typeof target !== 'object' || target === null) continue;
+    const record = target as Record<string, unknown>;
+    if (record.kind === 'tool_rule' && typeof record.rule === 'string') {
+      toolRules.push(record.rule);
+    } else if (
+      record.kind === 'capability' &&
+      typeof record.capabilityId === 'string'
+    ) {
+      // Mirror the runtime split: capability targets also derive a
+      // capability:<id> tool rule.
+      toolRules.push(semanticCapabilityRule(String(record.capabilityId)));
+      capabilities.push({
+        capabilityId: record.capabilityId,
+        implementation: record.implementation,
+      });
+    } else if (
+      record.kind === 'mcp_server' &&
+      typeof record.server === 'string'
+    ) {
+      mcpServers.push(record.server);
+    }
+  }
+  return { toolRules, capabilities, mcpServers };
+}
+
 function formatTools(values: readonly string[]): string {
   return values.length > 0 ? values.join(', ') : '(none)';
+}
+
+function compactText(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const text = redactSensitiveText(value).replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 1))}…` : text;
+}
+
+function formatAccessRequirementSummary(input: {
+  capabilityRequirements: readonly string[];
+  toolAccessRequirements: readonly string[];
+  requiredMcpServers: readonly string[];
+}): string {
+  const toolAccessRequirements = visibleToolAccessRequirements(input);
+  const parts = [
+    input.capabilityRequirements.length
+      ? `capabilities ${formatTools(input.capabilityRequirements)}`
+      : undefined,
+    toolAccessRequirements.length
+      ? `tools ${formatDurableAccessRulesForUser(toolAccessRequirements)}`
+      : undefined,
+    input.requiredMcpServers.length
+      ? `MCP servers ${formatTools(input.requiredMcpServers)}`
+      : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join('; ') : '(none)';
+}
+
+function visibleToolAccessRequirements(input: {
+  capabilityRequirements: readonly string[];
+  toolAccessRequirements: readonly string[];
+}): string[] {
+  const capabilityIds = new Set(
+    input.capabilityRequirements.map(capabilityIdFromRequirementLabel),
+  );
+  return input.toolAccessRequirements.filter((rule) => {
+    const capabilityId = parseSemanticCapabilityRule(rule);
+    return !capabilityId || !capabilityIds.has(capabilityId);
+  });
+}
+
+function capabilityIdFromRequirementLabel(label: string): string {
+  return label.split(/\s+via\s+/, 1)[0]?.trim() || label.trim();
 }
 
 function parsePayload(value: unknown): Record<string, unknown> {

@@ -20,9 +20,11 @@ import {
   stripInternalTagsPreserveWhitespace,
 } from '../../messaging/router.js';
 import {
+  buildPermissionPromptParts,
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { buildPermissionPromptContentBlocks } from './permission-blocks.js';
 import {
   disconnectSlackDelivery,
   loadPersistedSlackProgress,
@@ -38,7 +40,6 @@ import type {
   SlackSnippetFallbackResult,
 } from './channel-delivery-helpers.js';
 import { SlackChannelInteractions } from './channel-interactions.js';
-import { slackPermissionDecisionActionId } from './permission-action-id.js';
 import {
   SLACK_FALLBACK_CHUNK_MAX_LENGTH,
   SLACK_STREAM_UPDATE_INTERVAL_MS,
@@ -446,41 +447,50 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
 
     const timeoutMs = PERMISSION_APPROVAL_TIMEOUT_MS;
     const promptText = this.formatPermissionPromptText(request, timeoutMs);
+    const contentBlocks = buildPermissionPromptContentBlocks(
+      buildPermissionPromptParts(request, timeoutMs),
+    );
 
-    try {
-      const response = (await this.app.client.chat.postMessage({
+    const actionsBlock = {
+      type: 'actions',
+      elements: permissionDecisionOptions(request).map((mode) => ({
+        type: 'button',
+        action_id: 'gantry_perm_decision',
+        text: {
+          type: 'plain_text',
+          text: permissionButtonLabel(mode, request),
+        },
+        ...(mode === 'cancel'
+          ? { style: 'danger' as const }
+          : { style: 'primary' as const }),
+        value: JSON.stringify({
+          requestId: request.requestId,
+          decision: mode,
+        }),
+      })),
+    };
+    const threadTs = request.threadId ? { thread_ts: request.threadId } : {};
+    const postPrompt = (blocks: unknown[]) =>
+      this.app!.client.chat.postMessage({
         channel: parsed.channelId,
         text: promptText,
-        ...(request.threadId ? { thread_ts: request.threadId } : {}),
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: promptText,
-            },
-          },
-          {
-            type: 'actions',
-            elements: permissionDecisionOptions(request).map((mode) => ({
-              type: 'button',
-              action_id: slackPermissionDecisionActionId(mode),
-              text: {
-                type: 'plain_text',
-                text: permissionButtonLabel(mode, request),
-              },
-              ...(mode === 'cancel'
-                ? { style: 'danger' as const }
-                : { style: 'primary' as const }),
-              value: JSON.stringify({
-                requestId: request.requestId,
-                decision: mode,
-              }),
-            })),
-          },
-        ],
-      })) as { ts?: string };
-
+        ...threadTs,
+        blocks: blocks as any,
+      }) as Promise<{ ts?: string }>;
+    try {
+      let response: { ts?: string };
+      try {
+        response = await postPrompt([...contentBlocks, actionsBlock]);
+      } catch (blocksErr) {
+        logger.warn(
+          { jid, requestId: request.requestId, err: blocksErr },
+          'Slack native permission blocks rejected; retrying with simple layout',
+        );
+        response = await postPrompt([
+          { type: 'section', text: { type: 'mrkdwn', text: promptText } },
+          actionsBlock,
+        ]);
+      }
       const messageTs = response.ts;
       if (!messageTs) {
         return {
@@ -581,12 +591,31 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           settled: false,
         };
 
-        const sent = (await this.app.client.chat.postMessage({
-          channel: parsed.channelId,
-          text: promptText,
-          ...(request.threadId ? { thread_ts: request.threadId } : {}),
-          blocks: this.buildUserQuestionBlocks(pendingState) as any,
-        })) as { ts?: string };
+        const questionThreadTs = request.threadId
+          ? { thread_ts: request.threadId }
+          : {};
+        const fullBlocks = this.buildUserQuestionBlocks(pendingState);
+        const postQuestion = (blocks: unknown[]) =>
+          this.app!.client.chat.postMessage({
+            channel: parsed.channelId,
+            text: promptText,
+            ...questionThreadTs,
+            blocks: blocks as any,
+          }) as Promise<{ ts?: string }>;
+        let sent: { ts?: string };
+        try {
+          sent = await postQuestion(fullBlocks);
+        } catch (blocksErr) {
+          logger.warn(
+            { requestId: request.requestId, questionIndex: i, err: blocksErr },
+            'Slack native user-question blocks rejected; retrying without header',
+          );
+          sent = await postQuestion(
+            fullBlocks.filter(
+              (block) => (block as { type?: string }).type !== 'header',
+            ),
+          );
+        }
 
         const messageTs = sent.ts;
         if (!messageTs) {

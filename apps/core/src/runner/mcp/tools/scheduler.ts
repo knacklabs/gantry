@@ -8,6 +8,7 @@ import {
   schedulerEventsSummary,
   schedulerJobSummary,
   schedulerJobsSummary,
+  schedulerNotificationTargetsSummary,
 } from './scheduler-formatters.js';
 import {
   formatSchedulerJobPlan,
@@ -23,8 +24,10 @@ import {
   submitSchedulerMutationTask,
   SCHEDULER_WAIT_RESPONSE_GRACE_MS,
 } from './scheduler-tool-helpers.js';
-import { schedulerCapabilityRequirementSchema } from './scheduler-capability-schema.js';
-
+import {
+  schedulerAccessRequirementSchema,
+  type SchedulerAccessRequirementInput,
+} from './scheduler-capability-schema.js';
 const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'job_id',
   'name',
@@ -35,9 +38,7 @@ const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'target',
   'execution_context',
   'notification_routes',
-  'capability_requirements',
-  'tool_access_requirements',
-  'required_mcp_servers',
+  'access_requirements',
   'silent',
   'cleanup_after_ms',
   'timeout_ms',
@@ -58,9 +59,7 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'target',
   'execution_context',
   'notification_routes',
-  'capability_requirements',
-  'tool_access_requirements',
-  'required_mcp_servers',
+  'access_requirements',
   'silent',
   'cleanup_after_ms',
   'timeout_ms',
@@ -69,16 +68,37 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'max_consecutive_failures',
 ]);
 
+function removedExecutionScopeFieldError(args: Record<string, unknown>) {
+  const containers: unknown[] = [args, args.execution_context];
+  for (const container of containers) {
+    if (!container || typeof container !== 'object') continue;
+    if ('group_scope' in container || 'groupScope' in container) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'group_scope/groupScope is no longer accepted. Use workspace_key.',
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+  return null;
+}
+
 function unsupportedSchedulerArgError(
   args: Record<string, unknown>,
   allowedKeys: ReadonlySet<string>,
 ) {
+  const removedScopeError = removedExecutionScopeFieldError(args);
+  if (removedScopeError) return removedScopeError;
   if (Object.prototype.hasOwnProperty.call(args, 'required_tools')) {
     return {
       content: [
         {
           type: 'text' as const,
-          text: 'required_tools is no longer accepted. Use tool_access_requirements for access preflight checks.',
+          text: 'required_tools is no longer accepted. Use access_requirements for access preflight checks.',
         },
       ],
       isError: true,
@@ -98,6 +118,26 @@ function unsupportedSchedulerArgError(
     isError: true,
   };
 }
+
+// passthrough() keeps unknown keys alive so the MCP SDK rejects removed
+// execution-scope inputs before the handler runs; the normalizer ignores extras.
+const executionContextSchema = z
+  .object({
+    conversation_jid: z.string(),
+    thread_id: z.string().nullable(),
+    workspace_key: z.string(),
+    session_id: z.string().nullable().optional(),
+  })
+  .passthrough()
+  .superRefine((val, ctx) => {
+    if ('group_scope' in val || 'groupScope' in val) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'group_scope/groupScope is no longer accepted. Use workspace_key.',
+      });
+    }
+  });
 
 function validateScheduleInput(args: {
   schedule_type: 'cron' | 'interval' | 'once';
@@ -136,28 +176,46 @@ function validateScheduleInput(args: {
   return null;
 }
 
-function normalizeSchedulerCapabilityRequirements(
-  input: z.infer<typeof schedulerCapabilityRequirementSchema>[] | undefined,
-): SchedulerJobPlanInput['capabilityRequirements'] {
-  return input?.map((requirement) => ({
-    capabilityId: requirement.capability_id,
-    reason: requirement.reason,
-    ...(requirement.implementation
-      ? {
-          implementation: {
-            kind: requirement.implementation.kind,
-            name: requirement.implementation.name,
-            executablePath: requirement.implementation.executable_path,
-            executableVersion: requirement.implementation.executable_version,
-            executableHash: requirement.implementation.executable_hash,
-            commandTemplate: requirement.implementation.command_template,
-            authPreflight: requirement.implementation.auth_preflight,
-            protectedPaths: requirement.implementation.protected_paths,
-            networkHosts: requirement.implementation.network_hosts,
-          },
-        }
-      : {}),
-  }));
+function normalizeSchedulerAccessRequirements(
+  input: SchedulerAccessRequirementInput[] | undefined,
+): SchedulerJobPlanInput['accessRequirements'] {
+  return input?.map((requirement) => {
+    const target = requirement.target;
+    if (target.kind === 'tool_rule') {
+      return {
+        target: { kind: 'tool_rule' as const, rule: target.rule },
+        ...(requirement.reason ? { reason: requirement.reason } : {}),
+      };
+    }
+    if (target.kind === 'mcp_server') {
+      return {
+        target: { kind: 'mcp_server' as const, server: target.server },
+        ...(requirement.reason ? { reason: requirement.reason } : {}),
+      };
+    }
+    return {
+      target: {
+        kind: 'capability' as const,
+        capabilityId: target.capability_id,
+        ...(target.implementation
+          ? {
+              implementation: {
+                kind: target.implementation.kind,
+                name: target.implementation.name,
+                executablePath: target.implementation.executable_path,
+                executableVersion: target.implementation.executable_version,
+                executableHash: target.implementation.executable_hash,
+                commandTemplate: target.implementation.command_template,
+                authPreflight: target.implementation.auth_preflight,
+                protectedPaths: target.implementation.protected_paths,
+                networkHosts: target.implementation.network_hosts,
+              },
+            }
+          : {}),
+      },
+      ...(requirement.reason ? { reason: requirement.reason } : {}),
+    };
+  });
 }
 
 export function registerSchedulerTools(server: McpServer): void {
@@ -180,14 +238,7 @@ export function registerSchedulerTools(server: McpServer): void {
       schedule_type: z.enum(['cron', 'interval', 'once']),
       schedule_value: z.string().default(''),
       target: z.enum(['here', 'this_thread', 'this_topic', 'me_dm']).optional(),
-      execution_context: z
-        .object({
-          conversation_jid: z.string(),
-          thread_id: z.string().nullable(),
-          group_scope: z.string(),
-          session_id: z.string().nullable().optional(),
-        })
-        .optional(),
+      execution_context: executionContextSchema.optional(),
       notification_routes: z
         .array(
           z.object({
@@ -197,20 +248,13 @@ export function registerSchedulerTools(server: McpServer): void {
           }),
         )
         .optional(),
-      capability_requirements: z
-        .array(schedulerCapabilityRequirementSchema)
+      access_requirements: z
+        .array(schedulerAccessRequirementSchema)
         .optional()
         .describe(
-          'Semantic capabilities this job needs, with optional implementation hints. These merge into tool_access_requirements as capability:<id> and pause setup if reviewed access is missing.',
-        ),
-      tool_access_requirements: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'Tool access preflight requirements for this job. Prefer capability:<id> for reviewed semantic capabilities; use scoped RunCommand(...) only for one-off exact command access when no reviewed capability exists. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
+          'Access this job needs as a single list. Each entry has a target: {kind:"capability", capability_id, implementation?} for reviewed semantic capabilities, {kind:"tool_rule", rule} for exact tools/Browser/scoped RunCommand(...), or {kind:"mcp_server", server}. Missing access pauses setup for user approval.',
         ),
       required_tools: z.array(z.string()).optional().describe('Deprecated.'),
-      required_mcp_servers: z.array(z.string()).optional(),
       silent: z.boolean().optional(),
       cleanup_after_ms: z.number().optional(),
       timeout_ms: z.number().optional(),
@@ -257,11 +301,9 @@ export function registerSchedulerTools(server: McpServer): void {
         scheduleValue: args.schedule_value,
         executionContext: canonicalTarget.executionContext,
         notificationRoutes: canonicalTarget.notificationRoutes,
-        capabilityRequirements: normalizeSchedulerCapabilityRequirements(
-          args.capability_requirements,
+        accessRequirements: normalizeSchedulerAccessRequirements(
+          args.access_requirements,
         ),
-        toolAccessRequirements: args.tool_access_requirements,
-        requiredMcpServers: args.required_mcp_servers,
         silent: args.silent,
         cleanupAfterMs: args.cleanup_after_ms,
         timeoutMs: args.timeout_ms,
@@ -373,11 +415,8 @@ export function registerSchedulerTools(server: McpServer): void {
       if (error) return error;
       const targets = dataRecord(response!).targets;
       const result = Array.isArray(targets) ? targets : [];
-      return {
-        content: [
-          { type: 'text' as const, text: schedulerEventsSummary(result) },
-        ],
-      };
+      const text = schedulerNotificationTargetsSummary(result);
+      return { content: [{ type: 'text' as const, text }] };
     },
   );
   server.tool(
@@ -391,14 +430,7 @@ export function registerSchedulerTools(server: McpServer): void {
       schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
       schedule_value: z.string().optional(),
       target: z.enum(['here', 'this_thread', 'this_topic', 'me_dm']).optional(),
-      execution_context: z
-        .object({
-          conversation_jid: z.string(),
-          thread_id: z.string().nullable(),
-          group_scope: z.string(),
-          session_id: z.string().nullable().optional(),
-        })
-        .optional(),
+      execution_context: executionContextSchema.optional(),
       notification_routes: z
         .array(
           z.object({
@@ -408,20 +440,13 @@ export function registerSchedulerTools(server: McpServer): void {
           }),
         )
         .optional(),
-      capability_requirements: z
-        .array(schedulerCapabilityRequirementSchema)
+      access_requirements: z
+        .array(schedulerAccessRequirementSchema)
         .optional()
         .describe(
-          'Semantic capabilities this job needs, with optional implementation hints. These merge into tool_access_requirements as capability:<id> and pause setup if reviewed access is missing.',
-        ),
-      tool_access_requirements: z
-        .array(z.string())
-        .optional()
-        .describe(
-          'Tool access preflight requirements for this job. Prefer capability:<id> for reviewed semantic capabilities; use scoped RunCommand(...) only for one-off exact command access when no reviewed capability exists. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
+          'Access this job needs as a single list. Each entry has a target: {kind:"capability", capability_id, implementation?} for reviewed semantic capabilities, {kind:"tool_rule", rule} for exact tools/Browser/scoped RunCommand(...), or {kind:"mcp_server", server}. Missing access pauses setup for user approval.',
         ),
       required_tools: z.array(z.string()).optional().describe('Deprecated.'),
-      required_mcp_servers: z.array(z.string()).optional(),
       silent: z.boolean().optional(),
       cleanup_after_ms: z.number().optional(),
       timeout_ms: z.number().optional(),
@@ -463,19 +488,12 @@ export function registerSchedulerTools(server: McpServer): void {
           args.target !== undefined
             ? { notificationRoutes: canonicalTarget.notificationRoutes }
             : {}),
-          ...(args.tool_access_requirements !== undefined
-            ? { toolAccessRequirements: args.tool_access_requirements }
-            : {}),
-          ...(args.capability_requirements !== undefined
+          ...(args.access_requirements !== undefined
             ? {
-                capabilityRequirements:
-                  normalizeSchedulerCapabilityRequirements(
-                    args.capability_requirements,
-                  ),
+                accessRequirements: normalizeSchedulerAccessRequirements(
+                  args.access_requirements,
+                ),
               }
-            : {}),
-          ...(args.required_mcp_servers !== undefined
-            ? { requiredMcpServers: args.required_mcp_servers }
             : {}),
           silent: args.silent,
           cleanupAfterMs: args.cleanup_after_ms,

@@ -113,7 +113,8 @@ describe('semantic capability catalog validation', () => {
       }),
     ).toEqual({
       ok: false,
-      reason: 'networkHosts are only supported for local_cli capabilities.',
+      reason:
+        'networkHosts are only supported for local_cli or skill action capabilities.',
     });
 
     expect(
@@ -133,6 +134,66 @@ describe('semantic capability catalog validation', () => {
     ).toEqual({
       ok: false,
       reason: 'protectedPaths are only supported for local_cli capabilities.',
+    });
+  });
+
+  it('rejects network hosts on skill-secret capabilities that are not skill actions', () => {
+    expect(
+      validateSemanticCapabilityDefinition({
+        capabilityId: 'github.create_issue',
+        displayName: 'GitHub create issue',
+        category: 'MCP',
+        risk: 'write',
+        can: 'Create a GitHub issue.',
+        cannot: 'Call unrelated MCP tools.',
+        credentialSource: 'skill_secret',
+        implementationBindings: [
+          { kind: 'mcp_tool', mcpTool: 'mcp__github__create_issue' },
+        ],
+        networkHosts: ['api.github.com:443'],
+      }),
+    ).toEqual({
+      ok: false,
+      reason:
+        'networkHosts are only supported for local_cli or skill action capabilities.',
+    });
+  });
+
+  it('validates skill action network hosts with the shared host parser', () => {
+    const capability = {
+      capabilityId: 'skill.linkedin.publish',
+      displayName: 'LinkedIn publish',
+      category: 'linkedin-posting',
+      risk: 'write' as const,
+      can: 'Publish a LinkedIn post.',
+      cannot: 'Call unrelated endpoints.',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        { kind: 'tool_rule' as const, rule: 'RunCommand(skills/post.py *)' },
+      ],
+      source: {
+        kind: 'skill_action',
+        skillId: 'skill:linkedin-posting',
+        skillName: 'linkedin-posting',
+        actionId: 'publish',
+      },
+    };
+
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...capability,
+        networkHosts: ['api.linkedin.com:443'],
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      validateSemanticCapabilityDefinition({
+        ...capability,
+        networkHosts: ['https://api.linkedin.com/v2'],
+      }),
+    ).toEqual({
+      ok: false,
+      reason:
+        'networkHosts must be host or host:port values, not URLs, schemes, or paths.',
     });
   });
 

@@ -4,6 +4,10 @@ import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
+import {
+  normalizeMcpToolScope,
+  reviewedMcpToolPatterns,
+} from '../../shared/mcp-tool-scope.js';
 
 export async function ensureMcpSourceBindingsForRules(input: {
   appId: AppId;
@@ -13,11 +17,13 @@ export async function ensureMcpSourceBindingsForRules(input: {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   timestamp: string;
 }): Promise<AgentMcpServerBinding[]> {
-  const serverNames = mcpServerNamesForRules({
+  const requestedPatternsByServerName = mcpServerToolPatternsForRules({
     rules: input.rules,
     semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
   });
-  if (serverNames.length === 0 || !input.mcpServerRepository) return [];
+  if (requestedPatternsByServerName.size === 0 || !input.mcpServerRepository) {
+    return [];
+  }
   const existingBindings = await input.mcpServerRepository.listAgentBindings({
     appId: input.appId,
     agentId: input.agentId,
@@ -27,7 +33,7 @@ export async function ensureMcpSourceBindingsForRules(input: {
     existingBindings.map((binding) => [binding.serverId, binding]),
   );
   const activated: AgentMcpServerBinding[] = [];
-  for (const serverName of serverNames) {
+  for (const [serverName, requestedPatterns] of requestedPatternsByServerName) {
     const server = await input.mcpServerRepository.getServerByName({
       appId: input.appId,
       name: serverName,
@@ -47,6 +53,13 @@ export async function ensureMcpSourceBindingsForRules(input: {
       status: 'active',
       required: existing?.required ?? false,
       permissionPolicyIds: existing?.permissionPolicyIds ?? [],
+      allowedToolPatterns:
+        existing?.allowedToolPatterns ??
+        normalizeMcpToolScope({
+          serverName: server.name,
+          requested: requestedPatterns,
+          definitionPatterns: reviewedMcpToolPatterns(server),
+        }),
       createdAt: existing?.createdAt ?? (input.timestamp as never),
       updatedAt: input.timestamp as never,
     };
@@ -69,27 +82,70 @@ export async function ensureMcpSourceBindingsForRules(input: {
   return activated;
 }
 
-function mcpServerNamesForRules(input: {
+function mcpServerToolPatternsForRules(input: {
   rules: readonly string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
-}): string[] {
-  const out = new Set<string>();
+}): Map<string, string[]> {
+  const out = new Map<string, Set<string>>();
   for (const rule of input.rules) {
     const capabilityId = parseSemanticCapabilityRule(rule);
     const capability = capabilityId
       ? input.semanticCapabilityDefinitions?.[capabilityId]
       : undefined;
     if (!capability) continue;
+    const source = parseMcpCapabilitySource(capability.source);
+    if (source?.serverName && source.allowedToolPatterns.length > 0) {
+      const existing = out.get(source.serverName) ?? new Set();
+      for (const pattern of source.allowedToolPatterns) {
+        existing.add(pattern);
+      }
+      out.set(source.serverName, existing);
+      continue;
+    }
     for (const binding of capability.implementationBindings) {
       if (binding.kind !== 'mcp_tool') continue;
-      const serverName = mcpServerNameFromTool(binding.mcpTool);
-      if (serverName) out.add(serverName);
+      const parsed = mcpServerAndToolFromRule(binding.mcpTool);
+      if (!parsed) continue;
+      const existing = out.get(parsed.serverName) ?? new Set<string>();
+      existing.add(parsed.toolName);
+      out.set(parsed.serverName, existing);
     }
   }
-  return [...out].sort();
+  const sortedEntries: Array<[string, string[]]> = [...out.entries()]
+    .map(([serverName, patterns]): [string, string[]] => [
+      serverName,
+      [...patterns].sort(),
+    ])
+    .sort(([left], [right]) => left.localeCompare(right));
+  return new Map(sortedEntries);
 }
 
-function mcpServerNameFromTool(toolName: string | undefined): string | null {
-  const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName?.trim() ?? '');
-  return match?.[1] ?? null;
+function parseMcpCapabilitySource(
+  source: unknown,
+): { serverName: string; allowedToolPatterns: string[] } | null {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return null;
+  }
+  const record = source as Record<string, unknown>;
+  if (record.source !== 'mcp' || typeof record.serverName !== 'string') {
+    return null;
+  }
+  const allowedToolPatterns = Array.isArray(record.allowedToolPatterns)
+    ? record.allowedToolPatterns
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+  return {
+    serverName: record.serverName.trim(),
+    allowedToolPatterns,
+  };
+}
+
+function mcpServerAndToolFromRule(
+  toolName: string | undefined,
+): { serverName: string; toolName: string } | null {
+  const match = /^mcp__([A-Za-z0-9_-]+)__(.+)$/.exec(toolName?.trim() ?? '');
+  if (!match) return null;
+  return { serverName: match[1], toolName: match[2] };
 }

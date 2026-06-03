@@ -72,7 +72,7 @@ export async function deadLetterUnresolvedExecutionContext(input: {
         : DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID,
     provider_run_id: null,
     provider_session_id: null,
-    worker_id: input.currentJob.execution_context?.groupScope ?? null,
+    worker_id: input.currentJob.execution_context?.workspaceKey ?? null,
     lease_owner: input.currentJob.execution_context?.conversationJid ?? null,
     lease_expires_at: null,
     scheduled_for: input.scheduledFor,

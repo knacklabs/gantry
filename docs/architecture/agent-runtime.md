@@ -28,7 +28,7 @@ ACP/ACPS are harness/runtime integration concerns. They are not part of the agen
 ## Message lifecycle
 
 1. A backend app calls `sessions.ensure()`.
-2. The control server maps `(appId, conversationId)` to an `app:` JID and runtime group folder.
+2. The control server maps `(appId, conversationId)` to an `app:` JID and runtime workspace folder.
 3. The app calls `sessions.sendMessage()`.
 4. The runtime stores the inbound message in Postgres.
 5. The runtime enqueues the group for normal processing.

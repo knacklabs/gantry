@@ -191,12 +191,10 @@ Gantry MCP tools are grouped by capability:
 
 - messaging and user interaction: send a message, ask a question
 - capability requests: skill install/proposal/dependency install, MCP server,
-  semantic capability search/request, local CLI capability proposal,
-  capability management, and the unified `request_permission` approval flow for
-  one-off scoped SDK, host, browser, memory, service, provider, and MCP actions
-- capability visibility: `capability_status`, `capability_search`, and
-  `mcp_list_tools` show available tools plus exact requestable admin tool IDs
-  and semantic capability request arguments
+  reviewed semantic capability request, and scoped `RunCommand` fallback request
+- capability visibility: the Agent Access summary and `mcp_list_tools` show
+  available tools, attached sources, requestable admin capabilities, and semantic
+  capability request arguments
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
 - memory: default tools include search/save for memory and procedures; patch
   tools are reviewed/selected-only

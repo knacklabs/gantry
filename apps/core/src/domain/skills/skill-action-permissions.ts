@@ -10,11 +10,11 @@ import {
   isValidSemanticCapabilityId,
   semanticCapabilityIdValidationReason,
 } from '../../shared/semantic-capability-ids.js';
+import { parseDeclaredNetworkHost } from '../../shared/network-host-declaration.js';
 import type {
   SemanticCapabilityDefinition,
   SemanticCapabilityRisk,
 } from '../../shared/semantic-capabilities.js';
-import { validatePersistentRequestPermissionRule } from '../../shared/persistent-permission-rules.js';
 import {
   assertValidCapabilitySecretName,
   normalizeCapabilitySecretName,
@@ -31,6 +31,7 @@ export interface SkillActionPermission {
   cannot: string;
   requiredEnvVars: string[];
   commandTemplates: string[];
+  networkHosts: string[];
 }
 
 export interface SkillActionSourceMetadata {
@@ -121,6 +122,9 @@ export function skillActionSemanticCapability(input: {
     })),
     preflight: { kind: 'none' },
     sandboxProfile: { network: 'required', filesystem: 'workspace_write' },
+    networkHosts: input.action.networkHosts?.length
+      ? [...input.action.networkHosts]
+      : undefined,
     redactionPolicy:
       input.action.requiredEnvVars.length > 0
         ? { env: input.action.requiredEnvVars }
@@ -211,6 +215,9 @@ function parseSkillActionPermission(
     optional: true,
   }).map(normalizeCapabilitySecretName);
   for (const envVar of requiredEnvVars) assertValidCapabilitySecretName(envVar);
+  const networkHosts = stringArray(raw.networkHosts, 'networkHosts', {
+    optional: true,
+  }).map((host) => normalizeSkillActionNetworkHost(host, capabilityId));
   return {
     id,
     capabilityId,
@@ -220,7 +227,26 @@ function parseSkillActionPermission(
     cannot,
     requiredEnvVars: [...new Set(requiredEnvVars)],
     commandTemplates: [...new Set(commandTemplates)],
+    networkHosts: [...new Set(networkHosts)],
   };
+}
+
+/**
+ * Validate a declared `host` or `host:port` skill-action network target via the
+ * shared declared-network-host parser. Skill action network authority is exact
+ * so an approved action can only reach the hosts a reviewer actually saw.
+ */
+function normalizeSkillActionNetworkHost(
+  value: string,
+  capabilityId: string,
+): string {
+  const result = parseDeclaredNetworkHost(value);
+  if (!result.ok) {
+    throw new Error(
+      `Skill action ${capabilityId} networkHosts ${result.reason}`,
+    );
+  }
+  return result.host;
 }
 
 function normalizeSkillActionCommandTemplate(
@@ -266,17 +292,26 @@ function normalizeSkillActionCommandTemplate(
       `Skill action command template must run under ${skillDir}.`,
     );
   }
+  // Skill action templates become durable capability grants whose command is
+  // never re-validated at grant time (the capability:<id> path only checks
+  // definition existence). Reject destructive redirection here so a skill
+  // author cannot smuggle e.g. `${skillRoot}/run.sh > /etc/passwd` into a
+  // durable grant. (Wildcard args are intentionally allowed — these templates
+  // are already pinned under the skill directory above, so the broader
+  // durable-RunCommand rules don't apply.)
+  const destructiveRedirect = parsed.leaves
+    .flatMap((leaf) => leaf.redirects)
+    .find((redirect) => redirect.destructive);
+  if (destructiveRedirect) {
+    throw new Error(
+      'Skill action command templates cannot include destructive redirection.',
+    );
+  }
   const readableRule = `${RUN_COMMAND_TOOL_NAME}(${stableNormalized})`;
   const readable = validateReadableAgentToolRule(readableRule);
   if (!readable.ok) {
     throw new Error(
       `Invalid skill action command template: ${readable.reason}`,
-    );
-  }
-  const persistent = validatePersistentRequestPermissionRule(readableRule);
-  if (!persistent.ok) {
-    throw new Error(
-      `Invalid skill action command template: ${persistent.reason}`,
     );
   }
   return stableNormalized;

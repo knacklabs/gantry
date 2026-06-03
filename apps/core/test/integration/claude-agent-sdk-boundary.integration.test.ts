@@ -285,7 +285,7 @@ function runnerInput(
 ): AgentRunnerInput {
   return {
     prompt: 'unused in direct runQuery tests',
-    groupFolder: 'group',
+    workspaceFolder: 'group',
     chatJid: 'tg:group',
     threadId: 'thread-1',
     compiledSystemPrompt: 'compiled Gantry system profile',
@@ -376,7 +376,7 @@ describe('Claude Agent SDK boundary integration', () => {
         'mcp__gantry__request_skill_proposal',
         'mcp__gantry__request_skill_dependency_install',
         'mcp__gantry__request_mcp_server',
-        'mcp__gantry__request_permission',
+        'mcp__gantry__request_access',
         'mcp__gantry__mcp_list_tools',
         'mcp__gantry__mcp_call_tool',
         'Agent',
@@ -445,7 +445,7 @@ describe('Claude Agent SDK boundary integration', () => {
       args: [env.mcpServerPath],
       env: {
         GANTRY_CHAT_JID: 'tg:group',
-        GANTRY_GROUP_FOLDER: 'group',
+        GANTRY_WORKSPACE_KEY: 'group',
         GANTRY_THREAD_ID: 'thread-1',
         GANTRY_MEMORY_USER_ID: '',
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '',

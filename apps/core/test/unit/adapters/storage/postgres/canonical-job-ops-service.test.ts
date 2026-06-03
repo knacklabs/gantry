@@ -20,7 +20,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
         sessionId: 'session-1',
       },
       notification_routes: [
@@ -30,8 +30,8 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      tool_access_requirements: ['Browser'],
-      group_scope: '',
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -42,7 +42,7 @@ describe('CanonicalJobOpsService', () => {
     expect(target.executionContext).toEqual({
       conversationJid: 'tg:1',
       threadId: null,
-      groupScope: 'agent_one',
+      workspaceKey: 'agent_one',
       sessionId: 'session-1',
     });
     expect(target.notificationRoutes).toEqual([
@@ -52,7 +52,9 @@ describe('CanonicalJobOpsService', () => {
         label: 'Primary',
       },
     ]);
-    expect(target.toolAccessRequirements).toEqual(['Browser']);
+    expect(target.accessRequirements).toEqual([
+      { target: { kind: 'tool_rule', rule: 'Browser' } },
+    ]);
   });
 
   it('merges canonical session_id into executionContext when target sessionId is missing', async () => {
@@ -72,7 +74,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
       },
       notification_routes: [
         {
@@ -81,7 +83,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      group_scope: '',
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -91,7 +93,7 @@ describe('CanonicalJobOpsService', () => {
     expect(target.executionContext).toEqual({
       conversationJid: 'tg:1',
       threadId: null,
-      groupScope: 'agent_one',
+      workspaceKey: 'agent_one',
       sessionId: 'session-canonical',
     });
   });
@@ -110,7 +112,7 @@ describe('CanonicalJobOpsService', () => {
           executionContext: {
             conversationJid: 'tg:1',
             threadId: null,
-            groupScope: 'agent_one',
+            workspaceKey: 'agent_one',
             sessionId: 'session-1',
           },
           notificationRoutes: [
@@ -120,7 +122,9 @@ describe('CanonicalJobOpsService', () => {
               label: 'Primary',
             },
           ],
-          toolAccessRequirements: ['Browser'],
+          accessRequirements: [
+            { target: { kind: 'tool_rule', rule: 'Browser' } },
+          ],
         }),
         silent: false,
         timeoutMs: 300000,
@@ -139,11 +143,11 @@ describe('CanonicalJobOpsService', () => {
     await expect(service.getJobById('job-1')).resolves.toMatchObject({
       session_id: 'session-1',
       thread_id: null,
-      group_scope: 'agent_one',
+      workspace_key: 'agent_one',
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
         sessionId: 'session-1',
       },
       notification_routes: [
@@ -153,7 +157,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      tool_access_requirements: ['Browser'],
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
     });
   });
 
@@ -173,7 +177,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
       },
       notification_routes: [
         {
@@ -182,7 +186,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      group_scope: 'agent_one',
+      workspace_key: 'agent_one',
       recovery_intent: {
         kind: 'permission_denied',
         state: 'pending',
@@ -193,7 +197,8 @@ describe('CanonicalJobOpsService', () => {
         setup_fingerprint: 'fingerprint-1',
         requirement_type: 'tool',
         requirement_id: 'RunCommand',
-        next_action: 'request_permission {"toolName":"RunCommand"}',
+        next_action:
+          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
         attempts: 0,
         last_error: null,
       },
@@ -336,7 +341,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
       },
       notification_routes: [
         {
@@ -350,7 +355,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Linked',
         },
       ],
-      group_scope: '',
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -385,7 +390,7 @@ describe('CanonicalJobOpsService', () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'agent_one',
+            workspaceKey: 'agent_one',
             sessionId: 'session-1',
           },
           notificationRoutes: [
@@ -447,7 +452,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
         sessionId: 'session-1',
       },
       notification_routes: [
@@ -457,12 +462,42 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      tool_access_requirements: ['Browser'],
-      required_mcp_servers: ['mcp:company-crm'],
-      capability_requirements: [
+      access_requirements: [
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+        { target: { kind: 'mcp_server', server: 'mcp:company-crm' } },
         {
-          capabilityId: 'acme.records.append',
+          target: {
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
+              executableVersion: 'acme 1.2.3',
+              executableHash: 'sha256:abc123',
+              commandTemplate: '/usr/local/bin/acme records append *',
+              authPreflight: '/usr/local/bin/acme auth status',
+              protectedPaths: ['/tmp/creds'],
+              networkHosts: ['api.acme.test'],
+            },
+          },
           reason: 'Write lead rows after each run',
+        },
+      ],
+      workspace_key: '',
+    });
+
+    const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
+      targetJson: string;
+    };
+    const target = JSON.parse(stored.targetJson) as Record<string, unknown>;
+    expect(target.accessRequirements).toEqual([
+      { target: { kind: 'tool_rule', rule: 'Browser' } },
+      { target: { kind: 'mcp_server', server: 'mcp:company-crm' } },
+      {
+        target: {
+          kind: 'capability',
+          capabilityId: 'acme.records.append',
           implementation: {
             kind: 'local_cli',
             name: 'acme',
@@ -475,33 +510,9 @@ describe('CanonicalJobOpsService', () => {
             networkHosts: ['api.acme.test'],
           },
         },
-      ],
-      group_scope: '',
-    });
-
-    const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
-      targetJson: string;
-    };
-    const target = JSON.parse(stored.targetJson) as Record<string, unknown>;
-    expect(target.capabilityRequirements).toEqual([
-      {
-        capabilityId: 'acme.records.append',
         reason: 'Write lead rows after each run',
-        implementation: {
-          kind: 'local_cli',
-          name: 'acme',
-          executablePath: '/usr/local/bin/acme',
-          executableVersion: 'acme 1.2.3',
-          executableHash: 'sha256:abc123',
-          commandTemplate: '/usr/local/bin/acme records append *',
-          authPreflight: '/usr/local/bin/acme auth status',
-          protectedPaths: ['/tmp/creds'],
-          networkHosts: ['api.acme.test'],
-        },
       },
     ]);
-    expect(target.toolAccessRequirements).toContain('Browser');
-    expect(target.requiredMcpServers).toContain('mcp:company-crm');
   });
 
   it('reads capability requirements from canonical targetJson', async () => {
@@ -518,7 +529,7 @@ describe('CanonicalJobOpsService', () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'agent_one',
+            workspaceKey: 'agent_one',
             sessionId: 'session-1',
           },
           notificationRoutes: [
@@ -528,23 +539,26 @@ describe('CanonicalJobOpsService', () => {
               label: 'Primary',
             },
           ],
-          toolAccessRequirements: ['Browser'],
-          requiredMcpServers: ['mcp:company-crm'],
-          capabilityRequirements: [
+          accessRequirements: [
+            { target: { kind: 'tool_rule', rule: 'Browser' } },
+            { target: { kind: 'mcp_server', server: 'mcp:company-crm' } },
             {
-              capabilityId: 'acme.records.append',
-              reason: 'Write lead rows after each run',
-              implementation: {
-                kind: 'local_cli',
-                name: 'acme',
-                executablePath: '/usr/local/bin/acme',
-                executableVersion: 'acme 1.2.3',
-                executableHash: 'sha256:abc123',
-                commandTemplate: '/usr/local/bin/acme records append *',
-                authPreflight: '/usr/local/bin/acme auth status',
-                protectedPaths: ['/tmp/creds'],
-                networkHosts: ['api.acme.test'],
+              target: {
+                kind: 'capability',
+                capabilityId: 'acme.records.append',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
+                  executableVersion: 'acme 1.2.3',
+                  executableHash: 'sha256:abc123',
+                  commandTemplate: '/usr/local/bin/acme records append *',
+                  authPreflight: '/usr/local/bin/acme auth status',
+                  protectedPaths: ['/tmp/creds'],
+                  networkHosts: ['api.acme.test'],
+                },
               },
+              reason: 'Write lead rows after each run',
             },
           ],
         }),
@@ -563,23 +577,26 @@ describe('CanonicalJobOpsService', () => {
     const service = new CanonicalJobOpsService(repository);
 
     await expect(service.getJobById('job-1')).resolves.toMatchObject({
-      tool_access_requirements: ['Browser'],
-      required_mcp_servers: ['mcp:company-crm'],
-      capability_requirements: [
+      access_requirements: [
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+        { target: { kind: 'mcp_server', server: 'mcp:company-crm' } },
         {
-          capabilityId: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executablePath: '/usr/local/bin/acme',
-            executableVersion: 'acme 1.2.3',
-            executableHash: 'sha256:abc123',
-            commandTemplate: '/usr/local/bin/acme records append *',
-            authPreflight: '/usr/local/bin/acme auth status',
-            protectedPaths: ['/tmp/creds'],
-            networkHosts: ['api.acme.test'],
+          target: {
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
+              executableVersion: 'acme 1.2.3',
+              executableHash: 'sha256:abc123',
+              commandTemplate: '/usr/local/bin/acme records append *',
+              authPreflight: '/usr/local/bin/acme auth status',
+              protectedPaths: ['/tmp/creds'],
+              networkHosts: ['api.acme.test'],
+            },
           },
+          reason: 'Write lead rows after each run',
         },
       ],
     });

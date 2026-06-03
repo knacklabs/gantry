@@ -1,5 +1,6 @@
 import type {
   Job,
+  JobCapabilityRequirement,
   JobSetupBlocker,
   JobSetupState,
 } from '../../domain/types.js';
@@ -15,7 +16,7 @@ import type { Clock } from '../common/clock.js';
 import { ApplicationError } from '../common/application-error.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import {
-  agentIdForJobGroupScope,
+  agentIdForJobWorkspaceKey,
   resolveJobToolPolicy,
   type JobToolPolicyResolution,
 } from './job-tool-policy.js';
@@ -24,6 +25,7 @@ import {
   normalizeToolAccessRequirements,
   toolAccessRequirementRecoveryAction,
 } from './job-tool-access-requirements.js';
+import { splitAccessRequirements } from './job-access-requirements.js';
 import {
   isCanonicalBrowserCapabilityRule,
   isProjectedBrowserMcpToolRule,
@@ -75,10 +77,8 @@ export interface JobReadinessInput extends JobReadinessDeps {
   job: Pick<
     Job,
     | 'id'
-    | 'group_scope'
-    | 'tool_access_requirements'
-    | 'required_mcp_servers'
-    | 'capability_requirements'
+    | 'workspace_key'
+    | 'access_requirements'
     | 'execution_context'
     | 'notification_routes'
     | 'setup_state'
@@ -98,8 +98,36 @@ export async function evaluateJobReadiness(
 ): Promise<JobReadinessResult> {
   const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
   const agentId =
-    input.agentId ?? agentIdForJobGroupScope(input.job.group_scope);
+    input.agentId ?? agentIdForJobWorkspaceKey(input.job.workspace_key);
   const blockers: JobSetupBlocker[] = [];
+
+  const invalidWorkspaceBlocker = invalidWorkspaceConfigBlocker(input.job);
+  if (invalidWorkspaceBlocker) {
+    return blockedSetupResult({
+      blocker: invalidWorkspaceBlocker,
+      checkedAt: input.clock?.now() ?? nowIso(),
+      previous: input.job.setup_state,
+    });
+  }
+
+  let splitRequirements;
+  try {
+    splitRequirements = splitAccessRequirements(input.job.access_requirements);
+  } catch (error) {
+    if (error instanceof ApplicationError && error.code === 'INVALID_REQUEST') {
+      return blockedSetupResult({
+        blocker: malformedRequirementBlocker(error.message),
+        checkedAt: input.clock?.now() ?? nowIso(),
+        previous: input.job.setup_state,
+      });
+    }
+    throw error;
+  }
+  const {
+    toolAccessRequirements: jobToolAccessRequirements,
+    capabilityRequirements: jobCapabilityRequirements,
+    requiredMcpServers: jobRequiredMcpServers,
+  } = splitRequirements;
 
   let policy: JobToolPolicyResolution;
   let policyResolutionError: string | null = null;
@@ -126,21 +154,21 @@ export async function evaluateJobReadiness(
   const toolPreflight = policyResolutionError
     ? {
         toolAccessRequirements: normalizeToolAccessRequirements(
-          input.job.tool_access_requirements ?? [],
+          jobToolAccessRequirements,
         ),
         missingTools: [],
       }
     : evaluateToolAccessRequirements({
-        toolAccessRequirements: input.job.tool_access_requirements,
+        toolAccessRequirements: jobToolAccessRequirements,
         effectiveAllowedTools: policy.effectiveAllowedTools,
       });
   const draftOnlyRequirementRules = new Set(
-    (input.job.capability_requirements ?? [])
+    jobCapabilityRequirements
       .filter((requirement) => requirement.implementation?.kind === 'local_cli')
       .map((requirement) => semanticCapabilityRule(requirement.capabilityId)),
   );
   const localCliRequirementCapabilities = new Set(
-    (input.job.capability_requirements ?? [])
+    jobCapabilityRequirements
       .filter((requirement) => requirement.implementation?.kind === 'local_cli')
       .map((requirement) => requirement.capabilityId),
   );
@@ -162,7 +190,7 @@ export async function evaluateJobReadiness(
     }
     blockers.push(missingToolBlocker(missingTool));
   }
-  for (const requirement of input.job.capability_requirements ?? []) {
+  for (const requirement of jobCapabilityRequirements) {
     const blocker = capabilityRequirementBlocker({
       requirement,
       effectiveAllowedTools: policy.effectiveAllowedTools,
@@ -170,42 +198,53 @@ export async function evaluateJobReadiness(
     if (blocker) blockers.push(blocker);
   }
 
-  const missingToolSet = new Set(toolPreflight.missingTools);
-  for (const toolAccessRequirement of toolPreflight.toolAccessRequirements) {
-    if (missingToolSet.has(toolAccessRequirement)) continue;
-    if (isCanonicalBrowserCapabilityRule(toolAccessRequirement)) {
-      continue;
-    }
-    const semanticCapabilityId = parseSemanticCapabilityRule(
-      toolAccessRequirement,
-    );
-    if (semanticCapabilityId) {
-      if (localCliRequirementCapabilities.has(semanticCapabilityId)) {
+  try {
+    const missingToolSet = new Set(toolPreflight.missingTools);
+    for (const toolAccessRequirement of toolPreflight.toolAccessRequirements) {
+      if (missingToolSet.has(toolAccessRequirement)) continue;
+      if (isCanonicalBrowserCapabilityRule(toolAccessRequirement)) {
         continue;
       }
-      const credentialBlocker = await semanticCapabilityCredentialBlocker({
-        capabilityId: semanticCapabilityId,
-        capability: await catalogSemanticCapabilityDefinition({
+      const semanticCapabilityId = parseSemanticCapabilityRule(
+        toolAccessRequirement,
+      );
+      if (semanticCapabilityId) {
+        if (localCliRequirementCapabilities.has(semanticCapabilityId)) {
+          continue;
+        }
+        const credentialBlocker = await semanticCapabilityCredentialBlocker({
           capabilityId: semanticCapabilityId,
-          appId,
-          repository: input.toolRepository,
-        }),
-        agentId,
-        broker: input.credentialBroker,
-      });
-      if (credentialBlocker) blockers.push(credentialBlocker);
+          capability: await catalogSemanticCapabilityDefinition({
+            capabilityId: semanticCapabilityId,
+            appId,
+            repository: input.toolRepository,
+          }),
+          agentId,
+          broker: input.credentialBroker,
+        });
+        if (credentialBlocker) blockers.push(credentialBlocker);
+      }
     }
-  }
 
-  blockers.push(
-    ...(await mcpReadinessBlockers({
-      job: input.job,
-      appId,
-      agentId,
-      repository: input.mcpServerRepository,
-      secrets: input.capabilitySecretRepository,
-    })),
-  );
+    blockers.push(
+      ...(await mcpReadinessBlockers({
+        requiredMcpServers: jobRequiredMcpServers,
+        appId,
+        agentId,
+        repository: input.mcpServerRepository,
+        secrets: input.capabilitySecretRepository,
+      })),
+    );
+  } catch (error) {
+    if (error instanceof ApplicationError && error.code === 'UNAVAILABLE') {
+      return blockedSetupResult({
+        blocker: brokerUnreachableBlocker(error.message),
+        checkedAt: input.clock?.now() ?? nowIso(),
+        previous: input.job.setup_state,
+      });
+    }
+    throw error;
+  }
 
   const setupState = buildJobSetupState({
     blockers,
@@ -220,8 +259,79 @@ export async function evaluateJobReadiness(
   };
 }
 
+function invalidWorkspaceConfigBlocker(
+  job: JobReadinessInput['job'],
+): JobSetupBlocker | null {
+  const workspaceKey =
+    typeof job.workspace_key === 'string' ? job.workspace_key.trim() : '';
+  if (!workspaceKey) {
+    return brokerUnreachableBlocker(
+      'Job workspace is not configured. The job cannot resolve its runtime workspace.',
+    );
+  }
+  const executionContext = job.execution_context as
+    | { workspaceKey?: unknown; conversationJid?: unknown }
+    | null
+    | undefined;
+  if (executionContext) {
+    const ctxWorkspaceKey =
+      typeof executionContext.workspaceKey === 'string'
+        ? executionContext.workspaceKey.trim()
+        : '';
+    const ctxConversationJid =
+      typeof executionContext.conversationJid === 'string'
+        ? executionContext.conversationJid.trim()
+        : '';
+    if (!ctxWorkspaceKey || !ctxConversationJid) {
+      return brokerUnreachableBlocker(
+        'Job execution context is invalid. It is missing a workspace key or conversation binding.',
+      );
+    }
+  }
+  return null;
+}
+
+function brokerUnreachableBlocker(message: string): JobSetupBlocker {
+  return {
+    state: 'broker_unreachable',
+    requirementType: 'tool',
+    requirementId: 'job_runtime',
+    message,
+    nextAction:
+      'Fix the job configuration or restore the runtime broker, then recheck the job.',
+  };
+}
+
+function malformedRequirementBlocker(message: string): JobSetupBlocker {
+  return {
+    state: 'broker_unreachable',
+    requirementType: 'tool',
+    requirementId: 'access_requirements',
+    message: `Job access requirements are invalid: ${message}`,
+    nextAction:
+      'Update the job to valid access requirements, then recheck the job.',
+  };
+}
+
+function blockedSetupResult(input: {
+  blocker: JobSetupBlocker;
+  checkedAt: string;
+  previous?: JobSetupState;
+}): JobReadinessResult {
+  const setupState = buildJobSetupState({
+    blockers: [input.blocker],
+    checkedAt: input.checkedAt,
+    previous: input.previous,
+  });
+  return {
+    ready: false,
+    setupState,
+    pauseReason: SETUP_REQUIRED_PAUSE_REASON,
+  };
+}
+
 function capabilityRequirementBlocker(input: {
-  requirement: NonNullable<Job['capability_requirements']>[number];
+  requirement: JobCapabilityRequirement;
   effectiveAllowedTools: readonly string[];
 }): JobSetupBlocker | null {
   const { requirement } = input;
@@ -393,7 +503,7 @@ function unreviewedSemanticCapabilityBlocker(
     message:
       'This job references a capability that is not reviewed in the capability catalog.',
     nextAction:
-      'Refresh attached source inventory, then update the job to a reviewed source-neutral capability from capability_search.',
+      'Refresh attached source inventory, then update the job to a reviewed source-neutral capability (request it with request_access target.kind=capability).',
   };
 }
 
@@ -447,7 +557,7 @@ async function semanticCapabilityCredentialBlocker(input: {
       message:
         'Semantic capability is not registered in the capability catalog.',
       nextAction:
-        'Refresh attached source inventory, then update the job to a reviewed source-neutral capability from capability_search.',
+        'Refresh attached source inventory, then update the job to a reviewed source-neutral capability (request it with request_access target.kind=capability).',
     };
   }
   if (capability.credentialSource === 'local_cli') return null;
@@ -485,13 +595,13 @@ async function catalogSemanticCapabilityDefinition(input: {
 }
 
 async function mcpReadinessBlockers(input: {
-  job: JobReadinessInput['job'];
+  requiredMcpServers: readonly string[];
   appId: string;
   agentId: string;
   repository?: McpServerRepository;
   secrets?: CapabilitySecretRepository;
 }): Promise<JobSetupBlocker[]> {
-  const required = input.job.required_mcp_servers ?? [];
+  const required = input.requiredMcpServers;
   if (required.length === 0) return [];
   if (!input.repository) {
     return required.map((requirement) => ({
@@ -571,7 +681,7 @@ function mcpCredentialBlocker(
     requirementType: 'mcp_server',
     requirementId: serverName,
     message: formatMissingGantrySecretsMessage(secretNames),
-    nextAction: `Set ${secretNames.map((name) => `gantry credentials capability set ${name}`).join(' and ')}, then resume or recheck the job.`,
+    nextAction: `Set ${secretNames.map((name) => `gantry credentials access set ${name}`).join(' and ')}, then resume or recheck the job.`,
   };
 }
 

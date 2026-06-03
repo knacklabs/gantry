@@ -116,24 +116,32 @@ async function installSkill(
   });
   const capabilityIds = skillActionCapabilityIds(skill);
   if (capabilityIds.length > 0) {
+    // Read-modify-write the full access document: the access PUT replaces
+    // sources and selections together, so preserve existing sources (the
+    // skill source was attached above) while adding the new selections.
     const current = await controlApiRequest(runtimeHome, {
       method: 'GET',
-      path: `/v1/agents/${encodedAgentId}/capabilities`,
+      path: `/v1/agents/${encodedAgentId}/access`,
     });
     const existing = Array.isArray(
-      isRecord(current) ? current.capabilities : undefined,
+      isRecord(current) ? current.selections : undefined,
     )
       ? (
           current as {
-            capabilities: Array<{ id?: unknown; version?: unknown }>;
+            selections: Array<{ id?: unknown; version?: unknown }>;
           }
-        ).capabilities
+        ).selections
       : [];
+    const sources =
+      isRecord(current) && isRecord(current.sources)
+        ? current.sources
+        : { skills: [], mcpServers: [], tools: [] };
     await controlApiRequest(runtimeHome, {
       method: 'PUT',
-      path: `/v1/agents/${encodedAgentId}/capabilities`,
+      path: `/v1/agents/${encodedAgentId}/access`,
       body: {
-        capabilities: uniqueCapabilities([
+        sources,
+        selections: uniqueCapabilities([
           ...existing.map((capability) => ({
             id: String(capability.id ?? ''),
             version: String(capability.version ?? 'builtin'),
@@ -258,7 +266,36 @@ function formatSkill(input: unknown): string {
   const id = String(input.id ?? '');
   const name = String(input.name ?? id);
   const status = String(input.status ?? 'installed');
-  return `- ${name} (${id}) [${status}]`;
+  const lines = [
+    `- ${name} (${id}) [${status}]`,
+    ...formatSkillActionLines(input),
+  ];
+  return lines.join('\n');
+}
+
+function formatSkillActionLines(skill: Record<string, unknown>): string[] {
+  const actions = skill.actionPermissions;
+  if (!Array.isArray(actions)) return [];
+  const lines: string[] = [];
+  for (const action of actions) {
+    if (!isRecord(action)) continue;
+    const displayName = String(action.displayName ?? action.capabilityId ?? '');
+    if (!displayName) continue;
+    lines.push(`    • ${displayName}`);
+    const hosts = Array.isArray(action.networkHosts)
+      ? [
+          ...new Set(
+            action.networkHosts
+              .map((host) => String(host ?? '').trim())
+              .filter(Boolean),
+          ),
+        ]
+      : [];
+    if (hosts.length > 0) {
+      lines.push(`      Network: ${hosts.join(', ')}`);
+    }
+  }
+  return lines;
 }
 
 function normalizeAgentId(value: string): string {

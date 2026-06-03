@@ -2,7 +2,6 @@ import * as p from '@clack/prompts';
 
 import { controlApiRequest } from './control-api.js';
 import {
-  compactToolList,
   formatJobToolAccess,
   type JobToolAccessView,
 } from '../shared/tool-access-view.js';
@@ -10,18 +9,20 @@ import {
   jobSetupBlockerFromUnknown,
   setupActionLabel,
   setupActionLabelFromNextAction,
+  setupReadinessLabel,
 } from '../shared/job-setup-labels.js';
+import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 
 interface JobRecord {
   jobId: string;
   name: string;
   kind: string;
   status: string;
-  groupScope: string;
+  workspaceKey: string;
   threadId?: string | null;
   executionContext?: {
     conversationJid?: string;
-    groupScope?: string;
+    workspaceKey?: string;
     threadId?: string | null;
     sessionId?: string | null;
   };
@@ -67,16 +68,17 @@ interface JobRecord {
     errorSummary: string;
     endedAt: string | null;
   }>;
-  capabilityRequirements?: Array<{
-    capabilityId?: string;
+  accessRequirements?: Array<{
+    target:
+      | { kind: 'tool_rule'; rule: string }
+      | {
+          kind: 'capability';
+          capabilityId: string;
+          implementation?: { kind?: string; name?: string };
+        }
+      | { kind: 'mcp_server'; server: string };
     reason?: string;
-    implementation?: {
-      kind?: string;
-      name?: string;
-    };
   }>;
-  toolAccessRequirements?: string[];
-  requiredMcpServers?: string[];
 }
 
 interface JobEventRecord {
@@ -122,8 +124,8 @@ async function listJobs(runtimeHome: string, args: string[]): Promise<number> {
     if (arg === '--agent' && next) {
       params.set('agentId', next);
       index += 1;
-    } else if (arg === '--group' && next) {
-      params.set('groupScope', next);
+    } else if (arg === '--workspace' && next) {
+      params.set('workspaceKey', next);
       index += 1;
     } else if (arg === '--conversation' && next) {
       params.set('conversationJid', next);
@@ -207,7 +209,7 @@ async function setJobRoute(
   const parsed = parseSetRouteArgs(args);
   if (!parsed) {
     p.log.error(
-      'Usage: gantry jobs set-route <job_id> --conversation <jid> --thread <id|null> [--label <label>] [--group <group_scope>]',
+      'Usage: gantry jobs set-route <job_id> --conversation <jid> --thread <id|null> [--label <label>] [--workspace <workspace_key>]',
     );
     return 1;
   }
@@ -222,10 +224,10 @@ async function setJobRoute(
           executionContext: {
             conversationJid: parsed.conversationJid,
             threadId: parsed.threadId,
-            groupScope:
-              parsed.groupScope ??
-              current.executionContext?.groupScope ??
-              current.groupScope,
+            workspaceKey:
+              parsed.workspaceKey ??
+              current.executionContext?.workspaceKey ??
+              current.workspaceKey,
             sessionId,
           },
         }
@@ -296,47 +298,44 @@ async function listJobEvents(
 }
 
 function formatJobTable(jobs: JobRecord[]): string {
-  const rows = jobs.map((job) => [
-    job.jobId,
-    job.kind,
-    job.setup?.state && job.setup.state !== 'ready'
-      ? job.setup.state
-      : job.recovery?.state && job.recovery.state !== 'none'
-        ? `recovery:${job.recovery.state}`
-        : (job.health?.state ?? job.status),
-    job.groupScope,
-    jobThreadId(job) ?? '',
-    job.nextRun ?? '',
-    compactToolList([
-      ...formatCapabilityRequirements(job.capabilityRequirements),
-      ...(job.toolAccessRequirements ?? []),
-      ...(job.requiredMcpServers ?? []).map((server) => `mcp:${server}`),
-    ]),
-    compactToolList(job.toolAccess.effectiveAllowedTools),
-    job.name,
-  ]);
-  const headers = [
-    'ID',
-    'Kind',
-    'Status',
-    'Group',
-    'Thread',
-    'Next run',
-    'Required',
-    'Tools',
-    'Name',
-  ];
-  const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => row[index].length)),
-  );
-  return [headers, ...rows]
-    .map((row) =>
-      row
-        .map((cell, index) => cell.padEnd(widths[index]))
-        .join('  ')
-        .trimEnd(),
+  return jobs
+    .map((job) =>
+      [
+        job.jobId,
+        job.name,
+        setupReadinessLabel(job.setup?.state),
+        `Workspace: ${job.workspaceKey}`,
+        `Agent: ${jobAgentLabel(job)}`,
+        `Next: ${jobNextActionLabel(job)}`,
+      ].join(' | '),
     )
     .join('\n');
+}
+
+function jobAgentLabel(job: JobRecord): string {
+  return agentIdForJobWorkspaceKey(job.workspaceKey);
+}
+
+function jobConversationLabel(job: JobRecord): string {
+  const route = job.notificationRoutes?.find(
+    (entry) => entry.conversationJid || entry.label,
+  );
+  if (route?.label) return route.label;
+  const conversationJid =
+    job.executionContext?.conversationJid ?? route?.conversationJid;
+  return conversationJid ?? 'none';
+}
+
+function jobAccessRequirementsLabel(job: JobRecord): string {
+  const requirements = formatAccessRequirements(job.accessRequirements);
+  return requirements.length > 0 ? requirements.join(', ') : 'none';
+}
+
+function jobNextActionLabel(job: JobRecord): string {
+  const nextAction =
+    job.setup?.nextAction ?? job.recovery?.nextAction ?? job.health?.nextAction;
+  if (!job.setup?.blockers?.length && !nextAction) return 'none';
+  return formatJobNextAction(job.setup, nextAction);
 }
 
 function formatJobDetail(job: JobRecord): string {
@@ -346,30 +345,22 @@ function formatJobDetail(job: JobRecord): string {
     `Kind: ${job.kind}`,
     `Status: ${job.status}`,
     `Health: ${job.health?.state ?? job.status}`,
-    `Setup: ${job.setup?.state ?? 'ready'}`,
     `Recovery: ${formatJobRecovery(job.recovery)}`,
-    `Group: ${job.groupScope}`,
-    `Thread: ${jobThreadId(job) ?? '(none)'}`,
+    `Workspace: ${job.workspaceKey}`,
+    `Agent: ${jobAgentLabel(job)}`,
+    `Conversation: ${jobConversationLabel(job)}`,
+    `Thread: ${jobThreadId(job) ?? 'none'}`,
+    `Setup: ${setupReadinessLabel(job.setup?.state)}`,
+    `Next action: ${jobNextActionLabel(job)}`,
+    `Access requirements: ${jobAccessRequirementsLabel(job)}`,
+    formatJobToolAccess(job.toolAccess),
     `Notifications: ${formatJobRoutes(job)}`,
     `Next Run: ${job.nextRun ?? '(none)'}`,
     `Last Run: ${job.lastRun ?? '(none)'}`,
     `Model: ${job.modelAlias ?? '(default)'}`,
-    `Capability Requirements: ${formatToolAccessRequirements(formatCapabilityRequirements(job.capabilityRequirements))}`,
-    `Tool Access Requirements: ${formatToolAccessRequirements(job.toolAccessRequirements)}`,
-    `Required MCP Servers: ${formatToolAccessRequirements(job.requiredMcpServers)}`,
-    '',
-    formatJobToolAccess(job.toolAccess),
   ];
   if (job.promptPreview || job.prompt) {
     lines.push('', `Prompt: ${job.promptPreview ?? job.prompt}`);
-  }
-  const nextAction =
-    job.setup?.nextAction ?? job.recovery?.nextAction ?? job.health?.nextAction;
-  if (nextAction) {
-    lines.push(
-      '',
-      `Next Action: ${formatJobNextAction(job.setup, nextAction)}`,
-    );
   }
   if (job.setup?.blockers?.length) {
     lines.push(
@@ -463,12 +454,12 @@ function parseSetRouteArgs(args: string[]): {
   conversationJid: string;
   threadId: string | null;
   label: string;
-  groupScope?: string;
+  workspaceKey?: string;
 } | null {
   let conversationJid = '';
   let threadId: string | null | undefined;
   let label = 'primary';
-  let groupScope: string | undefined;
+  let workspaceKey: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     const next = args[index + 1];
@@ -482,13 +473,13 @@ function parseSetRouteArgs(args: string[]): {
     } else if (arg === '--label' && next) {
       label = next.trim() || label;
       index += 1;
-    } else if (arg === '--group' && next) {
-      groupScope = next.trim() || undefined;
+    } else if (arg === '--workspace' && next) {
+      workspaceKey = next.trim() || undefined;
       index += 1;
     }
   }
   if (!conversationJid || threadId === undefined) return null;
-  return { conversationJid, threadId, label, groupScope };
+  return { conversationJid, threadId, label, workspaceKey };
 }
 
 function formatEventPayload(
@@ -503,23 +494,18 @@ function formatEventPayload(
     : singleLine;
 }
 
-function formatToolAccessRequirements(
-  toolAccessRequirements: string[] | undefined,
-): string {
-  return toolAccessRequirements && toolAccessRequirements.length > 0
-    ? toolAccessRequirements.join(', ')
-    : '(none)';
-}
-
-function formatCapabilityRequirements(
-  capabilityRequirements: JobRecord['capabilityRequirements'],
+function formatAccessRequirements(
+  accessRequirements: JobRecord['accessRequirements'],
 ): string[] {
-  return (capabilityRequirements ?? [])
+  return (accessRequirements ?? [])
     .map((requirement) => {
-      const capabilityId = requirement.capabilityId?.trim();
+      const target = requirement.target;
+      if (target.kind === 'tool_rule') return target.rule;
+      if (target.kind === 'mcp_server') return `mcp:${target.server}`;
+      const capabilityId = target.capabilityId?.trim();
       if (!capabilityId) return undefined;
-      const implementation = requirement.implementation;
-      const implementationLabel = implementation?.name || implementation?.kind;
+      const implementationLabel =
+        target.implementation?.name || target.implementation?.kind;
       return implementationLabel
         ? `${capabilityId} via ${implementationLabel}`
         : capabilityId;

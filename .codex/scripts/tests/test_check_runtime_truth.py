@@ -18,7 +18,7 @@ class RuntimeTruthScriptTests(unittest.TestCase):
         "request_skill_proposal",
         "request_skill_dependency_install",
         "request_mcp_server",
-        "request_permission",
+        "request_access",
     ]
 
     def test_runtime_truth_script_passes_for_repo(self) -> None:
@@ -90,6 +90,65 @@ class RuntimeTruthScriptTests(unittest.TestCase):
         for tool_name in self.REQUIRED_CAPABILITY_TOOL_NAMES:
             with self.subTest(tool_name=tool_name):
                 self.assertIn(tool_name, content)
+
+    def test_gantry_admin_documents_permission_and_proactive_sections(self) -> None:
+        content = (
+            REPO_ROOT / ".claude" / "skills" / "gantry-admin" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        for fragment in [
+            "## Permission Management",
+            "## Proactive Actions",
+            "admin_permission_list",
+            "admin_permission_revoke",
+            "settings_desired_state",
+            "request_settings_update",
+            "scheduler_upsert_job",
+            "gantry credentials model set",
+        ]:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, content)
+
+    def test_gantry_admin_excludes_stale_tool_names(self) -> None:
+        content = (
+            REPO_ROOT / ".claude" / "skills" / "gantry-admin" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+        for stale in [
+            "request_permission",
+            "capability_search",
+            "request_capability",
+            "propose_local_cli_capability",
+            "target.kind=tool",
+            "target.kind=provider_capability",
+            "target.kind=propose",
+        ]:
+            with self.subTest(stale=stale):
+                self.assertNotIn(stale, content)
+
+    def test_runtime_truth_rejects_stale_capability_tool_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            shutil.copytree(
+                REPO_ROOT,
+                root,
+                ignore=shutil.ignore_patterns(".git", "node_modules", "dist"),
+            )
+            admin_skill = root / ".claude" / "skills" / "gantry-admin" / "SKILL.md"
+            admin_skill.write_text(
+                admin_skill.read_text(encoding="utf-8")
+                + "\nUse capability_search before request_access.\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(root / ".codex" / "scripts" / "check_runtime_truth.py"),
+                ],
+                cwd=root,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("references stale capability surface `capability_search`", result.stdout)
 
     def test_runtime_truth_rejects_legacy_commands_sdk_skill(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

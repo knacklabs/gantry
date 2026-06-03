@@ -124,8 +124,8 @@ describe('protected capability SDK hook', () => {
     ).toBeNull();
 
     expect(
-      evaluateProtectedCapabilityToolUse('mcp__gantry__request_permission', {
-        toolName: 'Bash',
+      evaluateProtectedCapabilityToolUse('mcp__gantry__request_access', {
+        target: { kind: 'run_command', argvPattern: 'npm test *' },
         reason: 'Run project tests',
       }),
     ).toBeNull();
@@ -155,8 +155,8 @@ describe('protected capability SDK hook', () => {
     ).toBeNull();
 
     expect(
-      evaluateProtectedCapabilityToolUse('mcp__gantry__request_permission', {
-        channelTool: 'slack_file_access',
+      evaluateProtectedCapabilityToolUse('mcp__gantry__request_access', {
+        target: { kind: 'capability', id: 'slack.files.read' },
         reason: 'Allow file download support',
       }),
     ).toBeNull();

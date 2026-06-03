@@ -2,7 +2,7 @@
 
 This document defines the product vocabulary Gantry code should converge on.
 It is intentionally provider-neutral and channel-neutral. Current
-implementation names such as registered group, group folder, JID, and Claude
+implementation names such as registered group, workspace folder, JID, and Claude
 session id are implementation details unless they are
 explicitly mapped to one of the concepts below.
 
@@ -124,7 +124,7 @@ conversation.
 
 `AgentConversationBinding` connects one agent to one conversation or thread. It
 owns trigger behavior, routing, sender policy, memory subject selection,
-default workspace projection, and permission policy selection. A group folder
+default workspace projection, and permission policy selection. A workspace folder
 is only one possible workspace projection of this binding. Conversation
 approvers belong to the conversation, while conversation approvers belong to an agent's
 private/direct conversation policy.
@@ -322,7 +322,7 @@ CLI, control HTTP, Web UI, SDK, and ACP/ACPX adapters:
 
 Future implementation phases should remove or replace:
 
-- old personal group folder model as domain identity
+- old chat-folder model as domain identity
 - hard-coded privileged conversation behavior
 - provider-specific session as the only resume mechanism
 - direct tool execution on host

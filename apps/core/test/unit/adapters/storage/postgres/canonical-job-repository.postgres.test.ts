@@ -240,7 +240,7 @@ describe('PostgresCanonicalJobRepository', () => {
       {
         agentId: 'agent:scheduler_agent',
         targetJson: JSON.stringify({
-          executionContext: { groupScope: 'scheduler_agent' },
+          executionContext: { workspaceKey: 'scheduler_agent' },
         }),
       },
     ]);
@@ -335,7 +335,7 @@ describe('PostgresCanonicalJobRepository', () => {
         executionContext: {
           conversationJid: 'tg:5759865942',
           threadId: null,
-          groupScope: 'main_agent',
+          workspaceKey: 'main_agent',
           sessionId: null,
         },
       }),

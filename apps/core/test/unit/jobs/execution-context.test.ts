@@ -27,7 +27,7 @@ function job(input: Partial<Job>): Job {
     schedule_value: '',
     session_id: null,
     thread_id: null,
-    group_scope: 'agent-folder',
+    workspace_key: 'agent-folder',
     created_by: 'agent',
     status: 'active',
     next_run: null,
@@ -46,11 +46,11 @@ describe('resolveExecutionContext', () => {
 
     const resolved = resolveExecutionContext(
       job({
-        group_scope: 'agent-folder',
+        workspace_key: 'agent-folder',
         execution_context: {
           conversationJid: 'chat-b',
           threadId: 'thread-1',
-          groupScope: 'agent-folder',
+          workspaceKey: 'agent-folder',
         },
         notification_routes: [
           { conversationJid: 'chat-a', threadId: null, label: 'backup' },
@@ -75,11 +75,11 @@ describe('resolveExecutionContext', () => {
 
     const resolved = resolveExecutionContext(
       job({
-        group_scope: 'agent-folder',
+        workspace_key: 'agent-folder',
         execution_context: {
           conversationJid: 'chat-a',
           threadId: null,
-          groupScope: 'agent-folder',
+          workspaceKey: 'agent-folder',
         },
         notification_routes: [
           {
@@ -104,7 +104,7 @@ describe('resolveExecutionContext', () => {
     const groups = { 'chat-a': group('agent-folder', 'Conversation A') };
 
     const resolved = resolveExecutionContext(
-      job({ group_scope: 'agent-folder' }),
+      job({ workspace_key: 'agent-folder' }),
       groups,
     );
 
@@ -119,7 +119,7 @@ describe('resolveExecutionContext', () => {
         execution_context: {
           conversationJid: 'chat-missing',
           threadId: null,
-          groupScope: 'agent-folder',
+          workspaceKey: 'agent-folder',
         },
         notification_routes: [
           { conversationJid: 'chat-a', threadId: null, label: 'backup' },

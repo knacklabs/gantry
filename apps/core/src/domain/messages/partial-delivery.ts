@@ -14,6 +14,7 @@ type BrandedPartialMessageDeliveryError = Error & {
   totalChunks: number;
   deliveredParts?: number;
   totalParts?: number;
+  provider?: string;
   externalMessageIds?: string[];
   sentPrefix?: string;
   retryTail?: PartialDeliveryRetryTail;
@@ -22,6 +23,7 @@ type BrandedPartialMessageDeliveryError = Error & {
 type PartialMessageDeliveryMetadata = {
   deliveredParts?: number;
   totalParts?: number;
+  provider?: string;
   externalMessageIds?: string[];
   sentPrefix?: string;
   retryTail?: PartialDeliveryRetryTail;
@@ -78,6 +80,7 @@ export function getPartialMessageDeliveryMetadata(
   const candidate = err as {
     deliveredParts?: unknown;
     totalParts?: unknown;
+    provider?: unknown;
     externalMessageIds?: unknown;
     sentPrefix?: unknown;
     retryTail?: unknown;
@@ -92,6 +95,10 @@ export function getPartialMessageDeliveryMetadata(
     (candidate.totalParts as number) > 0
       ? (candidate.totalParts as number)
       : err.totalChunks;
+  const provider =
+    typeof candidate.provider === 'string' && candidate.provider.trim()
+      ? candidate.provider.trim()
+      : undefined;
   const externalMessageIds = Array.isArray(candidate.externalMessageIds)
     ? candidate.externalMessageIds.filter(
         (value): value is string =>
@@ -104,6 +111,7 @@ export function getPartialMessageDeliveryMetadata(
   return {
     deliveredParts,
     totalParts,
+    ...(provider !== undefined ? { provider } : {}),
     ...(externalMessageIds && externalMessageIds.length > 0
       ? { externalMessageIds }
       : {}),

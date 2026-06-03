@@ -9,6 +9,11 @@ const AGENT_EGRESS_NO_PROXY_HOSTS = [
   'objects.githubusercontent.com',
   'codeload.github.com',
 ] as const;
+const AGENT_EGRESS_LOOPBACK_NO_PROXY_HOSTS = [
+  '127.0.0.1',
+  'localhost',
+  '::1',
+] as const;
 
 function splitNoProxy(value: string | undefined): string[] {
   if (!value) return [];
@@ -42,8 +47,28 @@ export function mergeAgentEgressNoProxy(
 
 export function applyAgentEgressNoProxyEnv(
   env: Record<string, string | undefined>,
+  options: { externalBypass?: boolean } = {},
 ): void {
-  const merged = mergeAgentEgressNoProxy(env.NO_PROXY, env.no_proxy);
+  const values = [env.NO_PROXY, env.no_proxy];
+  const merged =
+    options.externalBypass === false
+      ? mergeNoProxyHosts(
+          values.map((value) =>
+            splitNoProxy(value).filter(isLoopbackNoProxy).join(','),
+          ),
+          AGENT_EGRESS_LOOPBACK_NO_PROXY_HOSTS,
+        )
+      : mergeAgentEgressNoProxy(...values);
   env.NO_PROXY = merged;
   env.no_proxy = merged;
+}
+
+function isLoopbackNoProxy(host: string): boolean {
+  const value = host.toLowerCase();
+  return (
+    value === '127.0.0.1' ||
+    value === 'localhost' ||
+    value === '::1' ||
+    value === '[::1]'
+  );
 }

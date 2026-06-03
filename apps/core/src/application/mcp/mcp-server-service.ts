@@ -23,11 +23,14 @@ import { ApplicationError } from '../common/application-error.js';
 import {
   RemoteMcpDnsValidationCache,
   assertRemoteMcpDestinationPublic,
+  normalizeAgentMcpToolScope,
   normalizeCredentialRefs,
+  normalizeMcpNetworkHosts,
   validateCredentialRefs,
   validateTransportConfig,
 } from './mcp-server-policy.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
+import { reviewedMcpToolPatterns } from '../../shared/mcp-tool-scope.js';
 import {
   materializeMcpRecord,
   type MaterializedMcpCapability,
@@ -43,8 +46,8 @@ export class McpServerService {
     private readonly options: {
       lookupHostname?: HostnameLookup;
       dnsValidationCache?: RemoteMcpDnsValidationCache;
+      dnsLookupTimeoutMs?: number;
       auditMaterialization?: boolean;
-      allowRemoteHttpProjection?: boolean;
     } = {},
   ) {}
 
@@ -60,6 +63,7 @@ export class McpServerService {
     allowedToolPatterns?: string[];
     autoApproveToolPatterns?: string[];
     credentialRefs?: McpCredentialRef[];
+    networkHosts?: string[];
     sandboxProfileId?: string;
     riskClass?: McpServerDefinition['riskClass'];
   }): Promise<McpServerDefinition> {
@@ -67,6 +71,11 @@ export class McpServerService {
     assertValidMcpServerName(name);
     validateTransportConfig(input.transportConfig, {
       sandboxProfileId: input.sandboxProfileId,
+    });
+    const networkHosts = normalizeMcpNetworkHosts({
+      serverName: name,
+      networkHosts: input.networkHosts,
+      config: input.transportConfig,
     });
     assertNoRawSecretsInMcpConfig(input.transportConfig);
     validateCredentialRefs(input.credentialRefs ?? []);
@@ -77,7 +86,10 @@ export class McpServerService {
     await assertRemoteMcpDestinationPublic(
       input.transportConfig,
       this.options.lookupHostname,
-      { cache: this.options.dnsValidationCache },
+      {
+        cache: this.options.dnsValidationCache,
+        lookupTimeoutMs: this.options.dnsLookupTimeoutMs,
+      },
     );
 
     const existing = await this.mcpServers.getServerByName({
@@ -110,6 +122,7 @@ export class McpServerService {
       allowedToolPatterns: input.allowedToolPatterns ?? [],
       autoApproveToolPatterns: input.autoApproveToolPatterns ?? [],
       credentialRefs: normalizeCredentialRefs(input.credentialRefs ?? []),
+      networkHosts,
       sandboxProfileId: input.sandboxProfileId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -196,7 +209,10 @@ export class McpServerService {
     await assertRemoteMcpDestinationPublic(
       server.config,
       this.options.lookupHostname,
-      { cache: this.options.dnsValidationCache },
+      {
+        cache: this.options.dnsValidationCache,
+        lookupTimeoutMs: this.options.dnsLookupTimeoutMs,
+      },
     );
     assertNoRawSecretsInMcpConfig(server.config);
     validateCredentialRefs(server.credentialRefs);
@@ -220,6 +236,7 @@ export class McpServerService {
     serverId: McpServerId;
     required?: boolean;
     permissionPolicyIds?: PermissionPolicyId[];
+    allowedToolPatterns?: string[];
   }): Promise<AgentMcpServerBinding> {
     await this.assertAgentInApp(input.appId, input.agentId);
     const server = await this.requireServer(input.appId, input.serverId);
@@ -243,6 +260,12 @@ export class McpServerService {
         `MCP server changed before binding completed: ${input.serverId}`,
       );
     }
+    const allowedToolPatterns = normalizeAgentMcpToolScope({
+      serverName: latestServer.name,
+      requested:
+        input.allowedToolPatterns ?? existingBinding?.allowedToolPatterns,
+      definitionPatterns: reviewedMcpToolPatterns(latestServer),
+    });
     const now = nowIso();
     const binding: AgentMcpServerBinding = {
       id: `agent-mcp-binding:${input.agentId}:${input.serverId}` as AgentMcpServerBinding['id'],
@@ -253,6 +276,7 @@ export class McpServerService {
       required: input.required ?? existingBinding?.required ?? false,
       permissionPolicyIds:
         input.permissionPolicyIds ?? existingBinding?.permissionPolicyIds ?? [],
+      allowedToolPatterns,
       createdAt: existingBinding?.createdAt ?? now,
       updatedAt: now,
     };
@@ -443,11 +467,12 @@ export class McpServerService {
     await assertRemoteMcpDestinationPublic(
       record.definition.config,
       this.options.lookupHostname,
-      { cache: this.options.dnsValidationCache },
+      {
+        cache: this.options.dnsValidationCache,
+        lookupTimeoutMs: this.options.dnsLookupTimeoutMs,
+      },
     );
-    return materializeMcpRecord(record, credentialEnv, {
-      allowRemoteHttpProjection: this.options.allowRemoteHttpProjection,
-    });
+    return materializeMcpRecord(record, credentialEnv);
   }
 
   async requireServer(

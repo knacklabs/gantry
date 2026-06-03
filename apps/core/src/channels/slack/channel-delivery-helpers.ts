@@ -1,5 +1,4 @@
 import { App } from '@slack/bolt';
-
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
@@ -253,6 +252,7 @@ export async function sendSlackMessage(input: {
           totalChunks: parts.length,
         });
         Object.assign(partial, {
+          provider: 'slack',
           deliveredParts,
           totalParts: parts.length,
           externalMessageIds,
@@ -368,6 +368,7 @@ export async function sendSlackFallbackStreamParts(input: {
           totalChunks,
         });
         Object.assign(partial, {
+          provider: 'slack',
           deliveredParts,
           totalParts: totalChunks,
           ...(externalMessageIds[0]

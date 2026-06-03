@@ -18,7 +18,7 @@ import {
   SETUP_REQUIRED_PAUSE_REASON,
   type JobReadinessBrowserStatus,
 } from './job-readiness-service.js';
-import { agentIdForJobGroupScope } from './job-tool-policy.js';
+import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { nowIso } from '../../shared/time/datetime.js';
 
 export interface RecheckPausedJobsAfterCapabilityUpdateInput {
@@ -77,7 +77,7 @@ export async function recheckSetupPausedJobsAfterCapabilityUpdate(
     const readiness = await evaluateJobReadiness({
       job,
       appId: input.appId,
-      agentId: agentIdForJobGroupScope(input.sourceAgentFolder),
+      agentId: agentIdForJobWorkspaceKey(input.sourceAgentFolder),
       toolRepository: input.toolRepository,
       skillRepository: input.skillRepository,
       mcpServerRepository: input.mcpServerRepository,
@@ -138,7 +138,7 @@ async function listCandidateJobs(
   }
   const filters: JobListFilters = {
     statuses: ['paused'],
-    groupScope: input.sourceAgentFolder,
+    workspaceKey: input.sourceAgentFolder,
     limit: 100,
   };
   if (input.conversationJid) filters.conversationJid = input.conversationJid;
@@ -149,11 +149,11 @@ function jobMatchesCapabilityRecoveryScope(
   job: Job,
   input: RecheckPausedJobsAfterCapabilityUpdateInput,
 ): boolean {
-  if (job.group_scope !== input.sourceAgentFolder) return false;
+  if (job.workspace_key !== input.sourceAgentFolder) return false;
   const executionContext = job.execution_context;
   if (
-    executionContext?.groupScope &&
-    executionContext.groupScope !== input.sourceAgentFolder
+    executionContext?.workspaceKey &&
+    executionContext.workspaceKey !== input.sourceAgentFolder
   ) {
     return false;
   }

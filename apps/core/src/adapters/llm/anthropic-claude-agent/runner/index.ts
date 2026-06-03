@@ -46,7 +46,7 @@ const AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS = [
   'Autonomous tool contract:',
   '- Use only the durable tool rules listed below for this autonomous run.',
   '- Tool Access Requirements are access preflight checks only. They do not require using every listed tool in the final report.',
-  '- If a required access rule is no longer needed for this job, use scheduler_update_job to remove it from tool_access_requirements.',
+  '- If a required access rule is no longer needed for this job, use scheduler_update_job to remove it from access_requirements.',
   '- For scoped RunCommand rules, invoke the matching command directly as its own Bash command leaf. Do not wrap it in python -c, node -e, sh -c, bash -c, eval, or another generated script.',
   '- If a scoped RunCommand rule ends with *, pass data as ordinary command arguments to that reviewed command. Do not create a separate wrapper command.',
   '- If no durable rule covers the action you need, stop and explain the missing reviewed capability in the final report.',
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     agentInput = JSON.parse(stdinData) as AgentRunnerInput;
-    log(`Received input for group: ${agentInput.groupFolder}`);
+    log(`Received input for group: ${agentInput.workspaceFolder}`);
   } catch (err) {
     writeOutput({
       status: 'error',

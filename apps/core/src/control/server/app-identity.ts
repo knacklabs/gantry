@@ -102,7 +102,7 @@ export function mapManualJobToStored(
   const modelUseKind = modelUseKindForJobSchedule(job.schedule_type);
   const defaultConfig = options.getDefaultModelConfig?.(
     modelUseKind,
-    job.group_scope,
+    job.workspace_key,
   ) ?? {
     model: job.model ?? undefined,
     source: job.model ? 'job.model' : 'inherited',
@@ -132,15 +132,18 @@ export function mapManualJobToStored(
             type: job.schedule_type,
             value: job.schedule_value,
           },
-    executionContext: metadata.executionContext,
+    executionContext: {
+      conversationJid: metadata.executionContext.conversationJid,
+      threadId: metadata.executionContext.threadId,
+      workspaceKey: metadata.executionContext.workspaceKey,
+      sessionId: metadata.executionContext.sessionId,
+    },
     notificationRoutes: metadata.notificationRoutes,
     ownerLabel: metadata.ownerLabel,
     deliveryLabel: metadata.deliveryLabel,
     setupLabel: metadata.setupLabel,
     nextActionLabel: metadata.nextActionLabel,
-    capabilityRequirements: job.capability_requirements ?? [],
-    toolAccessRequirements: job.tool_access_requirements ?? [],
-    requiredMcpServers: job.required_mcp_servers ?? [],
+    accessRequirements: job.access_requirements ?? [],
     setup: metadata.setup,
     recovery: metadata.recovery,
     nextRun: job.next_run,
@@ -166,9 +169,17 @@ export function mapManualJobToStored(
           cachePolicy: resolvedModel.entry.cacheMode,
         }
       : null,
-    groupScope: job.group_scope,
+    workspaceKey: job.workspace_key,
     sessionId: job.session_id,
-    target: metadata.target,
+    target: metadata.target
+      ? {
+          appId: metadata.target.appId,
+          agentId: metadata.target.agentId,
+          workspaceKey: metadata.target.workspaceKey,
+          conversationJids: metadata.target.conversationJids,
+          threadId: metadata.target.threadId,
+        }
+      : undefined,
     toolAccess: metadata.toolAccess,
     ...(detail
       ? {

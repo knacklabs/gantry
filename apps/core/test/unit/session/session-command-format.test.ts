@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { formatMemoryStatus } from '@core/session/session-command-format.js';
 
 describe('formatMemoryStatus', () => {
-  it('reports the current retrieval and embedding behavior explicitly', () => {
+  it('reports the simple operator memory status', () => {
     const text = formatMemoryStatus({
       items_by_kind: { reference: 1, fact: 2 },
       items_by_scope: { group: 2, common: 1 },
@@ -26,18 +26,32 @@ describe('formatMemoryStatus', () => {
       },
     });
 
-    expect(text).toContain('kinds: fact:2, reference:1');
-    expect(text).toContain('scopes: common:1, group:2');
-    expect(text).toContain(
-      'sample: latest 100 active memories; counts/top/stale are from this sample',
+    expect(text).toBe(
+      [
+        'Memory: Needs review',
+        'Last dream: never',
+        'Review queue: 1',
+        'Injected this run: 1',
+      ].join('\n'),
     );
-    expect(text).toContain('retrieval: lexical_keyword');
-    expect(text).toContain('embeddings: configured');
-    expect(text).toContain('vector_search: inactive');
-    expect(text).toContain('pipeline: staged:3, promoted:2, needs_review:1');
-    expect(text).toContain(
-      'last_injected_block: channel:team, 4096 bytes, at 2026-05-08T00:00:00.000Z',
+  });
+
+  it('reports disabled memory explicitly', () => {
+    const text = formatMemoryStatus({
+      memory_enabled: false,
+      items_by_kind: {},
+      items_by_scope: {},
+      top10_most_used: [],
+      top10_stalest: [],
+    });
+
+    expect(text).toBe(
+      [
+        'Memory: Disabled',
+        'Last dream: never',
+        'Review queue: 0',
+        'Injected this run: 0',
+      ].join('\n'),
     );
-    expect(text).toContain('top_used: fact:key(12)');
   });
 });

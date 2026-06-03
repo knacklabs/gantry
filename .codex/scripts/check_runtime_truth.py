@@ -84,9 +84,32 @@ REQUIRED_CAPABILITY_TOOL_NAMES = [
     "request_skill_proposal",
     "request_skill_dependency_install",
     "request_mcp_server",
-    "request_permission",
+    "request_access",
     "service_restart",
     "register_agent",
+]
+
+STALE_CAPABILITY_TOOL_NAMES = [
+    "request_permission",
+    "capability_search",
+    "request_capability",
+    "propose_local_cli_capability",
+    "target.kind=tool",
+    "target.kind=provider_capability",
+    "target.kind=propose",
+]
+
+GANTRY_ADMIN_SKILL = REPO_ROOT / ".claude" / "skills" / "gantry-admin" / "SKILL.md"
+
+REQUIRED_GANTRY_ADMIN_FRAGMENTS = [
+    "## Permission Management",
+    "## Proactive Actions",
+    "admin_permission_list",
+    "admin_permission_revoke",
+    "settings_desired_state",
+    "request_settings_update",
+    "scheduler_upsert_job",
+    "gantry credentials model set",
 ]
 
 
@@ -124,6 +147,27 @@ def _check_capability_docs() -> list[str]:
                 failures.append(
                     f"{doc.relative_to(REPO_ROOT)} missing capability request tool `{tool_name}`"
                 )
+        for stale in STALE_CAPABILITY_TOOL_NAMES:
+            if stale in text:
+                failures.append(
+                    f"{doc.relative_to(REPO_ROOT)} references stale capability surface `{stale}`"
+                )
+    return failures
+
+
+def _check_gantry_admin_playbook() -> list[str]:
+    failures: list[str] = []
+    if not GANTRY_ADMIN_SKILL.exists():
+        failures.append(
+            f"Missing required file: {GANTRY_ADMIN_SKILL.relative_to(REPO_ROOT)}"
+        )
+        return failures
+    text = GANTRY_ADMIN_SKILL.read_text(encoding="utf-8")
+    for fragment in REQUIRED_GANTRY_ADMIN_FRAGMENTS:
+        if fragment not in text:
+            failures.append(
+                f"{GANTRY_ADMIN_SKILL.relative_to(REPO_ROOT)} missing self-management fragment `{fragment}`"
+            )
     return failures
 
 
@@ -204,6 +248,7 @@ def main() -> int:
     failures.extend(_check_bundled_skill_claims())
     failures.extend(_check_runtime_settings_renderer())
     failures.extend(_check_capability_docs())
+    failures.extend(_check_gantry_admin_playbook())
 
     if failures:
         print("Runtime truth checks failed:")

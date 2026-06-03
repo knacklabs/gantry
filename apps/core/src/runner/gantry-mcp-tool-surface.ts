@@ -17,11 +17,7 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'request_skill_proposal',
   'request_skill_dependency_install',
   'request_mcp_server',
-  'request_permission',
-  'capability_status',
-  'capability_search',
-  'propose_capability',
-  'manage_capability',
+  'request_access',
   'file',
   'mcp_list_tools',
   'mcp_call_tool',
@@ -81,7 +77,9 @@ export const ALL_GANTRY_MCP_TOOL_NAMES = [
 
 const ALL_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(ALL_GANTRY_MCP_TOOL_NAMES);
 
-export type GantryMcpToolSelectionOptions = MemoryIpcActionSelectionOptions;
+export type GantryMcpToolSelectionOptions = MemoryIpcActionSelectionOptions & {
+  suppressRequestPermission?: boolean;
+};
 
 export function gantryMcpFullToolName(toolName: string): string {
   return `mcp__gantry__${toolName}`;
@@ -99,6 +97,7 @@ export function selectedGantryMcpToolNames(
   options: GantryMcpToolSelectionOptions = {},
 ): string[] {
   const names = new Set<string>(DEFAULT_GANTRY_MCP_TOOL_NAMES);
+  if (options.suppressRequestPermission) names.delete('request_permission');
   if (isBrowserSelected(configuredTools)) {
     for (const toolName of GATED_GANTRY_MCP_TOOL_NAMES) names.add(toolName);
   }
@@ -111,6 +110,7 @@ export function selectedGantryMcpToolNames(
     const name = gantryMcpToolNameFromFullName(configuredTool);
     if (
       name &&
+      !(options.suppressRequestPermission && name === 'request_permission') &&
       !(GATED_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(name)
     ) {
       names.add(name);

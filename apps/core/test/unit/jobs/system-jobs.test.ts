@@ -10,7 +10,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     schedule_value: '* * * * *',
     status: 'active',
     session_id: null,
-    group_scope: 'agent',
+    workspace_key: 'agent',
     created_by: 'agent',
     created_at: '2026-05-08T00:00:00.000Z',
     updated_at: '2026-05-08T00:00:00.000Z',
@@ -105,13 +105,13 @@ describe('system memory dreaming jobs', () => {
       {
         conversationJid: 'sl:C123',
         threadId: null,
-        groupScope: 'agent-a',
+        workspaceKey: 'agent-a',
         sessionId: null,
       },
       {
         conversationJid: 'sl:D123',
         threadId: null,
-        groupScope: 'agent-a',
+        workspaceKey: 'agent-a',
         sessionId: null,
       },
     ]);
@@ -133,7 +133,7 @@ describe('system memory dreaming jobs', () => {
         },
       ],
     ]);
-    expect(upsertJob.mock.calls.map((call) => call[0].group_scope)).toEqual([
+    expect(upsertJob.mock.calls.map((call) => call[0].workspace_key)).toEqual([
       'agent-a',
       'agent-a',
     ]);

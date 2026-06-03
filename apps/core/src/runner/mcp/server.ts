@@ -10,6 +10,7 @@ import {
   ADMIN_MCP_TOOL_NAMES,
   isAdminMcpToolName,
 } from '../../shared/admin-mcp-tools.js';
+import { formatOperatorError } from '../../shared/operator-error.js';
 
 type McpToolRegistrar = {
   tool: (name: string, ...args: unknown[]) => unknown;
@@ -44,7 +45,12 @@ export function assertRegisteredMcpToolHandlers(input: {
   if (missingHandlers.length === 0) return;
 
   throw new Error(
-    `Missing MCP tool handlers for enabled tools: ${missingHandlers.join(', ')}`,
+    formatOperatorError({
+      summary: `Gantry could not start because ${missingHandlers[0]} is registered without a handler.`,
+      cause: 'MCP tool registry mismatch',
+      recover:
+        'remove the tool registration or add its handler before starting Gantry.',
+    }),
   );
 }
 

@@ -32,8 +32,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
   },
 }));
 
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn(
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: vi.fn(
     (folder: string) => `/tmp/test-groups/${folder}`,
   ),
 }));
@@ -114,6 +114,10 @@ vi.mock('@slack/bolt', () => ({
 }));
 
 import { createSlackChannel, SlackChannel } from '@core/channels/slack.js';
+import {
+  buildPermissionPromptContentBlocks,
+  buildPermissionReceiptBlocks,
+} from '@core/channels/slack/permission-blocks.js';
 
 function createOpts(
   controlAllowlist = {
@@ -174,6 +178,11 @@ function createOptsWithApproverHook(
       allowedUsers.includes(input.userId),
     ),
   };
+}
+
+async function flushSlackPromptRegistration(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe('Slack channel', () => {
@@ -957,13 +966,14 @@ describe('Slack channel', () => {
         },
       },
     );
+    await flushSlackPromptRegistration();
 
     const postCall = vi
       .mocked(appRef.current.client.chat.postMessage)
       .mock.calls.at(-1)?.[0];
     expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(postCall?.text).toContain(
-      'Route: shown in this Slack thread; approval applies to the parent conversation.',
+      'Approval applies to the parent conversation.',
     );
     expect(postCall?.text).toContain('Command:\n```\ngit status --short\n```');
     const actionsBlock = postCall?.blocks?.find(
@@ -982,13 +992,38 @@ describe('Slack channel', () => {
       ack: vi.fn().mockResolvedValue(undefined),
       body: { user: { id: 'U_APPROVER', name: 'Approver' } },
       action: {
-        value: JSON.stringify({ requestId: 'perm-cmd', decision: 'approve' }),
+        value: JSON.stringify({
+          requestId: 'perm-cmd',
+          decision: 'allow_once',
+        }),
       },
     });
 
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({ approved: true }),
     );
+  });
+
+  it('escapes permission metadata before rendering Slack mrkdwn blocks', () => {
+    const blocks = buildPermissionPromptContentBlocks({
+      title: 'Allow command?',
+      bodyLines: [],
+      contextLines: ['agent <@U123> & ops · scheduled job: <deploy>'],
+      replyInMinutes: 5,
+    });
+    const contextBlock = blocks.find((block: any) => block.type === 'context');
+    expect((contextBlock as any).elements[0].text).toBe(
+      'agent &lt;@U123&gt; &amp; ops · scheduled job: &lt;deploy&gt;\nReply in 5m',
+    );
+
+    expect(buildPermissionReceiptBlocks('Allowed by <@U123> & ops')).toEqual([
+      {
+        type: 'context',
+        elements: [
+          { type: 'mrkdwn', text: 'Allowed by &lt;@U123&gt; &amp; ops' },
+        ],
+      },
+    ]);
   });
 
   it('denies same-channel Slack permission decisions when no approver IDs are configured', async () => {
@@ -1008,6 +1043,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1021,7 +1057,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-no-approver',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1056,6 +1092,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1069,7 +1106,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-origin-feedback',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1105,6 +1142,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1118,7 +1156,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-channel-allowlist',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1155,6 +1193,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1168,7 +1207,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-container-channel',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1206,6 +1245,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1218,7 +1258,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-missing-channel',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1260,6 +1300,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1270,7 +1311,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-agent-scope',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1307,6 +1348,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
     currentControlAllowlist.current = { default: [], agents: {} };
 
     const actionHandler = appRef.current.actionHandlers.get(
@@ -1318,7 +1360,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-revoked',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1361,13 +1403,16 @@ describe('Slack channel', () => {
         },
       ],
     });
+    await flushSlackPromptRegistration();
 
     const postCall = vi
       .mocked(appRef.current.client.chat.postMessage)
       .mock.calls.at(-1)?.[0];
     expect(postCall?.thread_ts).toBe('1711111111.000200');
-    expect(postCall?.text).toContain('Source: slack_main');
-    expect(postCall?.text).toContain('Thread: 1711111111.000200');
+    expect(postCall?.text).toContain('*Pick one*');
+    expect(postCall?.text).toContain('Preferred option?');
+    expect(postCall?.text).not.toContain('Source: slack_main');
+    expect(postCall?.text).not.toContain('Thread: 1711111111.000200');
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_userq_select',
@@ -1419,6 +1464,7 @@ describe('Slack channel', () => {
         },
       ],
     });
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_userq_select',
@@ -1492,6 +1538,7 @@ describe('Slack channel', () => {
         },
       ],
     });
+    await flushSlackPromptRegistration();
 
     const selectHandler = appRef.current.actionHandlers.get(
       'gantry_userq_select',
@@ -1602,7 +1649,7 @@ describe('Slack channel', () => {
       ],
     });
 
-    await Promise.resolve();
+    await flushSlackPromptRegistration();
     await channel.disconnect();
     await expect(answerPromise).resolves.toEqual(
       expect.objectContaining({ answers: {} }),
@@ -2335,6 +2382,7 @@ describe('Slack channel', () => {
         toolName: 'shell',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -2344,7 +2392,10 @@ describe('Slack channel', () => {
       ack: vi.fn().mockResolvedValue(undefined),
       body: { user: { id: 'U_APPROVER', name: 'Approver' } },
       action: {
-        value: JSON.stringify({ requestId: 'req-1', decision: 'approve' }),
+        value: JSON.stringify({
+          requestId: 'req-1',
+          decision: 'allow_once',
+        }),
       },
     });
 

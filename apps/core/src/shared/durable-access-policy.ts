@@ -3,6 +3,7 @@ import {
   isGantryMcpWildcardRule,
 } from './admin-mcp-tools.js';
 import {
+  type BashCommandLeaf,
   nonDurableBashLeafReason,
   parseBashCommand,
   wildcardSensitiveBashLeafReason,
@@ -26,18 +27,43 @@ import {
   redactSensitiveText,
 } from './sensitive-material.js';
 
-export const PERSISTENT_REQUEST_PERMISSION_RULE_REJECTION_REASON =
-  'Persistent request_permission approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin tools; use propose_capability for semantic app/tool access.';
+/**
+ * Single source of truth for "may this access rule be stored/granted durably".
+ *
+ * This is the durable-decision validator shared by request review, the
+ * persistent permission write path, settings reconcile, job preflight, and job
+ * access requirement validation. It is NOT the runtime allow/deny decision
+ * interface — that remains `ToolExecutionPolicyService.evaluate()`.
+ *
+ * The accept-set is the reconciliation of the previous three divergent
+ * validators (persistent request permission rules, job tool access
+ * requirements, and settings reconcile shape check):
+ *   - projected semantic capabilities `capability:<id>`
+ *   - canonical Browser
+ *   - exact Gantry facade file/web tools
+ *   - exact Gantry admin MCP tools (the closed admin allowlist)
+ *   - scoped `RunCommand(...)` with the bash-parser durable safety rejections
+ * Gantry MCP wildcards and generated runtime skill paths are rejected.
+ */
 
-export function validatePersistentRequestPermissionRule(
+export const DURABLE_ACCESS_RULE_REJECTION_REASON =
+  'Persistent access approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin tools; use request_access with target.kind=capability for reviewed semantic app/tool access.';
+
+export interface DurableAccessRuleOptions {
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
+  /**
+   * When true, a `capability:<id>` rule whose definition is not (yet) known is
+   * accepted. Used by job access requirements, which are setup/preflight
+   * assertions and may reference capabilities that are not currently
+   * registered. The persistent write path keeps this false so durable grants
+   * always bind to a reviewed definition.
+   */
+  allowUnknownSemanticCapability?: boolean;
+}
+
+export function validateDurableAccessRule(
   rule: string,
-  options: {
-    semanticCapabilityDefinitions?: Record<
-      string,
-      SemanticCapabilityDefinition
-    >;
-    allowUnknownSemanticCapability?: boolean;
-  } = {},
+  options: DurableAccessRuleOptions = {},
 ): { ok: true } | { ok: false; reason: string } {
   const trimmed = rule.trim();
   if (isGantryMcpWildcardRule(trimmed)) {
@@ -97,7 +123,16 @@ export function validatePersistentRequestPermissionRule(
     if (wildcardSensitiveReason) {
       return { ok: false, reason: wildcardSensitiveReason };
     }
-    const secretReason = persistentBashSecretReason(scoped.scope);
+    const broadCommandReason = parsed.leaves
+      .map(broadPersistentRunCommandReason)
+      .find((reason): reason is string => Boolean(reason));
+    if (broadCommandReason) {
+      return {
+        ok: false,
+        reason: `Persistent RunCommand rules require a concrete command prefix before wildcard fallback (${broadCommandReason}); use Allow once or a reviewed semantic capability.`,
+      };
+    }
+    const secretReason = durableBashSecretReason(scoped.scope);
     if (secretReason) {
       return {
         ok: false,
@@ -125,18 +160,18 @@ export function validatePersistentRequestPermissionRule(
 
   return {
     ok: false,
-    reason: PERSISTENT_REQUEST_PERMISSION_RULE_REJECTION_REASON,
+    reason: DURABLE_ACCESS_RULE_REJECTION_REASON,
   };
 }
 
-export function isPersistentRequestPermissionRuleAllowed(
+export function isDurableAccessRuleAllowed(
   rule: string,
-  options?: Parameters<typeof validatePersistentRequestPermissionRule>[1],
+  options?: DurableAccessRuleOptions,
 ): boolean {
-  return validatePersistentRequestPermissionRule(rule, options).ok;
+  return validateDurableAccessRule(rule, options).ok;
 }
 
-export function formatPersistentPermissionRulesForUser(
+export function formatDurableAccessRulesForUser(
   rules: readonly string[],
   options: {
     semanticCapabilityDefinitions?: Record<
@@ -146,19 +181,19 @@ export function formatPersistentPermissionRulesForUser(
   } = {},
 ): string {
   return rules
-    .map((rule) => formatPersistentPermissionRuleForUser(rule, options))
+    .map((rule) => formatDurableAccessRuleForUser(rule, options))
     .join(', ');
 }
 
-export function formatPersistentPermissionRuleForEvent(rule: string): string {
-  return formatPersistentPermissionRuleForUser(rule);
+export function formatDurableAccessRuleForEvent(rule: string): string {
+  return formatDurableAccessRuleForUser(rule);
 }
 
-export function persistentPermissionRuleAuditPreview(rule: string): string {
-  return formatPersistentPermissionRuleForUser(rule);
+export function durableAccessRuleAuditPreview(rule: string): string {
+  return formatDurableAccessRuleForUser(rule);
 }
 
-function formatPersistentPermissionRuleForUser(
+function formatDurableAccessRuleForUser(
   rule: string,
   options: {
     semanticCapabilityDefinitions?: Record<
@@ -170,7 +205,7 @@ function formatPersistentPermissionRuleForUser(
   const trimmed = rule.trim();
   const scoped = parseReadableScopedToolRule(trimmed);
   if (scoped?.toolName === RUN_COMMAND_TOOL_NAME) {
-    return `matching command access`;
+    return `matching command access (${truncate(redactSensitiveText(scoped.scope), 120)})`;
   }
   const capabilityId = parseSemanticCapabilityRule(trimmed);
   if (capabilityId) {
@@ -185,13 +220,22 @@ function formatPersistentPermissionRuleForUser(
   return truncate(redactSensitiveText(trimmed), 160);
 }
 
-function persistentBashSecretReason(scope: string): string | null {
+function durableBashSecretReason(scope: string): string | null {
   const redacted = redactSensitiveText(scope);
   if (redacted !== scope) return 'redaction_required';
   return (
     classifySensitiveMemoryMaterial(scope) ??
     detectPotentialUnredactedSecret(scope)
   );
+}
+
+function broadPersistentRunCommandReason(leaf: BashCommandLeaf): string | null {
+  const executable = leaf.argv[0];
+  const firstArg = leaf.argv[1];
+  if (!executable) return 'missing executable';
+  if (!firstArg) return `${executable} has no concrete command argument`;
+  if (firstArg === '*') return `${executable} starts with a wildcard argument`;
+  return null;
 }
 
 function truncate(value: string, maxLen: number): string {

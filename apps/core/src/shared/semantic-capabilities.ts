@@ -5,6 +5,7 @@ import {
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
 } from './agent-tool-references.js';
+import { parseDeclaredNetworkHost } from './network-host-declaration.js';
 import {
   isValidSemanticCapabilityId,
   parseSemanticCapabilityRule,
@@ -74,8 +75,8 @@ const LOCAL_CLI_MISSING_BINDING_REASON =
   'Local CLI capabilities require a local_cli implementation binding.';
 const LOCAL_CLI_BINDING_SOURCE_REASON =
   'Local CLI bindings require credentialSource local_cli.';
-const LOCAL_CLI_NETWORK_HOSTS_REASON =
-  'networkHosts are only supported for local_cli capabilities.';
+const NETWORK_HOSTS_SOURCE_REASON =
+  'networkHosts are only supported for local_cli or skill action capabilities.';
 const LOCAL_CLI_PROTECTED_PATHS_REASON =
   'protectedPaths are only supported for local_cli capabilities.';
 
@@ -209,17 +210,32 @@ export function validateSemanticCapabilityDefinition(
   const hasLocalCliBinding = capability.implementationBindings.some(
     (binding) => binding.kind === 'local_cli',
   );
+  const hasNetworkHosts = (capability.networkHosts ?? []).some((host) =>
+    host.trim(),
+  );
+  const isSkillAction = isSkillActionCapability(capability);
   if (capability.credentialSource === 'local_cli' && !hasLocalCliBinding) {
     return { ok: false, reason: LOCAL_CLI_MISSING_BINDING_REASON };
   }
   if (capability.credentialSource !== 'local_cli') {
     if (hasLocalCliBinding)
       return { ok: false, reason: LOCAL_CLI_BINDING_SOURCE_REASON };
-    if ((capability.networkHosts ?? []).some((host) => host.trim())) {
-      return { ok: false, reason: LOCAL_CLI_NETWORK_HOSTS_REASON };
+    // Skill action capabilities (credentialSource skill_secret) may declare
+    // networkHosts; validate proposals with the same parser as manifests.
+    if (
+      hasNetworkHosts &&
+      (capability.credentialSource !== 'skill_secret' || !isSkillAction)
+    ) {
+      return { ok: false, reason: NETWORK_HOSTS_SOURCE_REASON };
     }
     if ((capability.protectedPaths ?? []).some((item) => item.trim())) {
       return { ok: false, reason: LOCAL_CLI_PROTECTED_PATHS_REASON };
+    }
+  }
+  for (const host of capability.networkHosts ?? []) {
+    const validation = parseDeclaredNetworkHost(host);
+    if (!validation.ok) {
+      return { ok: false, reason: `networkHosts ${validation.reason}` };
     }
   }
   for (const binding of capability.implementationBindings) {
@@ -245,6 +261,18 @@ export function validateSemanticCapabilityDefinition(
     }
   }
   return { ok: true };
+}
+
+function isSkillActionCapability(
+  capability: SemanticCapabilityDefinition,
+): boolean {
+  const source = capability.source;
+  return (
+    Boolean(source) &&
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    (source as { kind?: unknown }).kind === 'skill_action'
+  );
 }
 
 export function buildLocalCliSemanticCapability(input: {

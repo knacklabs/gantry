@@ -69,6 +69,7 @@ export async function handleMcpServerRoutes(
         allowedToolPatterns: parsed.data.allowedToolPatterns,
         autoApproveToolPatterns: parsed.data.autoApproveToolPatterns,
         credentialRefs: parsed.data.credentialRefs,
+        networkHosts: parsed.data.networkHosts,
         sandboxProfileId: parsed.data.sandboxProfileId,
         riskClass: parsed.data.riskClass,
       });
@@ -235,6 +236,7 @@ export async function handleMcpServerRoutes(
         serverId,
         required: parsed.data.required,
         permissionPolicyIds: parsed.data.permissionPolicyIds as never,
+        allowedToolPatterns: parsed.data.allowedToolPatterns,
       });
       await ctx.syncSettingsFromProjection(appId);
       sendJson(res, 200, { binding: bindingToResponse(binding) });

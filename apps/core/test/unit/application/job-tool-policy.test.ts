@@ -31,7 +31,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     status: 'active',
     session_id: null,
     thread_id: null,
-    group_scope: 'team',
+    workspace_key: 'team',
     created_by: 'agent',
     created_at: '2026-05-09T00:00:00.000Z',
     updated_at: '2026-05-09T00:00:00.000Z',
@@ -142,7 +142,7 @@ describe('job tool policy', () => {
         agentId: 'agent:team',
         toolRepository: toolRepositoryFor(['mcp__github__*']),
       }),
-    ).rejects.toThrowError(/request the MCP server capability/);
+    ).rejects.toThrowError(/request a reviewed semantic capability/);
   });
 
   it('rejects stale inherited exact third-party MCP tool rules from agent tool bindings', async () => {

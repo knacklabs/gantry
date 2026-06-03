@@ -16,7 +16,7 @@ const MAX_QUERY_LIMIT = 1_000;
 export interface AuthenticatedJobRouteContext {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
 }
 
 export interface JobNotificationRouteApprovalDecision {
@@ -104,19 +104,19 @@ export function normalizeExecutionContext(
     typeof value.conversationJid === 'string'
       ? value.conversationJid.trim()
       : '';
-  const groupScope =
-    typeof value.groupScope === 'string' ? value.groupScope.trim() : '';
+  const workspaceKey =
+    typeof value.workspaceKey === 'string' ? value.workspaceKey.trim() : '';
   const threadId = normalizeNullableString(value.threadId);
   const sessionId = normalizeNullableOptionalString(value.sessionId);
-  if (!conversationJid || !groupScope || threadId === undefined) {
+  if (!conversationJid || !workspaceKey || threadId === undefined) {
     throw new ApplicationError(
       'INVALID_REQUEST',
-      'executionContext requires conversationJid, groupScope, and threadId.',
+      'executionContext requires conversationJid, workspaceKey, and threadId.',
     );
   }
   return {
     conversationJid,
-    groupScope,
+    workspaceKey,
     threadId,
     ...(value.sessionId !== undefined ? { sessionId } : {}),
   };
@@ -124,7 +124,7 @@ export function normalizeExecutionContext(
 
 export function authenticatedContextFromAccess(
   access: SchedulerJobAccess,
-  groupScope: string,
+  workspaceKey: string,
 ): AuthenticatedJobRouteContext {
   const conversationJid = access.originConversationJid.trim();
   if (!conversationJid) {
@@ -135,7 +135,7 @@ export function authenticatedContextFromAccess(
   }
   return {
     conversationJid,
-    groupScope,
+    workspaceKey,
     threadId: normalizeNullableOptionalString(access.authThreadId) ?? null,
   };
 }
@@ -156,10 +156,10 @@ export function assertExecutionContextMatchesAuthenticatedContext(input: {
       'executionContext conversation must match authenticated conversation.',
     );
   }
-  if (provided.groupScope !== expected.groupScope) {
+  if (provided.workspaceKey !== expected.workspaceKey) {
     throw new ApplicationError(
       'FORBIDDEN',
-      'executionContext groupScope must match authenticated group scope.',
+      'executionContext workspaceKey must match the authenticated workspace key.',
     );
   }
   if (
@@ -282,8 +282,8 @@ export function buildJobUpdates(
     updates.prompt = requireNonEmpty(patch.prompt, 'prompt');
   }
   if (patch.model !== undefined) updates.model = patch.model;
-  if (patch.groupScope !== undefined) {
-    updates.group_scope = requireNonEmpty(patch.groupScope, 'groupScope');
+  if (patch.workspaceKey !== undefined) {
+    updates.workspace_key = requireNonEmpty(patch.workspaceKey, 'workspaceKey');
   }
   if (patch.threadId !== undefined) {
     updates.thread_id = patch.threadId
@@ -301,14 +301,8 @@ export function buildJobUpdates(
     );
     updates.notification_routes = notificationRoutes;
   }
-  if (patch.toolAccessRequirements !== undefined) {
-    updates.tool_access_requirements = patch.toolAccessRequirements;
-  }
-  if (patch.capabilityRequirements !== undefined) {
-    updates.capability_requirements = patch.capabilityRequirements;
-  }
-  if (patch.requiredMcpServers !== undefined) {
-    updates.required_mcp_servers = patch.requiredMcpServers;
+  if (patch.accessRequirements !== undefined) {
+    updates.access_requirements = patch.accessRequirements;
   }
   if (patch.silent !== undefined) updates.silent = patch.silent;
   if (patch.cleanupAfterMs !== undefined)

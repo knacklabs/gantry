@@ -68,7 +68,7 @@ export interface GroupProcessingDeps {
   };
   getGroup: (chatJid: string) => ConversationRoute | undefined;
   clearSession: (
-    groupFolder: string,
+    workspaceFolder: string,
     threadId?: string | null,
     metadata?: {
       conversationJid?: string;
@@ -97,7 +97,7 @@ export interface GroupProcessingDeps {
       groupJid: string,
       proc: ChildProcess,
       runHandle: string,
-      groupFolder?: string,
+      workspaceFolder?: string,
       stopAliasJids?: string | string[],
       threadId?: string | null,
       options?: { requiredContinuationUserId?: string | null },

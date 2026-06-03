@@ -5,6 +5,8 @@ import {
   authorizeControlRequest,
   type ControlRouteContext,
 } from '../handler-context.js';
+import { buildControlPlaneReadModelForRequest } from '../control-plane-request-model.js';
+import type { AppId } from '../../../domain/app/app.js';
 
 export async function handleSystemRoutes(
   req: IncomingMessage,
@@ -12,6 +14,17 @@ export async function handleSystemRoutes(
   ctx: ControlRouteContext,
   pathname: string,
 ): Promise<boolean> {
+  if (pathname === '/v1/status' && req.method === 'GET') {
+    const key = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!key) return true;
+    const model = await buildControlPlaneReadModelForRequest(
+      ctx,
+      key.appId as AppId,
+    );
+    sendJson(res, 200, model);
+    return true;
+  }
+
   if (pathname === '/v1/health' && req.method === 'GET') {
     if (!authorizeControlRequest(req, res, ctx.keys, ['sessions:read'])) {
       return true;

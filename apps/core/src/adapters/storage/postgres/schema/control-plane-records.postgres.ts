@@ -5,7 +5,7 @@ export interface AppSessionRecord {
   appId: string;
   conversationId: string;
   chatJid: string;
-  groupFolder: string;
+  workspaceFolder: string;
   workspaceKey: string;
   title: string | null;
   defaultResponseMode: ControlResponseMode;

@@ -11,17 +11,19 @@ was deciding durable readiness.
 
 ## Decision
 
-Jobs declare `toolAccessRequirements` only. A Tool Access Requirement is a
-preflight access requirement inherited from the target agent capability set. If
-any requirement is missing, setup pauses with one clear recovery action. A
-successful run is not checked afterward for whether every requirement was used.
+Jobs declare `accessRequirements` only. An Access Requirement is a preflight
+readiness assertion inherited from the target agent capability set. It can name
+a reviewed capability id, a selected MCP source, or a scoped `RunCommand(...)`
+fallback. If any requirement is missing, setup pauses with one clear recovery
+action. A successful run is not checked afterward for whether every requirement
+was used.
 
 A Transient Approval is run-local permission such as `Allow once`. The
 `Allow 5 min` timed grant is also transient and appears only for live
 interactive SDK prompts.
 
 A Persistent Grant is durable selected authority for future runs, such as
-`Browser`, `FileRead`, `WebRead`, `capability:<id>`, an exact
+`browser.use`, `FileRead`, `WebRead`, `capability:<id>`, an exact
 `mcp__gantry__<admin_tool>`, or a scoped `RunCommand(...)` rule. Setup,
 scheduler, admin, and capability flows show only `Allow once`, `Always allow`,
 and `Cancel` where applicable.
@@ -37,11 +39,11 @@ agent's grant.
 | --- | --- | --- |
 | Runtime behavior | Changed | Scheduler preflight pauses missing access and no longer performs post-run must-use checks. |
 | `settings.yaml` | Changed | Persistent revoke mirrors removal of readable agent tool rules. |
-| Postgres/runtime projection | Changed | Job target metadata migrates `requiredTools` to `toolAccessRequirements`. |
-| Control API | Changed | Job create/update accepts `toolAccessRequirements` and rejects old `requiredTools` inputs. |
-| SDK/contracts | Changed | Public job shape uses `toolAccessRequirements`. |
-| CLI | Changed | Job rendering and mutation surfaces use `toolAccessRequirements`. |
-| Gantry MCP tools/admin skill | Changed | Scheduler tools use `tool_access_requirements`; `admin_permission_revoke` performs a real revoke. |
+| Postgres/runtime projection | Changed | Job target metadata stores normalized `access_requirements`; private runtime split fields are derived projections. |
+| Control API | Changed | Job create/update accepts `accessRequirements` and rejects old `requiredTools` inputs. |
+| SDK/contracts | Changed | Public job shape uses `accessRequirements`. |
+| CLI | Changed | Job rendering and mutation surfaces use `accessRequirements`. |
+| Gantry MCP tools/admin skill | Changed | Scheduler tools use `access_requirements`; `admin_permission_revoke` performs a real revoke. |
 | Channel/provider adapters | Unchanged by design | Live prompt rendering still supports timed grants; provider adapters only receive projected permissions. |
 | Docs/prompts | Changed | Scheduler and permission docs define access-only requirements and live-only timed grants. |
 | Audit/events | Changed | Revocation records a permission decision; post-run must-use events are removed. |
@@ -53,5 +55,22 @@ Agents do not need to self-edit a job to avoid unused-tool failures. They should
 declare access needed for the work, request missing access through the product
 permission flow, and use tools only when the task requires them.
 
-Old `requiredTools` and `required_tools` inputs are rejected after the
-migration. They remain only in migration SQL and explicit rejection messages.
+Old `requiredTools`, `required_tools`, `toolAccessRequirements`,
+`capabilityRequirements`, and `requiredMcpServers` inputs are rejected after the
+clean cut. They remain only in migration SQL, private derived runtime fields, and
+explicit stale-field rejection messages.
+
+## Migration 0071 Operator Note
+
+Migration `0071_jobs_target_workspace_key_cutover.sql` is an intentional hard
+cutover for job execution scope naming. It refuses to run when any existing job
+payload still contains the former execution-scope field names.
+
+Before applying the migration in an environment with existing jobs:
+
+- Run the migration in a maintenance window.
+- If it fails on the stale-shape guard, use the guard predicate in that
+  migration file to list affected job ids.
+- Recreate those jobs through the current API or CLI so their execution context
+  uses `workspaceKey`, then re-run migrations.
+- Do not add runtime readers, aliases, or automatic repair for the old shape.

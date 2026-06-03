@@ -14,7 +14,7 @@ import {
   setupBlockerDetails,
 } from './job-management-readiness.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from './job-readiness-service.js';
-import { agentIdForJobGroupScope } from './job-tool-policy.js';
+import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 
 function requireControl(deps: JobManagementServiceDeps): JobControlPort {
   if (!deps.control) {
@@ -82,7 +82,7 @@ export async function runSchedulerJobNowFromMcp(
     deps,
     job,
     appId: readinessAppId,
-    agentId: agentIdForJobGroupScope(input.access.sourceAgentFolder),
+    agentId: agentIdForJobWorkspaceKey(input.access.sourceAgentFolder),
   });
   if (!readiness.ready) {
     await pauseJobForSetup({ deps, job, readiness });

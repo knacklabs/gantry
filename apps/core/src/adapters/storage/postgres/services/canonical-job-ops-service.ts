@@ -1,5 +1,5 @@
 // prettier-ignore
-import type { Job, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
+import type { Job, JobAccessRequirement, JobCapabilityRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 import type {
   JobEventListFilters,
   JobListFilters,
@@ -41,7 +41,7 @@ export class CanonicalJobOpsService {
         ? existing.status
         : job.status || 'active';
     await this.repository.upsertJob(
-      this.toRecordInput(job.id, agentIdForFolder(job.group_scope), {
+      this.toRecordInput(job.id, agentIdForFolder(job.workspace_key), {
         name: job.name,
         prompt: job.prompt,
         model: job.model,
@@ -50,7 +50,7 @@ export class CanonicalJobOpsService {
         status,
         session_id: job.session_id,
         thread_id: job.thread_id,
-        group_scope: job.group_scope,
+        workspace_key: job.workspace_key,
         created_by: job.created_by,
         cleanup_after_ms: job.cleanup_after_ms,
         timeout_ms: job.timeout_ms,
@@ -66,9 +66,7 @@ export class CanonicalJobOpsService {
         pause_reason: job.pause_reason,
         execution_context: job.execution_context,
         notification_routes: job.notification_routes,
-        tool_access_requirements: job.tool_access_requirements,
-        required_mcp_servers: job.required_mcp_servers,
-        capability_requirements: job.capability_requirements,
+        access_requirements: job.access_requirements,
         setup_state: job.setup_state,
         recovery_intent: job.recovery_intent,
         created_at: job.created_at || now,
@@ -99,7 +97,7 @@ export class CanonicalJobOpsService {
     const next = { ...current, ...updates };
     await this.repository.updateJob(
       id,
-      this.toRecordInput(id, agentIdForFolder(next.group_scope), {
+      this.toRecordInput(id, agentIdForFolder(next.workspace_key), {
         ...next,
         updated_at: updates.updated_at ?? currentIso(),
       }),
@@ -297,21 +295,15 @@ export class CanonicalJobOpsService {
     const executionContext = parseExecutionContext(target.executionContext) ?? {
       conversationJid: '',
       threadId: null,
-      groupScope: row.agentId?.replace(/^agent:/, '') || 'system',
+      workspaceKey: row.agentId?.replace(/^agent:/, '') || 'system',
       sessionId: null,
     };
     const notificationRoutes = resolveNotificationRoutesFromTarget({
       targetRoutes: target.notificationRoutes,
       executionContext,
     });
-    const toolAccessRequirements = parseToolAccessRequirements(
-      target.toolAccessRequirements,
-    );
-    const requiredMcpServers = parseToolAccessRequirements(
-      target.requiredMcpServers,
-    );
-    const capabilityRequirements = parseCapabilityRequirements(
-      target.capabilityRequirements,
+    const accessRequirements = parseAccessRequirements(
+      target.accessRequirements,
     );
     const setupState = parseSetupState(target.setupState);
     const recoveryIntent = parseRecoveryIntent(target.recoveryIntent);
@@ -325,7 +317,7 @@ export class CanonicalJobOpsService {
       status: row.status as Job['status'],
       session_id: executionContext.sessionId ?? null,
       thread_id: executionContext.threadId ?? null,
-      group_scope: executionContext.groupScope,
+      workspace_key: executionContext.workspaceKey,
       created_by: (target.createdBy as Job['created_by']) || 'agent',
       created_at: row.createdAt,
       updated_at: row.updatedAt,
@@ -343,9 +335,7 @@ export class CanonicalJobOpsService {
       pause_reason: (target.pauseReason as string | null | undefined) ?? null,
       execution_context: executionContext,
       notification_routes: notificationRoutes,
-      capability_requirements: capabilityRequirements,
-      tool_access_requirements: toolAccessRequirements,
-      required_mcp_servers: requiredMcpServers,
+      access_requirements: accessRequirements,
       setup_state: setupState,
       recovery_intent: recoveryIntent,
     };
@@ -381,15 +371,7 @@ export class CanonicalJobOpsService {
         maxConsecutiveFailures: job.max_consecutive_failures ?? 5,
         consecutiveFailures: job.consecutive_failures ?? 0,
         pauseReason: job.pause_reason ?? null,
-        capabilityRequirements: parseCapabilityRequirements(
-          job.capability_requirements,
-        ),
-        toolAccessRequirements: parseToolAccessRequirements(
-          job.tool_access_requirements,
-        ),
-        requiredMcpServers: parseToolAccessRequirements(
-          job.required_mcp_servers,
-        ),
+        accessRequirements: parseAccessRequirements(job.access_requirements),
         setupState: parseSetupState(job.setup_state),
         recoveryIntent: parseRecoveryIntent(job.recovery_intent),
       }),
@@ -451,12 +433,12 @@ function parseExecutionContext(
   if (!input || typeof input !== 'object') return undefined;
   const value = input as Record<string, unknown>;
   const conversationJid = normalizeString(value.conversationJid);
-  const groupScope = normalizeString(value.groupScope);
-  if (!conversationJid || !groupScope) return undefined;
+  const workspaceKey = normalizeString(value.workspaceKey);
+  if (!conversationJid || !workspaceKey) return undefined;
   return {
     conversationJid,
     threadId: normalizeNullableString(value.threadId),
-    groupScope,
+    workspaceKey,
     sessionId: normalizeNullableString(value.sessionId),
   };
 }
@@ -490,40 +472,66 @@ function parseToolAccessRequirements(input: unknown): string[] {
   ];
 }
 
-function parseCapabilityRequirements(
-  input: unknown,
-): Job['capability_requirements'] {
+function parseAccessRequirements(input: unknown): JobAccessRequirement[] {
   if (!Array.isArray(input)) return [];
-  const out: NonNullable<Job['capability_requirements']> = [];
+  const out: JobAccessRequirement[] = [];
   const seen = new Set<string>();
   for (const item of input) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const record = item as Record<string, unknown>;
-    const capabilityId = normalizeString(
-      record.capabilityId ?? record.capability_id,
-    );
+    const targetRaw = record.target;
+    if (
+      !targetRaw ||
+      typeof targetRaw !== 'object' ||
+      Array.isArray(targetRaw)
+    ) {
+      continue;
+    }
+    const target = targetRaw as Record<string, unknown>;
+    const kind = normalizeString(target.kind);
     const reason = normalizeString(record.reason);
-    if (!capabilityId || !reason) continue;
-    const implementation = parseCapabilityImplementation(record.implementation);
-    const key = `${capabilityId}\u0000${implementation?.kind ?? ''}\u0000${implementation?.name ?? ''}`;
+    let normalized: JobAccessRequirement | undefined;
+    let key: string;
+    if (kind === 'tool_rule') {
+      const rule = normalizeString(target.rule);
+      if (!rule) continue;
+      normalized = { target: { kind: 'tool_rule', rule } };
+      key = `tool_rule ${rule}`;
+    } else if (kind === 'capability') {
+      const capabilityId = normalizeString(
+        target.capabilityId ?? target.capability_id,
+      );
+      if (!capabilityId) continue;
+      const implementation = parseCapabilityImplementation(
+        target.implementation,
+      );
+      normalized = {
+        target: {
+          kind: 'capability',
+          capabilityId,
+          ...(implementation ? { implementation } : {}),
+        },
+      };
+      key = `capability ${capabilityId} ${implementation?.kind ?? ''} ${implementation?.name ?? ''}`;
+    } else if (kind === 'mcp_server') {
+      const server = normalizeString(target.server);
+      if (!server) continue;
+      normalized = { target: { kind: 'mcp_server', server } };
+      key = `mcp_server ${server}`;
+    } else {
+      continue;
+    }
+    if (reason) normalized.reason = reason;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({
-      capabilityId,
-      reason,
-      ...(implementation ? { implementation } : {}),
-    });
+    out.push(normalized);
   }
   return out;
 }
 
 function parseCapabilityImplementation(
   input: unknown,
-):
-  | NonNullable<
-      NonNullable<Job['capability_requirements']>[number]['implementation']
-    >
-  | undefined {
+): JobCapabilityRequirementImplementation | undefined {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return undefined;
   }
@@ -537,9 +545,7 @@ function parseCapabilityImplementation(
   ) {
     return undefined;
   }
-  const implementation: NonNullable<
-    NonNullable<Job['capability_requirements']>[number]['implementation']
-  > = { kind };
+  const implementation: JobCapabilityRequirementImplementation = { kind };
   const name = normalizeString(record.name);
   if (name) implementation.name = name;
   const executablePath = normalizeString(
@@ -592,8 +598,8 @@ function resolveExecutionContext(
   return {
     conversationJid: fallbackConversation,
     threadId: normalizeNullableString(job.thread_id),
-    groupScope:
-      normalizeString(job.group_scope) ?? agentId.replace(/^agent:/, ''),
+    workspaceKey:
+      normalizeString(job.workspace_key) ?? agentId.replace(/^agent:/, ''),
     sessionId: normalizeNullableString(job.session_id),
   };
 }

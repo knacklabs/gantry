@@ -1,13 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
+import { AgentAccessRequestSchema } from '@gantry/contracts';
 
+import { requiredModelCredentialProviders } from '@core/application/model-resolution/required-model-credential-providers.js';
+import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
 import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
 import { handleCapabilityCatalogRoutes } from '@core/control/server/routes/capability-catalog.js';
 import { handleCredentialRoutes } from '@core/control/server/routes/credentials.js';
 import { handleExternalIngressRoutes } from '@core/control/server/routes/external-ingress.js';
+import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-actions.js';
 import { handleJobRoutes } from '@core/control/server/routes/jobs.js';
 import { handleMemoryRoutes } from '@core/control/server/routes/memory.js';
 import { handleMcpServerRoutes } from '@core/control/server/routes/mcp-servers.js';
@@ -26,9 +31,9 @@ const expectedControlRoutes = [
   'POST /v1/agents',
   'GET /v1/agents/{agentId}',
   'PATCH /v1/agents/{agentId}',
+  'GET /v1/agents/{agentId}/access',
+  'PUT /v1/agents/{agentId}/access',
   'GET /v1/agents/{agentId}/admin',
-  'GET /v1/agents/{agentId}/capabilities',
-  'PUT /v1/agents/{agentId}/capabilities',
   'GET /v1/agents/{agentId}/conversation-bindings',
   'DELETE /v1/agents/{agentId}/conversation-bindings/{conversationId}',
   'PATCH /v1/agents/{agentId}/conversation-bindings/{conversationId}',
@@ -40,8 +45,6 @@ const expectedControlRoutes = [
   'GET /v1/agents/{agentId}/skills',
   'DELETE /v1/agents/{agentId}/skills/{skillId}',
   'PUT /v1/agents/{agentId}/skills/{skillId}',
-  'GET /v1/agents/{agentId}/sources',
-  'PUT /v1/agents/{agentId}/sources',
   'GET /v1/capabilities',
   'GET /v1/capabilities/{capabilityId}',
   'GET /v1/conversations',
@@ -55,7 +58,10 @@ const expectedControlRoutes = [
   'PATCH /v1/credentials/models/{providerId}',
   'PUT /v1/credentials/models/{providerId}',
   'GET /v1/doctor',
+  'POST /v1/guided-actions/preview',
+  'POST /v1/guided-actions/execute',
   'GET /v1/health',
+  'GET /v1/status',
   'GET /v1/inventory',
   'GET /v1/ingresses',
   'POST /v1/ingresses',
@@ -146,10 +152,13 @@ function responseRecorder(): TestResponse {
   } as TestResponse;
 }
 
-function request(method: string): IncomingMessage {
+function request(
+  method: string,
+  headers: Record<string, string> = {},
+): IncomingMessage {
   return {
     method,
-    headers: {},
+    headers,
     on: () => undefined,
     once: () => undefined,
   } as unknown as IncomingMessage;
@@ -171,6 +180,7 @@ function samplePath(pathname: string): string {
 function mockContext(): ControlRouteContext {
   return {
     app: {} as ControlRouteContext['app'],
+    runtimeHome: '/tmp/gantry-test',
     keys: [],
     socketPath: '/tmp/gantry-control.sock',
     port: 8787,
@@ -183,6 +193,8 @@ function mockContext(): ControlRouteContext {
     },
     getRuntimeSettings: () =>
       ({}) as ReturnType<ControlRouteContext['getRuntimeSettings']>,
+    getInternalRuntimeSettings: () =>
+      ({}) as ReturnType<ControlRouteContext['getInternalRuntimeSettings']>,
     getDefaultModelConfig: () => ({ source: 'test' }),
     getModelDefaults: () => ({
       defaults: {
@@ -231,6 +243,9 @@ function mockContext(): ControlRouteContext {
       },
     }),
     patchModelDefaults: () => ({ ok: true }),
+    getActiveModelCredentialProviderIds: async () => [],
+    countPendingAccessRequests: async () => 0,
+    listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
   };
 }
@@ -243,6 +258,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
   const handlers = [
     () => handleOpenApiRoutes(req, res, pathname),
     () => handleSystemRoutes(req, res, ctx, pathname),
+    () => handleGuidedActionRoutes(req, res, ctx, pathname),
     () => handleAgentRoutes(req, res, ctx, pathname),
     () => handleCapabilityCatalogRoutes(req, res, ctx, pathname),
     () => handleSessionRoutes(req, res, ctx, url, pathname),
@@ -269,6 +285,167 @@ describe('control OpenAPI documentation', () => {
     expect(documentedRoutes()).toEqual(expectedControlRoutes);
   });
 
+  it('accepts MCP source operation scopes in agent access documents', () => {
+    expect(
+      AgentAccessRequestSchema.safeParse({
+        sources: {
+          skills: [{ id: 'skill:one' }],
+          mcpServers: [{ id: 'mcp:github', tools: ['read_*'] }],
+          tools: [],
+        },
+        selections: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('serves the unified status read model from the system route', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = { enabled: true };
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Default Agent',
+      folder: 'main_agent',
+      model: 'opus',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [{ id: 'browser.use', version: 'builtin' }],
+    };
+    settings.conversations.main_dm = {
+      providerConnection: 'telegram_default',
+      externalId: '123',
+      kind: 'dm',
+      displayName: 'Main DM',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['123'],
+    };
+    settings.bindings.main_binding = {
+      agent: 'main_agent',
+      conversation: 'main_dm',
+      trigger: '@Default Agent',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    };
+    const ctx = {
+      ...mockContext(),
+      keys: [
+        {
+          kid: 'test',
+          tokenHash: createHash('sha256').update('test-token').digest(),
+          scopes: new Set(['agents:admin' as const]),
+          appId: 'default',
+        },
+      ],
+      getRuntimeSettings: () => settings,
+      getInternalRuntimeSettings: () => settings,
+      getActiveModelCredentialProviderIds: async () =>
+        requiredModelCredentialProviders(settings),
+    };
+    const req = request('GET', { authorization: 'Bearer test-token' });
+    const res = responseRecorder();
+
+    await expect(handleSystemRoutes(req, res, ctx, '/v1/status')).resolves.toBe(
+      true,
+    );
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      title: 'Gantry',
+      runtime: 'Ready',
+      workspaceKey: 'default',
+      agents: { ready: 1, total: 1 },
+      conversations: { ready: 1, total: 1 },
+      jobs: { ready: 0, needsAction: 0, blocked: 0 },
+      access: { approved: 1, needsApproval: 0 },
+      memory: 'Ready',
+      providers: { ready: 1, needsConnection: 0, blocked: 0 },
+      nextAction: { kind: 'none', label: 'none' },
+    });
+  });
+
+  it('computes status model readiness from internal settings, not redacted settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = { enabled: true };
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.conversations.main_dm = {
+      providerConnection: 'telegram_default',
+      externalId: '123',
+      kind: 'dm',
+      displayName: 'Main DM',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['123'],
+    };
+    settings.bindings.main_binding = {
+      agent: 'main_agent',
+      conversation: 'main_dm',
+      trigger: '@Gantry',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    };
+    settings.memory.embeddings.enabled = true;
+    settings.memory.embeddings.provider = 'openai';
+    const publicSettings = structuredClone(settings) as ReturnType<
+      ControlRouteContext['getRuntimeSettings']
+    >;
+    delete (publicSettings.memory as { llm?: unknown }).llm;
+    delete (publicSettings.memory as { embeddings?: unknown }).embeddings;
+    const ctx = {
+      ...mockContext(),
+      keys: [
+        {
+          kid: 'test',
+          tokenHash: createHash('sha256').update('test-token').digest(),
+          scopes: new Set(['agents:admin' as const]),
+          appId: 'default',
+        },
+      ],
+      getRuntimeSettings: () => publicSettings,
+      getInternalRuntimeSettings: () => settings,
+      getActiveModelCredentialProviderIds: async () => ['anthropic'],
+    };
+    const req = request('GET', { authorization: 'Bearer test-token' });
+    const res = responseRecorder();
+
+    await expect(handleSystemRoutes(req, res, ctx, '/v1/status')).resolves.toBe(
+      true,
+    );
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      nextAction: { kind: 'missing_model_credential' },
+    });
+  });
+
+  it('rejects sessions-only keys for unified status', async () => {
+    const ctx = {
+      ...mockContext(),
+      keys: [
+        {
+          kid: 'test',
+          tokenHash: createHash('sha256').update('test-token').digest(),
+          scopes: new Set(['sessions:read' as const]),
+          appId: 'default',
+        },
+      ],
+    };
+    const req = request('GET', { authorization: 'Bearer test-token' });
+    const res = responseRecorder();
+
+    await expect(handleSystemRoutes(req, res, ctx, '/v1/status')).resolves.toBe(
+      true,
+    );
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toContain('agents:admin');
+  });
+
   it('documents paths and methods that the runtime router recognizes', async () => {
     for (const route of documentedRoutes()) {
       const [method, pathname] = route.split(' ');
@@ -284,6 +461,10 @@ describe('control OpenAPI documentation', () => {
 
     expect(spec.openapi).toBe('3.1.0');
     expect(spec.info.title).toBe('Gantry Control API');
+    expect(spec.paths['/v1/status']?.get).toMatchObject({
+      operationId: 'getStatus',
+      'x-gantry-required-scopes': ['agents:admin'],
+    });
     expect(spec.paths['/v1/sessions/{sessionId}/messages']?.post).toMatchObject(
       {
         operationId: 'sendSessionMessage',
@@ -396,6 +577,9 @@ describe('control OpenAPI documentation', () => {
       'x-gantry-required-scopes': ['sessions:read', 'jobs:read'],
     });
     expect(
+      spec.paths['/v1/guided-actions/execute']?.post.description,
+    ).toContain('resume_job execution also requires jobs:write');
+    expect(
       spec.paths['/v1/capabilities']?.get.responses['200'].content[
         'application/json'
       ].schema,
@@ -417,8 +601,21 @@ describe('control OpenAPI documentation', () => {
       spec.components.schemas.AgentSourceSelection.properties,
     ).not.toHaveProperty('kind');
     expect(
-      spec.components.schemas.JobCreateRequest.properties.capabilityRequirements
-        .items.properties.implementation.properties,
+      spec.components.schemas.AgentAdminSummaryResponse.properties,
+    ).toEqual(
+      expect.objectContaining({
+        capabilities: { $ref: '#/components/schemas/AgentAccessResponse' },
+      }),
+    );
+    expect(spec.components.schemas).not.toHaveProperty(
+      'AgentCapabilitiesRequest',
+    );
+    expect(spec.components.schemas).not.toHaveProperty(
+      'AgentCapabilitiesResponse',
+    );
+    expect(
+      spec.components.schemas.JobCreateRequest.properties.accessRequirements
+        .items.properties.target.oneOf[1].properties.implementation.properties,
     ).toMatchObject({
       executableVersion: { type: 'string' },
       executableHash: { type: 'string' },
@@ -439,6 +636,16 @@ describe('control OpenAPI documentation', () => {
       spec.components.schemas.ExternalIngressConversationMessageTarget
         .properties.kind.enum,
     ).toEqual(['conversation_message']);
+
+    expect(spec.components.schemas.GuidedActionType.enum).toContain(
+      'resume_job',
+    );
+    expect(spec.components.schemas.GuidedActionType.enum).not.toContain(
+      'fix_blocked_job',
+    );
+    expect(
+      spec.components.schemas.GuidedActionRequest.properties,
+    ).toHaveProperty('params');
 
     const operationIds = Object.values(spec.paths).flatMap((pathItem) =>
       Object.values(pathItem).map((operation) => operation.operationId),

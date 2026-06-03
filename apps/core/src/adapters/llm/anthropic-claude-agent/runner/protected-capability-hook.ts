@@ -10,7 +10,7 @@ import {
 import { denyMemoryBoundaryToolUse } from '../../../../runner/memory-boundary.js';
 
 const BLOCK_MESSAGE =
-  'Gantry blocks direct edits to agent capability configuration. Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission so the change is reviewed, stored durably, and activated through the approved capability flow.';
+  'Gantry blocks direct edits to agent capability configuration. Request the missing action or source setup through the Gantry access flow so the change is reviewed, stored durably, and activated through approved access.';
 
 export interface ProtectedCapabilityDecision {
   reason: string;

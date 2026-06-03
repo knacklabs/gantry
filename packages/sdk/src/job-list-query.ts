@@ -4,7 +4,7 @@ export function jobListQuery(input?: ListJobsInput): string {
   if (!input) return '';
   const params = new URLSearchParams();
   if (input.agentId) params.set('agentId', input.agentId);
-  if (input.groupScope) params.set('groupScope', input.groupScope);
+  if (input.workspaceKey) params.set('workspaceKey', input.workspaceKey);
   if (input.conversationJid)
     params.set('conversationJid', input.conversationJid);
   if (input.kind) params.set('kind', input.kind);

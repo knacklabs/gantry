@@ -68,7 +68,7 @@ export class PostgresCanonicalSessionRepository {
   }
 
   async getAgentTurnContext(input: {
-    groupFolder: string;
+    workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
     chatJid: string;
     threadId?: string | null;
@@ -120,7 +120,7 @@ export class PostgresCanonicalSessionRepository {
   }
 
   private async ensureAgentSession(input: {
-    groupFolder: string;
+    workspaceFolder: string;
     chatJid: string;
     threadId?: string | null;
     scopeKey: string;
@@ -133,7 +133,7 @@ export class PostgresCanonicalSessionRepository {
     agentSessionResetAt?: string | null;
   }> {
     const {
-      groupFolder: folder,
+      workspaceFolder: folder,
       chatJid,
       threadId,
       scopeKey,
@@ -278,7 +278,7 @@ export class PostgresCanonicalSessionRepository {
   }
 
   async setProviderSession(input: {
-    groupFolder: string;
+    workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
     scopeKey: string;
     sessionId: string;
@@ -293,7 +293,7 @@ export class PostgresCanonicalSessionRepository {
     assertSafeProviderSessionId(input.sessionId);
     assertSafeExecutionProviderId(input.executionProviderId);
     const {
-      groupFolder: folder,
+      workspaceFolder: folder,
       scopeKey,
       executionProviderId,
       sessionId,
@@ -575,7 +575,7 @@ export class PostgresCanonicalSessionRepository {
     });
   }
 
-  async deleteGroupFolder(agentFolder: string): Promise<void> {
+  async deleteWorkspaceFolder(agentFolder: string): Promise<void> {
     const escapedAgentFolder = escapeLikePattern(agentFolder);
     await this.db
       .delete(pgSchema.agentSessionsPostgres)

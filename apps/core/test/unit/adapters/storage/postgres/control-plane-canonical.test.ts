@@ -12,7 +12,7 @@ describe('control-plane canonical mappers', () => {
         agent_id: 'agent:fallback-folder',
         external_ref_json: JSON.stringify({
           chatJid: 'app:app-one:conv-1',
-          groupFolder: 'agent-folder',
+          workspaceFolder: 'agent-folder',
         }),
         default_response_mode: 'sse',
         default_webhook_id: null,
@@ -20,7 +20,7 @@ describe('control-plane canonical mappers', () => {
         updated_at: '2026-04-24T00:00:00.000Z',
       }),
     ).toMatchObject({
-      groupFolder: 'agent-folder',
+      workspaceFolder: 'agent-folder',
       workspaceKey: 'agent-folder',
     });
     expect(

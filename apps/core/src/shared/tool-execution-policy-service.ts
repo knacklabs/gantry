@@ -1,4 +1,7 @@
-import { evaluateAutonomousToolUse } from './tool-rule-matcher.js';
+import {
+  evaluateAutonomousToolUse,
+  normalizeRuntimeOwnedBashCommandForMatching,
+} from './tool-rule-matcher.js';
 import {
   bashExecutableName,
   nonDurableBashLeafReason,
@@ -9,7 +12,6 @@ import { isAdminMcpToolFullName } from './admin-mcp-tools.js';
 import {
   isKnownProjectedBrowserMcpToolName,
   publicGantryToolNameForSdkTool,
-  RUN_COMMAND_TOOL_NAME,
 } from './agent-tool-references.js';
 import {
   commandText,
@@ -108,7 +110,7 @@ const CAPABILITY_REQUEST_TOOLS = new Set([
   'mcp__gantry__request_skill_install',
   'mcp__gantry__request_skill_proposal',
   'mcp__gantry__request_skill_dependency_install',
-  'mcp__gantry__request_permission',
+  'mcp__gantry__request_access',
 ]);
 
 const FILE_MUTATION_TOOLS = new Set(
@@ -419,12 +421,12 @@ function stringField(input: unknown, field: string): string | undefined {
 }
 
 function protectedCapabilityRecovery(): string {
-  return 'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission so the change is reviewed, stored durably, and activated through Gantry capability flows.';
+  return 'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_access so the change is reviewed, stored durably, and activated through Gantry access flows.';
 }
 
 function autonomousGrantRecovery(request: ToolExecutionRequest): string {
   if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
-    return 'request_permission { "permissionKind": "tool", "toolName": "Browser", "toolCategory": "browser", "temporaryOnly": false, "reason": "This autonomous run needs browser access." }';
+    return 'request_access { "target": { "kind": "capability", "id": "browser.use" }, "temporaryOnly": false, "reason": "This autonomous run needs browser access." }';
   }
   if (request.toolName === 'Bash') {
     const command = commandText(request.input);
@@ -432,19 +434,17 @@ function autonomousGrantRecovery(request: ToolExecutionRequest): string {
     if (!rule) {
       return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.';
     }
-    return `request_permission { "permissionKind": "tool", "toolName": "${RUN_COMMAND_TOOL_NAME}"${rule ? `, "rule": "${escapeJson(rule)}"` : ''}, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
+    return `request_access { "target": { "kind": "run_command", "argvPattern": "${escapeJson(rule)}" }, "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }`;
   }
   if (isAdminMcpToolFullName(request.toolName)) {
-    return `request_permission { "permissionKind": "tool", "toolName": "${request.toolName}", "temporaryOnly": false, "reason": "This autonomous run needs ${request.toolName} access." }`;
+    return `Use the Agent Access summary to find and request the reviewed admin capability for ${request.toolName}; exact tool grants are not accepted as durable authority.`;
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
-    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "stdio_template", "templateId": "npx-package", "args": ["<reviewed-package>"], "sandboxProfileId": "mcp-stdio", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP server capability." }`;
+    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "stdio_template", "templateId": "npx-package", "args": ["<reviewed-package>"], "sandboxProfileId": "mcp-stdio", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP source connected before reviewed action capabilities can be requested." }`;
   }
-  const toolName = isKnownProjectedBrowserMcpToolName(request.toolName)
-    ? 'Browser'
-    : publicGantryToolNameForSdkTool(request.toolName);
-  return `request_permission { "permissionKind": "tool", "toolName": "${escapeJson(toolName)}", "temporaryOnly": false, "reason": "This autonomous run needs ${escapeJson(toolName)} access." }`;
+  const toolName = publicGantryToolNameForSdkTool(request.toolName);
+  return `Use a reviewed semantic capability from the Agent Access summary for ${escapeJson(toolName)}, or use request_access target.kind=run_command only for a scoped command fallback. Exact tool grants are not accepted as durable authority.`;
 }
 
 function thirdPartyMcpToolServerName(toolName: string): string | undefined {
@@ -459,7 +459,9 @@ function escapeJson(value: string): string {
 }
 
 function persistentBashRecoveryRule(command: string): string | undefined {
-  const parsed = parseBashCommand(command);
+  const parsed = parseBashCommand(
+    normalizeRuntimeOwnedBashCommandForMatching(command),
+  );
   if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
   const [leaf] = parsed.leaves;
   if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;

@@ -9,7 +9,7 @@ import {
   resolveConfiguredSkillReferences,
   selectedSkillsFromResolvedSkillReferences,
 } from './desired-state-skill-references.js';
-import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { isValidSemanticCapabilityId } from '../../shared/semantic-capability-ids.js';
 import {
   formatSkillMaterializationCollision,
@@ -18,10 +18,15 @@ import {
 import {
   normalizeConfiguredCapabilities,
   semanticCapabilityDefinitionsById,
+  semanticCapabilityDefinitionsFromCatalogTools,
   settingsCapabilityIdToToolRule,
   skillActionDefinitionsForSkills,
 } from './configured-capability-normalization.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
+import {
+  normalizeMcpToolScope,
+  reviewedMcpToolPatterns,
+} from '../../shared/mcp-tool-scope.js';
 
 export async function replaceDesiredStateCapabilities(input: {
   appId: AppId;
@@ -58,7 +63,7 @@ export async function replaceDesiredStateCapabilities(input: {
   const skillActionDefinitions = skillActionDefinitionsForSkills([
     ...resolvedSkills.skills.values(),
   ]);
-  await assertConfiguredMcpSources(input);
+  const mcpBindings = await configuredMcpSourceBindings(input);
   const toolIds = await toolIdsForReplacement({
     ...input,
     skillActionDefinitions,
@@ -84,21 +89,7 @@ export async function replaceDesiredStateCapabilities(input: {
       createdAt: input.now,
       updatedAt: input.now,
     })),
-    mcpBindings: input.agent.sources.mcpServers
-      .map((source) => source.id as McpServerId)
-      .map((serverId) => {
-        return {
-          id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
-          appId: input.appId,
-          agentId: input.agentId,
-          serverId: serverId as never,
-          status: 'active' as const,
-          required: false,
-          permissionPolicyIds: [],
-          createdAt: input.now,
-          updatedAt: input.now,
-        };
-      }),
+    mcpBindings,
     updatedAt: input.now,
   });
   await replaceAgentToolSources(input);
@@ -169,9 +160,10 @@ async function toolIdsForReplacement(input: {
   const normalized = normalizeConfiguredCapabilities({
     capabilities: input.agent.capabilities,
   });
-  const semanticCapabilityDefinitions = semanticCapabilityDefinitionsById(
-    input.skillActionDefinitions ?? [],
-  );
+  const semanticCapabilityDefinitions = {
+    ...(await catalogSemanticCapabilityDefinitions(input)),
+    ...semanticCapabilityDefinitionsById(input.skillActionDefinitions ?? []),
+  };
   const ids = await Promise.all(
     [
       ...new Set(
@@ -191,28 +183,54 @@ async function toolIdsForReplacement(input: {
   return ids;
 }
 
-async function assertConfiguredMcpSources(input: {
+async function catalogSemanticCapabilityDefinitions(input: {
   appId: AppId;
+  repositories: SettingsDesiredStateRepositories;
+}): Promise<Record<string, SemanticCapabilityDefinition>> {
+  const tools = await input.repositories.tools.listTools({
+    appId: input.appId,
+    statuses: ['active'],
+  });
+  return semanticCapabilityDefinitionsFromCatalogTools(tools);
+}
+
+async function configuredMcpSourceBindings(input: {
+  appId: AppId;
+  agentId: AgentId;
   agent: RuntimeConfiguredAgent;
   repositories: SettingsDesiredStateRepositories;
-}): Promise<void> {
-  await Promise.all(
-    [...new Set(input.agent.sources.mcpServers.map((source) => source.id))].map(
-      async (serverId) => {
-        const server = await input.repositories.mcpServers.getServer(
-          serverId as never,
+  now: string;
+}) {
+  return Promise.all(
+    input.agent.sources.mcpServers.map(async (source) => {
+      const serverId = source.id as McpServerId;
+      const server = await input.repositories.mcpServers.getServer(serverId);
+      if (
+        !server ||
+        server.appId !== input.appId ||
+        server.status !== 'active'
+      ) {
+        throw new Error(
+          `MCP server ${source.id} is not active for that source.`,
         );
-        if (
-          !server ||
-          server.appId !== input.appId ||
-          server.status !== 'active'
-        ) {
-          throw new Error(
-            `MCP server ${serverId} is not active for that source.`,
-          );
-        }
-      },
-    ),
+      }
+      return {
+        id: `agent-mcp-binding:${input.agentId}:${serverId}` as never,
+        appId: input.appId,
+        agentId: input.agentId,
+        serverId,
+        status: 'active' as const,
+        required: false,
+        permissionPolicyIds: [],
+        allowedToolPatterns: normalizeMcpToolScope({
+          serverName: server.name,
+          requested: source.tools,
+          definitionPatterns: reviewedMcpToolPatterns(server),
+        }),
+        createdAt: input.now,
+        updatedAt: input.now,
+      };
+    }),
   );
 }
 
@@ -223,8 +241,9 @@ export function settingsCapabilityToToolReference(capability: {
   if (capability.id === 'browser.use') return 'Browser';
   if (
     !isValidSemanticCapabilityId(capability.id) &&
-    validateReadableAgentToolRule(settingsCapabilityIdToToolRule(capability.id))
-      .ok
+    validateDurableAccessRule(settingsCapabilityIdToToolRule(capability.id), {
+      allowUnknownSemanticCapability: true,
+    }).ok
   ) {
     return settingsCapabilityIdToToolRule(capability.id);
   }

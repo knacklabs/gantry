@@ -17,7 +17,13 @@ const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
 const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
 export const SCHEDULER_WAIT_RESPONSE_GRACE_MS = 10_000;
 
-const ambientGroupScope = process.env.GANTRY_GROUP_FOLDER?.trim() ?? '';
+if (process.env.GANTRY_GROUP_FOLDER !== undefined) {
+  throw new Error(
+    'GANTRY_GROUP_FOLDER is no longer supported. Use GANTRY_WORKSPACE_KEY.',
+  );
+}
+
+const ambientWorkspaceKey = process.env.GANTRY_WORKSPACE_KEY?.trim() ?? '';
 
 export async function requestSchedulerData(
   type: string,
@@ -132,7 +138,7 @@ export function schedulerDataRecord(
 function normalizeExecutionContextArg(value: unknown): {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId?: string | null;
 } | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -141,8 +147,8 @@ function normalizeExecutionContextArg(value: unknown): {
     typeof record.conversation_jid === 'string'
       ? record.conversation_jid.trim()
       : '';
-  const groupScope =
-    typeof record.group_scope === 'string' ? record.group_scope.trim() : '';
+  const workspaceKey =
+    typeof record.workspace_key === 'string' ? record.workspace_key.trim() : '';
   const threadRaw = record.thread_id;
   const threadIdValue =
     threadRaw === null
@@ -157,7 +163,7 @@ function normalizeExecutionContextArg(value: unknown): {
       : typeof sessionRaw === 'string'
         ? sessionRaw.trim()
         : undefined;
-  if (!conversationJid || !groupScope || threadIdValue === undefined) {
+  if (!conversationJid || !workspaceKey || threadIdValue === undefined) {
     return null;
   }
   if (threadRaw !== null && !threadIdValue) return null;
@@ -171,7 +177,7 @@ function normalizeExecutionContextArg(value: unknown): {
   return {
     conversationJid,
     threadId: threadIdValue,
-    groupScope,
+    workspaceKey,
     ...(sessionRaw !== undefined ? { sessionId: sessionIdValue ?? null } : {}),
   };
 }
@@ -221,7 +227,7 @@ export function canonicalTargetFromArgs(
   executionContext: {
     conversationJid: string;
     threadId: string | null;
-    groupScope: string;
+    workspaceKey: string;
     sessionId?: string | null;
   };
   notificationRoutes: Array<{
@@ -234,7 +240,7 @@ export function canonicalTargetFromArgs(
   const defaultExecutionContext = {
     conversationJid: chatJid,
     threadId: threadId ?? null,
-    groupScope: ambientGroupScope,
+    workspaceKey: ambientWorkspaceKey,
   };
   const executionContext = normalizeExecutionContextArg(args.execution_context);
   if (args.execution_context !== undefined && !executionContext) {
@@ -242,7 +248,7 @@ export function canonicalTargetFromArgs(
       executionContext: defaultExecutionContext,
       notificationRoutes: [],
       error:
-        'execution_context must include conversation_jid, group_scope, and thread_id.',
+        'execution_context must include conversation_jid, workspace_key, and thread_id.',
     };
   }
   const notificationRoutes = normalizeNotificationRoutesArg(
@@ -282,12 +288,12 @@ export function canonicalTargetFromArgs(
       ? {
           conversationJid: chatJid,
           threadId: shortcutResolution?.threadId ?? null,
-          groupScope: ambientGroupScope,
+          workspaceKey: ambientWorkspaceKey,
         }
       : {
           conversationJid: chatJid,
           threadId: defaultThread,
-          groupScope: ambientGroupScope,
+          workspaceKey: ambientWorkspaceKey,
         });
   if (shortcut && executionContext) {
     const shortcutThreadId = shortcutResolution?.threadId ?? null;

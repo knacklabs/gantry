@@ -43,7 +43,7 @@ import {
 
 const MAX_RECOVERY_TURN_TIMEOUT_MS = 300_000;
 const DEFAULT_RECOVERY_ASSISTANT_NAME = 'Gantry';
-const WORKSPACE_FOLDER_INPUT_KEY = `group${'Folder'}` as const;
+const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}` as const;
 
 export async function queueJobRecoveryTurn(input: {
   currentJob: Job;
@@ -354,7 +354,7 @@ async function runJobRecoveryAgentTurn(input: {
   const executionAppId = turnContext?.appId ?? input.runtimeAppId;
   const executionAgentId =
     turnContext?.agentId ??
-    jobToolPolicy.agentIdForJobGroupScope(input.execution.group.folder);
+    jobToolPolicy.agentIdForJobWorkspaceKey(input.execution.group.folder);
   const [
     toolPolicy,
     selectedSkillContext,
@@ -575,7 +575,7 @@ function buildJobRecoveryPrompt(job: Job): string {
     'React once to the deterministic setup or permission blocker. Use the same Gantry tools you would use in a normal conversation. Do not edit settings.yaml, mutate Postgres directly, or grant yourself access.',
     '',
     'Allowed recovery actions:',
-    '- If access is missing, use capability_search, propose_capability, manage_capability, request_permission, request_skill_install, request_skill_proposal, request_skill_dependency_install, or request_mcp_server as appropriate.',
+    '- If access is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
     '- If a human decision is needed, ask the user or control approver clearly for the single next action.',
     '- If setup already looks ready, use scheduler_run_now or the scheduler tools to retry/resume the job.',
     '- If the job requirements are wrong, use scheduler update tools to correct the job requirement, then explain the change.',

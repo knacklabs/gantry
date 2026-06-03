@@ -13,6 +13,37 @@ import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
 
 let runtime: StorageRuntime | null = null;
 
+/**
+ * Discriminates genuine storage-unavailability failures (Postgres down/absent,
+ * network unreachable) from real migration/schema/auth/programming errors.
+ *
+ * Returning true only for connection-level failures keeps the YAML-only and
+ * settings-only fallbacks safe: a misconfigured schema or bad credentials will
+ * surface as an error instead of being silently masked as "offline".
+ */
+export function isStorageUnavailableError(err: unknown): boolean {
+  const code = (err as { code?: string }).code;
+  if (
+    code === 'ECONNREFUSED' ||
+    code === 'ENOTFOUND' ||
+    code === 'ETIMEDOUT' ||
+    code === 'EHOSTUNREACH' ||
+    code === '3D000' ||
+    code === '57P03' ||
+    code === '08001' ||
+    code === '08006'
+  ) {
+    return true;
+  }
+  const message = (err as { message?: string }).message;
+  if (typeof message === 'string') {
+    return /econnrefused|connection refused|connection terminated|could not connect|getaddrinfo|connect etimedout|database "[^"]*" does not exist/.test(
+      message.toLowerCase(),
+    );
+  }
+  return false;
+}
+
 export async function initializeRuntimeStorage(
   options: StorageRuntimeOptions = {},
 ): Promise<StorageRuntime> {

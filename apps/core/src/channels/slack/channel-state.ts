@@ -16,13 +16,15 @@ import {
   PermissionApprovalRequest,
   UserQuestionRequest,
 } from '../../domain/types.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 import {
   encodeSlackActionValue,
+  formatSlackUserQuestionBody,
   formatSlackUserQuestionPromptText,
   parseSlackUserQuestionActionValue,
   truncateSlackButtonText,
+  truncateSlackText,
 } from './channel-user-question-utils.js';
 
 export const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
@@ -227,10 +229,18 @@ export abstract class SlackChannelState {
 
     return [
       {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: truncateSlackText(`❓ ${pending.question.header}`, 150),
+          emoji: true,
+        },
+      },
+      {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: pending.promptText,
+          text: formatSlackUserQuestionBody(pending.question),
         },
       },
       {
@@ -289,15 +299,18 @@ export abstract class SlackChannelState {
     const selectionText = Array.isArray(selection)
       ? selection.join(', ')
       : selection;
-    const status = reason || 'answered';
-    const actor = answeredBy ? ` by ${answeredBy}` : '';
-    const text = `Question: ${pending.question.header}\nAnswer: ${selectionText || '[none]'}\nStatus: ${status}${actor}`;
+    const actor = answeredBy ? ` (by ${answeredBy})` : '';
+    const text = selectionText
+      ? `✅ ${pending.question.header} · ${selectionText}${actor}`
+      : `⌛ ${pending.question.header} · ${reason || 'no answer'}`;
     try {
       await this.app.client.chat.update({
         channel: pending.channelId,
         ts: pending.messageTs,
         text,
-        blocks: [],
+        blocks: [
+          { type: 'context', elements: [{ type: 'mrkdwn', text }] },
+        ] as any,
       });
     } catch (err) {
       logger.debug(
@@ -551,7 +564,7 @@ export abstract class SlackChannelState {
     const filename = this.sanitizeFilename(
       file.name || file.title || 'attachment.bin',
     );
-    const groupDir = resolveGroupFolderPath(group.folder);
+    const groupDir = resolveWorkspaceFolderPath(group.folder);
     const attachDir = path.join(groupDir, 'attachments');
     ensurePrivateDirSync(attachDir);
     const destPath = path.join(attachDir, filename);

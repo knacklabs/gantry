@@ -89,6 +89,45 @@ describe('runtime settings', () => {
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
+  it('round-trips per-agent mcp tool scope through settings.yaml', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'github', tools: ['read_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('mcp_servers:');
+    expect(yaml).toContain('tools:');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agents.main_agent.sources.mcpServers).toEqual([
+      { id: 'github', tools: ['read_*'] },
+    ]);
+  });
+
+  it('rejects tool scope on non-mcp source refs', () => {
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    access:
+      sources:
+        skills:
+          - id: demo
+            tools:
+              - read_*
+`),
+    ).toThrow(/tools is only supported for mcp_servers/);
+  });
+
   it('defaults, renders, and parses runtime queue policy', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.runtime.queue).toEqual({
@@ -1426,9 +1465,9 @@ conversations:
 
     expect(yaml).toContain(
       [
-        '      skills:',
-        '        - name: linkedin-posting',
-        '          id: "skill:3014949c-a616-4b2c-80e7-0bc61bb31e85"',
+        '        skills:',
+        '          - name: linkedin-posting',
+        '            id: "skill:3014949c-a616-4b2c-80e7-0bc61bb31e85"',
       ].join('\n'),
     );
     expect(yaml).toContain('company-handbook');

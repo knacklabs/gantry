@@ -12,6 +12,7 @@ import {
   type SkillCatalogItemResponse,
 } from '@gantry/contracts';
 import { syncRuntimeSettingsFromProjection } from '@core/config/index.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 import { createClient } from '../../../../packages/sdk/src/index.js';
 
 type StoredSkill = SkillCatalogItemResponse;
@@ -34,6 +35,7 @@ vi.mock('@core/config/index.js', () => ({
   })),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
+  configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
@@ -215,6 +217,11 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', async () => {
           listConversationApproversForConversations: vi.fn(async () => []),
         },
         capabilitySecrets: capabilitySecretsRepo,
+        pendingAccessRequests: {
+          insertPending: vi.fn(async () => undefined),
+          markResolved: vi.fn(async () => undefined),
+          countPendingAccessRequests: vi.fn(async () => 0),
+        },
       },
       skillArtifacts: new LocalSkillArtifactStore(state.artifactRoot),
     }),
@@ -579,25 +586,6 @@ describe('skill registry integration flow', () => {
         toolCategory: 'sdk',
         permissionPolicy: 'persistent',
         sandboxProfile: 'workspace-write',
-        effect: 'review_only_no_permission_change',
-      },
-    ],
-    [
-      'request_permission',
-      {
-        permissionKind: 'provider_capability',
-        channelTool: 'slack_file_access',
-        providerId: 'slack',
-        requiredScopes: ['files:read'],
-        affectedConversations: ['C123'],
-        reason: 'Read files shared in the active channel.',
-      },
-      {
-        permissionKind: 'provider_capability',
-        channelTool: 'slack_file_access',
-        providerId: 'slack',
-        requiredScopes: ['files:read'],
-        affectedConversations: ['C123'],
         effect: 'review_only_no_permission_change',
       },
     ],
@@ -974,7 +962,7 @@ describe('skill registry integration flow', () => {
     expect(
       sendMessage.mock.calls.some((call) =>
         String(call[1]).includes(
-          'gantry credentials capability set LINKEDIN_ACCESS_TOKEN',
+          'gantry credentials access set LINKEDIN_ACCESS_TOKEN',
         ),
       ),
     ).toBe(true);
@@ -1103,7 +1091,7 @@ describe('skill registry integration flow', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('persists proposed semantic capability approvals as configured capability rules', async () => {
+  it('persists catalog semantic capability approvals as configured capability rules', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const {
       deps,
@@ -1131,6 +1119,31 @@ describe('skill registry integration flow', () => {
         ],
       },
     });
+    const capabilityDefinition = {
+      capabilityId: 'acme.records.append',
+      displayName: 'Acme records append',
+      category: 'Acme Records',
+      risk: 'write' as const,
+      accountLabel: 'Configured Google access',
+      can: 'Read and update spreadsheet values.',
+      cannot: 'Change sharing or receive raw OAuth tokens.',
+      credentialSource: 'configured_access' as const,
+      implementationBindings: [
+        { kind: 'adapter' as const, adapterRef: 'adapter:google-records' },
+      ],
+    };
+    toolRepository.listTools.mockResolvedValue([
+      {
+        id: 'tool:capability:acme.records.append',
+        appId: 'app-one',
+        name: 'capability:acme.records.append',
+        displayName: 'Acme records append',
+        adapterRef: 'capability/acme.records.append',
+        status: 'active',
+        selectable: true,
+        inputSchema: semanticCapabilityInputSchema(capabilityDefinition),
+      },
+    ]);
 
     await processTaskIpc(
       {
@@ -1142,26 +1155,13 @@ describe('skill registry integration flow', () => {
         authThreadId: 'thread-origin',
         payload: {
           permissionKind: 'tool',
-          capabilityRequestSource: 'propose_capability',
+          capabilityRequestSource: 'request_access',
           capabilityId: 'acme.records.append',
           capabilityDisplayName: 'Acme records append',
           accountLabel: 'Configured Google access',
           can: 'Read and update spreadsheet values.',
           cannot: 'Change sharing or receive raw OAuth tokens.',
           credentialSource: 'configured_access',
-          semanticCapabilityDefinition: {
-            capabilityId: 'acme.records.append',
-            displayName: 'Acme records append',
-            category: 'Acme Records',
-            risk: 'write',
-            accountLabel: 'Configured Google access',
-            can: 'Read and update spreadsheet values.',
-            cannot: 'Change sharing or receive raw OAuth tokens.',
-            credentialSource: 'configured_access',
-            implementationBindings: [
-              { kind: 'adapter', adapterRef: 'adapter:google-records' },
-            ],
-          },
           temporaryOnly: false,
           reason:
             'Update the status spreadsheet repeatedly during this session.',
@@ -1172,16 +1172,7 @@ describe('skill registry integration flow', () => {
     );
 
     await vi.waitFor(() => {
-      expect(toolRepository.saveTool).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'tool:capability:acme.records.append',
-          appId: 'app-one',
-          name: 'capability:acme.records.append',
-          displayName: 'Acme records append',
-          adapterRef: 'capability/acme.records.append',
-          status: 'active',
-        }),
-      );
+      expect(toolRepository.saveTool).not.toHaveBeenCalled();
     });
     await vi.waitFor(() => {
       expect(toolRepository.saveAgentToolBinding).toHaveBeenCalledWith(
@@ -1233,7 +1224,7 @@ describe('skill registry integration flow', () => {
         ],
       },
     });
-    toolRepository.listTools.mockResolvedValueOnce([
+    toolRepository.listTools.mockResolvedValue([
       {
         id: 'tool:Browser',
         appId: 'app-one',
@@ -1353,15 +1344,14 @@ describe('skill registry integration flow', () => {
 
     await processTaskIpc(
       {
-        type: 'request_permission',
+        type: 'request_skill_dependency_install',
         appId: 'default',
-        taskId: 'request-permission-forum-shopping-test',
+        taskId: 'request-skill-dependency-forum-shopping-test',
         chatJid: 'chat-origin',
         targetJid: 'chat-admin-dm',
         payload: {
-          permissionKind: 'provider_capability',
-          channelTool: 'slack_file_access',
-          providerId: 'slack',
+          ecosystem: 'npm',
+          packages: ['tsx'],
           reason: 'Try routing review to another bound chat.',
         },
       },

@@ -221,9 +221,7 @@ procedure_save          file
 mcp_list_tools          mcp_call_tool
 request_skill_install   request_skill_proposal
 request_skill_dependency_install
-request_mcp_server      request_permission
-capability_status       capability_search
-propose_capability      manage_capability
+request_mcp_server      request_access
 ```
 
 The canonical `Browser` capability is gated separately and projects to
@@ -237,10 +235,10 @@ Selected-capability admin agents add six additional admin tools
 (`apps/core/src/shared/admin-mcp-tools.ts`): `settings_desired_state`,
 `request_settings_update`, `admin_permission_list`,
 `admin_permission_revoke`, `service_restart`, and `register_agent`. Agents use
-`capability_status` to inspect missing admin capabilities,
-`propose_capability` for durable semantic capability changes, and
-`request_permission` only for one-off exact fallback access or provider
-capability review.
+the Agent Access summary to inspect missing admin capabilities,
+`request_access target.kind=capability` for reviewed semantic capability
+changes, and `request_access target.kind=run_command` only for scoped command
+fallback access.
 
 ### Subagents
 
@@ -420,7 +418,7 @@ sequenceDiagram
   participant Surface as "Channel adapter<br/>InteractionDescriptor"
   participant Approver as "conversation approver / Conversation approver"
 
-  Agent->>Mcp: request_permission / request_skill_install /<br/>request_mcp_server / request_settings_update / ...
+  Agent->>Mcp: request_access / request_skill_install /<br/>request_mcp_server / request_settings_update / ...
   Mcp->>Ipc: writeIpcFile(TASKS_DIR, signed task)
   Host->>Ipc: read + verify signature, validate origin
   Host->>Surface: render InteractionDescriptor in source conversation
@@ -454,7 +452,7 @@ Cited at:
 ## 8. Scheduler + Job Lifecycle
 
 A Gantry job is a first-party record (`Job` in
-`apps/core/src/domain/types.ts`) scoped by `group_scope` and runtime
+`apps/core/src/domain/types.ts`) scoped by `workspace_key` and runtime
 `execution_context`/`notification_routes` in Postgres. pg-boss provides
 claim/dispatch and restart-safe scheduling, not the job model.
 
@@ -499,7 +497,7 @@ Cited at:
 - Manual job creation binds `execution_context.conversationJid` and
   `notification_routes` for delivery —
   `apps/core/src/application/jobs/job-management-service.ts`.
-- Agent-facing scheduler MCP tools authorize by `group_scope` plus the
+- Agent-facing scheduler MCP tools authorize by `workspace_key` plus the
   originating conversation in `execution_context.conversationJid`; thread ids
   are delivery metadata and spoof-check inputs, not visibility authority.
 - System (dreaming) jobs registered per `group.folder` —
@@ -589,7 +587,7 @@ sequenceDiagram
   App->>SDK: sessions.ensure(conversationId)
   SDK->>Routes: POST /v1/sessions/ensure
   Routes->>Adapter: ensureSessionForControl
-  Adapter->>Module: ensureSession → app: jid + group folder
+  Adapter->>Module: ensureSession → app: jid + workspace folder
   App->>SDK: sessions.sendMessage(text)
   SDK->>Routes: POST /v1/sessions/:id/messages
   Routes->>Adapter: acceptMessageForControl
@@ -621,7 +619,7 @@ Cited at:
 
 ## 11. Dreaming End-to-End
 
-Dreaming is a system job. The scheduler claims it per group folder, the
+Dreaming is a system job. The scheduler claims it per workspace folder, the
 runtime calls `AppMemoryService.triggerDreaming({ phase: 'all' })`, and the
 service writes audit rows to `memory_dream_runs` and `memory_dream_decisions`.
 

@@ -12,8 +12,8 @@ blur visibility, inventory, authority, or one-off permission grants.
 
 1. Read `docs/architecture/capability-management.md`, `docs/decisions/2026-05-20-simple-permission-and-job-tool-lifecycle.md`, and `docs/architecture/codebase-refactor-principles.md`.
 2. Preserve the split: `sources` are attached/onboarded resources, `capabilities` are durable authority, and `inventory` is read-only discoverability.
-3. Use `capability_search`, `propose_capability`, and `manage_capability` for reviewed semantic capability changes.
-4. Keep `request_permission` for one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand(<literal argv pattern>)` fallback when no reviewed semantic capability fits.
+3. Use `request_access` (`target.kind=capability`) for reviewed semantic capability changes, Browser, exact Gantry admin tools, and provider/channel permissions.
+4. Use `request_access` (`target.kind=run_command`) only for one-off exact command access or scoped `RunCommand(<literal argv pattern>)` fallback when no reviewed capability fits.
 5. State whether the change affects transient approval, persistent capability selection, or both.
 6. Keep Browser durable authority canonical as `browser.use`; do not persist provider-private browser tool names as authority.
 7. For `local_cli` capabilities, require pinned executable identity, auth/preflight, protected paths, denied environment overrides, and reviewed command templates.

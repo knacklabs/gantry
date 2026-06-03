@@ -238,6 +238,7 @@ describe('SkillService', () => {
         cannot: 'Read unrelated accounts or receive raw LinkedIn credentials.',
         requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
         commandTemplates: ['skills/linkedin-posting/post.py *'],
+        networkHosts: [],
       },
     ]);
   });

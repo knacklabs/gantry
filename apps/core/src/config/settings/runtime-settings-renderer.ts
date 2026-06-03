@@ -30,7 +30,6 @@ import type {
   RuntimeCredentialBrokerSettings,
   RuntimeAgentSettings,
   RuntimeBrowserSettings,
-  RuntimeConfiguredAgentCapability,
   RuntimeConfiguredAgentSourceRef,
   RuntimeConfiguredAgent,
   RuntimeConfiguredBinding,
@@ -219,27 +218,37 @@ function renderConfiguredAgentsYaml(
         `    recurring_job_default_model: ${quoteYamlString(agent.recurringJobDefaultModel)}`,
       );
     }
-    renderAgentSourcesYaml(lines, agent);
-    renderAgentCapabilitiesYaml(lines, agent.capabilities);
+    renderAgentAccessYaml(lines, agent);
   }
   lines.push('');
 }
 
-function renderAgentSourcesYaml(
+function renderAgentAccessYaml(
   lines: string[],
   agent: RuntimeConfiguredAgent,
 ): void {
-  if (
-    agent.sources.skills.length === 0 &&
-    agent.sources.mcpServers.length === 0 &&
-    agent.sources.tools.length === 0
-  ) {
+  const hasSources =
+    agent.sources.skills.length > 0 ||
+    agent.sources.mcpServers.length > 0 ||
+    agent.sources.tools.length > 0;
+  const hasSelections = agent.capabilities.length > 0;
+  if (!hasSources && !hasSelections) {
     return;
   }
-  lines.push('    sources:');
-  renderAgentSourceListYaml(lines, 'skills', agent.sources.skills);
-  renderAgentSourceListYaml(lines, 'mcp_servers', agent.sources.mcpServers);
-  renderAgentSourceListYaml(lines, 'tools', agent.sources.tools);
+  lines.push('    access:');
+  if (hasSources) {
+    lines.push('      sources:');
+    renderAgentSourceListYaml(lines, 'skills', agent.sources.skills);
+    renderAgentSourceListYaml(lines, 'mcp_servers', agent.sources.mcpServers);
+    renderAgentSourceListYaml(lines, 'tools', agent.sources.tools);
+  }
+  if (hasSelections) {
+    lines.push('      selections:');
+    for (const selection of agent.capabilities) {
+      lines.push(`        - id: ${quoteYamlString(selection.id)}`);
+      lines.push(`          version: ${quoteYamlString(selection.version)}`);
+    }
+  }
 }
 
 function renderAgentSourceListYaml(
@@ -248,32 +257,26 @@ function renderAgentSourceListYaml(
   sources: RuntimeConfiguredAgentSourceRef[],
 ): void {
   if (sources.length === 0) return;
-  lines.push(`      ${key}:`);
+  lines.push(`        ${key}:`);
   for (const source of sources) {
     if (source.name !== undefined) {
-      lines.push(`        - name: ${quoteYamlString(source.name)}`);
-      lines.push(`          id: ${quoteYamlString(source.id)}`);
+      lines.push(`          - name: ${quoteYamlString(source.name)}`);
+      lines.push(`            id: ${quoteYamlString(source.id)}`);
     } else {
-      lines.push(`        - id: ${quoteYamlString(source.id)}`);
+      lines.push(`          - id: ${quoteYamlString(source.id)}`);
     }
     if (source.version !== undefined) {
-      lines.push(`          version: ${quoteYamlString(source.version)}`);
+      lines.push(`            version: ${quoteYamlString(source.version)}`);
     }
     if (source.kind !== undefined) {
-      lines.push(`          kind: ${quoteYamlString(source.kind)}`);
+      lines.push(`            kind: ${quoteYamlString(source.kind)}`);
     }
-  }
-}
-
-function renderAgentCapabilitiesYaml(
-  lines: string[],
-  capabilities: RuntimeConfiguredAgentCapability[],
-): void {
-  if (capabilities.length === 0) return;
-  lines.push('    capabilities:');
-  for (const capability of capabilities) {
-    lines.push(`      - id: ${quoteYamlString(capability.id)}`);
-    lines.push(`        version: ${quoteYamlString(capability.version)}`);
+    if (source.tools !== undefined && source.tools.length > 0) {
+      lines.push(`            tools:`);
+      for (const tool of source.tools) {
+        lines.push(`              - ${quoteYamlString(tool)}`);
+      }
+    }
   }
 }
 

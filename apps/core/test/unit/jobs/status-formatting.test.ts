@@ -11,7 +11,7 @@ function job(): Job {
     schedule_type: 'cron',
     schedule_value: '15 3 * * *',
     session_id: null,
-    group_scope: 'main_agent',
+    workspace_key: 'main_agent',
     created_by: 'agent',
     status: 'active',
     next_run: '2026-05-20T21:45:00.000Z',
@@ -36,7 +36,8 @@ describe('job status formatting', () => {
       durationMs: 311_000,
     });
 
-    expect(message).toContain('Needs memory review: Memory Dreaming');
+    expect(message).toContain('**📝 Needs memory review**');
+    expect(message).toContain('· Memory Dreaming');
     expect(message).toContain(
       'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
     );
@@ -56,7 +57,8 @@ describe('job status formatting', () => {
       durationMs: 311_000,
     });
 
-    expect(message).toContain('Timed out: Memory Dreaming');
+    expect(message).toContain('**⏱️ Timed out**');
+    expect(message).toContain('· Memory Dreaming');
     expect(message).toContain(
       'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
     );

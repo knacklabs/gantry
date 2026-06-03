@@ -22,7 +22,17 @@ import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 export * from './memory.js';
-export { syncRuntimeSettingsFromProjection } from './settings/restart-sync.js';
+export { SettingsDesiredStateService } from './settings/desired-state-service.js';
+export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
+export {
+  applyRuntimeSettingsDesiredState,
+  syncRuntimeSettingsFromProjection,
+} from './settings/restart-sync.js';
+export {
+  loadRuntimeSettings,
+  loadRuntimeSettingsFromPath,
+} from './settings/runtime-settings.js';
+export type { RuntimeSettings } from './settings/runtime-settings-types.js';
 export const POLL_INTERVAL = 2000;
 export type ControlEnvKey =
   | 'GANTRY_CONTROL_API_KEYS_JSON'
@@ -237,7 +247,7 @@ export type DefaultModelSource =
   | 'settings.yaml agent.default_model'
   | 'system default';
 export type EffectiveModelSource =
-  | 'group.agentConfig.model'
+  | 'conversation.agentConfig.model'
   | 'job.model'
   | 'settings.yaml agent.one_time_job_default_model'
   | 'settings.yaml agent.recurring_job_default_model'
@@ -341,7 +351,7 @@ export function getEffectiveModelConfig(
   if (normalizedGroupModel) {
     return {
       model: normalizedGroupModel,
-      source: 'group.agentConfig.model',
+      source: 'conversation.agentConfig.model',
     };
   }
   return getDefaultModelConfig(kind, agentFolder);

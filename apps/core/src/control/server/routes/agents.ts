@@ -96,7 +96,7 @@ export async function handleAgentRoutes(
         agentId,
       });
       const repositories = getRuntimeStorage().repositories;
-      const capabilities =
+      const capabilitiesView =
         repositories.tools && repositories.skills && repositories.mcpServers
           ? await new AgentCapabilityAdministrationService({
               agents: repositories.agents,
@@ -108,6 +108,11 @@ export async function handleAgentRoutes(
               agentId,
             })
           : undefined;
+      // The /admin response contract (AgentCapabilitiesResponseSchema, strict)
+      // does not carry the access summary; that lives on the /access endpoint.
+      const capabilities = capabilitiesView
+        ? (({ summary: _summary, ...rest }) => rest)(capabilitiesView)
+        : undefined;
       sendJson(res, 200, {
         agent: agentToResponse(agent),
         capabilities,

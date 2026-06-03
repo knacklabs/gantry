@@ -5,6 +5,10 @@ import { chatJid, TASKS_DIR, threadId } from '../context.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
 import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
+import {
+  formatGuidedActionPreview,
+  type GuidedActionPreview,
+} from '../../../application/guided-actions/guided-action-service.js';
 import { makeIpcId } from '../ipc-ids.js';
 
 const SETTINGS_APPROVAL_WAIT_MS = 5 * 60 * 1000;
@@ -54,6 +58,52 @@ export function registerSettingsTools(
             text: revision
               ? `revision: ${revision}\n\n${String(data.yaml || response.message || '')}`
               : String(data.yaml || response.message || ''),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'guided_action_preview',
+    'Preview the current control-plane guided action (next action) before requesting any change. Read-only. Requires selected agent tool grant mcp__gantry__guided_action_preview.',
+    {},
+    async () => {
+      if (!options.isAdminToolEnabled('guided_action_preview')) {
+        return adminToolUnavailable('guided_action_preview');
+      }
+      const taskId = makeIpcId('guided-action-preview');
+      writeIpcFile(TASKS_DIR, {
+        type: 'guided_action_preview',
+        taskId,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, 20_000);
+      if (!response?.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: response?.error || 'Guided action preview lookup failed.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      const preview =
+        response.data && typeof response.data === 'object'
+          ? (response.data as GuidedActionPreview)
+          : undefined;
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: preview
+              ? formatGuidedActionPreview(preview)
+              : response.message || 'No guided action preview available.',
           },
         ],
       };

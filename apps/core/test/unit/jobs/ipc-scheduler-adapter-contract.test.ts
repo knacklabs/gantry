@@ -268,7 +268,7 @@ describe('scheduler IPC adapter contracts', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {
@@ -277,19 +277,22 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
-        capabilityRequirements: [
+        accessRequirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              executablePath: '/usr/local/bin/acme',
-              commandTemplate: '/usr/local/bin/acme records append *',
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                commandTemplate: '/usr/local/bin/acme records append *',
+              },
             },
+            reason: 'Write lead rows after each run',
           },
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
         ],
-        toolAccessRequirements: ['Browser'],
         confirmationToken: schedulerJobConfirmationToken({
           name: 'Daily review',
           prompt: 'Review memory',
@@ -298,7 +301,7 @@ describe('scheduler IPC adapter contracts', () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notificationRoutes: [
             {
@@ -307,19 +310,22 @@ describe('scheduler IPC adapter contracts', () => {
               label: 'primary',
             },
           ],
-          capabilityRequirements: [
+          accessRequirements: [
             {
-              capabilityId: 'acme.records.append',
-              reason: 'Write lead rows after each run',
-              implementation: {
-                kind: 'local_cli',
-                name: 'acme',
-                executablePath: '/usr/local/bin/acme',
-                commandTemplate: '/usr/local/bin/acme records append *',
+              target: {
+                kind: 'capability',
+                capabilityId: 'acme.records.append',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
+                  commandTemplate: '/usr/local/bin/acme records append *',
+                },
               },
+              reason: 'Write lead rows after each run',
             },
+            { target: { kind: 'tool_rule', rule: 'Browser' } },
           ],
-          toolAccessRequirements: ['Browser'],
         }),
       }),
     );
@@ -329,7 +335,7 @@ describe('scheduler IPC adapter contracts', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {
@@ -338,18 +344,21 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
-        toolAccessRequirements: ['Browser'],
-        capabilityRequirements: [
+        accessRequirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              executablePath: '/usr/local/bin/acme',
-              commandTemplate: '/usr/local/bin/acme records append *',
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                commandTemplate: '/usr/local/bin/acme records append *',
+              },
             },
+            reason: 'Write lead rows after each run',
           },
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
         ],
       }),
     );
@@ -444,19 +453,25 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
-  it('passes scheduler update toolAccessRequirements through to the job service', async () => {
+  it('passes scheduler update accessRequirements through to the job service', async () => {
     await schedulerMutateTaskHandlers.scheduler_update_job(
       makeContext({
         type: 'scheduler_update_job',
         jobId: 'job-1',
-        toolAccessRequirements: ['Browser'],
+        accessRequirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
       }),
     );
 
     expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
       jobId: 'job-1',
       access: expect.any(Object),
-      patch: { toolAccessRequirements: ['Browser'] },
+      patch: {
+        accessRequirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+      },
     });
   });
 

@@ -80,8 +80,10 @@ export const canonicalJobsPostgres = pgTable(
       table.updatedAt.desc(),
       table.createdAt.desc(),
     ),
-    targetGroupScopeUpdatedIdx: index('idx_jobs_target_group_scope_updated').on(
-      sql`(${table.targetJson} #>> '{executionContext,groupScope}')`,
+    targetWorkspaceKeyUpdatedIdx: index(
+      'idx_jobs_target_workspace_key_updated',
+    ).on(
+      sql`(${table.targetJson} #>> '{executionContext,workspaceKey}')`,
       table.updatedAt.desc(),
       table.createdAt.desc(),
     ),

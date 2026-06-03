@@ -8,7 +8,6 @@ import type { SchedulerSendMessage } from './delivery.js';
 import { sendJobNotification } from './delivery.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import { MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
-import { formatRunLabel } from '../shared/human-format.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
 import {
@@ -64,7 +63,7 @@ export function logMemoryDreamJobFailure(input: {
   input.logger.error(
     {
       jobId: input.job.id,
-      groupScope: input.job.group_scope,
+      workspaceKey: input.job.workspace_key,
       runId: input.runId,
       error: input.error,
     },
@@ -81,10 +80,7 @@ export async function notifySchedulerRunStart(input: {
   if (input.job.silent) return false;
   return sendJobNotification({
     job: input.job,
-    text: `Running: ${input.job.name} (${formatRunLabel({
-      id: input.runId,
-      shortId: input.runShortId,
-    })})`,
+    text: `**▶️ Running** · ${input.job.name}`,
     phase: 'start',
     runId: input.runId,
     sendMessage: input.sendMessage,
@@ -107,10 +103,9 @@ export async function notifySchedulerSetupRequired(input: {
   return sendJobNotification({
     job: input.job,
     text: [
-      `Setup needed: ${input.job.name}`,
-      `Why: ${reason}`,
+      `**🛠️ Setup needed** · ${input.job.name}`,
+      reason,
       `Action: ${action}`,
-      'Next: Resume the job after setup is done.',
     ].join('\n'),
     phase: 'summary',
     runId: `setup:${input.setupState.fingerprint}`,

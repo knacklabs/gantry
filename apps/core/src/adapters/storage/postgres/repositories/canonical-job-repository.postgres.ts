@@ -144,7 +144,7 @@ function canonicalJobSessionId() { return sql`${pgSchema.canonicalJobsPostgres.t
 // prettier-ignore
 function canonicalJobConversationJid() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,conversationJid}'`; }
 // prettier-ignore
-function canonicalJobGroupScope() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,groupScope}'`; }
+function canonicalJobWorkspaceKey() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,workspaceKey}'`; }
 // prettier-ignore
 function canonicalJobThreadId() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,threadId}'`; }
 
@@ -202,8 +202,8 @@ export class PostgresCanonicalJobRepository {
       filters?.statuses?.length
         ? inArray(pgSchema.canonicalJobsPostgres.status, filters.statuses)
         : undefined,
-      filters?.groupScope
-        ? sql`${canonicalJobGroupScope()} = ${filters.groupScope}`
+      filters?.workspaceKey
+        ? sql`${canonicalJobWorkspaceKey()} = ${filters.workspaceKey}`
         : undefined,
       filters?.threadId !== undefined
         ? filters.threadId
@@ -213,8 +213,8 @@ export class PostgresCanonicalJobRepository {
       filters?.agentId
         ? sql`(
             ${pgSchema.canonicalJobsPostgres.agentId} = ${canonicalAgentId(filters.agentId)}
-            or ${canonicalJobGroupScope()} = ${filters.agentId}
-            or ${canonicalJobGroupScope()} = ${canonicalAgentId(filters.agentId)}
+            or ${canonicalJobWorkspaceKey()} = ${filters.agentId}
+            or ${canonicalJobWorkspaceKey()} = ${canonicalAgentId(filters.agentId)}
           )`
         : undefined,
       filters?.kind
@@ -657,7 +657,7 @@ export class PostgresCanonicalJobRepository {
         ? (target.executionContext as Record<string, unknown>)
         : undefined;
     const folder = row
-      ? ((executionContext?.groupScope as string | undefined) ??
+      ? ((executionContext?.workspaceKey as string | undefined) ??
         row.agentId?.replace(/^agent:/, '') ??
         'system')
       : 'system';

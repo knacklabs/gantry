@@ -2,11 +2,32 @@ import type { PermissionApprovalRequest } from '../domain/types.js';
 import { firstDestructiveRedirectTarget } from '../shared/bash-command-parser.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
 
-const PERMISSION_JSON_MAX_DEPTH = 2;
 const PERMISSION_JSON_MAX_KEYS = 12;
 const PERMISSION_JSON_MAX_ARRAY_ITEMS = 8;
 const SENSITIVE_INPUT_KEY_PATTERN =
   /(secret|token|password|credential|api[_-]?key|private[_-]?key|session|cookie|authorization)/i;
+// Internal runtime plumbing identifiers (chat jids, ipc dirs, run handles,
+// sandbox/agent/skill ids). Carry no decision value for the user and can leak
+// internal topology, so the generic fallback drops them entirely rather than
+// rendering them as visible key/value lines.
+function isInternalPlumbingKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return (
+    k.endsWith('jid') ||
+    k.includes('ipcdir') ||
+    k.includes('runhandle') ||
+    k.includes('sandboxprofile') ||
+    k.includes('workspacekey') ||
+    k.includes('workspacefolder') ||
+    k.endsWith('agentid') ||
+    k.endsWith('appid') ||
+    k.endsWith('sessionid') ||
+    k.endsWith('threadid') ||
+    k.endsWith('correlationid') ||
+    k.endsWith('skillid') ||
+    k.endsWith('profileid')
+  );
+}
 const REDACTION_MARKER_PATTERN =
   /\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/;
 
@@ -73,16 +94,69 @@ export function formatPermissionToolInputLines(
     sanitizePermissionText,
   );
   if (fieldLines.length > 0) return fieldLines;
-  try {
-    const json = sanitizePermissionText(
-      boundedJsonPreview(input, sanitizePermissionText),
-      450,
-      150,
-    );
-    return ['Input:', '```json', json, '```'];
-  } catch {
-    return ['Input: [unserializable]'];
+  // No meaningful arguments (e.g. a read-only tool that takes none): skip the
+  // body entirely rather than showing an empty `Input: {}` block.
+  if (Object.keys(input).length === 0) return [];
+  // Unknown / third-party tool: render top-level args as clean key/value lines
+  // (sensitive keys hidden, values sanitized) instead of a raw JSON block.
+  const generic = formatGenericInputFields(input, sanitizePermissionText);
+  return generic.length > 0 ? ['Input:', ...generic] : [];
+}
+
+function labelizeKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatGenericInputFields(
+  input: Record<string, unknown>,
+  sanitizePermissionText: PermissionTextSanitizer,
+): string[] {
+  const lines: string[] = [];
+  let shown = 0;
+  for (const [key, value] of Object.entries(input)) {
+    if (shown >= PERMISSION_JSON_MAX_KEYS) {
+      lines.push('  …');
+      break;
+    }
+    if (isInternalPlumbingKey(key)) continue;
+    if (SENSITIVE_INPUT_KEY_PATTERN.test(key)) {
+      lines.push(`  ${labelizeKey(key)}: [hidden]`);
+      shown += 1;
+      continue;
+    }
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      const text = String(value).trim();
+      if (!text) continue;
+      lines.push(
+        `  ${labelizeKey(key)}: ${sanitizePermissionText(text, 200, 80)}`,
+      );
+      shown += 1;
+    } else if (Array.isArray(value)) {
+      const scalars = value
+        .filter((item) => typeof item === 'string' || typeof item === 'number')
+        .map(String);
+      if (scalars.length === 0) continue;
+      lines.push(
+        `  ${labelizeKey(key)}: ${sanitizePermissionText(
+          scalars.slice(0, PERMISSION_JSON_MAX_ARRAY_ITEMS).join(', '),
+          200,
+          60,
+        )}`,
+      );
+      shown += 1;
+    }
+    // Nested objects are intentionally omitted from the prompt body.
   }
+  return lines;
 }
 
 function formatFileToolInputLines(
@@ -119,62 +193,6 @@ function formatFileToolInputLines(
   return lines;
 }
 
-function boundedJsonPreview(
-  input: Record<string, unknown>,
-  sanitizePermissionText: PermissionTextSanitizer,
-): string {
-  return JSON.stringify(
-    boundedJsonValue(input, 0, sanitizePermissionText),
-    null,
-    2,
-  );
-}
-
-function boundedJsonValue(
-  value: unknown,
-  depth: number,
-  sanitizePermissionText: PermissionTextSanitizer,
-): unknown {
-  if (typeof value === 'string') {
-    return sanitizePermissionText(value, 160, 80);
-  }
-  if (
-    typeof value === 'number' ||
-    typeof value === 'boolean' ||
-    value === null
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    const items = value
-      .slice(0, PERMISSION_JSON_MAX_ARRAY_ITEMS)
-      .map((item) => boundedJsonValue(item, depth + 1, sanitizePermissionText));
-    if (value.length > items.length) {
-      items.push(`... ${value.length - items.length} more item(s) omitted`);
-    }
-    return items;
-  }
-  if (value && typeof value === 'object') {
-    if (depth >= PERMISSION_JSON_MAX_DEPTH) return '[nested object omitted]';
-    const out: Record<string, unknown> = {};
-    let seen = 0;
-    for (const key in value as Record<string, unknown>) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-      if (seen >= PERMISSION_JSON_MAX_KEYS) {
-        out.__omitted_keys = 'more';
-        break;
-      }
-      seen += 1;
-      const entry = (value as Record<string, unknown>)[key];
-      out[key] = SENSITIVE_INPUT_KEY_PATTERN.test(key)
-        ? '[hidden]'
-        : boundedJsonValue(entry, depth + 1, sanitizePermissionText);
-    }
-    return out;
-  }
-  return sanitizePermissionText(String(value), 160, 80);
-}
-
 function hasRedactionMarker(value: string): boolean {
   return REDACTION_MARKER_PATTERN.test(value);
 }
@@ -188,6 +206,29 @@ function shellProgramLabel(command: string): string | null {
   return program || null;
 }
 
+function formatApproxBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return `${bytes}`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function skillMarkdownPreviewContent(input: Record<string, unknown>): {
+  content: string;
+  truncated: boolean;
+} | null {
+  const preview = input.skillMarkdownPreview;
+  if (typeof preview !== 'object' || preview === null) return null;
+  const record = preview as Record<string, unknown>;
+  if (typeof record.content !== 'string') return null;
+  const content = record.content.trim();
+  if (!content) return null;
+  return {
+    content,
+    truncated: record.truncated === true,
+  };
+}
+
 function formatKnownToolInputFields(
   toolName: string,
   input: Record<string, unknown>,
@@ -199,6 +240,21 @@ function formatKnownToolInputFields(
     const text = String(value).trim();
     if (!text) return;
     lines.push(`${label}: ${sanitizePermissionText(text, limit, 100)}`);
+  };
+  const addList = (label: string, value: unknown, max = 8) => {
+    if (!Array.isArray(value)) return;
+    const items = value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter(Boolean);
+    if (items.length === 0) return;
+    const shown = items.slice(0, max);
+    const overflow =
+      items.length > shown.length
+        ? `, +${items.length - shown.length} more`
+        : '';
+    lines.push(
+      `${label}: ${sanitizePermissionText(shown.join(', '), 280, 80)}${overflow}`,
+    );
   };
   if (toolName === 'Read') add('Path', input.file_path);
   if (toolName === 'LS') add('Path', input.path);
@@ -233,6 +289,51 @@ function formatKnownToolInputFields(
       input.schedule ?? input.schedule_value ?? input.scheduleValue,
     );
     add('Prompt', input.prompt, 300);
+  }
+  // Admin request tools carry rich structured payloads; render a clean,
+  // human-readable summary instead of dumping raw JSON (which also leaks
+  // internal ids like skillId, sandboxProfileId, raw jids, and folders).
+  if (
+    toolName === 'request_skill_install' ||
+    toolName === 'request_skill_proposal'
+  ) {
+    add('Description', input.description, 200);
+    add('Install', input.commandSummary, 200);
+    if (Array.isArray(input.files) && input.files.length > 0) {
+      const size =
+        typeof input.totalSizeBytes === 'number'
+          ? ` (${formatApproxBytes(input.totalSizeBytes)})`
+          : '';
+      lines.push(`Files: ${input.files.length}${size}`);
+    }
+    addList('Requires env', input.requiredEnvVars);
+    const preview = skillMarkdownPreviewContent(input);
+    if (preview) {
+      lines.push(
+        preview.truncated
+          ? 'SKILL.md preview (truncated):'
+          : 'SKILL.md preview:',
+        '```markdown',
+        sanitizePermissionText(preview.content, 2400, 600),
+        '```',
+      );
+    }
+  }
+  if (toolName === 'request_mcp_server') {
+    add('Transport', input.transport, 40);
+    add('Install', input.origin, 200);
+    addList('Tools', input.requestedToolPatterns);
+    addList('Needs credentials', input.credentialNeeds);
+    addList('Network', input.networkHosts);
+  }
+  if (toolName === 'register_agent') {
+    if (typeof input.trigger === 'string' && input.trigger.trim()) {
+      lines.push(
+        `Trigger: ${sanitizePermissionText(input.trigger.trim(), 80, 20)}${
+          input.requiresTrigger ? ' (required)' : ''
+        }`,
+      );
+    }
   }
   return lines;
 }

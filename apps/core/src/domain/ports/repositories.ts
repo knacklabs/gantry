@@ -112,6 +112,15 @@ export interface AgentRepository {
     mcpBindings: AgentMcpServerBinding[];
     updatedAt: string;
   }): Promise<void>;
+  replaceAgentAccess(input: {
+    appId: AppId;
+    agentId: AgentId;
+    toolBindings: AgentToolBinding[];
+    skillBindings: AgentSkillBinding[];
+    mcpBindings: AgentMcpServerBinding[];
+    toolSources: AgentToolSource[];
+    updatedAt: string;
+  }): Promise<void>;
   disableAgent(input: {
     appId: AppId;
     agentId: AgentId;
@@ -534,6 +543,24 @@ export interface PermissionRepository {
   saveRule(rule: PermissionRule): Promise<void>;
   saveDecision(decision: PermissionDecision): Promise<void>;
   getDecision(id: PermissionDecisionId): Promise<PermissionDecision | null>;
+}
+
+export interface PendingAccessRequestsRepository {
+  insertPending(input: {
+    id: string;
+    appId: AppId;
+    agentId: string;
+    requestedBy: string;
+    target: unknown;
+    now?: string;
+  }): Promise<void>;
+  markResolved(input: {
+    appId: AppId;
+    id: string;
+    resolution: 'approved' | 'denied';
+    now?: string;
+  }): Promise<void>;
+  countPendingAccessRequests(input: { appId: AppId }): Promise<number>;
 }
 
 export interface SandboxRepository {

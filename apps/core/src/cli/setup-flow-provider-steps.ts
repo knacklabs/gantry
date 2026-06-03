@@ -26,6 +26,10 @@ import {
 } from './setup-slack-approvers.js';
 import type { SetupDraft } from './setup-flow-state.js';
 
+function setupBlocked(reason: string, nextAction: string): string {
+  return [`Setup blocked: ${reason}`, `Next action: ${nextAction}`].join('\n');
+}
+
 async function promptTelegramAdminSenderIdForManualChat(
   draft: SetupDraft,
 ): Promise<FlowAction> {
@@ -170,8 +174,11 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
     if (!validation.ok) {
       spinner.stop('Token check failed');
       p.note(
-        `${validation.message}\nNext action: ${validation.nextAction || 'Try again with a valid token.'}`,
-        'Token Error',
+        setupBlocked(
+          validation.message,
+          validation.nextAction || 'choose Try token again.',
+        ),
+        'Blocked',
       );
       const retryChoice = await p.select({
         message: 'What do you want to do?',
@@ -200,6 +207,7 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
     draft.telegramPermissionApproverIds = '';
 
     let normalizedJid = '';
+    let selectedConversationLabel = '';
     const discoverySpinner = p.spinner();
     discoverySpinner.start('Looking for recent Telegram chats...');
     const discovered = await listTelegramRecentChats({
@@ -240,6 +248,7 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
       const selectedChat = discovered.chats.find(
         (chat) => chat.chatJid === normalizedJid,
       );
+      selectedConversationLabel = selectedChat?.chatTitle || '';
       if (selectedChat?.chatType === 'private') {
         draft.telegramAdminSenderId =
           /^tg:(\d+)$/.exec(selectedChat.chatJid)?.[1] || '';
@@ -291,7 +300,10 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
 
     if (!normalizedJid) {
       p.log.error(
-        'Invalid chat ID format. Next action: use a numeric Telegram chat ID.',
+        setupBlocked(
+          'invalid Telegram chat ID format',
+          'choose Try again with a numeric Telegram chat ID.',
+        ),
       );
       continue;
     }
@@ -308,8 +320,12 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
     if (!chatAccess.ok) {
       chatCheckSpinner.stop('Chat access check failed');
       p.note(
-        `${chatAccess.message}\nNext action: ${chatAccess.nextAction || 'Fix chat permissions and retry.'}`,
-        'Chat Access Error',
+        setupBlocked(
+          chatAccess.message,
+          chatAccess.nextAction ||
+            'choose Try again after fixing chat permissions.',
+        ),
+        'Blocked',
       );
       const retryChoice = await p.select({
         message: 'What do you want to do?',
@@ -329,13 +345,16 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
       return { type: 'cancel' };
     }
     chatCheckSpinner.stop(chatAccess.message);
-    draft.telegramDisplayName = draft.agentName || DEFAULT_AGENT_CLI_NAME;
+    draft.telegramDisplayName =
+      chatAccess.chatTitle ||
+      selectedConversationLabel ||
+      draft.telegramChatJid;
 
     p.note(
       [
         `Agent: ${draft.agentName || DEFAULT_AGENT_CLI_NAME}`,
         `Bot: ${draft.telegramBotUsername ? `@${draft.telegramBotUsername}` : 'Configured'}`,
-        `Chat: ${draft.telegramChatJid}`,
+        `Chat: ${draft.telegramDisplayName} (${draft.telegramChatJid})`,
         `Session admin: ${
           draft.telegramAdminSenderId
             ? draft.telegramAdminSenderName || draft.telegramAdminSenderId
@@ -426,8 +445,11 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     const botValidation = await validateSlackBotToken(botToken);
     if (!botValidation.ok) {
       p.note(
-        `${botValidation.message}\nNext action: ${botValidation.nextAction || 'Try again with a valid token.'}`,
-        'Bot Token Error',
+        setupBlocked(
+          botValidation.message,
+          botValidation.nextAction || 'choose Try token again.',
+        ),
+        'Blocked',
       );
       const retryChoice = await p.select({
         message: 'What do you want to do?',
@@ -503,8 +525,11 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     const appValidation = await validateSlackAppToken(appToken);
     if (!appValidation.ok) {
       p.note(
-        `${appValidation.message}\nNext action: ${appValidation.nextAction || 'Try again with a valid app token.'}`,
-        'App Token Error',
+        setupBlocked(
+          appValidation.message,
+          appValidation.nextAction || 'choose Try app token again.',
+        ),
+        'Blocked',
       );
       const retryChoice = await p.select({
         message: 'What do you want to do?',
@@ -528,6 +553,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     p.log.success(appValidation.message);
 
     let normalizedJid = '';
+    let selectedConversationLabel = '';
     const discoverySpinner = p.spinner();
     discoverySpinner.start('Looking for accessible Slack conversations...');
     const discovered = await listSlackRecentChats({ botToken, limit: 100 });
@@ -560,6 +586,9 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
       if (selected === 'resume') return { type: 'resume' };
       if (selected === 'cancel') return { type: 'cancel' };
       normalizedJid = normalizeSlackChatJid(String(selected)) || '';
+      selectedConversationLabel =
+        discovered.chats.find((chat) => chat.chatJid === normalizedJid)
+          ?.chatTitle || '';
     } else {
       discoverySpinner.stop('No accessible Slack conversation found.');
       if (discovered.nextAction) p.log.info(discovered.nextAction);
@@ -595,7 +624,10 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
 
     if (!normalizedJid) {
       p.log.error(
-        'Invalid conversation ID format. Next action: use a valid Slack conversation ID.',
+        setupBlocked(
+          'invalid Slack conversation ID format',
+          'choose Try again with a valid Slack conversation ID.',
+        ),
       );
       continue;
     }
@@ -608,8 +640,12 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     });
     if (!access.ok) {
       p.note(
-        `${access.message}\nNext action: ${access.nextAction || 'Fix channel access and retry.'}`,
-        'Conversation Access Error',
+        setupBlocked(
+          access.message,
+          access.nextAction ||
+            'choose Try again after fixing conversation access.',
+        ),
+        'Blocked',
       );
       const retryChoice = await p.select({
         message: 'What do you want to do?',
@@ -628,7 +664,8 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
       if (retryChoice === 'resume') return { type: 'resume' };
       return { type: 'cancel' };
     }
-    draft.slackDisplayName = DEFAULT_AGENT_CLI_NAME;
+    draft.slackDisplayName =
+      access.chatTitle || selectedConversationLabel || draft.slackChatJid;
 
     const approverInput = await p.text({
       message:
@@ -647,7 +684,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     p.note(
       [
         `Agent: ${draft.agentName || DEFAULT_AGENT_CLI_NAME}`,
-        `Conversation: ${draft.slackChatJid}`,
+        `Conversation: ${draft.slackDisplayName} (${draft.slackChatJid})`,
         `Permission approvers: ${draft.slackPermissionApproverIds}`,
       ].join('\n'),
       'Slack',

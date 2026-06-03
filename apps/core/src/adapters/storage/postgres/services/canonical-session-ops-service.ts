@@ -100,7 +100,7 @@ export class CanonicalSessionOpsService {
   }
 
   async setSession(
-    groupFolder: string,
+    workspaceFolder: string,
     sessionId: string,
     threadId: string | null | undefined,
     metadata: {
@@ -114,10 +114,10 @@ export class CanonicalSessionOpsService {
     },
   ): Promise<boolean> {
     return this.repository.setProviderSession({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: metadata.executionProviderId,
       sessionId,
-      scopeKey: makeSessionScopeKey(groupFolder, threadId, {
+      scopeKey: makeSessionScopeKey(workspaceFolder, threadId, {
         conversationJid: metadata.chatJid,
         conversationKind: metadata.conversationKind,
         userId: metadata.memoryUserId,
@@ -134,7 +134,7 @@ export class CanonicalSessionOpsService {
   }
 
   async getAgentTurnContext(input: {
-    groupFolder: string;
+    workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
     chatJid: string;
     threadId?: string | null;
@@ -153,11 +153,11 @@ export class CanonicalSessionOpsService {
     memoryContextBlock?: string;
   }> {
     const context = await this.repository.getAgentTurnContext({
-      groupFolder: input.groupFolder,
+      workspaceFolder: input.workspaceFolder,
       executionProviderId: input.executionProviderId,
       chatJid: input.chatJid,
       threadId: input.threadId,
-      scopeKey: makeSessionScopeKey(input.groupFolder, input.threadId, {
+      scopeKey: makeSessionScopeKey(input.workspaceFolder, input.threadId, {
         conversationJid: input.chatJid,
         conversationKind: input.conversationKind,
         userId: input.memoryUserId,
@@ -191,7 +191,7 @@ export class CanonicalSessionOpsService {
   }
 
   async deleteSession(
-    groupFolder: string,
+    workspaceFolder: string,
     threadId?: string | null,
     metadata: {
       chatJid?: string;
@@ -201,7 +201,7 @@ export class CanonicalSessionOpsService {
     } = {},
   ): Promise<void> {
     await this.repository.resetScope({
-      scopeKey: makeSessionScopeKey(groupFolder, threadId, {
+      scopeKey: makeSessionScopeKey(workspaceFolder, threadId, {
         conversationJid: metadata.chatJid,
         conversationKind: metadata.conversationKind,
         userId: metadata.memoryUserId,
@@ -212,8 +212,10 @@ export class CanonicalSessionOpsService {
     });
   }
 
-  async deleteSessionsByGroupFolder(groupFolder: string): Promise<void> {
-    await this.repository.deleteGroupFolder(groupFolder);
+  async deleteSessionsByWorkspaceFolder(
+    workspaceFolder: string,
+  ): Promise<void> {
+    await this.repository.deleteWorkspaceFolder(workspaceFolder);
   }
 
   private async loadProductionContinuityJobs(input: {

@@ -1,5 +1,8 @@
 export type {
   Job,
+  JobAccessRequirement,
+  JobCapabilityRequirement,
+  JobCapabilityRequirementImplementation,
   JobEvent,
   JobRun,
   NewMessage,

@@ -6,7 +6,7 @@ type MaintenanceTask = () => Promise<void>;
 
 interface PendingTask {
   dedupeKey: string;
-  groupFolder: string;
+  workspaceFolder: string;
   task: MaintenanceTask;
   signal?: AbortSignal;
   resolve?: () => void;
@@ -15,7 +15,7 @@ interface PendingTask {
 
 interface MemoryMaintenanceQueueOptions {
   maxPending?: number;
-  onError?: (groupFolder: string, err: unknown) => void;
+  onError?: (workspaceFolder: string, err: unknown) => void;
 }
 
 export interface MemoryMaintenanceQueueEnqueueResult {
@@ -31,7 +31,7 @@ interface InternalEnqueueResult {
 
 export class MemoryMaintenanceQueue {
   private readonly maxPending: number;
-  private readonly onError: (groupFolder: string, err: unknown) => void;
+  private readonly onError: (workspaceFolder: string, err: unknown) => void;
   private running = false;
   private readonly pending: PendingTask[] = [];
   private readonly inflight = new Set<string>();
@@ -44,30 +44,31 @@ export class MemoryMaintenanceQueue {
     );
     this.onError =
       options.onError ||
-      ((groupFolder, err) => {
-        logger.error({ err, groupFolder }, 'memory_maintenance_failed');
+      ((workspaceFolder, err) => {
+        logger.error({ err, workspaceFolder }, 'memory_maintenance_failed');
       });
   }
 
   enqueue(
-    groupFolder: string,
+    workspaceFolder: string,
     task: MaintenanceTask,
     dedupeKey?: string,
   ): boolean {
-    return this.enqueueInternal(groupFolder, task, undefined, dedupeKey).result
-      .queued;
+    return this.enqueueInternal(workspaceFolder, task, undefined, dedupeKey)
+      .result.queued;
   }
 
   enqueueDetailed(
-    groupFolder: string,
+    workspaceFolder: string,
     task: MaintenanceTask,
     dedupeKey?: string,
   ): MemoryMaintenanceQueueEnqueueResult {
-    return this.enqueueInternal(groupFolder, task, undefined, dedupeKey).result;
+    return this.enqueueInternal(workspaceFolder, task, undefined, dedupeKey)
+      .result;
   }
 
   async enqueueAndWait(
-    groupFolder: string,
+    workspaceFolder: string,
     task: MaintenanceTask,
     dedupeKey?: string,
     options: { signal?: AbortSignal } = {},
@@ -80,7 +81,7 @@ export class MemoryMaintenanceQueue {
       rejectRun = reject;
     });
     const { result, entry } = this.enqueueInternal(
-      groupFolder,
+      workspaceFolder,
       task,
       {
         resolve: () => resolveRun?.(),
@@ -112,12 +113,12 @@ export class MemoryMaintenanceQueue {
     return this.pending.length;
   }
 
-  isRunningForGroup(groupFolder: string): boolean {
-    return this.inflightGroups.has(groupFolder);
+  isRunningForGroup(workspaceFolder: string): boolean {
+    return this.inflightGroups.has(workspaceFolder);
   }
 
   private enqueueInternal(
-    groupFolder: string,
+    workspaceFolder: string,
     task: MaintenanceTask,
     callbacks?: {
       resolve: () => void;
@@ -126,8 +127,8 @@ export class MemoryMaintenanceQueue {
     dedupeKeyOverride?: string,
     options: { signal?: AbortSignal } = {},
   ): InternalEnqueueResult {
-    const dedupeKey = dedupeKeyOverride?.trim() || groupFolder.trim();
-    if (!groupFolder.trim() || !dedupeKey) {
+    const dedupeKey = dedupeKeyOverride?.trim() || workspaceFolder.trim();
+    if (!workspaceFolder.trim() || !dedupeKey) {
       return {
         result: { queued: false, deduped: false, reason: 'invalid' },
       };
@@ -145,7 +146,7 @@ export class MemoryMaintenanceQueue {
     if (this.pending.length >= this.maxPending) {
       logger.warn(
         {
-          groupFolder,
+          workspaceFolder,
           maxPending: this.maxPending,
         },
         'memory_maintenance_queue_full',
@@ -156,7 +157,7 @@ export class MemoryMaintenanceQueue {
     }
     const entry: PendingTask = {
       dedupeKey,
-      groupFolder,
+      workspaceFolder,
       task,
       resolve: callbacks?.resolve,
       reject: callbacks?.reject,
@@ -189,16 +190,16 @@ export class MemoryMaintenanceQueue {
           continue;
         }
         this.inflight.add(next.dedupeKey);
-        this.inflightGroups.add(next.groupFolder);
+        this.inflightGroups.add(next.workspaceFolder);
         try {
           await next.task();
           next.resolve?.();
         } catch (err) {
-          this.onError(next.groupFolder, err);
+          this.onError(next.workspaceFolder, err);
           next.reject?.(err);
         } finally {
           this.inflight.delete(next.dedupeKey);
-          this.inflightGroups.delete(next.groupFolder);
+          this.inflightGroups.delete(next.workspaceFolder);
         }
       }
     } finally {

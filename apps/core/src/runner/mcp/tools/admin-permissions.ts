@@ -9,6 +9,7 @@ import {
   chatJid,
   configuredAllowedTools,
   currentEnabledAdminMcpTools,
+  IPC_DIR,
   attachedMcpSourceIds,
   selectedSkillDisplays,
   attachedSkillSourceIds,
@@ -19,6 +20,7 @@ import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messag
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import { makeIpcId } from '../ipc-ids.js';
 import { formatTaskFailureLines } from '../formatting.js';
+import { readLiveToolRules } from '../../../shared/live-tool-rules.js';
 
 export function registerAdminPermissionTools(
   server: McpServer,
@@ -28,12 +30,9 @@ export function registerAdminPermissionTools(
 ): void {
   server.tool(
     'admin_permission_list',
-    'List local permission and capability selection signals visible to this runner. Requires selected agent tool grant mcp__gantry__admin_permission_list.',
+    'List local permission and capability selection signals visible to this runner. Read-only and available without an admin grant.',
     {},
     async () => {
-      if (!options.isAdminToolEnabled('admin_permission_list')) {
-        return adminToolUnavailable('admin_permission_list');
-      }
       return {
         content: [
           {
@@ -115,6 +114,15 @@ export function registerAdminPermissionTools(
 
 function formatAdminPermissionList(): string {
   const enabledAdminTools = currentEnabledAdminMcpTools();
+  const visibleToolRules = [
+    ...new Set([
+      ...configuredAllowedTools,
+      ...readLiveToolRules({
+        ipcDir: IPC_DIR,
+        runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
+      }),
+    ]),
+  ];
   const selectedSkillStatusItems =
     selectedSkillDisplays.length > 0
       ? selectedSkillDisplays
@@ -122,15 +130,18 @@ function formatAdminPermissionList(): string {
   return [
     'Admin permission inventory (read-only runner view):',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
-      const status = enabledAdminTools.has(toolName)
-        ? 'approved'
-        : 'not approved';
+      const status =
+        toolName === 'admin_permission_list'
+          ? 'available (read-only)'
+          : enabledAdminTools.has(toolName)
+            ? 'approved'
+            : 'not approved';
       return `- mcp__gantry__${toolName}: ${status}`;
     }),
     '',
-    'Configured tool rules:',
-    ...(configuredAllowedTools.length > 0
-      ? configuredAllowedTools
+    'Visible tool rules:',
+    ...(visibleToolRules.length > 0
+      ? visibleToolRules
           .slice()
           .sort()
           .map((tool) => `- ${tool}`)

@@ -556,7 +556,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
         sessionId: 'session-1',
       },
       notificationRoutes: [
@@ -566,34 +566,42 @@ describe('contracts package', () => {
           label: 'primary',
         },
       ],
-      capabilityRequirements: [
+      accessRequirements: [
         {
-          capabilityId: 'acme.records.append',
-          reason: 'Append reviewed records after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executablePath: '/usr/local/bin/acme',
-            executableVersion: 'v0.9.0',
-            executableHash: 'sha256:abc123',
-            commandTemplate: '/usr/local/bin/acme records append *',
+          target: {
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
+              commandTemplate: '/usr/local/bin/acme records append *',
+            },
           },
+          reason: 'Append reviewed records after each run',
         },
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
       ],
-      toolAccessRequirements: ['Browser'],
       kind: 'recurring',
       schedule: { type: 'cron', value: '0 9 * * *' },
       modelAlias: 'sonnet',
     } satisfies CreateJobInput;
     expect(CreateJobRequestSchema.parse(sdkCreatePayload)).toMatchObject({
       name: 'Daily summary',
-      capabilityRequirements: [
+      accessRequirements: [
         expect.objectContaining({
-          capabilityId: 'acme.records.append',
-          implementation: expect.objectContaining({ name: 'acme' }),
+          target: expect.objectContaining({
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+            implementation: expect.objectContaining({ name: 'acme' }),
+          }),
+        }),
+        expect.objectContaining({
+          target: { kind: 'tool_rule', rule: 'Browser' },
         }),
       ],
-      toolAccessRequirements: ['Browser'],
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         sessionId: 'session-1',
@@ -605,7 +613,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
     });
     expectInvalid(CreateJobRequestSchema, {
@@ -614,7 +622,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
     });
     expectInvalid(CreateJobRequestSchema, {
@@ -627,7 +635,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
       modelAlias: 'sonnet',
       modelProfileId: 'anthropic:sonnet-4.6',
@@ -638,7 +646,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
     });
     expectInvalid(CreateJobRequestSchema, {
@@ -647,7 +655,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
         sessionId: null,
       },
     });
@@ -657,7 +665,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
       model: 'claude-sonnet-4-6',
     });
@@ -667,7 +675,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
       providerModelId: 'sonnet',
     });
@@ -702,24 +710,24 @@ describe('contracts package', () => {
 
     const sdkUpdatePayload = {
       modelAlias: null,
-      capabilityRequirements: [
+      accessRequirements: [
         {
-          capabilityId: 'acme.records.append',
+          target: { kind: 'capability', capabilityId: 'acme.records.append' },
           reason: 'Append reviewed records after each run',
         },
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
       ],
-      toolAccessRequirements: ['Browser'],
       status: 'paused',
     } satisfies UpdateJobInput;
     expect(UpdateJobRequestSchema.parse(sdkUpdatePayload)).toEqual({
       modelAlias: null,
-      capabilityRequirements: [
+      accessRequirements: [
         {
-          capabilityId: 'acme.records.append',
+          target: { kind: 'capability', capabilityId: 'acme.records.append' },
           reason: 'Append reviewed records after each run',
         },
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
       ],
-      toolAccessRequirements: ['Browser'],
       status: 'paused',
     });
     expectInvalid(UpdateJobRequestSchema, {
@@ -730,14 +738,14 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
     });
     expectInvalid(UpdateJobRequestSchema, {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
         sessionId: null,
       },
     });
@@ -775,7 +783,7 @@ describe('contracts package', () => {
         executionContext: {
           conversationJid: 'app:app-one:session-1',
           threadId: null,
-          groupScope: 'app:app-one:session-1',
+          workspaceKey: 'app:app-one:session-1',
           sessionId: null,
         },
         notificationRoutes: [
@@ -785,14 +793,13 @@ describe('contracts package', () => {
             label: 'primary',
           },
         ],
-        capabilityRequirements: [
+        accessRequirements: [
           {
-            capabilityId: 'acme.records.append',
+            target: { kind: 'capability', capabilityId: 'acme.records.append' },
             reason: 'Append reviewed records after each run',
           },
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
         ],
-        toolAccessRequirements: ['Browser'],
-        requiredMcpServers: [],
         nextRun: iso,
         lastRun: null,
         staleness: 'missed_window',
@@ -817,7 +824,7 @@ describe('contracts package', () => {
         },
         modelAlias: null,
         model: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
         sessionId: null,
         toolAccess: {
           inheritedAgentTools: ['Read'],
@@ -828,7 +835,10 @@ describe('contracts package', () => {
       }),
     ).toMatchObject({
       staleness: 'missed_window',
-      capabilityRequirements: [{ capabilityId: 'acme.records.append' }],
+      accessRequirements: [
+        { target: { kind: 'capability', capabilityId: 'acme.records.append' } },
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+      ],
       health: { state: 'needs_permission' },
       recovery: { state: 'running', kind: 'permission_denied' },
     });
@@ -841,14 +851,14 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
       notificationRoutes: [],
       nextRun: iso,
       lastRun: null,
       modelAlias: null,
       model: null,
-      groupScope: 'app:app-one:session-1',
+      workspaceKey: 'app:app-one:session-1',
       sessionId: null,
       toolAccess: {
         inheritedAgentTools: ['Read'],
@@ -866,7 +876,7 @@ describe('contracts package', () => {
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         threadId: null,
-        groupScope: 'app:app-one:session-1',
+        workspaceKey: 'app:app-one:session-1',
       },
       notificationRoutes: [],
       nextRun: iso,
@@ -874,7 +884,7 @@ describe('contracts package', () => {
       staleness: 'delayed',
       modelAlias: null,
       model: null,
-      groupScope: 'app:app-one:session-1',
+      workspaceKey: 'app:app-one:session-1',
       sessionId: null,
     });
     expectInvalid(JobResponseSchema, {
@@ -889,7 +899,7 @@ describe('contracts package', () => {
       lastRun: null,
       modelAlias: null,
       model: null,
-      groupScope: 'app:app-one:session-1',
+      workspaceKey: 'app:app-one:session-1',
       sessionId: null,
       toolAccess: {
         inheritedAgentTools: ['Read'],

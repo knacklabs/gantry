@@ -85,6 +85,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
           allowedToolPatterns: ['search_issues'],
           autoApproveToolNames: ['mcp__linear__search_issues'],
           autoApproveToolPatterns: ['search_issues'],
+          networkHosts: [],
           required: false,
         },
       ]);

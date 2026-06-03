@@ -27,7 +27,10 @@ function makeDeps() {
         replaceAgentCapabilityBindings: vi.fn(async () => undefined),
         disableAgent: vi.fn(async () => undefined),
       },
-      tools: { getTool: vi.fn(async () => null) },
+      tools: {
+        getTool: vi.fn(async () => null),
+        listTools: vi.fn(async () => []),
+      },
       skills: { getSkill: vi.fn(async () => null) },
       mcpServers: { getServer: vi.fn(async () => null) },
     },

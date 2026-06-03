@@ -74,8 +74,8 @@ Cross-cutting:
 An allowed capability entry is a tuple: `{ scope, rule, approved_by, approved_at, reason }`.
 
 - `scope`: `org | agent:<id> | run:<id>` — merged in that order, narrowest wins on conflict, additive otherwise. Scheduled jobs resolve the target agent scope at run time instead of carrying separate job-local authority.
-- `rule`: a reviewed semantic capability entry such as `capability:acme.records.append`, canonical `Browser`, an exact Gantry file/web facade such as `FileRead`, an exact Gantry admin tool, or a scoped command fallback rule such as `RunCommand(npm test *)`. Broad exact SDK/native request_permission authority and exact third-party MCP tool names are not durable authority. Browser remains the canonical whole browser capability.
-- Persisted in the agent capability stores and mirrored to readable `settings.yaml` capability entries.
+- `rule`: a reviewed semantic capability entry such as `capability:acme.records.append`, canonical `browser.use`, an exact Gantry file/web facade such as `FileRead`, an exact Gantry admin tool, or a scoped command fallback rule such as `RunCommand(npm test *)`. Broad exact SDK/native authority and exact third-party MCP tool names are not durable authority.
+- Persisted in the agent access stores and mirrored to readable `settings.yaml` access entries.
 - `scheduler_get_job` returns the **effective** target-agent rule set for the job, not a job-local authority slice.
 
 ### 5.2 Error format

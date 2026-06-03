@@ -7,7 +7,7 @@ import type {
 } from '../domain/types.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { nowMs } from '../shared/time/datetime.js';
-import { validatePersistentRequestPermissionRule } from '../shared/persistent-permission-rules.js';
+import { validateDurableAccessRule } from '../shared/durable-access-policy.js';
 import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
 
 export const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
@@ -70,7 +70,7 @@ function persistentRuleForSuggestion(
     },
   ]);
   if (!persistentRule) return undefined;
-  return validatePersistentRequestPermissionRule(persistentRule, {
+  return validateDurableAccessRule(persistentRule, {
     semanticCapabilityDefinitions: options.semanticCapabilityDefinitions,
   }).ok
     ? persistentRule

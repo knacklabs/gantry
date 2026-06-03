@@ -72,11 +72,11 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 **Goal:** every memory read knows whose memory it is reading.
 
 **Scope:**
-- New `resolveSessionSubject(session) → { agentId, scope, groupFolder }` in `apps/core/src/memory/app-memory-subject-resolver.ts` (or co-located with boundaries). One definition.
+- New `resolveSessionSubject(session) → { agentId, scope, workspaceFolder }` in `apps/core/src/memory/app-memory-subject-resolver.ts` (or co-located with boundaries). One definition.
 - `app-memory-recall.ts:74` (`visibleSubjectFilters`) takes the resolved subject from the caller. If the caller does not have it, the call is a type error. No `DEFAULT_MEMORY_AGENT_ID` fallback in the recall path.
 - `app-memory-boundaries.ts:54` (`DEFAULT_MEMORY_AGENT_ID = 'agent:personal'`) is deleted. Its only legitimate use was as a default; defaults are the bug.
 - MCP `memory_search` / `memory_save` handlers read subject from the session context their handler runs in, not from caller args. Caller may *override* scope (with audit), not invent it.
-- Empty-result responses include the subject used: `{ results: [], subject: { agentId: 'agent:main_agent', scope: 'group', groupFolder: '...' } }`.
+- Empty-result responses include the subject used: `{ results: [], subject: { agentId: 'agent:main_agent', scope: 'group', workspaceFolder: '...' } }`.
 
 **Exit criteria:**
 - Repro from this session: `memory_search('knacklabs lead controller job')` from `main_agent` returns the durable facts saved during this and prior sessions, with provenance. (Requires Phase 2 to populate; for Phase 1 it is enough that the subject is correct and a manually-saved memory round-trips.)
@@ -190,7 +190,7 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 
 | Risk | Mitigation |
 | --- | --- |
-| Subject threading breaks existing tools that relied on the default | Phase 1 ships with a one-shot migration that re-keys any rows saved under `agent:personal` to the resolved subject by inspecting their `groupFolder`. No dual-read path. |
+| Subject threading breaks existing tools that relied on the default | Phase 1 ships with a one-shot migration that re-keys any rows saved under `agent:personal` to the resolved subject by inspecting their `workspaceFolder`. No dual-read path. |
 | Auto-promotion promotes a wrong fact | `promoted_by: 'dreaming'` marker + `memory_demote` tool + bias toward `kind: fact / decision` only; preference and contradiction routes stay in review. |
 | Continuity block grows unbounded | Hard byte budget per section; oldest items drop first; `memory_status` reports if budget was hit. |
 | `continuity_summary` becomes a hot path | Single SQL view, indexed; under 500ms on populated DB or it does not ship. |

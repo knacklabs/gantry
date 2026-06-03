@@ -14,7 +14,7 @@ function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
 }
 
-describe('ensureGroupIpcLayout', () => {
+describe('ensureWorkspaceIpcLayout', () => {
   const roots: string[] = [];
 
   beforeEach(() => {
@@ -34,9 +34,9 @@ describe('ensureGroupIpcLayout', () => {
     const root = makeTmpRoot(roots);
     const ipcDir = path.join(root, 'group-ipc');
 
-    const { ensureGroupIpcLayout } =
+    const { ensureWorkspaceIpcLayout } =
       await import('@core/runtime/agent-spawn-layout.js');
-    ensureGroupIpcLayout(ipcDir);
+    ensureWorkspaceIpcLayout(ipcDir);
 
     expect(fs.readdirSync(ipcDir).sort()).toEqual([
       'browser-requests',
@@ -63,10 +63,10 @@ describe('ensureGroupIpcLayout', () => {
     const root = makeTmpRoot(roots);
     const ipcDir = path.join(root, 'ipc-idem');
 
-    const { ensureGroupIpcLayout } =
+    const { ensureWorkspaceIpcLayout } =
       await import('@core/runtime/agent-spawn-layout.js');
-    ensureGroupIpcLayout(ipcDir);
-    ensureGroupIpcLayout(ipcDir);
+    ensureWorkspaceIpcLayout(ipcDir);
+    ensureWorkspaceIpcLayout(ipcDir);
 
     expect(fs.statSync(path.join(ipcDir, 'messages')).isDirectory()).toBe(true);
   });

@@ -15,7 +15,7 @@ describe('job tool access requirements', () => {
         'FileRead',
         'FileWrite',
         'AgentDelegation',
-        'mcp__gantry__send_message',
+        'mcp__gantry__settings_desired_state',
         'capability:google_sheets',
         'RunCommand(npm test *)',
         'Browser',
@@ -26,7 +26,7 @@ describe('job tool access requirements', () => {
       'FileRead',
       'FileWrite',
       'AgentDelegation',
-      'mcp__gantry__send_message',
+      'mcp__gantry__settings_desired_state',
       'capability:google_sheets',
       'RunCommand(npm test *)',
     ]);
@@ -64,7 +64,7 @@ describe('job tool access requirements', () => {
     [[42], /non-empty strings/],
     [['   '], /non-empty strings/],
     [['Read(src/index.ts)'], /Only RunCommand supports persistent scoped/],
-    [['mcp__thirdparty__tool'], /Use canonical Browser/],
+    [['mcp__thirdparty__tool'], /Persistent access approvals support only/],
     [['capability:GoogleSheets'], /Capability id must use lowercase/],
   ])(
     'rejects unsupported tool access requirement rule %j',
@@ -151,10 +151,10 @@ describe('job tool access requirements', () => {
       'RunCommand(acme records append *)',
     );
 
-    expect(action).toContain('"toolName":"RunCommand"');
-    expect(action).toContain('"rule":"acme records append *"');
+    expect(action).toContain('"kind":"run_command"');
+    expect(action).toContain('"argvPattern":"acme records append *"');
     expect(action).not.toContain(
-      '"toolName":"RunCommand(acme records append *)"',
+      '"argvPattern":"RunCommand(acme records append *)"',
     );
   });
 });

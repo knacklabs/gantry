@@ -36,7 +36,6 @@ export async function authorizedMcpServerIdsForAgent(input: {
       errorSubject: 'Configured agent tool',
     }));
   const authorizedServerNames = mcpServerNamesFromToolRules(allowedTools);
-  if (authorizedServerNames.size === 0) return [];
 
   const bindings = await input.mcpServers.listAgentBindings({
     appId: input.appId as never,
@@ -54,6 +53,7 @@ export async function authorizedMcpServerIdsForAgent(input: {
   return activeBindings.flatMap((binding, index) => {
     const server = servers[index];
     if (!server || server.appId !== input.appId) return [];
+    if (authorizedServerNames.size === 0) return [String(binding.serverId)];
     return authorizedServerNames.has(server.name)
       ? [String(binding.serverId)]
       : [];

@@ -46,7 +46,7 @@ export const PERMISSION_GATED_NATIVE_TOOLS = [
 
 export const BROWSER_TOOL_NAME = 'Browser';
 export const BROWSER_REQUEST_PERMISSION_ARGS =
-  'permissionKind=tool toolName=Browser toolCategory=browser temporaryOnly=false reason="<why this agent needs Browser>"';
+  'target.kind=capability target.id=browser.use temporaryOnly=false reason="<why this agent needs Browser>"';
 export const BROWSER_REQUESTABLE_NOTE =
   'Browser approval exposes Gantry-owned browser_* tools. Status is read-only; action calls launch the host-derived profile lazily.';
 
@@ -60,7 +60,7 @@ export function buildRequestableAdminToolAccess(
     return {
       tool: fullName,
       toolId: adminMcpToolIdForFullName(fullName),
-      requestPermission: `permissionKind=tool toolName=${fullName} temporaryOnly=false reason="<why this agent needs ${toolName}>"`,
+      requestPermission: `target.kind=capability target.id="<reviewed admin capability id>" temporaryOnly=false reason="<why this agent needs ${toolName}>"`,
     };
   });
 }
@@ -101,6 +101,25 @@ export function buildAgentToolAccessView(input: {
   };
 }
 
+export function buildConfiguredAgentToolAccess(
+  configuredTools: string[],
+  requestableAdminTools: readonly RequestableAdminToolAccess[],
+): AgentToolAccessView {
+  return buildAgentToolAccessView({
+    configuredTools,
+    defaultTools: [],
+    availableButGatedTools: PERMISSION_GATED_NATIVE_TOOLS.filter(
+      (toolName) =>
+        !configuredTools.some(
+          (configured) =>
+            configured === toolName || configured.startsWith(`${toolName}(`),
+        ),
+    ),
+    requestableAdminTools,
+    source: 'Postgres agent_tool_bindings projected from settings.yaml',
+  });
+}
+
 export function buildJobToolAccessView(input: {
   inheritedAgentTools?: readonly string[];
   effectiveAllowedTools?: readonly string[];
@@ -134,14 +153,11 @@ export function formatAgentToolAccess(view: AgentToolAccessView): string {
   ].join('\n');
 }
 
-export function formatJobToolAccess(view: JobToolAccessView): string {
-  return [
-    'Tool Access:',
-    `  Source: ${view.source}`,
-    `  Inherited agent tools: ${formatList(view.inheritedAgentTools)}`,
-    `  Effective allowed tools: ${formatList(view.effectiveAllowedTools)}`,
-    `  Projected runtime tools: ${formatList(view.projectedRuntimeTools)}`,
-  ].join('\n');
+export function formatJobToolAccess(
+  view: JobToolAccessView | undefined,
+): string {
+  if (!view) return 'Tool access: (none)';
+  return `Tool access: inherited ${formatList(view.inheritedAgentTools)}; effective ${formatList(view.effectiveAllowedTools)}; projected ${formatList(view.projectedRuntimeTools)}`;
 }
 
 export function compactToolList(

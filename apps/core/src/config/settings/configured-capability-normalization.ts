@@ -1,12 +1,16 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { SkillCatalogItem } from '../../domain/skills/skills.js';
+import type { ToolCatalogItem } from '../../domain/tools/tools.js';
 import { skillActionSemanticCapability } from '../../domain/skills/skill-action-permissions.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgentCapability,
   RuntimeSettings,
 } from './runtime-settings-types.js';
-import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
+import {
+  semanticCapabilityFromToolCatalogItem,
+  type SemanticCapabilityDefinition,
+} from '../../shared/semantic-capabilities.js';
 
 export interface ConfiguredCapabilityNormalizationResult {
   capabilities: RuntimeConfiguredAgentCapability[];
@@ -52,6 +56,22 @@ export function semanticCapabilityDefinitionsById(
   return Object.fromEntries(
     definitions.map((definition) => [definition.capabilityId, definition]),
   );
+}
+
+export function semanticCapabilityDefinitionsFromCatalogTools(
+  tools: readonly ToolCatalogItem[],
+): Record<string, SemanticCapabilityDefinition> {
+  const definitions: Record<string, SemanticCapabilityDefinition> = {};
+  for (const tool of tools) {
+    if (tool.status !== 'active' || !tool.selectable) continue;
+    const definition = semanticCapabilityFromToolCatalogItem({
+      name: tool.name,
+      inputSchema: tool.inputSchema,
+    });
+    if (!definition) continue;
+    definitions[definition.capabilityId] = definition;
+  }
+  return definitions;
 }
 
 export function normalizeConfiguredCapabilities(input: {

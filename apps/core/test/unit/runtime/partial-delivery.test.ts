@@ -52,6 +52,7 @@ describe('partial delivery errors', () => {
       totalChunks: 2,
     });
     Object.assign(err, {
+      provider: 'slack',
       deliveredParts: 1,
       totalParts: 4,
       retryTail: {
@@ -65,6 +66,7 @@ describe('partial delivery errors', () => {
     expect(getPartialMessageDeliveryMetadata(err)).toEqual({
       deliveredParts: 1,
       totalParts: 4,
+      provider: 'slack',
       retryTail: {
         canonicalText: 'remaining suffix',
         providerPayload: { provider: 'slack' },

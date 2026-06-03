@@ -90,7 +90,7 @@ export type JobStatus =
 export interface JobExecutionContext {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId?: string | null;
 }
 
@@ -122,6 +122,20 @@ export interface JobCapabilityRequirement {
   capabilityId: string;
   reason: string;
   implementation?: JobCapabilityRequirementImplementation;
+}
+
+export type JobAccessRequirementTarget =
+  | { kind: 'tool_rule'; rule: string }
+  | {
+      kind: 'capability';
+      capabilityId: string;
+      implementation?: JobCapabilityRequirementImplementation;
+    }
+  | { kind: 'mcp_server'; server: string };
+
+export interface JobAccessRequirement {
+  target: JobAccessRequirementTarget;
+  reason?: string;
 }
 
 export type JobSetupReadinessState =
@@ -192,7 +206,7 @@ export interface Job {
   status: JobStatus;
   session_id: string | null;
   thread_id: string | null;
-  group_scope: string;
+  workspace_key: string;
   created_by: 'agent' | 'human';
   created_at: string;
   updated_at: string;
@@ -210,9 +224,7 @@ export interface Job {
   pause_reason: string | null;
   execution_context?: JobExecutionContext;
   notification_routes?: JobNotificationRoute[];
-  capability_requirements?: JobCapabilityRequirement[];
-  tool_access_requirements?: string[];
-  required_mcp_servers?: string[];
+  access_requirements?: JobAccessRequirement[];
   setup_state?: JobSetupState;
   recovery_intent?: JobRecoveryIntent | null;
 }

@@ -3,7 +3,7 @@
 ## 0.4.0
 
 - Updated SDK contracts for the clean capability, model defaults, and job capability requirement surfaces.
-- Documented job `toolAccessRequirements`, `requiredMcpServers`, response `toolAccess`, and `client.models.preview()`.
+- Documented job `accessRequirements`, response `toolAccess`, and `client.models.preview()`.
 - Removed compatibility expectations for retired control API shapes.
 
 ## 0.3.0

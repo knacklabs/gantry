@@ -16,6 +16,8 @@ type ConnectOptions = {
     target: 'env' | 'header';
     key: string;
   }>;
+  networkHosts: string[];
+  bindToolPatterns: string[];
   createdBy?: string;
   requestedReason?: string;
   riskClass?: 'low' | 'medium' | 'high';
@@ -26,7 +28,7 @@ type ConnectOptions = {
 function usage(): string {
   return [
     'Usage:',
-    '  gantry mcp connect --name <name> --transport <stdio_template> --template <node-script|npx-package> --sandbox-profile <id> --agent <agentId> [--arg <value>] [--tool <name>] [--credential <name:env:key>]',
+    '  gantry mcp connect --name <name> --transport <stdio_template> --template <node-script|npx-package> --sandbox-profile <id> --agent <agentId> [--arg <value>] [--tool <name>] [--credential <name:env:key>] [--network <host:port>]',
     '  gantry mcp list [--status <active|disabled>]',
     '  gantry mcp show <serverId>',
     '  gantry mcp doctor <serverId> [--by <admin>]',
@@ -80,6 +82,7 @@ async function connectServer(
       allowedToolPatterns: parsed.allowedToolPatterns,
       autoApproveToolPatterns: parsed.autoApproveToolPatterns,
       credentialRefs: parsed.credentialRefs,
+      networkHosts: parsed.networkHosts,
       sandboxProfileId: parsed.sandboxProfileId,
       createdBy: parsed.createdBy,
       requestedReason: parsed.requestedReason,
@@ -96,6 +99,9 @@ async function connectServer(
     body: {
       required: parsed.required,
       permissionPolicyIds: parsed.permissionPolicyIds,
+      ...(parsed.bindToolPatterns.length > 0
+        ? { allowedToolPatterns: parsed.bindToolPatterns }
+        : {}),
     },
   });
   p.note(
@@ -113,6 +119,8 @@ function parseConnectArgs(args: string[]): ConnectOptions | { error: string } {
     allowedToolPatterns: [],
     autoApproveToolPatterns: [],
     credentialRefs: [],
+    networkHosts: [],
+    bindToolPatterns: [],
     permissionPolicyIds: [],
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -149,6 +157,12 @@ function parseConnectArgs(args: string[]): ConnectOptions | { error: string } {
       const ref = parseCredentialRef(value);
       if (!ref) return { error: 'Use --credential <name:env|header:key>.' };
       options.credentialRefs.push(ref);
+      index += 1;
+    } else if (arg === '--network') {
+      if (value) options.networkHosts.push(value);
+      index += 1;
+    } else if (arg === '--agent-tool') {
+      if (value) options.bindToolPatterns.push(value);
       index += 1;
     } else if (arg === '--policy') {
       options.permissionPolicyIds.push(value);
@@ -310,7 +324,19 @@ function printRecord(response: unknown, title: string): void {
 
 function formatRecord(input: unknown): string {
   if (!isRecord(input)) return '- <invalid>';
-  return `- ${String(input.name ?? input.id ?? '<unknown>')} (${String(input.id ?? '')}) [${String(input.status ?? '')}]`;
+  const header = `- ${String(input.name ?? input.id ?? '<unknown>')} (${String(input.id ?? '')}) [${String(input.status ?? '')}]`;
+  const hosts = Array.isArray(input.networkHosts)
+    ? [
+        ...new Set(
+          input.networkHosts
+            .map((host) => String(host ?? '').trim())
+            .filter(Boolean),
+        ),
+      ]
+    : [];
+  return hosts.length > 0
+    ? `${header}\n    Network: ${hosts.join(', ')}`
+    : header;
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {

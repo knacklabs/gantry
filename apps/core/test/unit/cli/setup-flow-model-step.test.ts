@@ -43,6 +43,8 @@ describe('setup model step', () => {
 
     await runModelStep(makeDraft());
 
+    const presetOptions = select.mock.calls[0]?.[0]?.options ?? [];
+    expect(JSON.stringify(presetOptions)).not.toContain('memory');
     const options = select.mock.calls[1]?.[0]?.options ?? [];
     expect(
       options.map((option: { value: string }) => option.value),

@@ -41,7 +41,7 @@ import {
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { AppMemoryService } from '../../memory/app-memory-service.js';
 import { collectDurableMemoryAtBoundary } from '../../memory/app-memory-session-boundary-collector.js';
-import { memoryAgentIdForGroupFolder } from '../../memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '../../memory/app-memory-boundaries.js';
 import {
   createDefaultAgentExecutionAdapterRegistry,
   createDefaultMemoryLlmClient,
@@ -272,7 +272,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       jid,
       group,
       brokerConfig,
-      identifier: memoryAgentIdForGroupFolder(group.folder),
+      identifier: memoryAgentIdForWorkspaceFolder(group.folder),
       name: group.name || group.folder,
       modelRuntime: false,
     });
@@ -443,7 +443,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         jid,
         group,
         brokerConfig: getCredentialBrokerRuntimeConfig(),
-        identifier: memoryAgentIdForGroupFolder(group.folder),
+        identifier: memoryAgentIdForWorkspaceFolder(group.folder),
         name: group.name || group.folder,
         modelRuntime: false,
       });
@@ -483,8 +483,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         Promise.resolve(false),
     },
     getGroup: (chatJid) => conversationRoutes[chatJid],
-    clearSession: async (groupFolder, threadId, metadata) => {
-      await ops().deleteSession(groupFolder, threadId, metadata);
+    clearSession: async (workspaceFolder, threadId, metadata) => {
+      await ops().deleteSession(workspaceFolder, threadId, metadata);
     },
     getCursor: getOrRecoverCursor,
     setCursor: (chatJid, timestamp) => {
@@ -505,7 +505,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         groupJid,
         proc,
         runHandle,
-        groupFolder,
+        workspaceFolder,
         stopAliasJids,
         threadId,
         registerOptions,
@@ -514,7 +514,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
           groupJid,
           proc,
           runHandle,
-          groupFolder,
+          workspaceFolder,
           stopAliasJids,
           threadId,
           registerOptions,

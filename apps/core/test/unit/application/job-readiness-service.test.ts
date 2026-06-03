@@ -29,7 +29,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     status: 'active',
     session_id: null,
     thread_id: null,
-    group_scope: 'agent-one',
+    workspace_key: 'agent-one',
     created_by: 'agent',
     created_at: '2026-05-14T00:00:00.000Z',
     updated_at: '2026-05-14T00:00:00.000Z',
@@ -48,7 +48,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     execution_context: {
       conversationJid: 'tg:team',
       threadId: null,
-      groupScope: 'agent-one',
+      workspaceKey: 'agent-one',
     },
     ...overrides,
   };
@@ -221,7 +221,11 @@ function secretRepository(
 describe('job readiness service', () => {
   it('reports ready when declared requirements have durable bindings and browser state', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ tool_access_requirements: ['Browser'] }),
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+      }),
       appId: 'default',
       toolRepository: toolRepository(['Browser']),
       getBrowserStatus: vi.fn(async () => ({ hasState: true })),
@@ -238,7 +242,14 @@ describe('job readiness service', () => {
   it('passes skill action requirements through target agent skill grants', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:skill.linkedin-posting.publish'],
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:skill.linkedin-posting.publish',
+            },
+          },
+        ],
       }),
       appId: 'default',
       agentId: 'agent:agent-one',
@@ -254,7 +265,14 @@ describe('job readiness service', () => {
   it('blocks skill action requirements when the selected skill no longer declares the action', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:skill.linkedin-posting.publish'],
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:skill.linkedin-posting.publish',
+            },
+          },
+        ],
       }),
       appId: 'default',
       agentId: 'agent:agent-one',
@@ -273,7 +291,11 @@ describe('job readiness service', () => {
 
   it('pauses for missing durable tool capabilities', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ tool_access_requirements: ['Browser'] }),
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+      }),
       appId: 'default',
       toolRepository: toolRepository([]),
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
@@ -291,7 +313,14 @@ describe('job readiness service', () => {
   it('does not turn unreviewed semantic job requirements into grant prompts', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:acme.records.append'],
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:acme.records.append',
+            },
+          },
+        ],
       }),
       appId: 'default',
       toolRepository: toolRepository([]),
@@ -307,16 +336,20 @@ describe('job readiness service', () => {
         'This job references a capability that is not reviewed in the capability catalog.',
     });
     expect(result.setupState.blockers[0]?.nextAction).toContain(
-      'capability_search',
+      'request_access',
     );
     expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'propose_capability',
+      'request_permission',
     );
   });
 
   it('does not block jobs on Browser login marker absence after durable Browser approval', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ tool_access_requirements: ['Browser'] }),
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+      }),
       appId: 'default',
       toolRepository: toolRepository(['Browser']),
       getBrowserStatus: vi.fn(async () => ({ hasState: false })),
@@ -335,12 +368,14 @@ describe('job readiness service', () => {
 
     const result = await evaluateJobReadiness({
       job: makeJob({
-        group_scope: 'main_agent',
-        tool_access_requirements: ['Browser'],
+        workspace_key: 'main_agent',
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
         execution_context: {
           conversationJid: 'tg:-1003986348737',
           threadId: null,
-          groupScope: 'main_agent',
+          workspaceKey: 'main_agent',
         },
       }),
       agentId: 'agent:main_agent',
@@ -357,7 +392,11 @@ describe('job readiness service', () => {
 
   it('blocks unknown semantic capabilities even when a stale tool rule exists', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ tool_access_requirements: ['capability:unknown.tool'] }),
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'capability:unknown.tool' } },
+        ],
+      }),
       appId: 'default',
       toolRepository: toolRepository(['capability:unknown.tool']),
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
@@ -374,7 +413,14 @@ describe('job readiness service', () => {
   it('does not require the Gantry Model Gateway broker for provider-neutral configured capabilities', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:acme.records.append'],
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:acme.records.append',
+            },
+          },
+        ],
       }),
       appId: 'default',
       toolRepository: toolRepository(['capability:acme.records.append'], {
@@ -390,21 +436,26 @@ describe('job readiness service', () => {
   it('uses the declared local CLI implementation instead of the builtin provider path', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:acme.records.append'],
-        capability_requirements: [
+        access_requirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              executablePath: '/usr/local/bin/acme',
-              executableVersion: 'v0.9.0',
-              executableHash: 'sha256:abc123',
-              commandTemplate:
-                '/usr/local/bin/acme records append <sheet_id> ...',
-              networkHosts: ['oauth2.googleapis.com', 'records.googleapis.com'],
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                executableVersion: 'v0.9.0',
+                executableHash: 'sha256:abc123',
+                commandTemplate:
+                  '/usr/local/bin/acme records append <sheet_id> ...',
+                networkHosts: [
+                  'oauth2.googleapis.com',
+                  'records.googleapis.com',
+                ],
+              },
             },
+            reason: 'Write lead rows after each run',
           },
         ],
       }),
@@ -423,16 +474,13 @@ describe('job readiness service', () => {
       }),
     ]);
     expect(result.setupState.blockers[0]?.nextAction).toContain(
-      'propose_capability',
+      'request_access',
     );
     expect(result.setupState.blockers[0]?.nextAction).toContain(
-      '"source":"local_cli"',
+      '"kind":"capability"',
     );
     expect(result.setupState.blockers[0]?.nextAction).toContain(
-      '"executableHash":"sha256:abc123"',
-    );
-    expect(result.setupState.blockers[0]?.nextAction).toContain(
-      '"networkHosts":["oauth2.googleapis.com","records.googleapis.com"]',
+      '"id":"acme.records.append"',
     );
     expect(result.setupState.blockers[0]?.message).not.toContain(
       'Gantry Model Gateway',
@@ -442,20 +490,22 @@ describe('job readiness service', () => {
   it('treats a declared local CLI implementation as ready when its scoped RunCommand rule is bound', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:acme.records.append'],
-        capability_requirements: [
+        access_requirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              executablePath: '/usr/local/bin/acme',
-              executableVersion: 'v0.9.0',
-              executableHash: 'sha256:abc123',
-              commandTemplate:
-                '/usr/local/bin/acme records append <sheet_id> ...',
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                executableVersion: 'v0.9.0',
+                executableHash: 'sha256:abc123',
+                commandTemplate:
+                  '/usr/local/bin/acme records append <sheet_id> ...',
+              },
             },
+            reason: 'Write lead rows after each run',
           },
         ],
       }),
@@ -473,18 +523,20 @@ describe('job readiness service', () => {
   it('requires pinned local CLI executable identity before proposing job access', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:acme.records.append'],
-        capability_requirements: [
+        access_requirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              executablePath: '/usr/local/bin/acme',
-              commandTemplate:
-                '/usr/local/bin/acme records append <sheet_id> ...',
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                commandTemplate:
+                  '/usr/local/bin/acme records append <sheet_id> ...',
+              },
             },
+            reason: 'Write lead rows after each run',
           },
         ],
       }),
@@ -503,23 +555,25 @@ describe('job readiness service', () => {
       }),
     ]);
     expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'request_permission',
+      'request_access',
     );
   });
 
   it('rejects persisted relative local CLI templates instead of converting legacy setup guidance', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        tool_access_requirements: ['capability:acme.records.append'],
-        capability_requirements: [
+        access_requirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              commandTemplate: 'acme records append <sheet_id> ...',
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                commandTemplate: 'acme records append <sheet_id> ...',
+              },
             },
+            reason: 'Write lead rows after each run',
           },
         ],
       }),
@@ -541,7 +595,7 @@ describe('job readiness service', () => {
       '"rule":"acme records append *"',
     );
     expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'propose_capability',
+      'request_access',
     );
   });
 
@@ -564,7 +618,11 @@ describe('job readiness service', () => {
     } as unknown as McpServerRepository;
 
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_mcp_servers: ['records'] }),
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'mcp_server', server: 'records' } },
+        ],
+      }),
       appId: 'default',
       mcpServerRepository: repository,
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
@@ -597,7 +655,11 @@ describe('job readiness service', () => {
     } as unknown as McpServerRepository;
 
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_mcp_servers: ['records'] }),
+      job: makeJob({
+        access_requirements: [
+          { target: { kind: 'mcp_server', server: 'records' } },
+        ],
+      }),
       appId: 'default',
       mcpServerRepository: repository,
       capabilitySecretRepository: secretRepository({
@@ -613,7 +675,7 @@ describe('job readiness service', () => {
   it('turns runtime denied tool use into setup state', () => {
     const setup = setupStateForDeniedTool({
       toolName: 'mcp__gantry__service_restart',
-      recoveryAction: 'request_permission ...',
+      recoveryAction: 'request_access ...',
       checkedAt: '2026-05-14T00:00:00.000Z',
     });
 
@@ -623,7 +685,7 @@ describe('job readiness service', () => {
         {
           requirementType: 'tool',
           requirementId: 'mcp__gantry__service_restart',
-          nextAction: 'request_permission ...',
+          nextAction: 'request_access ...',
         },
       ],
     });
@@ -638,7 +700,7 @@ describe('job readiness service', () => {
     expect(setup.blockers[0]).toMatchObject({
       requirementType: 'browser',
       requirementId: 'Browser',
-      nextAction: expect.stringContaining('"toolName":"Browser"'),
+      nextAction: expect.stringContaining('"id":"browser.use"'),
     });
   });
 
@@ -647,7 +709,7 @@ describe('job readiness service', () => {
       toolName: 'Bash',
       mode: 'allow_once',
       recoveryAction:
-        'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+        'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
       checkedAt: '2026-05-14T00:00:00.000Z',
     });
 
@@ -655,7 +717,7 @@ describe('job readiness service', () => {
       requirementType: 'tool',
       requirementId: 'RunCommand',
       nextAction:
-        'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+        'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
     });
   });
 });

@@ -27,7 +27,7 @@ describe('browser MCP IPC response signatures', () => {
 
   function stubRunnerEnv(root = tempRoot()): void {
     vi.stubEnv('GANTRY_IPC_DIR', path.join(root, 'main_agent'));
-    vi.stubEnv('GANTRY_GROUP_FOLDER', 'main_agent');
+    vi.stubEnv('GANTRY_WORKSPACE_KEY', 'main_agent');
     vi.stubEnv('GANTRY_CHAT_JID', 'tg:test');
     vi.stubEnv('GANTRY_ADMIN_MCP_TOOLS_JSON', '[]');
   }
@@ -39,7 +39,7 @@ describe('browser MCP IPC response signatures', () => {
     vi.stubEnv('GANTRY_IPC_DIR', ipcDir);
     vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', 'test-token');
     vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', keys.publicKeyPem);
-    vi.stubEnv('GANTRY_GROUP_FOLDER', 'main_agent');
+    vi.stubEnv('GANTRY_WORKSPACE_KEY', 'main_agent');
     vi.stubEnv('GANTRY_CHAT_JID', 'tg:test');
     vi.stubEnv('GANTRY_ADMIN_MCP_TOOLS_JSON', '[]');
 
@@ -90,7 +90,7 @@ describe('browser MCP IPC response signatures', () => {
     const keys = createIpcResponseSigningKeyPair();
     vi.stubEnv('GANTRY_IPC_DIR', ipcDir);
     vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', keys.publicKeyPem);
-    vi.stubEnv('GANTRY_GROUP_FOLDER', 'main_agent');
+    vi.stubEnv('GANTRY_WORKSPACE_KEY', 'main_agent');
     vi.stubEnv('GANTRY_CHAT_JID', 'tg:test');
     vi.stubEnv('GANTRY_ADMIN_MCP_TOOLS_JSON', '[]');
 

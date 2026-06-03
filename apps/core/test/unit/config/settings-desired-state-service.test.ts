@@ -6,6 +6,10 @@ import {
 } from '@core/config/settings/desired-state-service.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import { ConversationAdministrationService } from '@core/application/provider-conversations/conversation-administration-service.js';
+import {
+  semanticCapabilityInputSchema,
+  type SemanticCapabilityDefinition,
+} from '@core/shared/semantic-capabilities.js';
 
 function emptySources() {
   return { skills: [], mcpServers: [], tools: [] };
@@ -41,6 +45,44 @@ function linkedinPostingSkill() {
       contentHash: 'sha256:linkedin-v1',
       sizeBytes: 128,
     },
+    createdAt: '2026-05-21T00:00:00.000Z',
+    updatedAt: '2026-05-21T00:00:00.000Z',
+  };
+}
+
+function acmeRecordsAppendCapability(): SemanticCapabilityDefinition {
+  return {
+    capabilityId: 'acme.records.append',
+    displayName: 'Acme records append',
+    category: 'Acme',
+    risk: 'write',
+    can: 'Append reviewed records through configured access.',
+    cannot: 'Read unrelated accounts or receive raw credentials.',
+    credentialSource: 'configured_access',
+    implementationBindings: [
+      {
+        kind: 'tool_rule',
+        rule: 'RunCommand(/usr/local/bin/acme records append *)',
+      },
+    ],
+    preflight: { kind: 'none' },
+  };
+}
+
+function semanticCapabilityTool(capability: SemanticCapabilityDefinition) {
+  return {
+    id: `tool:capability:${capability.capabilityId}`,
+    appId: 'default',
+    name: `capability:${capability.capabilityId}`,
+    kind: 'host',
+    provider: 'gantry',
+    displayName: capability.displayName,
+    category: 'productivity',
+    risk: 'high',
+    selectable: true,
+    status: 'active',
+    adapterRef: `capability/${capability.capabilityId}`,
+    inputSchema: semanticCapabilityInputSchema(capability),
     createdAt: '2026-05-21T00:00:00.000Z',
     updatedAt: '2026-05-21T00:00:00.000Z',
   };
@@ -252,6 +294,166 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
+  it('reconciles configured MCP source tool scope only within reviewed server tools', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', tools: ['read_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories({
+      mcpServers: {
+        ...makeRepositories().mcpServers,
+        getServer: vi.fn(async (id: string) =>
+          id === 'mcp:github'
+            ? {
+                id,
+                appId: 'default',
+                status: 'active',
+                name: 'github',
+                createdSource: 'admin',
+                riskClass: 'medium',
+                transport: 'stdio_template',
+                config: { transport: 'stdio_template', templateId: 'github' },
+                allowedToolPatterns: ['read_*', 'write_*'],
+                autoApproveToolPatterns: [],
+                credentialRefs: [],
+              }
+            : null,
+        ),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpBindings: [
+          expect.objectContaining({
+            serverId: 'mcp:github',
+            allowedToolPatterns: ['read_*'],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('reconciles MCP source scopes against auto-approved tools when allowed tools are empty', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', tools: ['search'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories({
+      mcpServers: {
+        ...makeRepositories().mcpServers,
+        getServer: vi.fn(async (id: string) =>
+          id === 'mcp:github'
+            ? {
+                id,
+                appId: 'default',
+                status: 'active',
+                name: 'github',
+                createdSource: 'admin',
+                riskClass: 'medium',
+                transport: 'stdio_template',
+                config: { transport: 'stdio_template', templateId: 'github' },
+                allowedToolPatterns: [],
+                autoApproveToolPatterns: ['search'],
+                credentialRefs: [],
+              }
+            : null,
+        ),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpBindings: [
+          expect.objectContaining({
+            serverId: 'mcp:github',
+            allowedToolPatterns: ['search'],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('rejects configured MCP source tool scope wider than reviewed server tools', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', tools: ['delete_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories({
+      mcpServers: {
+        ...makeRepositories().mcpServers,
+        getServer: vi.fn(async (id: string) =>
+          id === 'mcp:github'
+            ? {
+                id,
+                appId: 'default',
+                status: 'active',
+                name: 'github',
+                createdSource: 'admin',
+                riskClass: 'medium',
+                transport: 'stdio_template',
+                config: { transport: 'stdio_template', templateId: 'github' },
+                allowedToolPatterns: ['read_*'],
+                autoApproveToolPatterns: [],
+                credentialRefs: [],
+              }
+            : null,
+        ),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await expect(service.reconcile(settings)).rejects.toThrow(
+      'MCP tool scope delete_* is not within the reviewed tools for github.',
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).not.toHaveBeenCalled();
+  });
+
   it('reconciles tool sources separately from capability authority', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
@@ -329,6 +531,65 @@ describe('SettingsDesiredStateService', () => {
             toolId: expect.stringContaining('tool:permission-rule:'),
           }),
         ],
+      }),
+    );
+  });
+
+  it('reconciles reviewed catalog semantic capabilities from settings', async () => {
+    const capability = acmeRecordsAppendCapability();
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [
+        {
+          id: capability.capabilityId,
+          version: 'builtin',
+        },
+      ],
+    };
+    const repositories = makeRepositories({
+      tools: {
+        ...makeRepositories().tools,
+        listTools: vi.fn(async () => [
+          {
+            id: 'tool:read',
+            appId: 'default',
+            name: 'Read',
+            status: 'active',
+            selectable: true,
+          },
+          semanticCapabilityTool(capability),
+        ]),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await expect(
+      service.validateCapabilityReferences(settings),
+    ).resolves.toEqual([]);
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolBindings: [
+          expect.objectContaining({
+            toolId: `tool:capability:${capability.capabilityId}`,
+          }),
+        ],
+      }),
+    );
+    expect(repositories.tools.saveTool).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: `capability:${capability.capabilityId}`,
       }),
     );
   });

@@ -6,6 +6,7 @@ import {
   promptModelCredentialPayload,
   storeModelCredentialInput,
 } from './credentials.js';
+import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 
 export interface CredentialSetupDraft {
   credentialMode: HostCredentialMode;
@@ -19,13 +20,31 @@ export type CredentialStepAction =
   | { type: 'cancel' };
 
 export async function verifyModelAccess(
-  _url?: string,
+  runtimeHome?: string,
+  settings?: Parameters<typeof inspectModelCredentialReadiness>[1],
 ): Promise<{ ok: boolean; message: string; nextAction?: string }> {
-  return {
-    ok: true,
-    message:
-      'Gantry Model Gateway credentials are stored in Postgres and validated during model preflight.',
-  };
+  if (!runtimeHome || !settings) {
+    return {
+      ok: false,
+      message: 'runtime settings are required for Model Access verification.',
+      nextAction: 'run `gantry setup` from the configured Runtime home.',
+    };
+  }
+
+  try {
+    const check = await inspectModelCredentialReadiness(runtimeHome, settings);
+    return {
+      ok: check.status !== 'fail',
+      message: check.message,
+      nextAction: check.nextAction,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: `could not inspect Model Access (${err instanceof Error ? err.message : String(err)})`,
+      nextAction: 'run `gantry credentials model doctor`.',
+    };
+  }
 }
 
 export async function runCredentialsStep(
@@ -36,13 +55,25 @@ export async function runCredentialsStep(
   const providers = listModelRouteProviders();
   const selectedProvider = await p.select({
     message: 'Model access provider',
-    options: providers.map((provider) => ({
-      value: provider.id,
-      label: provider.label,
-      hint: provider.supportedWorkloads.join(', '),
-    })),
+    options: [
+      ...providers.map((provider) => ({
+        value: provider.id,
+        label: provider.label,
+        hint: provider.supportedWorkloads.join(', '),
+      })),
+      { value: 'back', label: 'Back' },
+      { value: 'resume', label: 'Resume Later' },
+      { value: 'cancel', label: 'Cancel Setup' },
+    ],
   });
   if (p.isCancel(selectedProvider)) return { type: 'cancel' };
+  if (
+    selectedProvider === 'back' ||
+    selectedProvider === 'resume' ||
+    selectedProvider === 'cancel'
+  ) {
+    return { type: selectedProvider };
+  }
   const provider = providers.find((item) => item.id === selectedProvider);
   if (!provider) return { type: 'cancel' };
   const selectedMode =
@@ -50,17 +81,26 @@ export async function runCredentialsStep(
       ? provider.credentialModes[0]!.id
       : await p.select({
           message: 'Credential auth mode',
-          options: provider.credentialModes.map((mode) => ({
-            value: mode.id,
-            label: mode.label,
-            hint: mode.helpText,
-          })),
+          options: [
+            ...provider.credentialModes.map((mode) => ({
+              value: mode.id,
+              label: mode.label,
+              hint: mode.helpText,
+            })),
+            { value: 'back', label: 'Back' },
+            { value: 'resume', label: 'Resume Later' },
+            { value: 'cancel', label: 'Cancel Setup' },
+          ],
         });
   if (p.isCancel(selectedMode)) return { type: 'cancel' };
+  if (
+    selectedMode === 'back' ||
+    selectedMode === 'resume' ||
+    selectedMode === 'cancel'
+  ) {
+    return { type: selectedMode };
+  }
   const selectedModeId = String(selectedMode);
-  const selectedCredentialMode = provider.credentialModes.find(
-    (mode) => mode.id === selectedModeId,
-  );
   p.note(
     [
       'Gantry stores the real provider credential encrypted in Credential Center.',
@@ -79,16 +119,21 @@ export async function runCredentialsStep(
       {
         value: 'store',
         label: 'Store now',
-        hint: 'Recommended: finish Model Access setup in this flow.',
+        hint: 'Required before Gantry can be ready.',
       },
-      {
-        value: 'defer',
-        label: 'Do later',
-        hint: `Show the exact \`gantry credentials model set ${provider.id}\` command.`,
-      },
+      { value: 'back', label: 'Back' },
+      { value: 'resume', label: 'Resume Later' },
+      { value: 'cancel', label: 'Cancel Setup' },
     ],
   });
   if (p.isCancel(captureChoice)) return { type: 'cancel' };
+  if (
+    captureChoice === 'back' ||
+    captureChoice === 'resume' ||
+    captureChoice === 'cancel'
+  ) {
+    return { type: captureChoice };
+  }
   if (captureChoice === 'store') {
     const credentialInput = await promptModelCredentialPayload(provider.id, {
       authMode: selectedModeId,
@@ -105,16 +150,5 @@ export async function runCredentialsStep(
     );
     return { type: 'next' };
   }
-  p.note(
-    [
-      `${provider.label} uses ${selectedCredentialMode?.label ?? selectedModeId} credentials.`,
-      `Run \`gantry credentials model set ${provider.id}\` after setup to store the credential.`,
-      selectedModeId === 'claude_code_oauth'
-        ? 'The agent runner receives the OAuth token only in the private Claude Code SDK model credential env.'
-        : 'The agent runner receives a loopback gateway token, not raw provider keys.',
-      'Channel, Postgres, and runtime-owned secrets still stay in runtime .env.',
-    ].join('\n'),
-    'Model Access',
-  );
-  return { type: 'next' };
+  return { type: 'cancel' };
 }

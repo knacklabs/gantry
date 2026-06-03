@@ -49,6 +49,7 @@ export interface McpServerDefinition {
   allowedToolPatterns: string[];
   autoApproveToolPatterns: string[];
   credentialRefs: McpCredentialRef[];
+  networkHosts: string[];
   sandboxProfileId?: string;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
@@ -64,6 +65,11 @@ export interface AgentMcpServerBinding {
   status: AgentMcpServerBindingStatus;
   required: boolean;
   permissionPolicyIds: PermissionPolicyId[];
+  // Per-agent subset of the server definition's allowedToolPatterns. Empty means
+  // the agent inherits the definition's full reviewed set; a non-empty list
+  // scopes this agent to those operations (e.g. read-only vs read+write) without
+  // duplicating the server definition.
+  allowedToolPatterns: string[];
   conversationId?: ConversationId;
   threadId?: ConversationThreadId;
   createdAt: IsoTimestamp;

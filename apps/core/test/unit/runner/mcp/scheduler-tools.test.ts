@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const previousIpcDir = process.env.GANTRY_IPC_DIR;
 const previousChatJid = process.env.GANTRY_CHAT_JID;
-const previousGroupFolder = process.env.GANTRY_GROUP_FOLDER;
+const previousWorkspaceKey = process.env.GANTRY_WORKSPACE_KEY;
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -21,10 +21,10 @@ afterEach(() => {
   } else {
     process.env.GANTRY_CHAT_JID = previousChatJid;
   }
-  if (previousGroupFolder === undefined) {
-    delete process.env.GANTRY_GROUP_FOLDER;
+  if (previousWorkspaceKey === undefined) {
+    delete process.env.GANTRY_WORKSPACE_KEY;
   } else {
-    process.env.GANTRY_GROUP_FOLDER = previousGroupFolder;
+    process.env.GANTRY_WORKSPACE_KEY = previousWorkspaceKey;
   }
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -134,7 +134,7 @@ describe('scheduler MCP tools', () => {
       schemas.get('scheduler_update_job')?.execution_context.safeParse({
         conversation_jid: 'tg:team',
         thread_id: null,
-        group_scope: 'team',
+        workspace_key: 'team',
       }).success,
     ).toBe(true);
     expect(
@@ -149,11 +149,11 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_update_job')?.target.safeParse('here').success,
     ).toBe(true);
-    expect(schemas.get('scheduler_update_job')?.group_scope).toBeUndefined();
+    expect(schemas.get('scheduler_update_job')?.workspace_key).toBeUndefined();
     expect(schemas.get('scheduler_update_job')?.thread_id).toBeUndefined();
-    expect(schemas.get('scheduler_upsert_job')?.group_scope).toBeUndefined();
+    expect(schemas.get('scheduler_upsert_job')?.workspace_key).toBeUndefined();
     expect(schemas.get('scheduler_upsert_job')?.thread_id).toBeUndefined();
-    expect(schemas.get('scheduler_list_jobs')?.group_scope).toBeUndefined();
+    expect(schemas.get('scheduler_list_jobs')?.workspace_key).toBeUndefined();
     expect(
       schemas.get('scheduler_list_jobs')?.conversation_jid,
     ).toBeUndefined();
@@ -163,52 +163,63 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas
         .get('scheduler_upsert_job')
-        ?.tool_access_requirements.safeParse(['Browser']).success,
+        ?.access_requirements.safeParse([
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ]).success,
     ).toBe(true);
     expect(
-      schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
+      schemas.get('scheduler_upsert_job')?.access_requirements.safeParse([
         {
-          capability_id: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executable_path: '/usr/local/bin/acme',
-            executable_version: 'v0.9.0',
-            executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/acme records append *',
-            auth_preflight: '/usr/local/bin/acme auth status',
-            protected_paths: ['~/.config/acme/*'],
+          target: {
+            kind: 'capability',
+            capability_id: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executable_path: '/usr/local/bin/acme',
+              executable_version: 'v0.9.0',
+              executable_hash: 'sha256:abc123',
+              command_template: '/usr/local/bin/acme records append *',
+              auth_preflight: '/usr/local/bin/acme auth status',
+              protected_paths: ['~/.config/acme/*'],
+            },
           },
+          reason: 'Write lead rows after each run',
         },
       ]).success,
     ).toBe(true);
     expect(
-      schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
+      schemas.get('scheduler_upsert_job')?.access_requirements.safeParse([
         {
-          capability_id: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executable_path: '/usr/local/bin/acme',
-            command_template: 'acme records append *',
+          target: {
+            kind: 'capability',
+            capability_id: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executable_path: '/usr/local/bin/acme',
+              command_template: 'acme records append *',
+            },
           },
+          reason: 'Write lead rows after each run',
         },
       ]).success,
     ).toBe(false);
     expect(
-      schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
+      schemas.get('scheduler_upsert_job')?.access_requirements.safeParse([
         {
-          capability_id: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executable_path: '/usr/local/bin/acme',
-            command_template: '/usr/local/bin/acme records append *',
-            auth_preflight: 'acme auth status',
+          target: {
+            kind: 'capability',
+            capability_id: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executable_path: '/usr/local/bin/acme',
+              command_template: '/usr/local/bin/acme records append *',
+              auth_preflight: 'acme auth status',
+            },
           },
+          reason: 'Write lead rows after each run',
         },
       ]).success,
     ).toBe(false);
@@ -220,27 +231,90 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas
         .get('scheduler_update_job')
-        ?.tool_access_requirements.safeParse(['Browser']).success,
+        ?.access_requirements.safeParse([
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ]).success,
     ).toBe(true);
     expect(
-      schemas.get('scheduler_update_job')?.capability_requirements.safeParse([
+      schemas.get('scheduler_update_job')?.access_requirements.safeParse([
         {
-          capability_id: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executable_path: '/usr/local/bin/acme',
-            executable_version: 'v0.9.0',
-            executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/acme records append *',
-            auth_preflight: '/usr/local/bin/acme auth status',
-            protected_paths: ['~/.config/acme/*'],
+          target: {
+            kind: 'capability',
+            capability_id: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executable_path: '/usr/local/bin/acme',
+              executable_version: 'v0.9.0',
+              executable_hash: 'sha256:abc123',
+              command_template: '/usr/local/bin/acme records append *',
+              auth_preflight: '/usr/local/bin/acme auth status',
+              protected_paths: ['~/.config/acme/*'],
+            },
           },
+          reason: 'Write lead rows after each run',
         },
       ]).success,
     ).toBe(true);
     expect(schemas.get('scheduler_list_notification_targets')).toBeDefined();
+  });
+
+  it('rejects removed execution_context group scope fields through the MCP schema parse path', async () => {
+    // Guards the real MCP parse path: the SDK runs the per-tool zod schema and
+    // strips unknown keys before the handler, so the rejection must come from
+    // the execution_context schema (passthrough + superRefine), not the handler.
+    const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
+    tempRoots.push(ipcDir);
+    process.env.GANTRY_IPC_DIR = ipcDir;
+    const { registerSchedulerTools } =
+      await import('../../../../src/runner/mcp/tools/scheduler.js');
+    const schemas = new Map<
+      string,
+      Record<
+        string,
+        {
+          safeParse: (input: unknown) => {
+            success: boolean;
+            error?: { issues: { message: string }[] };
+          };
+        }
+      >
+    >();
+    const server = {
+      tool: (
+        name: string,
+        _description: string,
+        schema: Record<
+          string,
+          {
+            safeParse: (input: unknown) => {
+              success: boolean;
+              error?: { issues: { message: string }[] };
+            };
+          }
+        >,
+      ) => {
+        schemas.set(name, schema);
+      },
+    };
+
+    registerSchedulerTools(server as never);
+
+    for (const removedField of ['group_scope', 'groupScope'] as const) {
+      const result = schemas
+        .get('scheduler_upsert_job')!
+        .execution_context.safeParse({
+          conversation_jid: 'tg:team',
+          thread_id: null,
+          workspace_key: 'team',
+          [removedField]: 'team',
+        });
+
+      expect(result.success).toBe(false);
+      expect(result.error!.issues.map((issue) => issue.message)).toContain(
+        'group_scope/groupScope is no longer accepted. Use workspace_key.',
+      );
+    }
   });
 
   it('writes scheduler capability requirements for update mutations', async () => {
@@ -278,20 +352,23 @@ describe('scheduler MCP tools', () => {
       execution_context: {
         conversation_jid: 'tg:team',
         thread_id: null,
-        group_scope: 'team',
+        workspace_key: 'team',
       },
-      capability_requirements: [
+      access_requirements: [
         {
-          capability_id: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executable_path: '/usr/local/bin/acme',
-            executable_version: 'v0.9.0',
-            executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/acme records append *',
+          target: {
+            kind: 'capability',
+            capability_id: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executable_path: '/usr/local/bin/acme',
+              executable_version: 'v0.9.0',
+              executable_hash: 'sha256:abc123',
+              command_template: '/usr/local/bin/acme records append *',
+            },
           },
+          reason: 'Write lead rows after each run',
         },
       ],
     });
@@ -305,20 +382,23 @@ describe('scheduler MCP tools', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
-        capabilityRequirements: [
+        accessRequirements: [
           {
-            capabilityId: 'acme.records.append',
-            reason: 'Write lead rows after each run',
-            implementation: {
-              kind: 'local_cli',
-              name: 'acme',
-              executablePath: '/usr/local/bin/acme',
-              executableVersion: 'v0.9.0',
-              executableHash: 'sha256:abc123',
-              commandTemplate: '/usr/local/bin/acme records append *',
+            target: {
+              kind: 'capability',
+              capabilityId: 'acme.records.append',
+              implementation: {
+                kind: 'local_cli',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                executableVersion: 'v0.9.0',
+                executableHash: 'sha256:abc123',
+                commandTemplate: '/usr/local/bin/acme records append *',
+              },
             },
+            reason: 'Write lead rows after each run',
           },
         ],
       }),
@@ -365,7 +445,6 @@ describe('scheduler MCP tools', () => {
     });
 
     expect(response.content[0].text).toContain('Scheduler events (0)');
-    expect(response.content[0].text).toContain('[]');
     expect(writeIpcFile).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
@@ -385,7 +464,7 @@ describe('scheduler MCP tools', () => {
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
     process.env.GANTRY_CHAT_JID = 'tg:team';
-    process.env.GANTRY_GROUP_FOLDER = 'team';
+    process.env.GANTRY_WORKSPACE_KEY = 'team';
     const waitForTaskResponse = vi.fn(async () => ({ ok: true }));
     const writeIpcFile = vi.fn();
     vi.doMock('../../../../src/runner/mcp/ipc.js', () => ({
@@ -418,33 +497,32 @@ describe('scheduler MCP tools', () => {
       schedule_type: 'once',
       schedule_value: '2026-05-04T00:00:00.000Z',
       target: 'here',
-      capability_requirements: [
+      access_requirements: [
         {
-          capability_id: 'acme.records.append',
-          reason: 'Write lead rows after each run',
-          implementation: {
-            kind: 'local_cli',
-            name: 'acme',
-            executable_path: '/usr/local/bin/acme',
-            executable_version: 'v0.9.0',
-            executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/acme records append *',
+          target: {
+            kind: 'capability',
+            capability_id: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'acme',
+              executable_path: '/usr/local/bin/acme',
+              executable_version: 'v0.9.0',
+              executable_hash: 'sha256:abc123',
+              command_template: '/usr/local/bin/acme records append *',
+            },
           },
+          reason: 'Write lead rows after each run',
         },
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
       ],
-      tool_access_requirements: ['Browser'],
     });
 
     expect(response.isError).not.toBe(true);
     expect(response.content[0].text).toContain('Scheduler job plan');
     expect(response.content[0].text).toContain('- Schedule: once');
     expect(response.content[0].text).toContain('- Model: job default');
-    expect(response.content[0].text).toContain('- Tool access:');
     expect(response.content[0].text).toContain(
-      '- Required capabilities: Acme Records Append using acme',
-    );
-    expect(response.content[0].text).toContain(
-      '- Tool access requirements: Browser',
+      '- Access requirements: capabilities Acme Records Append using acme; tools Browser',
     );
     expect(response.content[0].text).toContain(
       'use capability:<id> for reviewed semantic access',
@@ -461,7 +539,7 @@ describe('scheduler MCP tools', () => {
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
     process.env.GANTRY_CHAT_JID = 'tg:team';
-    process.env.GANTRY_GROUP_FOLDER = 'team';
+    process.env.GANTRY_WORKSPACE_KEY = 'team';
     const waitForTaskResponse = vi.fn(async () => ({ ok: true }));
     const writeIpcFile = vi.fn();
     vi.doMock('../../../../src/runner/mcp/ipc.js', () => ({
@@ -498,7 +576,7 @@ describe('scheduler MCP tools', () => {
       executionContext: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       notificationRoutes: [
         {
@@ -507,7 +585,7 @@ describe('scheduler MCP tools', () => {
           label: 'primary',
         },
       ],
-      toolAccessRequirements: ['Browser'],
+      accessRequirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
       createdBy: 'agent',
     });
     const response = await tools.get('scheduler_upsert_job')!({
@@ -516,7 +594,7 @@ describe('scheduler MCP tools', () => {
       schedule_type: 'once',
       schedule_value: '2026-05-04T00:00:00.000Z',
       target: 'here',
-      tool_access_requirements: ['Browser'],
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
       confirm: true,
       confirmation_token: confirmationToken,
     });
@@ -531,7 +609,7 @@ describe('scheduler MCP tools', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {
@@ -540,7 +618,9 @@ describe('scheduler MCP tools', () => {
             label: 'primary',
           },
         ],
-        toolAccessRequirements: ['Browser'],
+        accessRequirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
       }),
     );
   });
@@ -622,7 +702,7 @@ describe('scheduler MCP tools', () => {
 
     expect(response.isError).toBe(true);
     expect(response.content[0].text).toContain(
-      'required_tools is no longer accepted. Use tool_access_requirements',
+      'required_tools is no longer accepted. Use access_requirements',
     );
     expect(writeIpcFile).not.toHaveBeenCalled();
   });
@@ -673,7 +753,8 @@ describe('scheduler MCP tools', () => {
           health: {
             state: 'needs_permission',
             latestRunStatus: 'dead_lettered',
-            nextAction: 'request_permission { "toolName": "Browser" }',
+            nextAction:
+              'request_access { "target": { "kind": "capability", "id": "browser.use" } }',
           },
           recentRunErrors: [],
         },
@@ -691,6 +772,7 @@ describe('scheduler MCP tools', () => {
       schedulerJobSummary({
         id: 'job-1',
         name: 'Follow up',
+        prompt: 'Send a short customer follow-up every morning.',
         schedule_type: 'once',
         status: 'active',
         visibility: {
@@ -699,6 +781,19 @@ describe('scheduler MCP tools', () => {
         },
       }),
     ).toContain('Tool access: missing canonical toolAccess');
+    expect(
+      schedulerJobSummary({
+        id: 'job-1',
+        name: 'Follow up',
+        prompt: 'Send a short customer follow-up every morning.',
+        schedule_type: 'once',
+        status: 'active',
+        visibility: {
+          target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          recentRunErrors: [],
+        },
+      }),
+    ).toContain('Prompt: Send a short customer follow-up every morning.');
     expect(
       schedulerJobsSummary([
         {
@@ -711,27 +806,133 @@ describe('scheduler MCP tools', () => {
           },
         },
       ]),
-    ).toContain('tools: (missing toolAccess)');
+    ).toContain(
+      '- job-1 | Follow up | Ready | Workspace: unknown | Agent: agent:main | Next: none',
+    );
     expect(
-      schedulerJobsSummary([
-        {
-          id: 'job-2',
-          name: 'Use browser when needed',
-          tool_access_requirements: ['Browser'],
-          visibility: {
-            executionContext: { conversationJid: 'tg:team' },
-            toolAccess: {
-              effectiveAllowedTools: ['Browser'],
-              inheritedAgentTools: ['Browser'],
-              projectedRuntimeTools: ['Browser'],
-            },
+      schedulerJobSummary({
+        id: 'job-2',
+        name: 'Use browser when needed',
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+        visibility: {
+          executionContext: { conversationJid: 'tg:team' },
+          toolAccess: {
+            effectiveAllowedTools: ['Browser'],
+            inheritedAgentTools: ['Browser'],
+            projectedRuntimeTools: ['Browser'],
           },
         },
-      ]),
-    ).toContain('access: Browser');
+      }),
+    ).toContain('Access requirements: tools Browser');
+    const semanticSummary = schedulerJobSummary({
+      id: 'job-3',
+      name: 'Append reviewed records',
+      access_requirements: [
+        {
+          target: {
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+          },
+        },
+      ],
+      visibility: {
+        executionContext: { conversationJid: 'tg:team' },
+        toolAccess: {
+          effectiveAllowedTools: ['capability:acme.records.append'],
+          inheritedAgentTools: ['capability:acme.records.append'],
+          projectedRuntimeTools: ['acme.records.append'],
+        },
+      },
+    });
+    expect(semanticSummary).toContain(
+      'Access requirements: capabilities acme.records.append',
+    );
+    expect(semanticSummary).not.toContain(
+      'tools capability:acme.records.append',
+    );
   });
 
-  it('renders a provider-neutral owner label in the scheduler list line', async () => {
+  it('renders notification targets with shortcut and routing values', async () => {
+    const { schedulerNotificationTargetsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const summary = schedulerNotificationTargetsSummary([
+      {
+        shortcut: 'here',
+        label: 'Current conversation',
+        executionContext: {
+          conversationJid: 'tg:team',
+          threadId: null,
+          workspaceKey: 'team',
+        },
+        notificationRoutes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: null,
+            label: 'primary',
+          },
+        ],
+      },
+    ]);
+
+    expect(summary).toContain('Scheduler notification targets (1)');
+    expect(summary).toContain('- here | Current conversation');
+    expect(summary).toContain(
+      'execution_context conversation_jid=tg:team thread_id=none workspace_key=team',
+    );
+    expect(summary).toContain('notification_routes 1 (primary:tg:team:none)');
+    expect(summary).not.toContain('Scheduler events');
+  });
+
+  it('renders compact scheduler job list rows in workspace/access language', async () => {
+    const { schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const summary = schedulerJobsSummary([
+      {
+        id: 'job-2',
+        name: 'Use browser when needed',
+        workspace_key: 'personal',
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+        visibility: {
+          executionContext: {
+            conversationJid: 'tg:team',
+            workspaceKey: 'team-space',
+          },
+          target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          setup: {
+            state: 'missing_capability',
+            blockers: [
+              {
+                state: 'missing_capability',
+                requirementType: 'browser',
+                requirementId: 'browser.use',
+              },
+            ],
+          },
+          toolAccess: {
+            effectiveAllowedTools: ['Browser'],
+            inheritedAgentTools: ['Browser'],
+            projectedRuntimeTools: ['Browser'],
+          },
+        },
+      },
+    ]);
+
+    expect(summary).toContain(
+      '- job-2 | Use browser when needed | Needs approval | Workspace: team-space | Agent: agent:main | Next: Approve Browser access, then resume the job.',
+    );
+    expect(summary).not.toContain('capabilities:');
+    expect(summary).not.toContain('access:');
+    expect(summary).not.toContain('mcp:');
+    expect(summary).not.toContain('tools:');
+  });
+
+  it('renders provider-neutral workspace and agent labels in the scheduler list line', async () => {
     const { schedulerJobsSummary } =
       await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
 
@@ -741,7 +942,11 @@ describe('scheduler MCP tools', () => {
         name: 'Topic digest',
         status: 'active',
         visibility: {
-          executionContext: { conversationJid: 'tg:-100team', threadId: '42' },
+          executionContext: {
+            conversationJid: 'tg:-100team',
+            threadId: '42',
+            workspaceKey: 'telegram-team',
+          },
           target: { agentId: 'agent:main', conversationJids: ['tg:-100team'] },
         },
       },
@@ -749,7 +954,8 @@ describe('scheduler MCP tools', () => {
     const listLine = summary
       .split('\n')
       .find((line) => line.startsWith('- job-1'));
-    expect(listLine).toContain('Telegram group');
+    expect(listLine).toContain('Workspace: telegram-team');
+    expect(listLine).toContain('Agent: agent:main');
     expect(listLine).not.toContain('tg:-100team');
   });
 

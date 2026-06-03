@@ -1,7 +1,7 @@
 import { getMemoryMaintenanceQueue } from '../memory/maintenance-queue.js';
 import {
   DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder as memoryAgentIdForGroup,
+  memoryAgentIdForWorkspaceFolder as memoryAgentIdForGroup,
 } from '../memory/app-memory-boundaries.js';
 import { resolveScopedMemorySubject } from '../memory/app-memory-subject-resolver.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';

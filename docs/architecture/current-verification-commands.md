@@ -90,14 +90,14 @@ Expected cleanup-search interpretation:
 No-legacy runtime cleanup slices should also record broad search evidence:
 
 ```bash
-rg -n "legacy|compat|shim|old path|TODO: remove|remove after refactor|legacy/|linkedSessions|deliverTo|threadId|sessionId|groupScope|legacy_message_row|system:dreaming" apps/core/src apps/core/test docs/architecture/current-verification-commands.md -S
+rg -n "legacy|compat|shim|old path|TODO: remove|remove after refactor|legacy/|linkedSessions|deliverTo|threadId|sessionId|legacy_message_row|system:dreaming" apps/core/src apps/core/test docs/architecture/current-verification-commands.md -S
 ```
 
 Expected cleanup-search interpretation:
 
-- `threadId`, `sessionId`, and `groupScope` remain expected when they are the
-  current canonical execution, session, and thread field names; do not rewrite
-  them only to satisfy text search.
+- `threadId` and `sessionId` remain expected when they are the current canonical
+  execution, session, and thread field names; do not rewrite them only to
+  satisfy text search.
 - `linkedSessions`, `deliverTo`, `notificationTarget`, and old top-level
   scheduler route aliases should appear only in reject-only tests, migration
   rejection evidence, or the runtime parser's unsupported-field denylist.

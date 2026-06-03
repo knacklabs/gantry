@@ -126,6 +126,10 @@ export interface RuntimeConfiguredAgentSourceRef {
   id: string;
   version?: string;
   kind?: 'builtin' | 'skill' | 'mcp' | 'adapter' | 'local_cli';
+  // Per-agent MCP operation scope (subset of the server's reviewed tool
+  // patterns). Only meaningful for `mcp_servers` source refs; empty/absent means
+  // the agent inherits the server's full reviewed tool set.
+  tools?: string[];
 }
 
 export interface RuntimeConfiguredAgentSources {

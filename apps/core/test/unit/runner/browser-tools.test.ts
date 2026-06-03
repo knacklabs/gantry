@@ -91,6 +91,31 @@ describe('runner browser MCP gateway tools', () => {
     vi.unstubAllGlobals();
   });
 
+  it('returns operator error copy when the browser backend rejects an action', async () => {
+    requestBrowserAction.mockResolvedValueOnce({
+      ok: false,
+      error: 'CDP connection refused',
+    });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const result = await server.tools.get('browser_status')?.({});
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: 'text',
+          text: [
+            'Browser action failed.',
+            'cause: status: CDP connection refused',
+            'recover: run gantry status and retry after the browser is ready.',
+          ].join('\n'),
+        },
+      ],
+      isError: true,
+    });
+  });
+
   it('opens the backend browser and then navigates when a url is provided', async () => {
     requestBrowserAction
       .mockResolvedValueOnce({ ok: true, data: { opened: true } })

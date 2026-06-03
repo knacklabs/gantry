@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RuntimeSettingsResponse } from '@gantry/contracts';
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
+import type { ControlPlaneStorageSettings } from '../../application/control-plane/control-plane-storage-model.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
   ModelCatalogEntry,
@@ -12,6 +13,8 @@ import type {
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
+
+type InternalRuntimeSettings = ControlPlaneStorageSettings;
 
 export type ControlServerState = {
   activeStreams: number;
@@ -65,6 +68,7 @@ export type ControlRouteContext = {
   state: ControlServerState;
   triggerRateLimiter: RateLimiter;
   getRuntimeSettings: () => RuntimeSettingsResponse['settings'];
+  getInternalRuntimeSettings: () => InternalRuntimeSettings;
   getDefaultModelConfig: (
     kind?: 'interactive' | 'oneTimeJob' | 'recurringJob',
     agentFolder?: string,
@@ -72,11 +76,20 @@ export type ControlRouteContext = {
   getModelDefaults: () => ControlModelDefaults;
   patchModelDefaults: (
     body: Record<string, unknown>,
-  ) => ControlModelDefaultsPatchResult;
+  ) => Promise<ControlModelDefaultsPatchResult>;
   preflightModelPreset: (
     preset: ModelPresetId,
     appId?: AppId,
   ) => Promise<ControlModelPresetPreflightResult>;
+  getActiveModelCredentialProviderIds: (appId: AppId) => Promise<string[]>;
+  countPendingAccessRequests: (appId: AppId) => Promise<number>;
+  listControlPlaneJobs: (appId: AppId) => Promise<
+    Array<{
+      id: string;
+      status?: string;
+      workspace_key?: string | null;
+    }>
+  >;
   sendConversationIngressProjection?: (input: {
     conversationJid: string;
     threadId: string | null;

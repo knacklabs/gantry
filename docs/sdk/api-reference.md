@@ -73,12 +73,10 @@ GET    /v1/agents/:agentId
 PATCH  /v1/agents/:agentId
 GET    /v1/agents/:agentId/admin
 GET    /v1/inventory
-GET    /v1/agents/:agentId/sources
-PUT    /v1/agents/:agentId/sources
 GET    /v1/capabilities
 GET    /v1/capabilities/:capabilityId
-GET    /v1/agents/:agentId/capabilities
-PUT    /v1/agents/:agentId/capabilities
+GET    /v1/agents/:agentId/access
+PUT    /v1/agents/:agentId/access
 
 GET    /v1/providers
 GET    /v1/provider-connections
@@ -119,11 +117,9 @@ Agent-facing tools:
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
 - `request_mcp_server`: third-party MCP server requests with a reviewed `stdio_template`, sandbox profile, tool patterns, credential needs, and reason.
-- `request_permission`: one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand` fallback when no reviewed semantic capability fits.
-- `capability_search`: search reviewed semantic capabilities generated from attached tools, skills, MCP servers, adapters, and CLI manifests.
-- `propose_capability`: request an approved semantic capability when the id already exists, or propose a reviewed `local_cli` capability with pinned executable path/version/hash, command templates, preflight, protected paths, and account label.
-- `manage_capability`: view/change/revoke/test/audit guidance for selected capabilities.
-- `capability_status`: current tool access, semantic capability tools, readable configured rules, selected skills, selected MCP servers, and request arguments for missing admin tools.
+- `request_access`: request an approved reviewed semantic capability by id.
+- `request_access`: request a scoped `RunCommand` fallback when no reviewed capability fits.
+- `request_access`: source install/connect stays separate; use `request_skill_install`, `request_skill_proposal`, or `request_mcp_server` for sources.
 - `settings_desired_state`: selected-capability read of current local desired state.
 - `request_settings_update`: selected-capability reviewed edit to non-secret `settings.yaml` desired state.
 - `admin_permission_list`: selected-capability list of current-agent persistent Gantry MCP grants.
@@ -135,11 +131,11 @@ Agent-facing tools:
 Every persistent capability change follows request, validation, review,
 decision, durable audit, new config version, and next-run activation.
 Persistent agent grants are mirrored into `settings.yaml` as readable
-`agents.<id>.capabilities` entries such as a reviewed app capability,
+`agents.<id>.access.selections` entries such as a reviewed app capability,
 `browser.use`, or a reviewed composite capability version. The `browser.use`
 entry projects to the canonical runtime `Browser` tool rule. Sources are
-mirrored under `agents.<id>.sources` and do not create execution authority by
-themselves. Durable `request_permission` does not mint broad exact SDK/native
+mirrored under `agents.<id>.access.sources` and do not create execution authority by
+themselves. Durable `request_access` does not mint broad exact SDK/native
 tools or exact third-party MCP tools; those must be represented by selected
 semantic capabilities or reviewed MCP server bindings. Jobs inherit the target
 agent's capabilities and sources at run time; `toolAccess` in job responses
@@ -248,7 +244,7 @@ and projected runtime access:
       {
         "tool": "mcp__gantry__settings_desired_state",
         "toolId": "tool:mcp__gantry__settings_desired_state",
-        "requestPermission": "permissionKind=tool toolName=mcp__gantry__settings_desired_state temporaryOnly=false reason=\"<why this agent needs settings_desired_state>\""
+        "requestPermission": "target.kind=capability target.id=\"<reviewed admin capability id>\" temporaryOnly=false reason=\"<why this agent needs settings_desired_state>\""
       }
     ],
     "source": "Postgres agent_tool_bindings projected from settings.yaml"
@@ -504,13 +500,11 @@ client.jobs.create({
   executionContext: {
     conversationJid,
     threadId,  // null for whole-conversation jobs
-    groupScope,
+    workspaceKey,
     sessionId, // required canonical app session id
   },
   notificationRoutes?, // defaults to primary execution context route
-  capabilityRequirements?, // semantic capability readiness, e.g. Browser
-  toolAccessRequirements?, // Gantry facades/rules, e.g. FileRead or RunCommand(npm test *)
-  requiredMcpServers?, // selected MCP source ids that must be ready
+  accessRequirements?, // readiness assertions for capabilities, MCP sources, or scoped RunCommand fallback
   kind?, // manual | once | recurring
   runAt?, // once
   schedule?, // recurring
@@ -526,13 +520,11 @@ client.jobs.update(jobId, {
   executionContext?: {
     conversationJid,
     threadId,
-    groupScope,
+    workspaceKey,
     sessionId, // required when executionContext is provided
   },
   notificationRoutes?,
-  capabilityRequirements?,
-  toolAccessRequirements?,
-  requiredMcpServers?,
+  accessRequirements?,
   status?,
   modelAlias?,    // use null to clear back to inherited defaults
 })
@@ -576,7 +568,7 @@ The defaults route writes `settings.yaml`; provider credentials remain in Model
 Access and are projected privately by the runtime adapter.
 
 Use `POST /v1/models/preview` for "why" checks before a run. `target: "chat"`
-can include `conversationJid` or `groupScope` to expose live session `/model`
+can include `conversationJid` or `workspaceKey` to expose live session `/model`
 overrides; `target: "job"` with `jobId` distinguishes explicit job aliases from
 inherited defaults.
 
@@ -683,10 +675,8 @@ GET    /v1/agents/:id/admin                        agents:admin
 GET    /v1/inventory                               agents:admin
 GET    /v1/capabilities                            agents:admin
 GET    /v1/capabilities/:id                        agents:admin
-GET    /v1/agents/:id/sources                      agents:admin
-PUT    /v1/agents/:id/sources                      agents:admin
-GET    /v1/agents/:id/capabilities                 agents:admin
-PUT    /v1/agents/:id/capabilities                 agents:admin
+GET    /v1/agents/:id/access                       agents:admin
+PUT    /v1/agents/:id/access                       agents:admin
 
 GET    /v1/providers                               providers:read
 POST   /v1/provider-connections                    providers:admin
@@ -760,10 +750,9 @@ it does not delete the row.
 
 ## Agent Skill Bindings
 
-Prefer `PUT /v1/agents/:agentId/sources` for deterministic replacement of
-attached skills. Selecting a skill source does not create risky skill action access;
-those actions require selected reviewed capabilities through
-`PUT /v1/agents/:agentId/capabilities`. The routes below remain specialized
+Prefer `PUT /v1/agents/:agentId/access` for deterministic replacement of
+attached skills and selected capability ids. Selecting a skill source does not create risky skill action access;
+those actions require selected reviewed capabilities in the same access document. The routes below remain specialized
 skill install/file lifecycle routes.
 
 ```http
@@ -782,8 +771,8 @@ skill artifacts.
 
 ## Agent MCP Server Bindings
 
-Prefer `PUT /v1/agents/:agentId/sources` for deterministic replacement of
-attached MCP servers. Selecting an MCP source does not create execution access by
+Prefer `PUT /v1/agents/:agentId/access` for deterministic replacement of
+attached MCP servers and selected capability ids. Selecting an MCP source does not create execution access by
 itself; callable MCP actions must be projected from selected reviewed
 capabilities. The routes below remain specialized MCP validation and
 disable lifecycle routes.

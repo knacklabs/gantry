@@ -19,10 +19,11 @@ import {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
   ensureRuntimeSettings,
-  saveRuntimeSettings,
+  writeDesiredRuntimeSettings,
   type RuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { controlApiRequest } from './control-api.js';
+import type { ModelPreviewResponse } from './model-preview-types.js';
 type ModelCommandSettings = ReturnType<typeof ensureRuntimeSettings>;
 interface ModelCommandOptions {
   preflightPreset?: (
@@ -30,24 +31,6 @@ interface ModelCommandOptions {
     preset: ModelPresetId,
     settings: ModelCommandSettings,
   ) => Promise<ModelPresetPreflightResult>;
-}
-
-interface ModelPreviewResponse {
-  target?: string;
-  jobId?: string;
-  scope?: string;
-  selection?: {
-    effectiveAlias?: string | null;
-    source?: string;
-    inherited?: boolean;
-    model?: {
-      displayName?: string;
-      responseFamily?: string;
-      modelRoute?: { label?: string; metadata?: { providerModelId?: string } };
-      cacheSupport?: { statusLabel?: string };
-    } | null;
-  };
-  why?: string[];
 }
 
 function usage(): string {
@@ -434,6 +417,17 @@ export async function runModelCommand(
     ((runtimeHome, preset, settings) =>
       preflightModelPreset({ runtimeHome, preset, settings }));
 
+  const persistSettings = async (
+    previousSettings: RuntimeSettings,
+    nextSettings: RuntimeSettings,
+  ) => {
+    await writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings: nextSettings,
+      previousSettings,
+    });
+  };
+
   if (!action || action === 'status') {
     console.log(formatStatus(settings));
     return 0;
@@ -466,8 +460,9 @@ export async function runModelCommand(
       ) {
         return 1;
       }
+      const previousSettings = structuredClone(settings);
       settings.agent.defaultModel = resolved.alias;
-      saveRuntimeSettings(runtimeHome, settings);
+      await persistSettings(previousSettings, settings);
       console.log(`chat: ${resolved.alias} (${resolved.entry.displayName})`);
       return 0;
     }
@@ -486,9 +481,10 @@ export async function runModelCommand(
         ) {
           return 1;
         }
+        const previousSettings = structuredClone(settings);
         settings.agent.oneTimeJobDefaultModel = '';
         settings.agent.recurringJobDefaultModel = '';
-        saveRuntimeSettings(runtimeHome, settings);
+        await persistSettings(previousSettings, settings);
         console.log(`one-time: inherits chat (${chatAlias(settings)})`);
         console.log(`recurring: inherits chat (${chatAlias(settings)})`);
         return 0;
@@ -519,9 +515,10 @@ export async function runModelCommand(
       ) {
         return 1;
       }
+      const previousSettings = structuredClone(settings);
       settings.agent.oneTimeJobDefaultModel = oneTime.alias;
       settings.agent.recurringJobDefaultModel = recurring.alias;
-      saveRuntimeSettings(runtimeHome, settings);
+      await persistSettings(previousSettings, settings);
       console.log(`one-time: ${oneTime.alias} (${oneTime.entry.displayName})`);
       console.log(
         `recurring: ${recurring.alias} (${recurring.entry.displayName})`,
@@ -576,6 +573,7 @@ export async function runModelCommand(
     ) {
       return 1;
     }
+    const previousSettings = structuredClone(settings);
     if (target === 'chat') {
       settings.agent.defaultModel = preset.chatDefault;
     } else if (target === 'jobs') {
@@ -584,7 +582,7 @@ export async function runModelCommand(
     } else if (target === 'memory') {
       applyPresetManagedMemoryDefaults(settings, presetId);
     }
-    saveRuntimeSettings(runtimeHome, settings);
+    await persistSettings(previousSettings, settings);
     console.log(formatTarget(settings, target));
     return 0;
   }
@@ -599,7 +597,7 @@ export async function runModelCommand(
             target: 'chat',
             ...(alias.includes(':')
               ? { conversationJid: alias }
-              : { groupScope: alias }),
+              : { workspaceKey: alias }),
           },
         })) as ModelPreviewResponse;
         console.log(formatPreviewWhy(preview));
@@ -646,8 +644,9 @@ export async function runModelCommand(
       console.error(`Preset preflight failed: ${result.message}`);
       return 1;
     }
+    const previousSettings = structuredClone(settings);
     applyModelPreset(settings, target);
-    saveRuntimeSettings(runtimeHome, settings);
+    await persistSettings(previousSettings, settings);
     console.log(`preset: ${target}`);
     console.log(`chat: ${settings.agent.defaultModel}`);
     console.log(`one-time: inherits chat (${settings.agent.defaultModel})`);

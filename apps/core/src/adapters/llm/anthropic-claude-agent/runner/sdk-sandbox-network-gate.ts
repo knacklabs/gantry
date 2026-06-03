@@ -9,7 +9,8 @@ import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import type { AgentRunnerInput } from './types.js';
-import type { LocalCliNetworkBinding } from '../../../../shared/capability-runtime-access.js';
+import type { CommandBoundNetworkBinding } from '../../../../shared/capability-runtime-access.js';
+import { declaredNetworkAuthority } from '../../../../shared/network-host-declaration.js';
 
 export interface SdkSandboxNetworkGate {
   rememberGlobalApproval(principal: string, expiresAtMs: number): void;
@@ -40,7 +41,8 @@ interface SdkSandboxNetworkApprovalToken {
   parentToolUseID: string;
   approvedToolName: string;
   inputHash: string;
-  approvedHostHashes: readonly string[];
+  allowParentlessAssociation: boolean;
+  restrictedHostHashes?: ReadonlySet<string>;
   createdAtMs: number;
   expiresAtMs: number;
   parentlessAssociatedAtMs?: number;
@@ -89,7 +91,6 @@ export function createSdkSandboxNetworkGate(
     parentToolUseID?: string;
     approvedToolName?: string;
     hostHash?: string;
-    approvedHostHashes?: readonly string[];
     inputHash?: string;
     tokenCreatedAtMs?: number;
     tokenExpiresAtMs?: number;
@@ -112,9 +113,6 @@ export function createSdkSandboxNetworkGate(
         ? { approvedToolName: input.approvedToolName }
         : {}),
       ...(input.hostHash ? { hostHash: input.hostHash } : {}),
-      ...(input.approvedHostHashes?.length
-        ? { approvedHostHashes: input.approvedHostHashes }
-        : {}),
       ...(input.inputHash ? { inputHash: input.inputHash } : {}),
       ...(input.tokenCreatedAtMs !== undefined
         ? { tokenCreatedAtMs: input.tokenCreatedAtMs }
@@ -192,7 +190,7 @@ export function createSdkSandboxNetworkGate(
       }
       const createdAtMs = nowMs();
       const inputHash = hashString(stableJson(input));
-      const approvedHostHashes = approvedToolInputHostHashes(
+      const networkReview = reviewedNetworkHostHashesForToolUse(
         toolName,
         input,
         agentInput,
@@ -202,7 +200,13 @@ export function createSdkSandboxNetworkGate(
         parentToolUseID,
         approvedToolName: toolName,
         inputHash,
-        approvedHostHashes,
+        allowParentlessAssociation:
+          toolName === 'Bash' &&
+          networkReview.parentlessEligible &&
+          Boolean(networkReview.restrictedHostHashes?.size),
+        ...(networkReview.restrictedHostHashes
+          ? { restrictedHostHashes: networkReview.restrictedHostHashes }
+          : {}),
         createdAtMs,
         expiresAtMs: createdAtMs + ttlMs,
       };
@@ -219,7 +223,6 @@ export function createSdkSandboxNetworkGate(
         parentToolUseID,
         approvedToolName: toolName,
         inputHash,
-        approvedHostHashes,
         tokenCreatedAtMs: token.createdAtMs,
         tokenExpiresAtMs: token.expiresAtMs,
       });
@@ -265,6 +268,28 @@ export function createSdkSandboxNetworkGate(
           )
         : undefined;
       if (token) {
+        if (
+          token.restrictedHostHashes &&
+          (!hostHash || !token.restrictedHostHashes.has(hostHash))
+        ) {
+          const reason =
+            'SDK requested sandbox network access for a host outside the reviewed tool metadata.';
+          writeEvent({
+            decision: 'sdk_network_gate_denied',
+            reason,
+            networkToolUseID: permissionOpts.toolUseID,
+            parentToolUseID: token.parentToolUseID,
+            approvedToolName: token.approvedToolName,
+            hostHash,
+            inputHash: token.inputHash,
+            expiredTokenCount,
+          });
+          return {
+            behavior: 'deny',
+            message: `${reason} Approve the tool call through Gantry first.`,
+            interrupt: false,
+          };
+        }
         writeEvent({
           decision: 'sdk_network_gate_suppressed',
           reason:
@@ -287,9 +312,10 @@ export function createSdkSandboxNetworkGate(
           latestToken &&
           !latestToken.parentlessAssociatedAtMs &&
           latestToken.approvedToolName === 'Bash' &&
+          latestToken.allowParentlessAssociation &&
           networkToolUseID &&
           hostHash &&
-          latestToken.approvedHostHashes.includes(hostHash) &&
+          latestToken.restrictedHostHashes?.has(hostHash) &&
           latestToken.expiresAtMs > now &&
           now - latestToken.createdAtMs <= parentlessAssociationTtlMs
         ) {
@@ -303,7 +329,6 @@ export function createSdkSandboxNetworkGate(
             parentToolUseID: latestToken.parentToolUseID,
             approvedToolName: latestToken.approvedToolName,
             hostHash,
-            approvedHostHashes: latestToken.approvedHostHashes,
             inputHash: latestToken.inputHash,
             tokenCreatedAtMs: latestToken.createdAtMs,
             tokenExpiresAtMs: latestToken.expiresAtMs,
@@ -337,7 +362,7 @@ function sandboxNetworkHostHash(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined;
   const host = (input as Record<string, unknown>).host;
   if (typeof host !== 'string' || !host.trim()) return undefined;
-  const normalized = normalizeNetworkHost(host);
+  const normalized = normalizeNetworkAuthority(host);
   return normalized ? hashString(normalized) : undefined;
 }
 
@@ -356,26 +381,39 @@ function hashString(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function approvedToolInputHostHashes(
+function reviewedNetworkHostHashesForToolUse(
   toolName: string,
   input: unknown,
   agentInput: AgentRunnerInput,
-): readonly string[] {
-  const hosts = new Set<string>();
+): { restrictedHostHashes?: Set<string>; parentlessEligible: boolean } {
   if (toolName === 'Bash') {
-    collectApprovedLocalCliNetworkHosts(input, agentInput, hosts);
+    const commandBound = commandBoundNetworkHostHashes(input, agentInput);
+    return {
+      ...(commandBound.hostHashes.size > 0
+        ? { restrictedHostHashes: commandBound.hostHashes }
+        : {}),
+      parentlessEligible: commandBound.matched,
+    };
   }
-  return [...hosts].sort().map(hashString);
+  const mcpHostHashes = mcpServerNetworkHostHashes(toolName, agentInput);
+  if (mcpHostHashes) {
+    return {
+      ...(mcpHostHashes.size > 0
+        ? { restrictedHostHashes: mcpHostHashes }
+        : {}),
+      parentlessEligible: false,
+    };
+  }
+  return { parentlessEligible: false };
 }
 
-function collectApprovedLocalCliNetworkHosts(
+function commandBoundNetworkHostHashes(
   input: unknown,
   agentInput: AgentRunnerInput,
-  hosts: Set<string>,
-): void {
-  const bindings = readLocalCliNetworkBindings(agentInput);
-  if (bindings.length === 0) return;
-  for (const binding of bindings) {
+): { matched: boolean; hostHashes: Set<string> } {
+  const hostHashes = new Set<string>();
+  let matched = false;
+  for (const binding of readCommandBoundNetworkBindings(agentInput)) {
     const commandRules = normalizeStringList(binding.commandRules);
     if (commandRules.length === 0) continue;
     const evaluation = evaluateAutonomousToolUse({
@@ -384,33 +422,75 @@ function collectApprovedLocalCliNetworkHosts(
       toolInput: input,
     });
     if (!evaluation.allowed) continue;
+    matched = true;
     for (const host of normalizeStringList(binding.hosts)) {
-      const normalized = normalizeNetworkHost(host);
-      if (normalized) hosts.add(normalized);
+      const normalized = normalizeNetworkAuthority(host);
+      if (normalized) hostHashes.add(hashString(normalized));
     }
   }
+  return { matched, hostHashes };
 }
 
-function readLocalCliNetworkBindings(
+function mcpServerNetworkHostHashes(
+  toolName: string,
   agentInput: AgentRunnerInput,
-): LocalCliNetworkBinding[] {
-  if (!Array.isArray(agentInput.runtimeAccess)) return [];
-  return agentInput.runtimeAccess.flatMap((entry): LocalCliNetworkBinding[] => {
+): Set<string> | null {
+  if (!Array.isArray(agentInput.runtimeAccess)) return null;
+  for (const entry of agentInput.runtimeAccess) {
     if (
       !entry ||
       typeof entry !== 'object' ||
-      entry.sourceType !== 'local_cli' ||
-      !Array.isArray(entry.networkBindings)
+      entry.sourceType !== 'mcp_server' ||
+      !Array.isArray(entry.allowedTools) ||
+      !entry.allowedTools.some((allowedTool) =>
+        mcpRuntimeToolRuleMatches(allowedTool, toolName),
+      )
     ) {
-      return [];
+      continue;
     }
-    return entry.networkBindings.filter(
-      (binding): binding is LocalCliNetworkBinding =>
-        Boolean(binding && typeof binding === 'object') &&
-        Array.isArray(binding.commandRules) &&
-        Array.isArray(binding.hosts),
-    );
-  });
+    const hostHashes = new Set<string>();
+    for (const host of normalizeStringList(entry.networkHosts)) {
+      const normalized = normalizeNetworkAuthority(host);
+      if (normalized) hostHashes.add(hashString(normalized));
+    }
+    return hostHashes;
+  }
+  return null;
+}
+
+function mcpRuntimeToolRuleMatches(rule: unknown, toolName: string): boolean {
+  if (typeof rule !== 'string') return false;
+  const trimmed = rule.trim();
+  if (trimmed === toolName) return true;
+  if (trimmed.endsWith('*')) {
+    return toolName.startsWith(trimmed.slice(0, -1));
+  }
+  return false;
+}
+
+function readCommandBoundNetworkBindings(
+  agentInput: AgentRunnerInput,
+): CommandBoundNetworkBinding[] {
+  if (!Array.isArray(agentInput.runtimeAccess)) return [];
+  return agentInput.runtimeAccess.flatMap(
+    (entry): CommandBoundNetworkBinding[] => {
+      if (
+        !entry ||
+        typeof entry !== 'object' ||
+        (entry.sourceType !== 'local_cli' &&
+          entry.sourceType !== 'skill_action') ||
+        !Array.isArray(entry.networkBindings)
+      ) {
+        return [];
+      }
+      return entry.networkBindings.filter(
+        (binding): binding is CommandBoundNetworkBinding =>
+          Boolean(binding && typeof binding === 'object') &&
+          Array.isArray(binding.commandRules) &&
+          Array.isArray(binding.hosts),
+      );
+    },
+  );
 }
 
 function normalizeStringList(values: unknown): string[] {
@@ -424,21 +504,27 @@ function normalizeStringList(values: unknown): string[] {
   return [...out];
 }
 
-function normalizeNetworkHost(value: string): string | undefined {
+function normalizeNetworkAuthority(value: string): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
+  const declared = declaredNetworkAuthority(trimmed);
+  if (declared) return declared;
   try {
-    const parsed = new URL(
-      trimmed.includes('://') ? trimmed : `http://${trimmed}`,
-    );
-    const host = parsed.hostname
+    const parsed = new URL(trimmed);
+    return `${parsed.hostname
       .toLowerCase()
       .replace(/^\[|\]$/g, '')
-      .replace(/\.+$/, '');
-    return host || undefined;
+      .replace(
+        /\.+$/,
+        '',
+      )}:${parsed.port || defaultPortForProtocol(parsed.protocol)}`;
   } catch {
     return undefined;
   }
+}
+
+function defaultPortForProtocol(protocol: string): string {
+  return protocol === 'http:' ? '80' : '443';
 }
 
 function stableJson(value: unknown): string {

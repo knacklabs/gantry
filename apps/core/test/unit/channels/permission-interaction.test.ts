@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildPermissionPromptParts,
   decisionForMode,
   firstPersistentRule,
   formatPermissionPromptText,
   formatPermissionReceiptText,
+  normalizePermissionAction,
   persistentRules,
   permissionDecisionOptions,
   permissionButtonLabel,
@@ -23,6 +25,19 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('accepts only current permission action tokens', () => {
+    expect(normalizePermissionAction('allow_once')).toBe('allow_once');
+    expect(normalizePermissionAction('allow_persistent_rule')).toBe(
+      'allow_persistent_rule',
+    );
+    expect(normalizePermissionAction('allow_timed_grant')).toBe(
+      'allow_timed_grant',
+    );
+    expect(normalizePermissionAction('cancel')).toBe('cancel');
+    expect(normalizePermissionAction('approve')).toBeNull();
+    expect(normalizePermissionAction('deny')).toBeNull();
+  });
+
   it('allows persistent approval only when one displayed rule maps to one update', () => {
     const request = requestWithSuggestions([
       {
@@ -55,7 +70,7 @@ describe('permission interaction', () => {
         behavior: 'allow',
         rules: [
           { toolName: 'Bash', ruleContent: 'git status' },
-          { toolName: 'Bash', ruleContent: 'head' },
+          { toolName: 'Bash', ruleContent: 'head -n 20' },
         ],
       },
     ]);
@@ -64,7 +79,7 @@ describe('permission interaction', () => {
       'allow_persistent_rule',
     );
     expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
-      'Always allow',
+      'Allow for future',
     );
     expect(
       decisionForMode(request, 'allow_persistent_rule').updatedPermissions,
@@ -75,7 +90,7 @@ describe('permission interaction', () => {
         destination: 'session',
         rules: [
           { toolName: 'Bash', ruleContent: 'git status' },
-          { toolName: 'Bash', ruleContent: 'head' },
+          { toolName: 'Bash', ruleContent: 'head -n 20' },
         ],
       },
     ]);
@@ -269,16 +284,16 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('Allow Acme records append?');
+    expect(text.split('\n')[0]).toBe('🔐 Allow Acme records append?');
     expect(text).toContain('Account: Acme tenant');
-    expect(text).toContain('Access: Acme records append');
-    expect(text).toContain(
+    expect(text).not.toContain('Access: Acme records append');
+    expect(text).not.toContain(
       'Allows: Append records through reviewed Acme access.',
     );
-    expect(text).toContain(
+    expect(text).not.toContain(
       'Does not allow: Delete records, export secrets, or change account settings.',
     );
-    expect(text).toContain('Capability: Acme Records Append');
+    expect(text).not.toContain('Capability: Acme Records Append');
     expect(text).not.toContain('capability:acme.records.append');
     expect(
       permissionButtonLabel(
@@ -291,7 +306,7 @@ describe('permission interaction', () => {
           },
         ]),
       ),
-    ).toBe('Always allow');
+    ).toBe('Allow for future');
   });
 
   it('renders trusted skill action prompts with short mobile buttons', () => {
@@ -333,10 +348,10 @@ describe('permission interaction', () => {
 
     const text = formatPermissionPromptText(request, 60_000);
 
-    expect(text.split('\n')[0]).toBe('Allow LinkedIn posting?');
-    expect(text).toContain('From: scheduled job');
+    expect(text.split('\n')[0]).toBe('🔐 Allow LinkedIn posting?');
+    expect(text).toContain('scheduled job');
     expect(text).toContain('Agent: Main Agent');
-    expect(text).toContain(
+    expect(text).not.toContain(
       'Allows: Publish a prepared LinkedIn post through the approved script.',
     );
     expect(permissionButtonLabel('allow_once', request)).toBe('Allow once');
@@ -344,7 +359,7 @@ describe('permission interaction', () => {
       'Allow 5 min',
     );
     expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
-      'Always allow',
+      'Allow for future',
     );
     expect(permissionButtonLabel('cancel', request)).toBe('Cancel');
 
@@ -354,9 +369,56 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Always allowed for Main Agent: LinkedIn posting',
+      'Allowed for future: LinkedIn posting. Saved for Main Agent. You can remove it from Agent Access.',
     );
-    expect(receipt).toContain('Details: LinkedIn posting');
+  });
+
+  it('shows declared skill action network hosts in the permission prompt', () => {
+    const request = {
+      requestId: 'permission_net',
+      sourceAgentFolder: 'Main Agent',
+      jobId: 'linkedin-job-1',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'python3 skills/linkedin-posting/post.py --file /tmp/post.md',
+      },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+        },
+      ],
+      semanticCapabilityDefinitions: {
+        'skill.linkedin-posting.publish': {
+          capabilityId: 'skill.linkedin-posting.publish',
+          displayName: 'LinkedIn Posting publish',
+          category: 'linkedin-posting',
+          risk: 'write',
+          can: 'Publish a prepared LinkedIn post.',
+          cannot: 'Read unrelated credentials.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [
+            {
+              kind: 'tool_rule',
+              rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+            },
+          ],
+          networkHosts: ['api.linkedin.com:443', 'www.linkedin.com:443'],
+          preflight: { kind: 'none' },
+        },
+      },
+    } satisfies PermissionApprovalRequest;
+
+    const text = formatPermissionPromptText(request, 60_000);
+    expect(text).toContain(
+      'Network: api.linkedin.com:443, www.linkedin.com:443',
+    );
+
+    const parts = buildPermissionPromptParts(request, 60_000);
+    expect(parts.bodyLines).toContain(
+      'Network: api.linkedin.com:443, www.linkedin.com:443',
+    );
   });
 
   it('renders the full provider-neutral semantic field set every channel shares', () => {
@@ -393,21 +455,19 @@ describe('permission interaction', () => {
 
     const text = formatPermissionPromptText(request, 60_000);
 
-    expect(text.split('\n')[0]).toBe('Allow Acme records append?');
+    expect(text.split('\n')[0]).toBe('🔐 Allow Acme records append?');
     expect(text).toContain('Agent: Main Agent');
-    expect(text).toContain('From: agent chat');
-    expect(text).toContain('Access: Acme records append');
-    expect(text).toContain(
+    expect(text).toContain('agent chat');
+    expect(text).not.toContain('Access: Acme records append');
+    expect(text).not.toContain(
       'Allows: Append records through reviewed Acme access.',
     );
-    expect(text).toContain(
+    expect(text).not.toContain(
       'Does not allow: Delete records or change account settings.',
     );
     expect(text).toContain('Risk: Write');
-    expect(text).toContain('Scope:');
-    expect(text).toContain(
-      'Route: shown in this Telegram topic; approval applies to the parent conversation.',
-    );
+    expect(text).not.toContain('Scope:');
+    expect(text).toContain('Approval applies to the parent conversation.');
     // raw implementation details must stay out of primary copy
     expect(text).not.toContain('capability:acme.records.append');
     expect(text).not.toContain('RunCommand');
@@ -449,7 +509,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'For: Selected skill action (skills/linkedin-posting/post.py)',
+      'Allowed once: Selected skill action (skills/linkedin-posting/post.py). The agent will continue this request.',
     );
     expect(receipt).not.toContain('.llm-runtime');
   });
@@ -479,12 +539,8 @@ describe('permission interaction', () => {
     } satisfies PermissionApprovalRequest;
 
     const text = formatPermissionPromptText(request, 60_000);
-    expect(text).toContain(
-      'Route: shown in this Telegram topic; approval applies to the parent conversation.',
-    );
-    expect(text).toContain(
-      'Scope: this request, a short 5-minute grant, or always allow future matching tool calls in the parent conversation.',
-    );
+    expect(text).toContain('Approval applies to the parent conversation.');
+    expect(text).not.toContain('Scope:');
     expect(text).not.toContain('Thread: 2771');
 
     const receipt = formatPermissionReceiptText('permission_123', request, {
@@ -494,11 +550,9 @@ describe('permission interaction', () => {
       timedGrantExpiresAtMs: Date.now() + 60_000,
     });
     expect(receipt).toContain(
-      'Allowed for 5 minutes in parent conversation: exact command access',
+      'Allowed for 5 min: Command (acme records append sheet-id A1:B2). This expires at ',
     );
-    expect(receipt).toContain(
-      'Route: shown in this Telegram topic; approval applies to the parent conversation.',
-    );
+    expect(receipt).not.toContain('Route:');
   });
 
   it('renders scoped RunCommand setup prompts as command rules even when capability metadata is present', () => {
@@ -531,11 +585,13 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('Allow exact command access?');
-    expect(text).toContain(
+    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
+    expect(text).not.toContain(
       'Request: Permission: Acme records append using acme',
     );
-    expect(text).toContain('Details: matching command access');
+    expect(text).not.toContain(
+      'Details: matching command access (/usr/local/bin/acme records append *)',
+    );
     expect(text).not.toContain('Always allow grants this capability');
     expect(text).not.toContain(
       'RunCommand(/usr/local/bin/acme records append *)',
@@ -561,10 +617,10 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('Allow exact command access?');
-    expect(text).toContain('Request: Exact Command Access');
-    expect(text).toContain('Reason: Contains shell expansion');
-    expect(text).toContain('Details: Publish the LinkedIn post draft');
+    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
+    expect(text).not.toContain('Request: Exact Command Access');
+    expect(text).not.toContain('Reason: Contains shell expansion');
+    expect(text).not.toContain('Details: Publish the LinkedIn post draft');
     expect(text).not.toContain(['Allow', 'RunCommand?'].join(' '));
     expect(text).not.toContain('"command"');
     expect(text).not.toContain('simple_expansion');
@@ -611,28 +667,6 @@ describe('permission interaction', () => {
     expect(text).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });
 
-  it('renders closest existing rule mismatch details in permission prompts', () => {
-    const text = formatPermissionPromptText(
-      {
-        ...requestWithSuggestions([]),
-        decisionReason:
-          'Tool not on autonomous run allowlist: RunCommand. Bash leaf npm test did not match any scoped autonomous rule.',
-        closestRule: {
-          rule: 'RunCommand(npm run build)',
-          reason:
-            'Bash leaf npm test did not match any scoped autonomous rule.',
-        },
-        toolInput: { command: 'npm test' },
-      },
-      60_000,
-    );
-
-    expect(text).toContain('Closest existing access: matching command access');
-    expect(text).toContain(
-      '(did not match: command npm test did not match any scoped autonomous rule.)',
-    );
-  });
-
   it('shows destructive Bash redirect targets without offering persistence', () => {
     const text = formatPermissionPromptText(
       {
@@ -646,7 +680,7 @@ describe('permission interaction', () => {
     );
 
     expect(text).toContain('Redirect: > /etc/passwd');
-    expect(text).toContain('Scope: this request or a short 5-minute grant.');
+    expect(text).not.toContain('Scope:');
     expect(text).not.toContain('future matching tool calls');
   });
 
@@ -669,7 +703,7 @@ describe('permission interaction', () => {
                 toolName: 'Bash',
                 ruleContent: 'curl https://api.example.com/*',
               },
-              { toolName: 'Bash', ruleContent: 'jq *' },
+              { toolName: 'Bash', ruleContent: 'jq -r *' },
             ],
           },
         ],
@@ -678,10 +712,7 @@ describe('permission interaction', () => {
     );
 
     expect(text).toMatchInlineSnapshot(`
-      "Allow exact command access?
-
-      Agent: Main Agent
-      From: agent chat
+      "🔐 Allow exact command access?
 
       Command:
       \`\`\`
@@ -689,12 +720,10 @@ describe('permission interaction', () => {
       \`\`\`
       Redirect: > /tmp/leads.json
 
-      Details: matching command access, matching command access
-
-      Scope: this request, a short 5-minute grant, or future matching tool calls.
-      Safety: only matching future access is included; unrelated tools, secrets, and settings changes are not included.
-
-      Reply within 5 minute(s)."
+      Agent: Main Agent
+      Context: agent chat
+      The agent cannot approve this itself.
+      Reply in 5m"
     `);
   });
 
@@ -712,7 +741,7 @@ describe('permission interaction', () => {
     );
 
     expect(text).toContain(
-      'From: scheduled job: KnackLabs Lead Maintenance Controller',
+      'Context: scheduled job: KnackLabs Lead Maintenance Controller',
     );
     expect(text).toContain('Agent: Main Agent');
     expect(text).not.toContain(
@@ -731,9 +760,8 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text).toContain('From: agent chat');
-    expect(text).toContain('Agent: Main Agent');
-    expect(text).not.toContain('From: scheduled job');
+    expect(text).toContain('Context: agent chat');
+    expect(text).not.toContain('scheduled job');
   });
 
   it('renders skill action capability prompts with the semantic display name', () => {
@@ -811,7 +839,7 @@ describe('permission interaction', () => {
       'allow_timed_grant',
       'cancel',
     ]);
-    expect(text.split('\n')[0]).toBe('Allow exact command access?');
+    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
     expect(text).not.toContain('Allow LinkedIn posting?');
     expect(text).not.toContain('future matching runs');
   });
@@ -863,7 +891,7 @@ describe('permission interaction', () => {
     expect(webFetch).toContain('Prompt: Summarize the setup section.');
   });
 
-  it('renders unknown non-command input as pretty JSON with head and tail content', () => {
+  it('renders unknown tool input as clean key/value lines (not a JSON dump), nested objects omitted', () => {
     const longValue = `lookup ${'x'.repeat(650)} tail`;
     const text = formatPermissionPromptText(
       {
@@ -875,10 +903,12 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text).toContain('```json');
-    expect(text).toContain('lookup ');
+    expect(text).toContain('Query: lookup ');
     expect(text).toContain('tail');
-    expect(text).toContain('…');
+    expect(text).toContain('…'); // head/tail truncation of the long value
+    expect(text).not.toContain('```json');
+    // Nested objects are omitted from the prompt body.
+    expect(text).not.toContain('nested');
   });
 
   it('renders any command-shaped permission input without a JSON dump', () => {
@@ -892,7 +922,7 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('Allow exact command access?');
+    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
     expect(text).toContain('Command:\n```');
     expect(text).toContain('acme publish draft-123');
     expect(text).not.toContain('```json');
@@ -914,10 +944,10 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed once: exact command access');
-    expect(receipt).toContain('For: Command (git status --short)');
-    expect(receipt).toContain('From: agent chat');
-    expect(receipt).toContain('Agent: Main Agent');
+    expect(receipt).toContain(
+      'Allowed once: Command (git status --short). The agent will continue this request.',
+    );
+    expect(receipt).not.toContain('From: agent chat');
     expect(receipt).not.toContain('Request ID');
     expect(receipt).not.toContain('perm-abc-123');
   });
@@ -939,11 +969,9 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed for 5 minutes: exact command access');
-    expect(receipt).toContain('Until:');
-    expect(receipt).toContain('For: Command (git status --short)');
-    expect(receipt).toContain('From: agent chat');
-    expect(receipt).toContain('Agent: Main Agent');
+    expect(receipt).toContain(
+      'Allowed for 5 min: Command (git status --short). This expires at ',
+    );
     expect(receipt).not.toContain('eligible tools and SDK API/network prompts');
     expect(receipt).not.toContain('Request ID');
     expect(receipt).not.toContain('perm-abc-123');
@@ -963,9 +991,7 @@ describe('permission interaction', () => {
     } satisfies PermissionApprovalRequest;
 
     const prompt = formatPermissionPromptText(request, 60_000);
-    expect(prompt).toContain(
-      'Scope: this request, a short 5-minute grant, or always allow future matching tool calls in the parent conversation.',
-    );
+    expect(prompt).not.toContain('Scope:');
 
     const timedReceipt = formatPermissionReceiptText('perm-abc-123', request, {
       approved: true,
@@ -973,7 +999,7 @@ describe('permission interaction', () => {
       timedGrantExpiresAtMs: Date.parse('2026-05-15T12:05:00Z'),
     });
     expect(timedReceipt).toContain(
-      'Allowed for 5 minutes in parent conversation: exact command access',
+      'Allowed for 5 min: Command (npm test). This expires at ',
     );
 
     const persistentReceipt = formatPermissionReceiptText(
@@ -984,11 +1010,8 @@ describe('permission interaction', () => {
         mode: 'allow_persistent_rule',
       },
     );
-    expect(persistentReceipt).toContain(
-      'Always allowed for Kai Group: exact command access',
-    );
-    expect(persistentReceipt).toContain(
-      'approval applies to the parent conversation',
+    expect(persistentReceipt).toBe(
+      'Allowed for future: Command (npm test). Saved for Kai Group. You can remove it from Agent Access.',
     );
   });
 
@@ -1009,9 +1032,10 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed once: exact command access');
-    expect(receipt).toContain('From: scheduled job');
-    expect(receipt).toContain('Agent: Main Agent');
+    expect(receipt).toContain(
+      'Allowed once: Command (npm run lead-generator). The agent will continue this request.',
+    );
+    expect(receipt).not.toContain('From: scheduled job');
     expect(receipt).not.toContain(
       'knacklabs-lead-maintenance-controller-2026-05-15',
     );
@@ -1031,7 +1055,7 @@ describe('permission interaction', () => {
                 toolName: 'Bash',
                 ruleContent: 'curl https://api.example.com/*',
               },
-              { toolName: 'Bash', ruleContent: 'jq *' },
+              { toolName: 'Bash', ruleContent: 'jq -r *' },
               { toolName: 'Browser' },
             ],
           },
@@ -1046,16 +1070,10 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain(
-      'Always allowed for Kai Group: exact command access',
+      'Allowed for future: Command (curl https://api.example.com/leads > /tmp/out). Saved for Kai Group. You can remove it from Agent Access.',
     );
-    expect(receipt).toContain('Details: matching command access');
-    expect(receipt).toContain('Browser');
     expect(receipt).not.toContain('RunCommand(curl https://api.example.com/*)');
-    expect(receipt).not.toContain('RunCommand(jq *)');
-    expect(receipt).toContain('Revoke from Agent Access.');
-    expect(receipt).toContain(
-      'For: Command (curl https://api.example.com/leads > /tmp/out)',
-    );
+    expect(receipt).not.toContain('RunCommand(jq -r *)');
     expect(receipt).not.toContain('Request ID');
     expect(receipt).not.toContain('perm-abc-123');
   });
@@ -1079,8 +1097,7 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed once');
-    expect(receipt).toContain('For: Command');
+    expect(receipt).toContain('Allowed once: Command');
     expect(receipt).not.toContain('REDACTED');
     expect(receipt).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
     expect(receipt).not.toContain('Request ID');
@@ -1109,15 +1126,15 @@ describe('permission interaction', () => {
     );
 
     expect(text.length).toBeLessThanOrEqual(2_800);
-    expect(text).toContain('Reason: Sensitive detail hidden.');
-    expect(text).toContain('Details: Sensitive detail hidden.');
-    expect(text).toContain('"cookie": "[hidden]"');
-    expect(text).toContain('"safe": "visible"');
-    expect(text).toContain('"__omitted_keys": "more"');
+    expect(text).not.toContain('Reason:');
+    expect(text).not.toContain('Details:');
+    expect(text).toContain('Cookie: [hidden]'); // sensitive key hidden
+    expect(text).toContain('Safe: visible');
+    expect(text).toContain('…'); // field cap / value truncation marker
     expect(text).not.toContain('REDACTED');
     expect(text).not.toContain('session-cookie-value');
     expect(text).not.toContain('top-secret-value');
-    expect(text).not.toContain('extra_99');
+    expect(text).not.toContain('extra_99'); // capped at PERMISSION_JSON_MAX_KEYS
   });
 
   it('rejects oversized persistent suggestion rule sets', () => {

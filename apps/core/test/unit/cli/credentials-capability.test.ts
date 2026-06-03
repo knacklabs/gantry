@@ -146,10 +146,7 @@ describe('credentials capability CLI', () => {
     const { runCredentialsCommand } = await import('@core/cli/credentials.js');
 
     await expect(
-      runCredentialsCommand('/tmp/gantry-credentials-test', [
-        'capability',
-        'list',
-      ]),
+      runCredentialsCommand('/tmp/gantry-credentials-test', ['access', 'list']),
     ).resolves.toBe(0);
 
     const rendered = note.mock.calls.flat().join('\n');
@@ -186,7 +183,7 @@ describe('credentials capability CLI', () => {
 
     await expect(
       runCredentialsCommand('/tmp/gantry-credentials-test', [
-        'capability',
+        'access',
         'import-env',
         'github_token',
         '--allow',

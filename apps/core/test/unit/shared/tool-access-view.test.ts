@@ -7,7 +7,7 @@ import {
 } from '@core/shared/tool-access-view.js';
 
 describe('tool access view', () => {
-  it('lists Browser as requestable with exact persistent browser permission args when not selected', () => {
+  it('lists Browser as requestable with semantic capability args when not selected', () => {
     expect(buildRequestableBrowserToolAccess({ configuredTools: [] })).toEqual([
       {
         tool: 'Browser',
@@ -17,7 +17,7 @@ describe('tool access view', () => {
       },
     ]);
     expect(BROWSER_REQUEST_PERMISSION_ARGS).toBe(
-      'permissionKind=tool toolName=Browser toolCategory=browser temporaryOnly=false reason="<why this agent needs Browser>"',
+      'target.kind=capability target.id=browser.use temporaryOnly=false reason="<why this agent needs Browser>"',
     );
   });
 

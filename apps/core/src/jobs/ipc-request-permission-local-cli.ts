@@ -87,24 +87,25 @@ function requestMatchesLocalCliRequirement(
 
 function jobCapabilityRequirements(job: unknown): JobCapabilityRequirement[] {
   if (!job || typeof job !== 'object') return [];
-  const raw = (job as { capability_requirements?: unknown })
-    .capability_requirements;
+  const raw = (job as { access_requirements?: unknown }).access_requirements;
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
     if (!entry || typeof entry !== 'object') return [];
+    const target =
+      typeof (entry as { target?: unknown }).target === 'object' &&
+      (entry as { target?: unknown }).target !== null
+        ? (entry as { target: Record<string, unknown> }).target
+        : undefined;
+    if (!target || target.kind !== 'capability') return [];
     const capabilityId = toTrimmedString(
-      (entry as { capabilityId?: unknown; capability_id?: unknown })
-        .capabilityId ??
-        (entry as { capabilityId?: unknown; capability_id?: unknown })
-          .capability_id,
+      (target as { capabilityId?: unknown }).capabilityId,
       { maxLen: 160 },
     );
     if (!capabilityId) return [];
     const implementation =
-      typeof (entry as { implementation?: unknown }).implementation ===
-        'object' &&
-      (entry as { implementation?: unknown }).implementation !== null
-        ? (entry as { implementation: Record<string, unknown> }).implementation
+      typeof target.implementation === 'object' &&
+      target.implementation !== null
+        ? (target.implementation as Record<string, unknown>)
         : undefined;
     const kind = toTrimmedString(implementation?.kind, { maxLen: 80 });
     const normalizedKind =

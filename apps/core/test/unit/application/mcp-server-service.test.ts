@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { McpServerService } from '@core/application/mcp/mcp-server-service.js';
 import type {
@@ -188,6 +188,52 @@ describe('McpServerService', () => {
     );
   });
 
+  it('persists declared network hosts and derives the remote URL host', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      networkHosts: ['api.github.com:443'],
+    });
+    expect(server.networkHosts).toContain('api.github.com:443');
+    // The remote URL host is the only locally enforceable host, so it is added.
+    expect(server.networkHosts).toContain('mcp.example.test:443');
+  });
+
+  it('derives the remote URL host when the same hostname is declared on another port', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      networkHosts: ['mcp.example.test:8443'],
+    });
+    expect(server.networkHosts).toContain('mcp.example.test:8443');
+    expect(server.networkHosts).toContain('mcp.example.test:443');
+  });
+
+  it('rejects an invalid declared network host', async () => {
+    const { service } = serviceWithRepo();
+    await expect(
+      service.connectServer({
+        appId: 'app:one' as never,
+        name: 'github',
+        transportConfig: {
+          transport: 'http',
+          url: 'https://mcp.example.test/github',
+        },
+        networkHosts: ['https://api.github.com/v2'],
+      }),
+    ).rejects.toThrow(/networkHosts/i);
+  });
+
   it('binds only active current definitions without version ids', async () => {
     const { repo, service } = serviceWithRepo();
     const server = await service.connectServer({
@@ -221,6 +267,77 @@ describe('McpServerService', () => {
         serverId: server.id,
       }),
     ).rejects.toThrow('active before binding');
+  });
+
+  it('scopes a binding to a subset of the reviewed tools per agent', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      allowedToolPatterns: ['read_*', 'write_*'],
+    });
+
+    const readOnly = await service.bindToAgent({
+      appId: 'app:one' as never,
+      agentId: 'agent:reader' as never,
+      serverId: server.id,
+      allowedToolPatterns: ['read_*'],
+    });
+    expect(readOnly.allowedToolPatterns).toEqual(['read_*']);
+
+    const readWrite = await service.bindToAgent({
+      appId: 'app:one' as never,
+      agentId: 'agent:writer' as never,
+      serverId: server.id,
+      allowedToolPatterns: ['read_*', 'write_*'],
+    });
+    expect(readWrite.allowedToolPatterns).toEqual(['read_*', 'write_*']);
+  });
+
+  it('scopes bindings against auto-approved tools when no allowed patterns exist', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      autoApproveToolPatterns: ['search'],
+    });
+
+    const binding = await service.bindToAgent({
+      appId: 'app:one' as never,
+      agentId: 'agent:reader' as never,
+      serverId: server.id,
+      allowedToolPatterns: ['search'],
+    });
+    expect(binding.allowedToolPatterns).toEqual(['search']);
+  });
+
+  it('rejects a binding tool scope outside the reviewed tools', async () => {
+    const { service } = serviceWithRepo();
+    const server = await service.connectServer({
+      appId: 'app:one' as never,
+      name: 'github',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      allowedToolPatterns: ['read_*'],
+    });
+    await expect(
+      service.bindToAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        serverId: server.id,
+        allowedToolPatterns: ['delete_repo'],
+      }),
+    ).rejects.toThrow(/not within the reviewed tools/);
   });
 
   it('preserves the existing required flag when rebinding without one', async () => {
@@ -292,6 +409,55 @@ describe('McpServerService', () => {
         }),
       ]),
     );
+  });
+
+  it('fails required remote MCP materialization when DNS validation times out', async () => {
+    const repo = new MemoryMcpRepository();
+    const service = new McpServerService(repo, undefined, {
+      lookupHostname: vi.fn(
+        () => new Promise<Array<{ address: string; family: 4 | 6 }>>(() => {}),
+      ),
+      dnsLookupTimeoutMs: 1,
+    });
+    const serverId = 'mcp:github' as McpServerId;
+    repo.servers.set(serverId, {
+      id: serverId,
+      appId: 'app:one' as never,
+      name: 'github',
+      status: 'active',
+      transport: 'http',
+      config: {
+        transport: 'http',
+        url: 'https://mcp.example.test/github',
+      },
+      allowedToolPatterns: ['search_*'],
+      autoApproveToolPatterns: [],
+      credentialRefs: [],
+      networkHosts: ['mcp.example.test:443'],
+      createdSource: 'admin',
+      riskClass: 'medium',
+      createdAt: '2026-06-02T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    repo.bindings.set(`agent:one:${serverId}`, {
+      id: 'mcp-binding:one' as never,
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      serverId,
+      status: 'active',
+      required: true,
+      allowedToolPatterns: [],
+      permissionPolicyIds: [],
+      createdAt: '2026-06-02T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    await expect(
+      service.materializeForAgent({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+      }),
+    ).rejects.toThrow(/Required MCP server failed to materialize: github/);
   });
 
   it('rolls back a newly connected server so failed approvals are retryable', async () => {

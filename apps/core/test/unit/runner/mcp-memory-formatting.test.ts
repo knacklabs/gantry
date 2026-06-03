@@ -3,7 +3,51 @@ import { describe, expect, it } from 'vitest';
 import {
   formatMemoryReviewDecisionResponse,
   formatMemoryReviewPendingResponse,
+  formatMemoryWriteResponse,
 } from '@core/runner/mcp/formatting.js';
+
+describe('memory write acknowledgements', () => {
+  it('acks a saved memory as kind:key = value, not raw JSON / id', () => {
+    const text = formatMemoryWriteResponse('memory_save', {
+      provider: 'postgres',
+      data: {
+        memory: {
+          id: 'mem:secret-id-123',
+          kind: 'fact',
+          key: 'preference',
+          value: 'likes tea',
+          version: 1,
+        },
+      },
+    });
+    expect(text).toBe('Memory saved: fact:preference = likes tea');
+    expect(text).not.toContain('mem:secret-id-123');
+    expect(text).not.toContain('{');
+  });
+
+  it('uses the right verb for patch/demote', () => {
+    const memory = { kind: 'fact', key: 'preference', value: 'likes coffee' };
+    expect(
+      formatMemoryWriteResponse('memory_patch', { data: { memory } }),
+    ).toBe('Memory updated: fact:preference = likes coffee');
+    expect(
+      formatMemoryWriteResponse('memory_demote', { data: { memory } }),
+    ).toBe('Memory demoted: fact:preference = likes coffee');
+  });
+
+  it('acks a procedure save and a consolidation summary', () => {
+    expect(
+      formatMemoryWriteResponse('procedure_save', {
+        data: { procedure: { name: 'deploy' } },
+      }),
+    ).toBe('Procedure saved: deploy');
+    expect(
+      formatMemoryWriteResponse('memory_consolidate', {
+        data: { consolidation: { merged: 3, removed: 1 } },
+      }),
+    ).toBe('Memory consolidated — Merged: 3, Removed: 1.');
+  });
+});
 
 describe('memory review MCP formatting', () => {
   it('formats pending memory reviews as readable numbered changes with page context', () => {

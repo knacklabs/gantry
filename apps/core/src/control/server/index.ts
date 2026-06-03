@@ -5,7 +5,12 @@ import path from 'node:path';
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
 import {
+  DEFAULT_JOB_RUNTIME_APP_ID,
+  filterJobsByCanonicalAppSession,
+} from '../../application/jobs/job-access.js';
+import {
   GANTRY_HOME,
+  configureDesiredSettingsStorageProvider,
   getControlEnvValue,
   getDefaultModelConfig,
   getRuntimeSettingsForConfig,
@@ -39,6 +44,7 @@ import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
+import { handleGuidedActionRoutes } from './routes/guided-actions.js';
 import { handleJobRoutes } from './routes/jobs.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
@@ -124,6 +130,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
     try {
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
+      if (await handleGuidedActionRoutes(req, res, ctx, pathname)) return;
       if (await handleAgentRoutes(req, res, ctx, pathname)) return;
       if (await handleCapabilityCatalogRoutes(req, res, ctx, pathname)) return;
       if (await handleSessionRoutes(req, res, ctx, url, pathname)) return;
@@ -179,6 +186,13 @@ export function startControlServer(input: {
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   sendConversationIngressProjection?: ControlRouteContext['sendConversationIngressProjection'];
 }): ControlServerHandle {
+  configureDesiredSettingsStorageProvider(async () => {
+    const storage = getRuntimeStorage();
+    return {
+      ops: getRuntimeRepositories(),
+      repositories: storage.repositories,
+    };
+  });
   const keys = parseControlApiKeysStrict({
     rawJson: getControlEnvValue('GANTRY_CONTROL_API_KEYS_JSON'),
   });
@@ -205,6 +219,7 @@ export function startControlServer(input: {
     state,
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
+    getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,
     patchModelDefaults: patchRuntimeModelDefaults,
@@ -215,6 +230,29 @@ export function startControlServer(input: {
         settings: getRuntimeSettingsForConfig(),
         appId,
       }),
+    getActiveModelCredentialProviderIds: async (appId: AppId) => {
+      const credentials =
+        await getRuntimeStorage().repositories.modelCredentials.listModelCredentials(
+          { appId },
+        );
+      return credentials
+        .filter((credential) => credential.status === 'active')
+        .map((credential) => credential.providerId);
+    },
+    countPendingAccessRequests: async (appId: AppId) =>
+      getRuntimeStorage().repositories.pendingAccessRequests.countPendingAccessRequests(
+        { appId },
+      ),
+    listControlPlaneJobs: async (appId: AppId) => {
+      const jobs = await getRuntimeRepositories().listJobs({
+        ...(appId === DEFAULT_JOB_RUNTIME_APP_ID ? {} : { appId }),
+      });
+      return filterJobsByCanonicalAppSession({
+        control: getRuntimeStorage().control,
+        jobs,
+        appId,
+      });
+    },
     sendConversationIngressProjection: input.sendConversationIngressProjection,
     getBrowserStatus: input.getBrowserStatus,
     syncSettingsFromProjection: (appId: AppId) =>

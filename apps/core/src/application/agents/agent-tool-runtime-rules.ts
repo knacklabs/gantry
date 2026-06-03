@@ -118,6 +118,7 @@ function projectCapabilityRuntimeAccess(
   };
   const commandRules = commandRulesFromCapability(capability);
   if (source) {
+    const hosts = normalizedHosts(capability.networkHosts);
     return [
       {
         ...common,
@@ -126,6 +127,8 @@ function projectCapabilityRuntimeAccess(
         selectedAction: source.actionId,
         declaredEnvRefs: stringList(capability.redactionPolicy?.env),
         commandRules,
+        networkBindings:
+          commandRules.length > 0 ? [{ commandRules, hosts }] : [],
       },
     ];
   }
@@ -144,7 +147,9 @@ function projectCapabilityRuntimeAccess(
         capability.protectedPaths,
       ),
       networkBindings:
-        hosts.length > 0 ? [{ commandRules: localCliCommandRules, hosts }] : [],
+        localCliCommandRules.length > 0
+          ? [{ commandRules: localCliCommandRules, hosts }]
+          : [],
     });
   }
   for (const binding of capability.implementationBindings) {
@@ -163,6 +168,7 @@ function projectCapabilityRuntimeAccess(
         reviewedServerId: mcpServerIdFromTool(binding.mcpTool) ?? 'unknown',
         allowedTools: [binding.mcpTool.trim()],
         credentialRefs: [],
+        networkHosts: [],
       });
       continue;
     }

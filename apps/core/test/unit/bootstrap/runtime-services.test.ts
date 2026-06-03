@@ -738,6 +738,7 @@ describe('startRuntimeServices', () => {
         message: 'first segment sent',
       });
       Object.assign(partial, {
+        provider: 'slack',
         deliveredParts: 1,
         totalParts: 2,
         retryTail: {
@@ -849,6 +850,7 @@ describe('startRuntimeServices', () => {
         message: 'first segment sent',
       });
       Object.assign(partial, {
+        provider: 'slack',
         deliveredParts: 1,
         totalParts: 2,
         retryTail: {

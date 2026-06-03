@@ -67,14 +67,14 @@ export interface JobSetup {
 export interface JobExecutionContext {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId: string | null;
 }
 
 export interface JobRequestExecutionContext {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId: string;
 }
 
@@ -105,6 +105,20 @@ export interface JobCapabilityRequirement {
   capabilityId: string;
   reason: string;
   implementation?: JobCapabilityRequirementImplementation;
+}
+
+export type JobAccessRequirementTarget =
+  | { kind: 'tool_rule'; rule: string }
+  | {
+      kind: 'capability';
+      capabilityId: string;
+      implementation?: JobCapabilityRequirementImplementation;
+    }
+  | { kind: 'mcp_server'; server: string };
+
+export interface JobAccessRequirement {
+  target: JobAccessRequirementTarget;
+  reason?: string;
 }
 
 export interface JobRecoveryMetadata {
@@ -141,9 +155,7 @@ export interface JobRecord {
   deliveryLabel?: string;
   setupLabel?: string;
   nextActionLabel?: string | null;
-  capabilityRequirements: JobCapabilityRequirement[];
-  toolAccessRequirements: string[];
-  requiredMcpServers: string[];
+  accessRequirements: JobAccessRequirement[];
   setup?: JobSetup;
   nextRun: string | null;
   lastRun: string | null;
@@ -157,12 +169,12 @@ export interface JobRecord {
     explicit: boolean;
   };
   model: JobModelPreview | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId: string | null;
   target?: {
     appId: string;
     agentId: string;
-    groupScope: string;
+    workspaceKey: string;
     conversationJids: string[];
     threadId: string | null;
   };
@@ -315,7 +327,7 @@ export interface ModelPreviewRequest {
   target: ModelPreviewTarget;
   jobId?: string;
   conversationJid?: string;
-  groupScope?: string;
+  workspaceKey?: string;
   kind?: 'one-time' | 'recurring';
   task?: 'extractor' | 'dreaming' | 'consolidation';
 }
@@ -335,9 +347,7 @@ export interface CreateJobInput {
   prompt: string;
   executionContext: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
-  capabilityRequirements?: JobCapabilityRequirement[];
-  toolAccessRequirements?: string[];
-  requiredMcpServers?: string[];
+  accessRequirements?: JobAccessRequirement[];
   kind?: JobKind;
   runAt?: string;
   schedule?: { type: 'cron' | 'interval'; value: string };
@@ -350,16 +360,14 @@ export interface UpdateJobInput {
   prompt?: string;
   executionContext?: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
-  capabilityRequirements?: JobCapabilityRequirement[];
-  toolAccessRequirements?: string[];
-  requiredMcpServers?: string[];
+  accessRequirements?: JobAccessRequirement[];
   status?: 'active' | 'paused';
   modelAlias?: string | null;
 }
 
 export interface ListJobsInput {
   agentId?: string;
-  groupScope?: string;
+  workspaceKey?: string;
   conversationJid?: string;
   kind?: JobKind;
   status?: JobStatus | JobStatus[];
@@ -413,7 +421,7 @@ export type JobModelSource =
   | 'settings.yaml agent.default_model'
   | 'settings.yaml agent.one_time_job_default_model'
   | 'settings.yaml agent.recurring_job_default_model'
-  | 'group.agentConfig.model';
+  | 'conversation.agentConfig.model';
 
 export interface JobModelPreview {
   displayName: string;

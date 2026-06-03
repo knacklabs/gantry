@@ -1,7 +1,11 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import type { Job, MessageSendOptions } from '../domain/types.js';
-import { isPartialMessageDeliveryError } from '../domain/messages/partial-delivery.js';
+import {
+  getPartialMessageDeliveryMetadata,
+  isPartialMessageDeliveryError,
+} from '../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../domain/messages/durable-delivery.js';
+import { formatOperatorError } from '../shared/operator-error.js';
 import {
   buildJobNotificationIdempotencyKey,
   profileIdForJobNotificationPhase,
@@ -23,6 +27,18 @@ export type DeliverySettlement =
 
 export function isDeliverySent(settlement: DeliverySettlement): boolean {
   return settlement === 'sent';
+}
+
+export function formatDeliveryIncomplete(input: {
+  provider: string;
+  rejectedPart: number;
+  totalParts: number;
+}): string {
+  return formatOperatorError({
+    summary: 'Message delivery incomplete.',
+    cause: `${input.provider} rejected part ${input.rejectedPart}/${input.totalParts}`,
+    recover: 'see logs for the full output and retry after fixing delivery.',
+  });
 }
 
 export interface DurableJobNotificationEnqueueInput {
@@ -69,18 +85,41 @@ export async function settleDeliveryAttempt(
       return 'delivery_incomplete';
     }
     if (!isPartialMessageDeliveryError(err)) throw err;
+    const metadata = getPartialMessageDeliveryMetadata(err);
+    const deliveredParts = metadata.deliveredParts ?? err.deliveredChunks;
+    const totalParts = metadata.totalParts ?? err.totalChunks;
+    const provider =
+      metadata.provider ??
+      providerFromPayload(metadata.retryTail?.providerPayload) ??
+      'provider';
     logger.warn(
       {
         scope: context.scope,
         target: context.target,
+        provider,
         deliveredChunks: err.deliveredChunks,
         totalChunks: err.totalChunks,
         name: err.name,
+        operatorMessage: formatDeliveryIncomplete({
+          provider,
+          rejectedPart: Math.min(deliveredParts + 1, totalParts),
+          totalParts,
+        }),
       },
       'Delivery attempt ended in partial visibility; marking as delivery_incomplete',
     );
     return 'delivery_incomplete';
   }
+}
+
+function providerFromPayload(providerPayload: unknown): string | undefined {
+  if (typeof providerPayload !== 'object' || providerPayload === null) {
+    return undefined;
+  }
+  const provider = (providerPayload as { provider?: unknown }).provider;
+  if (typeof provider !== 'string') return undefined;
+  const trimmed = provider.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export async function sendJobNotification(input: {

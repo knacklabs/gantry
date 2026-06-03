@@ -6,7 +6,7 @@ import {
   getProvider,
   providerForJid,
 } from '../../channels/provider-registry.js';
-import { isValidGroupFolder } from '../../platform/group-folder-rules.js';
+import { isValidWorkspaceFolder } from '../../platform/workspace-folder-rules.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import { ensureRuntimeLayout, settingsFilePath } from './runtime-home.js';
 import {
@@ -42,6 +42,11 @@ import {
   toolRuleToSettingsCapability,
 } from './configured-capability-normalization.js';
 import { nowIso, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+
+export {
+  configureDesiredSettingsStorageProvider,
+  writeDesiredRuntimeSettings,
+} from './desired-settings-writer.js';
 
 const DEFAULT_PROVIDER_CONNECTION_IDS: Record<string, string> = {
   app: 'app_default',
@@ -250,7 +255,7 @@ export function addControlSenderForAgent(
 ): boolean {
   const trimmedFolder = folder.trim();
   const trimmedSender = sender.trim();
-  if (!isValidGroupFolder(trimmedFolder)) {
+  if (!isValidWorkspaceFolder(trimmedFolder)) {
     throw new Error(`Invalid agent folder for control allowlist: ${folder}`);
   }
   if (!trimmedSender) {
@@ -310,10 +315,10 @@ export function ensureConfiguredConversationBinding(
 
   const agentId = input.agentId.trim();
   const folder = input.agentFolder.trim();
-  if (!isValidGroupFolder(agentId)) {
+  if (!isValidWorkspaceFolder(agentId)) {
     throw new Error(`Invalid agent id for settings: ${agentId}`);
   }
-  if (!isValidGroupFolder(folder)) {
+  if (!isValidWorkspaceFolder(folder)) {
     throw new Error(`Invalid agent folder for settings: ${folder}`);
   }
   settings.agents[agentId] ??= {

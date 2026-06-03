@@ -17,10 +17,10 @@
 - Deadline-bounded read-only IPC work must propagate an `AbortSignal` through
   the memory service and continuity section calls; timer-only races are not
   enough because background search/status work can outlive the IPC response.
-- IPC patch actions must resolve the subject with the same trusted resolver used by search/save; never trust `group_folder`, `user_id`, channel, or thread hints from the patch payload.
+- IPC patch actions must resolve the subject with the same trusted resolver used by search/save; never trust `workspace_folder`, `user_id`, channel, or thread hints from the patch payload.
 - If digest or app-memory hydration dependencies are missing, fail closed to an empty memory context; never fall back to legacy session summaries or legacy memory-item reads.
 - Production `CanonicalSessionOpsService` hydration must pass `loadAppMemoryItems` with the current turn query when available; query-aware hydration searches app-memory first, then tops up from `list` using session-derived app/agent/user/conversation scope. Direct/private conversations stay user-scoped, and channel/group conversations stay whole-conversation scoped.
-- Canonical session rows persist provider-session scope keys from the exact trusted conversation boundary (`<group-folder>::conversation:<jid>` plus DM user and child thread/topic when applicable) and canonical conversation/thread ids; hydration must map canonical ids back to app-memory identities (`groupId` or `channelId`) so memory IPC writes and resume hydration use the same subject contract.
+- Canonical session rows persist provider-session scope keys from the exact trusted conversation boundary (`<workspace-folder>::conversation:<jid>` plus DM user and child thread/topic when applicable) and canonical conversation/thread ids; hydration must map canonical ids back to app-memory identities (`groupId` or `channelId`) so memory IPC writes and resume hydration use the same subject contract.
 - Automatic boundary evidence must use the canonical conversation/user memory
   subject before persistence; do not save evidence under provider topic/thread
   ids.

@@ -36,7 +36,7 @@ npm i -g @caw/gantry
 gantry
 ```
 
-The first run is a guided CLI flow that collects setup choices first, then runs final doctor verification before marking the runtime ready.
+The first run is a guided CLI flow with a single path: runtime home, database, model access, channel connection, agent, conversation binding, then final doctor verification before the ready screen. Memory, the background service, and extra providers are optional and configured after the runtime is ready.
 
 ### NPM Install First-Run Flow
 
@@ -47,17 +47,16 @@ gantry
 
 Then follow this order:
 
-1. Run `gantry` with no args.
+1. Run `gantry` with no args and confirm the runtime home (default `~/gantry`).
 2. Choose `Use local Postgres URL` if you started the provided Compose stack, or choose hosted/existing Postgres and paste those URLs.
-3. Choose your first channel: `Telegram` or `Slack`.
-4. Follow the in-CLI channel guide, choose the default agent name, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually). Setup binds that conversation to the default agent; channel IDs and runtime folders stay internal.
-5. Connect Model Access once for all agent, subagent, memory, and scheduled job model calls. Gantry stores provider keys in encrypted Postgres rows and projects only loopback gateway tokens to the model SDK; agents select catalog model aliases and never receive database URLs or raw provider credentials.
-6. Choose a provider, then a main model alias. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`.
-7. Confirm memory settings. Memory model defaults are preset-managed.
-8. Choose whether to install/start a background service.
-9. Review the final summary and choose `Create Runtime`; before this point Back, Resume Later, and Cancel are transactional.
-10. Let setup write config, register the group, run final doctor verification, and show the ready screen.
-11. Finish setup. The default is to exit cleanly; choose `Start Gantry now` only if you want the runtime to begin listening immediately.
+3. Connect Model Access once for agent, subagent, and scheduled job model calls. Gantry stores provider keys in encrypted Postgres rows and projects only loopback gateway tokens to the model SDK; agents select catalog model aliases and never receive database URLs or raw provider credentials.
+4. Choose your first channel (`Telegram` or `Slack`).
+5. Choose the default agent name and a main model alias. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`.
+6. Follow the in-CLI channel guide, paste channel credentials, and pick a discovered Conversation. Channel IDs and runtime folders stay internal.
+7. Review the summary and choose `Create Runtime`; before this point Back, Resume Later, and Cancel are transactional. Setup writes config, binds that Conversation to the default Agent, and runs final doctor verification.
+8. On the ready screen, finish setup (the default exits cleanly) or choose `Start Gantry now` to begin listening immediately.
+
+Optional, post-ready: memory is on by default (`gantry memory ...` to adjust), install a background service with `gantry service install`, and add more providers with `gantry provider connect`.
 
 ### CLI Commands
 
@@ -82,7 +81,7 @@ gantry model why chat [group-scope|conversation-id]
 gantry model why jobs|memory|job <id>
 gantry model doctor
 gantry credentials model status|set|rotate|disable|doctor
-gantry credentials capability list|set|import-env|unset
+gantry credentials access list|set|import-env|unset
 gantry credentials browser status
 gantry provider connect telegram
 gantry provider connect slack
@@ -92,6 +91,8 @@ gantry provider doctor
 gantry conversation approvers <conversation-id> [--allow <userId,userId>]
 gantry agent list
 gantry agent add <jid|chat-id> [--name <name>]
+gantry agent access show <jid|folder>
+gantry agent access apply <jid|folder> --file <path|->
 gantry settings validate
 gantry service install|start|stop|restart
 ```
@@ -104,7 +105,7 @@ Defaults in v1:
 - storage: Postgres through `GANTRY_DATABASE_URL`; guided setup validates URLs but does not create Docker containers
 - memory: on
 - embeddings: off by default; external embedding providers require brokered Model Access and are not configured through Gantry `.env`
-- dreaming: on in guided setup; disable with `gantry memory dreaming off`
+- dreaming: on by default; disable with `gantry memory dreaming off`
 - provider connections, conversations, bindings, and conversation approvers live under `providers`, `provider_connections`, `conversations`, and `bindings` in `settings.yaml`
 - conversation approvers approve direct/private and group/channel actions only when listed on that conversation and currently a member
 - the same agent can be bound across providers, but admin user ids stay provider-scoped: Slack approvers are Slack member ids and Teams approvers are Teams user ids
@@ -130,12 +131,13 @@ agents:
   main_agent:
     name: Default Agent
     persona: generalist
-    sources:
-      skills: []
-      mcp_servers: []
-    capabilities:
-      - id: browser.use
-        version: builtin
+    access:
+      sources:
+        skills: []
+        mcp_servers: []
+      selections:
+        - id: browser.use
+          version: builtin
 
 memory:
   enabled: true
@@ -183,8 +185,8 @@ appropriate user/admin approval.
 | `conversations`                                | Setup or user/admin                         | Conversation ids, display names, sender policy, approvers, bound agent, trigger, and per-conversation model override.                                             |
 | `bindings`                                     | Advanced user/admin                         | Explicit route bindings when one compact `conversations.<id>.agent` field is not expressive enough.                                                               |
 | `agents.<id>.name`, `persona`, `model`, `jobs` | User/admin                                  | Agent identity and default model behavior.                                                                                                                        |
-| `agents.<id>.sources`                          | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                   |
-| `agents.<id>.capabilities`                     | User/admin or approved capability flow      | Durable allowed capabilities. Agents may request with `capability_search`, `propose_capability`, or `manage_capability`; approval writes the selected capability. |
+| `agents.<id>.access.sources`                   | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                   |
+| `agents.<id>.access.selections`                | User/admin or approved access flow          | Durable allowed capability ids and versions. Agents request reviewed capability ids with `request_access target.kind=capability`; scoped `RunCommand` is the only raw fallback. |
 | `memory`                                       | User/admin                                  | Memory, embeddings, dreaming, LLM, and maintenance settings.                                                                                                      |
 | `permissions`                                  | User/admin                                  | YOLO-mode denylist additions and egress hostname denylist.                                                                                                        |
 | `browser`                                      | User/admin                                  | Browser usage policy and per-site limits.                                                                                                                         |
@@ -295,7 +297,7 @@ Notes:
 
 ### Capability Management
 
-Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native tools are approved agent capabilities. Agents must not run dependency install commands, edit `.claude/skills`, edit `.mcp.json`, edit settings, or mutate generated Claude config directly. They use Gantry request tools instead:
+Skills, MCP servers, SDK tools, host tools, browser tools, local CLIs, and channel-native tools are approved agent capabilities. Normal agent guidance is action-first: use an available action, request the reviewed capability when the action is missing, and request source setup only when the underlying source is not connected. Agents must not run dependency install commands, edit `.claude/skills`, edit `.mcp.json`, edit settings, or mutate generated Claude config directly. Gantry keeps the source-specific tools below as reviewed setup/proxy surfaces, not as durable authority by themselves:
 
 - `send_message`
 - `ask_user_question`
@@ -305,11 +307,7 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 - `request_skill_proposal`
 - `request_skill_dependency_install`
 - `request_mcp_server`
-- `capability_status`
-- `capability_search`
-- `propose_capability`
-- `manage_capability`
-- `request_permission` for one-off exact fallback access only
+- `request_access`
 - `mcp_list_tools`
 - `mcp_call_tool`
 - `settings_desired_state`
@@ -319,17 +317,17 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 - `service_restart`
 - `register_agent`
 
-Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Durable semantic capability changes use `capability_search`, `propose_capability`, and `manage_capability`; `request_permission` is only for one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand` fallback when no reviewed semantic capability fits. Interactive fallback permission prompts present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Privileged admin tools such as `settings_desired_state`, `request_settings_update`, `admin_permission_list`, `admin_permission_revoke`, `service_restart`, and `register_agent` require exact selected capabilities; `capability_status` reports what is available, requestable, and blocked without exposing raw grant internals as the primary user path.
+Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Durable semantic capability changes use `request_access target.kind=capability` with reviewed capability ids from the agent access summary. `request_access target.kind=run_command` is the only raw fallback and must be scoped to an exact command pattern. Interactive fallback permission prompts present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Privileged admin tools such as `settings_desired_state`, `request_settings_update`, `admin_permission_list`, `admin_permission_revoke`, `service_restart`, and `register_agent` require exact selected capabilities.
 
-Persistent agent authority is visible in `settings.yaml` under `agents.<id>.capabilities` as readable capability ids and immutable versions, such as `browser.use`. Agent attachments live separately under `agents.<id>.sources`; sources can attach skills, MCP servers, built-in tools, adapters, or local CLIs, but do not create execution authority by themselves.
+Persistent agent authority is visible in `settings.yaml` under `agents.<id>.access.selections` as readable capability ids and immutable versions, such as `browser.use`. Agent attachments live separately under `agents.<id>.access.sources`; sources can attach skills, MCP servers, built-in tools, adapters, or local CLIs, but do not create execution authority by themselves.
 
 Durable SDK and host tool grants use Gantry names, not provider-native harness names. Exact web, file, and delegation facades are `WebSearch`, `WebRead`, `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, and `AgentDelegation`; command access is a scoped `RunCommand(<argv pattern>)` rule. Provider-native names such as `Read`, `Write`, `Edit`, `WebFetch`, `Bash`, and `Agent` are adapter projections and are rejected as persistent Gantry authority.
 
 Browser authority is selected in `settings.yaml` and the public capabilities API as `browser.use`, then translated to the canonical runtime `Browser` tool rule. When selected, the runtime projects it to Gantry-owned gateway tools: `browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and `browser_close`. `browser_act` includes `action: "file_attach"` for upload inputs and accepts `bytes`, Gantry `artifact`, or allowlisted `path` sources through host-owned staging.
 
-Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time. Job `capabilityRequirements`, `toolAccessRequirements`, and `requiredMcpServers` are readiness and preflight assertions, not job-local authority. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
+Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time. Job `accessRequirements` entries are readiness and preflight assertions, not job-local authority. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
 
-Capability-owned secrets for selected skills and MCP servers use Gantry Credential Center rather than runtime `.env` or model credentials. Use `gantry credentials capability set <NAME>`, `gantry credentials capability import-env <NAME>`, `gantry credentials capability list`, and `gantry credentials capability unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
+Capability-owned secrets for selected skills and MCP servers use Gantry Credential Center rather than runtime `.env` or model credentials. Use `gantry credentials access set <NAME>`, `gantry credentials access import-env <NAME>`, `gantry credentials access list`, and `gantry credentials access unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
 
 `permissions.yolo_mode` controls the denylist applied only to the 5-minute
 all-tools timed grant. Gantry ships defaults for destructive commands such as

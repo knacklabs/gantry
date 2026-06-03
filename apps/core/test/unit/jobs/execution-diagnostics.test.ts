@@ -39,7 +39,7 @@ describe('execution diagnostics', () => {
         ok: false,
         reason: 'Denied by operator.',
         recovery_action:
-          'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
       },
     );
 
@@ -60,7 +60,7 @@ describe('execution diagnostics', () => {
         ok: false,
         reason: 'Tool not on autonomous run allowlist: RunCommand.',
         recovery_action:
-          'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
       },
     );
     updateDiagnosticsFromRuntimeEvent(
@@ -79,7 +79,7 @@ describe('execution diagnostics', () => {
         toolName: 'Bash',
         mode: 'allow_once',
         recoveryAction:
-          'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+          'request_access {"target":{"kind":"run_command","argvPattern":"npm test *"},"temporaryOnly":false,"reason":"This autonomous run requires RunCommand(npm test *) access."}',
       },
     ]);
   });

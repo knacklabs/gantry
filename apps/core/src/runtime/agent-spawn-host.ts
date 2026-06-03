@@ -20,11 +20,11 @@ import type {
 } from '../domain/models/credentials.js';
 import type { ModelRouteId } from '../shared/model-catalog.js';
 import {
-  resolveGroupFolderPath,
-  resolveGroupIpcPath,
-} from '../platform/group-folder.js';
+  resolveWorkspaceFolderPath,
+  resolveWorkspaceIpcPath,
+} from '../platform/workspace-folder.js';
 import {
-  ensureGroupIpcLayout,
+  ensureWorkspaceIpcLayout,
   getHostAgentRunnerDistDir,
 } from './agent-spawn-layout.js';
 import { AgentInput, HostRuntimeContext } from './agent-spawn-types.js';
@@ -124,17 +124,17 @@ function requireGantryBroker(
 export function prepareHostRuntimeContext(
   group: ConversationRoute,
 ): HostRuntimeContext {
-  const groupDir = resolveGroupFolderPath(group.folder);
+  const groupDir = resolveWorkspaceFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
   const runnerDistDir = getHostAgentRunnerDistDir();
 
-  const groupIpcDir = resolveGroupIpcPath(group.folder);
-  ensureGroupIpcLayout(groupIpcDir);
+  const workspaceIpcDir = resolveWorkspaceIpcPath(group.folder);
+  ensureWorkspaceIpcLayout(workspaceIpcDir);
 
   return {
     groupDir,
-    groupIpcDir,
+    workspaceIpcDir,
     runnerDistDir,
   };
 }

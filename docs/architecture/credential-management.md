@@ -33,7 +33,7 @@ Wrong-lane checks apply to both runtime `.env` and the process environment used
 to start Gantry. Process env may override local `.env` only inside
 runtime-secret resolution; it is not ambient agent tool env. If a local shell
 already has a capability secret, import it explicitly with
-`gantry credentials capability import-env NAME`.
+`gantry credentials access import-env NAME`.
 
 ## Runtime-Owned Secrets
 
@@ -82,17 +82,17 @@ Examples:
 CLI management:
 
 ```bash
-gantry credentials capability list
-gantry credentials capability set LINKEDIN_ACCESS_TOKEN
-gantry credentials capability import-env GITHUB_TOKEN
-gantry credentials capability unset GITHUB_TOKEN
+gantry credentials access list
+gantry credentials access set LINKEDIN_ACCESS_TOKEN
+gantry credentials access import-env GITHUB_TOKEN
+gantry credentials access unset GITHUB_TOKEN
 ```
 
 Agents do not edit `.env`, `settings.yaml`, skill directories, or MCP config to
 manage these values. When a selected skill or MCP server needs a missing secret,
-the runtime fails closed with `gantry credentials capability set NAME`
+the runtime fails closed with `gantry credentials access set NAME`
 guidance. If the value already exists in the host shell, an admin can run
-`gantry credentials capability import-env NAME` to move it into the central
+`gantry credentials access import-env NAME` to move it into the central
 store.
 
 Skill action manifests declare required env-var names and scoped commands; they
@@ -179,7 +179,7 @@ Gantry model credentials, never in Gantry `.env` or process env.
 | `TELEGRAM_BOT_TOKEN`                                          | `RuntimeSecretProvider` / local `.env`                   |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`                          | `RuntimeSecretProvider` / local `.env`                   |
 | `SECRET_ENCRYPTION_KEY`                                       | `RuntimeSecretProvider` / local `.env`                   |
-| Skill, MCP, and reviewed tool env vars                        | Gantry Credentials (`gantry credentials capability ...`) |
+| Skill, MCP, and reviewed tool env vars                        | Gantry Credentials (`gantry credentials access ...`) |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | Gantry model credentials                                 |
 | `CLAUDE_CODE_OAUTH_TOKEN`                                     | Gantry model credentials                                 |
 

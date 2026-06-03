@@ -361,7 +361,7 @@ const schedulerListNotificationTargetsHandler: TaskHandler = async (
         executionContext: {
           conversationJid: originConversationJid,
           threadId: authThreadId,
-          groupScope: access.sourceAgentFolder,
+          workspaceKey: access.sourceAgentFolder,
         },
         notificationRoutes: [
           {
@@ -379,7 +379,7 @@ const schedulerListNotificationTargetsHandler: TaskHandler = async (
         executionContext: {
           conversationJid: originConversationJid,
           threadId: authThreadId,
-          groupScope: access.sourceAgentFolder,
+          workspaceKey: access.sourceAgentFolder,
         },
         notificationRoutes: [
           {
@@ -395,7 +395,7 @@ const schedulerListNotificationTargetsHandler: TaskHandler = async (
         executionContext: {
           conversationJid: originConversationJid,
           threadId: authThreadId,
-          groupScope: access.sourceAgentFolder,
+          workspaceKey: access.sourceAgentFolder,
         },
         notificationRoutes: [
           {
@@ -413,7 +413,7 @@ const schedulerListNotificationTargetsHandler: TaskHandler = async (
         executionContext: {
           conversationJid: originConversationJid,
           threadId: null,
-          groupScope: access.sourceAgentFolder,
+          workspaceKey: access.sourceAgentFolder,
         },
         notificationRoutes: [
           {

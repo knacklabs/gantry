@@ -34,6 +34,7 @@ export const mcpServersPostgres = pgTable(
       .notNull()
       .default('[]'),
     credentialRefsJson: text('credential_refs_json').notNull().default('[]'),
+    networkHostsJson: text('network_hosts_json').notNull().default('[]'),
     sandboxProfileId: text('sandbox_profile_id'),
     disabledBy: text('disabled_by'),
     disabledAt: timestamp('disabled_at', {
@@ -75,6 +76,9 @@ export const agentMcpServerBindingsPostgres = pgTable(
     status: text('status').notNull().default('active'),
     required: boolean('required').notNull().default(false),
     permissionPolicyIdsJson: text('permission_policy_ids_json')
+      .notNull()
+      .default('[]'),
+    allowedToolPatternsJson: text('allowed_tool_patterns_json')
       .notNull()
       .default('[]'),
     conversationId: text('conversation_id'),

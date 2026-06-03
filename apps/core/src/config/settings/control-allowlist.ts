@@ -1,4 +1,4 @@
-import { isValidGroupFolder } from '../../platform/group-folder-rules.js';
+import { isValidWorkspaceFolder } from '../../platform/workspace-folder-rules.js';
 
 export interface SenderControlAllowlistConfig {
   default: string[];
@@ -55,7 +55,7 @@ export function parseSenderControlAllowlistConfig(
   )) {
     const trimmedFolder = folder.trim();
     if (!trimmedFolder) throw new Error(`${pathPrefix}.agents has empty key`);
-    if (!isValidGroupFolder(trimmedFolder)) {
+    if (!isValidWorkspaceFolder(trimmedFolder)) {
       throw new Error(
         `${pathPrefix}.agents.${trimmedFolder} must use a valid agent folder key`,
       );
@@ -97,7 +97,7 @@ export function addControlSenderForAgent(
 ): boolean {
   const trimmedFolder = folder.trim();
   const trimmedSender = sender.trim();
-  if (!isValidGroupFolder(trimmedFolder)) {
+  if (!isValidWorkspaceFolder(trimmedFolder)) {
     throw new Error(`Invalid agent folder for control allowlist: ${folder}`);
   }
   if (!trimmedSender) return false;

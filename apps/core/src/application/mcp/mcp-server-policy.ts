@@ -13,10 +13,17 @@ import {
   isPrivateNetworkAddress,
   type HostnameLookup,
 } from '../../domain/network/public-address-policy.js';
+import {
+  declaredNetworkAuthority,
+  parseDeclaredNetworkHost,
+} from '../../shared/network-host-declaration.js';
+import { normalizeMcpToolScope } from '../../shared/mcp-tool-scope.js';
+import { lookupHostnameWithDeadline } from '../../shared/hostname-lookup-deadline.js';
 import { ApplicationError } from '../common/application-error.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
 const DEFAULT_REMOTE_DNS_CACHE_TTL_MS = 1_000;
+const REMOTE_MCP_DNS_LOOKUP_TIMEOUT_MS = 60_000;
 
 export const STDIO_TEMPLATE_COMMANDS: Record<
   string,
@@ -30,6 +37,66 @@ const METADATA_HOSTNAMES = new Set(['metadata.google.internal', 'metadata']);
 const MCP_CREDENTIAL_TARGET_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
 const NPM_PACKAGE_SPEC_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[a-z0-9._~^*+-][a-z0-9._~^*+-]*)?$/;
+
+/**
+ * Validate and normalize declared MCP server network hosts. Third-party MCP
+ * source install/bind is inventory only; approved tool patterns define operation
+ * authority, while declared hosts are review/audit metadata. For remote http/sse
+ * servers the configured URL host is added automatically when omitted so review
+ * prompts and audit can show the connection target.
+ */
+export function normalizeMcpNetworkHosts(input: {
+  serverName: string;
+  networkHosts: readonly string[] | undefined;
+  config: McpServerTransportConfig;
+}): string[] {
+  const hosts = new Set<string>();
+  for (const value of input.networkHosts ?? []) {
+    const result = parseDeclaredNetworkHost(value);
+    if (!result.ok) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `MCP server ${input.serverName} networkHosts ${result.reason}`,
+      );
+    }
+    hosts.add(result.host);
+  }
+  if (
+    (input.config.transport === 'http' || input.config.transport === 'sse') &&
+    input.config.url
+  ) {
+    const url = new URL(input.config.url);
+    const port = url.port || defaultPortForProtocol(url.protocol);
+    const urlHost = `${url.hostname.toLowerCase().replace(/\.+$/, '')}:${port}`;
+    const alreadyDeclared = [...hosts].some(
+      (host) =>
+        declaredNetworkAuthority(host) === declaredNetworkAuthority(urlHost),
+    );
+    if (!alreadyDeclared) hosts.add(urlHost);
+  }
+  return [...hosts];
+}
+
+/**
+ * Validate and normalize a per-agent MCP tool scope. Each requested pattern must
+ * be covered by the server definition's reviewed `allowedToolPatterns`, so a
+ * binding can only narrow (e.g. read-only) — never widen beyond what was
+ * reviewed. Empty means the agent inherits the definition's full set.
+ */
+export function normalizeAgentMcpToolScope(input: {
+  serverName: string;
+  requested: readonly string[] | undefined;
+  definitionPatterns: readonly string[];
+}): string[] {
+  try {
+    return normalizeMcpToolScope(input);
+  } catch (err) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
 
 export function validateTransportConfig(
   config: McpServerTransportConfig,
@@ -95,6 +162,7 @@ export async function assertRemoteMcpDestinationPublic(
     cache?: RemoteMcpDnsValidationCache;
     nowMs?: number;
     ttlMs?: number;
+    lookupTimeoutMs?: number;
   } = {},
 ): Promise<void> {
   if (config.transport !== 'http' && config.transport !== 'sse') return;
@@ -124,7 +192,11 @@ export async function assertRemoteMcpDestinationPublic(
       'MCP server hostname did not resolve to a public address.',
     );
   }
-  const validation = validateRemoteMcpHostname(hostname, lookupHostname);
+  const validation = validateRemoteMcpHostname(
+    hostname,
+    lookupHostname,
+    options.lookupTimeoutMs ?? REMOTE_MCP_DNS_LOOKUP_TIMEOUT_MS,
+  );
   if (cache) {
     cache.setPending(hostname, validation);
   }
@@ -135,10 +207,16 @@ export async function assertRemoteMcpDestinationPublic(
 async function validateRemoteMcpHostname(
   hostname: string,
   lookupHostname: HostnameLookup,
+  lookupTimeoutMs: number,
 ): Promise<void> {
   let records;
   try {
-    records = await lookupHostname(hostname);
+    records = await lookupHostnameWithDeadline({
+      hostname,
+      lookupHostname,
+      timeoutMs: lookupTimeoutMs,
+      timeoutMessage: 'MCP server hostname did not resolve before timeout.',
+    });
   } catch {
     throw new ApplicationError(
       'INVALID_REQUEST',
@@ -202,12 +280,11 @@ export class RemoteMcpDnsValidationCache {
   }
 
   setPending(hostname: string, promise: Promise<void>): void {
-    this.pending.set(
-      hostname,
-      promise.finally(() => {
-        this.pending.delete(hostname);
-      }),
-    );
+    const pending = promise.finally(() => {
+      this.pending.delete(hostname);
+    });
+    pending.catch(() => undefined);
+    this.pending.set(hostname, pending);
   }
 }
 
@@ -271,4 +348,8 @@ function assertSafeRemoteMcpHostname(hostname: string): void {
       'MCP server URL must not target private, loopback, link-local, or metadata addresses.',
     );
   }
+}
+
+function defaultPortForProtocol(protocol: string): string {
+  return protocol === 'http:' ? '80' : '443';
 }

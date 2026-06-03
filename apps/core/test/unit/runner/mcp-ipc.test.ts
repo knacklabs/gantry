@@ -62,7 +62,7 @@ async function loadIpcModule(tempRoot: string, responseVerifyKey: string) {
   vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', responseVerifyKey);
   vi.stubEnv('GANTRY_IPC_RESPONSE_KEY_ID', 'mcp-test-response-key-id');
   vi.stubEnv('GANTRY_CHAT_JID', 'tg:team');
-  vi.stubEnv('GANTRY_GROUP_FOLDER', 'team');
+  vi.stubEnv('GANTRY_WORKSPACE_KEY', 'team');
   vi.stubEnv('GANTRY_ADMIN_MCP_TOOLS_JSON', '[]');
   return import('@core/runner/mcp/ipc.js');
 }

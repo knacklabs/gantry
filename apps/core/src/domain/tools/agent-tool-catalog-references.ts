@@ -15,8 +15,10 @@ import {
   containsGeneratedRuntimeSkillPath,
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from '../../shared/generated-runtime-paths.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import {
   semanticCapabilityInputSchema,
+  semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
   validateSemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
@@ -24,6 +26,7 @@ import {
   parseSemanticCapabilityRule,
   semanticCapabilityRule,
 } from '../../shared/semantic-capability-ids.js';
+import { stableSha256Json } from '../../shared/stable-hash.js';
 
 export async function ensureAgentToolCatalogItem(input: {
   repository: ToolCatalogRepository;
@@ -35,11 +38,22 @@ export async function ensureAgentToolCatalogItem(input: {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
 }): Promise<ToolCatalogItem> {
   const reference = input.reference.trim();
+  const durableValidation = validateDurableAccessRule(reference, {
+    semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+  });
+  if (!durableValidation.ok) throw new Error(durableValidation.reason);
   const requestedSemanticCapabilityId = parseSemanticCapabilityRule(reference);
   const requestedCapability = requestedSemanticCapabilityId
     ? input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId]
     : undefined;
+  const resolved = await resolveAgentToolReference(input);
   if (requestedSemanticCapabilityId && requestedCapability) {
+    if (
+      resolved.tool &&
+      catalogToolMatchesSemanticCapability(resolved.tool, requestedCapability)
+    ) {
+      return resolved.tool;
+    }
     return saveSemanticCapabilityTool({
       repository: input.repository,
       appId: input.appId,
@@ -48,7 +62,6 @@ export async function ensureAgentToolCatalogItem(input: {
       now: input.now,
     });
   }
-  const resolved = await resolveAgentToolReference(input);
   if (resolved.tool) return resolved.tool;
   if (
     resolved.error &&
@@ -197,7 +210,7 @@ export async function resolveAgentToolReference(input: {
   if (reference.startsWith('mcp__')) {
     return {
       error:
-        'Third-party MCP tool names are not selected directly; request and bind the MCP server capability.',
+        'Third-party MCP tool names are not selected directly; connect the MCP source and request a reviewed semantic capability for the exact action.',
     };
   }
   return {
@@ -214,4 +227,19 @@ function validateCatalogTool(
     return { error: `Tool catalog row ${reference} is unavailable.` };
   }
   return { tool };
+}
+
+function catalogToolMatchesSemanticCapability(
+  tool: ToolCatalogItem,
+  capability: SemanticCapabilityDefinition,
+): boolean {
+  const existing = semanticCapabilityFromToolCatalogItem({
+    name: tool.name,
+    inputSchema: tool.inputSchema,
+  });
+  return (
+    !!existing &&
+    existing.capabilityId === capability.capabilityId &&
+    stableSha256Json(existing) === stableSha256Json(capability)
+  );
 }

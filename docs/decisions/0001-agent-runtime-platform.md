@@ -7,7 +7,7 @@ provider-neutral and channel-neutral agent runtime platform. The existing code
 and older docs still expose several implementation concepts as if they were the
 product architecture:
 
-- personal group folders
+- workspace folders tied to a single chat
 - privileged group administration as a product model
 - Claude session ids as the only resume mechanism
 - host tool execution as a direct runner capability
@@ -109,7 +109,7 @@ changes.
 
 Replace or delete:
 
-- old personal group folder model as domain identity
+- old chat-folder model as domain identity
 - privileged group-specific behavior as a primary architecture concept
 - provider-specific session as the only resume mechanism
 - direct tool execution on host
@@ -118,7 +118,7 @@ Replace or delete:
 
 Replacement direction:
 
-- Group folders become workspace and storage projections of
+- Workspace folders are storage projections of
   `AgentConversationBinding`, not the identity of an agent, app, or conversation.
 - Privileged group permissions become deterministic permission policy and conversation approver checks.
 - Claude session ids and other provider resume tokens become `ProviderSession`
@@ -146,7 +146,7 @@ Replacement direction:
 ## Consequences
 
 - Future architecture docs and implementation work should use canonical product
-  terms first and mention group folders or provider sessions only as current
+  terms first and mention workspace projections or provider sessions only as current
   implementation details.
 - Existing personal setup docs can remain user-facing, but they must not imply
   that personal channels are the only runtime model.

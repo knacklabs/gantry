@@ -74,7 +74,7 @@ export interface AgentExecutionAdapterOptions {
 
 export interface AgentExecutionHostRuntime {
   groupDir: string;
-  groupIpcDir: string;
+  workspaceIpcDir: string;
   runnerDistDir: string;
 }
 

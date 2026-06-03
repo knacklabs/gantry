@@ -35,7 +35,7 @@ vi.mock('@core/config/index.js', () => ({
   GANTRY_IPC_AUTH_SECRET: 'test-ipc-secret',
   getEffectiveModelConfig: vi.fn((groupModel?: string) =>
     groupModel
-      ? { model: groupModel, source: 'group.agentConfig.model' }
+      ? { model: groupModel, source: 'conversation.agentConfig.model' }
       : { source: 'unset' },
   ),
   getRuntimeSettingsForConfig: vi.fn(() => ({
@@ -95,7 +95,7 @@ vi.mock('@core/runtime/agent-spawn-host.js', () => ({
   }),
   prepareHostRuntimeContext: vi.fn(() => ({
     groupDir: '/tmp/gantry-test-data/agents/test-group',
-    groupIpcDir: '/tmp/gantry-test-data/ipc/test-group',
+    workspaceIpcDir: '/tmp/gantry-test-data/ipc/test-group',
     runnerDistDir: '/tmp/gantry-home/dist/runner',
   })),
 }));
@@ -126,10 +126,10 @@ vi.mock(
   }),
 );
 
-const mockEnsureGroupIpcLayout = vi.fn();
+const mockEnsureWorkspaceIpcLayout = vi.fn();
 vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
-  ensureGroupIpcLayout: (...args: unknown[]) =>
-    mockEnsureGroupIpcLayout(...args),
+  ensureWorkspaceIpcLayout: (...args: unknown[]) =>
+    mockEnsureWorkspaceIpcLayout(...args),
 }));
 
 // Mock prompt-profile
@@ -148,9 +148,12 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 }));
 
 // Mock platform
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn(
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: vi.fn(
     (folder: string) => `/tmp/gantry-test-data/agents/${folder}`,
+  ),
+  resolveWorkspaceIpcPath: vi.fn(
+    (folder: string) => `/tmp/gantry-test-data/ipc/${folder}`,
   ),
 }));
 
@@ -239,7 +242,7 @@ const testGroup: ConversationRoute = {
 
 const testInput = {
   prompt: 'Hello',
-  groupFolder: 'test-group',
+  workspaceFolder: 'test-group',
   chatJid: 'test@g.us',
 };
 
@@ -518,7 +521,15 @@ function linkedInSkillActionRuntimeAccess(
   ];
 }
 
-function mcpRecord(): MaterializedMcpServer {
+function mcpRecord(
+  input: {
+    allowedToolPatterns?: string[];
+    autoApproveToolPatterns?: string[];
+    bindingAllowedToolPatterns?: string[];
+    transport?: 'stdio_template' | 'http' | 'sse';
+  } = {},
+): MaterializedMcpServer {
+  const transport = input.transport ?? 'stdio_template';
   const definition: McpServerDefinition = {
     id: 'mcp:github' as McpServerId,
     appId: 'app-one' as never,
@@ -526,17 +537,27 @@ function mcpRecord(): MaterializedMcpServer {
     status: 'active',
     createdSource: 'admin',
     riskClass: 'medium',
-    transport: 'stdio_template',
-    config: {
-      transport: 'stdio_template',
-      templateId: 'npx-package',
-      args: ['@modelcontextprotocol/server-github'],
-    },
-    allowedToolPatterns: ['search_repositories'],
-    autoApproveToolPatterns: ['search_repositories'],
-    credentialRefs: [
-      { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
+    transport,
+    config:
+      transport === 'stdio_template'
+        ? {
+            transport: 'stdio_template',
+            templateId: 'npx-package',
+            args: ['@modelcontextprotocol/server-github'],
+          }
+        : { transport, url: 'https://api.github.com/mcp' },
+    allowedToolPatterns: input.allowedToolPatterns ?? ['search_repositories'],
+    autoApproveToolPatterns: input.autoApproveToolPatterns ?? [
+      'search_repositories',
     ],
+    credentialRefs: [
+      {
+        name: 'GITHUB_TOKEN',
+        target: transport === 'stdio_template' ? 'env' : 'header',
+        key: transport === 'stdio_template' ? 'GITHUB_TOKEN' : 'Authorization',
+      },
+    ],
+    networkHosts: ['api.github.com:443'],
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   };
@@ -548,6 +569,7 @@ function mcpRecord(): MaterializedMcpServer {
     status: 'active',
     required: false,
     permissionPolicyIds: [],
+    allowedToolPatterns: input.bindingAllowedToolPatterns ?? [],
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   };
@@ -579,7 +601,7 @@ describe('agent-spawn timeout behavior', () => {
       brokerApplied: true,
       brokerProfile: 'gantry',
     });
-    mockEnsureGroupIpcLayout.mockClear();
+    mockEnsureWorkspaceIpcLayout.mockClear();
     mockEnsureEgressGateway.mockClear();
     mockCloseEgressGateway.mockClear();
     mockGetBrowserStatus.mockReset();
@@ -826,7 +848,7 @@ describe('agent-spawn timeout behavior', () => {
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
-    expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
+    expect(mockEnsureWorkspaceIpcLayout).toHaveBeenCalledWith(
       '/tmp/gantry-test-data/ipc/test-group',
     );
   });
@@ -974,7 +996,7 @@ describe('agent-spawn timeout behavior', () => {
   it('passes effective model to process env when configured', async () => {
     vi.mocked(getEffectiveModelConfig).mockReturnValue({
       model: 'opus',
-      source: 'group.agentConfig.model' as const,
+      source: 'conversation.agentConfig.model' as const,
     });
     const groupWithModel: ConversationRoute = {
       ...testGroup,
@@ -1005,7 +1027,7 @@ describe('agent-spawn timeout behavior', () => {
   it('prefers job-level model override over group model', async () => {
     vi.mocked(getEffectiveModelConfig).mockReturnValue({
       model: 'opus',
-      source: 'group.agentConfig.model' as const,
+      source: 'conversation.agentConfig.model' as const,
     });
     const groupWithModel: ConversationRoute = {
       ...testGroup,
@@ -1096,6 +1118,11 @@ describe('agent-spawn timeout behavior', () => {
       ANTHROPIC_API_KEY: 'gtw_test',
       ANTHROPIC_AUTH_TOKEN: 'gtw_test',
     });
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelProviderNetworkHosts: ['openrouter.ai:443'],
+      }),
+    );
   });
 
   it('projects Claude Code OAuth credentials only through runner input', async () => {
@@ -1373,15 +1400,9 @@ describe('agent-spawn timeout behavior', () => {
       port: 18080,
     });
     expect(env.NO_PROXY.split(',')).toEqual(
-      expect.arrayContaining([
-        'github.com',
-        '.github.com',
-        'api.github.com',
-        'raw.githubusercontent.com',
-        'objects.githubusercontent.com',
-        'codeload.github.com',
-      ]),
+      expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
     );
+    expect(env.NO_PROXY).not.toContain('api.github.com');
   });
 
   it('keeps host-only brokered OpenAI embedding credentials out of the Claude runner input', async () => {
@@ -1564,6 +1585,95 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.runtimeAccess).toEqual(runtimeAccess);
   });
 
+  it('does not restrict egress when any command-bound access declares no network hosts', async () => {
+    const originalNoProxy = process.env.NO_PROXY;
+    const originalLowerNoProxy = process.env.no_proxy;
+    process.env.NO_PROXY = 'api.github.com,corp.internal,127.0.0.1';
+    process.env.no_proxy = 'lower.internal,localhost';
+    const runtimeAccess = [
+      {
+        selectedCapabilityId: 'google.sheets.values.get',
+        sourceType: 'local_cli' as const,
+        auditLabel: 'Google Sheets get',
+        commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+        credentialDirs: [],
+        networkBindings: [
+          {
+            commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+            hosts: ['oauth2.googleapis.com:443', 'sheets.googleapis.com:443'],
+          },
+        ],
+      },
+      {
+        selectedCapabilityId: 'skill.linkedin-posting.publish',
+        sourceType: 'skill_action' as const,
+        auditLabel: 'LinkedIn publish',
+        skillId: 'skill:linkedin-posting',
+        selectedAction: 'publish',
+        declaredEnvRefs: ['LINKEDIN_ACCESS_TOKEN'],
+        commandRules: ['RunCommand(skills/linkedin-posting/post.py *)'],
+        networkBindings: [
+          {
+            commandRules: ['RunCommand(skills/linkedin-posting/post.py *)'],
+            hosts: [],
+          },
+        ],
+      },
+    ];
+
+    try {
+      const resultPromise = spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          allowedTools: [
+            'capability:google.sheets.values.get',
+            'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+            'capability:skill.linkedin-posting.publish',
+            'RunCommand(skills/linkedin-posting/post.py *)',
+          ],
+          runtimeAccess,
+        },
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      await resultPromise;
+
+      const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+        string,
+        string
+      >;
+      expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+        expect.objectContaining({
+          modelProviderNetworkHosts: ['api.anthropic.com:443'],
+          networkAttribution: [
+            expect.objectContaining({ host: 'oauth2.googleapis.com:443' }),
+            expect.objectContaining({ host: 'sheets.googleapis.com:443' }),
+          ],
+        }),
+      );
+      expect(env.NO_PROXY.split(',')).toEqual(
+        expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
+      );
+      expect(env.NO_PROXY).not.toContain('api.github.com');
+      expect(env.NO_PROXY).not.toContain('corp.internal');
+      expect(env.NO_PROXY).not.toContain('lower.internal');
+    } finally {
+      if (originalNoProxy === undefined) {
+        delete process.env.NO_PROXY;
+      } else {
+        process.env.NO_PROXY = originalNoProxy;
+      }
+      if (originalLowerNoProxy === undefined) {
+        delete process.env.no_proxy;
+      } else {
+        process.env.no_proxy = originalLowerNoProxy;
+      }
+    }
+  });
+
   it('keeps credential identity env scoped out of reviewed user-defined CLI runs', async () => {
     process.env.HOME = '/Users/tester';
     process.env.USER = 'tester';
@@ -1607,7 +1717,7 @@ describe('agent-spawn timeout behavior', () => {
     ]);
   });
 
-  it('materializes approved third-party stdio MCP servers through direct SDK MCP config', async () => {
+  it('materializes approved third-party stdio MCP servers through scoped direct SDK MCP config', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     const rmSyncSpy = vi
       .spyOn(fs, 'rmSync')
@@ -1635,7 +1745,13 @@ describe('agent-spawn timeout behavior', () => {
         };
       },
     );
-    const repository = new SpawnMcpRepository([mcpRecord()]);
+    const repository = new SpawnMcpRepository([
+      mcpRecord({
+        allowedToolPatterns: ['issues.*', 'search_*'],
+        autoApproveToolPatterns: [],
+        bindingAllowedToolPatterns: ['issues.*'],
+      }),
+    ]);
     const secrets = new SpawnCapabilitySecretRepository({
       GITHUB_TOKEN: 'gantry-secret-token',
     });
@@ -1644,7 +1760,24 @@ describe('agent-spawn timeout behavior', () => {
     ]);
     const resultPromise = spawnTestAgent(
       testGroup,
-      { ...testInput, attachedMcpSourceIds: ['mcp:github'] },
+      {
+        ...testInput,
+        attachedMcpSourceIds: ['mcp:github'],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'github.issues.create',
+            sourceType: 'mcp_server',
+            auditLabel: 'GitHub issues create',
+            reviewedServerId: 'github',
+            allowedTools: [
+              'mcp__github__issues.create',
+              'mcp__github__search_repositories',
+            ],
+            credentialRefs: [],
+            networkHosts: [],
+          },
+        ],
+      },
       () => {},
       undefined,
       {
@@ -1683,17 +1816,35 @@ describe('agent-spawn timeout behavior', () => {
         appId: 'app-one',
         agentId: 'agent-one',
         serverIds: ['mcp:github'],
+      }),
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        serverIds: ['mcp:github'],
         credentialEnv: { GITHUB_TOKEN: 'gantry-secret-token' },
       }),
     ]);
     expect(env.GANTRY_MCP_SERVERS_JSON).toBeUndefined();
     expect(env.GANTRY_MCP_CONFIG_FILE).toMatch(/mcp-.*\.json$/);
     expect(JSON.parse(env.GANTRY_MCP_ALLOWED_TOOLS_JSON)).toEqual([
-      'mcp__github__search_repositories',
+      'mcp__github__issues.create',
     ]);
     expect(JSON.parse(env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON)).toEqual([
-      'mcp__github__search_repositories',
+      'mcp__github__issues.create',
     ]);
+    expect(env.NO_PROXY.split(',')).toEqual(
+      expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
+    );
+    expect(env.NO_PROXY).not.toContain('api.github.com');
+    expect(env.NO_PROXY).not.toContain('.github.com');
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelProviderNetworkHosts: ['api.anthropic.com:443'],
+        networkAttribution: expect.arrayContaining([
+          expect.objectContaining({ host: 'api.github.com:443' }),
+        ]),
+      }),
+    );
     expect(rmSyncSpy).toHaveBeenCalledWith(env.GANTRY_MCP_CONFIG_FILE, {
       force: true,
     });
@@ -1706,7 +1857,16 @@ describe('agent-spawn timeout behavior', () => {
         type: 'stdio',
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-github'],
-        env: { GITHUB_TOKEN: 'gantry-secret-token' },
+        env: expect.objectContaining({
+          GITHUB_TOKEN: 'gantry-secret-token',
+          HTTP_PROXY: 'http://127.0.0.1:18080/',
+          HTTPS_PROXY: 'http://127.0.0.1:18080/',
+          http_proxy: 'http://127.0.0.1:18080/',
+          https_proxy: 'http://127.0.0.1:18080/',
+          NODE_USE_ENV_PROXY: '1',
+          NO_PROXY: expect.stringContaining('127.0.0.1'),
+          no_proxy: expect.stringContaining('127.0.0.1'),
+        }),
       },
     });
     expect(
@@ -1727,6 +1887,74 @@ describe('agent-spawn timeout behavior', () => {
     rmSyncSpy.mockRestore();
   });
 
+  it('does not project remote MCP sources into the direct SDK MCP config', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const { getHostRuntimeCredentialEnv } =
+      await import('@core/runtime/agent-spawn-host.js');
+    vi.mocked(getHostRuntimeCredentialEnv).mockImplementation(async () => ({
+      env: {
+        ['ANTHROPIC' + '_BASE_URL']: 'http://127.0.0.1:4567/anthropic',
+        ['ANTHROPIC' + '_API_KEY']: 'gtw_default',
+      },
+      credentialProviders: {},
+      brokerApplied: true,
+      brokerProfile: 'gantry',
+    }));
+    const repository = new SpawnMcpRepository([
+      mcpRecord({
+        transport: 'http',
+        allowedToolPatterns: ['issues.*'],
+        bindingAllowedToolPatterns: ['issues.*'],
+      }),
+    ]);
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        attachedMcpSourceIds: ['mcp:github'],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'github.issues.create',
+            sourceType: 'mcp_server',
+            auditLabel: 'GitHub issues create',
+            reviewedServerId: 'github',
+            allowedTools: ['mcp__github__issues.create'],
+            credentialRefs: [],
+            networkHosts: [],
+          },
+        ],
+      },
+      () => {},
+      undefined,
+      {
+        mcpServerRepository: repository,
+        capabilitySecretRepository: new SpawnCapabilitySecretRepository({
+          GITHUB_TOKEN: 'gantry-secret-token',
+        }),
+        mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
+    expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
+    expect(repository.materializedInputs).toEqual([
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        serverIds: ['mcp:github'],
+      }),
+    ]);
+  });
+
   it('starts the agent and skips selected MCP servers when credentials are missing', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     const rmSyncSpy = vi
@@ -1735,7 +1963,21 @@ describe('agent-spawn timeout behavior', () => {
     const repository = new SpawnMcpRepository([mcpRecord()]);
     const resultPromise = spawnTestAgent(
       testGroup,
-      { ...testInput, attachedMcpSourceIds: ['mcp:github'] },
+      {
+        ...testInput,
+        attachedMcpSourceIds: ['mcp:github'],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'github.search',
+            sourceType: 'mcp_server',
+            auditLabel: 'GitHub search',
+            reviewedServerId: 'github',
+            allowedTools: ['mcp__github__search_repositories'],
+            credentialRefs: [],
+            networkHosts: [],
+          },
+        ],
+      },
       () => {},
       undefined,
       {
@@ -2166,7 +2408,7 @@ describe('agent-spawn timeout behavior', () => {
     };
     const resultPromise = spawnTestAgent(
       mainGroup,
-      { ...testInput, groupFolder: 'main_agent' },
+      { ...testInput, workspaceFolder: 'main_agent' },
       () => {},
     );
     await vi.advanceTimersByTimeAsync(10);
@@ -2361,22 +2603,12 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.NO_PROXY.split(',')).toEqual(
-      expect.arrayContaining([
-        'corp.internal',
-        'lower.internal',
-        '127.0.0.1',
-        'localhost',
-        '::1',
-      ]),
+      expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
     );
+    expect(env.NO_PROXY).not.toContain('corp.internal');
+    expect(env.NO_PROXY).not.toContain('lower.internal');
     expect(env.no_proxy.split(',')).toEqual(
-      expect.arrayContaining([
-        'corp.internal',
-        'lower.internal',
-        '127.0.0.1',
-        'localhost',
-        '::1',
-      ]),
+      expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
     );
     if (originalNoProxy === undefined) {
       delete process.env.NO_PROXY;

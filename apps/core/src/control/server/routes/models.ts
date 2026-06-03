@@ -143,14 +143,14 @@ function chatRouteForPreview(
       scope: conversationJid,
     };
   }
-  const groupScope =
-    typeof body.groupScope === 'string' ? body.groupScope.trim() : '';
-  if (!groupScope) return undefined;
+  const workspaceKey =
+    typeof body.workspaceKey === 'string' ? body.workspaceKey.trim() : '';
+  if (!workspaceKey) return undefined;
   return {
     route: Object.values(routes).find(
-      (route) => route.folder === groupScope || route.name === groupScope,
+      (route) => route.folder === workspaceKey || route.name === workspaceKey,
     ),
-    scope: groupScope,
+    scope: workspaceKey,
   };
 }
 
@@ -354,7 +354,7 @@ async function previewResponse(
           ok: false,
           status: 404,
           code: 'CONVERSATION_NOT_FOUND',
-          message: 'Conversation or group scope not found',
+          message: 'Conversation or workspace scope not found',
         };
       }
       const overrideAlias = scopedRoute.route.agentConfig?.model || null;
@@ -366,7 +366,7 @@ async function previewResponse(
         configuredAlias: overrideAlias,
         selectedAlias: overrideAlias || defaultConfig.model || null,
         source: overrideAlias
-          ? 'group.agentConfig.model'
+          ? 'conversation.agentConfig.model'
           : defaultConfig.source,
         inherited: !overrideAlias,
         workload: 'chat',
@@ -436,7 +436,7 @@ async function previewResponse(
         modelKind === 'recurringJob' ? 'recurring_job' : 'one_time_job';
       const defaultConfig = ctx.getDefaultModelConfig(
         modelKind,
-        job.group_scope,
+        job.workspace_key,
       );
       const selectedModel = job.model || defaultConfig.model;
       const resolution = selectedModel
@@ -627,7 +627,7 @@ export async function handleModelRoutes(
           return true;
         }
       }
-      const result = ctx.patchModelDefaults(body);
+      const result = await ctx.patchModelDefaults(body);
       if (!result.ok) {
         sendError(res, 400, 'INVALID_REQUEST', result.message);
         return true;

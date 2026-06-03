@@ -16,7 +16,7 @@ import {
   DEFAULT_EMBED_MODEL,
   getPresetManagedMemoryDefaults,
   loadRuntimeSettings,
-  saveRuntimeSettings,
+  writeDesiredRuntimeSettings,
   type EmbeddingProviderName,
 } from '../config/settings/runtime-settings.js';
 import { runEmbeddingBackfillCommand } from './memory-embeddings-backfill.js';
@@ -99,6 +99,7 @@ async function setEmbeddings(
   provider: EmbeddingProviderName,
 ): Promise<{ ok: boolean; message?: string }> {
   const settings = loadRuntimeSettings(runtimeHome);
+  const previousSettings = structuredClone(settings);
   if (provider === 'disabled') {
     settings.memory.embeddings.enabled = false;
   } else if (isEmbeddingProviderRegistered(provider)) {
@@ -125,15 +126,27 @@ async function setEmbeddings(
   } else if (!settings.memory.embeddings.model.trim()) {
     settings.memory.embeddings.model = DEFAULT_EMBED_MODEL;
   }
-  saveRuntimeSettings(runtimeHome, settings);
+  await writeDesiredRuntimeSettings({
+    runtimeHome,
+    settings,
+    previousSettings,
+  });
   return { ok: true };
 }
 
-function setDreaming(runtimeHome: string, enabled: boolean): void {
+async function setDreaming(
+  runtimeHome: string,
+  enabled: boolean,
+): Promise<void> {
   const settings = loadRuntimeSettings(runtimeHome);
+  const previousSettings = structuredClone(settings);
   settings.memory.dreaming.enabled = enabled;
   if (enabled && !settings.memory.enabled) settings.memory.enabled = true;
-  saveRuntimeSettings(runtimeHome, settings);
+  await writeDesiredRuntimeSettings({
+    runtimeHome,
+    settings,
+    previousSettings,
+  });
 }
 
 export async function runMemoryCommand(
@@ -182,7 +195,7 @@ export async function runMemoryCommand(
       p.log.error(usage());
       return 1;
     }
-    setDreaming(runtimeHome, value === 'on');
+    await setDreaming(runtimeHome, value === 'on');
     p.log.success(`Memory dreaming set to ${value} in settings.yaml.`);
     return 0;
   }

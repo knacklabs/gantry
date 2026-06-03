@@ -34,7 +34,7 @@ export const JobModelSourceSchema = z.union([
   z.literal('settings.yaml agent.default_model'),
   z.literal('settings.yaml agent.one_time_job_default_model'),
   z.literal('settings.yaml agent.recurring_job_default_model'),
-  z.literal('group.agentConfig.model'),
+  z.literal('conversation.agentConfig.model'),
 ]);
 export type JobModelSource = z.infer<typeof JobModelSourceSchema>;
 
@@ -69,7 +69,7 @@ export const JobRuntimeContextPreviewSchema = z.object({
     .object({
       conversationJid: z.string(),
       threadId: z.string().nullable(),
-      groupScope: z.string(),
+      workspaceKey: z.string(),
       sessionId: z.string().nullable().optional(),
     })
     .strict(),
@@ -96,7 +96,7 @@ export const JobExecutionContextSchema = z
   .object({
     conversationJid: z.string(),
     threadId: z.string().nullable(),
-    groupScope: z.string(),
+    workspaceKey: z.string(),
     sessionId: z.string().nullable(),
   })
   .strict();
@@ -128,7 +128,7 @@ export type JobTarget = z.infer<typeof JobTargetSchema>;
 export const JobResolvedTargetSchema = z.object({
   appId: z.string(),
   agentId: z.string(),
-  groupScope: z.string(),
+  workspaceKey: z.string(),
   conversationJids: z.array(z.string()),
   threadId: z.string().nullable(),
 });
@@ -287,15 +287,36 @@ export type JobCapabilityRequirements = z.infer<
   typeof JobCapabilityRequirementsSchema
 >;
 
+export const JobAccessRequirementSchema = z
+  .object({
+    target: z.discriminatedUnion('kind', [
+      z
+        .object({ kind: z.literal('tool_rule'), rule: z.string().min(1) })
+        .strict(),
+      z
+        .object({
+          kind: z.literal('capability'),
+          capabilityId: z.string().min(1),
+          implementation:
+            JobCapabilityRequirementImplementationSchema.optional(),
+        })
+        .strict(),
+      z
+        .object({ kind: z.literal('mcp_server'), server: z.string().min(1) })
+        .strict(),
+    ]),
+    reason: z.string().min(1).optional(),
+  })
+  .strict();
+export type JobAccessRequirement = z.infer<typeof JobAccessRequirementSchema>;
+
 export const CreateJobRequestSchema = z
   .object({
     name: z.string().min(1),
     prompt: z.string().min(1),
     executionContext: JobRequestExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
-    capabilityRequirements: z.array(JobCapabilityRequirementSchema).optional(),
-    toolAccessRequirements: z.array(z.string().min(1)).optional(),
-    requiredMcpServers: z.array(z.string().min(1)).optional(),
+    accessRequirements: z.array(JobAccessRequirementSchema).optional(),
     kind: z.enum(['manual', 'once', 'recurring']).optional(),
     runAt: IsoDateTimeSchema.optional(),
     schedule: z
@@ -316,9 +337,7 @@ export const UpdateJobRequestSchema = z
     prompt: z.string().min(1).optional(),
     executionContext: JobRequestExecutionContextSchema.optional(),
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
-    capabilityRequirements: z.array(JobCapabilityRequirementSchema).optional(),
-    toolAccessRequirements: z.array(z.string().min(1)).optional(),
-    requiredMcpServers: z.array(z.string().min(1)).optional(),
+    accessRequirements: z.array(JobAccessRequirementSchema).optional(),
     status: z.enum(['active', 'paused']).optional(),
     modelAlias: z.string().nullable().optional(),
   })
@@ -347,9 +366,7 @@ export const JobResponseSchema = z
     deliveryLabel: z.string().optional(),
     setupLabel: z.string().optional(),
     nextActionLabel: z.string().nullable().optional(),
-    capabilityRequirements: z.array(JobCapabilityRequirementSchema),
-    toolAccessRequirements: z.array(z.string()),
-    requiredMcpServers: z.array(z.string()),
+    accessRequirements: z.array(JobAccessRequirementSchema),
     setup: JobSetupSchema.optional(),
     nextRun: IsoDateTimeSchema.nullable(),
     lastRun: IsoDateTimeSchema.nullable(),
@@ -359,7 +376,7 @@ export const JobResponseSchema = z
     modelAlias: z.string().nullable().optional(),
     modelSelection: JobModelSelectionSchema.optional(),
     model: JobModelPreviewSchema.nullable().optional(),
-    groupScope: z.string(),
+    workspaceKey: z.string(),
     sessionId: z.string().nullable(),
     target: JobResolvedTargetSchema.optional(),
     toolAccess: JobToolAccessSchema,
@@ -557,7 +574,7 @@ export const ModelPreviewRequestSchema = z
     target: ModelPreviewTargetSchema,
     jobId: z.string().optional(),
     conversationJid: z.string().optional(),
-    groupScope: z.string().optional(),
+    workspaceKey: z.string().optional(),
     kind: z.enum(['one-time', 'recurring']).optional(),
     task: z.enum(['extractor', 'dreaming', 'consolidation']).optional(),
   })

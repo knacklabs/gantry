@@ -1,20 +1,12 @@
 import * as p from '@clack/prompts';
 
 import { listConnectableChannelProviders } from '../channels/provider-registry.js';
-import {
-  formatRuntimePreflightFailure,
-  validateRuntimePreflightWithStorage,
-} from '../config/preflight.js';
 import { ensureRuntimeWritable } from '../config/settings/runtime-home.js';
 import {
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-import {
-  installService,
-  startService,
-} from '../infrastructure/service/manager.js';
 import {
   formatDoctorReport,
   hasProcessableGroupForConfiguredChannel,
@@ -26,8 +18,12 @@ import { registerSlackMainGroup } from './slack.js';
 import { registerTelegramMainGroup } from './telegram.js';
 import { type FlowAction } from './setup-flow-control.js';
 import { chooseProgressAction } from './setup-flow-prompts.js';
-import type { ServiceChoice, SetupDraft } from './setup-flow-state.js';
+import type { SetupDraft } from './setup-flow-state.js';
 import { verifyModelAccess } from './setup-credentials.js';
+
+function setupBlocked(reason: string, nextAction: string): string {
+  return [`Setup blocked: ${reason}`, `Next action: ${nextAction}`].join('\n');
+}
 
 function parseApproverIds(raw: string): string[] {
   return [
@@ -38,170 +34,6 @@ function parseApproverIds(raw: string): string[] {
         .filter((entry) => entry.length > 0),
     ),
   ];
-}
-
-export async function runMemoryStep(draft: SetupDraft): Promise<FlowAction> {
-  p.note(
-    [
-      'Memory stores durable facts, preferences, decisions, corrections, constraints, and procedures.',
-      'Current messages retrieve matching memory; agents can call memory_search when they need more context.',
-      'Default is enabled.',
-    ].join('\n'),
-    'Memory',
-  );
-  const value = await p.select({
-    message: 'Memory setting',
-    options: [
-      {
-        value: 'on',
-        label: 'Keep memory on (Recommended)',
-      },
-      {
-        value: 'off',
-        label: 'Turn memory off',
-      },
-      {
-        value: 'back',
-        label: 'Back',
-      },
-      {
-        value: 'resume',
-        label: 'Resume Later',
-      },
-      {
-        value: 'cancel',
-        label: 'Cancel Setup',
-      },
-    ],
-    initialValue: draft.memoryEnabled ? 'on' : 'off',
-  });
-
-  if (p.isCancel(value)) return { type: 'resume' };
-  if (value === 'back') return { type: 'back' };
-  if (value === 'resume') return { type: 'resume' };
-  if (value === 'cancel') return { type: 'cancel' };
-
-  draft.memoryEnabled = value === 'on';
-  return { type: 'next' };
-}
-
-export async function runEmbeddingsStep(
-  draft: SetupDraft,
-): Promise<FlowAction> {
-  if (!draft.memoryEnabled) {
-    draft.embeddingsEnabled = false;
-    p.note(
-      'Embeddings are disabled because memory is currently off.',
-      'Embeddings',
-    );
-    return chooseProgressAction({
-      message: 'Continue?',
-      continueLabel: 'Continue',
-      includeBack: true,
-    });
-  }
-
-  p.note(
-    'Embeddings improve memory search quality. Default is off; external embedding provider credentials belong in Model Access, not Gantry .env.',
-    'Embeddings',
-  );
-
-  const value = await p.select({
-    message: 'Embeddings setting',
-    options: [
-      {
-        value: 'off',
-        label: 'Keep embeddings off (Recommended)',
-      },
-      {
-        value: 'on',
-        label: 'Enable embeddings',
-      },
-      {
-        value: 'back',
-        label: 'Back',
-      },
-      {
-        value: 'resume',
-        label: 'Resume Later',
-      },
-      {
-        value: 'cancel',
-        label: 'Cancel Setup',
-      },
-    ],
-    initialValue: draft.embeddingsEnabled ? 'on' : 'off',
-  });
-
-  if (p.isCancel(value)) return { type: 'resume' };
-  if (value === 'back') return { type: 'back' };
-  if (value === 'resume') return { type: 'resume' };
-  if (value === 'cancel') return { type: 'cancel' };
-
-  draft.embeddingsEnabled = value === 'on';
-  if (!draft.embeddingsEnabled) return { type: 'next' };
-
-  p.note(
-    [
-      'OpenAI embeddings are not enabled during first-run setup.',
-      'Next action: finish setup with embeddings off, then configure brokered embedding provider access in Model Access before enabling embeddings.',
-    ].join('\n'),
-    'Embeddings',
-  );
-  draft.embeddingsEnabled = false;
-  return { type: 'next' };
-}
-
-export async function runDreamingStep(draft: SetupDraft): Promise<FlowAction> {
-  if (!draft.memoryEnabled) {
-    draft.dreamingEnabled = false;
-    p.note('Dreaming is disabled because memory is currently off.', 'Dreaming');
-    return chooseProgressAction({
-      message: 'Continue?',
-      continueLabel: 'Continue',
-      includeBack: true,
-    });
-  }
-
-  p.note(
-    'Dreaming runs background memory cleanup and improvement. Default is enabled.',
-    'Dreaming',
-  );
-
-  const value = await p.select({
-    message: 'Dreaming setting',
-    options: [
-      {
-        value: 'on',
-        label: 'Keep dreaming on (Recommended)',
-      },
-      {
-        value: 'off',
-        label: 'Turn dreaming off',
-      },
-      {
-        value: 'back',
-        label: 'Back',
-      },
-      {
-        value: 'resume',
-        label: 'Resume Later',
-      },
-      {
-        value: 'cancel',
-        label: 'Cancel Setup',
-      },
-    ],
-    initialValue: draft.dreamingEnabled ? 'on' : 'off',
-  });
-
-  if (p.isCancel(value)) return { type: 'resume' };
-  if (value === 'back') return { type: 'back' };
-  if (value === 'resume') return { type: 'resume' };
-  if (value === 'cancel') return { type: 'cancel' };
-
-  draft.dreamingEnabled = value === 'on';
-  return { type: 'next' };
 }
 
 export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
@@ -217,14 +49,9 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       `Model access: ${draft.credentialMode === 'gantry' ? 'enabled' : 'disabled'}`,
       `Model preset: ${draft.modelPreset}`,
       `Main model: ${draft.selectedModel}`,
-      'Memory models: preset-managed',
       ...(draft.primaryProvider === 'slack'
         ? [`Slack approvers: ${draft.slackPermissionApproverIds}`]
         : [`Telegram approvers: ${draft.telegramPermissionApproverIds}`]),
-      `Memory: ${draft.memoryEnabled ? 'on' : 'off'}`,
-      `Embeddings: ${draft.embeddingsEnabled ? 'brokered provider' : 'disabled'}`,
-      `Dreaming: ${draft.dreamingEnabled ? 'on' : 'off'}`,
-      `Service: ${draft.serviceChoice === 'skip' ? 'skip for now' : draft.serviceChoice.replace('_', ' + ')}`,
     ].join('\n'),
     'Review setup',
   );
@@ -245,10 +72,10 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
     if (!draft.postgresDatabaseUrl) {
       spinner.stop('Database configuration is incomplete');
       p.log.error(
-        [
-          'Gantry requires GANTRY_DATABASE_URL before writing runtime config.',
-          'Next action: return to the storage step and provide the database URL.',
-        ].join('\n'),
+        setupBlocked(
+          'missing GANTRY_DATABASE_URL',
+          'return to the Database step and provide the Postgres URL.',
+        ),
       );
       return { type: 'goto', step: 'storage' };
     }
@@ -275,7 +102,10 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
     spinner.stop('Failed to write config');
     const message = err instanceof Error ? err.message : String(err);
     p.log.error(
-      `Could not save config. Next action: fix the issue below and retry setup.\n${message}`,
+      setupBlocked(
+        `could not save config (${message})`,
+        'run `gantry setup` after fixing the save error.',
+      ),
     );
     return { type: 'resume' };
   }
@@ -285,9 +115,10 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
 
 export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
   const spinner = p.spinner();
-  spinner.start('Creating channel group runtime data...');
+  spinner.start('Creating Conversation runtime data...');
   try {
     if (draft.primaryProvider === 'slack') {
+      const conversationLabel = draft.slackDisplayName || draft.slackChatJid;
       const result = await registerSlackMainGroup({
         runtimeHome: draft.runtimeHome,
         chatJid: draft.slackChatJid,
@@ -299,14 +130,18 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
         agentName: result.groupName,
         agentFolder: result.folder,
         jid: draft.slackChatJid,
-        displayName: result.groupName,
+        displayName: conversationLabel,
         trigger: `@${result.groupName}`,
         requiresTrigger: false,
         approverIds: parseApproverIds(draft.slackPermissionApproverIds),
       });
       saveRuntimeSettings(draft.runtimeHome, settings);
+      draft.workspaceKey = result.folder;
+      draft.conversationLabel = conversationLabel;
       spinner.stop(`Registered ${result.groupName} (${result.folder})`);
     } else {
+      const conversationLabel =
+        draft.telegramDisplayName || draft.telegramChatJid;
       const result = await registerTelegramMainGroup({
         runtimeHome: draft.runtimeHome,
         chatJid: draft.telegramChatJid,
@@ -321,19 +156,24 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
         agentName: result.groupName,
         agentFolder: result.folder,
         jid: draft.telegramChatJid,
-        displayName: result.groupName,
+        displayName: conversationLabel,
         trigger: `@${result.groupName}`,
         requiresTrigger: false,
         approverIds,
       });
       saveRuntimeSettings(draft.runtimeHome, settings);
+      draft.workspaceKey = result.folder;
+      draft.conversationLabel = conversationLabel;
       spinner.stop(`Registered ${result.groupName} (${result.folder})`);
     }
   } catch (err) {
     spinner.stop('Group registration failed');
     const message = err instanceof Error ? err.message : String(err);
     p.log.error(
-      `Could not register ${draft.primaryProvider} group. Next action: verify chat access and token(s), then retry.\n${message}`,
+      setupBlocked(
+        `could not register ${draft.primaryProvider} conversation (${message})`,
+        `return to the ${draft.primaryProvider === 'slack' ? 'Slack' : 'Telegram'} step and choose Try again.`,
+      ),
     );
     return {
       type: 'goto',
@@ -342,90 +182,6 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
   }
 
   return { type: 'next' };
-}
-
-export async function runServiceStep(draft: SetupDraft): Promise<FlowAction> {
-  const choice = await p.select({
-    message: 'Background service (optional)',
-    options: [
-      {
-        value: 'skip',
-        label: 'Skip for now (Recommended)',
-        hint: 'You can run Gantry manually with `gantry start`.',
-      },
-      {
-        value: 'install',
-        label: 'Install service only',
-      },
-      {
-        value: 'install_start',
-        label: 'Install and start service',
-      },
-      {
-        value: 'back',
-        label: 'Back',
-      },
-      {
-        value: 'resume',
-        label: 'Resume Later',
-      },
-      {
-        value: 'cancel',
-        label: 'Cancel Setup',
-      },
-    ],
-    initialValue: draft.serviceChoice,
-  });
-
-  if (p.isCancel(choice)) return { type: 'resume' };
-  if (choice === 'back') return { type: 'back' };
-  if (choice === 'resume') return { type: 'resume' };
-  if (choice === 'cancel') return { type: 'cancel' };
-
-  draft.serviceChoice = choice as ServiceChoice;
-
-  return { type: 'next' };
-}
-
-export async function applyServiceChoice(
-  importMetaUrl: string,
-  draft: SetupDraft,
-): Promise<void> {
-  if (draft.serviceChoice === 'skip') return;
-
-  const installOutcome = installService(importMetaUrl, draft.runtimeHome);
-  if (!installOutcome.ok) {
-    p.log.warn(
-      `Service install failed. Next action: run \`gantry start\` manually, or use the advanced service command later.\n${installOutcome.message}`,
-    );
-    return;
-  }
-  p.log.success(installOutcome.message);
-}
-
-export async function applyServiceStartChoice(
-  draft: SetupDraft,
-): Promise<void> {
-  if (draft.serviceChoice !== 'install_start') return;
-
-  const validation = await validateRuntimePreflightWithStorage(
-    draft.runtimeHome,
-  );
-  if (!validation.ok && validation.failure) {
-    p.log.warn(
-      `Service start skipped after verification. Next action: fix runtime preflight and run \`gantry start\` later.\n${formatRuntimePreflightFailure(validation.failure)}`,
-    );
-    return;
-  }
-  const startOutcome = startService(draft.runtimeHome);
-  if (!startOutcome.ok) {
-    p.log.warn(
-      `Service start failed. Next action: run \`gantry start\` later.\n${startOutcome.message}`,
-    );
-  } else {
-    draft.serviceStartedAfterSetup = true;
-    p.log.success(startOutcome.message);
-  }
 }
 
 export async function runVerifyStep(
@@ -441,8 +197,15 @@ export async function runVerifyStep(
   p.note(formatDoctorReport(report), 'Verification');
 
   if (!runtimeConfigured) {
+    const connectCommand =
+      draft.primaryProvider === 'slack'
+        ? '`gantry provider connect slack`'
+        : '`gantry provider connect telegram`';
     p.log.warn(
-      'Setup is not complete yet. Next action: connect a channel now.',
+      setupBlocked(
+        'no channel connected',
+        `connect a channel with ${connectCommand}.`,
+      ),
     );
     return {
       type: 'goto',
@@ -450,11 +213,20 @@ export async function runVerifyStep(
     };
   }
   if (!hasProcessableGroup) {
-    const connectCommands = listConnectableChannelProviders().map(
-      (provider) => `\`gantry provider connect ${provider.id}\``,
+    const connectCommand =
+      draft.primaryProvider === 'slack'
+        ? '`gantry provider connect slack`'
+        : '`gantry provider connect telegram`';
+    const providerAvailable = listConnectableChannelProviders().some(
+      (provider) => provider.id === draft.primaryProvider,
     );
     p.log.warn(
-      `Setup is not complete yet. Next action: ensure one enabled provider has credentials and a registered conversation (${connectCommands.join(' or ')}).`,
+      setupBlocked(
+        'no processable conversation for the configured channel',
+        providerAvailable
+          ? `run ${connectCommand}.`
+          : 'choose Telegram or Slack in the Provider step.',
+      ),
     );
     return {
       type: 'goto',
@@ -463,16 +235,27 @@ export async function runVerifyStep(
   }
 
   if (!report.ok) {
+    const failure = report.checks.find((check) => check.status === 'fail');
     p.log.warn(
-      'Verification found blocking issues after runtime creation. Setup is saved but not complete; fix the next actions above, then run `gantry setup` to continue.',
+      setupBlocked(
+        failure?.message || 'verification found blocking issues',
+        failure?.nextAction || 'run `gantry doctor`, then run `gantry setup`.',
+      ),
     );
     return { type: 'resume' };
   }
 
-  const modelAccess = await verifyModelAccess();
+  const modelAccess = await verifyModelAccess(
+    draft.runtimeHome,
+    loadRuntimeSettings(draft.runtimeHome),
+  );
   if (!modelAccess.ok) {
     p.log.warn(
-      `${modelAccess.message}\nNext action: ${modelAccess.nextAction || 'Open Model Access and rerun setup verification.'}`,
+      setupBlocked(
+        modelAccess.message,
+        modelAccess.nextAction ||
+          'run `gantry credentials model doctor`, then run `gantry setup`.',
+      ),
     );
     return { type: 'goto', step: 'credentials' };
   }

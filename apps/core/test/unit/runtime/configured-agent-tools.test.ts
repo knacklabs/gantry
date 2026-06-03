@@ -178,6 +178,113 @@ describe('configured agent tools', () => {
     ).resolves.toEqual([]);
   });
 
+  it('projects skill action network hosts into command-bound network bindings', async () => {
+    const repository = {
+      listAgentToolBindings: async () => [
+        {
+          status: 'active',
+          toolId: 'tool:capability:skill.linkedin-posting.publish',
+        },
+      ],
+      getTool: async () => ({
+        appId: 'default',
+        name: 'capability:skill.linkedin-posting.publish',
+        inputSchema: {
+          format: 'gantry.semantic-capability.v1',
+          schema: {
+            capabilityId: 'skill.linkedin-posting.publish',
+            displayName: 'LinkedIn Posting publish',
+            category: 'linkedin-posting',
+            risk: 'write',
+            can: 'Publish a prepared LinkedIn post.',
+            cannot: 'Read unrelated credentials.',
+            credentialSource: 'skill_secret',
+            implementationBindings: [
+              {
+                kind: 'tool_rule',
+                rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+              },
+            ],
+            networkHosts: ['api.linkedin.com:443', 'www.linkedin.com:443'],
+            source: {
+              kind: 'skill_action',
+              skillId: 'skill:linkedin-posting',
+              skillName: 'linkedin-posting',
+              actionId: 'publish',
+            },
+          },
+        },
+      }),
+    };
+    const skillRepository = {
+      listEnabledSkillsForAgent: async () => [
+        {
+          id: 'skill:linkedin-posting',
+          appId: 'default',
+          name: 'linkedin-posting',
+          version: 'abc123',
+          source: 'admin_uploaded',
+          status: 'installed',
+          promptRefs: [],
+          toolIds: [],
+          workflowRefs: [],
+          actionPermissions: [
+            {
+              id: 'publish',
+              capabilityId: 'skill.linkedin-posting.publish',
+              displayName: 'LinkedIn Posting publish',
+              risk: 'write',
+              can: 'Publish a prepared LinkedIn post.',
+              cannot: 'Read unrelated credentials.',
+              requiredEnvVars: [],
+              commandTemplates: ['skills/linkedin-posting/post.py *'],
+              networkHosts: ['api.linkedin.com:443', 'www.linkedin.com:443'],
+            },
+          ],
+          storage: {
+            storageType: 'local-filesystem',
+            storageRef: 'skill',
+            contentHash: 'sha256:abc123',
+            sizeBytes: 1,
+          },
+          createdAt: '2026-05-21T00:00:00.000Z',
+          updatedAt: '2026-05-21T00:00:00.000Z',
+        },
+      ],
+    };
+
+    await expect(
+      resolveConfiguredToolPolicy({
+        repository: repository as never,
+        skillRepository: skillRepository as never,
+        appId: 'default',
+        agentId: 'agent:one',
+      }),
+    ).resolves.toEqual({
+      allowedTools: [
+        'capability:skill.linkedin-posting.publish',
+        'RunCommand(skills/linkedin-posting/post.py *)',
+      ],
+      runtimeAccess: [
+        {
+          selectedCapabilityId: 'skill.linkedin-posting.publish',
+          sourceType: 'skill_action',
+          auditLabel: 'LinkedIn Posting publish',
+          skillId: 'skill:linkedin-posting',
+          selectedAction: 'publish',
+          declaredEnvRefs: [],
+          commandRules: ['RunCommand(skills/linkedin-posting/post.py *)'],
+          networkBindings: [
+            {
+              commandRules: ['RunCommand(skills/linkedin-posting/post.py *)'],
+              hosts: ['api.linkedin.com:443', 'www.linkedin.com:443'],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
   it('expands reviewed local CLI capabilities to scoped command rules', async () => {
     const repository = {
       listAgentToolBindings: async () => [
@@ -537,7 +644,7 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).rejects.toThrow('request the MCP server capability');
+    ).rejects.toThrow('request a reviewed semantic capability');
   });
 
   it('fails closed for stale active exact third-party MCP tool bindings', async () => {

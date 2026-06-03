@@ -72,6 +72,105 @@ describe('AgentCapabilityAdministrationService', () => {
     );
   });
 
+  it('replaces a full access document and validates selections against requested sources', async () => {
+    const state = createState();
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    const response = await service.replaceAccessDocument({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      sources: {
+        skills: [{ id: 'skill:one' }],
+        mcpServers: [{ id: 'mcp:one' }],
+        tools: [{ id: 'browser', kind: 'builtin' }],
+      },
+      capabilities: [
+        { id: 'skill.one.publish', version: 'builtin' },
+        { id: 'browser.use', version: 'builtin' },
+      ],
+    });
+
+    expect(response.sources.skills).toEqual([{ id: 'skill:one', name: 'One' }]);
+    expect(response.capabilities).toEqual([
+      { id: 'skill.one.publish', version: 'builtin' },
+      { id: 'browser.use', version: 'builtin' },
+    ]);
+    expect(state.skillBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ skillId: 'skill:old', status: 'disabled' }),
+        expect.objectContaining({ skillId: 'skill:one', status: 'active' }),
+      ]),
+    );
+    expect(state.toolSources).toEqual([
+      expect.objectContaining({
+        sourceId: 'browser',
+        kind: 'builtin',
+        status: 'active',
+      }),
+    ]);
+  });
+
+  it('round-trips scoped MCP source tools through the full access document', async () => {
+    const state = createState();
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    const response = await service.replaceAccessDocument({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:one', tools: ['read_*'] }],
+        tools: [],
+      },
+      capabilities: [],
+    });
+
+    expect(response.sources.mcpServers).toEqual([
+      { id: 'mcp:one', tools: ['read_*'] },
+    ]);
+    expect(state.mcpBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          serverId: 'mcp:one',
+          status: 'active',
+          allowedToolPatterns: ['read_*'],
+        }),
+      ]),
+    );
+  });
+
+  it('rejects invalid full access selections before writing requested sources', async () => {
+    const state = createState();
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    await expect(
+      service.replaceAccessDocument({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        sources: {
+          skills: [{ id: 'skill:one' }],
+          mcpServers: [],
+          tools: [{ id: 'browser', kind: 'builtin' }],
+        },
+        capabilities: [{ id: 'unknown.capability', version: 'builtin' }],
+      }),
+    ).rejects.toThrow('Unknown semantic capability unknown.capability');
+
+    expect(state.toolSources).toEqual([]);
+    expect(state.skillBindings).toEqual([
+      expect.objectContaining({ skillId: 'skill:old', status: 'active' }),
+    ]);
+  });
+
   it('rejects unknown semantic capabilities', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
@@ -301,6 +400,35 @@ describe('AgentCapabilityAdministrationService', () => {
       ]),
     );
   });
+
+  it('rejects broad and secret-bearing RunCommand selections', async () => {
+    for (const capabilityId of [
+      'RunCommand(npm *)',
+      'RunCommand(curl *)',
+      'RunCommand(git *)',
+      'RunCommand(skills/poster/post.py --token sk-abcdefghij0123456789abcd)',
+      'RunCommand(/tmp/run/.llm-runtime/claude/skills/poster/post.py *)',
+    ]) {
+      const state = createState();
+      const service = new AgentCapabilityAdministrationService(
+        state.repositories,
+        { now: () => '2026-05-01T00:00:00.000Z' },
+      );
+      const initialToolCount = state.tools.size;
+      const initialBindingCount = state.toolBindings.length;
+
+      await expect(
+        service.replaceCapabilities({
+          appId: 'app:one' as never,
+          agentId: 'agent:one' as never,
+          capabilities: [{ id: capabilityId, version: 'builtin' }],
+        }),
+      ).rejects.toThrow();
+
+      expect(state.tools.size).toBe(initialToolCount);
+      expect(state.toolBindings).toHaveLength(initialBindingCount);
+    }
+  });
 });
 
 function createState() {
@@ -410,6 +538,18 @@ function createState() {
         promptRefs: [],
         toolIds: [],
         workflowRefs: [],
+        actionPermissions: [
+          {
+            id: 'publish',
+            capabilityId: 'skill.one.publish',
+            displayName: 'One publish',
+            risk: 'write',
+            can: 'Publish through the installed One skill.',
+            cannot: 'Use unrelated skills, credentials, settings, or commands.',
+            requiredEnvVars: [],
+            commandTemplates: ['skills/one/publish.py *'],
+          },
+        ],
         createdAt: now,
         updatedAt: now,
       },
@@ -427,7 +567,7 @@ function createState() {
         riskClass: 'medium',
         transport: 'stdio_template',
         config: { transport: 'stdio_template', templateId: 'node-script' },
-        allowedToolPatterns: [],
+        allowedToolPatterns: ['read_*', 'write_*'],
         autoApproveToolPatterns: [],
         credentialRefs: [],
         createdAt: now,
@@ -471,6 +611,71 @@ function createState() {
       updatedAt: now,
     },
   ];
+  const replaceCapabilityBindings = async (input: any) => {
+    for (const binding of toolBindings) {
+      if (
+        !input.toolBindings.some((next: any) => next.toolId === binding.toolId)
+      ) {
+        binding.status = 'disabled';
+        binding.updatedAt = input.updatedAt;
+      }
+    }
+    for (const binding of input.toolBindings) {
+      const index = toolBindings.findIndex((item) => item.id === binding.id);
+      if (index >= 0) toolBindings[index] = binding;
+      else toolBindings.push(binding);
+    }
+    for (const binding of skillBindings) {
+      if (
+        !input.skillBindings.some(
+          (next: any) => next.skillId === binding.skillId,
+        )
+      ) {
+        binding.status = 'disabled';
+        binding.updatedAt = input.updatedAt;
+      }
+    }
+    for (const binding of input.skillBindings) {
+      const index = skillBindings.findIndex((item) => item.id === binding.id);
+      if (index >= 0) skillBindings[index] = binding;
+      else skillBindings.push(binding);
+    }
+    for (const binding of mcpBindings) {
+      if (
+        !input.mcpBindings.some(
+          (next: any) => next.serverId === binding.serverId,
+        )
+      ) {
+        binding.status = 'disabled';
+        binding.updatedAt = input.updatedAt;
+      }
+    }
+    for (const binding of input.mcpBindings) {
+      const index = mcpBindings.findIndex((item) => item.id === binding.id);
+      if (index >= 0) mcpBindings[index] = binding;
+      else mcpBindings.push(binding);
+    }
+  };
+  const replaceToolSources = async (input: any) => {
+    for (const source of toolSources) {
+      if (
+        !input.sources.some(
+          (next: any) =>
+            next.sourceId === source.sourceId &&
+            next.kind === source.kind &&
+            next.version === source.version,
+        )
+      ) {
+        source.status = 'disabled';
+        source.updatedAt = input.updatedAt;
+      }
+    }
+    for (const source of input.sources) {
+      const index = toolSources.findIndex((item) => item.id === source.id);
+      if (index >= 0) toolSources[index] = source;
+      else toolSources.push(source);
+    }
+  };
   return {
     tools,
     skills,
@@ -488,87 +693,26 @@ function createState() {
           createdAt: now,
           updatedAt: now,
         }),
-        replaceAgentCapabilityBindings: async (input: any) => {
-          for (const binding of toolBindings) {
-            if (
-              !input.toolBindings.some(
-                (next: any) => next.toolId === binding.toolId,
-              )
-            ) {
-              binding.status = 'disabled';
-              binding.updatedAt = input.updatedAt;
-            }
-          }
-          for (const binding of input.toolBindings) {
-            const index = toolBindings.findIndex(
-              (item) => item.id === binding.id,
-            );
-            if (index >= 0) toolBindings[index] = binding;
-            else toolBindings.push(binding);
-          }
-          for (const binding of skillBindings) {
-            if (
-              !input.skillBindings.some(
-                (next: any) => next.skillId === binding.skillId,
-              )
-            ) {
-              binding.status = 'disabled';
-              binding.updatedAt = input.updatedAt;
-            }
-          }
-          for (const binding of input.skillBindings) {
-            const index = skillBindings.findIndex(
-              (item) => item.id === binding.id,
-            );
-            if (index >= 0) skillBindings[index] = binding;
-            else skillBindings.push(binding);
-          }
-          for (const binding of mcpBindings) {
-            if (
-              !input.mcpBindings.some(
-                (next: any) => next.serverId === binding.serverId,
-              )
-            ) {
-              binding.status = 'disabled';
-              binding.updatedAt = input.updatedAt;
-            }
-          }
-          for (const binding of input.mcpBindings) {
-            const index = mcpBindings.findIndex(
-              (item) => item.id === binding.id,
-            );
-            if (index >= 0) mcpBindings[index] = binding;
-            else mcpBindings.push(binding);
-          }
+        replaceAgentCapabilityBindings: replaceCapabilityBindings,
+        replaceAgentAccess: async (input: any) => {
+          await replaceCapabilityBindings(input);
+          await replaceToolSources({
+            appId: input.appId,
+            agentId: input.agentId,
+            sources: input.toolSources,
+            updatedAt: input.updatedAt,
+          });
         },
       },
       tools: {
         getTool: async (id: string) => tools.get(id) ?? null,
         listTools: async () => Array.from(tools.values()),
+        saveTool: async (tool: any) => {
+          tools.set(tool.id, tool);
+        },
         listAgentToolBindings: async () => toolBindings,
         listAgentToolSources: async () => toolSources,
-        replaceAgentToolSources: async (input: any) => {
-          for (const source of toolSources) {
-            if (
-              !input.sources.some(
-                (next: any) =>
-                  next.sourceId === source.sourceId &&
-                  next.kind === source.kind &&
-                  next.version === source.version,
-              )
-            ) {
-              source.status = 'disabled';
-              source.updatedAt = input.updatedAt;
-            }
-          }
-          for (const source of input.sources) {
-            const index = toolSources.findIndex(
-              (item) => item.id === source.id,
-            );
-            if (index >= 0) toolSources[index] = source;
-            else toolSources.push(source);
-          }
-        },
+        replaceAgentToolSources: replaceToolSources,
         saveAgentToolBinding: async (binding: any) => {
           const index = toolBindings.findIndex(
             (item) => item.id === binding.id,

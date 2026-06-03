@@ -73,7 +73,10 @@ export async function runRuntimeHomeStep(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     p.log.error(
-      `Cannot write to ${resolved}. Next action: fix permissions or choose another path. (${message})`,
+      [
+        `Setup blocked: cannot write to ${resolved} (${message})`,
+        'Next action: choose another Runtime home path.',
+      ].join('\n'),
     );
     return { action: { type: 'goto', step: 'runtime_home' } };
   }
@@ -217,22 +220,6 @@ export async function runStorageStep(draft: SetupDraft): Promise<FlowAction> {
   return { type: 'next' };
 }
 
-export async function runPrerequisitesStep(): Promise<FlowAction> {
-  p.note(
-    [
-      'Gantry runs as a local host process.',
-      'Proceed once Node.js and runtime-home checks are passing.',
-    ].join('\n'),
-    'Runtime Prerequisites',
-  );
-
-  return chooseProgressAction({
-    message: 'Continue to provider selection?',
-    continueLabel: 'Continue',
-    includeBack: true,
-  });
-}
-
 export async function runChannelStep(draft: SetupDraft): Promise<FlowAction> {
   const value = await p.select({
     message: 'Choose your first provider',
@@ -297,7 +284,7 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
       ...listModelPresets().map((preset) => ({
         value: preset.id,
         label: preset.label,
-        hint: `Chat default ${preset.chatDefault}; memory is preset-managed.`,
+        hint: `Chat default ${preset.chatDefault}.`,
       })),
       {
         value: 'back',

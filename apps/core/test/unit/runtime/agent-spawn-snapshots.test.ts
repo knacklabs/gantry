@@ -22,12 +22,12 @@ vi.mock('crypto', async () => {
   };
 });
 
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupIpcPath: vi.fn((folder: string) => `/mock/ipc/${folder}`),
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceIpcPath: vi.fn((folder: string) => `/mock/ipc/${folder}`),
 }));
 
 import fs from 'fs';
-import { resolveGroupIpcPath } from '@core/platform/group-folder.js';
+import { resolveWorkspaceIpcPath } from '@core/platform/workspace-folder.js';
 import {
   clearSnapshotWriteCacheForTests,
   writeGroupsSnapshot,
@@ -54,7 +54,7 @@ describe('writeGroupsSnapshot', () => {
   it('creates the IPC directory', async () => {
     await writeGroupsSnapshot('group-a', [], new Set());
 
-    expect(resolveGroupIpcPath).toHaveBeenCalledWith('group-a');
+    expect(resolveWorkspaceIpcPath).toHaveBeenCalledWith('group-a');
     expect(fs.promises.mkdir).toHaveBeenCalledWith('/mock/ipc/group-a', {
       recursive: true,
     });

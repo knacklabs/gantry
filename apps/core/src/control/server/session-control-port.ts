@@ -29,7 +29,7 @@ export function adaptSessionControlPort(
         appId: input.appId,
         conversationId: input.conversationId,
         chatJid: input.conversationJid,
-        groupFolder: input.folder,
+        workspaceFolder: input.folder,
         title: input.title,
         defaultResponseMode: input.defaultResponseMode,
         defaultWebhookId: input.defaultWebhookId,

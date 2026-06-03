@@ -9,7 +9,7 @@ import {
   writePrivateFileSync,
 } from '../shared/private-fs.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
-import { IPC_GROUP_SUBDIRS } from './agent-spawn-layout.js';
+import { IPC_WORKSPACE_SUBDIRS } from './agent-spawn-layout.js';
 
 interface IpcRootLockDetails {
   pid?: number;
@@ -25,25 +25,25 @@ export function isTrustedDirectory(dirPath: string): boolean {
   }
 }
 
-export function ensureGroupIpcLayout(
+export function ensureWorkspaceIpcLayout(
   ipcBaseDir: string,
-  groupFolder: string,
+  workspaceFolder: string,
 ): void {
-  const groupDir = path.join(ipcBaseDir, groupFolder);
-  ensurePrivateDirSync(groupDir);
-  for (const subdir of IPC_GROUP_SUBDIRS) {
-    ensurePrivateDirSync(path.join(groupDir, subdir));
+  const workspaceDir = path.join(ipcBaseDir, workspaceFolder);
+  ensurePrivateDirSync(workspaceDir);
+  for (const subdir of IPC_WORKSPACE_SUBDIRS) {
+    ensurePrivateDirSync(path.join(workspaceDir, subdir));
   }
 }
 
-export function hasCompleteTrustedGroupIpcLayout(
+export function hasCompleteTrustedWorkspaceIpcLayout(
   ipcBaseDir: string,
-  groupFolder: string,
+  workspaceFolder: string,
 ): boolean {
-  const groupDir = path.join(ipcBaseDir, groupFolder);
-  if (!isTrustedDirectory(groupDir)) return false;
-  for (const subdir of IPC_GROUP_SUBDIRS) {
-    if (!isTrustedDirectory(path.join(groupDir, subdir))) return false;
+  const workspaceDir = path.join(ipcBaseDir, workspaceFolder);
+  if (!isTrustedDirectory(workspaceDir)) return false;
+  for (const subdir of IPC_WORKSPACE_SUBDIRS) {
+    if (!isTrustedDirectory(path.join(workspaceDir, subdir))) return false;
   }
   return true;
 }

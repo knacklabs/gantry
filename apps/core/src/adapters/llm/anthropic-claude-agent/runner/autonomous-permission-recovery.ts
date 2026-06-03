@@ -35,7 +35,7 @@ function isPromptableAutonomousRecovery(
 ): boolean {
   if (!recoveryAction) return true;
   return (
-    recoveryAction.startsWith('request_permission ') ||
+    recoveryAction.startsWith('request_access ') ||
     recoveryAction.startsWith('request_mcp_server ')
   );
 }

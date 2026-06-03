@@ -14,13 +14,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 11
-  },
-  {
     "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.ts",
     "rule": "provider_specific_path",
     "reason": "Default LlmProfile insertion persists canonical response_family API shape, not an SDK provider selector; capped so repository projection does not grow provider branches.",
@@ -47,41 +40,6 @@
     "reason": "Seeded LlmProfile rows persist the current canonical response family, not a provider selector; capped so storage projection does not grow provider-specific branches.",
     "removeByPhase": "schema-generated-llm-profile-defaults",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 7
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/schema/control-plane-canonical.postgres.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/schema/control-plane-records.postgres.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 11
   },
   {
     "file": "apps/core/src/adapters/storage/postgres/storage-readiness.ts",
@@ -126,25 +84,11 @@
     "maxViolations": 5
   },
   {
-    "file": "apps/core/src/app/bootstrap/runtime-app.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 6
-  },
-  {
     "file": "apps/core/src/app/bootstrap/runtime-services.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
-  },
-  {
-    "file": "apps/core/src/app/bootstrap/runtime-services.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
   },
   {
     "file": "apps/core/src/app/bootstrap/shutdown.ts",
@@ -222,13 +166,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 4
-  },
-  {
-    "file": "apps/core/src/channels/telegram/channel-prompts.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
   },
   {
     "file": "apps/core/src/channels/telegram/channel-shared.ts",
@@ -364,13 +301,6 @@
     "maxViolations": 4
   },
   {
-    "file": "apps/core/src/cli/runtime-group-db.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
-  },
-  {
     "file": "apps/core/src/cli/setup-credentials.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -400,13 +330,6 @@
   },
   {
     "file": "apps/core/src/cli/setup-flow.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/cli/setup-ready.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
@@ -581,13 +504,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/control/server/session-control-port.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "RuntimeControlRepository still accepts groupFolder until the canonical workspace-folder storage rename lands; capped so this bridge cannot hide new debt.",
-    "removeByPhase": "canonical-storage-workspace-rename",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/control/server/routes/memory.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -658,13 +574,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/jobs/execution.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
     "file": "apps/core/src/jobs/ipc-admin-handlers.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -707,13 +616,6 @@
     "maxViolations": 5
   },
   {
-    "file": "apps/core/src/jobs/ipc-types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/jobs/schedule-math.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -749,13 +651,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/jobs/types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/memory/app-memory-boundaries.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
@@ -768,13 +663,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/memory/app-memory-boundaries.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
   },
   {
     "file": "apps/core/src/memory/app-memory-dreaming.ts",
@@ -973,13 +861,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/memory/maintenance-queue.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 21
-  },
-  {
     "file": "apps/core/src/memory/memory-embedding-cache.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1001,20 +882,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/memory/memory-ipc.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 8
-  },
-  {
-    "file": "apps/core/src/memory/memory-types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/memory/memory-types.ts",
     "rule": "provider_specific_path",
     "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
@@ -1029,7 +896,7 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/platform/group-folder.ts",
+    "file": "apps/core/src/platform/workspace-folder.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
@@ -1041,27 +908,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 8
-  },
-  {
-    "file": "apps/core/src/runner/mcp/context.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/runner/mcp/tools/memory.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
-    "file": "apps/core/src/runner/mcp/tools/messaging.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
   },
   {
     "file": "apps/core/src/runtime/agent-spawn-host.ts",
@@ -1092,32 +938,11 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/agent-spawn-process.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/runtime/agent-spawn-snapshots.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 11
-  },
-  {
     "file": "apps/core/src/runtime/agent-spawn-types.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/agent-spawn-types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
   },
   {
     "file": "apps/core/src/runtime/agent-spawn.ts",
@@ -1176,25 +1001,11 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/continuation-input.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 6
-  },
-  {
     "file": "apps/core/src/runtime/group-processing-types.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/group-processing-types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
   },
   {
     "file": "apps/core/src/runtime/group-processing.ts",
@@ -1232,13 +1043,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/group-queue.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 12
-  },
-  {
     "file": "apps/core/src/runtime/group-registry.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1267,13 +1071,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/ipc-domain-types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/runtime/ipc-filesystem.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1281,25 +1078,11 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/ipc-filesystem.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
     "file": "apps/core/src/runtime/ipc-interaction-handler.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/ipc-task-parsing.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
   },
   {
     "file": "apps/core/src/runtime/ipc.ts",
@@ -1342,13 +1125,6 @@
     "reason": "Browser usage settings and runtime auditing need one shared public-suffix-aware eTLD+1 normalizer; capped to this helper until shared parser dependencies are formally modeled.",
     "removeByPhase": "browser-usage-config-contract",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/shared/gantry-home.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
   },
   {
     "file": "apps/core/src/channels/slack.ts",
@@ -1515,40 +1291,5 @@
     "reason": "Split from extractor-llm to keep file-size ratchet while preserving existing memory LLM config and logging dependencies.",
     "removeByPhase": "memory service layering cleanup",
     "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
-    "removeByPhase": "canonical workspace naming cleanup",
-    "maxOccurrences": 2
-  },
-  {
-    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
-    "removeByPhase": "canonical workspace naming cleanup",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
-    "removeByPhase": "canonical workspace naming cleanup",
-    "maxOccurrences": 2
-  },
-  {
-    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/runtime-env.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
-    "removeByPhase": "canonical workspace naming cleanup",
-    "maxOccurrences": 3
-  },
-  {
-    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
-    "removeByPhase": "canonical workspace naming cleanup",
-    "maxOccurrences": 1
   }
 ]

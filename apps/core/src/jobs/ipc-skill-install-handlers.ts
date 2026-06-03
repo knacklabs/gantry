@@ -6,7 +6,7 @@ import { SkillService } from '../application/skills/skill-service.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
 import type { SkillCatalogItem } from '../domain/skills/skills.js';
-import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
   formatAvailableNowMessage,
   formatNotApprovedMessage,
@@ -192,7 +192,7 @@ async function completeSkillInstallCommandReview(input: {
     const decision = await deps.requestPermissionApproval({
       requestId: `skill-install-command-${globalThis.crypto.randomUUID()}`,
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       targetJid: input.targetJid,
       threadId: data.authThreadId,
@@ -247,7 +247,7 @@ async function completeSkillInstallCommandReview(input: {
     }
     const installed = await installSkillFromApprovedCommand({
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       installCommandArgv: input.installCommandArgv,
       requiredEnvVars: sanitizedStringList(
@@ -413,7 +413,7 @@ const requestSkillPackageHandler = async (
       syncApprovedCapabilitySettings:
         getRuntimeDeps().syncApprovedCapabilitySettings,
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,

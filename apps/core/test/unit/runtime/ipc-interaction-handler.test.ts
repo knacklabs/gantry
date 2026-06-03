@@ -8,6 +8,7 @@ import {
   verifyIpcResponsePayload,
 } from '@core/infrastructure/ipc/response-signing.js';
 import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 import {
   processPermissionIpcRequest,
@@ -255,7 +256,7 @@ describe('ipc-interaction-handler', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
-      expect.stringContaining('Always allowed:'),
+      expect.stringContaining('Allowed for future:'),
       expect.any(Object),
     );
   });
@@ -344,7 +345,7 @@ describe('ipc-interaction-handler', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
-      expect.stringContaining('Always allowed:'),
+      expect.stringContaining('Allowed for future:'),
       { threadId: 'topic-7' },
     );
   });
@@ -375,7 +376,24 @@ describe('ipc-interaction-handler', () => {
     };
     const toolRepository = {
       getTool: vi.fn(async () => null),
-      listTools: vi.fn(async () => []),
+      listTools: vi.fn(async () => [
+        {
+          appId: 'app:test',
+          id: 'tool:capability:skill.linkedin-posting.publish',
+          name: 'capability:skill.linkedin-posting.publish',
+          kind: 'host',
+          provider: 'gantry',
+          displayName: 'LinkedIn posting',
+          category: 'productivity',
+          risk: 'high',
+          selectable: true,
+          status: 'active',
+          adapterRef: 'capability/skill.linkedin-posting.publish',
+          inputSchema: semanticCapabilityInputSchema(skillCapability),
+          createdAt: '2026-05-15T12:00:00.000Z',
+          updatedAt: '2026-05-15T12:00:00.000Z',
+        },
+      ]),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),
@@ -430,13 +448,7 @@ describe('ipc-interaction-handler', () => {
       logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
     });
 
-    expect(toolRepository.saveTool).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'tool:capability:skill.linkedin-posting.publish',
-        name: 'capability:skill.linkedin-posting.publish',
-        displayName: 'LinkedIn posting',
-      }),
-    );
+    expect(toolRepository.saveTool).not.toHaveBeenCalled();
     expect(toolRepository.saveAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({
         agentId: 'agent:test',

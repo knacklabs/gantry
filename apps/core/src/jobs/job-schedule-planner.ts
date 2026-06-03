@@ -24,7 +24,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
       prompt: params.prompt,
       scheduleType: params.scheduleType,
       scheduleValue: params.scheduleValue,
-      groupScope: params.groupScope,
+      workspaceKey: params.workspaceKey,
     });
     const hash = createHash('sha256').update(base).digest('hex').slice(0, 12);
     const slug = params.name

@@ -53,7 +53,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     required: ['agent', 'boundConversations'],
     properties: {
       agent: { $ref: '#/components/schemas/Agent' },
-      capabilities: { $ref: '#/components/schemas/AgentCapabilitiesResponse' },
+      capabilities: { $ref: '#/components/schemas/AgentAccessResponse' },
       boundConversations: {
         type: 'array',
         items: {
@@ -141,6 +141,16 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       version: { oneOf: [{ type: 'string' }, { type: 'number' }] },
     },
   },
+  AgentMcpSourceSelection: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      name: { type: 'string' },
+      id: { type: 'string' },
+      version: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+      tools: { type: 'array', items: { type: 'string' } },
+    },
+  },
   AgentSources: {
     type: 'object',
     required: ['skills', 'mcpServers', 'tools'],
@@ -151,7 +161,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       },
       mcpServers: {
         type: 'array',
-        items: { $ref: '#/components/schemas/AgentSourceSelection' },
+        items: { $ref: '#/components/schemas/AgentMcpSourceSelection' },
       },
       tools: {
         type: 'array',
@@ -166,39 +176,31 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       sources: { $ref: '#/components/schemas/AgentSources' },
     },
   },
-  AgentSourcesResponse: {
+  AgentAccessRequest: {
     type: 'object',
-    required: ['agentId', 'sources', 'updatedAt'],
+    required: ['sources'],
     properties: {
-      agentId: { type: 'string' },
       sources: { $ref: '#/components/schemas/AgentSources' },
-      updatedAt: isoDateTime,
-    },
-  },
-  AgentCapabilitiesRequest: {
-    type: 'object',
-    required: ['capabilities'],
-    properties: {
-      capabilities: {
+      selections: {
         type: 'array',
         items: { $ref: '#/components/schemas/CapabilitySelection' },
       },
     },
   },
-  AgentCapabilitiesResponse: {
-    allOf: [
-      { $ref: '#/components/schemas/AgentCapabilitiesRequest' },
-      {
-        type: 'object',
-        required: ['agentId', 'sources', 'toolAccess', 'updatedAt'],
-        properties: {
-          agentId: { type: 'string' },
-          sources: { $ref: '#/components/schemas/AgentSources' },
-          toolAccess: metadata,
-          updatedAt: isoDateTime,
-        },
+  AgentAccessResponse: {
+    type: 'object',
+    required: ['agentId', 'sources', 'selections', 'toolAccess', 'updatedAt'],
+    properties: {
+      agentId: { type: 'string' },
+      sources: { $ref: '#/components/schemas/AgentSources' },
+      selections: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/CapabilitySelection' },
       },
-    ],
+      toolAccess: metadata,
+      summary: metadata,
+      updatedAt: isoDateTime,
+    },
   },
   HealthResponse: {
     type: 'object',
@@ -506,10 +508,10 @@ export const openApiSchemas: Record<string, JsonSchema> = {
         description:
           'Optional chat preview scope for session /model overrides.',
       },
-      groupScope: {
+      workspaceKey: {
         type: 'string',
         description:
-          'Optional group folder/name preview scope for session /model overrides.',
+          'Optional workspace key preview scope for session /model overrides.',
       },
       kind: { type: 'string', enum: ['one-time', 'recurring'] },
       task: {

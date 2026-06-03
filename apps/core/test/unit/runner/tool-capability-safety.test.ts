@@ -8,13 +8,13 @@ describe('tool capability safety', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
     });
 
     expect(profile.allowedTools).toContain(
       'mcp__gantry__request_skill_install',
     );
-    expect(profile.allowedTools).toContain('mcp__gantry__request_permission');
+    expect(profile.allowedTools).toContain('mcp__gantry__request_access');
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__request_settings_update',
     );

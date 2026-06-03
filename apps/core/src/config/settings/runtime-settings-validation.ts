@@ -9,11 +9,7 @@ import {
   resolveModelSelectionForWorkload,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
-import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
-import {
-  containsGeneratedRuntimeSkillPath,
-  GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
-} from '../../shared/generated-runtime-paths.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
 import type {
   RuntimeSettings,
@@ -183,14 +179,12 @@ export function validateLoadedRuntimeSettings(
               !capability.id.startsWith('RunCommand(')
             ? `capability:${capability.id}`
             : capability.id;
-      const validation = validateReadableAgentToolRule(toolRule);
+      const validation = validateDurableAccessRule(toolRule, {
+        allowUnknownSemanticCapability: true,
+      });
       if (!validation.ok) {
         details.push(
           `agents.${agentId}.capabilities contains invalid capability "${capability.id}": ${validation.reason}`,
-        );
-      } else if (containsGeneratedRuntimeSkillPath(toolRule)) {
-        details.push(
-          `agents.${agentId}.capabilities contains invalid capability "${capability.id}": ${GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON}`,
         );
       }
     }

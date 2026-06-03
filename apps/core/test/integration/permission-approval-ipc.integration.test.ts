@@ -60,8 +60,8 @@ afterEach(async () => {
 describe('permission approval IPC boundary', () => {
   it('emits a host permission request before denying unattended jobs without waiting', async () => {
     const tempRoot = makeTempRoot();
-    const groupFolder = 'team-main';
-    const groupIpcDir = path.join(tempRoot, 'ipc', groupFolder);
+    const workspaceFolder = 'team-main';
+    const groupIpcDir = path.join(tempRoot, 'ipc', workspaceFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     fs.mkdirSync(permissionRequestsDir, { recursive: true });
 
@@ -73,7 +73,7 @@ describe('permission approval IPC boundary', () => {
 
     vi.resetModules();
     const { createIpcAuthEnvelope } = await import('@core/runtime/ipc-auth.js');
-    const envelope = createIpcAuthEnvelope(groupFolder, undefined, {
+    const envelope = createIpcAuthEnvelope(workspaceFolder, undefined, {
       appId: 'app:team',
       agentId: 'agent:team-main',
     });
@@ -93,7 +93,7 @@ describe('permission approval IPC boundary', () => {
       requestPermissionApproval({
         appId: 'app:team',
         agentId: 'agent:team-main',
-        groupFolder,
+        workspaceFolder: workspaceFolder,
         toolName: 'Bash',
         closestRule: {
           rule: 'RunCommand(/Users/example/bin/post-lead *)',
@@ -111,11 +111,11 @@ describe('permission approval IPC boundary', () => {
       permissionRequestsDir,
     );
     expect(
-      parsePermissionIpcRequest(pendingRequest.raw, groupFolder),
+      parsePermissionIpcRequest(pendingRequest.raw, workspaceFolder),
     ).toMatchObject({
       appId: 'app:team',
       agentId: 'agent:team-main',
-      sourceAgentFolder: groupFolder,
+      sourceAgentFolder: workspaceFolder,
       toolName: 'Bash',
       closestRule: {
         rule: 'RunCommand(/Users/example/bin/post-lead *)',
@@ -126,9 +126,9 @@ describe('permission approval IPC boundary', () => {
 
   it('accepts a signed approval response and enforces request replay protection', async () => {
     const tempRoot = makeTempRoot();
-    const groupFolder = 'team-main';
+    const workspaceFolder = 'team-main';
     const threadId = 'thread-7';
-    const groupIpcDir = path.join(tempRoot, 'ipc', groupFolder);
+    const groupIpcDir = path.join(tempRoot, 'ipc', workspaceFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     const permissionResponsesDir = path.join(
       groupIpcDir,
@@ -146,12 +146,12 @@ describe('permission approval IPC boundary', () => {
     vi.resetModules();
     const { createIpcAuthEnvelope, getIpcResponseSigningPrivateKey } =
       await import('@core/runtime/ipc-auth.js');
-    const envelope = createIpcAuthEnvelope(groupFolder, threadId, {
+    const envelope = createIpcAuthEnvelope(workspaceFolder, threadId, {
       appId: 'app:team',
       agentId: 'agent:team-main',
     });
     const responseSigningKey = getIpcResponseSigningPrivateKey(
-      groupFolder,
+      workspaceFolder,
       threadId,
       envelope.responseKeyId,
     );
@@ -173,7 +173,7 @@ describe('permission approval IPC boundary', () => {
     const pendingDecision = requestPermissionApproval({
       appId: 'app:team',
       agentId: 'agent:team-main',
-      groupFolder,
+      workspaceFolder: workspaceFolder,
       threadId,
       toolName: 'WebFetch',
       title: 'Fetch internal dashboard',
@@ -205,7 +205,7 @@ describe('permission approval IPC boundary', () => {
     );
     const parsedRequest = parsePermissionIpcRequest(
       pendingRequest.raw,
-      groupFolder,
+      workspaceFolder,
     );
 
     expect(parsedRequest).toMatchObject({
@@ -213,7 +213,7 @@ describe('permission approval IPC boundary', () => {
       appId: 'app:team',
       agentId: 'agent:team-main',
       responseNonce: expect.any(String),
-      sourceAgentFolder: groupFolder,
+      sourceAgentFolder: workspaceFolder,
       threadId,
       toolName: 'WebFetch',
       toolInput: {
@@ -238,12 +238,12 @@ describe('permission approval IPC boundary', () => {
       ],
     });
     expect(() =>
-      parsePermissionIpcRequest(pendingRequest.raw, groupFolder),
+      parsePermissionIpcRequest(pendingRequest.raw, workspaceFolder),
     ).toThrow(/replay/);
 
     writePermissionIpcResponse(
       path.join(tempRoot, 'ipc'),
-      groupFolder,
+      workspaceFolder,
       {
         requestId: pendingRequest.requestId,
         responseNonce: parsedRequest.responseNonce,
@@ -267,8 +267,8 @@ describe('permission approval IPC boundary', () => {
 
   it('fails closed when response signature is missing', async () => {
     const tempRoot = makeTempRoot();
-    const groupFolder = 'team-main';
-    const groupIpcDir = path.join(tempRoot, 'ipc', groupFolder);
+    const workspaceFolder = 'team-main';
+    const groupIpcDir = path.join(tempRoot, 'ipc', workspaceFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     const permissionResponsesDir = path.join(
       groupIpcDir,
@@ -285,7 +285,7 @@ describe('permission approval IPC boundary', () => {
 
     vi.resetModules();
     const { createIpcAuthEnvelope } = await import('@core/runtime/ipc-auth.js');
-    const envelope = createIpcAuthEnvelope(groupFolder, undefined, {
+    const envelope = createIpcAuthEnvelope(workspaceFolder, undefined, {
       appId: 'app:team',
       agentId: 'agent:team-main',
     });
@@ -301,7 +301,7 @@ describe('permission approval IPC boundary', () => {
     const pendingDecision = requestPermissionApproval({
       appId: 'app:team',
       agentId: 'agent:team-main',
-      groupFolder,
+      workspaceFolder: workspaceFolder,
       toolName: 'edit_file',
     });
     const pendingRequest = await waitForPermissionRequest(

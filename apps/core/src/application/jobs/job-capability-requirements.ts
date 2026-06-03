@@ -27,14 +27,14 @@ export function normalizeCapabilityRequirements(
     if (!entry || typeof entry !== 'object') {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements entries must be objects.',
+        'accessRequirements capability entries must be objects.',
       );
     }
     const capabilityId = stringField(entry.capabilityId, 'capabilityId');
     if (!isValidSemanticCapabilityId(capabilityId)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements capabilityId must use lowercase dot-separated words such as app.resource.action.',
+        'accessRequirements capability target.capabilityId must use lowercase dot-separated words such as app.resource.action.',
       );
     }
     const reason = stringField(entry.reason, 'reason');
@@ -83,27 +83,12 @@ export function capabilityRequirementSetupAction(
       implementation.commandTemplate
     ) {
       return [
-        'propose_capability',
+        'request_access',
         JSON.stringify({
-          capabilityId: requirement.capabilityId,
-          displayName: formatCapabilityRequirement(requirement),
-          category: 'Local CLI',
-          risk: 'write',
-          source: 'local_cli',
-          credentialSource: 'local_cli',
-          accountLabel: implementation.name,
-          can: `Run reviewed ${implementation.name ?? 'local CLI'} command templates for this job.`,
-          cannot:
-            'Run commands outside the reviewed templates, receive raw tokens, or write credential stores.',
-          executablePath: implementation.executablePath,
-          executableVersion: implementation.executableVersion,
-          executableHash: implementation.executableHash,
-          commandTemplates: [implementation.commandTemplate],
-          ...(implementation.authPreflight
-            ? { authPreflightCommand: implementation.authPreflight }
-            : {}),
-          protectedPaths: implementation.protectedPaths ?? [],
-          networkHosts: implementation.networkHosts ?? [],
+          target: {
+            kind: 'capability',
+            id: requirement.capabilityId,
+          },
           reason: requirement.reason,
         }),
       ].join(' ');
@@ -118,9 +103,9 @@ export function capabilityRequirementSetupAction(
     ].join(' ');
   }
   return [
-    'propose_capability',
+    'request_access',
     JSON.stringify({
-      capabilityId: requirement.capabilityId,
+      target: { kind: 'capability', id: requirement.capabilityId },
       reason: requirement.reason,
     }),
   ].join(' ');
@@ -150,7 +135,7 @@ function normalizeImplementation(
   if (!IMPLEMENTATION_KINDS.has(input.kind)) {
     throw new ApplicationError(
       'INVALID_REQUEST',
-      'capabilityRequirements implementation.kind must be configured_access, local_cli, mcp_server, or builtin_tool.',
+      'accessRequirements capability implementation.kind must be configured_access, local_cli, mcp_server, or builtin_tool.',
     );
   }
   const implementation: NonNullable<
@@ -174,38 +159,38 @@ function normalizeImplementation(
     if (!implementation.executablePath) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.executablePath is required so the runtime does not rely on PATH resolution.',
+        'accessRequirements capability local_cli implementation.executablePath is required so the runtime does not rely on PATH resolution.',
       );
     }
     if (!isAbsoluteFilePath(implementation.executablePath)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.executablePath must be an absolute path.',
+        'accessRequirements capability local_cli implementation.executablePath must be an absolute path.',
       );
     }
     if (!implementation.commandTemplate) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.commandTemplate is required so the runtime can propose reviewed local CLI access.',
+        'accessRequirements capability local_cli implementation.commandTemplate is required so the runtime can request reviewed local CLI access.',
       );
     }
     if (!implementation.executableVersion) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.executableVersion is required so reviewed access is pinned to a specific CLI build.',
+        'accessRequirements capability local_cli implementation.executableVersion is required so reviewed access is pinned to a specific CLI build.',
       );
     }
     if (!implementation.executableHash) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.executableHash is required so reviewed access is pinned to a specific CLI executable.',
+        'accessRequirements capability local_cli implementation.executableHash is required so reviewed access is pinned to a specific CLI executable.',
       );
     }
     const executableToken = implementation.commandTemplate.split(/\s+/)[0];
     if (executableToken !== implementation.executablePath) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.commandTemplate must start with the exact executablePath.',
+        'accessRequirements capability local_cli implementation.commandTemplate must start with the exact executablePath.',
       );
     }
     const authPreflightToken = implementation.authPreflight?.split(/\s+/)[0];
@@ -215,7 +200,7 @@ function normalizeImplementation(
     ) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.authPreflight must start with the exact executablePath.',
+        'accessRequirements capability local_cli implementation.authPreflight must start with the exact executablePath.',
       );
     }
   }
@@ -242,7 +227,7 @@ function stringField(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
     throw new ApplicationError(
       'INVALID_REQUEST',
-      `capabilityRequirements ${field} is required.`,
+      `accessRequirements capability target.${field} is required.`,
     );
   }
   return value.trim();

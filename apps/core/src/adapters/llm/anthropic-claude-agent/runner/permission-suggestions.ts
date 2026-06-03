@@ -11,7 +11,7 @@ import {
   parseBashCommand,
 } from '../../../../shared/bash-command-parser.js';
 import { permissionUpdateAllowedToolRules } from '../../../../shared/permission-tool-rules.js';
-import { validatePersistentRequestPermissionRule } from '../../../../shared/persistent-permission-rules.js';
+import { validateDurableAccessRule } from '../../../../shared/durable-access-policy.js';
 import {
   expandSemanticCapabilityPermissionRules,
   semanticCapabilityRuntimeRules,
@@ -22,9 +22,11 @@ import {
   canonicalizeGeneratedRuntimeSkillPaths,
   containsGeneratedRuntimeSkillPath,
 } from '../../../../shared/generated-runtime-paths.js';
-import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
 import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
-import { evaluateAutonomousToolUse } from '../../../../shared/tool-rule-matcher.js';
+import {
+  evaluateAutonomousToolUse,
+  normalizeRuntimeOwnedBashCommandForMatching,
+} from '../../../../shared/tool-rule-matcher.js';
 
 export interface PermissionSuggestionPlan {
   suggestions?: unknown[];
@@ -244,7 +246,7 @@ function inferBashRuleContents(toolInput: unknown): string[] {
   if (typeof command !== 'string') return [];
   const rawCommand = command.trim();
   if (containsGeneratedRuntimeSkillPath(rawCommand)) return [];
-  const trimmed = canonicalizeGeneratedRuntimeSkillPaths(rawCommand);
+  const trimmed = normalizeRuntimeOwnedBashCommandForMatching(rawCommand);
   if (!trimmed || trimmed.length > 2048) return [];
   const parsed = parseBashCommand(trimmed);
   if (!parsed.ok) return [];
@@ -282,7 +284,7 @@ function skillActionPermissionSuggestion(
   const capability = matches[0];
   const rule = semanticCapabilityRule(capability.capabilityId);
   if (
-    !validatePersistentRequestPermissionRule(rule, {
+    !validateDurableAccessRule(rule, {
       semanticCapabilityDefinitions: {
         [capability.capabilityId]: capability,
       },
@@ -351,46 +353,7 @@ function canonicalizeToolInputGeneratedRuntimePaths(
 }
 
 function canonicalizeSkillActionCommandForMatching(command: string): string {
-  return stripRuntimeManagedEnvAssignments(
-    canonicalizeProjectSkillRoot(
-      canonicalizeGeneratedRuntimeSkillPaths(command),
-    ),
-  );
-}
-
-function canonicalizeProjectSkillRoot(command: string): string {
-  return command
-    .replace(
-      /(["']?)\$\{CLAUDE_PROJECT_DIR\}\/skills\//g,
-      (_match, quote: string) => `${quote}skills/`,
-    )
-    .replace(
-      /(["']?)\$CLAUDE_PROJECT_DIR\/skills\//g,
-      (_match, quote: string) => `${quote}skills/`,
-    );
-}
-
-function stripRuntimeManagedEnvAssignments(command: string): string {
-  let remaining = command.trimStart();
-  let changed = false;
-  do {
-    changed = false;
-    for (const key of NEUTRAL_CA_TRUST_ENV_KEYS) {
-      const pattern = new RegExp(
-        `^${escapeRegex(key)}=(?:"?\\$\\{?NODE_EXTRA_CA_CERTS\\}?"?|'\\$\\{?NODE_EXTRA_CA_CERTS\\}?')\\s+`,
-      );
-      const next = remaining.replace(pattern, '');
-      if (next !== remaining) {
-        remaining = next.trimStart();
-        changed = true;
-      }
-    }
-  } while (changed);
-  return remaining;
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+  return normalizeRuntimeOwnedBashCommandForMatching(command);
 }
 
 function splitReadableToolRule(rule: string): [string, string | undefined] {
@@ -400,5 +363,5 @@ function splitReadableToolRule(rule: string): [string, string | undefined] {
 }
 
 function validatePersistentRule(rule: string): boolean {
-  return validatePersistentRequestPermissionRule(rule).ok;
+  return validateDurableAccessRule(rule).ok;
 }

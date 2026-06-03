@@ -7,7 +7,7 @@ import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
-import { memoryAgentIdForGroupFolder } from '@core/memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '@core/memory/app-memory-boundaries.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -35,7 +35,7 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
     execution_context: {
       conversationJid: 'tg:scheduler',
       threadId: 'thread-scheduled',
-      groupScope: 'scheduler_agent',
+      workspaceKey: 'scheduler_agent',
       sessionId: null,
     },
     notification_routes: [
@@ -45,7 +45,7 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
         label: 'primary',
       },
     ],
-    group_scope: 'scheduler_agent',
+    workspace_key: 'scheduler_agent',
     created_by: 'human',
     created_at: now,
     updated_at: now,
@@ -102,12 +102,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     });
     expect(schedulerSyncs).toEqual([job.id]);
 
-    const agentId = memoryAgentIdForGroupFolder(job.group_scope);
+    const agentId = memoryAgentIdForWorkspaceFolder(job.workspace_key);
     const memoryService = new AppMemoryService(runtime.service.db);
     const savedMemory = await memoryService.save({
       appId: 'default',
       agentId,
-      groupId: job.group_scope,
+      groupId: job.workspace_key,
       channelId: 'conversation:tg:scheduler',
       threadId: 'thread-scheduled',
       kind: 'fact',
@@ -119,7 +119,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(savedMemory).toMatchObject({
       agentId,
       subjectType: 'channel',
-      groupId: job.group_scope,
+      groupId: job.workspace_key,
       channelId: 'conversation:tg:scheduler',
       key: 'handoff',
     });
@@ -141,7 +141,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(harness.runner.calls).toHaveLength(1);
     expect(harness.runner.calls[0]?.input).toMatchObject({
       prompt: job.prompt,
-      groupFolder: job.group_scope,
+      workspaceFolder: job.workspace_key,
       chatJid: 'tg:scheduler',
       threadId: job.thread_id,
       isScheduledJob: true,
@@ -232,7 +232,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       execution_context: {
         conversationJid: 'tg:scheduler',
         threadId: 'thread-scheduled',
-        groupScope: 'scheduler_agent',
+        workspaceKey: 'scheduler_agent',
         sessionId: 'control-session-correlation-only',
       },
     });
@@ -263,12 +263,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
 
     await runtime.ops.upsertJob(
       makeJob('system:dreaming:main_agent:tg-5759865942', {
-        group_scope: 'main_agent',
+        workspace_key: 'main_agent',
         name: 'Memory Dreaming (main_agent tg:5759865942)',
         execution_context: {
           conversationJid: 'tg:5759865942',
           threadId: null,
-          groupScope: 'main_agent',
+          workspaceKey: 'main_agent',
           sessionId: null,
         },
         notification_routes: [
@@ -317,12 +317,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       expect.arrayContaining([
         expect.objectContaining({
           jid: 'tg:scheduler',
-          text: expect.stringContaining('Running: Job'),
+          text: expect.stringContaining('Running** · Job'),
           threadId: job.thread_id,
         }),
         expect.objectContaining({
           jid: 'tg:scheduler',
-          text: expect.stringContaining('Completed: Job'),
+          text: expect.stringContaining('Completed** · Job'),
           threadId: job.thread_id,
         }),
       ]),
@@ -437,24 +437,24 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       appId: 'app-one',
       conversationId: 'conversation-app-one',
       chatJid: 'app:app-one:conversation',
-      groupFolder: 'app_one_agent',
+      workspaceFolder: 'app_one_agent',
       title: 'App One',
     });
     const appTwoSession = await runtime.control.ensureAppSession({
       appId: 'app-two',
       conversationId: 'conversation-app-two',
       chatJid: 'app:app-two:conversation',
-      groupFolder: 'app_two_agent',
+      workspaceFolder: 'app_two_agent',
       title: 'App Two',
     });
     const appOneJob = makeJob('job:integration:owner-app-one', {
       session_id: appOneSession.sessionId,
-      group_scope: 'app_one_agent',
+      workspace_key: 'app_one_agent',
       thread_id: null,
       execution_context: {
         conversationJid: 'app:app-one:conversation',
         threadId: null,
-        groupScope: 'app_one_agent',
+        workspaceKey: 'app_one_agent',
         sessionId: appOneSession.sessionId,
       },
       notification_routes: [
@@ -467,12 +467,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     });
     const appTwoJob = makeJob('job:integration:owner-app-two', {
       session_id: appTwoSession.sessionId,
-      group_scope: 'app_two_agent',
+      workspace_key: 'app_two_agent',
       thread_id: null,
       execution_context: {
         conversationJid: 'app:app-two:conversation',
         threadId: null,
-        groupScope: 'app_two_agent',
+        workspaceKey: 'app_two_agent',
         sessionId: appTwoSession.sessionId,
       },
       notification_routes: [

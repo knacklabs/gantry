@@ -20,8 +20,8 @@ export function formatMcpApprovalResponse(
     '',
     'Next action:',
     `- Refresh source inventory: call mcp_list_tools with serverName="${context.server.name}"`,
-    '- Request durable access: use capability_search, then propose_capability when a reviewed capability exists.',
-    '- Immediate one-off: use request_permission for an exact scoped action if no reviewed capability fits.',
+    '- Request durable access: use request_access with target.kind=capability when a reviewed capability exists.',
+    '- Immediate command fallback: use request_access with target.kind=run_command and temporaryOnly=true if no reviewed capability fits.',
     context.availableToolNames.length > 0
       ? `- Source-reported tool names: ${context.availableToolNames.join(', ')}`
       : '- No explicit tool names were provided; use mcp_list_tools to inspect available tools.',

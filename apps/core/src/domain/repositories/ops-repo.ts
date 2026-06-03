@@ -19,7 +19,7 @@ export interface JobUpsertInput {
   status?: Job['status'];
   session_id?: string | null;
   thread_id?: string | null;
-  group_scope: string;
+  workspace_key: string;
   created_by?: Job['created_by'];
   created_at?: string;
   updated_at?: string;
@@ -37,9 +37,7 @@ export interface JobUpsertInput {
   pause_reason?: string | null;
   execution_context?: Job['execution_context'];
   notification_routes?: Job['notification_routes'];
-  capability_requirements?: Job['capability_requirements'];
-  tool_access_requirements?: string[];
-  required_mcp_servers?: string[];
+  access_requirements?: Job['access_requirements'];
   setup_state?: Job['setup_state'];
   recovery_intent?: Job['recovery_intent'];
 }
@@ -47,7 +45,7 @@ export interface JobUpsertInput {
 export interface JobListFilters {
   appId?: string;
   statuses?: string[];
-  groupScope?: string;
+  workspaceKey?: string;
   threadId?: string | null;
   agentId?: string;
   kind?: 'manual' | 'once' | 'recurring';

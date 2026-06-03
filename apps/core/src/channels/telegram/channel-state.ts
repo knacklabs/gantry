@@ -492,6 +492,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
                 totalChunks: totalVisibleParts,
               });
               Object.assign(partial, {
+                provider: 'telegram',
                 deliveredParts: deliveredVisibleParts,
                 totalParts: totalVisibleParts,
                 externalMessageId: headExternalMessageId,
@@ -528,6 +529,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
           });
           if (overflowText.trim()) {
             Object.assign(partial, {
+              provider: 'telegram',
               deliveredParts: 1,
               totalParts: 2,
               externalMessageId: headExternalMessageId,
@@ -547,6 +549,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
             });
           } else {
             Object.assign(partial, {
+              provider: 'telegram',
               deliveredParts: 1,
               totalParts: 2,
               externalMessageId: headExternalMessageId,

@@ -21,9 +21,10 @@ import {
   parseBashCommand,
 } from './bash-command-parser.js';
 import { canonicalizeGeneratedRuntimeSkillPaths } from './generated-runtime-paths.js';
+import { NEUTRAL_CA_TRUST_ENV_KEYS } from './neutral-ca-trust-env.js';
 
 const MCP_WILDCARD_RE = /^mcp__([A-Za-z0-9_-]+)__\*$/;
-const MCP_EXACT_RE = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/;
+const MCP_EXACT_RE = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/;
 const SAFE_SCRIPT_INTERPRETERS = new Set(['python', 'python3']);
 
 interface ScopedToolSpec {
@@ -45,6 +46,9 @@ const EXACT_GANTRY_TOOL_RUNTIME_MATCHES: Record<string, readonly string[]> = {
 };
 
 const REGISTERED_DURABLE_EXACT_TOOLS = new Set(['Browser']);
+const GO_DNS_RUNTIME_ASSIGNMENT_RE = /^GODEBUG=netdns=go\s+/;
+const NEUTRAL_CA_RUNTIME_VALUE_RE =
+  /^(?:\$NODE_EXTRA_CA_CERTS|\$\{NODE_EXTRA_CA_CERTS\}|"[\$]NODE_EXTRA_CA_CERTS"|"[\$]\{NODE_EXTRA_CA_CERTS\}"|'[\$]NODE_EXTRA_CA_CERTS'|'[\$]\{NODE_EXTRA_CA_CERTS\}')\s+/;
 
 type ParsedToolRule =
   | { kind: 'exact'; toolName: string }
@@ -308,6 +312,29 @@ export function evaluateAutonomousToolUse(input: {
   };
 }
 
+export function normalizeRuntimeOwnedBashCommandForMatching(
+  command: string,
+): string {
+  let normalized = canonicalizeGeneratedRuntimeSkillPaths(
+    command
+      .trim()
+      .replace(
+        /(["']?)\$\{CLAUDE_PROJECT_DIR\}\/skills\//g,
+        (_match, quote: string) => `${quote}skills/`,
+      )
+      .replace(
+        /(["']?)\$CLAUDE_PROJECT_DIR\/skills\//g,
+        (_match, quote: string) => `${quote}skills/`,
+      ),
+  );
+
+  for (;;) {
+    const next = stripOneRuntimeOwnedAssignment(normalized);
+    if (next === normalized) return normalized;
+    normalized = next.trimStart();
+  }
+}
+
 function evaluateBashToolUse(input: {
   rules: readonly string[];
   toolInput?: unknown;
@@ -322,7 +349,7 @@ function evaluateBashToolUse(input: {
     };
   }
   const parsedCommand = parseBashCommand(
-    canonicalizeGeneratedRuntimeSkillPaths(command),
+    normalizeRuntimeOwnedBashCommandForMatching(command),
   );
   if (!parsedCommand.ok) {
     return {
@@ -391,6 +418,18 @@ function evaluateBashToolUse(input: {
     matchedRule: [...matchedRules].join(', '),
     matchedRules: [...matchedRules],
   };
+}
+
+function stripOneRuntimeOwnedAssignment(command: string): string {
+  const goDnsNext = command.replace(GO_DNS_RUNTIME_ASSIGNMENT_RE, '');
+  if (goDnsNext !== command) return goDnsNext;
+  for (const key of NEUTRAL_CA_TRUST_ENV_KEYS) {
+    if (!command.startsWith(`${key}=`)) continue;
+    const value = command.slice(key.length + 1);
+    if (!NEUTRAL_CA_RUNTIME_VALUE_RE.test(value)) continue;
+    return value.replace(NEUTRAL_CA_RUNTIME_VALUE_RE, '');
+  }
+  return command;
 }
 
 function parseToolRule(rule: string): ParsedToolRule | null {

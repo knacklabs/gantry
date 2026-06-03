@@ -1,6 +1,6 @@
 import {
   DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
+  memoryAgentIdForWorkspaceFolder,
 } from '../memory/app-memory-boundaries.js';
 import {
   resolveScopedMemorySubject,
@@ -203,7 +203,7 @@ export async function getGroupMemoryStatus(
         };
   const subject = resolveScopedMemorySubject({
     appId: DEFAULT_MEMORY_APP_ID,
-    agentId: memoryAgentIdForGroupFolder(context.folder),
+    agentId: memoryAgentIdForWorkspaceFolder(context.folder),
     groupId: context.folder,
     conversationId: context.conversationId,
     userId: context.userId,
@@ -339,7 +339,7 @@ export async function saveGroupProcedureMemory(input: {
 }) {
   const { subject } = resolveScopedMemorySubject({
     appId: DEFAULT_MEMORY_APP_ID,
-    agentId: memoryAgentIdForGroupFolder(input.folder),
+    agentId: memoryAgentIdForWorkspaceFolder(input.folder),
     groupId: input.folder,
     conversationId: input.conversationId,
     userId: input.userId,

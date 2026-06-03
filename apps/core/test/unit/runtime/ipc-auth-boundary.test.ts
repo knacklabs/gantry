@@ -132,7 +132,7 @@ describe('validateIpcAuthRequest', () => {
       executionContext: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
     };
 
@@ -166,7 +166,7 @@ describe('validateIpcAuthRequest', () => {
       executionContext: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       modelAlias: null,
     });
@@ -186,7 +186,7 @@ describe('validateIpcAuthRequest', () => {
       executionContext: {
         conversationJid: 'tg:team',
         threadId: 'thread-1',
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       notificationRoutes: [
         {
@@ -227,8 +227,35 @@ describe('validateIpcAuthRequest', () => {
     assertRejected({ threadId: 'thread-1' });
     assertRejected({ session_id: 'session-1' });
     assertRejected({ sessionId: 'session-1' });
-    assertRejected({ group_scope: 'team' });
-    assertRejected({ groupScope: 'team' });
+    const assertRejectedWith = (
+      extra: Record<string, unknown>,
+      message: string,
+    ) => {
+      const requestId = `task-non-canonical-job-fields-${Math.random().toString(36).slice(2)}`;
+      expect(() =>
+        parseTaskIpcData(
+          signedPayload(
+            {
+              ...basePayload,
+              requestId,
+              nonce: randomUUID(),
+              ...extra,
+            },
+            'team',
+            'thread-1',
+          ),
+          'team',
+        ),
+      ).toThrow(message);
+    };
+    assertRejectedWith(
+      { group_scope: 'team' },
+      'group_scope is no longer accepted. Use workspace_key.',
+    );
+    assertRejectedWith(
+      { groupScope: 'team' },
+      'groupScope is no longer accepted. Use workspaceKey.',
+    );
     assertRejected({ required_mcp_servers: ['mcp:legacy'] });
     assertRejected({ required_tools: ['Browser'] });
     assertRejected({
@@ -253,7 +280,7 @@ describe('validateIpcAuthRequest', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: 'thread-1',
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {
@@ -269,7 +296,7 @@ describe('validateIpcAuthRequest', () => {
     );
 
     expect(() => parseTaskIpcData(payload, 'team')).toThrow(
-      /requiredTools.*Use toolAccessRequirements/,
+      /requiredTools.*Use accessRequirements/,
     );
   });
 
@@ -315,14 +342,18 @@ describe('validateIpcAuthRequest', () => {
       prompt: 'Run',
       scheduleType: 'interval',
       scheduleValue: '60000',
-      toolAccessRequirements: ['Browser'],
-      requiredMcpServers: ['mcp:company-crm'],
+      accessRequirements: [
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+        { target: { kind: 'mcp_server', server: 'mcp:company-crm' } },
+      ],
     });
 
     expect(parseTaskIpcData(payload, 'team')).toMatchObject({
       type: 'scheduler_upsert_job',
-      toolAccessRequirements: ['Browser'],
-      requiredMcpServers: ['mcp:company-crm'],
+      accessRequirements: [
+        { target: { kind: 'tool_rule', rule: 'Browser' } },
+        { target: { kind: 'mcp_server', server: 'mcp:company-crm' } },
+      ],
     });
   });
 
@@ -337,43 +368,101 @@ describe('validateIpcAuthRequest', () => {
       prompt: 'Run',
       scheduleType: 'interval',
       scheduleValue: '60000',
-      capabilityRequirements: [
+      accessRequirements: [
         {
-          capabilityId: 'acme.records.append',
-          reason: 'Need spreadsheet',
-          implementation: {
-            kind: 'local_cli',
-            name: 'Sheets CLI',
-            executablePath: '/usr/local/bin/sheet-write',
-            executableVersion: 'v0.9.0',
-            executableHash: 'sha256:abc123',
-            commandTemplate: 'sheet-write',
-            protectedPaths: ['/tmp'],
-            networkHosts: ['sheets.example.test'],
+          target: {
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'Sheets CLI',
+              executablePath: '/usr/local/bin/sheet-write',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
+              commandTemplate: '/usr/local/bin/sheet-write append *',
+              protectedPaths: ['/tmp'],
+              networkHosts: ['sheets.example.test'],
+            },
           },
+          reason: 'Need spreadsheet',
         },
       ],
     });
 
     expect(parseTaskIpcData(payload, 'team')).toMatchObject({
       type: 'scheduler_upsert_job',
-      capabilityRequirements: [
+      accessRequirements: [
         {
-          capabilityId: 'acme.records.append',
-          reason: 'Need spreadsheet',
-          implementation: {
-            kind: 'local_cli',
-            name: 'Sheets CLI',
-            executablePath: '/usr/local/bin/sheet-write',
-            executableVersion: 'v0.9.0',
-            executableHash: 'sha256:abc123',
-            commandTemplate: 'sheet-write',
-            protectedPaths: ['/tmp'],
-            networkHosts: ['sheets.example.test'],
+          target: {
+            kind: 'capability',
+            capabilityId: 'acme.records.append',
+            implementation: {
+              kind: 'local_cli',
+              name: 'Sheets CLI',
+              executablePath: '/usr/local/bin/sheet-write',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
+              commandTemplate: '/usr/local/bin/sheet-write append *',
+              protectedPaths: ['/tmp'],
+              networkHosts: ['sheets.example.test'],
+            },
           },
+          reason: 'Need spreadsheet',
         },
       ],
     });
+  });
+
+  it('rejects malformed scheduler accessRequirements at the IPC boundary', () => {
+    const basePayload = {
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      type: 'scheduler_upsert_job',
+      context: { responseKeyId: TEST_RESPONSE_KEY_ID },
+      name: 'Job',
+      prompt: 'Run',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
+    };
+
+    expect(() =>
+      parseTaskIpcData(
+        signedPayload({
+          ...basePayload,
+          requestId: 'task-access-non-array',
+          accessRequirements: {
+            target: { kind: 'tool_rule', rule: 'Browser' },
+          },
+        }),
+        'team',
+      ),
+    ).toThrow(/accessRequirements must be an array/);
+
+    expect(() =>
+      parseTaskIpcData(
+        signedPayload({
+          ...basePayload,
+          requestId: 'task-access-missing-target',
+          accessRequirements: [{}],
+        }),
+        'team',
+      ),
+    ).toThrow(/accessRequirements entries require a target object/);
+
+    expect(() =>
+      parseTaskIpcData(
+        signedPayload({
+          ...basePayload,
+          requestId: 'task-access-invalid-kind',
+          accessRequirements: [
+            { target: { kind: 'raw_tool', rule: 'Browser' } },
+          ],
+        }),
+        'team',
+      ),
+    ).toThrow(
+      /accessRequirements target\.kind must be tool_rule, capability, or mcp_server/,
+    );
   });
 
   it('requires browser IPC signatures to match the chat-scoped token', () => {
@@ -939,11 +1028,11 @@ describe('validateIpcAuthRequest', () => {
           id === 'job-1'
             ? {
                 id: 'job-1',
-                group_scope: 'team',
+                workspace_key: 'team',
                 execution_context: {
                   conversationJid: 'tg:team',
                   threadId: 'topic-1',
-                  groupScope: 'team',
+                  workspaceKey: 'team',
                 },
               }
             : undefined,

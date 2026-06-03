@@ -13,6 +13,8 @@ vi.mock(
 
 const { createCanUseToolCallback } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
+const { WORKSPACE_FOLDER_OPTION_KEY } =
+  await import('@core/adapters/llm/anthropic-claude-agent/runner/types.js');
 
 function makePermissionOptions(overrides: Record<string, unknown> = {}) {
   return {
@@ -640,6 +642,26 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('passes the workspace folder under the shared permission-IPC key', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once',
+      updatedPermissions: undefined,
+      decidedBy: 'user',
+    });
+
+    const canUseTool = makeCallback({ workspaceFolder: '/repo' });
+    await canUseTool(
+      'Bash',
+      { command: 'npm test' },
+      makePermissionOptions() as never,
+    );
+
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ [WORKSPACE_FOLDER_OPTION_KEY]: '/repo' }),
+    );
+  });
+
   it('denies wait-only Bash monitoring instead of asking for permission', async () => {
     const canUseTool = makeCallback();
     const result = await canUseTool(
@@ -760,13 +782,7 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('omits timed access from autonomous job prompts with persistent facade suggestions', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_once',
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
+  it('denies exact facade access in autonomous jobs without permission prompts', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',
@@ -781,19 +797,22 @@ describe('createCanUseToolCallback', () => {
       } as never,
     });
 
-    await expect(
-      canUseTool(
-        'Read',
-        { file_path: 'package.json' },
-        makePermissionOptions({ displayName: 'Read' }) as never,
-      ),
-    ).resolves.toEqual(expect.objectContaining({ behavior: 'allow' }));
-
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+    const decision = await canUseTool(
+      'Read',
+      { file_path: 'package.json' },
+      makePermissionOptions({ displayName: 'Read' }) as never,
+    );
+    expect(decision).toEqual(
       expect.objectContaining({
-        decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
+        behavior: 'deny',
+        interrupt: false,
+        message: expect.stringContaining(
+          'Exact tool grants are not accepted as durable authority.',
+        ),
       }),
     );
+
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
   it('returns nonpersistent autonomous Bash denials without pausing the job', async () => {

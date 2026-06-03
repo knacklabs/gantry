@@ -29,10 +29,10 @@ function usage(): string {
     '  gantry credentials model set <provider>',
     '  gantry credentials model rotate <provider>',
     '  gantry credentials model disable <provider>',
-    '  gantry credentials capability list',
-    '  gantry credentials capability set <NAME> [--allow <capabilityId>]',
-    '  gantry credentials capability import-env <NAME> [--allow <capabilityId>]',
-    '  gantry credentials capability unset <NAME>',
+    '  gantry credentials access list',
+    '  gantry credentials access set <NAME> [--allow <capabilityId>]',
+    '  gantry credentials access import-env <NAME> [--allow <capabilityId>]',
+    '  gantry credentials access unset <NAME>',
     '  gantry credentials browser status',
   ].join('\n');
 }
@@ -46,7 +46,7 @@ export async function runCredentialsCommand(
     if (scope === 'model') {
       return await runModelCredentialCommand(runtimeHome, action, name, rest);
     }
-    if (scope === 'capability') {
+    if (scope === 'access') {
       return await runCapabilityCredentialCommand(
         runtimeHome,
         action,

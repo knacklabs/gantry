@@ -7,12 +7,17 @@ import { getServiceStatus } from '../infrastructure/service/manager.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { inspectMemoryHealth } from './memory-health.js';
-import { openRuntimeGroupDb } from './runtime-group-db.js';
-import type { ConversationRoute } from '../domain/types.js';
+import { isStorageUnavailableError } from '../adapters/storage/postgres/runtime-store.js';
+import {
+  buildControlPlaneReadModelFromSettings,
+  formatControlPlaneStatus,
+  type ControlPlaneReadModel,
+  type ControlPlaneMemoryStatus,
+} from '../application/control-plane/control-plane-read-model.js';
+import { buildControlPlaneReadModelFromRepositories } from '../application/control-plane/control-plane-storage-model.js';
+import type { AppId } from '../domain/app/app.js';
 
 export interface RuntimeStatusSummary {
-  runtimeHome: string;
-  runtimeMode: 'host';
   doctor: DoctorReport;
   service: {
     kind: string;
@@ -22,48 +27,13 @@ export interface RuntimeStatusSummary {
     id: string;
     label: string;
     enabled: boolean;
-    configuredEnvKeys: string[];
     missingEnvKeys: string[];
-    conversations: number;
-    dms: number;
-    channels: number;
   }>;
-  memoryEnabled: boolean;
-  memoryHealth: string;
-  storageCapabilityHealth: string;
-  storageCapabilityMessage: string;
-  storageCapabilityNextAction?: string;
-  embeddingsEnabled: boolean;
-  embeddingProvider: string;
-  embeddingProviderSource: string;
-  embeddingProviderHealth: string;
-  embeddingModel: string;
-  embeddingModelSource: string;
-  dreamingEnabled: boolean;
-  dreamingSource: string;
-  queuePolicy: {
-    maxMessageRuns: number;
-    maxJobRuns: number;
-    maxRetries: number;
-    baseRetryMs: number;
-  };
-}
-
-function countConversationRoutesForProvider(
-  routes: Record<string, ConversationRoute>,
-  jidPrefix: string,
-  isGroupJid: (jid: string) => boolean,
-): { conversations: number; dms: number; channels: number } {
-  const prefix = jidPrefix.endsWith('%') ? jidPrefix.slice(0, -1) : jidPrefix;
-  let dms = 0;
-  let channels = 0;
-  for (const [jid, route] of Object.entries(routes)) {
-    if (!jid.startsWith(prefix)) continue;
-    const kind = route.conversationKind ?? (isGroupJid(jid) ? 'channel' : 'dm');
-    if (kind === 'dm') dms += 1;
-    else channels += 1;
-  }
-  return { conversations: dms + channels, dms, channels };
+  accessNeedsApprovalCount: number;
+  modelCredentialReady: boolean;
+  memoryStatus: ControlPlaneMemoryStatus;
+  settings: ReturnType<typeof ensureRuntimeSettings>;
+  readModel?: ControlPlaneReadModel;
 }
 
 export async function collectRuntimeStatus(
@@ -77,176 +47,156 @@ export async function collectRuntimeStatus(
     validateTelegramToken: false,
   });
   const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
-  const embeddingsProviderCheck = doctor.checks.find(
-    (check) => check.id === 'embeddings-provider',
+  const accessNeedsApprovalCount = storageUnavailable(doctor)
+    ? 0
+    : await countPendingAccessApprovals(runtimeHome);
+  const brokerCheck = doctor.checks.find(
+    (check) => check.id === 'claude-broker',
   );
-  const storageCapabilityCheck = doctor.checks.find(
-    (check) => check.id === 'storage-capabilities',
+  const connectedProviderIds = new Set(
+    Object.values(settings.providerConnections).map(
+      (connection) => connection.provider,
+    ),
   );
-  let conversationRoutes: Record<string, ConversationRoute> = {};
-  let groupDb: Awaited<ReturnType<typeof openRuntimeGroupDb>> | null = null;
-  try {
-    groupDb = await openRuntimeGroupDb(runtimeHome, { migrate: false });
-    conversationRoutes = await groupDb.getAllConversationRoutes();
-  } catch {
-    conversationRoutes = {};
-  } finally {
-    if (groupDb) {
-      await groupDb.close();
-    }
-  }
 
-  const channels = listConnectableChannelProviders().map((provider) => {
-    const configuredEnvKeys: string[] = [];
-    const missingEnvKeys: string[] = [];
-    for (const envKey of provider.setup.envKeys) {
-      if (env[envKey]?.trim()) {
-        configuredEnvKeys.push(envKey);
-      } else {
-        missingEnvKeys.push(envKey);
+  const channels = listConnectableChannelProviders()
+    .filter(
+      (provider) =>
+        settings.providers[provider.id]?.enabled === true ||
+        connectedProviderIds.has(provider.id),
+    )
+    .map((provider) => {
+      const missingEnvKeys: string[] = [];
+      for (const envKey of provider.setup.envKeys) {
+        if (!env[envKey]?.trim()) {
+          missingEnvKeys.push(envKey);
+        }
       }
-    }
 
-    const routeCounts = countConversationRoutesForProvider(
-      conversationRoutes,
-      provider.jidPrefix,
-      provider.isGroupJid,
-    );
-    return {
-      id: provider.id,
-      label: provider.label,
-      enabled: settings.providers[provider.id]?.enabled ?? false,
-      configuredEnvKeys,
-      missingEnvKeys,
-      ...routeCounts,
-    };
-  });
+      return {
+        id: provider.id,
+        label: provider.label,
+        enabled: settings.providers[provider.id]?.enabled ?? false,
+        missingEnvKeys,
+      };
+    });
 
   return {
-    runtimeHome,
-    runtimeMode: 'host',
     doctor,
     service,
     channels,
-    memoryEnabled: memoryHealth.memoryEnabled,
-    memoryHealth: memoryHealth.memoryCheck.status,
-    storageCapabilityHealth: storageCapabilityCheck?.status || 'unknown',
-    storageCapabilityMessage:
-      storageCapabilityCheck?.message ||
-      'Storage capability checks were not available.',
-    storageCapabilityNextAction: storageCapabilityCheck?.nextAction,
-    embeddingsEnabled: memoryHealth.embeddingsEnabled,
-    embeddingProvider: memoryHealth.embeddingProvider,
-    embeddingProviderSource: memoryHealth.embeddingProviderSource,
-    embeddingProviderHealth: embeddingsProviderCheck?.status || 'unknown',
-    embeddingModel: memoryHealth.embeddingModel,
-    embeddingModelSource: memoryHealth.embeddingModelSource,
-    dreamingEnabled: memoryHealth.dreamingEnabled,
-    dreamingSource: memoryHealth.dreamingSource,
-    queuePolicy: settings.runtime.queue,
+    accessNeedsApprovalCount,
+    modelCredentialReady: brokerCheck?.status === 'pass',
+    memoryStatus: toControlPlaneMemoryStatus(
+      memoryHealth.memoryEnabled,
+      memoryHealth.memoryCheck.status,
+    ),
+    settings,
+    ...(!storageUnavailable(doctor)
+      ? {
+          readModel: await readControlPlaneModelFromStorage(
+            runtimeHome,
+            settings,
+          ),
+        }
+      : {}),
   };
 }
 
-function statusWord(value: boolean): string {
-  return value ? 'on' : 'off';
+function storageUnavailable(doctor: DoctorReport): boolean {
+  return doctor.checks.some(
+    (check) =>
+      (check.id === 'runtime-storage' || check.id === 'storage-capabilities') &&
+      check.status === 'fail',
+  );
 }
 
-function isServiceRunning(status: string): boolean {
-  return (
-    status === 'active' || status === 'running' || status.startsWith('running(')
-  );
+async function countPendingAccessApprovals(
+  runtimeHome: string,
+): Promise<number> {
+  process.env.GANTRY_HOME = runtimeHome;
+  try {
+    const { createStorageRuntime } =
+      await import('../adapters/storage/postgres/factory.js');
+    const storage = createStorageRuntime();
+    try {
+      return await storage.repositories.pendingAccessRequests.countPendingAccessRequests(
+        { appId: 'default' as AppId },
+      );
+    } finally {
+      await storage.runtimeEventNotifier.close().catch(() => undefined);
+      await storage.service.close().catch(() => undefined);
+    }
+  } catch (err) {
+    if (!isStorageUnavailableError(err)) {
+      console.warn(
+        `Storage degraded: ${err instanceof Error ? err.message : String(err)}. Pending access approvals may be undercounted.`,
+      );
+    }
+    return 0;
+  }
+}
+
+async function readControlPlaneModelFromStorage(
+  runtimeHome: string,
+  settings: ReturnType<typeof ensureRuntimeSettings>,
+): Promise<ControlPlaneReadModel | undefined> {
+  process.env.GANTRY_HOME = runtimeHome;
+  try {
+    const { createStorageRuntime } =
+      await import('../adapters/storage/postgres/factory.js');
+    const storage = createStorageRuntime();
+    try {
+      return await buildControlPlaneReadModelFromRepositories({
+        appId: 'default' as AppId,
+        settings,
+        jobsRepository: storage.ops,
+        jobControlRepository: storage.control,
+        modelCredentialsRepository: storage.repositories.modelCredentials,
+        pendingAccessRequestsRepository:
+          storage.repositories.pendingAccessRequests,
+      });
+    } finally {
+      await storage.runtimeEventNotifier.close().catch(() => undefined);
+      await storage.service.close().catch(() => undefined);
+    }
+  } catch (err) {
+    if (!isStorageUnavailableError(err)) {
+      console.warn(
+        `Storage degraded: ${err instanceof Error ? err.message : String(err)}. Jobs and access may be undercounted.`,
+      );
+    }
+    return undefined;
+  }
 }
 
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
-  const lines: string[] = [];
-  lines.push('Gantry Status');
-  lines.push('');
-  lines.push(`Runtime home: ${summary.runtimeHome}`);
-  lines.push(`Runtime mode: ${summary.runtimeMode}`);
-  lines.push(`Doctor: ${summary.doctor.ok ? 'healthy' : 'needs attention'}`);
-  lines.push(
-    `Doctor warnings: ${summary.doctor.warnings} | Doctor blocking issues: ${summary.doctor.blockingFailures}`,
-  );
-  lines.push(
-    `Database: ${summary.storageCapabilityHealth} (${summary.storageCapabilityMessage})`,
-  );
-  if (summary.storageCapabilityNextAction) {
-    lines.push(`Database next action: ${summary.storageCapabilityNextAction}`);
+  if (summary.readModel) {
+    return formatControlPlaneStatus(summary.readModel, summary.service);
   }
-  const readyChannels = summary.channels.filter(
-    (channel) =>
-      channel.enabled &&
-      channel.missingEnvKeys.length === 0 &&
-      channel.conversations > 0,
+  return formatControlPlaneStatus(
+    buildControlPlaneReadModelFromSettings({
+      settings: summary.settings,
+      workspaceKey: 'default',
+      runtimeBlocked: !summary.doctor.ok && summary.doctor.blockingFailures > 0,
+      modelCredentialReady: summary.modelCredentialReady,
+      providers: summary.channels.map((channel) => ({
+        id: channel.id,
+        label: channel.label,
+        ready: channel.enabled && channel.missingEnvKeys.length === 0,
+      })),
+      accessNeedsApprovalCount: summary.accessNeedsApprovalCount,
+      memoryStatus: summary.memoryStatus,
+    }),
+    summary.service,
   );
-  lines.push(`Channel: ${readyChannels.length > 0 ? 'ready' : 'needs setup'}`);
-  const brokerCheck = summary.doctor.checks.find(
-    (check) => check.id === 'claude-broker',
-  );
-  lines.push(`Model Access: ${brokerCheck?.status || 'unknown'}`);
-  const brokerPersistenceCheck = summary.doctor.checks.find(
-    (check) => check.id === 'model-credential-encryption',
-  );
-  lines.push(
-    `Credential encryption: ${brokerPersistenceCheck?.status || 'unknown'}`,
-  );
-  for (const channel of summary.channels) {
-    const credentials =
-      channel.missingEnvKeys.length === 0
-        ? channel.configuredEnvKeys.length > 0
-          ? 'configured'
-          : 'n/a'
-        : `missing ${channel.missingEnvKeys.join(', ')}`;
-    lines.push(
-      `${channel.label}: ${channel.enabled ? 'enabled' : 'disabled'} | credentials: ${credentials} | conversations: ${channel.conversations} (DMs: ${channel.dms}, channels/groups: ${channel.channels})`,
-    );
-  }
-  lines.push(`Memory: ${statusWord(summary.memoryEnabled)}`);
-  lines.push(`Memory storage: ${summary.memoryHealth} (Postgres app tables)`);
-  lines.push(`Embeddings: ${statusWord(summary.embeddingsEnabled)}`);
-  lines.push(
-    `Embedding provider: ${summary.embeddingProvider} (${summary.embeddingProviderHealth}, source: ${summary.embeddingProviderSource})`,
-  );
-  lines.push(
-    `Embedding model: ${summary.embeddingModel} (source: ${summary.embeddingModelSource})`,
-  );
-  lines.push(
-    `Dreaming: ${statusWord(summary.dreamingEnabled)} (source: ${summary.dreamingSource})`,
-  );
-  lines.push(
-    `Queue: messages=${summary.queuePolicy.maxMessageRuns} jobs=${summary.queuePolicy.maxJobRuns} retries=${summary.queuePolicy.maxRetries} base_retry_ms=${summary.queuePolicy.baseRetryMs}`,
-  );
-  lines.push(`Service (${summary.service.kind}): ${summary.service.status}`);
+}
 
-  const nextActions: string[] = [];
-  const hasReadyChannel = summary.channels.some(
-    (channel) =>
-      channel.enabled &&
-      channel.missingEnvKeys.length === 0 &&
-      channel.conversations > 0,
-  );
-  if (!hasReadyChannel) {
-    const connectCommands = summary.channels.map(
-      (channel) => `gantry provider connect ${channel.id}`,
-    );
-    nextActions.push(
-      `Run ${connectCommands.map((cmd) => `\`${cmd}\``).join(' or ')} to finish provider/conversation setup.`,
-    );
-  }
-  if (!summary.doctor.ok) {
-    nextActions.push('Run `gantry doctor` and fix blocking items.');
-  }
-  if (nextActions.length === 0 && isServiceRunning(summary.service.status)) {
-    nextActions.push('Gantry is running.');
-  } else if (nextActions.length === 0) {
-    nextActions.push('Run `gantry start` to start the runtime.');
-  }
-
-  lines.push('');
-  lines.push('Next actions:');
-  for (const action of nextActions) {
-    lines.push(`- ${action}`);
-  }
-
-  return lines.join('\n');
+function toControlPlaneMemoryStatus(
+  enabled: boolean,
+  health: string,
+): ControlPlaneMemoryStatus {
+  if (!enabled) return 'Disabled';
+  if (health === 'pass') return 'Ready';
+  return 'Needs setup';
 }

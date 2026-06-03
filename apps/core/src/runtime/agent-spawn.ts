@@ -15,8 +15,12 @@ import { ConversationRoute } from '../domain/types.js';
 import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../domain/models/credentials.js';
 import { LlmProfileResolutionService } from '../application/model-resolution/llm-profile-resolution-service.js';
 import type { LlmProfile } from '../domain/agent/agent.js';
-import { DEFAULT_SETUP_MODEL_ALIAS } from '../shared/model-catalog.js';
-import { resolveGroupFolderPath } from '../platform/group-folder.js';
+import {
+  DEFAULT_SETUP_MODEL_ALIAS,
+  type ModelCatalogEntry,
+} from '../shared/model-catalog.js';
+import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
@@ -25,7 +29,7 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
-import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
+import { ensureWorkspaceIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
@@ -42,7 +46,11 @@ import {
 } from '../application/agents/prompt-profile-service.js';
 import { executeRunnerProcess } from './agent-spawn-process.js';
 import { applyAgentEgressNoProxyEnv } from '../shared/no-proxy.js';
-import { closeEgressGateway, ensureEgressGateway } from './egress-gateway.js';
+import {
+  closeEgressGateway,
+  ensureEgressGateway,
+  type EgressNetworkAttribution,
+} from './egress-gateway.js';
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import {
   AgentInput,
@@ -53,6 +61,15 @@ import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-acti
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
+import type { MaterializedMcpServer } from '../domain/mcp/mcp-servers.js';
+import {
+  reviewedExternalMcpToolNamesFromRuntimeAccess,
+  type CapabilityRuntimeAccess,
+} from '../shared/capability-runtime-access.js';
+import {
+  filterMcpToolNamesBySourceScopes,
+  reviewedMcpToolPatterns,
+} from '../shared/mcp-tool-scope.js';
 import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { getRuntimeFileArtifactStore } from '../adapters/storage/postgres/runtime-store.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
@@ -160,6 +177,124 @@ function localCliCredentialPathHintsFromRuntimeAccess(
   );
   return [...new Set(dirs.map((dir) => dir.trim()).filter(Boolean))];
 }
+function egressNetworkAttributionFromRuntimeAccess(
+  runtimeAccess: AgentInput['runtimeAccess'],
+): EgressNetworkAttribution[] {
+  const attribution: EgressNetworkAttribution[] = [];
+  for (const access of runtimeAccess ?? []) {
+    if (
+      access.sourceType === 'local_cli' ||
+      access.sourceType === 'skill_action'
+    ) {
+      for (const binding of access.networkBindings ?? []) {
+        for (const host of binding.hosts ?? []) {
+          const trimmed = host.trim();
+          if (!trimmed) continue;
+          attribution.push({
+            host: trimmed,
+            capabilityId: access.selectedCapabilityId,
+            capabilityLabel: access.auditLabel,
+          });
+        }
+      }
+      continue;
+    }
+    if (access.sourceType === 'mcp_server') {
+      for (const host of access.networkHosts ?? []) {
+        const trimmed = host.trim();
+        if (!trimmed) continue;
+        attribution.push({
+          host: trimmed,
+          capabilityId: access.selectedCapabilityId,
+          capabilityLabel: access.auditLabel,
+        });
+      }
+    }
+  }
+  return attribution;
+}
+
+function modelProviderNetworkHostsFromModelEntry(
+  modelEntry: ModelCatalogEntry | undefined,
+): string[] {
+  if (!modelEntry) return [];
+  const provider = getModelProviderDefinition(modelEntry.modelRoute.id);
+  if (!provider?.gateway?.upstreamOrigin) return [];
+  try {
+    const upstream = new URL(provider.gateway.upstreamOrigin);
+    const host = upstream.hostname.trim();
+    if (!host) return [];
+    const port =
+      upstream.port || (upstream.protocol === 'http:' ? '80' : '443');
+    return [`${host}:${port}`];
+  } catch {
+    return [];
+  }
+}
+
+function withStdioMcpEgressEnv(
+  capabilities: readonly MaterializedMcpCapability[],
+  env: NodeJS.ProcessEnv,
+): MaterializedMcpCapability[] {
+  return capabilities.map((capability) => {
+    if (capability.config.type !== 'stdio') return capability;
+    const proxyEnv = {
+      HTTP_PROXY: env.GANTRY_EGRESS_PROXY_URL ?? '',
+      HTTPS_PROXY: env.GANTRY_EGRESS_PROXY_URL ?? '',
+      http_proxy: env.GANTRY_EGRESS_PROXY_URL ?? '',
+      https_proxy: env.GANTRY_EGRESS_PROXY_URL ?? '',
+      NODE_USE_ENV_PROXY: '1',
+      NO_PROXY: env.NO_PROXY ?? '',
+      no_proxy: env.no_proxy ?? '',
+    };
+    return {
+      ...capability,
+      config: {
+        ...capability.config,
+        env: {
+          ...(capability.config.env ?? {}),
+          ...proxyEnv,
+        },
+      },
+    };
+  });
+}
+
+function attachMcpSourceNetworkHosts(
+  runtimeAccess: readonly CapabilityRuntimeAccess[],
+  capabilities: readonly MaterializedMcpCapability[],
+): CapabilityRuntimeAccess[] {
+  const hostsByServer = new Map(
+    capabilities.map((capability) => [
+      capability.name,
+      capability.networkHosts,
+    ]),
+  );
+  return runtimeAccess.map((access) => {
+    if (access.sourceType !== 'mcp_server') return access;
+    const serverName = mcpServerNameFromRuntimeAccess(access);
+    const sourceHosts = serverName ? hostsByServer.get(serverName) : undefined;
+    if (!sourceHosts?.length) return access;
+    return {
+      ...access,
+      networkHosts: [...new Set([...access.networkHosts, ...sourceHosts])],
+    };
+  });
+}
+
+function mcpServerNameFromRuntimeAccess(
+  access: Extract<CapabilityRuntimeAccess, { sourceType: 'mcp_server' }>,
+): string | undefined {
+  if (access.reviewedServerId && access.reviewedServerId !== 'unknown') {
+    return access.reviewedServerId;
+  }
+  for (const toolName of access.allowedTools) {
+    const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
 function expandCredentialPathTemplate(
   value: string,
   source: NodeJS.ProcessEnv,
@@ -231,7 +366,7 @@ export async function spawnAgent(
 ): Promise<AgentOutput> {
   const startTime = currentTimeMs();
 
-  const groupDir = resolveGroupFolderPath(group.folder);
+  const groupDir = resolveWorkspaceFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
@@ -325,7 +460,7 @@ export async function spawnAgent(
   };
 
   const hostRuntime = prepareHostRuntimeContext(group);
-  ensureGroupIpcLayout(hostRuntime.groupIpcDir);
+  ensureWorkspaceIpcLayout(hostRuntime.workspaceIpcDir);
   let executionAdapter: NonNullable<RunAgentOptions['executionAdapter']>;
   try {
     executionAdapter = resolveAgentExecutionAdapter({
@@ -418,30 +553,85 @@ export async function spawnAgent(
       'stdio.js',
     );
     const attachedMcpSourceIds = input.attachedMcpSourceIds ?? [];
+    const mcpSourceRecords: MaterializedMcpServer[] =
+      options?.mcpServerRepository &&
+      options.mcpContext?.appId &&
+      options.mcpContext.agentId &&
+      attachedMcpSourceIds.length > 0
+        ? await options.mcpServerRepository.listMaterializedServersForAgent({
+            appId: options.mcpContext.appId as never,
+            agentId: options.mcpContext.agentId as never,
+            serverIds: attachedMcpSourceIds as never,
+          })
+        : [];
+    const mcpSourceScopes = mcpSourceRecords.map(({ definition, binding }) => ({
+      name: definition.name,
+      allowedToolPatterns:
+        binding.allowedToolPatterns.length > 0
+          ? binding.allowedToolPatterns
+          : reviewedMcpToolPatterns(definition),
+    }));
+    const sourceScopedReviewedMcpToolNames = filterMcpToolNamesBySourceScopes(
+      reviewedExternalMcpToolNamesFromRuntimeAccess(input.runtimeAccess ?? [], {
+        serverNames: mcpSourceScopes.map((scope) => scope.name),
+      }),
+      mcpSourceScopes,
+    );
+    const reviewedMcpServerNames = new Set(
+      sourceScopedReviewedMcpToolNames.flatMap((toolName) => {
+        const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
+        return match?.[1] ? [match[1]] : [];
+      }),
+    );
+    const directMcpSourceRecords = mcpSourceRecords.filter(
+      ({ definition }) =>
+        definition.config.transport === 'stdio_template' &&
+        reviewedMcpServerNames.has(definition.name),
+    );
+    const directMcpServerNames = new Set(
+      directMcpSourceRecords.map(({ definition }) => definition.name),
+    );
+    const reviewedMcpToolNames = sourceScopedReviewedMcpToolNames.filter(
+      (toolName) => {
+        const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolName.trim());
+        return match?.[1] ? directMcpServerNames.has(match[1]) : false;
+      },
+    );
+    const projectedMcpSourceIds = directMcpSourceRecords.map(
+      ({ definition }) => definition.id,
+    );
     const allMcpCapabilities: MaterializedMcpCapability[] =
       options?.mcpServerRepository &&
       options.capabilitySecretRepository &&
       options.mcpContext?.appId &&
       options.mcpContext.agentId &&
-      attachedMcpSourceIds.length > 0
+      projectedMcpSourceIds.length > 0
         ? await new McpServerService(options.mcpServerRepository, undefined, {
             lookupHostname: options.mcpHostnameLookup,
             dnsValidationCache: options.mcpDnsValidationCache,
           }).materializeForAgent({
             appId: options.mcpContext.appId as never,
             agentId: options.mcpContext.agentId as never,
-            serverIds: attachedMcpSourceIds as never,
-            credentialEnv: options.capabilitySecretRepository
-              ? await resolveMcpCredentialEnvForAgent({
-                  appId: options.mcpContext.appId as never,
-                  agentId: options.mcpContext.agentId as never,
-                  serverIds: attachedMcpSourceIds as never,
-                  mcpServers: options.mcpServerRepository,
-                  secrets: options.capabilitySecretRepository,
-                })
-              : {},
+            serverIds: projectedMcpSourceIds as never,
+            credentialEnv: await resolveMcpCredentialEnvForAgent({
+              appId: options.mcpContext.appId as never,
+              agentId: options.mcpContext.agentId as never,
+              serverIds: projectedMcpSourceIds as never,
+              mcpServers: options.mcpServerRepository,
+              secrets: options.capabilitySecretRepository,
+            }),
           })
         : [];
+    const effectiveRuntimeAccess = attachMcpSourceNetworkHosts(
+      input.runtimeAccess ?? [],
+      allMcpCapabilities,
+    );
+    runnerInput.runtimeAccess = effectiveRuntimeAccess;
+    const modelProviderNetworkHosts =
+      modelProviderNetworkHostsFromModelEntry(effectiveModelEntry);
+    const networkAttribution = egressNetworkAttributionFromRuntimeAccess(
+      effectiveRuntimeAccess,
+    );
     const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
       trustedAllowedTools ?? [],
       {
@@ -461,6 +651,11 @@ export async function spawnAgent(
         ...(input.runId ? { runId: input.runId } : {}),
         ...(input.jobId ? { jobId: input.jobId } : {}),
       },
+      modelProviderNetworkHosts,
+      networkAttribution,
+      ...(options?.mcpHostnameLookup
+        ? { lookupHostname: options.mcpHostnameLookup }
+        : {}),
       ...(upstreamProxyUrl
         ? {
             upstreamProxy: {
@@ -485,7 +680,7 @@ export async function spawnAgent(
       runnerInput.semanticCapabilities = runnerInputPatch.semanticCapabilities;
     }
     const localCliCredentialPaths = resolveHomeRelativePaths(
-      localCliCredentialPathHintsFromRuntimeAccess(input.runtimeAccess),
+      localCliCredentialPathHintsFromRuntimeAccess(effectiveRuntimeAccess),
       process.env,
     );
     const env: NodeJS.ProcessEnv = {
@@ -495,7 +690,7 @@ export async function spawnAgent(
       GANTRY_MCP_SERVER_PATH: mcpServerPath,
       GANTRY_WORKSPACE_GROUP_DIR: hostRuntime.groupDir,
       GANTRY_WORKSPACE_GLOBAL_DIR: '',
-      GANTRY_GROUP_FOLDER: group.folder,
+      GANTRY_WORKSPACE_KEY: group.folder,
       GANTRY_APP_ID: runnerAppId,
       ...(input.agentId ? { GANTRY_AGENT_ID: input.agentId } : {}),
       GANTRY_AGENT_RUN_HANDLE: processName,
@@ -505,7 +700,7 @@ export async function spawnAgent(
         group.folder,
         'extra',
       ),
-      GANTRY_IPC_DIR: hostRuntime.groupIpcDir,
+      GANTRY_IPC_DIR: hostRuntime.workspaceIpcDir,
       GANTRY_IPC_INPUT_DIR: ipcInputDir,
       GANTRY_IPC_AUTH_TOKEN: ipcAuth.authToken,
       GANTRY_CHAT_JID: input.chatJid,
@@ -543,7 +738,7 @@ export async function spawnAgent(
       GANTRY_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
       GANTRY_EGRESS_PROXY_URL: egressGateway.proxyUrl,
     };
-    applyAgentEgressNoProxyEnv(env);
+    applyAgentEgressNoProxyEnv(env, { externalBypass: false });
     // Job-level model overrides group-level model.
     const effectiveModelSource = input.model ? 'job.model' : modelConfig.source;
 
@@ -592,24 +787,22 @@ export async function spawnAgent(
             agentId: options.skillContext.agentId as never,
             skills: options.skillRepository,
             secrets: options.capabilitySecretRepository,
-            runtimeAccess: input.runtimeAccess ?? [],
+            runtimeAccess: effectiveRuntimeAccess,
           })
         : { env: {} };
     Object.assign(env, pickSelectedCapabilityEnv(selectedSkillEnv.env));
     mcpConfigPath =
       allMcpCapabilities.length > 0
-        ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
+        ? writeRunnerMcpConfigFile(
+            hostRuntime.workspaceIpcDir,
+            withStdioMcpEgressEnv(allMcpCapabilities, env),
+          )
         : undefined;
     if (mcpConfigPath) {
       env.GANTRY_MCP_CONFIG_FILE = mcpConfigPath;
-      env.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(
-        allMcpCapabilities.flatMap((capability) => capability.allowedToolNames),
-      );
-      env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON = JSON.stringify(
-        allMcpCapabilities.flatMap(
-          (capability) => capability.autoApproveToolNames,
-        ),
-      );
+      env.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(reviewedMcpToolNames);
+      env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON =
+        env.GANTRY_MCP_ALLOWED_TOOLS_JSON;
     }
     const protectedFilesystemDenyReadPaths = [
       ...(preparedExecution.protectedFilesystemDenyReadPaths ??

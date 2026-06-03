@@ -1,5 +1,31 @@
 import { createHash } from 'crypto';
 
+export interface SchedulerJobAccessRequirementImplementation {
+  kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+  name?: string;
+  executablePath?: string;
+  executableVersion?: string;
+  executableHash?: string;
+  commandTemplate?: string;
+  authPreflight?: string;
+  protectedPaths?: string[];
+  networkHosts?: string[];
+}
+
+export type SchedulerJobAccessRequirementTarget =
+  | { kind: 'tool_rule'; rule: string }
+  | {
+      kind: 'capability';
+      capabilityId: string;
+      implementation?: SchedulerJobAccessRequirementImplementation;
+    }
+  | { kind: 'mcp_server'; server: string };
+
+export interface SchedulerJobAccessRequirement {
+  target: SchedulerJobAccessRequirementTarget;
+  reason?: string;
+}
+
 export interface SchedulerJobPlanInput {
   jobId?: string | null;
   name: string;
@@ -10,7 +36,7 @@ export interface SchedulerJobPlanInput {
   executionContext?: {
     conversationJid: string;
     threadId: string | null;
-    groupScope: string;
+    workspaceKey: string;
     sessionId?: string | null;
   };
   notificationRoutes?: Array<{
@@ -18,20 +44,7 @@ export interface SchedulerJobPlanInput {
     threadId: string | null;
     label: string;
   }>;
-  capabilityRequirements?: Array<{
-    capabilityId: string;
-    reason: string;
-    implementation?: {
-      kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
-      name?: string;
-      executablePath?: string;
-      commandTemplate?: string;
-      authPreflight?: string;
-      protectedPaths?: string[];
-    };
-  }>;
-  toolAccessRequirements?: string[];
-  requiredMcpServers?: string[];
+  accessRequirements?: SchedulerJobAccessRequirement[];
   silent?: boolean;
   cleanupAfterMs?: number;
   timeoutMs?: number;
@@ -75,26 +88,37 @@ export function formatSchedulerJobPlan(
   const runtime =
     input.runtimeDescription ??
     `execution ${formatExecutionContext(input.executionContext)}; notifications ${routeText}; background`;
+  const requirements = input.accessRequirements ?? [];
+  const toolRules = requirements
+    .map((req) => (req.target.kind === 'tool_rule' ? req.target.rule : null))
+    .filter((rule): rule is string => Boolean(rule));
+  const capabilities = requirements.filter(
+    (req) => req.target.kind === 'capability',
+  );
+  const mcpServers = requirements
+    .map((req) => (req.target.kind === 'mcp_server' ? req.target.server : null))
+    .filter((server): server is string => Boolean(server));
   const toolAccessRequirements =
-    input.toolAccessRequirements && input.toolAccessRequirements.length > 0
-      ? input.toolAccessRequirements.join(', ')
-      : 'none';
+    toolRules.length > 0 ? `tools ${toolRules.join(', ')}` : undefined;
   const requiredCapabilities =
-    input.capabilityRequirements && input.capabilityRequirements.length > 0
-      ? input.capabilityRequirements.map(formatCapabilityRequirement).join(', ')
-      : 'none';
+    capabilities.length > 0
+      ? `capabilities ${capabilities.map(formatCapabilityRequirement).join(', ')}`
+      : undefined;
   const requiredMcpServers =
-    input.requiredMcpServers && input.requiredMcpServers.length > 0
-      ? input.requiredMcpServers.join(', ')
-      : 'none';
+    mcpServers.length > 0 ? `MCP servers ${mcpServers.join(', ')}` : undefined;
+  const accessRequirements = [
+    requiredCapabilities,
+    toolAccessRequirements,
+    requiredMcpServers,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join('; ');
   return [
     'Scheduler job plan. Review before confirming.',
     `- Schedule: ${input.scheduleType} ${input.scheduleValue || '(empty)'}`,
     `- Model: ${model}`,
-    `- Required capabilities: ${requiredCapabilities}`,
-    `- Tool access requirements: ${toolAccessRequirements}`,
-    `- Required MCP servers: ${requiredMcpServers}`,
-    '- Tool access: inherited from the target agent capability selection; use capability:<id> for reviewed semantic access, and reserve scoped RunCommand(...) for one-off exact command preflights.',
+    `- Access requirements: ${accessRequirements || 'none'}`,
+    '- Access: inherited from the target agent capability selection; use capability:<id> for reviewed semantic access, and reserve scoped RunCommand(...) for one-off exact command preflights.',
     '- Network: governed by the same tool permission and sandbox policy as live runs; no standalone scheduler network grant is created.',
     '- Memory: uses the target agent runtime memory settings; no memory schema or store changes are made by this plan.',
     `- Runtime: ${runtime}`,
@@ -107,7 +131,7 @@ function formatExecutionContext(
   context: SchedulerJobPlanInput['executionContext'],
 ): string {
   if (!context) return 'current conversation';
-  return `${context.conversationJid}${context.threadId ? `#${context.threadId}` : ''} (${context.groupScope})`;
+  return `${context.conversationJid}${context.threadId ? `#${context.threadId}` : ''} (${context.workspaceKey})`;
 }
 
 function normalizePlanInput(
@@ -122,9 +146,7 @@ function normalizePlanInput(
     scheduleValue: input.scheduleValue,
     executionContext: input.executionContext,
     notificationRoutes: input.notificationRoutes ?? [],
-    capabilityRequirements: input.capabilityRequirements ?? [],
-    toolAccessRequirements: input.toolAccessRequirements ?? [],
-    requiredMcpServers: input.requiredMcpServers ?? [],
+    accessRequirements: input.accessRequirements ?? [],
     silent: input.silent ?? false,
     cleanupAfterMs: input.cleanupAfterMs,
     timeoutMs: input.timeoutMs,
@@ -136,15 +158,14 @@ function normalizePlanInput(
 }
 
 function formatCapabilityRequirement(
-  requirement: NonNullable<
-    SchedulerJobPlanInput['capabilityRequirements']
-  >[number],
+  requirement: SchedulerJobAccessRequirement,
 ): string {
-  const capability = requirement.capabilityId
+  if (requirement.target.kind !== 'capability') return '';
+  const capability = requirement.target.capabilityId
     .split('.')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-  const name = requirement.implementation?.name?.trim();
+  const name = requirement.target.implementation?.name?.trim();
   return name ? `${capability} using ${name}` : capability;
 }
 

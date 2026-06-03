@@ -115,15 +115,15 @@ Supported settings roots:
 | `model_access`         | User/admin editable, advanced form      | Gantry model gateway enablement and loopback bind host only.                                                                                 |
 | `desired_state`        | Admin/export flow                       | Desired-state reconciliation switch.                                                                                                         |
 
-`agents.<id>.sources` is inventory. Installing a skill, connecting an MCP
+`agents.<id>.access.sources` is inventory. Installing a skill, connecting an MCP
 server, attaching a built-in, adapter, or local CLI may update this list after
 review, but it never grants authority by itself.
 
-`agents.<id>.capabilities` is durable authority. Agents may request capability
-changes with `capability_search`, `propose_capability`, and
-`manage_capability`; Gantry writes the selected capability only after the
-approval flow succeeds. `request_permission` remains the exact one-off fallback,
-not the normal path for durable semantic authority.
+`agents.<id>.access.selections` is durable authority. Agents may request reviewed
+capability ids with `request_access target.kind=capability`; Gantry writes the
+selected capability only after the approval flow succeeds.
+`request_access target.kind=run_command` remains the exact scoped command
+fallback, not the normal path for durable semantic authority.
 
 Optional queue tuning:
 

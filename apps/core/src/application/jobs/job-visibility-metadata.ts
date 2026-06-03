@@ -1,4 +1,9 @@
-import type { Job, JobRun } from '../../domain/types.js';
+import type {
+  Job,
+  JobCapabilityRequirement,
+  JobRun,
+} from '../../domain/types.js';
+import { splitAccessRequirements } from './job-access-requirements.js';
 import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
@@ -10,7 +15,7 @@ import type {
 } from './job-management-types.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import {
-  agentIdForJobGroupScope,
+  agentIdForJobWorkspaceKey,
   resolveAgentToolBindings,
   resolveJobToolPolicy,
 } from './job-tool-policy.js';
@@ -30,6 +35,7 @@ import {
 import {
   setupActionLabel,
   setupActionLabelFromNextAction,
+  setupReadinessLabel,
 } from '../../shared/job-setup-labels.js';
 
 export interface JobVisibilityMetadata {
@@ -38,7 +44,7 @@ export interface JobVisibilityMetadata {
   target: {
     appId: string;
     agentId: string;
-    groupScope: string;
+    workspaceKey: string;
     conversationJids: string[];
     threadId: string | null;
   };
@@ -50,7 +56,7 @@ export interface JobVisibilityMetadata {
   fullPrompt?: string;
   inheritedTools: string[];
   effectiveAllowedTools: string[];
-  capabilityRequirements: NonNullable<Job['capability_requirements']>;
+  capabilityRequirements: JobCapabilityRequirement[];
   toolAccessRequirements: string[];
   requiredMcpServers: string[];
   toolAccess: JobToolAccessView;
@@ -131,7 +137,7 @@ export async function buildJobVisibilityMetadata(input: {
     input.job,
     executionContext,
   );
-  const agentId = agentIdForJobGroupScope(input.job.group_scope);
+  const agentId = agentIdForJobWorkspaceKey(input.job.workspace_key);
   const policy = await resolveJobToolPolicy({
     job: input.job,
     appId,
@@ -165,7 +171,7 @@ export async function buildJobVisibilityMetadata(input: {
     target: {
       appId,
       agentId,
-      groupScope: input.job.group_scope,
+      workspaceKey: input.job.workspace_key,
       conversationJids: dedupeConversationJids(notificationRoutes),
       threadId: executionContext.threadId,
     },
@@ -174,9 +180,7 @@ export async function buildJobVisibilityMetadata(input: {
     fullPrompt: input.job.prompt,
     inheritedTools: policy.inheritedTools,
     effectiveAllowedTools: policy.effectiveAllowedTools,
-    capabilityRequirements: input.job.capability_requirements ?? [],
-    toolAccessRequirements: input.job.tool_access_requirements ?? [],
-    requiredMcpServers: input.job.required_mcp_servers ?? [],
+    ...splitAccessRequirements(input.job.access_requirements),
     toolAccess: buildJobToolAccessView({
       inheritedAgentTools: policy.inheritedTools,
       effectiveAllowedTools: policy.effectiveAllowedTools,
@@ -231,7 +235,7 @@ export async function buildJobListVisibilityMetadata(input: {
           job,
           executionContext,
         );
-        const agentId = agentIdForJobGroupScope(job.group_scope);
+        const agentId = agentIdForJobWorkspaceKey(job.workspace_key);
         const inheritedTools = await loadInheritedTools(appId, agentId);
         const effectiveAllowedTools = mergeUnique(inheritedTools);
         const staleness = schedulerJobStaleness(job, nowMs);
@@ -255,7 +259,7 @@ export async function buildJobListVisibilityMetadata(input: {
           target: {
             appId,
             agentId,
-            groupScope: job.group_scope,
+            workspaceKey: job.workspace_key,
             conversationJids: dedupeConversationJids(notificationRoutes),
             threadId: executionContext.threadId,
           },
@@ -263,9 +267,7 @@ export async function buildJobListVisibilityMetadata(input: {
           promptPreview: promptPreview(job.prompt),
           inheritedTools,
           effectiveAllowedTools,
-          capabilityRequirements: job.capability_requirements ?? [],
-          toolAccessRequirements: job.tool_access_requirements ?? [],
-          requiredMcpServers: job.required_mcp_servers ?? [],
+          ...splitAccessRequirements(job.access_requirements),
           toolAccess: buildJobToolAccessView({
             inheritedAgentTools: inheritedTools,
             effectiveAllowedTools,
@@ -420,12 +422,6 @@ function genericConversationDeliveryLabel(
 
 // "Needs approval" only fits capability/permission grants; broker, credential,
 // and browser-login blockers are not approvals, so they read as "Needs setup".
-function setupReadinessLabel(state: string | undefined): string {
-  if (state === 'ready' || !state) return 'Ready';
-  if (state === 'missing_capability') return 'Needs approval';
-  return 'Needs setup';
-}
-
 function setupMetadataForJob(job: Job): JobSetupMetadata {
   const setup = job.setup_state;
   const blockers = setup?.blockers ?? [];
@@ -514,13 +510,13 @@ function resolveExecutionContext(job: Job): JobExecutionContextInput {
     stored &&
     typeof stored.conversationJid === 'string' &&
     stored.conversationJid.trim() &&
-    typeof stored.groupScope === 'string' &&
-    stored.groupScope.trim()
+    typeof stored.workspaceKey === 'string' &&
+    stored.workspaceKey.trim()
   ) {
     return {
       conversationJid: stored.conversationJid,
       threadId: stored.threadId ?? null,
-      groupScope: stored.groupScope,
+      workspaceKey: stored.workspaceKey,
       sessionId:
         stored.sessionId === undefined ? job.session_id : stored.sessionId,
     };
@@ -535,7 +531,7 @@ function resolveExecutionContext(job: Job): JobExecutionContextInput {
   return {
     conversationJid: fallbackConversationJid ?? '',
     threadId: job.thread_id,
-    groupScope: job.group_scope,
+    workspaceKey: job.workspace_key,
     sessionId: job.session_id,
   };
 }

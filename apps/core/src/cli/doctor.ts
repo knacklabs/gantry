@@ -32,6 +32,7 @@ import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/sto
 import { validateRuntimeEnvPolicy } from '../config/source-classification.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
+import type { GuidedActionRef } from '../application/guided-actions/guided-action-model.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -41,6 +42,7 @@ export interface DoctorCheck {
   status: DoctorStatus;
   message: string;
   nextAction?: string;
+  action?: GuidedActionRef;
 }
 
 export interface DoctorReport {
@@ -121,6 +123,10 @@ export function runDoctor(
       status: 'fail',
       message: `Node ${nodeVersion} detected. Gantry requires Node >=24 <26.`,
       nextAction: 'Install Node.js 24 or 25 and run `gantry doctor` again.',
+      action: {
+        type: 'run_verification',
+        label: 'Install Node.js 24 or 25 and run `gantry doctor` again.',
+      },
     });
   }
 
@@ -139,6 +145,10 @@ export function runDoctor(
       status: 'fail',
       message: err instanceof Error ? err.message : String(err),
       nextAction: 'Reinstall Gantry from npm, then run `gantry doctor` again.',
+      action: {
+        type: 'run_verification',
+        label: 'Reinstall Gantry from npm, then run `gantry doctor` again.',
+      },
     });
   }
 
@@ -151,15 +161,20 @@ export function runDoctor(
       message: `Runtime home is writable: ${runtimeHome}`,
     });
   } catch (err) {
+    const runtimeHomeNextAction =
+      err instanceof Error
+        ? `Fix permissions or choose another runtime home. Details: ${err.message}`
+        : 'Fix runtime-home permissions or choose a different path.';
     add(checks, {
       id: 'runtime-home',
       title: 'Runtime Home',
       status: 'fail',
       message: `Cannot write to runtime home ${runtimeHome}.`,
-      nextAction:
-        err instanceof Error
-          ? `Fix permissions or choose another runtime home. Details: ${err.message}`
-          : 'Fix runtime-home permissions or choose a different path.',
+      nextAction: runtimeHomeNextAction,
+      action: {
+        type: 'run_verification',
+        label: runtimeHomeNextAction,
+      },
     });
   }
 
@@ -174,15 +189,20 @@ export function runDoctor(
         'IPC base directory is writable. Use `gantry status` for Postgres-backed group counts.',
     });
   } catch (err) {
+    const ipcLayoutNextAction =
+      err instanceof Error
+        ? `Fix runtime-home permissions. Details: ${err.message}`
+        : 'Fix runtime-home permissions and rerun doctor.';
     add(checks, {
       id: 'ipc-layout',
       title: 'IPC Layout',
       status: 'fail',
       message: `IPC layout is not writable at ${ipcBaseDir}.`,
-      nextAction:
-        err instanceof Error
-          ? `Fix runtime-home permissions. Details: ${err.message}`
-          : 'Fix runtime-home permissions and rerun doctor.',
+      nextAction: ipcLayoutNextAction,
+      action: {
+        type: 'run_verification',
+        label: ipcLayoutNextAction,
+      },
     });
   }
 
@@ -211,6 +231,10 @@ export function runDoctor(
         message:
           'Runtime settings are valid, but no providers are enabled in settings.yaml.',
         nextAction: `Run ${providers.map((provider) => `\`gantry provider connect ${provider.id}\``).join(' or ')} to enable a provider.`,
+        action: {
+          type: 'connect_provider',
+          label: `Run ${providers.map((provider) => `\`gantry provider connect ${provider.id}\``).join(' or ')} to enable a provider.`,
+        },
       });
     }
     const postgresUrlEnv = settings.storage.postgres.urlEnv;
@@ -242,6 +266,9 @@ export function runDoctor(
       status: storageStatus,
       message: storageMessage,
       nextAction: storageNextAction,
+      action: storageNextAction
+        ? { type: 'run_verification', label: storageNextAction }
+        : undefined,
     });
     if (storageStatus === 'fail') {
       add(checks, {
@@ -252,6 +279,11 @@ export function runDoctor(
           'Use the provided docker-compose.yml, a locally installed Postgres, or hosted Postgres.',
         nextAction:
           'Start or provision Postgres yourself, then run `gantry setup` and paste the database URLs.',
+        action: {
+          type: 'run_verification',
+          label:
+            'Start or provision Postgres yourself, then run `gantry setup` and paste the database URLs.',
+        },
       });
     }
     const credentialMode = settings.credentialBroker.mode;
@@ -259,6 +291,10 @@ export function runDoctor(
       env.SECRET_ENCRYPTION_KEY?.trim() ||
       process.env.SECRET_ENCRYPTION_KEY?.trim() ||
       '';
+    const modelCredentialNextAction =
+      credentialMode === 'gantry' && !modelCredentialSecret
+        ? 'Generate a base64-encoded 32-byte SECRET_ENCRYPTION_KEY, then restart Gantry.'
+        : undefined;
     add(checks, {
       id: 'model-credential-encryption',
       title: 'Model Credential Encryption',
@@ -270,10 +306,10 @@ export function runDoctor(
             ? 'SECRET_ENCRYPTION_KEY is configured for Gantry credential encryption.'
             : 'SECRET_ENCRYPTION_KEY is missing for Gantry credential encryption.'
           : 'Model credential encryption is not required when model_access is disabled.',
-      nextAction:
-        credentialMode === 'gantry' && !modelCredentialSecret
-          ? 'Generate a base64-encoded 32-byte SECRET_ENCRYPTION_KEY, then restart Gantry.'
-          : undefined,
+      nextAction: modelCredentialNextAction,
+      action: modelCredentialNextAction
+        ? { type: 'connect_provider', label: modelCredentialNextAction }
+        : undefined,
     });
   } else {
     add(checks, {
@@ -282,6 +318,10 @@ export function runDoctor(
       status: 'fail',
       message: 'Runtime settings file is invalid.',
       nextAction: `Fix ${path.join(runtimeHome, 'settings.yaml')}. Details: ${settingsResult.error}`,
+      action: {
+        type: 'run_verification',
+        label: `Fix ${path.join(runtimeHome, 'settings.yaml')}. Details: ${settingsResult.error}`,
+      },
     });
   }
   const envViolations = validateRuntimeEnvPolicy(env).violations;
@@ -301,6 +341,9 @@ export function runDoctor(
       ? 'Move non-secret settings to settings.yaml and model provider keys to `gantry credentials model set`.'
       : '',
   ].filter(Boolean);
+  const runtimeEnvBoundaryNextAction = runtimeEnvBoundaryNextActions.length
+    ? runtimeEnvBoundaryNextActions.join(' ')
+    : undefined;
   add(checks, {
     id: 'runtime-env-boundary',
     title: 'Runtime Env Boundary',
@@ -308,8 +351,9 @@ export function runDoctor(
     message: allEnvPolicyViolations.length
       ? allEnvPolicyViolations.map((violation) => violation.message).join(' ')
       : '.env and process env contain runtime-owned secrets only.',
-    nextAction: runtimeEnvBoundaryNextActions.length
-      ? runtimeEnvBoundaryNextActions.join(' ')
+    nextAction: runtimeEnvBoundaryNextAction,
+    action: runtimeEnvBoundaryNextAction
+      ? { type: 'run_verification', label: runtimeEnvBoundaryNextAction }
       : undefined,
   });
   const credentialMode = settings?.credentialBroker.mode || 'gantry';
@@ -367,6 +411,10 @@ export function runDoctor(
               ? 'Slack token setup is incomplete (both bot and app tokens are required).'
               : `${provider.label} credentials are missing in ${envPath}.`,
         nextAction: `Run \`gantry provider connect ${provider.id}\` to configure ${provider.label}.`,
+        action: {
+          type: 'connect_provider',
+          label: `Run \`gantry provider connect ${provider.id}\` to configure ${provider.label}.`,
+        },
       });
     }
   }
@@ -378,6 +426,9 @@ export function runDoctor(
     status: memoryHealth.memoryCheck.status,
     message: memoryHealth.memoryCheck.message,
     nextAction: memoryHealth.memoryCheck.nextAction,
+    action: memoryHealth.memoryCheck.nextAction
+      ? { type: 'review_memory', label: memoryHealth.memoryCheck.nextAction }
+      : undefined,
   });
   add(checks, {
     id: 'embeddings-provider',
@@ -385,6 +436,9 @@ export function runDoctor(
     status: memoryHealth.embeddingCheck.status,
     message: `${memoryHealth.embeddingProvider} (source: ${memoryHealth.embeddingProviderSource}): ${memoryHealth.embeddingCheck.message}`,
     nextAction: memoryHealth.embeddingCheck.nextAction,
+    action: memoryHealth.embeddingCheck.nextAction
+      ? { type: 'review_memory', label: memoryHealth.embeddingCheck.nextAction }
+      : undefined,
   });
   const modelAccessStatus: DoctorStatus =
     credentialMode === 'gantry' ? 'pass' : 'warn';
@@ -403,10 +457,16 @@ export function runDoctor(
     status: modelAccessStatus,
     message: modelAccessMessage,
     nextAction: modelAccessNextAction,
+    action: modelAccessNextAction
+      ? { type: 'connect_provider', label: modelAccessNextAction }
+      : undefined,
   });
 
   const platform = detectPlatform();
   if (platform === 'linux') {
+    const linuxServiceNextAction = hasSystemdUser()
+      ? undefined
+      : 'Use `gantry service install` to create the fallback start script.';
     add(checks, {
       id: 'service-manager',
       title: 'Service Manager',
@@ -414,9 +474,10 @@ export function runDoctor(
       message: hasSystemdUser()
         ? 'systemd user session is available.'
         : 'systemd user session is not available. Background service will use a nohup fallback.',
-      nextAction: hasSystemdUser()
-        ? undefined
-        : 'Use `gantry service install` to create the fallback start script.',
+      nextAction: linuxServiceNextAction,
+      action: linuxServiceNextAction
+        ? { type: 'run_verification', label: linuxServiceNextAction }
+        : undefined,
     });
   } else if (platform === 'windows') {
     add(checks, {
@@ -425,9 +486,16 @@ export function runDoctor(
       status: 'pass',
       message: 'Background service mode is available on Windows.',
       nextAction: 'Use `gantry service install` then `gantry service start`.',
+      action: {
+        type: 'run_verification',
+        label: 'Use `gantry service install` then `gantry service start`.',
+      },
     });
   } else if (platform === 'macos') {
     const hasLaunchctl = commandExists('launchctl');
+    const macServiceNextAction = hasLaunchctl
+      ? 'Use `gantry service install` then `gantry service start`.'
+      : 'Run from a normal macOS user session and retry.';
     add(checks, {
       id: 'service-manager',
       title: 'Service Manager',
@@ -435,9 +503,11 @@ export function runDoctor(
       message: hasLaunchctl
         ? 'launchd is available.'
         : 'launchctl is unavailable in this shell session.',
-      nextAction: hasLaunchctl
-        ? 'Use `gantry service install` then `gantry service start`.'
-        : 'Run from a normal macOS user session and retry.',
+      nextAction: macServiceNextAction,
+      action: {
+        type: 'run_verification',
+        label: macServiceNextAction,
+      },
     });
   }
 
@@ -480,14 +550,19 @@ export async function runDoctorWithNetwork(
               message: validation.message,
             });
           } else {
+            const telegramTokenNextAction =
+              validation.nextAction ||
+              'Refresh TELEGRAM_BOT_TOKEN and rerun doctor.';
             report = addToReport(report, {
               id: 'telegram-token-api',
               title: 'Telegram Token API Validation',
               status: 'warn',
               message: validation.message,
-              nextAction:
-                validation.nextAction ||
-                'Refresh TELEGRAM_BOT_TOKEN and rerun doctor.',
+              nextAction: telegramTokenNextAction,
+              action: {
+                type: 'connect_provider',
+                label: telegramTokenNextAction,
+              },
             });
           }
         }
@@ -504,6 +579,9 @@ export async function runDoctorWithNetwork(
       ? `${storageReadiness.message} ${storageReadiness.details.join(' | ')}`
       : storageReadiness.message,
     nextAction: storageReadiness.nextAction,
+    action: storageReadiness.nextAction
+      ? { type: 'run_verification', label: storageReadiness.nextAction }
+      : undefined,
   });
 
   const settings = loadSettingsForDoctor(runtimeHome).settings;

@@ -734,6 +734,7 @@ describe('createChannelWiring', () => {
       message: 'first chunk visible',
     });
     Object.assign(partial, {
+      provider: 'slack',
       deliveredParts: 1,
       totalParts: 2,
       retryTail: {
@@ -818,6 +819,7 @@ describe('createChannelWiring', () => {
       message: 'first chunk visible',
     });
     Object.assign(partial, {
+      provider: 'telegram',
       deliveredParts: 1,
       totalParts: 2,
       retryTail: {
@@ -957,6 +959,7 @@ describe('createChannelWiring', () => {
       message: 'first chunk visible',
     });
     Object.assign(partial, {
+      provider: 'slack',
       deliveredParts: 1,
       totalParts: 2,
       retryTail: {

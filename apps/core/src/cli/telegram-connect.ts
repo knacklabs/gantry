@@ -9,7 +9,7 @@ import { listTelegramRecentChats } from './telegram-chat-discovery.js';
 import {
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
-  saveRuntimeSettings,
+  writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
   normalizeTelegramChatJid,
@@ -268,6 +268,7 @@ export async function runTelegramConnectCommand(
     TELEGRAM_BOT_TOKEN: tokenInput,
   });
   const settings = loadRuntimeSettings(runtimeHome);
+  const previousSettings = structuredClone(settings);
   settings.providers.telegram.enabled = true;
   if (registeredFolder) {
     const approverIds = parseTelegramApproverIds(
@@ -293,7 +294,11 @@ export async function runTelegramConnectCommand(
       );
     }
   }
-  saveRuntimeSettings(runtimeHome, settings);
+  await writeDesiredRuntimeSettings({
+    runtimeHome,
+    settings,
+    previousSettings,
+  });
 
   if (normalizedChatJid) {
     p.outro('Telegram conversation is configured and ready.');

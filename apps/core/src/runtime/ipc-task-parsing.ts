@@ -1,5 +1,6 @@
-import { ConversationRoute } from '../domain/types.js';
+import type { ConversationRoute } from '../domain/types.js';
 import { TaskIpcData } from '../jobs/ipc-handler.js';
+import { normalizeAccessRequirementsInput } from '../application/jobs/job-access-requirements.js';
 import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -55,7 +56,7 @@ const DISALLOWED_TASK_FIELDS = [
   'context_mode',
   'deliver_to',
   'linked_sessions',
-  'group_scope',
+  'workspace_key',
   'thread_id',
   'session_id',
   'run_at',
@@ -73,7 +74,7 @@ const DISALLOWED_TASK_FIELDS = [
   'serialize',
   'run_id',
   'event_type',
-  'group_folder',
+  'workspace_folder',
   'chat_jid',
   'target_jid',
   'since_id',
@@ -88,7 +89,7 @@ const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
   'notificationTarget',
   'thread_id',
   'sessionId',
-  'groupScope',
+  'workspaceKey',
   'capability_requirements',
   'modelProfileId',
   'allowedTools',
@@ -128,7 +129,20 @@ function findUnsupportedSchedulerJobTaskFields(
   return found;
 }
 
+function assertNoRemovedExecutionScopeFields(value: unknown): void {
+  if (!isPlainObject(value)) return;
+  if (Object.prototype.hasOwnProperty.call(value, 'groupScope')) {
+    throw new Error('groupScope is no longer accepted. Use workspaceKey.');
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'group_scope')) {
+    throw new Error('group_scope is no longer accepted. Use workspace_key.');
+  }
+}
+
 function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
+  assertNoRemovedExecutionScopeFields(raw);
+  assertNoRemovedExecutionScopeFields(raw.executionContext);
+  assertNoRemovedExecutionScopeFields(raw.execution_context);
   const fields = findDisallowedTaskFields(raw);
   if (fields.length === 0) return;
   if (fields.includes('required_tools')) {
@@ -138,7 +152,7 @@ function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
   }
   if (fields.includes('tool_access_requirements')) {
     throw new Error(
-      'Unsupported IPC task field: tool_access_requirements. Use camelCase toolAccessRequirements.',
+      'Unsupported IPC task field: tool_access_requirements. Use camelCase accessRequirements.',
     );
   }
   throw new Error(
@@ -156,7 +170,7 @@ function assertNoUnsupportedSchedulerJobTaskFields(
   if (fields.length === 0) return;
   if (fields.includes('requiredTools') || fields.includes('required_tools')) {
     throw new Error(
-      'Unsupported scheduler job field: requiredTools. Use toolAccessRequirements for access preflight checks.',
+      'Unsupported scheduler job field: requiredTools. Use accessRequirements for access preflight checks.',
     );
   }
   throw new Error(
@@ -170,7 +184,7 @@ function toOptionalExecutionContext(value: unknown):
   | {
       conversationJid: string;
       threadId: string | null;
-      groupScope: string;
+      workspaceKey: string;
       sessionId?: string | null;
     }
   | undefined {
@@ -181,7 +195,7 @@ function toOptionalExecutionContext(value: unknown):
   const conversationJid = toTrimmedString(value.conversationJid, {
     maxLen: 255,
   });
-  const groupScope = toTrimmedString(value.groupScope, { maxLen: 128 });
+  const workspaceKey = toTrimmedString(value.workspaceKey, { maxLen: 128 });
   const hasThreadId = Object.prototype.hasOwnProperty.call(value, 'threadId');
   const threadIdRaw = value.threadId;
   const threadId =
@@ -192,9 +206,9 @@ function toOptionalExecutionContext(value: unknown):
     sessionIdRaw === null
       ? null
       : toTrimmedString(sessionIdRaw, { maxLen: 255 });
-  if (!conversationJid || !groupScope || !hasThreadId) {
+  if (!conversationJid || !workspaceKey || !hasThreadId) {
     throw new Error(
-      'executionContext requires conversationJid, groupScope, and threadId.',
+      'executionContext requires conversationJid, workspaceKey, and threadId.',
     );
   }
   if (threadIdRaw !== null && !threadId) {
@@ -209,7 +223,7 @@ function toOptionalExecutionContext(value: unknown):
     sessionIdRaw === null ? null : (sessionId as string);
   return {
     conversationJid,
-    groupScope,
+    workspaceKey,
     threadId: normalizedThreadId,
     ...(hasSessionId ? { sessionId: normalizedSessionId } : {}),
   };
@@ -259,157 +273,6 @@ function toOptionalNotificationRoutes(value: unknown):
     routes.push({ conversationJid, threadId: normalizedThreadId, label });
   }
   return routes;
-}
-
-function toOptionalCapabilityRequirements(value: unknown):
-  | Array<{
-      capabilityId: string;
-      reason: string;
-      implementation?: {
-        kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
-        name?: string;
-        executablePath?: string;
-        executableVersion?: string;
-        executableHash?: string;
-        commandTemplate?: string;
-        authPreflight?: string;
-        protectedPaths?: string[];
-        networkHosts?: string[];
-      };
-    }>
-  | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return undefined;
-  const requirements: Array<{
-    capabilityId: string;
-    reason: string;
-    implementation?: {
-      kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
-      name?: string;
-      executablePath?: string;
-      executableVersion?: string;
-      executableHash?: string;
-      commandTemplate?: string;
-      authPreflight?: string;
-      protectedPaths?: string[];
-      networkHosts?: string[];
-    };
-  }> = [];
-  const seen = new Set<string>();
-  for (const item of value) {
-    if (!isPlainObject(item)) continue;
-    const record = item as Record<string, unknown>;
-    const capabilityId = toTrimmedString(record.capabilityId, {
-      maxLen: 120,
-    });
-    const reason = toTrimmedString(record.reason, {
-      maxLen: 255,
-    });
-    if (!capabilityId || !reason) continue;
-    const requirement: {
-      capabilityId: string;
-      reason: string;
-      implementation?: {
-        kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
-        name?: string;
-        executablePath?: string;
-        executableVersion?: string;
-        executableHash?: string;
-        commandTemplate?: string;
-        authPreflight?: string;
-        protectedPaths?: string[];
-        networkHosts?: string[];
-      };
-    } = {
-      capabilityId,
-      reason,
-    };
-    const rawImplementation = record.implementation;
-    if (isPlainObject(rawImplementation)) {
-      const implementationRecord = rawImplementation as Record<string, unknown>;
-      const kind =
-        (toTrimmedString(implementationRecord.kind, {
-          maxLen: 40,
-        }) as
-          | 'configured_access'
-          | 'local_cli'
-          | 'mcp_server'
-          | 'builtin_tool'
-          | undefined) ?? undefined;
-      if (
-        kind !== 'configured_access' &&
-        kind !== 'local_cli' &&
-        kind !== 'mcp_server' &&
-        kind !== 'builtin_tool'
-      ) {
-        requirements.push({ capabilityId, reason, implementation: undefined });
-        continue;
-      }
-      const implementation: {
-        kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
-        name?: string;
-        executablePath?: string;
-        executableVersion?: string;
-        executableHash?: string;
-        commandTemplate?: string;
-        authPreflight?: string;
-        protectedPaths?: string[];
-        networkHosts?: string[];
-      } = { kind };
-      const name = toTrimmedString(implementationRecord.name, {
-        maxLen: 120,
-      });
-      const executablePath = toTrimmedString(
-        implementationRecord.executablePath,
-        { maxLen: 255 },
-      );
-      const executableVersion = toTrimmedString(
-        implementationRecord.executableVersion,
-        { maxLen: 255 },
-      );
-      const executableHash = toTrimmedString(
-        implementationRecord.executableHash,
-        { maxLen: 255 },
-      );
-      const commandTemplate = toTrimmedString(
-        implementationRecord.commandTemplate,
-        { maxLen: 1024 },
-      );
-      const authPreflight = toTrimmedString(
-        implementationRecord.authPreflight,
-        { maxLen: 1024 },
-      );
-      const protectedPaths = toOptionalStringArray(
-        implementationRecord.protectedPaths,
-        100,
-        255,
-      );
-      const networkHosts = toOptionalStringArray(
-        implementationRecord.networkHosts,
-        100,
-        255,
-      );
-      if (name) implementation.name = name;
-      if (executablePath) implementation.executablePath = executablePath;
-      if (executableVersion)
-        implementation.executableVersion = executableVersion;
-      if (executableHash) implementation.executableHash = executableHash;
-      if (commandTemplate) implementation.commandTemplate = commandTemplate;
-      if (authPreflight) implementation.authPreflight = authPreflight;
-      if (protectedPaths && protectedPaths.length > 0)
-        implementation.protectedPaths = protectedPaths;
-      if (networkHosts && networkHosts.length > 0)
-        implementation.networkHosts = networkHosts;
-      requirement.implementation = implementation;
-    }
-    const key = `${requirement.capabilityId}\u0000${
-      requirement.implementation?.kind ?? ''
-    }\u0000${requirement.implementation?.name ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    requirements.push(requirement);
-  }
-  return requirements;
 }
 
 function parseAgentConfigPayload(
@@ -471,20 +334,10 @@ export function parseTaskIpcData(
   const notificationRoutes = toOptionalNotificationRoutes(
     raw.notificationRoutes,
   );
-  const toolAccessRequirements = toOptionalStringArray(
-    raw.toolAccessRequirements,
-    100,
-    255,
+  const accessRequirements = normalizeAccessRequirementsInput(
+    raw.accessRequirements,
   );
-  const capabilityRequirements = toOptionalCapabilityRequirements(
-    raw.capabilityRequirements,
-  );
-  const requiredMcpServers = toOptionalStringArray(
-    raw.requiredMcpServers,
-    100,
-    255,
-  );
-  const groupScope = toTrimmedString(raw.groupScope, { maxLen: 128 });
+  const workspaceKey = toTrimmedString(raw.workspaceKey, { maxLen: 128 });
   const silent = toOptionalBoolean(raw.silent);
   const confirm = toOptionalBoolean(raw.confirm);
   const confirmationToken = toTrimmedString(raw.confirmationToken, {
@@ -495,7 +348,7 @@ export function parseTaskIpcData(
   const runId = toTrimmedString(raw.runId, { maxLen: 128 });
   const eventType = toTrimmedString(raw.eventType, { maxLen: 128 });
   const since = toTrimmedString(raw.since, { maxLen: 128 });
-  const groupFolder = toTrimmedString(raw.groupFolder, { maxLen: 128 });
+  const workspaceFolder = toTrimmedString(raw.workspaceFolder, { maxLen: 128 });
   const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
   const targetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
   const jid = toTrimmedString(raw.jid, { maxLen: 255 });
@@ -549,14 +402,9 @@ export function parseTaskIpcData(
       }
     ).notificationRoutes = notificationRoutes;
   }
-  if (toolAccessRequirements !== undefined)
-    parsed.toolAccessRequirements = toolAccessRequirements;
-  if (capabilityRequirements !== undefined)
-    parsed.capabilityRequirements = capabilityRequirements;
-  if (requiredMcpServers !== undefined) {
-    parsed.requiredMcpServers = requiredMcpServers;
-  }
-  if (groupScope) parsed.groupScope = groupScope;
+  if (accessRequirements !== undefined)
+    parsed.accessRequirements = accessRequirements;
+  if (workspaceKey) parsed.workspaceKey = workspaceKey;
   if (threadBinding.authThreadId) {
     parsed.authThreadId = threadBinding.authThreadId;
   }
@@ -579,7 +427,7 @@ export function parseTaskIpcData(
   if (runId) parsed.runId = runId;
   if (eventType) parsed.eventType = eventType;
   if (since) parsed.since = since;
-  if (groupFolder) parsed.groupFolder = groupFolder;
+  if (workspaceFolder) parsed.workspaceFolder = workspaceFolder;
   if (chatJid) parsed.chatJid = chatJid;
   if (targetJid) parsed.targetJid = targetJid;
   if (jid) parsed.jid = jid;

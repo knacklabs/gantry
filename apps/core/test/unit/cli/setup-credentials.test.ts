@@ -16,8 +16,8 @@ async function loadCredentialsStep(
   const note = vi.fn();
   const success = vi.fn();
   const password = vi.fn(async () => input.password ?? 'provider-key');
-  const selections = [...(input.selections ?? ['anthropic', 'defer'])];
-  const select = vi.fn(async () => selections.shift() ?? 'defer');
+  const selections = [...(input.selections ?? ['anthropic', 'store'])];
+  const select = vi.fn(async () => selections.shift() ?? 'store');
   const upsertModelCredential = vi.fn(async (credentialInput) => ({
     id: 'model-credential:default:anthropic',
     appId: credentialInput.appId,
@@ -113,10 +113,10 @@ describe('setup credentials step', () => {
     );
   });
 
-  it('keeps an explicit deferred credential command path', async () => {
-    const { runCredentialsStep, note, password, upsertModelCredential } =
+  it('lets the user go back instead of deferring required credentials', async () => {
+    const { runCredentialsStep, password, select, upsertModelCredential } =
       await loadCredentialsStep({
-        selections: ['anthropic', 'api_key', 'defer'],
+        selections: ['anthropic', 'api_key', 'back'],
       });
     const draft = {
       credentialMode: 'none' as const,
@@ -128,23 +128,66 @@ describe('setup credentials step', () => {
       '/tmp/gantry-credentials-test',
     );
 
-    expect(action).toEqual({ type: 'next' });
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('gantry credentials model set anthropic'),
-      'Model Access',
+    expect(action).toEqual({ type: 'back' });
+    const storePrompt = select.mock.calls.find(
+      (call) => call[0].message === 'Store this model credential now?',
+    )?.[0];
+    expect(storePrompt?.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: 'store' }),
+        expect.objectContaining({ value: 'back' }),
+        expect.objectContaining({ value: 'resume' }),
+        expect.objectContaining({ value: 'cancel' }),
+      ]),
     );
-    expect(note.mock.calls.flat().join('\n')).not.toContain('api_key');
+    expect(storePrompt?.options).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ value: 'defer' })]),
+    );
     expect(password).not.toHaveBeenCalled();
     expect(upsertModelCredential).not.toHaveBeenCalled();
   });
 
-  it('defers model credential validation to model preflight', async () => {
-    const { verifyModelAccess } = await loadCredentialsStep();
+  it('can go back from the first model access prompt', async () => {
+    const { runCredentialsStep, password, upsertModelCredential } =
+      await loadCredentialsStep({
+        selections: ['back'],
+      });
+    const draft = {
+      credentialMode: 'none' as const,
+      postgresSetupKind: 'local' as const,
+    };
 
-    await expect(verifyModelAccess()).resolves.toEqual({
-      ok: true,
+    const action = await runCredentialsStep(
+      draft,
+      '/tmp/gantry-credentials-test',
+    );
+
+    expect(action).toEqual({ type: 'back' });
+    expect(password).not.toHaveBeenCalled();
+    expect(upsertModelCredential).not.toHaveBeenCalled();
+  });
+
+  it('reports missing model credentials during setup verification', async () => {
+    vi.doMock('@core/cli/model-credential-readiness.js', () => ({
+      inspectModelCredentialReadiness: vi.fn(async () => ({
+        id: 'model-access-credentials',
+        title: 'Model Access Credentials',
+        status: 'fail',
+        message:
+          'Missing active model credentials for selected defaults: anthropic.',
+        nextAction: 'Run `gantry credentials model set anthropic`.',
+      })),
+    }));
+    const { verifyModelAccess } =
+      await import('@core/cli/setup-credentials.js');
+
+    await expect(
+      verifyModelAccess('/tmp/gantry-credentials-test', {} as never),
+    ).resolves.toEqual({
+      ok: false,
       message:
-        'Gantry Model Gateway credentials are stored in Postgres and validated during model preflight.',
+        'Missing active model credentials for selected defaults: anthropic.',
+      nextAction: 'Run `gantry credentials model set anthropic`.',
     });
   });
 });

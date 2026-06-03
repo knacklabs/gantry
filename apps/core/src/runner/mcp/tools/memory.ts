@@ -1,11 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { MemoryIpcAction } from '@gantry/contracts';
 import { z } from 'zod';
-import { groupFolder, memoryDefaultScope, memoryUserId } from '../context.js';
+import {
+  workspaceFolder,
+  memoryDefaultScope,
+  memoryUserId,
+} from '../context.js';
 import {
   formatMemoryReviewDecisionResponse,
   formatMemoryReviewPendingResponse,
   formatMemoryToolResponse,
+  formatMemoryWriteResponse,
 } from '../formatting.js';
 import { requestMemoryAction } from '../ipc.js';
 import {
@@ -39,6 +44,9 @@ async function memoryToolResult(
   label: string,
   action: MemoryIpcAction,
   args: Record<string, unknown>,
+  format: (response: { provider?: string; data?: unknown }) => string = (
+    response,
+  ) => formatMemoryToolResponse(response),
 ) {
   const response = await requestMemoryAction(action, args);
   if (!response.ok) {
@@ -53,9 +61,7 @@ async function memoryToolResult(
     };
   }
   return {
-    content: [
-      { type: 'text' as const, text: formatMemoryToolResponse(response) },
-    ],
+    content: [{ type: 'text' as const, text: format(response) }],
   };
 }
 
@@ -65,16 +71,18 @@ export function registerMemoryTools(server: McpServer): void {
     'Search durable Gantry memory. Returns real scoped memory statements, procedures, and source snippets with provenance; scores are only ranking metadata.',
     {
       query: z.string().describe('Search query'),
-      group_folder: z
+      workspace_folder: z
         .string()
         .optional()
-        .describe('Optional override group folder (defaults to current group)'),
+        .describe(
+          'Optional override workspace folder (defaults to current workspace)',
+        ),
       limit: z.number().int().min(1).max(20).optional().describe('Max results'),
     },
     async (args) => {
       const response = await requestMemoryAction('memory_search', {
         query: args.query,
-        group_folder: args.group_folder || groupFolder,
+        workspace_folder: args.workspace_folder || workspaceFolder,
         limit: args.limit,
       });
       if (!response.ok) {
@@ -98,10 +106,10 @@ export function registerMemoryTools(server: McpServer): void {
 
   server.tool(
     'memory_save',
-    'Save a durable memory statement. Defaults to group scope in group/channel conversations and user scope in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory without an approved admin path.',
+    'Save a durable memory statement. Defaults to workspace scope in group/channel conversations and user scope in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory without an approved admin path.',
     {
       scope: z.enum(['user', 'group', 'global']).optional(),
-      group_folder: z.string().optional(),
+      workspace_folder: z.string().optional(),
       kind: z
         .enum(['preference', 'decision', 'fact', 'correction', 'constraint'])
         .optional(),
@@ -136,7 +144,10 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: formatMemoryWriteResponse('memory_save', response),
+          },
         ],
       };
     },
@@ -167,7 +178,10 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: formatMemoryWriteResponse('memory_patch', response),
+          },
         ],
       };
     },
@@ -181,7 +195,10 @@ export function registerMemoryTools(server: McpServer): void {
       expected_version: z.number().int().min(1).optional(),
       reason: z.string().optional(),
     },
-    async (args) => memoryToolResult('Memory demote', 'memory_demote', args),
+    async (args) =>
+      memoryToolResult('Memory demote', 'memory_demote', args, (response) =>
+        formatMemoryWriteResponse('memory_demote', response),
+      ),
   );
 
   server.tool(
@@ -197,7 +214,7 @@ export function registerMemoryTools(server: McpServer): void {
     'Save a reusable procedure learned from successful work.',
     {
       scope: z.enum(['user', 'group', 'global']).optional(),
-      group_folder: z.string().optional(),
+      workspace_folder: z.string().optional(),
       title: z.string(),
       body: z.string(),
       tags: z.array(z.string()).optional(),
@@ -222,7 +239,10 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: formatMemoryWriteResponse('procedure_save', response),
+          },
         ],
       };
     },
@@ -254,7 +274,10 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: formatMemoryWriteResponse('procedure_patch', response),
+          },
         ],
       };
     },
@@ -279,7 +302,10 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: formatMemoryWriteResponse('memory_consolidate', response),
+          },
         ],
       };
     },
@@ -304,7 +330,10 @@ export function registerMemoryTools(server: McpServer): void {
       }
       return {
         content: [
-          { type: 'text' as const, text: formatMemoryToolResponse(response) },
+          {
+            type: 'text' as const,
+            text: formatMemoryWriteResponse('memory_dream', response),
+          },
         ],
       };
     },

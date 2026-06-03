@@ -491,6 +491,34 @@
       "when": 1777237800000,
       "tag": "0070_semantic_memory_vectors",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1777241400000,
+      "tag": "0071_jobs_target_workspace_key_cutover",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1777245000000,
+      "tag": "0072_pending_access_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1777248600000,
+      "tag": "0073_mcp_server_network_hosts",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1777252200000,
+      "tag": "0074_agent_mcp_binding_tool_scope",
+      "breakpoints": true
     }
   ]
 }

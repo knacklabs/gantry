@@ -21,7 +21,7 @@ export function formatDeclaredGantrySecretLines(
   return [
     `${subject} uses Gantry capability credential${unique.length === 1 ? '' : 's'}: ${unique.join(', ')}.`,
     'If not set yet, run:',
-    ...unique.map((name) => `gantry credentials capability set ${name}`),
+    ...unique.map((name) => `gantry credentials access set ${name}`),
   ];
 }
 
@@ -33,7 +33,7 @@ export function formatMissingGantrySecretsMessage(
     return 'A required Gantry capability credential is missing.';
   return [
     `Gantry capability credential${unique.length === 1 ? '' : 's'} required before this can run: ${unique.join(', ')}.`,
-    ...unique.map((name) => `Run: gantry credentials capability set ${name}`),
+    ...unique.map((name) => `Run: gantry credentials access set ${name}`),
   ].join('\n');
 }
 

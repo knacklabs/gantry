@@ -9,11 +9,12 @@ import {
   getRuntimeEventExchange,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
+import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
 import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
-import { resolveGroupFolderPath } from '../platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
 import {
   buildRuntimeRunOptions,
@@ -216,7 +217,7 @@ export async function runJob(
     let latestUsage: NormalizedModelUsage | undefined;
     let startNotified = false;
     try {
-      const groupDir = resolveGroupFolderPath(execution.group.folder);
+      const groupDir = resolveWorkspaceFolderPath(execution.group.folder);
       fs.mkdirSync(groupDir, { recursive: true });
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
@@ -306,7 +307,7 @@ export async function runJob(
             runtimeAppId;
           const executionAgentId =
             turnContext?.agentId ??
-            jobToolPolicy.agentIdForJobGroupScope(execution.group.folder);
+            jobToolPolicy.agentIdForJobWorkspaceKey(execution.group.folder);
           const [
             toolPolicy,
             selectedSkillContext,
@@ -339,8 +340,14 @@ export async function runJob(
             toolPolicy.effectiveAllowedTools,
           );
           const toolAccessRequirementPreflight =
+            // splitAccessRequirements throws on malformed stored requirements;
+            // this is safe only because the readiness preflight (which pauses
+            // malformed jobs for setup) already validated the same requirements
+            // earlier in this run. Do not move/remove that preflight.
             await assertToolAccessRequirementsReadyForRun({
-              toolAccessRequirements: currentJob.tool_access_requirements ?? [],
+              toolAccessRequirements: splitAccessRequirements(
+                currentJob.access_requirements,
+              ).toolAccessRequirements,
               effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
               emitJobEvent,
             });
@@ -394,7 +401,7 @@ export async function runJob(
               {
                 prompt: currentJob.prompt,
                 model: resolvedModel.selectedModel,
-                groupFolder: execution.group.folder,
+                workspaceFolder: execution.group.folder,
                 chatJid: execution.executionJid,
                 threadId: execution.threadId || undefined,
                 appId: executionAppId,
@@ -583,9 +590,7 @@ export async function runJob(
         error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
         denied_tool: toolDenial.toolName,
         recovery_action: toolDenial.recoveryAction ?? null,
-        recovery_kind: toolDenial.recoveryAction?.startsWith(
-          'request_permission',
-        )
+        recovery_kind: toolDenial.recoveryAction?.startsWith('request_access')
           ? 'persistent_capability'
           : 'job_policy',
       });

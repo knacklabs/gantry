@@ -204,6 +204,52 @@ describe('PromptProfileService', () => {
     expect(soul.content).toContain(
       'For migrated jobs, describe what the job will do',
     );
+    expect(soul.content).toContain(
+      'a scheduled job for recurring or time-based requests',
+    );
+
+    const groupContext = await store.readFileArtifact({
+      appId: 'default',
+      agentId: 'agent:team',
+      virtualScope: 'prompt-profile',
+      virtualPath: 'team/CLAUDE.md',
+    });
+    expect(groupContext.content).toContain('request_access');
+    expect(groupContext.content).toContain('Diagnose the real blocker');
+  });
+
+  it('compiles permissioned-assistant guidance with only current tool names', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({ agentFolder: 'team' });
+
+    // Current tool names are present.
+    for (const toolName of [
+      'request_access',
+      'send_message',
+      'ask_user_question',
+      'service_restart',
+      'register_agent',
+    ]) {
+      expect(prompt).toContain(toolName);
+    }
+
+    // Proactive recommendation ladder is surfaced.
+    expect(prompt).toContain('scheduler_upsert_job');
+    expect(prompt).toContain('request_skill_proposal');
+    expect(prompt).toContain('request_access target.kind=capability');
+    expect(prompt).toContain('Credential Center');
+    expect(prompt).toContain('admin_permission_list');
+
+    // No stale tool names leak into the compiled prompt.
+    for (const stale of [
+      'request_permission',
+      'capability_search',
+      'request_capability',
+      'propose_local_cli_capability',
+    ]) {
+      expect(prompt).not.toContain(stale);
+    }
   });
 
   it('does not overwrite existing per-agent prompt artifacts', async () => {
@@ -277,13 +323,17 @@ describe('PromptProfileService', () => {
       'Never expose secrets, tokens, credentials, or unrelated local paths.',
     );
     expect(prompt).toContain(
-      'Use capability_search, propose_capability, and manage_capability for durable capability changes',
+      'Use request_access target.kind=capability for durable reviewed access',
     );
     expect(prompt).toContain(
-      'Source = what exists; Capability = reviewed action; Grant = this agent is allowed to use the capability',
+      'Use available actions first. If the action is missing, request the reviewed capability',
     );
     expect(prompt).toContain(
-      'Approved third-party MCP sources are inspected through mcp_list_tools and used through mcp_call_tool only when reviewed current-run access covers that action',
+      'source setup and raw implementation details stay in review metadata',
+    );
+    expect(prompt).not.toContain('Source = what exists');
+    expect(prompt).not.toContain(
+      'mcp_list_tools and used through mcp_call_tool',
     );
     expect(prompt).toContain(
       'If capability_status shows an MCP source as ready or a reviewed MCP capability is already selected for this run, do not request the same capability again',

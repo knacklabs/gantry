@@ -159,7 +159,10 @@ export async function finalizeSchedulerJobRun(input: {
       if (exceededRetry || exceededConsecutive) {
         runStatus = 'dead_lettered';
         nextRun = null;
-        pauseReason = `Paused after ${retryCount} failures. Last error: ${safeErrorSummary || 'Unknown error'}`;
+        // Keep the user-facing pause reason generic + actionable. The detailed
+        // (redacted) error lives on the run record / logs — embedding it here
+        // leaked raw exception text and filesystem paths into the chat notification.
+        pauseReason = `Paused after ${retryCount} failures. Fix the blocker, then resume the job.`;
         await deps.opsRepository.updateJob(currentJob.id, {
           status: 'dead_lettered',
           next_run: null,

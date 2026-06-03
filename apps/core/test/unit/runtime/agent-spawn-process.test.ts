@@ -132,7 +132,7 @@ function makeSpec(
     group: testGroup,
     input: {
       prompt: 'Hello there',
-      groupFolder: 'test-group',
+      workspaceFolder: 'test-group',
       chatJid: 'test@g.us',
     },
     command: '/usr/bin/node',
@@ -297,7 +297,7 @@ describe('executeRunnerProcess', () => {
       const spec = makeSpec({
         input: {
           prompt: 'test prompt',
-          groupFolder: 'test-group',
+          workspaceFolder: 'test-group',
           chatJid: 'test@g.us',
           sessionId: uuidHandle,
         },
@@ -512,7 +512,7 @@ describe('executeRunnerProcess', () => {
       const spec = makeSpec({
         input: {
           prompt: 'Run lead maintenance',
-          groupFolder: 'test-group',
+          workspaceFolder: 'test-group',
           chatJid: 'test@g.us',
           isScheduledJob: true,
           jobId: 'job-1',
@@ -990,7 +990,7 @@ describe('executeRunnerProcess', () => {
         const spec = makeSpec({
           input: {
             prompt: 'test prompt',
-            groupFolder: 'test-group',
+            workspaceFolder: 'test-group',
             chatJid: 'test@g.us',
             sessionId: 'sess-existing',
           },
@@ -1118,7 +1118,7 @@ describe('executeRunnerProcess', () => {
       const written = chunks.join('');
       const parsed = JSON.parse(written);
       expect(parsed.prompt).toBe('Hello there');
-      expect(parsed.groupFolder).toBe('test-group');
+      expect(parsed.workspaceFolder).toBe('test-group');
     });
 
     it('handles empty stdout on exit code 0', async () => {

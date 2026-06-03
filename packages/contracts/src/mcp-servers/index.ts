@@ -44,6 +44,7 @@ export const McpServerDefinitionResponseSchema = z.object({
   allowedToolPatterns: z.array(z.string()),
   autoApproveToolPatterns: z.array(z.string()),
   credentialRefs: z.array(McpCredentialRefSchema),
+  networkHosts: z.array(z.string()).default([]),
   sandboxProfileId: z.string().optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
@@ -63,6 +64,7 @@ export const AgentMcpServerBindingResponseSchema = z.object({
   status: z.enum(['active', 'disabled']),
   required: z.boolean(),
   permissionPolicyIds: z.array(z.string()),
+  allowedToolPatterns: z.array(z.string()).default([]),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
@@ -80,6 +82,7 @@ export const ConnectMcpServerRequestSchema = z.object({
   allowedToolPatterns: z.array(z.string()).default([]),
   autoApproveToolPatterns: z.array(z.string()).default([]),
   credentialRefs: z.array(McpCredentialRefSchema).default([]),
+  networkHosts: z.array(z.string()).default([]),
   sandboxProfileId: z.string().optional(),
   riskClass: McpServerRiskClassSchema.default('medium'),
   createdBy: z.string().optional(),
@@ -102,6 +105,7 @@ export const UpdateAgentMcpServerBindingRequestSchema = z.object({
   appId: z.string().optional(),
   required: z.boolean().optional(),
   permissionPolicyIds: z.array(z.string()).optional(),
+  allowedToolPatterns: z.array(z.string()).optional(),
 });
 export type UpdateAgentMcpServerBindingRequest = z.infer<
   typeof UpdateAgentMcpServerBindingRequestSchema

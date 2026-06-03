@@ -10,9 +10,9 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
 import {
-  formatPersistentPermissionRuleForEvent,
-  formatPersistentPermissionRulesForUser,
-} from '../shared/persistent-permission-rules.js';
+  formatDurableAccessRuleForEvent,
+  formatDurableAccessRulesForUser,
+} from '../shared/durable-access-policy.js';
 import {
   permissionUpdateAllowedToolRules,
   persistentPermissionUpdates,
@@ -201,7 +201,7 @@ export async function processPermissionInteractionIpc(input: {
           decision: 'persisted',
           persistedRules: permissionUpdateAllowedToolRules(
             decision.updatedPermissions,
-          ).map(formatPersistentPermissionRuleForEvent),
+          ).map(formatDurableAccessRuleForEvent),
         },
       );
       input.logger.info?.(persistedContext, 'Permission persisted');
@@ -354,7 +354,7 @@ function formatPersistentPermissionOutcome(input: {
   >;
 }): string {
   const lines = [
-    `Always allowed: ${formatPersistentPermissionRulesForUser(input.rules, {
+    `Allowed for future: ${formatDurableAccessRulesForUser(input.rules, {
       semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
     })}.`,
   ];
@@ -362,13 +362,13 @@ function formatPersistentPermissionOutcome(input: {
     lines.push(
       `Job ready: ${input.recovery.queued
         .map((job) => job.name || job.jobId)
-        .join(', ')}`,
+        .join(', ')}. It will run now.`,
     );
   }
   if (input.recovery.stillBlocked.length > 0) {
     const blocker = input.recovery.stillBlocked[0];
     lines.push(
-      `Still needs setup: ${blocker.nextAction ?? 'review job setup'}`,
+      `Still needs setup: ${blocker.nextAction ?? 'review job setup'}.`,
     );
   }
   if (

@@ -331,7 +331,7 @@ export async function registerTelegramMainGroup(options: {
       agentConfig: existingGroup?.agentConfig,
     };
     await db.setConversationRoute(options.chatJid, route);
-    syncConfiguredConversationBinding({
+    await syncConfiguredConversationBinding({
       runtimeHome: options.runtimeHome,
       agentId: folder,
       agentName: groupName,

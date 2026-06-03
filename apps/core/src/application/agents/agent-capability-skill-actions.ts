@@ -84,6 +84,19 @@ export function capabilityFromCanonicalToolReference(
   ];
 }
 
+export function buildSelectedCapabilities(
+  configuredToolEntries: Array<{ reference: string; tool: ToolCatalogItem }>,
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>,
+): Array<{ id: string; version: string }> {
+  return configuredToolEntries.flatMap((entry) =>
+    capabilityFromCanonicalToolReference(
+      entry.reference,
+      entry.tool,
+      semanticCapabilityDefinitions,
+    ),
+  );
+}
+
 function toolReferenceToCapability(
   reference: string,
   tool?: ToolCatalogItem,

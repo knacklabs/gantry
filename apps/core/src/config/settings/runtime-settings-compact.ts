@@ -186,7 +186,6 @@ function normalizeCompactAgents(
         agentRaw.recurring_job_default_model ??
         jobs.recurring_model ??
         jobs.recurring_job_default_model,
-      capabilities: agentRaw.capabilities,
     };
   }
   normalized.agents = agents;
