@@ -597,6 +597,59 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     );
   });
 
+  it('rejects RunCommand fallback permission requests when MCP access is already selected', async () => {
+    const fixture = createMcpFixture();
+    const cawAtsCapability = {
+      capabilityId: 'mcp.caw-ats.access',
+      version: '1',
+      displayName: 'caw-ats MCP access',
+      category: 'MCP',
+      risk: 'write',
+      can: 'Call approved tools on the caw-ats MCP server.',
+      cannot: 'Call unapproved MCP tools or receive raw credentials.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_tool',
+          mcpTool: 'mcp__caw-ats__ats_list_positions',
+        },
+      ],
+      source: {
+        source: 'mcp',
+        serverName: 'caw-ats',
+        allowedToolPatterns: ['ats_list_positions'],
+      },
+    };
+
+    const result = await runMcpFixture(
+      fixture,
+      'request_permission',
+      {
+        permissionKind: 'tool',
+        toolName: 'RunCommand',
+        rule: "jq '.[1].content' -r",
+        reason: 'List Manipal projects from caw-ats.',
+      },
+      {
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([cawAtsCapability]),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'RunCommand/Bash permission is not available as a fallback',
+    );
+    expect(record.result.content[0].text).toContain(
+      'Selected MCP capabilities: mcp.caw-ats.access',
+    );
+    expect(record.result.content[0].text).toContain(
+      'Use mcp_list_tools to inspect the ready source, then mcp_call_tool',
+    );
+    expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
+  });
+
   it('registers selected admin tools and reports remaining requestable tools', async () => {
     const fixture = createMcpFixture();
 

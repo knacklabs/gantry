@@ -253,8 +253,13 @@ export function registerServiceTools(server: McpServer): void {
         .optional()
         .describe('Conversation ids or names affected by this capability'),
     },
-    async (args) =>
-      submitCapabilityReviewTask('request_permission', 'Permission', {
+    async (args) => {
+      const commandFallbackGuidance = requestPermissionCommandFallbackGuidance({
+        toolName: args.toolName,
+        toolNames: args.toolNames ?? [],
+      });
+      if (commandFallbackGuidance) return commandFallbackGuidance;
+      return submitCapabilityReviewTask('request_permission', 'Permission', {
         permissionKind: args.permissionKind,
         toolName: args.toolName,
         toolNames: args.toolNames ?? [],
@@ -270,7 +275,8 @@ export function registerServiceTools(server: McpServer): void {
         requiredScopes: args.requiredScopes ?? [],
         affectedConversations: args.affectedConversations ?? [],
         reason: args.reason,
-      }),
+      });
+    },
   );
 
   registerSemanticCapabilityTools(server, submitCapabilityReviewTask, {
@@ -631,6 +637,61 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
     ],
     isError: true,
   };
+}
+
+function requestPermissionCommandFallbackGuidance(input: {
+  toolName?: string;
+  toolNames: readonly string[];
+}): { content: { type: 'text'; text: string }[]; isError: true } | null {
+  const requestedToolNames = [input.toolName, ...input.toolNames].flatMap(
+    (toolName) =>
+      typeof toolName === 'string' && toolName.trim() ? [toolName.trim()] : [],
+  );
+  const requestsCommandAccess = requestedToolNames.some(
+    (toolName) =>
+      toolName === 'Bash' ||
+      toolName === 'RunCommand' ||
+      toolName.startsWith('RunCommand('),
+  );
+  if (!requestsCommandAccess) return null;
+
+  const selectedMcpCapabilities = availableSemanticCapabilities.filter(
+    (capability) => mcpSourceServerName(capability.source) !== null,
+  );
+  if (selectedMcpCapabilities.length === 0) return null;
+
+  const sourceNames = [
+    ...new Set(
+      selectedMcpCapabilities
+        .map((capability) => mcpSourceServerName(capability.source) ?? '')
+        .filter(Boolean),
+    ),
+  ].sort();
+  const capabilityIds = selectedMcpCapabilities
+    .map((capability) => capability.capabilityId)
+    .sort();
+  return {
+    content: [
+      {
+        type: 'text',
+        text: [
+          'RunCommand/Bash permission is not available as a fallback while reviewed MCP access is already selected for this agent.',
+          `Selected MCP capabilities: ${capabilityIds.join(', ')}`,
+          `Ready MCP sources: ${sourceNames.join(', ') || 'selected source'}`,
+          'Use mcp_list_tools to inspect the ready source, then mcp_call_tool to call the approved MCP action. If the MCP proxy returns an error, report that error instead of requesting command access.',
+        ].join('\n'),
+      },
+    ],
+    isError: true,
+  };
+}
+
+function mcpSourceServerName(source: unknown): string | null {
+  if (!source || typeof source !== 'object') return null;
+  const record = source as Record<string, unknown>;
+  return record.source === 'mcp' && typeof record.serverName === 'string'
+    ? record.serverName
+    : null;
 }
 
 const BROWSER_WRONG_LANE_GUIDANCE = [
