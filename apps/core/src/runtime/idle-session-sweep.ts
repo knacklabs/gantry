@@ -18,9 +18,9 @@ const SWEEP_LEASE_KEY = 'gantry:idle-session-sweep';
 
 // Bounded retry: a session whose extraction keeps failing (e.g. the boundary LLM
 // call repeatedly times out) must NOT be retried every sweep forever — that burns
-// Haiku calls. A failed attempt writes no digest, so the row stays eligible; we
-// back off exponentially (per session, in-memory) instead. Cleared on success or
-// process restart.
+// Haiku calls. A failed attempt does not advance the conversation's extraction
+// cursor, so the row stays eligible; we back off exponentially (per session,
+// in-memory) instead. Cleared on success or process restart.
 const RETRY_BACKOFF_BASE_MS = 60_000;
 const RETRY_BACKOFF_MAX_MS = 30 * 60_000;
 
@@ -63,10 +63,13 @@ interface IdleCandidateRow {
 
 // Eligible = an opt-in agent's active session whose whole conversation has been
 // quiet (last message of ANY direction older than the loosest cutoff) AND has new
-// customer input since the last extraction (last inbound > last digest). The
-// digest is written unconditionally by the collector (incl. 0-fact runs), so this
-// never re-sweeps the same arc. Per-agent precise idle is re-checked in code.
-const IDLE_CANDIDATES_SQL = `
+// customer input since the conversation's extraction cursor
+// (last_inbound_at > covered_through_at). The per-conversation cursor (keyed on
+// conversation_id + thread_id + agent_id) is advanced by the boundary extractor
+// after a successful run, preventing re-sweeping. A null cursor means the
+// conversation has never been extracted and is therefore always eligible.
+// Per-agent precise idle is re-checked in code.
+export const IDLE_CANDIDATES_SQL = `
   SELECT s.id AS agent_session_id,
          s.agent_id,
          act.last_activity_at,
@@ -86,17 +89,20 @@ const IDLE_CANDIDATES_SQL = `
       AND m.direction = 'inbound'
   ) inb ON TRUE
   LEFT JOIN LATERAL (
-    SELECT max(d.created_at) AS last_digest_at
-    FROM agent_session_digests d
-    WHERE d.agent_session_id = s.id
-  ) dg ON TRUE
+    SELECT c.covered_through_at AS covered_through_at
+    FROM memory_extraction_cursor c
+    WHERE c.conversation_id = s.conversation_id
+      AND c.thread_id IS NOT DISTINCT FROM s.thread_id
+      AND c.agent_id = s.agent_id
+    LIMIT 1
+  ) cur ON TRUE
   WHERE s.status = 'active'
     AND s.conversation_id IS NOT NULL
     AND s.agent_id = ANY($1::text[])
     AND act.last_activity_at IS NOT NULL
     AND act.last_activity_at <= $2::timestamptz
     AND inb.last_inbound_at IS NOT NULL
-    AND (dg.last_digest_at IS NULL OR inb.last_inbound_at > dg.last_digest_at)
+    AND (cur.covered_through_at IS NULL OR inb.last_inbound_at > cur.covered_through_at)
   ORDER BY act.last_activity_at ASC
   LIMIT $3
 `;
@@ -111,8 +117,9 @@ export interface IdleSweepDeps {
  * Builds the idle-session sweeper used by the poll loop. The returned function
  * runs one pass: find idle opt-in sessions and run the existing session-end
  * memory extraction for each. It changes no session state — idempotency comes
- * from the digest the collector writes. Failures are logged and retried next
- * pass (no digest written). Safe to call when nothing is opted in (no-op).
+ * from the per-conversation extraction cursor the collector advances. Failures
+ * are logged and retried next pass (cursor not advanced). Safe to call when
+ * nothing is opted in (no-op).
  */
 export function createIdleSessionSweeper(
   deps: IdleSweepDeps,
