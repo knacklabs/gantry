@@ -189,7 +189,7 @@ export function bindingRowToGroup(
     group: {
       name: row.displayName,
       folder,
-      trigger: row.triggerPattern || '',
+      trigger: row.triggerPattern?.trim() || `@${folder || 'agent'}`,
       added_at: row.createdAt,
       requiresTrigger: row.requiresTrigger,
       conversationKind,

@@ -646,10 +646,13 @@ function routeStateForBinding(input: {
   binding: AgentConversationBinding;
   conversation: Conversation;
 }): RuntimeConversationRouteState {
+  const folder = folderForAgentId(input.agent.id);
   return {
     name: input.binding.displayName || input.agent.name,
-    folder: folderForAgentId(input.agent.id),
-    trigger: input.binding.triggerPattern ?? '',
+    folder,
+    trigger:
+      input.binding.triggerPattern?.trim() ||
+      `@${(input.agent.name || folder).trim() || 'agent'}`,
     added_at: input.binding.createdAt,
     requiresTrigger: input.binding.requiresTrigger,
     conversationKind: input.conversation.kind === 'direct' ? 'dm' : 'channel',

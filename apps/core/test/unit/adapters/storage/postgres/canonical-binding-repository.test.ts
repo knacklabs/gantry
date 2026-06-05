@@ -73,6 +73,33 @@ describe('canonical binding repository route projection', () => {
     ).toBeUndefined();
   });
 
+  it('uses a non-empty trigger fallback for always-on bindings without trigger patterns', () => {
+    const row = {
+      id: 'conversation-route:app:one',
+      agentId: 'agent:main_agent',
+      conversationId: 'conversation:app:one',
+      threadId: null,
+      status: 'active',
+      conversationExternalRefJson: JSON.stringify({ jid: 'app:one' }),
+      conversationKind: 'group',
+      memorySubjectJson: JSON.stringify({
+        kind: 'conversation',
+        appId: 'default',
+        conversationId: 'conversation:app:one',
+      }),
+      displayName: 'App Conversation',
+      triggerPattern: null,
+      requiresTrigger: false,
+      createdAt: '2026-05-06T00:00:00.000Z',
+    };
+
+    expect(bindingRowToGroup(row)?.group).toMatchObject({
+      folder: 'main_agent',
+      trigger: '@main_agent',
+      requiresTrigger: false,
+    });
+  });
+
   it('restores persisted route agentConfig overrides', () => {
     const row = {
       id: 'conversation-route:sl:C123',
