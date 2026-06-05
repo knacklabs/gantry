@@ -248,31 +248,61 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
-  it('projects Anthropic Claude Code OAuth tokens directly to the SDK runner', async () => {
+  it('projects Anthropic Claude Code OAuth through gateway credentials', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.setWithMode('anthropic', 'claude_code_oauth', {
       oauthToken: 'sk-ant-oat-upstream',
     });
+    const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', upstreamFetch);
     const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
 
-    const injection = await broker.getInjection({
-      binding: {
-        profile: 'gantry',
-        purpose: 'model_runtime',
-        appId,
-        modelRouteId: 'anthropic',
-      },
-    });
+      expect(injection).toMatchObject({
+        applied: true,
+        brokerProfile: 'gantry',
+        credentialProviders: { [anthropicApiKeyKey]: 'native' },
+      });
+      expect(injection.env[anthropicBaseUrlKey]).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/anthropic$/,
+      );
+      expect(injection.env[anthropicApiKeyKey]).toMatch(/^gtw_/);
+      expect(injection.env[anthropicApiKeyKey]).not.toContain('sk-ant-oat');
+      expect(injection.env[claudeCodeOAuthTokenKey]).toBeUndefined();
 
-    expect(injection).toMatchObject({
-      applied: true,
-      brokerProfile: 'gantry',
-      credentialProviders: { [claudeCodeOAuthTokenKey]: 'native' },
-      env: { [claudeCodeOAuthTokenKey]: 'sk-ant-oat-upstream' },
-    });
-    expect(injection.env[anthropicBaseUrlKey]).toBeUndefined();
-    expect(injection.env[anthropicApiKeyKey]).toBeUndefined();
-    await broker.close();
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+
+      expect(response.status).toBe(200);
+      expect(upstreamFetch).toHaveBeenCalledWith(
+        new URL('https://api.anthropic.com/v1/messages'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            authorization: 'Bearer sk-ant-oat-upstream',
+          }),
+        }),
+      );
+      expect(upstreamFetch).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({
+          headers: expect.not.objectContaining({
+            'x-api-key': 'sk-ant-oat-upstream',
+          }),
+        }),
+      );
+    } finally {
+      await broker.close();
+    }
   });
 
   it('honors numeric loopback bind hosts only', async () => {

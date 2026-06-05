@@ -113,6 +113,7 @@ import { executeRunnerProcess } from '@core/runtime/agent-spawn-process.js';
 import { ACTIVE_RUN_STOP_REQUESTED } from '@core/runtime/group-queue-stop.js';
 import type { RunnerProcessSpec } from '@core/runtime/agent-spawn-types.js';
 import type { ConversationRoute } from '@core/domain/types.js';
+import type { RunnerSandboxProvider } from '@core/shared/runner-sandbox-provider.js';
 
 /* ------------------------------------------------------------------ */
 /*  Shared fixtures                                                    */
@@ -128,7 +129,12 @@ const testGroup: ConversationRoute = {
 function makeSpec(
   overrides: Partial<RunnerProcessSpec> = {},
 ): RunnerProcessSpec {
-  return {
+  const runnerSandboxProvider: RunnerSandboxProvider = {
+    id: 'direct',
+    enforcing: false,
+    start: vi.fn(() => fakeProc),
+  };
+  const base: RunnerProcessSpec = {
     group: testGroup,
     input: {
       prompt: 'Hello there',
@@ -140,13 +146,42 @@ function makeSpec(
     env: { PATH: '/usr/bin' },
     onProcess: vi.fn(),
     onOutput: undefined,
-    options: undefined,
+    options: { runnerSandboxProvider },
     runnerLabel: 'test-runner',
     processName: 'test-proc',
     startTime: Date.now(),
     logsDir: '/tmp/test-logs',
     runtimeDetails: ['detail-1', 'detail-2'],
+    sandbox: {
+      cwd: '/tmp/test-workspace',
+      workspaceRoot: '/tmp/test-workspace',
+      configFilePath: '/tmp/test-workspace/.gantry/sandbox.json',
+      egressProxyUrl: 'http://127.0.0.1:12345',
+      allowedNetworkHosts: [],
+      runtimeReadPaths: ['/tmp/test-workspace/runtime'],
+      runtimeWritePaths: ['/tmp/test-workspace/ipc'],
+      protectedReadPaths: [],
+      protectedWritePaths: [],
+      resourceLimits: {
+        cpuSeconds: 0,
+        memoryMb: 0,
+        maxProcesses: 0,
+      },
+      sandboxProfile: {
+        id: 'runner-default',
+        network: 'required',
+        filesystem: 'workspace_write',
+      },
+      principal: {},
+    },
+  };
+  return {
+    ...base,
     ...overrides,
+    options: {
+      ...base.options,
+      ...(overrides.options ?? {}),
+    },
   };
 }
 
@@ -167,6 +202,92 @@ describe('executeRunnerProcess', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  /* ============================================================== */
+  /*  Sandbox provider seam                                          */
+  /* ============================================================== */
+
+  describe('sandbox provider seam', () => {
+    it('uses the configured runner sandbox provider to start the process', async () => {
+      const sandboxProvider = {
+        id: 'direct' as const,
+        enforcing: false,
+        start: vi.fn(() => fakeProc),
+      };
+      const onProcess = vi.fn();
+      const spec = makeSpec({
+        onProcess,
+        options: { runnerSandboxProvider: sandboxProvider },
+      });
+      const resultP = executeRunnerProcess(spec);
+
+      const output = JSON.stringify({
+        status: 'success',
+        result: 'sandboxed result',
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${output}\n${OUTPUT_END_MARKER}\n`,
+      );
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+
+      const result = await resultP;
+      expect(sandboxProvider.start).toHaveBeenCalledWith({
+        command: '/usr/bin/node',
+        args: ['runner.js'],
+        env: { PATH: '/usr/bin' },
+        ...spec.sandbox,
+      });
+      expect(onProcess).toHaveBeenCalledWith(fakeProc, 'test-proc');
+      expect(result.status).toBe('success');
+      expect(result.result).toBe('sandboxed result');
+    });
+
+    it('fails closed when the configured runner sandbox provider cannot spawn', async () => {
+      const sandboxProvider = {
+        id: 'direct' as const,
+        enforcing: false,
+        start: vi.fn(() => {
+          throw new Error('sandbox unavailable');
+        }),
+      };
+      const onProcess = vi.fn();
+      const spec = makeSpec({
+        onProcess,
+        options: { runnerSandboxProvider: sandboxProvider },
+      });
+
+      const result = await executeRunnerProcess(spec);
+
+      expect(onProcess).not.toHaveBeenCalled();
+      expect(result.status).toBe('error');
+      expect(result.result).toBeNull();
+      expect(result.error).toBe(
+        'Sandbox startup failed: sandbox unavailable. The run did not start.',
+      );
+      expect(result.runtimeEvents).toContainEqual(
+        expect.objectContaining({
+          eventType: 'sandbox.blocked',
+          payload: expect.objectContaining({
+            provider: 'direct',
+            enforcing: false,
+            networkMode: 'required',
+            filesystemMode: 'workspace_write',
+            protectedWritePathCount: expect.any(Number),
+          }),
+        }),
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          group: 'Test Group',
+          processName: 'test-proc',
+          sandboxProvider: 'direct',
+          error: 'sandbox unavailable',
+        }),
+        'test-runner sandbox provider failed',
+      );
+    });
   });
 
   /* ============================================================== */

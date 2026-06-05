@@ -333,9 +333,11 @@ tool; none are direct file edits.
   capability with `request_access` (`target.kind=run_command`, leave
   `temporaryOnly` false) using a literal command prefix; never request broad
   `cli *`.
-- Missing secret -> set it through Gantry Credential Center
-  (`gantry credentials model set <provider>` for model keys); the secret is
-  entered outside chat and is never pasted into the conversation.
+- Missing secret -> report `Setup required: credential missing: <NAME>` and ask
+  the host admin to set it in Gantry Credential Center. Do not run
+  `gantry credentials ...` from an agent; that CLI reads protected runtime
+  config and is host/admin-only. The secret is entered outside chat and is
+  never pasted into the conversation.
 - Needs a runtime settings change -> read current state with
   `settings_desired_state`, then submit `request_settings_update`
   (`replacementYaml`, `expectedRevision` from the read, `reason`). Never edit
@@ -454,10 +456,11 @@ Use `gantry config list` to inspect configured keys. Use `gantry config get
 <KEY> --raw` only when the raw value is required.
 
 Model selection and provider base URLs belong in `settings.yaml`, not `.env`.
-Provider keys belong in Gantry Credential Center through
-`gantry credentials model set <provider>`. Agent runners receive only the
-loopback Gantry Model Gateway URL and run-scoped gateway token. Do not pass raw
-provider keys, database URLs, or channel-token values through Model Access.
+Provider keys belong in Gantry Credential Center through host/admin setup
+(`gantry credentials model set <provider>`). Agents must not run credential CLI
+commands or inspect `settings.yaml`; they receive only the loopback Gantry Model
+Gateway URL and run-scoped gateway token. Do not pass raw provider keys,
+database URLs, or channel-token values through Model Access.
 
 ## Direct Edit Workflow
 
@@ -466,7 +469,7 @@ When setting up local services for personal use:
 1. Run `gantry local setup`.
 2. Run `gantry local doctor`.
 3. Confirm `.env` has `GANTRY_DATABASE_URL` and `SECRET_ENCRYPTION_KEY`.
-4. Configure required model credentials with
+4. From the host/admin shell, configure required model credentials with
    `gantry credentials model set <provider>`.
 5. Continue with `gantry setup` or restart with `gantry restart`.
 6. Confirm with `gantry status`.

@@ -47,6 +47,7 @@ const runtimeHomes: string[] = [];
 function makeRuntimeHome(options?: {
   embeddingsEnabled?: boolean;
   dreamingEmbeddingsEnabled?: boolean;
+  sandboxProvider?: 'direct' | 'sandbox_runtime';
 }): string {
   const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-doctor-'));
   runtimeHomes.push(runtimeHome);
@@ -88,6 +89,9 @@ function makeRuntimeHome(options?: {
       '      extractor: haiku',
       '      dreaming: sonnet',
       '      consolidation: sonnet',
+      ...(options?.sandboxProvider
+        ? ['runtime:', '  sandbox:', `    provider: ${options.sandboxProvider}`]
+        : []),
       '',
     ].join('\n'),
   );
@@ -152,6 +156,192 @@ describe('doctor model credential readiness', () => {
         id: 'model-access-credentials',
         status: 'pass',
         message: expect.stringContaining('anthropic'),
+      }),
+    );
+  });
+
+  it('reports direct runner sandbox compatibility mode', async () => {
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const runtimeHome = makeRuntimeHome({ sandboxProvider: 'direct' });
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'runner-sandbox',
+        status: 'pass',
+        message: expect.stringContaining('no outer OS sandbox'),
+      }),
+    );
+    expect(
+      report.checks.find((check) => check.id === 'runner-sandbox')?.message,
+    ).toContain('not organisation-safe');
+    expect(
+      report.checks.find((check) => check.id === 'runner-sandbox')?.message,
+    ).toContain(
+      'Setup required: sandbox_runtime is required for safe-host execution.',
+    );
+  });
+
+  it('reports sandbox_runtime as available when OS support is present', async () => {
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const runtimeHome = makeRuntimeHome({ sandboxProvider: 'sandbox_runtime' });
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'runner-sandbox',
+        status: 'pass',
+        message: expect.stringContaining('sandbox_runtime is configured'),
+      }),
+    );
+    expect(
+      report.checks.find((check) => check.id === 'runner-sandbox')?.message,
+    ).toContain('honor standard proxy env');
+  });
+
+  it('fails Linux sandbox_runtime readiness when socat is missing', async () => {
+    const platform = await import('@core/infrastructure/service/platform.js');
+    vi.mocked(platform.detectPlatform).mockReturnValue('linux');
+    vi.mocked(platform.commandExists).mockImplementation(
+      (command: string) => command !== 'socat',
+    );
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const runtimeHome = makeRuntimeHome({ sandboxProvider: 'sandbox_runtime' });
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'runner-sandbox',
+        status: 'fail',
+        message: expect.stringContaining('socat'),
+      }),
+    );
+  });
+
+  it('fails sandbox_runtime readiness when ripgrep is missing', async () => {
+    const platform = await import('@core/infrastructure/service/platform.js');
+    vi.mocked(platform.detectPlatform).mockReturnValue('linux');
+    vi.mocked(platform.commandExists).mockImplementation(
+      (command: string) => command !== 'rg',
+    );
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const runtimeHome = makeRuntimeHome({ sandboxProvider: 'sandbox_runtime' });
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'runner-sandbox',
+        status: 'fail',
+        message: expect.stringContaining('ripgrep'),
+      }),
+    );
+  });
+
+  it('does not require ripgrep for macOS sandbox_runtime readiness', async () => {
+    const platform = await import('@core/infrastructure/service/platform.js');
+    vi.mocked(platform.detectPlatform).mockReturnValue('macos');
+    vi.mocked(platform.commandExists).mockImplementation(
+      (command: string) => command !== 'rg',
+    );
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const runtimeHome = makeRuntimeHome({ sandboxProvider: 'sandbox_runtime' });
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'runner-sandbox',
+        status: 'pass',
+        message: expect.stringContaining('sandbox_runtime is configured'),
       }),
     );
   });

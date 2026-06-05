@@ -179,8 +179,20 @@ export interface RuntimeQueueSettings {
   baseRetryMs: number;
 }
 
+export type RuntimeSandboxProvider = 'direct' | 'sandbox_runtime';
+
+export interface RuntimeSandboxSettings {
+  provider: RuntimeSandboxProvider;
+  resourceLimits: {
+    cpuSeconds: number;
+    memoryMb: number;
+    maxProcesses: number;
+  };
+}
+
 export interface RuntimeProcessSettings {
   queue: RuntimeQueueSettings;
+  sandbox: RuntimeSandboxSettings;
 }
 
 export type RuntimeBrowserUsagePolicyMode = 'audit' | 'enforce';

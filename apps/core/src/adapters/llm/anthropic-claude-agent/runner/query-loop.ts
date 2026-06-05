@@ -27,8 +27,10 @@ import {
 } from './filesystem-sandbox.js';
 import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
+  allowedOuterSandboxClaudeExecutable,
   discoverAdditionalDirectories,
   IPC_POLL_MS,
+  resolveClaudeCodeExecutableFromPath,
   WORKSPACE_GROUP_DIR,
 } from './runtime-env.js';
 import {
@@ -212,12 +214,25 @@ export async function runQuery(
     ...protectedFilesystemPaths.denyWrite,
     ...localCliCredentialDirectories,
   ];
+  const sdkFilesystemSandbox =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? undefined
+      : buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
+          denyReadPaths: protectedFilesystemDenyReadPaths,
+          denyWritePaths: protectedFilesystemDenyWritePaths,
+        });
   const workspaceFolder = agentInput.workspaceFolder;
   const enabledSdkSkills = readClaudeSdkSkillNamesFromEnv();
-  const isolatedSdkEnv = {
+  const isolatedSdkEnv: Record<string, string | undefined> = {
     ...sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
   };
+  const claudeCodeExecutable =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? allowedOuterSandboxClaudeExecutable(
+          resolveClaudeCodeExecutableFromPath(isolatedSdkEnv.PATH),
+        )
+      : undefined;
   const capabilities = composeAgentCapabilities({
     mcpServerPath,
     appId: agentInput.appId,
@@ -225,6 +240,8 @@ export async function runQuery(
     chatJid: agentInput.chatJid,
     workspaceFolder: workspaceFolder,
     threadId: agentInput.threadId,
+    jobId: agentInput.jobId,
+    runId: agentInput.runId,
     memoryUserId: agentInput.memoryUserId,
     memoryDefaultScope: agentInput.memoryDefaultScope,
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
@@ -272,15 +289,20 @@ export async function runQuery(
       allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
       env: isolatedSdkEnv,
-      sandbox: buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
-        denyReadPaths: protectedFilesystemDenyReadPaths,
-        denyWritePaths: protectedFilesystemDenyWritePaths,
-      }),
+      ...(claudeCodeExecutable
+        ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
+        : {}),
+      ...(sdkFilesystemSandbox ? { sandbox: sdkFilesystemSandbox } : {}),
       permissionMode: capabilities.permissionMode,
       hooks: {
         PreToolUse: [
           {
-            hooks: [createSafetyPreToolUseHook(memoryBlock)],
+            hooks: [
+              createSafetyPreToolUseHook(
+                memoryBlock,
+                agentInput.toolNetworkEnv ?? {},
+              ),
+            ],
             timeout: 5,
           },
         ],

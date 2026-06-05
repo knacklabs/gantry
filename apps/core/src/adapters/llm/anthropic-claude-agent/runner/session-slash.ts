@@ -13,7 +13,11 @@ import {
 } from './system-prompt.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
-import { WORKSPACE_GROUP_DIR } from './runtime-env.js';
+import {
+  allowedOuterSandboxClaudeExecutable,
+  resolveClaudeCodeExecutableFromPath,
+  WORKSPACE_GROUP_DIR,
+} from './runtime-env.js';
 import type { SessionSlashCommand } from './types.js';
 import type { AgentPersona } from '../../../../shared/agent-persona.js';
 
@@ -60,10 +64,16 @@ export async function runSessionSlashCommand(
   let resultEmitted = false;
   let errorMessage: string | undefined;
   const systemPrompt = buildSystemPrompt(opts.systemPromptAppend);
-  const isolatedSdkEnv = {
+  const isolatedSdkEnv: Record<string, string | undefined> = {
     ...opts.sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
   };
+  const claudeCodeExecutable =
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
+      ? allowedOuterSandboxClaudeExecutable(
+          resolveClaudeCodeExecutableFromPath(isolatedSdkEnv.PATH),
+        )
+      : undefined;
 
   try {
     for await (const message of query({
@@ -85,6 +95,9 @@ export async function runSessionSlashCommand(
         skills: [],
         allowedTools: [],
         env: isolatedSdkEnv,
+        ...(claudeCodeExecutable
+          ? { pathToClaudeCodeExecutable: claudeCodeExecutable }
+          : {}),
         permissionMode: 'default' as const,
         canUseTool: async () => ({
           behavior: 'deny' as const,

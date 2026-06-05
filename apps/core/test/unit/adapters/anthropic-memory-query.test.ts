@@ -59,11 +59,10 @@ beforeEach(() => {
     supportsModelRuntimeProfile: true,
     modelRuntimeProfileIdentifier: 'gantry-model-access',
     returnsRawSecrets: true,
-    projectsProviderTokens: true,
+    projectsProviderTokens: false,
     projectedSecretEnvKeys: [
       ['ANTHROPIC', 'BASE_URL'].join('_'),
       ['ANTHROPIC', 'API_KEY'].join('_'),
-      ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_'),
     ],
   });
   queryMock.mockReturnValue(

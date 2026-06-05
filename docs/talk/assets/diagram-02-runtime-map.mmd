@@ -1,0 +1,42 @@
+flowchart LR
+  subgraph "Ingress surfaces"
+    SL[Slack]
+    TG[Telegram]
+    TE[Teams]
+    WEB[Web / SDK]
+    SDK["@gantry/sdk<br/>backend apps"]
+    ING["signed ingress<br/>external systems"]
+    HOOK["outbound webhooks<br/>subscribers"]
+  end
+
+  subgraph "Gantry runtime"
+    ORCH["Orchestrator<br/>group queue"]
+    CTRL["Control<br/>HTTP / SSE"]
+    SCHED["Scheduler<br/>pg-boss"]
+    RUN["Runners<br/>child processes"]
+  end
+
+  subgraph "Postgres"
+    PGM["gantry<br/>schema"]
+    PGB["pgboss<br/>schema"]
+    CRED["model creds<br/>encrypted"]
+  end
+
+  MGW["Model Gateway<br/>credential broker"]
+
+  SL --> ORCH
+  TG --> ORCH
+  TE --> ORCH
+  WEB --> ORCH
+  SDK --> ORCH
+  ING --> ORCH
+  ORCH --> CTRL
+  SCHED --> ORCH
+  SCHED --> RUN
+  RUN --> CTRL
+  RUN --> MGW
+  CTRL --> PGM
+  SCHED --> PGB
+  RUN --> CRED
+  MGW --> CRED
+  CTRL --> HOOK

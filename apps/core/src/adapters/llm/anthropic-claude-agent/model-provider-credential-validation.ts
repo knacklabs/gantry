@@ -30,12 +30,9 @@ function validateGantryGatewayProjection(
   model: ModelCatalogEntry,
 ): void {
   if (env.CLAUDE_CODE_OAUTH_TOKEN) {
-    if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
-      throw new Error(
-        `Gantry Model Gateway projection for ${model.displayName} must use only one Anthropic credential mode.`,
-      );
-    }
-    return;
+    throw new Error(
+      `Gantry Model Gateway projection for ${model.displayName} must not expose provider OAuth tokens.`,
+    );
   }
   if (!isLoopbackGatewayUrl(env.ANTHROPIC_BASE_URL)) {
     throw new Error(

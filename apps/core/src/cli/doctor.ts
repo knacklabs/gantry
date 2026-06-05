@@ -33,6 +33,7 @@ import { validateRuntimeEnvPolicy } from '../config/source-classification.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 import type { GuidedActionRef } from '../application/guided-actions/guided-action-model.js';
+import { inspectRunnerSandbox } from './doctor-runner-sandbox.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -356,6 +357,8 @@ export function runDoctor(
       ? { type: 'run_verification', label: runtimeEnvBoundaryNextAction }
       : undefined,
   });
+  const sandboxCheck = inspectRunnerSandbox(settings);
+  if (sandboxCheck) add(checks, sandboxCheck);
   const credentialMode = settings?.credentialBroker.mode || 'gantry';
 
   for (const provider of providers) {

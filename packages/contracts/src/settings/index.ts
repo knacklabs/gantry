@@ -165,6 +165,21 @@ export const RuntimeSettingsPublicSchema = z
             baseRetryMs: z.number().int().nonnegative(),
           })
           .strict(),
+        sandbox: z
+          .object({
+            provider: z.union([
+              z.literal('direct'),
+              z.literal('sandbox_runtime'),
+            ]),
+            resourceLimits: z
+              .object({
+                cpuSeconds: z.number().int().nonnegative(),
+                memoryMb: z.number().int().nonnegative(),
+                maxProcesses: z.number().int().nonnegative(),
+              })
+              .strict(),
+          })
+          .strict(),
       })
       .strict(),
     browser: z

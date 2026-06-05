@@ -8,6 +8,7 @@ import {
   ToolExecutionPolicyService,
 } from '../../../../shared/tool-execution-policy-service.js';
 import { denyMemoryBoundaryToolUse } from '../../../../runner/memory-boundary.js';
+import { applyBashTrustEnv } from './bash-trust-env.js';
 
 const BLOCK_MESSAGE =
   'Gantry blocks direct edits to agent capability configuration. Request the missing action or source setup through the Gantry access flow so the change is reviewed, stored durably, and activated through approved access.';
@@ -32,13 +33,15 @@ export async function protectedCapabilityPreToolUseHook(
 
 export function createSafetyPreToolUseHook(
   memoryBlock: string,
+  toolNetworkEnv: Record<string, string | undefined> = {},
 ): (input: HookInput) => Promise<SyncHookJSONOutput> {
-  return (input) => safetyPreToolUseHook(input, memoryBlock);
+  return (input) => safetyPreToolUseHook(input, memoryBlock, toolNetworkEnv);
 }
 
 async function safetyPreToolUseHook(
   input: HookInput,
   memoryBlock: string,
+  toolNetworkEnv: Record<string, string | undefined> = {},
 ): Promise<SyncHookJSONOutput> {
   if (input.hook_event_name !== 'PreToolUse') {
     return { continue: true };
@@ -61,11 +64,40 @@ async function safetyPreToolUseHook(
   });
   const decision = new ToolExecutionPolicyService().evaluate({ request });
   if (decision.status !== 'deny') {
-    return { continue: true };
+    return allowPreToolUseWithTrustEnv(
+      input.tool_name,
+      input.tool_input,
+      toolNetworkEnv,
+    );
   }
 
   const reason = `${decision.reason} ${decision.recoveryAction ?? BLOCK_MESSAGE}`;
   return denyPreToolUse(reason);
+}
+
+function allowPreToolUseWithTrustEnv(
+  toolName: string,
+  toolInput: unknown,
+  toolNetworkEnv: Record<string, string | undefined>,
+): SyncHookJSONOutput {
+  if (!toolInput || typeof toolInput !== 'object') {
+    return { continue: true };
+  }
+  const updatedInput = applyBashTrustEnv(
+    toolName,
+    toolInput as Record<string, unknown>,
+    toolNetworkEnv,
+  );
+  if (updatedInput === toolInput) {
+    return { continue: true };
+  }
+  return {
+    continue: true,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      updatedInput,
+    },
+  };
 }
 
 function denyPreToolUse(reason: string): SyncHookJSONOutput {

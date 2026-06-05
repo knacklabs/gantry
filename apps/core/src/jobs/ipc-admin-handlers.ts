@@ -1,5 +1,4 @@
 import path from 'path';
-
 import { McpServerService } from '../application/mcp/mcp-server-service.js';
 import { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
 import {
@@ -77,7 +76,6 @@ import {
   recheckPausedSetupJobsAfterRequestAccessGrant,
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
-
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 configureSkillInstallHandlers({
   getStorage: getRuntimeStorage,
@@ -85,7 +83,6 @@ configureSkillInstallHandlers({
   logError: (context, message) => logger.error(context, message),
   syncApprovedCapabilitySettings,
 });
-
 function createContextTaskResponder(context: TaskContext) {
   return createTaskResponder(
     context.sourceAgentFolder,
@@ -94,11 +91,9 @@ function createContextTaskResponder(context: TaskContext) {
     context.data.responseKeyId,
   );
 }
-
 const refreshGroupsHandler: TaskHandler = async (context) => {
   const { sourceAgentFolder, deps, conversationBindings } = context;
   const { accept, reject } = createContextTaskResponder(context);
-
   try {
     logger.info(
       { sourceAgentFolder },
@@ -123,7 +118,6 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
     );
   }
 };
-
 // prettier-ignore
 const registerAgentHandler: TaskHandler = async (context) => {
   const { data, sourceAgentFolder, deps, sourceAgentFolderJids } = context;
@@ -158,7 +152,6 @@ const registerAgentHandler: TaskHandler = async (context) => {
   await syncApprovedCapabilitySettings(data.appId as never);
   accept(`Agent "${data.name}" registered.`);
 };
-
 const requestMcpServerHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
@@ -275,7 +268,6 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
     );
   }
 };
-
 const mcpListToolsHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
@@ -315,7 +307,6 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
     );
   }
 };
-
 const mcpCallToolHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
@@ -371,7 +362,6 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
     );
   }
 };
-
 // prettier-ignore
 type RequestOnlyCapabilityToolName = 'request_skill_dependency_install' | 'request_permission';
 // prettier-ignore
@@ -381,7 +371,6 @@ const requestOnlyCapabilitySpecs: Record<RequestOnlyCapabilityToolName, { kind: 
   request_skill_dependency_install: { kind: 'Skill dependency install', required: ['ecosystem'], any: ['packages', 'commandArgv'], display: 'ecosystem', effect: 'review_only_no_command_execution' },
   request_permission: { kind: 'Permission', required: [], any: ['capabilityId', 'toolName', 'toolNames', 'channelTool'], display: 'capabilityDisplayName', effect: 'review_only_no_permission_change' },
 };
-
 // prettier-ignore
 const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
@@ -403,7 +392,6 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, jobId: data.jobId, review: parsed.review, pendingKey });
   accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
 };
-
 async function missingReviewedCapabilityCatalogEntry(input: {
   deps: TaskContext['deps'];
   appId: string;
@@ -449,7 +437,6 @@ async function missingReviewedCapabilityCatalogEntry(input: {
   }
   return 'Capability access requires an active reviewed capability catalog entry. Request the reviewed capability with request_access target.kind=capability.';
 }
-
 // prettier-ignore
 const adminPermissionRevokeHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
@@ -490,10 +477,8 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
     reject(err instanceof Error ? err.message : 'Permission revoke failed.', 'permission_revoke_failed');
   }
 };
-
 // prettier-ignore
 export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
-
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
   const requestedTargetJid = toTrimmedString(input.data.chatJid, { maxLen: 512 });
@@ -502,7 +487,6 @@ function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler
   if (!requestedTargetJid || !input.sourceAgentFolderJids.includes(requestedTargetJid)) { input.reject(`${input.requestKind} requests must include the originating chat for this agent.`, 'forbidden'); return null; }
   return requestedTargetJid;
 }
-
 // prettier-ignore
 function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolName, payload: Record<string, unknown>): { ok: true; review: RequestOnlyCapabilityReview } | { ok: false; error: string } {
   const spec = requestOnlyCapabilitySpecs[toolName];
@@ -549,20 +533,16 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
     },
   };
 }
-
 // prettier-ignore
 function requestOnlyCapabilityEffect(toolName: RequestOnlyCapabilityToolName, toolInput: Record<string, unknown>, fallback: string): string {
   return toolName === 'request_permission' ? requestPermissionReviewEffect(toolInput, fallback) : fallback;
 }
-
 // prettier-ignore
 function requestOnlyCapabilityQueuedMessage(review: RequestOnlyCapabilityReview): string {
   return review.toolName === 'request_permission' ? requestPermissionQueuedMessage({ toolName: 'request_permission', displayName: review.displayName }) : `${formatApprovalRequestedMessage(review.displayName)} Admin setup may still be needed after approval.`;
 }
-
 // prettier-ignore
 function payloadHasValue(value: unknown): boolean { return Array.isArray(value) ? value.some((item) => Boolean(toTrimmedString(item, { maxLen: 300 }))) : Boolean(toTrimmedString(value, { maxLen: 512 })); }
-
 // prettier-ignore
 function sanitizeCapabilityPayload(payload: Record<string, unknown>) {
   const output: Record<string, unknown> = {};
@@ -583,7 +563,6 @@ function sanitizeCapabilityPayload(payload: Record<string, unknown>) {
   }
   return output;
 }
-
 function sanitizedStringList(values: unknown[]): string[] {
   return [
     ...new Set(
@@ -594,20 +573,17 @@ function sanitizedStringList(values: unknown[]): string[] {
     ),
   ];
 }
-
 // prettier-ignore
 function isTemporaryBrowserPermissionRequest(payload: Record<string, unknown>): boolean {
   if (payload.temporaryOnly !== true) return false;
   if (payload.permissionKind && payload.permissionKind !== 'tool') return false;
   return sanitizedStringList([payload.toolName, ...(Array.isArray(payload.toolNames) ? payload.toolNames : [])]).some((toolName) => toolName === 'Browser');
 }
-
 // prettier-ignore
 function isBrowserPermissionRequest(payload: Record<string, unknown>, predicate: (toolName: string) => boolean): boolean {
   if (payload.permissionKind && payload.permissionKind !== 'tool') return false;
   return sanitizedStringList([payload.toolName, ...(Array.isArray(payload.toolNames) ? payload.toolNames : [])]).some(predicate);
 }
-
 // prettier-ignore
 function capabilityDisplayValue(payload: Record<string, unknown>, spec: (typeof requestOnlyCapabilitySpecs)[RequestOnlyCapabilityToolName]): string {
   const primary = payload[spec.display];
@@ -724,7 +700,6 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       if (input.pendingKey) pendingRequestOnlyCapabilityReviews.delete(input.pendingKey);
     });
 }
-
 function hasAgentSuppliedCapabilityDefinition(
   payload: Record<string, unknown>,
 ): boolean {
@@ -735,7 +710,6 @@ function hasAgentSuppliedCapabilityDefinition(
     ) || Object.prototype.hasOwnProperty.call(payload, 'capabilityDefinition')
   );
 }
-
 // prettier-ignore
 function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { name: string }; transport: string; sandboxProfileId?: string; transportConfig: import('../domain/mcp/mcp-servers.js').McpServerTransportConfig; origin: string; requestedToolPatterns: string[]; credentialRefs: import('../domain/mcp/mcp-servers.js').McpCredentialRef[]; credentialNeeds: string[]; networkHosts: string[]; reason: string }): void {
   void completeMcpPermissionReview(input).catch((err) => {
@@ -749,7 +723,6 @@ function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['dep
     );
   });
 }
-
 async function completeMcpPermissionReview(
   input: Parameters<typeof startMcpPermissionReview>[0],
 ): Promise<void> {
@@ -779,7 +752,6 @@ async function completeMcpPermissionReview(
       activation: 'source_inventory_only',
     },
   });
-
   if (!decision.approved) {
     await rejectMcpRequestFromPermission(input, decision.reason);
     return;
@@ -788,7 +760,6 @@ async function completeMcpPermissionReview(
     await rejectMcpRequestFromPermission(input, 'missing approving principal');
     return;
   }
-
   let connectedServerId: string | undefined;
   try {
     const server = await input.service.connectServer({
@@ -848,7 +819,6 @@ async function completeMcpPermissionReview(
     'mcp_connected',
   );
 }
-
 async function rejectMcpRequestFromPermission(
   input: Parameters<typeof startMcpPermissionReview>[0],
   reason?: string,
@@ -866,7 +836,6 @@ async function rejectMcpRequestFromPermission(
   );
   input.responder.reject(message, 'permission_denied');
 }
-
 async function createMcpProxyForSourceGroup(input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
@@ -895,7 +864,6 @@ async function createMcpProxyForSourceGroup(input: {
     egressDenylist: getRuntimeSettingsForConfig().permissions.egress.denylist,
   });
 }
-
 async function syncApprovedCapabilitySettings(
   appId: import('../domain/app/app.js').AppId,
 ): Promise<void> {

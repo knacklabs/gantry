@@ -2,6 +2,7 @@ import {
   ASSISTANT_NAME,
   getCredentialBrokerRuntimeConfig,
   getRuntimeQueueConfig,
+  getRuntimeSettingsForConfig,
 } from '../../config/index.js';
 import {
   createAgentCredentialBroker,
@@ -45,10 +46,12 @@ import { memoryAgentIdForWorkspaceFolder } from '../../memory/app-memory-boundar
 import {
   createDefaultAgentExecutionAdapterRegistry,
   createDefaultMemoryLlmClient,
+  createDefaultRunnerSandboxProvider,
 } from '../../adapters/llm/default-runtime-adapters.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
+import type { RunnerSandboxProvider } from '../../shared/runner-sandbox-provider.js';
 
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
@@ -59,6 +62,7 @@ export type RuntimeAppRepository = RuntimeRouterStateRepository &
 export interface RuntimeApp {
   executionAdapter: AgentExecutionAdapter;
   executionAdapters: AgentExecutionAdapterRegistry;
+  runnerSandboxProvider: RunnerSandboxProvider;
   queue: GroupQueue;
   loadState: () => Promise<void>;
   saveState: () => Promise<void>;
@@ -116,6 +120,7 @@ export interface RuntimeAppOptions {
   publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
   executionAdapter?: AgentExecutionAdapter;
   executionAdapters?: AgentExecutionAdapterRegistry;
+  runnerSandboxProvider?: RunnerSandboxProvider;
   opsRepository?: RuntimeAppRepository;
 }
 
@@ -134,6 +139,11 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   if (!executionAdapter) {
     throw new Error('Runtime requires at least one model execution adapter.');
   }
+  const runnerSandboxProvider =
+    options.runnerSandboxProvider ??
+    createDefaultRunnerSandboxProvider(
+      getRuntimeSettingsForConfig().runtime.sandbox,
+    );
   registerMemoryLlmClient(createDefaultMemoryLlmClient());
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
   let credentialBrokerPromise:
@@ -536,11 +546,13 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     publishRuntimeEvent: options.publishRuntimeEvent,
     executionAdapter,
     executionAdapters,
+    runnerSandboxProvider,
   });
 
   return {
     executionAdapter,
     executionAdapters,
+    runnerSandboxProvider,
     queue,
     loadState,
     saveState,

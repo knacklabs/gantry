@@ -18,6 +18,7 @@ import {
   DEFAULT_MODEL_GATEWAY_BIND_HOST,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
+  getDefaultRuntimeSandboxSettings,
 } from './runtime-settings-defaults.js';
 import type {
   RuntimeCredentialBrokerSettings,
@@ -672,6 +673,7 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
       maxRetries: 5,
       baseRetryMs: 5000,
     },
+    sandbox: getDefaultRuntimeSandboxSettings(),
   };
   if (raw === undefined) return defaults;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -679,9 +681,9 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'queue') {
+    if (key !== 'queue' && key !== 'sandbox') {
       throw new Error(
-        `runtime.${key} is not supported. Configure runtime.queue.*.`,
+        `runtime.${key} is not supported. Configure runtime.queue.* or runtime.sandbox.*.`,
       );
     }
   }
@@ -707,6 +709,53 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
       );
     }
   }
+  const sandboxRaw = map.sandbox;
+  if (
+    sandboxRaw !== undefined &&
+    (typeof sandboxRaw !== 'object' ||
+      sandboxRaw === null ||
+      Array.isArray(sandboxRaw))
+  ) {
+    throw new Error('runtime.sandbox must be a mapping');
+  }
+  const sandbox = (sandboxRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(sandbox)) {
+    if (key !== 'provider' && key !== 'resource_limits') {
+      throw new Error(
+        `runtime.sandbox.${key} is not supported. Configure provider or resource_limits.`,
+      );
+    }
+  }
+  const resourceLimitsRaw = sandbox.resource_limits;
+  if (
+    resourceLimitsRaw !== undefined &&
+    (typeof resourceLimitsRaw !== 'object' ||
+      resourceLimitsRaw === null ||
+      Array.isArray(resourceLimitsRaw))
+  ) {
+    throw new Error('runtime.sandbox.resource_limits must be a mapping');
+  }
+  const resourceLimits = (resourceLimitsRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(resourceLimits)) {
+    if (
+      key !== 'cpu_seconds' &&
+      key !== 'memory_mb' &&
+      key !== 'max_processes'
+    ) {
+      throw new Error(
+        `runtime.sandbox.resource_limits.${key} is not supported. Configure cpu_seconds, memory_mb, or max_processes.`,
+      );
+    }
+  }
+  const provider =
+    sandbox.provider === undefined
+      ? defaults.sandbox.provider
+      : parseStringValue(sandbox.provider, 'runtime.sandbox.provider');
+  if (provider !== 'direct' && provider !== 'sandbox_runtime') {
+    throw new Error(
+      'runtime.sandbox.provider must be direct or sandbox_runtime',
+    );
+  }
   return {
     queue: {
       maxMessageRuns: parsePositiveIntegerValue(
@@ -729,6 +778,26 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         'runtime.queue.base_retry_ms',
         defaults.queue.baseRetryMs,
       ),
+    },
+    sandbox: {
+      provider,
+      resourceLimits: {
+        cpuSeconds: parseNonNegativeIntegerValue(
+          resourceLimits.cpu_seconds,
+          'runtime.sandbox.resource_limits.cpu_seconds',
+          defaults.sandbox.resourceLimits.cpuSeconds,
+        ),
+        memoryMb: parseNonNegativeIntegerValue(
+          resourceLimits.memory_mb,
+          'runtime.sandbox.resource_limits.memory_mb',
+          defaults.sandbox.resourceLimits.memoryMb,
+        ),
+        maxProcesses: parseNonNegativeIntegerValue(
+          resourceLimits.max_processes,
+          'runtime.sandbox.resource_limits.max_processes',
+          defaults.sandbox.resourceLimits.maxProcesses,
+        ),
+      },
     },
   };
 }

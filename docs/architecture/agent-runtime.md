@@ -171,6 +171,10 @@ single run. Once `AgentDelegation` is granted, the runtime does not add a
 second `subagent_type` allowlist. It still rejects cross-provider models and custom
 `tools`/`mcpServers`/`skills` input on the Agent tool call because those mutate
 the runner projection instead of using the selected parent-agent capabilities.
+When `runtime.sandbox.provider: sandbox_runtime` is configured, native
+subagents execute inside the same sandboxed parent runner process. They do not
+receive a separate host-spawned sandbox or a separate durable authority surface,
+and the Claude Code child is marked already sandboxed for that run.
 See `validateAgentModelRequest` and `validateAgentToolInput` in
 `apps/core/src/adapters/llm/anthropic-claude-agent/runner/agent-model-selection.ts`.
 

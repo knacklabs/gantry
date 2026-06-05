@@ -1,0 +1,11 @@
+flowchart LR
+  CH[Channels<br/>Slack / Teams / Telegram]
+  WEB[Web surfaces<br/>records / dashboards]
+  DB[(Database<br/>durable state / audit)]
+  APP[Backend apps<br/>SDK / ingress / workers]
+  RT[Agent Runtime<br/>memory / tools / gate / audit]
+
+  CH --> RT
+  WEB --> RT
+  DB --> RT
+  APP --> RT

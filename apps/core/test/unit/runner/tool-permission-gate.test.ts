@@ -746,6 +746,43 @@ describe('createCanUseToolCallback', () => {
     expect(output).toContain('"jobId":"job-1"');
   });
 
+  it('allows scheduled jobs to read local time without a custom command grant', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: true,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: 'job-1',
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: [],
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+      } as never,
+    });
+
+    await expect(
+      canUseTool(
+        'Bash',
+        { command: 'TZ=Asia/Kolkata date +"%Y-%m-%d %H:%M"' },
+        makePermissionOptions() as never,
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+        updatedInput: expect.objectContaining({
+          command: expect.stringContaining('date +"%Y-%m-%d %H:%M"'),
+        }),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('omits timed access from autonomous job prompts with persistent suggestions', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,

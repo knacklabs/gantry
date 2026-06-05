@@ -87,6 +87,19 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     );
   });
 
+  it('keeps Claude config in a stable session store', async () => {
+    mockMaterializeClaudeRuntime.mockClear();
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await adapter.prepare(prepareInput());
+
+    const materializeInput = mockMaterializeClaudeRuntime.mock.calls[0]?.[0];
+    expect(materializeInput).toMatchObject({
+      baseTempDir: '/tmp/gantry/agents/test-agent/.llm-runtime',
+      cleanupPolicy: 'retain-for-debug',
+    });
+  });
+
   it('passes only materialized Gantry skill names to the runner SDK whitelist', async () => {
     mockMaterializeClaudeRuntime.mockResolvedValueOnce({
       claudeConfigDir: '/tmp/gantry-runtime/.claude',
@@ -212,7 +225,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     ).resolves.toBeDefined();
   });
 
-  it('allows Gantry Claude Code OAuth projections for Anthropic models', async () => {
+  it('rejects raw Claude Code OAuth projections for Anthropic models', async () => {
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
     await expect(
@@ -235,7 +248,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
           },
         }),
       ),
-    ).resolves.toBeDefined();
+    ).rejects.toThrow('must not expose provider OAuth tokens');
   });
 
   it('allows IPv6 loopback Gantry gateway projections', async () => {

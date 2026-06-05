@@ -3,9 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentCredentialBroker } from '@core/domain/ports/agent-credential-broker.js';
 import { CredentialBrokerPolicyError } from '@core/domain/models/credential-errors.js';
 
-const claudeCodeOAuthTokenKey = () =>
-  ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
-
 function makeBroker(
   overrides: {
     getInjection?: AgentCredentialBroker['getInjection'];
@@ -35,12 +32,8 @@ function makeBroker(
       supportsModelRuntimeProfile: true,
       modelRuntimeProfileIdentifier: 'gantry-model-access',
       returnsRawSecrets: true,
-      projectsProviderTokens: true,
-      projectedSecretEnvKeys: [
-        'ANTHROPIC_BASE_URL',
-        'ANTHROPIC_API_KEY',
-        claudeCodeOAuthTokenKey(),
-      ],
+      projectsProviderTokens: false,
+      projectedSecretEnvKeys: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY'],
     }),
   };
 }

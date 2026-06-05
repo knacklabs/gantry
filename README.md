@@ -97,6 +97,33 @@ gantry settings validate
 gantry service install|start|stop|restart
 ```
 
+### Sandbox Modes
+
+`runtime.sandbox.provider` is the only v1 execution-mode setting.
+
+- `direct`: easiest personal laptop setup; compatibility mode with no outer OS sandbox.
+- `sandbox_runtime`: recommended for organisation or safe-host use; wraps runner work in the enforcing OS sandbox when `gantry doctor` confirms support.
+- Docker or cloud sandboxes are future optional backends, not required for v1.
+
+Browser stays host-managed through Gantry IPC. Stdio MCP servers, local CLIs, skills, jobs, and native subagents follow the configured sandbox provider. The sandbox does not install tools: missing CLI or MCP dependencies are setup blockers, not permission grants. In `sandbox_runtime`, networked tools must use standard proxy-aware clients (`HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY`); tools that bypass those proxies fail closed.
+
+To switch modes, edit `~/gantry/settings.yaml`:
+
+```yaml
+runtime:
+  sandbox:
+    provider: sandbox_runtime
+```
+
+Then verify and restart:
+
+```bash
+gantry settings validate
+gantry service restart
+gantry doctor
+gantry status
+```
+
 Defaults in v1:
 
 - runtime home: `~/gantry`
@@ -327,7 +354,7 @@ Browser authority is selected in `settings.yaml` and the public capabilities API
 
 Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time. Job `accessRequirements` entries are readiness and preflight assertions, not job-local authority. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
 
-Capability-owned secrets for selected skills and MCP servers use Gantry Credential Center rather than runtime `.env` or model credentials. Use `gantry credentials access set <NAME>`, `gantry credentials access import-env <NAME>`, `gantry credentials access list`, and `gantry credentials access unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
+Capability-owned secrets for selected skills and MCP servers use Gantry Credential Center rather than runtime `.env` or model credentials. From the host/admin shell, use `gantry credentials access set <NAME>`, `gantry credentials access import-env <NAME>`, `gantry credentials access list`, and `gantry credentials access unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`. Agents should report missing credentials as setup blockers, not run the credential CLI themselves.
 
 `permissions.yolo_mode` controls the denylist applied only to the 5-minute
 all-tools timed grant. Gantry ships defaults for destructive commands such as
@@ -469,9 +496,13 @@ git clone https://github.com/AventCaw/Agent.Gantry.git
 cd Agent.Gantry
 npm install
 npm run build
-# local testing entrypoint (equivalent CLI flow)
-node dist/cli/index.js
+npm link
+gantry status
 ```
+
+`npm link` exposes this checkout's built CLI as `gantry`; rerun
+`npm run build` after source changes before restarting or validating the
+service.
 
 ## Testing
 

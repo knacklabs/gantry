@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import type { McpServerConfig } from '../agent-capabilities.js';
 import { isHostPrivateBrowserMcpServerName } from '../../../../shared/agent-tool-references.js';
 
+let externalMcpServerEgressEnv: Record<string, string> = {};
+
 export function readExternalMcpServers(): Record<string, McpServerConfig> {
   const configPath = process.env.GANTRY_MCP_CONFIG_FILE?.trim();
   if (configPath) {
@@ -11,12 +13,49 @@ export function readExternalMcpServers(): Record<string, McpServerConfig> {
       McpServerConfig
     >;
     fs.rmSync(configPath, { force: true });
-    return validateExternalMcpServers(parsed);
+    return validateExternalMcpServers(withExternalMcpServerEgressEnv(parsed));
   }
   const raw = process.env.GANTRY_MCP_SERVERS_JSON?.trim();
   if (!raw) return {};
   const parsed = JSON.parse(raw) as Record<string, McpServerConfig>;
-  return validateExternalMcpServers(parsed);
+  return validateExternalMcpServers(withExternalMcpServerEgressEnv(parsed));
+}
+
+export function setExternalMcpServerEgressEnv(
+  toolNetworkEnv: Record<string, string>,
+): void {
+  externalMcpServerEgressEnv = Object.fromEntries(
+    Object.entries(toolNetworkEnv).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === 'string' && entry[1].length > 0,
+    ),
+  );
+}
+
+function withExternalMcpServerEgressEnv(
+  parsed: Record<string, McpServerConfig>,
+): Record<string, McpServerConfig> {
+  return Object.fromEntries(
+    Object.entries(parsed).map(([name, config]) => {
+      if (config.type === 'http' || config.type === 'sse') {
+        return [name, config];
+      }
+      const stdioConfig = config as Extract<
+        McpServerConfig,
+        { type?: 'stdio' }
+      >;
+      return [
+        name,
+        {
+          ...stdioConfig,
+          env: {
+            ...(stdioConfig.env ?? {}),
+            ...externalMcpServerEgressEnv,
+          },
+        },
+      ];
+    }),
+  );
 }
 
 export function assertRequiredMcpServerReady(message: unknown): void {

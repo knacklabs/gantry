@@ -307,7 +307,9 @@ describe('job readiness service', () => {
       state: 'missing_capability',
       requirementType: 'browser',
       requirementId: 'Browser',
+      message: 'Setup required: capability dependency missing: Browser access.',
     });
+    expect(result.setupState.blockers[0]?.message).not.toContain('sandbox');
   });
 
   it('does not turn unreviewed semantic job requirements into grant prompts', async () => {

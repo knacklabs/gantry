@@ -19,6 +19,7 @@ describe('Claude SDK filesystem sandbox settings', () => {
     delete process.env.GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON;
     delete process.env.GANTRY_PROTECTED_FILESYSTEM_DENY_READ_PATHS_JSON;
     delete process.env.GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON;
+    delete process.env.GANTRY_SANDBOX_RUNTIME_PROXY;
   });
 
   it('keeps Bash sandboxed and enables macOS trustd lookup for approved CLI TLS', () => {
@@ -87,6 +88,22 @@ describe('Claude SDK filesystem sandbox settings', () => {
         expect.stringMatching(/\/tmp\/credentials$/),
       ]),
     });
+  });
+
+  it('avoids host filesystem probes when the runner is already sandboxed', () => {
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY = '1';
+    process.env.GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON = JSON.stringify([
+      '/tmp/runtime/settings.yaml',
+    ]);
+
+    expect(buildSdkFilesystemSandbox(['/tmp/runtime/settings.yaml'])).toEqual(
+      expect.objectContaining({
+        filesystem: expect.objectContaining({
+          denyRead: ['/tmp/runtime/settings.yaml'],
+          denyWrite: ['/tmp/runtime/settings.yaml'],
+        }),
+      }),
+    );
   });
 
   it('resolves reviewed local CLI credential directories from the host projection', () => {

@@ -51,7 +51,6 @@ const DEFAULT_TOKEN_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_TOKENS = 1024;
 const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 10 * 60 * 1000;
-const CLAUDE_CODE_OAUTH_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN';
 
 interface GatewayTokenRecord {
   token: string;
@@ -132,17 +131,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         `Model credential for ${providerId} is not configured. Run \`gantry credentials model set ${providerId}\`.`,
       );
     }
-    const credentialMode = resolveModelCredentialMode(
-      provider,
-      credential.authMode,
-    );
-    if (credentialMode.gatewayAuth.strategy === 'claude_code_oauth') {
-      return projectClaudeCodeOAuthInjection(
-        provider,
-        credentialMode.gatewayAuth.field,
-        credential.payload,
-      );
-    }
+    resolveModelCredentialMode(provider, credential.authMode);
     await this.ensureListening();
     this.sweepExpiredTokens();
     if (this.tokens.size >= this.maxTokens) {
@@ -229,7 +218,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       supportsModelRuntimeProfile: true,
       modelRuntimeProfileIdentifier: 'gantry-model-access',
       returnsRawSecrets: true,
-      projectsProviderTokens: true,
+      projectsProviderTokens: false,
       projectedSecretEnvKeys: projectedModelCredentialEnvKeys(),
     };
   }
@@ -622,37 +611,9 @@ function projectGatewayTokenEnv(input: {
   };
 }
 
-function projectClaudeCodeOAuthInjection(
-  provider: ModelProviderDefinition,
-  field: string | undefined,
-  payload: ModelCredentialPayload,
-): AgentCredentialInjection {
-  if (provider.id !== 'anthropic') {
-    throw new Error('Claude Code OAuth is only supported for Anthropic.');
-  }
-  if (!field) {
-    throw new Error(
-      `Claude Code OAuth credential mode for ${provider.id} is missing a credential field.`,
-    );
-  }
-  const token = payload[field];
-  if (!token) {
-    throw new Error(
-      `Model credential payload for ${provider.id} is missing ${field}.`,
-    );
-  }
-  return {
-    env: { [CLAUDE_CODE_OAUTH_TOKEN_ENV]: token },
-    credentialProviders: { [CLAUDE_CODE_OAUTH_TOKEN_ENV]: 'native' },
-    applied: true,
-    brokerProfile: 'gantry',
-  };
-}
-
 function projectedModelCredentialEnvKeys(): string[] {
   return [
     ...new Set([
-      CLAUDE_CODE_OAUTH_TOKEN_ENV,
       ...listExecutableModelProviders().flatMap((provider) => {
         const projection = provider.gateway.sdkProjection;
         return [
@@ -672,7 +633,11 @@ function injectProviderAuth(
   payload: ModelCredentialPayload,
 ): void {
   const auth = resolveModelCredentialMode(provider, authMode).gatewayAuth;
-  if (auth.strategy !== 'bearer' && auth.strategy !== 'header') {
+  if (
+    auth.strategy !== 'bearer' &&
+    auth.strategy !== 'header' &&
+    auth.strategy !== 'claude_code_oauth'
+  ) {
     throw new Error(
       `Model gateway auth strategy ${auth.strategy} is not implemented for ${provider.id} ${authMode}.`,
     );
@@ -688,7 +653,7 @@ function injectProviderAuth(
       `Model credential payload for ${provider.id} is missing ${auth.field}.`,
     );
   }
-  if (auth.strategy === 'bearer') {
+  if (auth.strategy === 'bearer' || auth.strategy === 'claude_code_oauth') {
     headers.authorization = `Bearer ${value}`;
     return;
   }

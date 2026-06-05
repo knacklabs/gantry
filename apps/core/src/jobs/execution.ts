@@ -61,6 +61,7 @@ import {
   createJobRunDiagnostics,
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
+  runnerRuntimeEventKey,
   terminalDiagnosticsPayload,
 } from './execution-diagnostics.js';
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
@@ -73,6 +74,7 @@ import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
 import { assertToolAccessRequirementsReadyForRun } from './execution-tool-access-requirements.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
+import { prelaunchBrowserForJobRun } from './execution-browser-prelaunch.js';
 import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
 import type {
@@ -201,15 +203,19 @@ export async function runJob(
       queue_jid: queueJid,
       scheduled_for: scheduledFor,
       timeout_ms: timeoutMs,
+      sandbox_provider: deps.runnerSandboxProvider?.id ?? 'direct',
+      sandbox_enforcing: deps.runnerSandboxProvider?.enforcing === true,
       ...jobStartedModelPayload(resolvedModel),
     });
     let result: string | null = null;
     let error: string | null = null;
     const diagnostics = createJobRunDiagnostics();
     let pausedForSetupDuringRun = false;
+    let setupStateForSetupPause: NonNullable<Job['setup_state']> | undefined;
     const resultSummaryAccumulator =
       createRuntimeUserVisibleResultAccumulator();
     let hasStreamedResult = false;
+    const streamedRuntimeEventKeys = new Set<string>();
     const appendResultSummary = (delta: string | null | undefined): void => {
       if (!delta) return;
       resultSummaryAccumulator.append(delta);
@@ -360,14 +366,29 @@ export async function runJob(
             agentId: executionAgentId,
             source: 'final_setup',
             runId,
-            publishRuntimeEvent: async (event) => {
-              await getRuntimeEventExchange().publish(event);
-            },
+            publishRuntimeEvent: (event) =>
+              getRuntimeEventExchange().publish(event),
           }));
+          const browserPrelaunchSetup = finalReadinessPassed
+            ? await prelaunchBrowserForJobRun({
+                currentJob,
+                executionGroupFolder: execution.group.folder,
+                executionJid: execution.executionJid,
+                diagnostics,
+                deps,
+                emitJobEvent,
+                logger,
+              })
+            : undefined;
           if (!finalReadinessPassed) {
             pausedForSetupDuringRun = true;
             error = SETUP_REQUIRED_PAUSE_REASON;
-          } else {
+          } else if (browserPrelaunchSetup) {
+            error = browserPrelaunchSetup.error;
+            setupStateForSetupPause = browserPrelaunchSetup.setupState;
+            pausedForSetupDuringRun = true;
+          }
+          if (!error) {
             const runOptions = buildRuntimeRunOptions({
               timeoutMs,
               credentialBroker,
@@ -383,6 +404,7 @@ export async function runJob(
               },
               executionAdapter: deps.executionAdapter,
               executionAdapters: deps.executionAdapters,
+              runnerSandboxProvider: deps.runnerSandboxProvider,
               skillContext: {
                 appId: executionAppId,
                 agentId: executionAgentId,
@@ -436,6 +458,10 @@ export async function runJob(
                 );
               },
               async (streamedOutput: AgentOutput) => {
+                for (const event of streamedOutput.runtimeEvents ?? []) {
+                  const eventKey = runnerRuntimeEventKey(event);
+                  if (eventKey) streamedRuntimeEventKeys.add(eventKey);
+                }
                 await forwardRunnerRuntimeEvents({
                   events: streamedOutput.runtimeEvents,
                   diagnostics,
@@ -472,6 +498,14 @@ export async function runJob(
               runOptions,
             );
             flushStreamingEvent(true);
+            await forwardRunnerRuntimeEvents({
+              events: output.runtimeEvents?.filter((event) => {
+                const eventKey = runnerRuntimeEventKey(event);
+                return !eventKey || !streamedRuntimeEventKeys.has(eventKey);
+              }),
+              diagnostics,
+              emitJobEvent,
+            });
             await updateRunProviderMetadata({ force: true });
             if (output.status === 'error') {
               error = output.error || 'Unknown error';
@@ -551,6 +585,7 @@ export async function runJob(
       error,
       diagnostics,
       pausedForSetupDuringRun,
+      setupStateForSetupPause,
       deletedDuringRun: deletionGuard.deletedDuringRun,
       runtimeAppId,
       runId,

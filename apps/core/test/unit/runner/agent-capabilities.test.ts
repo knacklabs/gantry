@@ -141,12 +141,15 @@ describe('agent capability composition', () => {
     expect(profile.mcpServers.gantry).toEqual({
       command: 'node',
       args: ['/tmp/ipc-mcp-stdio.js'],
+      alwaysLoad: true,
       env: {
         GANTRY_APP_ID: 'app-main',
         GANTRY_AGENT_ID: 'agent:telegram_team',
         GANTRY_CHAT_JID: 'tg:team',
         GANTRY_WORKSPACE_KEY: 'telegram_team',
         GANTRY_THREAD_ID: 'topic-1',
+        GANTRY_JOB_ID: '',
+        GANTRY_JOB_RUN_ID: '',
         GANTRY_MEMORY_USER_ID: '5759865942',
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
         GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '',
@@ -206,6 +209,22 @@ describe('agent capability composition', () => {
     expect(
       withBrowser.mcpServers.gantry?.env?.GANTRY_BROWSER_IPC_AUTH_TOKEN,
     ).toBe('browser-token');
+  });
+
+  it('projects scheduled job identity into the Gantry MCP env', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'telegram_team',
+      configuredAllowedTools: ['Browser'],
+      jobId: 'job-1',
+      runId: 'run-1',
+    });
+
+    expect(profile.mcpServers.gantry?.env).toMatchObject({
+      GANTRY_JOB_ID: 'job-1',
+      GANTRY_JOB_RUN_ID: 'run-1',
+    });
   });
 
   it('exposes global settings and service tools from selected capabilities', () => {

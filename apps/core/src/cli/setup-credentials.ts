@@ -104,12 +104,8 @@ export async function runCredentialsStep(
   p.note(
     [
       'Gantry stores the real provider credential encrypted in Credential Center.',
-      selectedModeId === 'claude_code_oauth'
-        ? 'The trusted Claude Code SDK runner receives the Claude Code OAuth token; tools and skills do not.'
-        : 'Sandboxed agent runners receive only a loopback gateway URL and a short-lived gtw_* token.',
-      selectedModeId === 'claude_code_oauth'
-        ? 'Claude Code owns the OAuth auth path; Gantry only stores and scopes the projection.'
-        : 'The trusted host injects the real provider auth only when forwarding approved model API calls.',
+      'Agent runners receive only a loopback gateway URL and a short-lived gtw_* token.',
+      'The trusted host injects the real provider auth only when forwarding approved model API calls.',
     ].join('\n'),
     'Model Access',
   );

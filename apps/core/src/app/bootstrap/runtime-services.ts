@@ -46,7 +46,11 @@ import {
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
 // prettier-ignore
-import { closeBrowser, getBrowserStatus } from '../../runtime/browser-capability.js';
+import {
+  closeBrowser,
+  ensureBrowserReady,
+  getBrowserStatus,
+} from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
 import {
   LIVE_SEND_PROFILE_ID,
@@ -90,11 +94,15 @@ interface Deps {
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
   executionAdapter?: RuntimeApp['executionAdapter'];
   executionAdapters?: RuntimeApp['executionAdapters'];
+  runnerSandboxProvider: RuntimeApp['runnerSandboxProvider'];
   exit: (code: number) => never;
 }
 type RuntimeServicesDefaults = Omit<
   Deps,
-  'opsRepository' | 'getToolRepository' | 'getPermissionRepository'
+  | 'opsRepository'
+  | 'getToolRepository'
+  | 'getPermissionRepository'
+  | 'runnerSandboxProvider'
 >;
 export type RuntimeServicesOptions = {
   app: RuntimeApp;
@@ -163,12 +171,13 @@ export async function startRuntimeServices(
     Pick<Deps, 'opsRepository' | 'getToolRepository'> &
     Partial<Pick<Deps, 'getPermissionRepository'>>,
 ): Promise<void> {
+  const { app, channelWiring } = options;
   const resolved: Deps = {
     ...makeDefaultDeps(),
     ...deps,
+    runnerSandboxProvider: app.runnerSandboxProvider,
   };
 
-  const { app, channelWiring } = options;
   const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
 
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);
@@ -209,8 +218,11 @@ export async function startRuntimeServices(
       getSkillArtifactStore: resolved.getSkillArtifactStore,
       getToolRepository: resolved.getToolRepository,
       getBrowserStatus,
+      openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
+      runnerSandboxProvider:
+        resolved.runnerSandboxProvider ?? app.runnerSandboxProvider,
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });

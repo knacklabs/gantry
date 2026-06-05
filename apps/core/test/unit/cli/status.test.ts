@@ -68,6 +68,7 @@ describe('status command formatting', () => {
 
       Runtime: Ready
       Service (background): running(pid:12345)
+      Sandbox: direct (compatibility, no OS sandbox)
       Workspace: default
       Agents: 1/1
       Conversations: 1/1
@@ -166,5 +167,40 @@ describe('status command formatting', () => {
 
     expect(output).toContain('Jobs: 4/1/0');
     expect(output).toContain('Access: 9/0');
+    expect(output).toContain('Sandbox: direct (compatibility, no OS sandbox)');
+  });
+
+  it('renders unavailable sandbox_runtime state from doctor evidence', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.runtime.sandbox.provider = 'sandbox_runtime';
+
+    const output = formatRuntimeStatus({
+      doctor: {
+        ok: false,
+        warnings: 0,
+        blockingFailures: 1,
+        checks: [
+          {
+            id: 'runner-sandbox',
+            title: 'Runner Sandbox',
+            status: 'fail',
+            message: 'sandbox_runtime needs sandbox-exec on macOS.',
+          },
+        ],
+      },
+      service: {
+        kind: 'background',
+        status: 'running(pid:12345)',
+      },
+      channels: [],
+      accessNeedsApprovalCount: 0,
+      modelCredentialReady: true,
+      memoryStatus: 'Ready',
+      settings,
+    } satisfies RuntimeStatusSummary);
+
+    expect(output).toContain(
+      'Sandbox: sandbox_runtime (unavailable: sandbox_runtime needs sandbox-exec on macOS.)',
+    );
   });
 });

@@ -327,7 +327,7 @@ function formatSecretStatus(health: string): string {
 }
 
 function formatModelCredentialRuntimeAccess(authMode: string | null): string {
-  if (authMode === 'claude_code_oauth') return 'via Claude Code OAuth';
+  void authMode;
   return 'via Gantry Model Gateway';
 }
 

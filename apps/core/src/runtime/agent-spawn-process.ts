@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -8,13 +7,20 @@ import {
   IDLE_TIMEOUT,
   LOG_LEVEL,
 } from '../config/index.js';
-import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
 import { AgentOutput, RunnerProcessSpec } from './agent-spawn-types.js';
 import { activeRunStopWasRequested } from './group-queue-stop.js';
 import { formatDuration } from '../shared/human-format.js';
 import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { formatRunnerProcessExitError } from './generated-runtime-path-error.js';
+import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import {
+  formatScheduledJobIdleStallError,
+  readScheduledJobHeartbeat,
+  scheduledJobIdleTimeoutMs,
+  type ScheduledJobHeartbeatPayload,
+} from './agent-spawn-scheduled-idle.js';
 
 const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
@@ -29,21 +35,17 @@ const SENSITIVE_TEXT_PATTERNS: RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
 ];
+const SANDBOX_BLOCKED_PATTERNS: RegExp[] = [
+  /\bsandbox(?:-exec)?\b.*\bdeny/i,
+  /\bseatbelt\b/i,
+  /\bbubblewrap\b/i,
+  /\bbwrap\b/i,
+  /\bseccomp\b/i,
+  /\blandlock\b/i,
+  /\boperation not permitted\b/i,
+];
 const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
-const DEFAULT_SCHEDULED_JOB_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
-const MIN_SCHEDULED_JOB_IDLE_TIMEOUT_MS = 60 * 1000;
-
 type RunnerTimeoutReason = 'timeout' | 'scheduled_job_idle_stall';
-
-interface ScheduledJobHeartbeatPayload {
-  lastTool?: string;
-  currentTool?: string;
-  lastActivityAt?: string;
-  lastActivityAgoMs?: number;
-  pendingPermissionRequests?: number;
-  pendingPermissionToolNames?: string[];
-  totalToolCalls?: number;
-}
 
 function formatResumeSessionStatus(sessionId?: string): string {
   return sessionId ? 'present' : 'none';
@@ -93,76 +95,42 @@ function runnerContextPayload(input: RunnerProcessSpec['input']) {
   };
 }
 
-function scheduledJobIdleTimeoutMs(): number {
-  const raw = process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
-  if (!raw) return DEFAULT_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
-  }
-  return Math.max(MIN_SCHEDULED_JOB_IDLE_TIMEOUT_MS, Math.trunc(parsed));
-}
-
-function readScheduledJobHeartbeat(
-  output: AgentOutput,
-): ScheduledJobHeartbeatPayload | null {
-  for (const event of output.runtimeEvents ?? []) {
-    if (event.eventType !== RUNTIME_EVENT_TYPES.JOB_HEARTBEAT) continue;
-    const payload = event.payload;
-    if (!payload || typeof payload !== 'object') return null;
-    const record = payload as Record<string, unknown>;
-    return {
-      lastTool:
-        typeof record.lastTool === 'string' ? record.lastTool : undefined,
-      currentTool:
-        typeof record.currentTool === 'string' ? record.currentTool : undefined,
-      lastActivityAt:
-        typeof record.lastActivityAt === 'string'
-          ? record.lastActivityAt
-          : undefined,
-      lastActivityAgoMs:
-        typeof record.lastActivityAgoMs === 'number'
-          ? record.lastActivityAgoMs
-          : undefined,
-      pendingPermissionRequests:
-        typeof record.pendingPermissionRequests === 'number'
-          ? record.pendingPermissionRequests
-          : undefined,
-      pendingPermissionToolNames: Array.isArray(
-        record.pendingPermissionToolNames,
-      )
-        ? record.pendingPermissionToolNames.filter(
-            (toolName): toolName is string => typeof toolName === 'string',
-          )
-        : undefined,
-      totalToolCalls:
-        typeof record.totalToolCalls === 'number'
-          ? record.totalToolCalls
-          : undefined,
-    };
-  }
-  return null;
-}
-
-function formatScheduledJobIdleStallError(input: {
-  timeoutMs: number;
-  heartbeat?: ScheduledJobHeartbeatPayload | null;
-  logFile?: string;
-}): string {
-  const { timeoutMs, heartbeat, logFile } = input;
-  const pendingCount = heartbeat?.pendingPermissionRequests ?? 0;
-  const pendingTools = heartbeat?.pendingPermissionToolNames?.length
-    ? heartbeat.pendingPermissionToolNames.join(', ')
-    : 'none';
-  const parts = [
-    `Scheduled job made no runner or tool progress for ${formatDuration(timeoutMs)}.`,
-    `lastTool=${heartbeat?.lastTool ?? heartbeat?.currentTool ?? 'none'}`,
-    `lastActivityAt=${heartbeat?.lastActivityAt ?? 'unknown'}`,
-    `pendingPermissions=${pendingCount} (${pendingTools})`,
-    `totalToolCalls=${heartbeat?.totalToolCalls ?? 0}`,
+function sandboxBlockedEvents(
+  spec: RunnerProcessSpec,
+  message: string,
+): NonNullable<AgentOutput['runtimeEvents']> {
+  const provider = spec.options?.runnerSandboxProvider;
+  return [
+    {
+      appId: spec.sandbox.principal.appId,
+      agentId: spec.sandbox.principal.agentId,
+      runId: spec.sandbox.principal.runId,
+      jobId: spec.sandbox.principal.jobId,
+      conversationId: spec.sandbox.principal.conversationId,
+      threadId: spec.sandbox.principal.threadId,
+      eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
+      actor: 'runner',
+      responseMode: 'none',
+      payload: {
+        provider: provider?.id ?? 'direct',
+        enforcing: provider?.enforcing === true,
+        profileId: spec.sandbox.sandboxProfile.id,
+        networkMode: spec.sandbox.sandboxProfile.network,
+        filesystemMode: spec.sandbox.sandboxProfile.filesystem,
+        allowedNetworkHostCount: spec.sandbox.allowedNetworkHosts.length,
+        runtimeReadPathCount: spec.sandbox.runtimeReadPaths.length,
+        runtimeWritePathCount: spec.sandbox.runtimeWritePaths.length,
+        protectedReadPathCount: spec.sandbox.protectedReadPaths.length,
+        protectedWritePathCount: spec.sandbox.protectedWritePaths.length,
+        resourceLimits: spec.sandbox.resourceLimits,
+        message: sanitizeLogText(message, 500),
+      },
+    },
   ];
-  if (logFile) parts.push(`logFile=${logFile}`);
-  return parts.join(' ');
+}
+
+function stderrLooksLikeSandboxBlock(stderr: string): boolean {
+  return SANDBOX_BLOCKED_PATTERNS.some((pattern) => pattern.test(stderr));
 }
 
 export function executeRunnerProcess(
@@ -182,13 +150,45 @@ export function executeRunnerProcess(
     startTime,
     logsDir,
     runtimeDetails,
+    sandbox,
   } = spec;
 
   return new Promise((resolve) => {
-    const runner = spawn(command, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env,
-    });
+    const sandboxProvider = options?.runnerSandboxProvider;
+    if (!sandboxProvider) {
+      resolve({
+        status: 'error',
+        result: null,
+        error: `${runnerLabel} sandbox provider is not configured.`,
+        runtimeEvents: sandboxBlockedEvents(
+          spec,
+          'runner sandbox provider is not configured',
+        ),
+      });
+      return;
+    }
+    let runner: ReturnType<RunnerSandboxProvider['start']>;
+    try {
+      runner = sandboxProvider.start({ command, args, env, ...sandbox });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error(
+        {
+          group: group.name,
+          processName,
+          sandboxProvider: sandboxProvider.id,
+          error,
+        },
+        `${runnerLabel} sandbox provider failed`,
+      );
+      resolve({
+        status: 'error',
+        result: null,
+        error: `Sandbox startup failed: ${error}. The run did not start.`,
+        runtimeEvents: sandboxBlockedEvents(spec, error),
+      });
+      return;
+    }
 
     onProcess(runner, processName);
 
@@ -543,8 +543,7 @@ export function executeRunnerProcess(
       fs.writeFileSync(logFile, logLines.join('\n'));
       logger.debug({ logFile, verbose: isVerbose }, 'Agent log written');
 
-      const stopRequested =
-        signal === 'SIGTERM' && activeRunStopWasRequested(runner);
+      const stopRequested = activeRunStopWasRequested(runner);
       const streamedSigterm =
         onOutput && signal === 'SIGTERM' && hadStreamingOutput;
       if (streamedSigterm && !stopRequested) {
@@ -622,6 +621,12 @@ export function executeRunnerProcess(
           newSessionId,
           fallbackStderr: sanitizeLogText(stderr.slice(-200), 200),
         });
+        if (stderrLooksLikeSandboxBlock(stderr)) {
+          processError.runtimeEvents = [
+            ...(processError.runtimeEvents ?? []),
+            ...sandboxBlockedEvents(spec, stderr),
+          ];
+        }
         if (structuredError) outputChain.then(() => resolve(processError));
         else resolve(processError);
         return;

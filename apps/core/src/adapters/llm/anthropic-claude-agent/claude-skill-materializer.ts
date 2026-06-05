@@ -114,6 +114,7 @@ Use this skill when a task needs a real browser session.
 Gantry owns the persistent browser lifecycle and gives each agent conversation its own default profile:
 
 - Use the compact Browser gateway: \`browser_status\`, \`browser_open\`, \`browser_inspect\`, \`browser_act\`, and \`browser_close\`.
+- For scheduled jobs that declare Browser as required access, call \`browser_open\` early for the first task-relevant web destination so the host-managed browser is visibly launched.
 - Search first when the destination is unknown. Use \`browser_open\` directly only when the user provided a URL or you have selected a search result.
 - Inspect before acting. Use \`browser_inspect\` to understand the current page before each \`browser_act\` interaction.
 - Use basic inspection by default. Request full inspection only with a concise reason when basic output is insufficient.

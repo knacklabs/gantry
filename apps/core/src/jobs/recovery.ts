@@ -404,6 +404,7 @@ async function runJobRecoveryAgentTurn(input: {
     publishRuntimeEvent: input.publishRuntimeEvent,
     executionAdapter: input.deps.executionAdapter,
     executionAdapters: input.deps.executionAdapters,
+    runnerSandboxProvider: input.deps.runnerSandboxProvider,
     skillContext: {
       appId: executionAppId,
       agentId: executionAgentId,

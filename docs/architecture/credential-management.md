@@ -88,6 +88,12 @@ gantry credentials access import-env GITHUB_TOKEN
 gantry credentials access unset GITHUB_TOKEN
 ```
 
+These are host/admin CLI commands. Agent runs must not execute
+`gantry credentials ...`, read `settings.yaml`, or write runtime credential
+state directly. When a skill/MCP/local-CLI credential is missing, the agent
+reports `Setup required: credential missing: NAME` and waits for a human or
+approved admin surface to set the value in Credential Center.
+
 Agents do not edit `.env`, `settings.yaml`, skill directories, or MCP config to
 manage these values. When a selected skill or MCP server needs a missing secret,
 the runtime fails closed with `gantry credentials access set NAME`
@@ -256,14 +262,13 @@ Control API semantics:
 - `DELETE /v1/credentials/models/:providerId` disables active use without
   deleting the encrypted payload or metadata.
 
-Gateway auth strategies are fail-closed. Current `header` and `bearer`
-strategies inject Anthropic API-key, OpenRouter, and OpenAI credentials at the
-outbound provider boundary. Anthropic `claude_code_oauth` bypasses HTTP header
-injection and projects only `CLAUDE_CODE_OAUTH_TOKEN` to the trusted Claude
-Code SDK process. Future strategies such as `aws_bedrock_api_key`,
-`aws_sigv4`, `aws_sdk_default_chain`, `azure_api_key`, and
-`azure_entra_default_credential` are distinct strategy slots; they must not
-fall through to generic header injection.
+Gateway auth strategies are fail-closed. Current `header`, `bearer`, and
+`claude_code_oauth` strategies inject Anthropic API-key, OpenRouter, OpenAI, and
+Claude Code OAuth credentials at the outbound provider boundary. Future
+strategies such as `aws_bedrock_api_key`, `aws_sigv4`,
+`aws_sdk_default_chain`, `azure_api_key`, and `azure_entra_default_credential`
+are distinct strategy slots; they must not fall through to generic header
+injection.
 
 AWS Bedrock API keys are bearer-token style Bedrock credentials. AWS
 IAM/SigV4/default-chain modes are request-signing or SDK-identity flows, not
@@ -272,13 +277,11 @@ deployment, and key fields; Azure Entra mode uses bearer tokens produced from
 local or hosted identity, so onboarding explains the required identity and runs
 readiness checks instead of asking for a token.
 
-For API-key modes, the Claude SDK process receives `ANTHROPIC_BASE_URL` pointed
-at the loopback gateway and a short-lived `gtw_*` token. The gateway swaps that
-token for the stored provider key only at the outbound provider boundary. For
-Anthropic Claude Code OAuth mode, the SDK process receives
-`CLAUDE_CODE_OAUTH_TOKEN` directly because Claude Code owns that auth path.
-Bash tools, MCP stdio subprocesses, browser tools, and skills do not receive
-model provider keys.
+For every model auth mode, the Claude SDK process receives `ANTHROPIC_BASE_URL`
+pointed at the loopback gateway and a short-lived `gtw_*` token. The gateway
+swaps that token for the stored provider credential only at the outbound
+provider boundary. Bash tools, MCP stdio subprocesses, browser tools, and skills
+do not receive model provider keys or provider OAuth tokens.
 
 `NO_PROXY` and `no_proxy` are compatibility hints for cooperative tools, not an
 authorization boundary. Approved tool subprocesses receive egress proxy and

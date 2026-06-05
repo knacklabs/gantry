@@ -44,9 +44,9 @@
   `interactive`, `job`, and `delegation` model work. pg-boss is a scheduler
   trigger, `JobRun` is terminal evidence, and provider-native async subagent
   task state is never durable scaling authority.
-- Sandbox and scaling docs must not describe model agents or subagent model
-  loops as running inside sandbox in v1. Sandboxes are file/shell tool execution
-  backends only; scalable subagents are child `delegation` admission rows, while
-  inline/native subagents are bounded under the parent admission.
+- Sandbox and scaling docs must distinguish the `direct` runner provider from
+  enforcing providers. A model runner is only OS-contained when
+  `runtime.sandbox.provider` is an enforcing provider such as
+  `sandbox_runtime` and verification proves the host supports it.
 - Runtime refactor plans must keep code anchors current with repo-relative paths and verified line ranges; note stale or removed anchors in the plan instead of leaving historical paths as active guidance.
 - Runtime refactor budget docs must distinguish LOCAL-35 phase checks from final PR checks: phase checks use the recorded T0 `--baseline-file`, and final/overall deletion targets use an explicit branch `--base-ref`.

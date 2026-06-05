@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -24,7 +23,6 @@ const CLAUDE_MODEL_CREDENTIAL_ENV_KEYS = new Set([
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_API_KEY',
-  'CLAUDE_CODE_OAUTH_TOKEN',
   'NODE_EXTRA_CA_CERTS',
 ]);
 
@@ -75,8 +73,7 @@ export async function materializeClaudeRuntime(
   const runId = input.runId ?? randomUUID();
   const ownsBaseTempDir = !input.baseTempDir;
   const baseTempDir =
-    input.baseTempDir ??
-    fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-claude-config-'));
+    input.baseTempDir ?? createDefaultBaseTempDir(input.groupDir);
   const cleanupPolicy = input.cleanupPolicy ?? 'delete-after-run';
   const claudeConfigDir = path.join(baseTempDir, 'claude');
   const skillsDir = path.join(claudeConfigDir, 'skills');
@@ -151,6 +148,12 @@ export async function materializeClaudeRuntime(
       }
     },
   };
+}
+
+function createDefaultBaseTempDir(groupDir: string): string {
+  const runtimeDir = path.join(groupDir, '.llm-runtime');
+  fs.mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
+  return fs.mkdtempSync(path.join(runtimeDir, 'run-'));
 }
 
 function workspaceProtectedPaths(root: string): string[] {

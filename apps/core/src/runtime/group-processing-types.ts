@@ -26,6 +26,7 @@ import type { SessionMemoryCollector } from '../domain/ports/session-memory-coll
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
+import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
@@ -122,6 +123,7 @@ export interface GroupProcessingDeps {
   ) => Promise<void> | void;
   executionAdapter?: AgentExecutionAdapter;
   executionAdapters?: AgentExecutionAdapterRegistry;
+  runnerSandboxProvider: RunnerSandboxProvider;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
 }

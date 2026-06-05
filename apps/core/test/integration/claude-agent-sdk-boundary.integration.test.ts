@@ -443,6 +443,7 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(call?.options.mcpServers.gantry).toEqual({
       command: 'node',
       args: [env.mcpServerPath],
+      alwaysLoad: true,
       env: {
         GANTRY_CHAT_JID: 'tg:group',
         GANTRY_WORKSPACE_KEY: 'group',

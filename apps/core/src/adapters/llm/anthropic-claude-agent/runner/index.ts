@@ -26,13 +26,18 @@ import {
 } from './model-config.js';
 import { writeOutput } from './output.js';
 import { runQuery } from './query-loop.js';
-import { buildSdkEnv, resolveMcpServerPath } from './runtime-env.js';
+import {
+  buildEffectiveToolNetworkEnv,
+  buildSdkEnv,
+  resolveMcpServerPath,
+} from './runtime-env.js';
 import {
   parseSessionSlashCommand,
   runSessionSlashCommand,
 } from './session-slash.js';
 import type { AgentRunnerInput } from './types.js';
 import { sdkSandboxBlockedRuntimeEvents } from './sandbox-events.js';
+import { setExternalMcpServerEgressEnv } from './mcp-server-validation.js';
 
 const SCHEDULED_JOB_REPORT_INSTRUCTIONS = [
   '[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]',
@@ -49,6 +54,7 @@ const AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS = [
   '- If a required access rule is no longer needed for this job, use scheduler_update_job to remove it from access_requirements.',
   '- For scoped RunCommand rules, invoke the matching command directly as its own Bash command leaf. Do not wrap it in python -c, node -e, sh -c, bash -c, eval, or another generated script.',
   '- If a scoped RunCommand rule ends with *, pass data as ordinary command arguments to that reviewed command. Do not create a separate wrapper command.',
+  '- If the same scoped command fails twice with the same cause, stop retrying it and report the blocker or use another durable tool rule.',
   '- If no durable rule covers the action you need, stop and explain the missing reviewed capability in the final report.',
 ].join('\n');
 
@@ -69,6 +75,10 @@ async function main(): Promise<void> {
   }
 
   const sdkEnv = buildSdkEnv(agentInput.modelCredentialEnv);
+  agentInput.toolNetworkEnv = buildEffectiveToolNetworkEnv(
+    agentInput.toolNetworkEnv,
+  );
+  setExternalMcpServerEgressEnv(agentInput.toolNetworkEnv);
   const mcpServerPath = resolveMcpServerPath(import.meta.url);
   const configuredModel = resolveConfiguredModel();
   const configuredThinking = resolveThinkingOptions(agentInput.thinking);
@@ -135,7 +145,7 @@ async function main(): Promise<void> {
 function buildInitialPrompt(agentInput: AgentRunnerInput): string {
   let prompt = agentInput.prompt;
   if (agentInput.isScheduledJob) {
-    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS}\n\n${autonomousToolContract(agentInput.allowedTools)}\n\n${toolAccessRequirementContract(agentInput.toolAccessRequirements)}\n\n${prompt}`;
+    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS}\n\n${autonomousToolContract(agentInput.allowedTools)}\n\n${toolAccessRequirementContract(agentInput.toolAccessRequirements)}\n\n${browserAccessRequirementContract(agentInput.toolAccessRequirements)}\n\n${prompt}`;
   }
   if (!agentInput.isScheduledJob) {
     const pending = drainIpcInput();
@@ -174,6 +184,21 @@ function toolAccessRequirementContract(
   return [
     'Tool Access Requirements already checked before launch:',
     ...durableRules.map((rule) => `- ${rule}`),
+  ].join('\n');
+}
+
+function browserAccessRequirementContract(
+  toolAccessRequirements?: readonly string[],
+): string {
+  const hasBrowserRequirement = (toolAccessRequirements ?? []).some(
+    (rule) => rule.trim() === 'Browser',
+  );
+  if (!hasBrowserRequirement) return '';
+  return [
+    'Browser requirement:',
+    '- This scheduled job declares Browser as required access. Use browser_open early for the first task-relevant web destination so the host-managed browser is visibly launched.',
+    '- browser_status is only a readiness check and does not launch the browser.',
+    '- Do not claim Browser was used or opened unless a browser_open, browser_inspect, or browser_act call succeeds.',
   ].join('\n');
 }
 

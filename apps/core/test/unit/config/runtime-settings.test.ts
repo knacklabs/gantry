@@ -116,6 +116,35 @@ describe('runtime settings', () => {
     expect(parsed.runtime.queue).toEqual(settings.runtime.queue);
   });
 
+  it('defaults, renders, and parses runner sandbox policy', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.runtime.sandbox).toEqual({
+      provider: 'direct',
+      resourceLimits: {
+        cpuSeconds: 0,
+        memoryMb: 0,
+        maxProcesses: 0,
+      },
+    });
+
+    settings.runtime.sandbox = {
+      provider: 'sandbox_runtime',
+      resourceLimits: {
+        cpuSeconds: 120,
+        memoryMb: 2048,
+        maxProcesses: 64,
+      },
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('sandbox:');
+    expect(yaml).toContain('provider: sandbox_runtime');
+    expect(yaml).toContain('cpu_seconds: 120');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.runtime.sandbox).toEqual(settings.runtime.sandbox);
+  });
+
   it('defaults, renders, and parses neutral browser usage policy', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.browser.usage).toEqual({
@@ -272,6 +301,15 @@ describe('runtime settings', () => {
     max_jobb_runs: 4
 `),
     ).toThrow('runtime.queue.max_jobb_runs is not supported');
+  });
+
+  it('rejects unsupported runtime sandbox keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  sandbox:
+    provider: unsandboxed
+`),
+    ).toThrow('runtime.sandbox.provider must be direct or sandbox_runtime');
   });
 
   it('rejects duplicate settings keys before schema normalization', () => {

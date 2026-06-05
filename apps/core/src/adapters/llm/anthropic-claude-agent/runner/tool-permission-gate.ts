@@ -1,5 +1,4 @@
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
-
 import { denyMemoryBoundaryToolUse } from '../../../../runner/memory-boundary.js';
 import { denyProtectedCapabilityToolUse } from './protected-capability-guard.js';
 import { requestPermissionApproval } from './permission-callback.js';
@@ -44,14 +43,11 @@ import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { publicCapabilityAllowedToolRules } from '../../../../shared/agent-tool-references.js';
 import { stableTimedGrantKey } from './stable-timed-grant-key.js';
-
 type PermissionApprovalInput = Parameters<typeof requestPermissionApproval>[0];
-
 const WORKSPACE_FOLDER_KEY =
   WORKSPACE_FOLDER_OPTION_KEY as keyof PermissionApprovalInput;
 const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
-
 interface CreateCanUseToolCallbackInput {
   agentInput: AgentRunnerInput;
   sdkEnv: Record<string, string | undefined>;
@@ -64,7 +60,6 @@ interface CreateCanUseToolCallbackInput {
   emitInteractionBoundary: () => void;
   recordToolActivity: (toolName: string) => void;
 }
-
 export function createCanUseToolCallback(
   input: CreateCanUseToolCallbackInput,
 ): CanUseTool {
@@ -139,6 +134,7 @@ export function createCanUseToolCallback(
 
   const currentAutonomousAllowedToolRules = (): string[] => [
     ...(input.agentInput.allowedTools ?? []),
+    ...(input.agentInput.isScheduledJob ? ['RunCommand(date *)'] : []),
     ...readExternalMcpAllowedTools(),
     ...readLiveToolRules({
       ipcDir: process.env.GANTRY_IPC_DIR,

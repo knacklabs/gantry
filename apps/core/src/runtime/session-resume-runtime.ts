@@ -339,6 +339,7 @@ export function buildRuntimeRunOptions(input: {
   publishRuntimeEvent?: RunAgentOptions['publishRuntimeEvent'];
   executionAdapter?: RunAgentOptions['executionAdapter'];
   executionAdapters?: RunAgentOptions['executionAdapters'];
+  runnerSandboxProvider: RunAgentOptions['runnerSandboxProvider'];
   skillContext?: {
     appId: string;
     agentId: string;
@@ -349,7 +350,7 @@ export function buildRuntimeRunOptions(input: {
     agentSessionId: string;
     externalSessionId?: string;
   };
-}): RunAgentOptions | undefined {
+}): RunAgentOptions {
   const resolvedSkillContext = input.skillContext
     ? input.skillContext
     : input.turnContext
@@ -397,8 +398,9 @@ export function buildRuntimeRunOptions(input: {
     ...(input.executionAdapters
       ? { executionAdapters: input.executionAdapters }
       : {}),
+    runnerSandboxProvider: input.runnerSandboxProvider,
   };
-  return Object.keys(options).length > 0 ? options : undefined;
+  return options;
 }
 
 export async function completeSuccessfulRuntimeSessionRun(input: {

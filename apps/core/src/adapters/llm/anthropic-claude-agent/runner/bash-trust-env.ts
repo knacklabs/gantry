@@ -10,6 +10,19 @@ const TOOL_NETWORK_COMMAND_ENV_KEYS = [
   'HTTPS_PROXY',
   'http_proxy',
   'https_proxy',
+  'ALL_PROXY',
+  'all_proxy',
+  'FTP_PROXY',
+  'ftp_proxy',
+  'RSYNC_PROXY',
+  'DOCKER_HTTP_PROXY',
+  'DOCKER_HTTPS_PROXY',
+  'CLOUDSDK_PROXY_TYPE',
+  'CLOUDSDK_PROXY_ADDRESS',
+  'CLOUDSDK_PROXY_PORT',
+  'GRPC_PROXY',
+  'grpc_proxy',
+  'GIT_SSH_COMMAND',
   'NODE_USE_ENV_PROXY',
   'NO_PROXY',
   'no_proxy',
@@ -21,7 +34,7 @@ export function applyBashTrustEnv(
   input: Record<string, unknown>,
   toolNetworkEnv: Record<string, string | undefined>,
 ): Record<string, unknown> {
-  if (toolName !== 'Bash') return input;
+  if (toolName !== 'Bash' && toolName !== 'RunCommand') return input;
 
   const commandKey = bashCommandKey(input);
   if (!commandKey) return input;

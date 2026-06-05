@@ -1,3 +1,5 @@
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
@@ -76,6 +78,99 @@ describe('Anthropic runner runtime env', () => {
     expect(noProxy).not.toContain('.github.com');
     expect(noProxy).not.toContain('corp.internal');
     expect(noProxy).not.toContain('lower.internal');
+  });
+
+  it('uses sandbox-runtime proxy values visible inside the sandbox', async () => {
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY = '1';
+    process.env.HTTP_PROXY = 'http://localhost:3128';
+    process.env.HTTPS_PROXY = 'http://localhost:3128';
+    process.env.ALL_PROXY = 'socks5h://localhost:3129';
+    process.env.GRPC_PROXY = 'socks5h://localhost:3129';
+    process.env.NO_PROXY = '127.0.0.1,localhost,::1';
+    const { buildEffectiveToolNetworkEnv, buildSdkEnv } =
+      await loadRuntimeEnv();
+
+    const sdkEnv = buildSdkEnv({
+      [['ANTHROPIC', 'BASE', 'URL'].join('_')]:
+        'http://127.0.0.1:4567/anthropic',
+    });
+    const toolEnv = buildEffectiveToolNetworkEnv({
+      HTTP_PROXY: 'http://127.0.0.1:18080/',
+      HTTPS_PROXY: 'http://127.0.0.1:18080/',
+      NO_PROXY: '127.0.0.1,localhost,::1',
+    });
+
+    expect(sdkEnv.HTTP_PROXY).toBe('http://localhost:3128');
+    expect(sdkEnv.HTTPS_PROXY).toBe('http://localhost:3128');
+    expect(sdkEnv.CLAUDE_CODE_PROXY_RESOLVES_HOSTS).toBe('1');
+    expect(sdkEnv.GODEBUG).toBe('netdns=go');
+    expect(sdkEnv.NO_PROXY).toBe('');
+    expect(toolEnv.HTTP_PROXY).toBe('http://localhost:3128');
+    expect(toolEnv.HTTPS_PROXY).toBe('http://localhost:3128');
+    expect(toolEnv.CLAUDE_CODE_PROXY_RESOLVES_HOSTS).toBe('1');
+    expect(toolEnv.ALL_PROXY).toBe('socks5h://localhost:3129');
+    expect(toolEnv.GRPC_PROXY).toBe('socks5h://localhost:3129');
+    expect(toolEnv.GODEBUG).toBe('netdns=go');
+    expect(toolEnv.NO_PROXY).toBe('');
+    expect(toolEnv.no_proxy).toBe('');
+  });
+
+  it('marks the Claude Code child as already sandboxed in sandbox-runtime mode', async () => {
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY = '1';
+    const { buildSdkEnv } = await loadRuntimeEnv();
+
+    const sdkEnv = buildSdkEnv();
+
+    expect(sdkEnv.CLAUDE_CODE_SANDBOXED).toBe('1');
+  });
+
+  it('rejects proxy env in model credentials', async () => {
+    const { buildSdkEnv } = await loadRuntimeEnv();
+
+    expect(() =>
+      buildSdkEnv({ HTTP_PROXY: 'http://127.0.0.1:18080/' }),
+    ).toThrow('modelCredentialEnv.HTTP_PROXY is not supported.');
+  });
+
+  it('rejects raw Claude Code OAuth tokens in model credentials', async () => {
+    const { buildSdkEnv } = await loadRuntimeEnv();
+    const oauthEnvKey = ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
+
+    expect(() =>
+      buildSdkEnv({
+        [oauthEnvKey]: 'sk-ant-oat-test',
+      }),
+    ).toThrow(`modelCredentialEnv.${oauthEnvKey} is not supported.`);
+  });
+
+  it('resolves Claude Code executable from PATH when present', async () => {
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-claude-bin-'));
+    const executable = path.join(binDir, 'claude');
+    fs.writeFileSync(executable, '#!/bin/sh\n');
+    fs.chmodSync(executable, 0o700);
+    try {
+      const { resolveClaudeCodeExecutableFromPath } = await loadRuntimeEnv();
+
+      expect(resolveClaudeCodeExecutableFromPath(binDir)).toBe(
+        fs.realpathSync(executable),
+      );
+    } finally {
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows host-installed Claude Code from the standard local install root', async () => {
+    process.env.HOME = '/Users/tester';
+    const { allowedOuterSandboxClaudeExecutable } = await loadRuntimeEnv();
+
+    expect(
+      allowedOuterSandboxClaudeExecutable(
+        '/Users/tester/.local/share/claude/versions/2.1.162',
+      ),
+    ).toBe('/Users/tester/.local/share/claude/versions/2.1.162');
+    expect(
+      allowedOuterSandboxClaudeExecutable('/Users/tester/.ssh/claude'),
+    ).toBeUndefined();
   });
 
   it('does not pass local CLI credential identity env to the SDK runner', async () => {

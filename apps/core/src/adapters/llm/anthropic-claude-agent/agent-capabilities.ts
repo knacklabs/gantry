@@ -38,6 +38,8 @@ export interface AgentCapabilityContext {
   chatJid: string;
   workspaceFolder: string;
   threadId?: string;
+  jobId?: string;
+  runId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
@@ -66,11 +68,13 @@ export type McpServerConfig =
       command: string;
       args?: string[];
       env?: Record<string, string>;
+      alwaysLoad?: boolean;
     }
   | {
       type: 'http' | 'sse';
       url: string;
       headers?: Record<string, string>;
+      alwaysLoad?: boolean;
     };
 
 export interface AgentCapabilityProfile {
@@ -172,6 +176,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_CHAT_JID: ctx.chatJid,
       GANTRY_WORKSPACE_KEY: ctx.workspaceFolder,
       GANTRY_THREAD_ID: ctx.threadId || '',
+      GANTRY_JOB_ID: ctx.jobId || '',
+      GANTRY_JOB_RUN_ID: ctx.runId || '',
       GANTRY_MEMORY_USER_ID: ctx.memoryUserId || '',
       GANTRY_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
       GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER:
@@ -227,6 +233,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         gantry: {
           command: 'node',
           args: [ctx.mcpServerPath],
+          alwaysLoad: true,
           env,
         },
       },

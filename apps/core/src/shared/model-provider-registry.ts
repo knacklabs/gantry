@@ -149,7 +149,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         id: 'claude_code_oauth',
         label: 'Claude Code OAuth',
         helpText:
-          'Use a Claude Code OAuth token. Gantry stores it and projects it only to the Claude Code SDK runner.',
+          'Use a Claude Code OAuth token. Gantry stores it and uses it only inside the Model Gateway.',
         version: 1,
         fields: [
           {

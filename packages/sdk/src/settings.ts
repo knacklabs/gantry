@@ -65,6 +65,14 @@ export type RuntimeSettingsResponse = {
         maxRetries: number;
         baseRetryMs: number;
       };
+      sandbox: {
+        provider: 'direct' | 'sandbox_runtime';
+        resourceLimits: {
+          cpuSeconds: number;
+          memoryMb: number;
+          maxProcesses: number;
+        };
+      };
     };
     browser: {
       usage: {

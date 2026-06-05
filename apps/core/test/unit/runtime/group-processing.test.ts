@@ -208,6 +208,11 @@ function makeDeps(
       id: 'anthropic:claude-agent-sdk',
       prepare: vi.fn(),
     },
+    runnerSandboxProvider: {
+      id: 'direct' as const,
+      enforcing: false,
+      start: vi.fn(),
+    },
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
@@ -738,6 +743,48 @@ describe('createGroupProcessor', () => {
         .calls;
       const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
+    });
+
+    it('publishes terminal runner runtime events on error', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const publishRuntimeEvent = vi.fn().mockResolvedValue(undefined);
+      const { deps } = setupHappyPath({ group, messages });
+      deps.publishRuntimeEvent = publishRuntimeEvent;
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'Sandbox runtime startup failed',
+        runtimeEvents: [
+          {
+            appId: 'app-one',
+            agentId: 'agent-one',
+            runId: 'run-one',
+            conversationId: 'group1@g.us',
+            eventType: 'sandbox.blocked',
+            payload: { phase: 'startup' },
+          },
+        ],
+      };
+      mockSpawnAgent.mockResolvedValue(errorOutput);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(false);
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app-one',
+          agentId: 'agent-one',
+          runId: 'run-one',
+          conversationId: 'group1@g.us',
+          eventType: 'sandbox.blocked',
+          actor: 'runner',
+          responseMode: 'none',
+          payload: { phase: 'startup' },
+        }),
+      );
     });
 
     it('does not retry Model Access authentication failures', async () => {

@@ -163,6 +163,27 @@ export async function forwardRunnerRuntimeEvents(input: {
   }
 }
 
+export function runnerRuntimeEventKey(event: {
+  eventType: unknown;
+  payload?: unknown;
+}): string | undefined {
+  if (
+    !isRuntimeEventType(event.eventType) ||
+    !FORWARDED_RUNNER_EVENT_TYPES.has(event.eventType)
+  ) {
+    return undefined;
+  }
+  let payload: string;
+  try {
+    payload =
+      JSON.stringify(isRecord(event.payload) ? event.payload : {}) ??
+      'undefined';
+  } catch {
+    payload = String(event.payload);
+  }
+  return `${event.eventType}\u001f${payload}`;
+}
+
 export function terminalDiagnosticsPayload(
   diagnostics: JobRunDiagnostics,
 ): Record<string, unknown> {
@@ -292,7 +313,8 @@ function isBrowserGatewayActivity(
   publicTool: string | undefined,
   action: string | undefined,
 ): boolean {
-  if (publicTool === 'browser_open') return action === 'navigate';
+  if (publicTool === 'browser_open')
+    return action === 'open' || action === 'navigate';
   if (publicTool === 'browser_inspect') {
     return action ? BROWSER_INSPECT_BACKEND_ACTIONS.has(action) : false;
   }

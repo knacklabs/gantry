@@ -103,6 +103,9 @@ function resolvePathForSandbox(value: unknown): string[] {
       : (expanded.startsWith('~/') || expanded.startsWith('~\\')) && home
         ? path.join(home, expanded.slice(2))
         : path.resolve(expanded);
+  if (process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1') {
+    return [absolute];
+  }
   try {
     if (fs.existsSync(absolute)) return [fs.realpathSync.native(absolute)];
     const parent = path.dirname(absolute);

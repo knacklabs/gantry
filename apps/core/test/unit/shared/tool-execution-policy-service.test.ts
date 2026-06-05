@@ -511,7 +511,7 @@ describe('ToolExecutionPolicyService', () => {
       toolName: 'Bash',
       toolInput: {
         command:
-          'GODEBUG=netdns=go /opt/homebrew/bin/acme records get leads --json',
+          "GODEBUG=netdns=go HTTPS_PROXY='http://127.0.0.1:18080/' NO_PROXY='' REQUESTS_CA_BUNDLE='/tmp/gantry-ca.pem' CURL_CA_BUNDLE='/tmp/gantry-ca.pem' /opt/homebrew/bin/acme records get leads --json",
       },
       executionMode: 'autonomous',
       runContext: { jobId: 'job-cli' },

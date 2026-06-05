@@ -475,6 +475,14 @@ describe('contracts package', () => {
             maxRetries: 0,
             baseRetryMs: 0,
           },
+          sandbox: {
+            provider: 'sandbox_runtime',
+            resourceLimits: {
+              cpuSeconds: 30,
+              memoryMb: 1024,
+              maxProcesses: 24,
+            },
+          },
         },
         browser: {
           usage: {

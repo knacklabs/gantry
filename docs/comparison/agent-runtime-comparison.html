@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Runtime Comparison — OpenClaw vs NemoClaw vs Microsoft Scout vs Gantry</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #161a24;
+    --panel-2: #1c2130;
+    --line: #262c3a;
+    --line-soft: #1e2430;
+    --ink: #e8ecf4;
+    --ink-mid: #aab3c5;
+    --ink-dim: #6f7a90;
+
+    --openclaw: #f0556b;
+    --nemo: #76b900;            /* NVIDIA green */
+    --ms: #4f9cf9;
+    --gantry: #f5b73d;
+    --gantry-soft: rgba(245, 183, 61, 0.12);
+    --gantry-glow: rgba(245, 183, 61, 0.28);
+
+    --best: #38d6a6;
+    --strong: #6cc58c;
+    --bad: #cf6b64;
+
+    --radius: 16px;
+    --radius-sm: 10px;
+    --maxw: 1200px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background:
+      radial-gradient(1200px 600px at 82% -10%, rgba(245,183,61,0.07), transparent 60%),
+      radial-gradient(900px 500px at 8% 0%, rgba(118,185,0,0.05), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 20px 80px;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+
+  /* ---------- Hero ---------- */
+  header { padding: 70px 0 34px; border-bottom: 1px solid var(--line-soft); }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); font-weight: 600; margin-bottom: 22px; }
+  .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gantry); box-shadow: 0 0 12px var(--gantry-glow); }
+  h1 { font-size: clamp(28px, 4.6vw, 50px); line-height: 1.05; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 18px; }
+  h1 .g { color: var(--gantry); }
+  .lede { font-size: clamp(16px, 2.1vw, 20px); color: var(--ink-mid); max-width: 760px; }
+
+  /* ---------- Exec summary band ---------- */
+  .exec { margin-top: 30px; border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 24px; background: linear-gradient(180deg, rgba(245,183,61,0.05), rgba(245,183,61,0.015)); }
+  .exec .et { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gantry); font-weight: 700; margin-bottom: 12px; }
+  .exec ul { list-style: none; display: grid; gap: 10px; }
+  .exec li { display: flex; gap: 10px; font-size: 15px; color: var(--ink); }
+  .exec li::before { content: "→"; color: var(--gantry); font-weight: 700; flex: none; }
+
+  /* ---------- Product cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 34px 0 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; position: relative; overflow: hidden; }
+  .card.spot { border-color: rgba(245,183,61,0.4); box-shadow: 0 0 0 1px rgba(245,183,61,0.15), 0 18px 50px -28px var(--gantry-glow); }
+  .card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .card.oc::before { background: var(--openclaw); }
+  .card.nm::before { background: var(--nemo); }
+  .card.ms::before { background: var(--ms); }
+  .card.gt::before { background: var(--gantry); }
+  .card .tag { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
+  .card.oc .tag { color: var(--openclaw); }
+  .card.nm .tag { color: var(--nemo); }
+  .card.ms .tag { color: var(--ms); }
+  .card.gt .tag { color: var(--gantry); }
+  .card h3 { font-size: 19px; margin: 7px 0 4px; letter-spacing: -0.01em; }
+  .card .sub { font-size: 12.5px; color: var(--ink-dim); margin-bottom: 13px; min-height: 32px; }
+  .card p { font-size: 13px; color: var(--ink-mid); }
+  .ribbon { position: absolute; top: 14px; right: -32px; transform: rotate(45deg); background: var(--gantry); color: #221a06; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; padding: 4px 38px; text-transform: uppercase; }
+
+  /* ---------- Legend ---------- */
+  .legend { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; margin: 36px 0 14px; font-size: 12.5px; color: var(--ink-mid); }
+  .legend .item { display: inline-flex; align-items: center; gap: 7px; }
+  .pip { width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none; }
+  .pip.bad { background: var(--bad); }
+  .pip.strong { background: var(--strong); }
+  .pip.best { background: var(--best); box-shadow: 0 0 10px rgba(56,214,166,0.5); }
+  .legend .hint { margin-left: auto; color: var(--ink-dim); }
+
+  /* ---------- Section title ---------- */
+  .section-title { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); font-weight: 700; margin: 54px 0 8px; }
+  .section-sub { font-size: 13.5px; color: var(--ink-dim); margin-bottom: 18px; }
+
+  /* ---------- Matrix ---------- */
+  .matrix { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+  .mrow { border-bottom: 1px solid var(--line-soft); }
+  .mrow:last-child { border-bottom: none; }
+  .grid5 { display: grid; grid-template-columns: 1.7fr 1fr 1fr 1fr 1fr 26px; align-items: stretch; }
+  .mhead { background: var(--panel-2); }
+  .mhead .mcell { font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-dim); font-weight: 700; padding: 15px 14px; }
+  .mhead .col-oc { color: var(--openclaw); }
+  .mhead .col-nm { color: var(--nemo); }
+  .mhead .col-ms { color: var(--ms); }
+  .mhead .col-gt { color: var(--gantry); }
+  .mrow-head { cursor: pointer; transition: background 0.12s ease; }
+  .mrow-head:hover { background: rgba(255,255,255,0.018); }
+  .mrow-head:focus-visible { outline: 2px solid var(--gantry); outline-offset: -2px; }
+  .mcell { padding: 16px 14px; border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; justify-content: center; }
+  .mcell:last-child { border-right: none; }
+  .col-gt-cell { background: linear-gradient(180deg, rgba(245,183,61,0.06), rgba(245,183,61,0.02)); }
+  .dim-q { font-weight: 700; font-size: 14.5px; }
+  .dim-term { font-size: 12px; color: var(--ink-dim); margin-top: 3px; }
+  .rate { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; }
+  .rate .pip { width: 13px; height: 13px; }
+  .tag-del { display: inline-block; margin-top: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--gantry); background: var(--gantry-soft); border: 1px solid rgba(245,183,61,0.3); border-radius: 5px; padding: 1px 6px; width: max-content; }
+  .chev { display: flex; align-items: center; justify-content: center; color: var(--ink-dim); transition: transform 0.2s ease; }
+  .chev svg { width: 13px; height: 13px; }
+  .mrow.open .chev { transform: rotate(180deg); color: var(--gantry); }
+
+  /* drawer */
+  .mdetail { max-height: 0; overflow: hidden; transition: max-height 0.32s ease; background: rgba(0,0,0,0.18); }
+  .mrow.open .mdetail { max-height: 1400px; }
+  .mdetail-inner { padding: 10px 16px 22px; }
+  .md-intro { font-size: 13px; color: var(--ink-dim); line-height: 1.5; margin: 4px 2px 16px; }
+  .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cmp { border-radius: var(--radius-sm); padding: 13px 15px; border: 1px solid var(--line-soft); background: rgba(255,255,255,0.02); }
+  .cmp.is-gt { border-color: rgba(245,183,61,0.3); background: linear-gradient(180deg, rgba(245,183,61,0.06), rgba(245,183,61,0.015)); }
+  .cmp-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+  .cmp-name { font-size: 13px; font-weight: 800; letter-spacing: 0.02em; }
+  .cmp-name.col-oc { color: var(--openclaw); }
+  .cmp-name.col-nm { color: var(--nemo); }
+  .cmp-name.col-ms { color: var(--ms); }
+  .cmp-name.col-gt { color: var(--gantry); }
+  .cmp-head .rate { margin-left: auto; font-size: 12.5px; }
+  .cmp-head .rate .pip { width: 11px; height: 11px; }
+  .cmp-head .tag-del { margin-top: 0; }
+  .cmp-plain { font-size: 13px; color: var(--ink); line-height: 1.5; }
+  .cmp-tech { font-size: 12px; color: var(--ink-dim); line-height: 1.5; margin-top: 9px; padding-left: 11px; border-left: 2px solid var(--line); }
+  .cmp-tech::before { content: "Technical"; display: block; font-size: 8.5px; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 700; color: var(--ink-mid); margin-bottom: 3px; }
+  .cmp-tech code { font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+
+  /* ---------- Shine / honest ---------- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 22px; }
+  .panel { border-radius: var(--radius); padding: 26px; border: 1px solid var(--line); background: var(--panel); }
+  .panel.shine { border-color: rgba(245,183,61,0.35); background: linear-gradient(180deg, rgba(245,183,61,0.06), rgba(245,183,61,0.015)); }
+  .panel.honest { border-color: rgba(79,156,249,0.28); background: linear-gradient(180deg, rgba(79,156,249,0.05), rgba(79,156,249,0.01)); }
+  .panel h4 { font-size: 17px; display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .panel.shine h4 { color: var(--gantry); }
+  .panel.honest h4 { color: var(--ms); }
+  .panel .ph-sub { font-size: 13px; color: var(--ink-dim); margin-bottom: 18px; }
+  .feat { padding: 14px 0; border-top: 1px solid var(--line-soft); }
+  .feat:first-of-type { border-top: none; }
+  .feat .ft { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+  .feat .fp { font-size: 13.5px; color: var(--ink); margin-bottom: 10px; }
+  .feat .fp::before { content: "In plain terms"; display: block; font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 700; color: var(--ink-mid); margin-bottom: 4px; }
+  .feat .fd { font-size: 12px; color: var(--ink-dim); line-height: 1.55; border-left: 2px solid var(--line); padding: 2px 0 2px 12px; }
+  .feat .fd::before { content: "Technical"; display: block; font-size: 9px; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 700; color: var(--ink-mid); margin-bottom: 4px; }
+  .feat .fd code { font-family: var(--mono); font-size: 11.5px; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px; color: var(--ink-mid); }
+  .icn { width: 22px; height: 22px; border-radius: 6px; display: inline-grid; place-items: center; font-size: 13px; flex: none; }
+  .icn.up { background: var(--gantry-soft); color: var(--gantry); }
+  .icn.dn { background: rgba(79,156,249,0.12); color: var(--ms); }
+
+  /* ---------- Takeaway ---------- */
+  .takeaway { margin-top: 40px; border: 1px solid var(--line); border-radius: var(--radius); padding: 34px; background: linear-gradient(135deg, rgba(118,185,0,0.05), rgba(245,183,61,0.06)); }
+  .takeaway h3 { font-size: 22px; letter-spacing: -0.01em; margin-bottom: 14px; }
+  .takeaway p { color: var(--ink-mid); font-size: 15px; max-width: 860px; margin-bottom: 14px; }
+  .takeaway .layers { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 22px 0 6px; }
+  .layer { background: rgba(0,0,0,0.25); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px; }
+  .layer .lt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; margin-bottom: 8px; }
+  .layer.personal .lt { color: var(--nemo); }
+  .layer.ent .lt { color: var(--gantry); }
+  .layer p { font-size: 13.5px; color: var(--ink-mid); margin: 0; }
+  .punch { margin-top: 22px; font-size: 17px; font-weight: 700; color: var(--ink); }
+  .punch .g { color: var(--gantry); }
+
+  /* ---------- Footer ---------- */
+  footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--ink-dim); }
+  footer a { color: var(--ink-mid); text-decoration: none; border-bottom: 1px dotted var(--ink-dim); }
+  footer .src { line-height: 1.9; }
+  footer .meta { margin-top: 12px; }
+
+  @media (max-width: 980px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .split, .takeaway .layers { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 760px) {
+    .mhead { display: none; }
+    .grid5 { grid-template-columns: 1fr 1fr; }
+    .mrow-head .mcell.dim-cell { grid-column: 1 / -1; border-right: none; border-bottom: 1px solid var(--line-soft); }
+    .mrow-head .mcell.tcell { border-right: 1px solid var(--line-soft); }
+    .mrow-head .mcell.tcell::before { content: attr(data-label); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-dim); margin-bottom: 5px; font-weight: 700; }
+    .mrow-head .chev { grid-column: 1 / -1; justify-content: flex-end; padding: 4px 14px 10px; }
+    .cmp-grid { grid-template-columns: 1fr; }
+    .exec li { font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HERO -->
+  <header>
+    <span class="eyebrow"><span class="dot"></span> Agent Runtime Comparison</span>
+    <h1>Four ways to run an AI agent.<br />Only one is built to put inside your <span class="g">product</span>.</h1>
+    <p class="lede">OpenClaw, NVIDIA's NemoClaw, Microsoft's Scout, and Gantry all run autonomous agents. The difference isn't the AI. It's the runtime around it, the part that decides whether an agent is safe to trust with real work, real data, and real customers.</p>
+
+    <div class="exec">
+      <div class="et">What this means if you're deciding</div>
+      <ul>
+        <li>Every option here can be made safe. The real question is whether safety is on by default or left to your team to assemble.</li>
+        <li>OpenClaw and NemoClaw are excellent for one person on one machine. Scout and Gantry are built for a whole company.</li>
+        <li>Only one is a building block you drop into your own product, with the safety already wired in.</li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- PRODUCT CARDS -->
+  <div class="cards">
+    <div class="card oc">
+      <span class="tag">Open Source</span>
+      <h3>OpenClaw</h3>
+      <div class="sub">The capable agent, guardrails left to you</div>
+      <p>A self-hosted personal agent that does real work. Powerful and popular, but security is something you set up yourself.</p>
+    </div>
+    <div class="card nm">
+      <span class="tag">NVIDIA</span>
+      <h3>NemoClaw</h3>
+      <div class="sub">OpenClaw, hardened for one machine</div>
+      <p>NVIDIA's secure stack: a kernel sandbox, fully local models, and a privacy router. Excellent for a private, on-device assistant.</p>
+    </div>
+    <div class="card ms">
+      <span class="tag">Microsoft</span>
+      <h3>Microsoft Scout</h3>
+      <div class="sub">OpenClaw, wrapped for the enterprise</div>
+      <p>Strong corporate identity, sandbox, and reporting, all inside Microsoft 365 and Windows. Powerful if you live in that world.</p>
+    </div>
+    <div class="card gt spot">
+      <div class="ribbon">Focus</div>
+      <span class="tag">Runtime</span>
+      <h3>Gantry</h3>
+      <div class="sub">The runtime you build on</div>
+      <p>Safe by default, walled off per user, and embeddable through an API, so the agent becomes part of what you ship. Runs anywhere.</p>
+    </div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <span class="item"><span class="pip bad"></span> Bad</span>
+    <span class="item"><span class="pip strong"></span> Strong</span>
+    <span class="item"><span class="pip best"></span> Best</span>
+    <span class="item hint">Tap any row for the plain-English and the technical case.</span>
+  </div>
+
+  <!-- MATRIX -->
+  <div class="section-title">How they compare</div>
+  <div class="section-sub">Nine things that decide whether an agent is safe to run. Click a row to see why it matters, for both the business and the engineers.</div>
+  <div class="matrix" id="matrix"></div>
+
+  <!-- SHINE + HONEST -->
+  <div class="section-title">The honest verdict</div>
+  <div class="split">
+    <div class="panel shine">
+      <h4><span class="icn up">▲</span> Where Gantry leads</h4>
+      <div class="ph-sub">Five wins that matter most when an agent meets a real business.</div>
+
+      <div class="feat"><div class="ft">Safe by default, not by setup</div><div class="fp">The protections are on out of the box, not a checklist your team has to assemble.</div><div class="fd">Default-deny permissions, per-action approval, never a raw shell, and a supply chain that installs nothing without human review.</div></div>
+
+      <div class="feat"><div class="ft">Your keys stay out of the AI's hands</div><div class="fp">The AI never holds your passwords or API keys, so a tricked agent has nothing to leak.</div><div class="fd">Credentials encrypted at rest; the agent gets only a short-lived token; model calls run through a host-side proxy that adds the real key at the network boundary.</div></div>
+
+      <div class="feat"><div class="ft">Built for many people, not just one</div><div class="fp">Every user's data stays walled off, so it holds up for a whole company.</div><div class="fd">Memory isolation enforced in the database per app/agent/subject; approval gated to designated approvers per conversation.</div></div>
+
+      <div class="feat"><div class="ft">A building block, not a closed app</div><div class="fp">Drop it into your own product through an API, and your logins and roles stay in charge.</div><div class="fd">API-first runtime: SDK + control API drive agents and approvers; bring-your-own identity; Slack / Teams / Telegram / your app.</div></div>
+
+      <div class="feat"><div class="ft">Runs anywhere, no lock-in</div><div class="fp">Not tied to one vendor's cloud or operating system.</div><div class="fd">Node + Postgres on any OS; provider-neutral channels. For anyone not all-in on one vendor, that's the whole game.</div></div>
+    </div>
+
+    <div class="panel honest">
+      <h4><span class="icn dn">▼</span> Where others lead</h4>
+      <div class="ph-sub">No spin. Each of these is a real strength of a competitor.</div>
+
+      <div class="feat"><div class="ft">Raw isolation: NemoClaw &amp; Scout</div><div class="fp">Their sandboxes are kernel-grade and deny-by-default; Gantry's is strong, but best-effort on macOS.</div><div class="fd">OpenShell (Landlock/seccomp/netns) and MXC are deny-by-default kernel sandboxes; Gantry boxes the agent in at the OS level, strongest on Linux.</div></div>
+
+      <div class="feat"><div class="ft">Total on-device privacy: NemoClaw</div><div class="fp">If your rule is that no data may ever leave the machine, NemoClaw's fully-local model is unmatched.</div><div class="fd">Local Nemotron inference + privacy router keep PII on-device; Gantry self-hosts state but usually calls a cloud model.</div></div>
+
+      <div class="feat"><div class="ft">Built-in corporate identity: Scout</div><div class="fp">Microsoft brings a full company directory and single sign-on out of the box.</div><div class="fd">Entra identity, SSO, conditional access; Gantry instead plugs into the identity of the app you embed it in.</div></div>
+
+      <div class="feat"><div class="ft">Big-vendor reporting: Scout</div><div class="fp">Microsoft ships fleet-wide alerting and threat intelligence.</div><div class="fd">Purview + Defender; Gantry keeps a full action log and leaves alerting to your own monitoring stack.</div></div>
+    </div>
+  </div>
+
+  <!-- TAKEAWAY -->
+  <div class="takeaway">
+    <h3>Two families, one split</h3>
+    <p>OpenClaw and NemoClaw are made for one trusted person on one machine. Scout and Gantry are made for a company, where many people, real customer data, and accountability are all in play.</p>
+    <div class="layers">
+      <div class="layer personal">
+        <div class="lt">Personal · one machine</div>
+        <p>OpenClaw and NemoClaw. NemoClaw matches anyone on raw isolation and leads on pure on-device privacy. But it stops at the personal boundary.</p>
+      </div>
+      <div class="layer ent">
+        <div class="lt">Enterprise · your product</div>
+        <p>Scout and Gantry. Gantry carries the security all the way into a product you can ship: safe by default, walled off per user, embeddable, no lock-in.</p>
+      </div>
+    </div>
+    <p>And the isolation scales with you, toward complete, horizontally-scalable containment in the cloud, containerised as needed, as deployments grow.</p>
+    <div class="punch">The agent is the easy part. The <span class="g">runtime</span> you can trust with a business is the hard part, and the one you can build on is rarer still.</div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="src">Sources:
+      <a href="https://www.nvidia.com/en-us/ai/nemoclaw/">NVIDIA — NemoClaw</a> ·
+      <a href="https://developer.nvidia.com/blog/build-a-secure-always-on-local-ai-agent-with-nvidia-nemoclaw-and-openclaw/">NVIDIA dev blog — secure always-on agent</a> ·
+      <a href="https://github.com/NVIDIA/NemoClaw">GitHub — NVIDIA/NemoClaw</a> ·
+      <a href="https://labs.cloudsecurityalliance.org/agentic/csa-research-note-nemoclaw-security-assessment-20260327/">CSA — NemoClaw security assessment</a> ·
+      <a href="https://docs.nvidia.com/nemoclaw/latest/inference/use-local-inference">NVIDIA docs — local inference</a> ·
+      <a href="https://www.microsoft.com/en-us/microsoft-365/blog/2026/06/02/introducing-microsoft-scout-your-always-on-personal-agent/">Microsoft — Introducing Scout</a> ·
+      <a href="https://learn.microsoft.com/en-us/microsoft-agent-365/developer/">Microsoft Learn — Agent 365 SDK</a> ·
+      <a href="https://venturebeat.com/security/microsoft-launches-mxc-an-os-level-sandbox-for-ai-agents-with-openai-and-nvidia-already-on-board/">VentureBeat — MXC sandbox</a> ·
+      <a href="https://docs.openclaw.ai/gateway/secrets">OpenClaw docs — Secrets management</a> ·
+      <a href="https://conscia.com/blog/the-openclaw-security-crisis/">Conscia — OpenClaw security crisis</a>
+    </div>
+    <div class="meta">Ratings reflect each runtime's current capabilities · June 2026.</div>
+  </footer>
+
+</div>
+
+<script>
+  // Tools in column order. The 4th (Gantry) is highlighted.
+  var TOOLS = [
+    { key: 'oc', label: 'OpenClaw' },
+    { key: 'nm', label: 'NemoClaw' },
+    { key: 'ms', label: 'Microsoft Scout' },
+    { key: 'gt', label: 'Gantry' }
+  ];
+  var RATE = {
+    bad:    { cls: 'bad',    word: 'Bad' },
+    strong: { cls: 'strong', word: 'Strong' },
+    best:   { cls: 'best',   word: 'Best' }
+  };
+
+  // r = ratings in TOOLS order [OpenClaw, NemoClaw, Scout, Gantry]
+  // by = per-competitor breakdown in the same TOOLS order; each { plain, tech? }
+  var DATA = [
+    {
+      q: 'If the AI slips, can it damage the machine?', term: 'Isolation / sandbox',
+      r: ['bad','best','best','strong'],
+      intro: 'If the AI takes a wrong step, can it reach files it should not or harm the rest of the machine?',
+      by: [
+        { plain: 'Runs wide open — a wrong step can reach anything you can.', tech: 'Runs as a host process with full user reach.' },
+        { plain: 'Boxed in at the OS level, so a bad step can’t touch your secrets or the wider machine.', tech: 'OpenShell sandbox: Landlock / seccomp / network namespaces, deny-by-default.' },
+        { plain: 'Boxed in at the OS level, so a bad step can’t touch your secrets or the wider machine.', tech: 'MXC kernel sandbox.' },
+        { plain: 'Boxed in at the OS level, so a bad step can’t touch your secrets or the wider machine.', tech: 'Restricts the agent’s filesystem and network at the OS level; strongest on Linux, best-effort on macOS.' }
+      ]
+    },
+    {
+      q: 'Who is the AI, and who can tell it what to do?', term: 'Identity', gtag: 'Delegated',
+      r: ['bad','bad','best','strong'],
+      intro: 'Who is the AI, and who can tell it what to do?',
+      by: [
+        { plain: 'Just acts as you, with no separate identity.', tech: 'Runs under the local user’s own account; no distinct agent principal.' },
+        { plain: 'Just acts as you, with no separate identity.', tech: 'Runs under the local user’s own account; no distinct agent principal.' },
+        { plain: 'Gets its own corporate identity with single sign-on.', tech: 'Microsoft Entra identity with SSO and conditional access.' },
+        { plain: 'Stays its own actor; your app’s existing logins and roles decide who’s allowed to do what, through an API.', tech: 'Runs the agent as its own scoped principal. The embedding app supplies end-user identity with each request and controls who can approve, via the API. Bring-your-own identity rather than a second user directory to run.' }
+      ]
+    },
+    {
+      q: 'Can the AI do anything, or only what’s approved?', term: 'Permission scoping',
+      r: ['bad','strong','strong','best'],
+      intro: 'Can the AI do anything, or only what’s approved?',
+      by: [
+        { plain: 'Can touch anything.', tech: 'Unbounded filesystem / network / API.' },
+        { plain: 'Requires permission up front.', tech: 'Deny-by-default policy with real-time approval.' },
+        { plain: 'Requires permission up front.', tech: 'Intune policy set once.' },
+        { plain: 'Strictest: only ever reviewed, named abilities, never a raw command line; risky actions approved one by one by the people you choose.', tech: 'Two-axis, default-deny, per-action approval; agents get reviewed capability facades, never raw shell, approved by designated approvers.' }
+      ]
+    },
+    {
+      q: 'Where do new skills come from, could a bad one sneak in?', term: 'Supply chain',
+      r: ['bad','bad','strong','best'],
+      intro: 'New abilities are where danger hides — where do new skills come from, and could a bad one sneak in?',
+      by: [
+        { plain: 'Pulls from an open marketplace where harmful add-ons have appeared.', tech: 'Open registry; a large share of add-ons found malicious.' },
+        { plain: 'Pulls from the same open marketplace.', tech: 'Same registry; its sandbox contains the blast radius but does not vet provenance.' },
+        { plain: 'Uses a vetted, signed catalogue.', tech: 'Curated, signed pipeline.' },
+        { plain: 'Installs nothing on its own: every new ability waits for a person to approve it.', tech: 'Human-in-the-loop request flow, no silent install, per-capability, dependencies approved separately.' }
+      ]
+    },
+    {
+      q: 'Can the AI read your passwords and API keys?', term: 'Secret &amp; credential handling',
+      r: ['bad','strong','strong','best'],
+      intro: 'Can the AI read your passwords and API keys?',
+      by: [
+        { plain: 'Keeps keys in plain files the agent can open — they can even end up in the AI’s own context.', tech: 'API keys in plaintext config / .env, readable by shell tools and serialized into model context.' },
+        { plain: 'Its sandbox stops the agent reaching those files.', tech: 'Sandbox restricts access to credential files; local inference avoids sending keys to a cloud provider.' },
+        { plain: 'Keeps secrets in Microsoft’s vault.', tech: 'Azure Key Vault + managed identity.' },
+        { plain: 'Never hands the agent a real key: it gets a short-lived pass, and the real credentials are added behind a proxy it cannot see.', tech: 'Credentials encrypted at rest; the agent receives only a short-lived token, model calls route through a host-side proxy that injects the real key at the network boundary, and secrets are redacted from logs and prompts.' }
+      ]
+    },
+    {
+      q: 'If something happens, can you see what the AI did?', term: 'Audit trail',
+      r: ['bad','strong','best','strong'],
+      intro: 'When something goes wrong, you need a record — can you see what the AI did?',
+      by: [
+        { plain: 'Barely logs.', tech: 'Little structured logging.' },
+        { plain: 'Keeps a full trail of what was allowed and denied.', tech: 'Full allow / deny audit trail.' },
+        { plain: 'Richest enterprise reporting and alerting.', tech: 'Purview + Defender with fleet alerting.' },
+        { plain: 'Keeps a full trail of what was allowed and denied.', tech: 'Durable log of every action, denial, and access event; alerting handled by your own stack.' }
+      ]
+    },
+    {
+      q: 'Can one customer’s data leak into another’s?', term: 'Memory isolation',
+      r: ['bad','bad','strong','best'],
+      intro: 'If many people or teams share the system, one person’s information must never surface for another.',
+      by: [
+        { plain: 'Built for a single user, so there’s no separation.', tech: 'Single-user, no multi-tenant model.' },
+        { plain: 'Built for a single user, so there’s no separation.', tech: 'Single-user, no multi-tenant model.' },
+        { plain: 'Separates by tenant.', tech: 'Tenant-scoped via Microsoft 365.' },
+        { plain: 'Enforces the wall in the database itself, so it can’t be crossed by accident.', tech: 'Memory keyed and uniquely indexed per app / agent / subject in the database; groups cannot read each other by construction.' }
+      ]
+    },
+    {
+      q: 'Can you run it anywhere, or are you locked in?', term: 'Portability / self-host',
+      r: ['strong','strong','bad','best'],
+      intro: 'Are you free to run it where you want, or tied to one vendor?',
+      by: [
+        { plain: 'Open and self-hosted.', tech: 'Local open source.' },
+        { plain: 'Open and self-hosted, though it leans Linux and NVIDIA.', tech: 'Apache-2.0 self-host, Linux-kernel sandbox, NVIDIA-leaning.' },
+        { plain: 'Only lives inside Microsoft 365 and Windows.', tech: 'Windows + Microsoft 365 + Entra only.' },
+        { plain: 'Runs anywhere and connects to Slack, Teams, Telegram, or your own app.', tech: 'Node + Postgres on any OS, provider-neutral, no vendor lock-in.' }
+      ]
+    },
+    {
+      q: 'Can you build it into your own product?', term: 'Embeddability / API-first',
+      r: ['bad','bad','strong','best'],
+      intro: 'Is this a finished app you just run, or a building block you put inside your own product?',
+      by: [
+        { plain: 'An app for one user.', tech: 'Self-hosted gateway.' },
+        { plain: 'An app for one user.', tech: 'CLI + onboarding wizard for a local assistant.' },
+        { plain: 'Can be extended inside Microsoft’s world.', tech: 'Agent 365 / Microsoft 365 Agents SDK, ecosystem-locked.' },
+        { plain: 'Built to drop into your product through an API, so the agent becomes part of what you ship.', tech: 'API-first runtime; SDK + control API drive agents, pass identity, manage approvers, deliver webhooks.' }
+      ]
+    },
+    {
+      q: 'Does your data leave the machine?', term: 'Data privacy / local inference',
+      r: ['strong','best','bad','strong'],
+      intro: 'Where does your data actually go?',
+      by: [
+        { plain: 'Keeps your data on infrastructure you control, though it usually calls a cloud AI model.', tech: 'Self-host; bring-your-own local model possible.' },
+        { plain: 'Can run the AI fully on your own hardware, so nothing leaves.', tech: 'Full local inference (Nemotron) + privacy router keeps PII on-device.' },
+        { plain: 'Runs in Microsoft’s cloud.', tech: 'Microsoft 365 cloud.' },
+        { plain: 'Keeps your data on infrastructure you control, though it usually calls a cloud AI model.', tech: 'All state self-hosted in your Postgres; cloud model by default, local model possible.' }
+      ]
+    }
+  ];
+
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
+
+  var matrix = document.getElementById('matrix');
+
+  // header
+  var head = el('div', 'mrow mhead');
+  var headGrid = el('div', 'grid5');
+  headGrid.appendChild(el('div', 'mcell', 'Dimension'));
+  TOOLS.forEach(function (t) { headGrid.appendChild(el('div', 'mcell col-' + t.key, t.label)); });
+  headGrid.appendChild(el('div', 'mcell', ''));
+  head.appendChild(headGrid);
+  matrix.appendChild(head);
+
+  // rows
+  DATA.forEach(function (d, i) {
+    var row = el('div', 'mrow');
+
+    var headEl = el('div', 'mrow-head');
+    headEl.setAttribute('role', 'button');
+    headEl.setAttribute('tabindex', '0');
+    headEl.setAttribute('aria-expanded', 'false');
+
+    var grid = el('div', 'grid5');
+    grid.appendChild(el('div', 'mcell dim-cell', '<div class="dim-q">' + (i + 1) + '. ' + d.term + '</div>'));
+
+    d.r.forEach(function (rk, idx) {
+      var t = TOOLS[idx];
+      var info = RATE[rk];
+      var isGt = t.key === 'gt';
+      var cell = el('div', 'mcell tcell' + (isGt ? ' col-gt-cell' : ''));
+      cell.setAttribute('data-label', t.label);
+      var chip = '<span class="rate"><span class="pip ' + info.cls + '"></span>' + info.word + '</span>';
+      if (isGt && d.gtag) chip += '<span class="tag-del">' + d.gtag + '</span>';
+      cell.innerHTML = chip;
+      grid.appendChild(cell);
+    });
+
+    grid.appendChild(el('div', 'mcell chev', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>'));
+    headEl.appendChild(grid);
+
+    var cards = d.by.map(function (b, idx) {
+      var t = TOOLS[idx];
+      var info = RATE[d.r[idx]];
+      var isGt = t.key === 'gt';
+      var head =
+        '<div class="cmp-head">' +
+          '<span class="cmp-name col-' + t.key + '">' + t.label + '</span>' +
+          (isGt && d.gtag ? '<span class="tag-del">' + d.gtag + '</span>' : '') +
+          '<span class="rate"><span class="pip ' + info.cls + '"></span>' + info.word + '</span>' +
+        '</div>';
+      var plain = '<div class="cmp-plain">' + b.plain + '</div>';
+      var tech = b.tech ? '<div class="cmp-tech">' + b.tech + '</div>' : '';
+      return '<div class="cmp' + (isGt ? ' is-gt' : '') + '">' + head + plain + tech + '</div>';
+    }).join('');
+
+    var detail = el('div', 'mdetail');
+    detail.innerHTML =
+      '<div class="mdetail-inner">' +
+        (d.intro ? '<div class="md-intro">' + d.intro + '</div>' : '') +
+        '<div class="cmp-grid">' + cards + '</div>' +
+      '</div>';
+
+    function toggle() {
+      var open = row.classList.toggle('open');
+      headEl.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    headEl.addEventListener('click', toggle);
+    headEl.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); }
+    });
+
+    row.appendChild(headEl);
+    row.appendChild(detail);
+    matrix.appendChild(row);
+  });
+</script>
+</body>
+</html>

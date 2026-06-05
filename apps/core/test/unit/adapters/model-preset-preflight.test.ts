@@ -49,12 +49,8 @@ function gatewayBroker(env: Record<string, string>): AgentCredentialBroker {
       supportsModelRuntimeProfile: true,
       modelRuntimeProfileIdentifier: 'gantry-model-access',
       returnsRawSecrets: true,
-      projectsProviderTokens: true,
-      projectedSecretEnvKeys: [
-        'ANTHROPIC_BASE_URL',
-        'ANTHROPIC_API_KEY',
-        claudeCodeOAuthTokenKey(),
-      ],
+      projectsProviderTokens: false,
+      projectedSecretEnvKeys: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY'],
     }),
   };
 }
@@ -136,7 +132,7 @@ describe('model provider preflight', () => {
     });
   });
 
-  it('passes when Gantry projects a Claude Code OAuth token for Anthropic', async () => {
+  it('fails when Gantry projects a raw Claude Code OAuth token for Anthropic', async () => {
     const broker = gatewayBroker({
       [claudeCodeOAuthTokenKey()]: 'sk-ant-oat-test',
     });
@@ -153,8 +149,8 @@ describe('model provider preflight', () => {
         },
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      status: 'pass',
+      ok: false,
+      status: 'fail',
     });
   });
 });

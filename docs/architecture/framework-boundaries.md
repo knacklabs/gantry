@@ -15,7 +15,7 @@ Gantry keeps the core runtime plain TypeScript and Node.js. Framework dependenci
 | Telegram channel adapter | Grammy and Grammy plugins only. |
 | Anthropic LLM adapter | Anthropic SDKs only. |
 | Browser adapter | Playwright only, behind the browser adapter boundary. |
-| Sandbox adapter later | Docker or sandbox libraries only. |
+| Sandbox adapter | Sandbox libraries only. Docker/cloud backends are future optional adapters. |
 | Admin Web UI later | Separate app. It may use a web framework but must integrate through the SDK/control API. |
 
 ## Current Boundaries
@@ -25,6 +25,6 @@ Gantry keeps the core runtime plain TypeScript and Node.js. Framework dependenci
 - Grammy is allowed only in `apps/core/src/channels/telegram/`.
 - Anthropic SDKs are allowed only in approved Anthropic provider adapter paths. The current provider-boundary target is `apps/core/src/adapters/llm/anthropic-claude-agent/`; remaining runner, memory, config, storage, shared catalog, and test references are exact count-based exceptions tracked by `.codex/provider-boundary-exceptions.json`.
 - Playwright belongs only behind the browser adapter boundary and must not enter domain, application, or core runtime layers.
-- Docker and sandbox libraries are reserved for a future sandbox adapter and must not enter core runtime layers.
+- Sandbox libraries belong only behind the sandbox adapter boundary and must not enter core runtime layers. Docker/cloud sandbox backends are future optional adapters, not required v1 dependencies.
 
 NestJS, NextJS, Express, tRPC, Socket.io, Prisma, BullMQ, Temporal, LangChain, and LlamaIndex are not core runtime dependencies.

@@ -2154,6 +2154,155 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('prelaunches the dedicated browser profile before a Browser job starts the runner', async () => {
+    const job = makeJob({
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository(['Browser']);
+    const order: string[] = [];
+    const openBrowserSession = vi.fn(async (profileName: string) => {
+      order.push('browser');
+      return {
+        profile: profileName,
+        profileName,
+        running: true,
+        cdpReady: true,
+        pid: 123,
+        port: 456,
+      };
+    });
+    const runAgent = vi.fn(async () => {
+      order.push('runner');
+      return {
+        status: 'success',
+        result: 'browser done',
+      };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(order).toEqual(['browser', 'runner']);
+    expect(openBrowserSession).toHaveBeenCalledWith(
+      expect.stringMatching(/^c-scheduler_agent-/),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.tool_activity',
+        payload: expect.objectContaining({
+          phase: 'browser_prelaunch',
+          tool: 'Browser',
+          public_tool: 'browser_open',
+          action: 'open',
+          ok: true,
+        }),
+      }),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.completed',
+        payload: expect.objectContaining({
+          diagnostics: expect.objectContaining({
+            browser_activity_count: 1,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('pauses a Browser job for setup when browser prelaunch fails', async () => {
+    const job = makeJob({
+      access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository(['Browser']);
+    const openBrowserSession = vi.fn(async () => {
+      throw new Error('Chrome launch failed');
+    });
+    const runAgent = vi.fn(async () => ({
+      status: 'success',
+      result: 'should not run',
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        openBrowserSession,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(opsRepository.updateJob).toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({
+        status: 'paused',
+        next_run: null,
+        pause_reason: 'Setup required',
+        setup_state: expect.objectContaining({
+          state: 'browser_login_may_be_required',
+          blockers: expect.arrayContaining([
+            expect.objectContaining({
+              requirementType: 'browser',
+              requirementId: 'Browser',
+              nextAction: expect.stringContaining('gantry browser status'),
+            }),
+          ]),
+        }),
+      }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('Setup required: Browser launch failed'),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.failed',
+        payload: expect.objectContaining({
+          pause_reason: 'Setup required',
+        }),
+      }),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.setup_required',
+        payload: expect.objectContaining({
+          setup_state: 'browser_login_may_be_required',
+          blockers: expect.arrayContaining([
+            expect.objectContaining({
+              requirement_type: 'browser',
+              requirement_id: 'Browser',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
   it('keeps Browser activity diagnostics when a required-Browser run fails later', async () => {
     const job = makeJob({
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
@@ -2280,6 +2429,79 @@ describe('jobs/execution', () => {
         eventType: 'sandbox.blocked',
         payload: { toolName: 'Bash', reason: 'protected path' },
       }),
+    );
+  });
+
+  it('records scheduler sandbox metadata and final startup failure events', async () => {
+    const job = makeJob();
+    const opsRepository = makeOpsRepository(job);
+    const runnerSandboxProvider = {
+      id: 'sandbox_runtime',
+      enforcing: true,
+    };
+    const runAgent = vi.fn(async () => ({
+      status: 'error',
+      result: null,
+      error:
+        'Sandbox startup failed: sandbox unavailable. The run did not start.',
+      runtimeEvents: [
+        {
+          eventType: 'sandbox.blocked',
+          payload: {
+            provider: 'sandbox_runtime',
+            enforcing: true,
+            message: 'sandbox unavailable',
+          },
+        },
+      ],
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+        runnerSandboxProvider: runnerSandboxProvider as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({
+        runnerSandboxProvider,
+      }),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.started',
+        payload: expect.objectContaining({
+          sandbox_provider: 'sandbox_runtime',
+          sandbox_enforcing: true,
+        }),
+      }),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'sandbox.blocked',
+        payload: expect.objectContaining({
+          provider: 'sandbox_runtime',
+          enforcing: true,
+        }),
+      }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('Sandbox startup failed'),
     );
   });
 });

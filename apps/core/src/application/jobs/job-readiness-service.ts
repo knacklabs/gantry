@@ -425,6 +425,27 @@ export function setupStateForTransientPermission(input: {
   });
 }
 
+export function setupStateForBrowserPrelaunchFailure(input: {
+  checkedAt?: string;
+  previous?: JobSetupState;
+}): JobSetupState {
+  return buildJobSetupState({
+    checkedAt: input.checkedAt ?? nowIso(),
+    previous: input.previous,
+    blockers: [
+      {
+        state: 'browser_login_may_be_required',
+        requirementType: 'browser',
+        requirementId: 'Browser',
+        message:
+          'Browser could not be launched for this scheduled job before the agent run started.',
+        nextAction:
+          'Run `gantry browser status`, fix the Browser profile if needed, then resume the job.',
+      },
+    ],
+  });
+}
+
 function buildJobSetupState(input: {
   blockers: readonly JobSetupBlocker[];
   checkedAt: string;
@@ -488,7 +509,7 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
     state: 'missing_capability',
     requirementType: requirementTypeForTool(toolName),
     requirementId: toolName,
-    message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
+    message: `Setup required: capability dependency missing: ${toolRequirementLabel(toolName)}.`,
     nextAction: toolAccessRequirementRecoveryAction(toolName),
   };
 }
@@ -686,8 +707,5 @@ function mcpCredentialBlocker(
 }
 
 function mcpRequestAction(requirement: string): string {
-  return `request_mcp_server ${JSON.stringify({
-    name: requirement,
-    reason: 'This autonomous run requires this MCP server.',
-  })}`;
+  return `request_mcp_server ${JSON.stringify({ name: requirement, reason: 'This autonomous run requires this MCP server.' })}`;
 }

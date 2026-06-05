@@ -171,25 +171,58 @@ async function readControlPlaneModelFromStorage(
 }
 
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
+  const withSandbox = (output: string) =>
+    insertSandboxStatus(output, formatSandboxStatus(summary));
   if (summary.readModel) {
-    return formatControlPlaneStatus(summary.readModel, summary.service);
+    return withSandbox(
+      formatControlPlaneStatus(summary.readModel, summary.service),
+    );
   }
-  return formatControlPlaneStatus(
-    buildControlPlaneReadModelFromSettings({
-      settings: summary.settings,
-      workspaceKey: 'default',
-      runtimeBlocked: !summary.doctor.ok && summary.doctor.blockingFailures > 0,
-      modelCredentialReady: summary.modelCredentialReady,
-      providers: summary.channels.map((channel) => ({
-        id: channel.id,
-        label: channel.label,
-        ready: channel.enabled && channel.missingEnvKeys.length === 0,
-      })),
-      accessNeedsApprovalCount: summary.accessNeedsApprovalCount,
-      memoryStatus: summary.memoryStatus,
-    }),
-    summary.service,
+  return withSandbox(
+    formatControlPlaneStatus(
+      buildControlPlaneReadModelFromSettings({
+        settings: summary.settings,
+        workspaceKey: 'default',
+        runtimeBlocked:
+          !summary.doctor.ok && summary.doctor.blockingFailures > 0,
+        modelCredentialReady: summary.modelCredentialReady,
+        providers: summary.channels.map((channel) => ({
+          id: channel.id,
+          label: channel.label,
+          ready: channel.enabled && channel.missingEnvKeys.length === 0,
+        })),
+        accessNeedsApprovalCount: summary.accessNeedsApprovalCount,
+        memoryStatus: summary.memoryStatus,
+      }),
+      summary.service,
+    ),
   );
+}
+
+function formatSandboxStatus(summary: RuntimeStatusSummary): string {
+  const provider = summary.settings.runtime.sandbox.provider;
+  if (provider === 'direct') return 'direct (compatibility, no OS sandbox)';
+  const sandboxCheck = summary.doctor.checks.find(
+    (check) => check.id === 'runner-sandbox',
+  );
+  if (sandboxCheck?.status === 'fail') {
+    return `sandbox_runtime (unavailable: ${sandboxCheck.message})`;
+  }
+  return 'sandbox_runtime (enforcing)';
+}
+
+function insertSandboxStatus(output: string, sandboxStatus: string): string {
+  const lines = output.split('\n');
+  const serviceIndex = lines.findIndex((line) => line.startsWith('Service '));
+  const runtimeIndex = lines.findIndex((line) => line.startsWith('Runtime:'));
+  const insertAt =
+    serviceIndex !== -1
+      ? serviceIndex + 1
+      : runtimeIndex !== -1
+        ? runtimeIndex + 1
+        : 1;
+  lines.splice(insertAt, 0, `Sandbox: ${sandboxStatus}`);
+  return lines.join('\n');
 }
 
 function toControlPlaneMemoryStatus(

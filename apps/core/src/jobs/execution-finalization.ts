@@ -42,6 +42,7 @@ export async function finalizeSchedulerJobRun(input: {
   error: string | null;
   diagnostics: JobRunDiagnostics;
   pausedForSetupDuringRun: boolean;
+  setupStateForSetupPause?: NonNullable<Job['setup_state']>;
   deletedDuringRun: boolean;
   runtimeAppId: string;
   runId: string;
@@ -85,15 +86,29 @@ export async function finalizeSchedulerJobRun(input: {
       runStatus = 'failed';
       nextRun = null;
       pauseReason = SETUP_REQUIRED_PAUSE_REASON;
+      const setupState = input.setupStateForSetupPause;
       await deps.opsRepository.updateJob(currentJob.id, {
         status: 'paused',
         next_run: null,
         last_run: input.now,
         consecutive_failures: retryCount,
         pause_reason: pauseReason,
+        ...(setupState ? { setup_state: setupState } : {}),
         lease_run_id: null,
         lease_expires_at: null,
       });
+      if (setupState) {
+        await notifyJobSetupRequired({
+          currentJob,
+          deps,
+          runtimeAppId,
+          appSession,
+          setupState,
+          source: 'preflight_setup',
+          runId: input.runId,
+          publishRuntimeEvent: input.publishRuntimeEvent,
+        });
+      }
     } else {
       retryCount += 1;
       runStatus = /timed out|deadline exceeded/i.test(input.error)
