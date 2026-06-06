@@ -352,11 +352,15 @@ export function createChannelWiring(
       let delivery: MessageDeliveryResult | undefined;
       if (isTestOperatorJid(jid)) {
         try {
-          delivery = (options.messageOptions
-            ? await channel.sendMessage(jid, formatted, options.messageOptions)
-            : await channel.sendMessage(jid, formatted)) as
-            | MessageDeliveryResult
-            | undefined;
+          delivery = (
+            options.messageOptions
+              ? await channel.sendMessage(
+                  jid,
+                  formatted,
+                  options.messageOptions,
+                )
+              : await channel.sendMessage(jid, formatted)
+          ) as MessageDeliveryResult | undefined;
           resolved.logger.info(
             { jid },
             'Outbound dry-run: sent to listed test number',
