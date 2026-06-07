@@ -25,3 +25,11 @@ export function gantryEnv(name) {
   }
   return undefined;
 }
+
+export function schemaEnv(name, fallback) {
+  const value = gantryEnv(name) || fallback;
+  if (!/^[a-z_][a-z0-9_]*$/i.test(value)) {
+    throw new Error(`${name} must be a simple SQL identifier, got ${JSON.stringify(value)}`);
+  }
+  return value;
+}

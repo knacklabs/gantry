@@ -35,6 +35,10 @@ export const CRM_PHONES = {
   negComplaint: '919900000009',
   negOutOfScope: '919900000010',
   progressive: '919900000011',
+  multiOpportunity: '919900000013',
+  generalEnquiry: '919900000014',
+  hindiGifting: '919900000015',
+  privacySupport: '919900000016',
 };
 export const RETURNING_PHONE = CRM_PHONES.returning;
 

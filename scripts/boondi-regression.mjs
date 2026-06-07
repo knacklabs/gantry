@@ -28,11 +28,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sendWebhook } from './lib/webhook.mjs';
-import { LANE_PHONES, RETURNING_PHONE } from './lib/phones.mjs';
+import { ALL_TEST_PHONES, LANE_PHONES, RETURNING_PHONE } from './lib/phones.mjs';
 import {
   openClient,
   closeClient,
   recordsForPhone,
+  digestCursorAtOrAfter,
   assertRecord,
   matchFailures,
 } from './lib/crm-db.mjs';
@@ -43,7 +44,13 @@ const LOG = process.env.GANTRY_DEV_LOG || '/tmp/gantry-dev.log';
 const SCENARIOS_PATH =
   process.env.BOONDI_SCENARIOS || path.join(HERE, 'boondi-scenarios.json');
 const ALL_GROUPS = ['conversation', 'shopify', 'crm'];
-const GROUP_FILTER = process.argv.slice(2).filter((a) => ALL_GROUPS.includes(a));
+const REQUESTED_GROUPS = process.argv.slice(2);
+const BAD_GROUPS = REQUESTED_GROUPS.filter((a) => !ALL_GROUPS.includes(a));
+if (BAD_GROUPS.length) {
+  console.error(`Unknown group(s): ${BAD_GROUPS.join(', ')}. Valid groups: ${ALL_GROUPS.join(', ')}`);
+  process.exit(2);
+}
+const GROUP_FILTER = REQUESTED_GROUPS;
 
 const TURN_TIMEOUT_MS = Number(process.env.TURN_TIMEOUT_MS || 120_000);
 const SETTLE_MS = Number(process.env.SETTLE_MS || 700);
@@ -137,6 +144,7 @@ async function waitForReset(fromOffset, chatJid) {
     if (events.some((e) => e.flow === 'outbound' && RESET_REPLY_RE.test(e.reply || ''))) return;
     await sleep(250);
   }
+  throw new Error(`timed out waiting for /new reset reply for ${chatJid}`);
 }
 
 async function waitForQuiescence(fromOffset, chatJid) {
@@ -298,9 +306,10 @@ function crmFailures(scenario, records) {
   }
   return fails;
 }
-async function crmDbCheck(scenario, phone) {
+async function crmDbCheck(scenario, phone, digestAfter) {
   const absent = scenario.expectRecord?.absent === true;
   const timeout = absent ? CRM_ABSENT_WAIT_MS : CRM_WAIT_MS;
+  const conversationId = `conversation:wa:${phone}`;
   let client;
   try {
     client = await openClient();
@@ -310,16 +319,23 @@ async function crmDbCheck(scenario, phone) {
   try {
     const deadline = Date.now() + timeout;
     let records = await recordsForPhone(client, phone);
+    let digestProcessed = false;
     while (Date.now() < deadline) {
       records = await recordsForPhone(client, phone);
       if (absent) {
         if (records.length) break; // something appeared → will fail
+        digestProcessed = Boolean(await digestCursorAtOrAfter(client, conversationId, digestAfter));
+        if (digestProcessed) break; // absence is meaningful only after this digest is consumed
       } else if (crmFailures(scenario, records).length === 0) {
         break; // satisfied
       }
       await sleep(CRM_POLL_MS);
     }
-    return { records, failures: crmFailures(scenario, records) };
+    const failures = crmFailures(scenario, records);
+    if (absent && !digestProcessed && records.length === 0) {
+      failures.push(`expected digest cursor for ${conversationId} at/after ${digestAfter}, none seen`);
+    }
+    return { records, failures };
   } finally {
     await closeClient(client);
   }
@@ -330,11 +346,21 @@ async function runScenario(scenario, lanePhone) {
   const lane = scenario.phone || lanePhone;
   const chatJid = `wa:${lane}`;
   const cfg = { lane };
+  const resetSession = async (label) => {
+    const startedAt = new Date().toISOString();
+    const offset = logSize();
+    const sent = await sendWebhook({ text: '/new', from: lane });
+    if (!sent.ok) throw new Error(`${label} /new rejected (HTTP ${sent.status}): ${sent.response}`);
+    await waitForReset(offset, chatJid);
+    return startedAt;
+  };
 
   // Fresh session before turn 1.
-  const resetOffset = logSize();
-  await sendWebhook({ text: '/new', from: lane });
-  await waitForReset(resetOffset, chatJid);
+  try {
+    await resetSession('setup');
+  } catch (err) {
+    return { scenario, turns: [], turnsEvents: [], aborted: `reset failed: ${err.message}`, cfg, crm: null };
+  }
 
   const turns = scenario.turns.map((t) => (typeof t === 'string' ? { text: t } : t));
   const turnsEvents = [];
@@ -352,14 +378,17 @@ async function runScenario(scenario, lanePhone) {
 
   // End the session: for crm this also forces the session-end digest the
   // extractor consumes; for the other groups it just frees the warm session.
-  const teardownOffset = logSize();
-  await sendWebhook({ text: '/new', from: lane });
-  await waitForReset(teardownOffset, chatJid);
+  let digestAfter = null;
+  try {
+    digestAfter = await resetSession('teardown');
+  } catch (err) {
+    aborted = aborted ?? `teardown reset failed: ${err.message}`;
+  }
 
   // crm group: poll the DB now that the digest has been triggered.
   let crm = null;
   if (scenario.group === 'crm' && !aborted) {
-    crm = await crmDbCheck(scenario, lane);
+    crm = await crmDbCheck(scenario, lane, digestAfter);
   }
   return { scenario, turns, turnsEvents, aborted, cfg, crm };
 }
@@ -431,6 +460,17 @@ async function main() {
   const cfg = JSON.parse(fs.readFileSync(SCENARIOS_PATH, 'utf8'));
   const groups = GROUP_FILTER.length ? GROUP_FILTER : ALL_GROUPS;
   const all = cfg.scenarios.filter((s) => groups.includes(s.group));
+  const allowedPhones = new Set(ALL_TEST_PHONES);
+  const phoneFailures = all.flatMap((s) => {
+    if (s.group === 'crm' && !s.phone) return [`${s.name}: crm scenarios must declare a phone`];
+    if (s.phone && !allowedPhones.has(s.phone)) return [`${s.name}: phone ${s.phone} is not in OPERATOR_LIST`];
+    return [];
+  });
+  if (phoneFailures.length) {
+    console.error('Scenario phone validation failed:');
+    for (const f of phoneFailures) console.error(`  - ${f}`);
+    process.exit(2);
+  }
   const resultsByName = new Map();
   const t0 = Date.now();
 

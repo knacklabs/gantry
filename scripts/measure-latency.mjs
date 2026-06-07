@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Performance probe: measures per-turn customer-visible latency against the
-// locally running Gantry dev runtime. Consolidates the three retired latency
-// scripts (measure-latency / latency-analyze / latency-cold-replies) into one.
+// locally running Gantry dev runtime. This is the single latency probe for the
+// Boondi script harness.
 //
 // What it does: posts a signed Interakt webhook for each representative turn
 // (via lib/webhook.mjs), then slices the runtime flow log (GANTRY_DEV_LOG,
@@ -58,6 +58,9 @@ function events(text) {
     } catch {
       continue;
     }
+    if (json && typeof json.flow !== 'string' && json.context && typeof json.context.flow === 'string') {
+      json = json.context;
+    }
     if (typeof json.flow !== 'string') continue;
     const iso = line.match(/^\[([0-9T:.Z+-]+)\]/);
     const t = Date.parse(iso ? iso[1] : json.time || json.timestamp);
@@ -72,7 +75,8 @@ function events(text) {
 async function turn(text) {
   const off = size();
   const sentAt = Date.now();
-  await sendWebhook({ text, from: FROM });
+  const sent = await sendWebhook({ text, from: FROM });
+  if (!sent.ok) throw new Error(`webhook rejected (HTTP ${sent.status}): ${sent.response}`);
   let ev = [];
   const deadline = Date.now() + TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -120,7 +124,7 @@ async function main() {
     console.log(pad(r.turn, 16), pad(r.path, 22), pad(fmtMs(r.msToReply), 12), fmtMcp(r));
   }
   console.log('');
-  process.exit(0);
+  process.exit(rows.some((r) => r.msToReply == null) ? 1 : 0);
 }
 
 main().catch((e) => {

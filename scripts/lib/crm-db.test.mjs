@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { matchFailures, assertRecord } from './crm-db.mjs';
+import { matchFailures, assertRecord, waitForRecord } from './crm-db.mjs';
 
 // Small fake DB rows. Real rows use snake_case columns straight from Postgres;
 // expectations use camelCase. Helpers keep each test focused on the fields it
@@ -93,5 +93,46 @@ describe('assertRecord', () => {
   it('empty records + a non-absent expectation FAILS with "none found"', () => {
     const f = assertRecord([], { status: 'lead' });
     expect(f).toEqual(['expected an opportunity row, none found']);
+  });
+});
+
+describe('waitForRecord', () => {
+  it('passes absent only after the digest cursor reaches the checked conversation', async () => {
+    const client = {
+      async query(sql) {
+        if (String(sql).includes('boondi_digest_cursor')) {
+          return { rows: [{ last_digest_id: 'digest-1', last_digest_at: '2026-06-07T00:00:00.000Z' }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    await expect(
+      waitForRecord(client, '919900000001', { absent: true }, {
+        conversationId: 'conversation:wa:919900000001',
+        processedAfter: '2026-06-07T00:00:00.000Z',
+        timeoutMs: 20,
+        intervalMs: 1,
+      }),
+    ).resolves.toEqual({ records: [], failures: [] });
+  });
+
+  it('fails absent when no matching digest cursor is seen', async () => {
+    const client = {
+      async query() {
+        return { rows: [] };
+      },
+    };
+
+    const result = await waitForRecord(client, '919900000001', { absent: true }, {
+      conversationId: 'conversation:wa:919900000001',
+      processedAfter: '2026-06-07T00:00:00.000Z',
+      timeoutMs: 5,
+      intervalMs: 1,
+    });
+
+    expect(result.records).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatch(/expected CRM digest cursor/);
   });
 });

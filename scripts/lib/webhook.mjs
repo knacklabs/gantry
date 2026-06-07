@@ -1,12 +1,12 @@
 // Inject a signed Interakt webhook into the locally running Gantry dev server.
-// (Relocated from scripts/interakt-test-send.mjs — the harness's one way to "send a
-// WhatsApp message as a customer".) Verification has no bypass, so each message
+// Verification has no bypass, so each message
 // carries a fresh HMAC over its exact body bytes. The webhook ACKs immediately and
 // processes asynchronously; callers read the GANTRY_FLOW_LOG to see what happened.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { ALL_TEST_PHONES } from './phones.mjs';
 
 const GANTRY_HOME = process.env.GANTRY_HOME || path.join(os.homedir(), 'gantry');
 const DEFAULT_PORT = Number(process.env.GANTRY_CONTROL_PORT || 4710);
@@ -39,6 +39,11 @@ export async function sendWebhook({
   name = 'Test Customer',
   messageId = crypto.randomUUID(),
 }) {
+  if (!ALL_TEST_PHONES.includes(from) && process.env.BOONDI_ALLOW_UNLISTED_TEST_PHONE !== '1') {
+    throw new Error(
+      `refusing to send signed test webhook from unlisted phone ${from}; add it to scripts/lib/phones.mjs or set BOONDI_ALLOW_UNLISTED_TEST_PHONE=1`,
+    );
+  }
   const secret = readEnvSecret('INTERAKT_WEBHOOK_SECRET');
   const iso = new Date().toISOString();
   const payload = {

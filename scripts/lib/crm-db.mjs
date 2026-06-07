@@ -5,9 +5,9 @@
 // into boondi_business_records. So a CRM scenario is checked by POLLING the DB
 // after the session is forced to end (/new), not by reading the flow log. A phone
 // can own MANY rows (per-opportunity model); an expectation matches if SOME row
-// satisfies all its fields. (Ported from the old verify-capture.mjs DB checks.)
+// satisfies all its fields.
 import pg from 'pg';
-import { gantryEnv } from './runtime-env.mjs';
+import { gantryEnv, schemaEnv } from './runtime-env.mjs';
 
 const { Client } = pg;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -18,7 +18,7 @@ export function dbConn() {
 
 export async function openClient(
   connectionString = dbConn(),
-  schema = process.env.BOONDI_CRM_DB_SCHEMA || 'boondi_crm',
+  schema = schemaEnv('BOONDI_CRM_DB_SCHEMA', 'boondi_crm'),
 ) {
   const client = new Client({ connectionString, connectionTimeoutMillis: 10_000 });
   await client.connect();
@@ -39,6 +39,18 @@ export async function recordsForPhone(client, phone) {
     [phone],
   );
   return res.rows;
+}
+
+export async function digestCursorAtOrAfter(client, conversationId, sinceIso) {
+  const res = await client.query(
+    `select last_digest_id, last_digest_at, checked_at
+       from boondi_digest_cursor
+      where conversation_id = $1 and last_digest_at >= $2::timestamptz
+      order by last_digest_at desc
+      limit 1`,
+    [conversationId, sinceIso],
+  );
+  return res.rows[0] || null;
 }
 
 // Field-by-field check of ONE row against an expectation. "query" is satisfied by
@@ -92,19 +104,28 @@ export async function waitForRecord(
   client,
   phone,
   expectRecord,
-  { timeoutMs = 90_000, intervalMs = 4_000 } = {},
+  { timeoutMs = 90_000, intervalMs = 4_000, conversationId = null, processedAfter = null } = {},
 ) {
   const exp = expectRecord || {};
   const deadline = Date.now() + timeoutMs;
   let records = await recordsForPhone(client, phone);
+  let processed = false;
   while (Date.now() < deadline) {
     records = await recordsForPhone(client, phone);
     if (exp.absent) {
       if (records.length) break; // a row appeared → fail fast
+      if (conversationId && processedAfter) {
+        processed = Boolean(await digestCursorAtOrAfter(client, conversationId, processedAfter));
+        if (processed) break; // absence is meaningful only after this digest was consumed
+      }
     } else if (assertRecord(records, exp).length === 0) {
       break; // satisfied
     }
     await sleep(intervalMs);
   }
-  return { records, failures: assertRecord(records, expectRecord) };
+  const failures = assertRecord(records, expectRecord);
+  if (exp.absent && conversationId && processedAfter && !processed && records.length === 0) {
+    failures.push(`expected CRM digest cursor for ${conversationId} at/after ${processedAfter}, none seen`);
+  }
+  return { records, failures };
 }

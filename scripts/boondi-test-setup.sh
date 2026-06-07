@@ -12,7 +12,7 @@
 #
 # Then run:  node scripts/boondi-regression.mjs   (and scripts/boondi-isolation.mjs)
 set -uo pipefail
-ROOT=/Users/caw-d/Desktop/gantry
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEV_LOG=${GANTRY_DEV_LOG:-/tmp/gantry-dev.log}
 CRM_LOG=${CRM_DEV_LOG:-/tmp/mcp-crm-dev.log}
 STRIP="-u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CODE_OAUTH_TOKEN"
