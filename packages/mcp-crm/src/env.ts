@@ -27,6 +27,10 @@ export interface BoondiCrmEnv {
   // names for backward compatibility.)
   reconcileIntervalMs: number;
   reconcileAgentId: string;
+  // The Gantry APP id that owns the model_credentials row the connector decrypts
+  // its Anthropic credential from (model_credentials.app_id). Defaults to core's
+  // default app. (Distinct from reconcileAgentId, which is an AGENT id.)
+  modelAppId: string;
   // Extraction model for the background opportunity extractor.
   extractorModel: string;
   anthropicApiKey?: string;
@@ -160,6 +164,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): BoondiCrmEnv {
     ),
     reconcileAgentId:
       source.BOONDI_CRM_AGENT_ID?.trim() || 'agent:boondi_support',
+    modelAppId: source.BOONDI_CRM_MODEL_APP_ID?.trim() || 'default',
     extractorModel:
       source.BOONDI_CRM_EXTRACTOR_MODEL?.trim() || 'claude-sonnet-4-6',
     anthropicApiKey: source.ANTHROPIC_API_KEY?.trim() || undefined,
