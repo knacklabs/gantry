@@ -44,8 +44,9 @@ import type {
 import { normalizeModelUsage } from '../../../../shared/model-usage.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
 import {
-  assertRequiredMcpServerReady,
+  ensureRequiredMcpServerReady,
   readExternalMcpServers,
+  type McpServerStatusSample,
 } from './mcp-server-validation.js';
 import {
   readExternalMcpAllowedTools,
@@ -328,7 +329,19 @@ export async function runQuery(
       }
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
-        assertRequiredMcpServerReady(message);
+        // The SDK (>= 0.3.156) emits init before stdio MCP servers finish
+        // connecting, so the init snapshot may report `gantry` as `pending`.
+        // Poll the live status (when the handle supports it) instead of
+        // failing on the snapshot.
+        const statusReporter = sdkQuery as {
+          mcpServerStatus?: () => Promise<McpServerStatusSample[]>;
+        };
+        await ensureRequiredMcpServerReady(message, {
+          getLiveStatuses:
+            typeof statusReporter.mcpServerStatus === 'function'
+              ? () => statusReporter.mcpServerStatus!()
+              : undefined,
+        });
         log('Session initialized: provider resume handle received');
         writeOutput({
           status: 'success',
