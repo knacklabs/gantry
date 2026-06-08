@@ -1,0 +1,33 @@
+{
+  "name": "@gantry/credential-crypto",
+  "version": "0.1.0",
+  "description": "Shared AES-256-GCM credential-secret crypto and AAD builders for Gantry. Single source of truth for the gcred:v2 envelope used by core and connectors.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=24 <26"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
+  }
+}

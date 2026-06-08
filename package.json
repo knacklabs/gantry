@@ -37,16 +37,18 @@
     ".claude/skills/*/SKILL.md"
   ],
   "workspaces": [
+    "packages/credential-crypto",
     "packages/contracts",
     "packages/sdk",
     "packages/mcp-shopify",
     "packages/mcp-crm"
   ],
   "scripts": {
+    "build:credential-crypto": "npm run build --workspace @gantry/credential-crypto",
     "build:contracts": "npm run build --workspace @gantry/contracts",
     "build:sdk": "npm run build --workspace @gantry/sdk",
-    "clean": "rm -rf dist packages/contracts/dist packages/sdk/dist",
-    "build": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations",
+    "clean": "rm -rf dist packages/credential-crypto/dist packages/contracts/dist packages/sdk/dist",
+    "build": "npm run clean && npm run build:credential-crypto && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations",
     "copy:migrations": "mkdir -p dist/adapters/storage/postgres/schema && cp -R apps/core/src/adapters/storage/postgres/schema/migrations dist/adapters/storage/postgres/schema/",
     "start": "node dist/index.js",
     "dev": "tsx apps/core/src/index.ts",
@@ -55,7 +57,7 @@
     "docker:stop": "docker compose --env-file $HOME/gantry/.env stop",
     "docker:down": "docker compose --env-file $HOME/gantry/.env down",
     "docker:logs": "docker compose --env-file $HOME/gantry/.env logs -f",
-    "typecheck": "npm run build:contracts && tsc --noEmit",
+    "typecheck": "npm run build:credential-crypto && npm run build:contracts && tsc --noEmit",
     "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/sdk/src/**/*.ts\"",
@@ -65,11 +67,11 @@
     "lint": "eslint apps/core/src packages/contracts/src packages/sdk/src",
     "lint:fix": "eslint apps/core/src packages/contracts/src packages/sdk/src --fix",
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",
-    "test:unit": "npm run build:contracts && vitest run -c vitest.unit.config.ts",
-    "test:integration": "npm run build:contracts && vitest run -c vitest.integration.config.ts",
+    "test:unit": "npm run build:credential-crypto && npm run build:contracts && vitest run -c vitest.unit.config.ts",
+    "test:integration": "npm run build:credential-crypto && npm run build:contracts && vitest run -c vitest.integration.config.ts",
     "test:integration:postgres": "node .codex/scripts/require-postgres-integration-env.mjs && npm run test:integration -- apps/core/test/integration/session-continuity-postgres.integration.test.ts apps/core/test/integration/application-services-postgres.integration.test.ts apps/core/test/integration/durable-message-delivery.integration.test.ts apps/core/test/integration/outbound-delivery.postgres.integration.test.ts apps/core/test/integration/jobs-runs-memory-flow.integration.test.ts apps/core/test/integration/mcp-server-postgres.integration.test.ts apps/core/test/integration/control-plane-repository.postgres.integration.test.ts apps/core/test/integration/runtime-event-outbox.postgres.integration.test.ts apps/core/test/integration/file-artifacts-postgres.integration.test.ts",
-    "test:e2e": "npm run build:contracts && vitest run -c vitest.e2e.config.ts",
-    "test:watch": "npm run build:contracts && vitest -c vitest.config.ts"
+    "test:e2e": "npm run build:credential-crypto && npm run build:contracts && vitest run -c vitest.e2e.config.ts",
+    "test:watch": "npm run build:credential-crypto && npm run build:contracts && vitest -c vitest.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.156",

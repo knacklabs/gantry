@@ -44,6 +44,10 @@ export function makeVitestConfig(options: VitestConfigOptions) {
   return defineConfig({
     resolve: {
       alias: {
+        '@gantry/credential-crypto': path.resolve(
+          __dirname,
+          'packages/credential-crypto/src/index.ts',
+        ),
         '@gantry/contracts': path.resolve(
           __dirname,
           'packages/contracts/src/index.ts',
