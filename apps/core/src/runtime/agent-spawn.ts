@@ -1,6 +1,3 @@
-/**
- * Agent runner for Gantry — host-only execution.
- */
 import { ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
@@ -67,7 +64,8 @@ import {
 } from './prompt-cache.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
-
+import { resolveAgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter-registry.js';
+import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 type RunnerAgentInput = AgentInput & {
   modelCredentialEnv?: Record<string, string>;
 };
@@ -79,7 +77,6 @@ const PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_ENV =
   'GANTRY_PROTECTED_FILESYSTEM_DENY_WRITE_PATHS_JSON';
 const LOCAL_CLI_CREDENTIAL_DIRS_ENV = 'GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON';
 const DEFAULT_RUNNER_APP_ID = 'default';
-
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type {
   AvailableGroup,
@@ -231,6 +228,18 @@ function validateRunnerAllowedTools(rules: readonly string[]): string | null {
   }
 }
 
+function cleanupRunnerMcpConfigFile(configPath: string | undefined): void {
+  if (!configPath) return;
+  try {
+    fs.rmSync(configPath, { force: true });
+  } catch (err) {
+    logger.warn(
+      { err, configPath },
+      'Failed to remove MCP runner handoff file',
+    );
+  }
+}
+
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -364,20 +373,37 @@ export async function spawnAgent(
 
   const hostRuntime = prepareHostRuntimeContext(group);
   ensureGroupIpcLayout(hostRuntime.groupIpcDir);
-  const hostCredentials = await getHostRuntimeCredentialEnv(
-    agentIdentifier,
-    options?.credentialBroker,
-    { purpose: 'model_runtime' },
-  );
-  const executionAdapter = options?.executionAdapter;
+  let executionAdapter: NonNullable<RunAgentOptions['executionAdapter']>;
+  try {
+    executionAdapter = resolveAgentExecutionAdapter({
+      executionProviderId: effectiveModelEntry.executionProviderId,
+      registry: options?.executionAdapters,
+      fallback: options?.executionAdapter,
+    }) as NonNullable<RunAgentOptions['executionAdapter']>;
+  } catch (err) {
+    return {
+      status: 'error',
+      result: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
   if (!executionAdapter) {
     return {
       status: 'error',
       result: null,
       error:
-        'No LLM execution adapter configured. Runtime bootstrap must provide an AgentExecutionAdapter.',
+        'No LLM execution adapter configured. Runtime bootstrap must provide an AgentExecutionAdapterRegistry.',
     };
   }
+  const hostCredentials = await getHostRuntimeCredentialEnv(
+    agentIdentifier,
+    options?.credentialBroker,
+    {
+      purpose: 'model_runtime',
+      runContext: input,
+      modelRouteId: effectiveModelEntry?.modelRoute.id,
+    },
+  );
   let preparedExecution: Awaited<ReturnType<typeof executionAdapter.prepare>>;
   try {
     preparedExecution = await executionAdapter.prepare({
@@ -400,6 +426,12 @@ export async function spawnAgent(
       options,
     });
   } catch (err) {
+    await hostCredentials.revoke?.().catch((revokeErr) => {
+      logger.warn(
+        { err: revokeErr },
+        'Failed to revoke model gateway token after LLM runtime materialization failure',
+      );
+    });
     const errorText = err instanceof Error ? err.message : String(err);
     const generatedRuntimeError = formatGeneratedRuntimePathPermissionError({
       runnerLabel: 'LLM runtime materialization',
@@ -436,17 +468,17 @@ export async function spawnAgent(
       'mcp',
       'stdio.js',
     );
-    const selectedMcpServerIds = input.selectedMcpServerIds ?? [];
+    const attachedMcpSourceIds = input.attachedMcpSourceIds ?? [];
     const mcpCredentialEnv: Record<string, string> =
       options?.mcpServerRepository &&
       options.capabilitySecretRepository &&
       options.mcpContext?.appId &&
       options.mcpContext.agentId &&
-      selectedMcpServerIds.length > 0
+      attachedMcpSourceIds.length > 0
         ? await resolveMcpCredentialEnvForAgent({
             appId: options.mcpContext.appId as never,
             agentId: options.mcpContext.agentId as never,
-            serverIds: selectedMcpServerIds as never,
+            serverIds: attachedMcpSourceIds as never,
             mcpServers: options.mcpServerRepository,
             secrets: options.capabilitySecretRepository,
             // http/sse connectors read their shared signing secret from the
@@ -461,14 +493,14 @@ export async function spawnAgent(
       options.capabilitySecretRepository &&
       options.mcpContext?.appId &&
       options.mcpContext.agentId &&
-      selectedMcpServerIds.length > 0
+      attachedMcpSourceIds.length > 0
         ? await new McpServerService(options.mcpServerRepository, undefined, {
             lookupHostname: options.mcpHostnameLookup,
             dnsValidationCache: options.mcpDnsValidationCache,
           }).materializeForAgent({
             appId: options.mcpContext.appId as never,
             agentId: options.mcpContext.agentId as never,
-            serverIds: selectedMcpServerIds as never,
+            serverIds: attachedMcpSourceIds as never,
             credentialEnv: mcpCredentialEnv,
           })
         : [];
@@ -530,6 +562,9 @@ export async function spawnAgent(
     runnerInputPatch.modelCredentialEnv.https_proxy = egressGateway.proxyUrl;
     runnerInputPatch.modelCredentialEnv.NODE_USE_ENV_PROXY = '1';
     runnerInput.modelCredentialEnv = runnerInputPatch.modelCredentialEnv;
+    if (runnerInputPatch.semanticCapabilities) {
+      runnerInput.semanticCapabilities = runnerInputPatch.semanticCapabilities;
+    }
     const localCliCredentialPaths = resolveHomeRelativePaths(
       localCliCredentialPathHintsFromRuntimeAccess(input.runtimeAccess),
       process.env,
@@ -633,7 +668,6 @@ export async function spawnAgent(
 
     const logsDir = path.join(groupDir, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
-
     const selectedSkillEnv =
       options?.skillRepository &&
       options.capabilitySecretRepository &&
@@ -644,15 +678,9 @@ export async function spawnAgent(
             agentId: options.skillContext.agentId as never,
             skills: options.skillRepository,
             secrets: options.capabilitySecretRepository,
+            runtimeAccess: input.runtimeAccess ?? [],
           })
         : { env: {} };
-    if (selectedSkillEnv.missingMessage) {
-      return {
-        status: 'error',
-        result: null,
-        error: selectedSkillEnv.missingMessage,
-      };
-    }
     Object.assign(env, pickSelectedCapabilityEnv(selectedSkillEnv.env));
     mcpConfigPath =
       allMcpCapabilitiesForRunner.length > 0
@@ -734,44 +762,12 @@ export async function spawnAgent(
     if (egressGateway) {
       await closeEgressGateway(egressGateway);
     }
+    await hostCredentials.revoke?.();
     preparedExecution.cleanup();
     revokeIpcResponseSigningKey(
       ipcAuth.responseKeyId,
       group.folder,
       input.threadId,
-    );
-  }
-}
-
-function writeRunnerMcpConfigFile(
-  groupIpcDir: string,
-  capabilities: MaterializedMcpCapability[],
-): string {
-  const configPath = path.join(
-    groupIpcDir,
-    `mcp-${globalThis.crypto.randomUUID()}.json`,
-  );
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(
-    configPath,
-    JSON.stringify(
-      Object.fromEntries(
-        capabilities.map((capability) => [capability.name, capability.config]),
-      ),
-    ),
-    { encoding: 'utf-8', mode: 0o600 },
-  );
-  return configPath;
-}
-
-function cleanupRunnerMcpConfigFile(configPath: string | undefined): void {
-  if (!configPath) return;
-  try {
-    fs.rmSync(configPath, { force: true });
-  } catch (err) {
-    logger.warn(
-      { err, configPath },
-      'Failed to remove MCP runner handoff file',
     );
   }
 }

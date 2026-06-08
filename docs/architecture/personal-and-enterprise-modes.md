@@ -43,8 +43,7 @@ Seeded defaults:
   another personal provider
 - `AgentConversationBinding` records for the conversations where the user wants
   the agent present
-- local default `LlmProfile`, typically backed by OneCLI or another credential
-  broker
+- local default model alias, backed by Gantry Model Gateway credentials
 - conservative default `PermissionPolicy`
 - host runtime `SandboxProfile` until stronger isolation is implemented
 
@@ -162,17 +161,17 @@ or rely on provider session handles for continuity.
 
 ## Mode Comparison
 
-| Concern       | Personal mode                                         | Enterprise mode                                                |
-| ------------- | ----------------------------------------------------- | -------------------------------------------------------------- |
-| App           | Seeded local app                                      | Explicit app per deployment, team, product, or tenant boundary |
-| Agent         | Default local agent plus optional custom agents       | Managed agents with versioned configs                          |
-| Conversation setup | CLI-guided local provider connections and bindings | Web UI/control API/SDK-managed provider connections and bindings |
-| Admin surface | Seeded conversation approver/conversation approvers and local CLI  | Web UI, control API, SDK, conversation approver bindings        |
-| Credentials   | Local runtime secrets plus brokered agent credentials | Runtime secret provider and enterprise credential broker       |
-| Permissions   | Conservative defaults with local approvals            | Explicit policies, roles, audit, and approval flows            |
-| Workspace     | Local folders and snapshots                           | Managed workspace projections and snapshots                    |
-| Sessions      | Canonical sessions with provider session attachments  | Same model, often with more audit and retention policy         |
-| Runs          | Local run events and logs                             | API-visible event stream, webhooks, audits, and monitoring     |
+| Concern            | Personal mode                                                     | Enterprise mode                                                  |
+| ------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
+| App                | Seeded local app                                                  | Explicit app per deployment, team, product, or tenant boundary   |
+| Agent              | Default local agent plus optional custom agents                   | Managed agents with versioned configs                            |
+| Conversation setup | CLI-guided local provider connections and bindings                | Web UI/control API/SDK-managed provider connections and bindings |
+| Admin surface      | Seeded conversation approver/conversation approvers and local CLI | Web UI, control API, SDK, conversation approver bindings         |
+| Credentials        | Local runtime secrets plus Gantry Credential Center model/capability credentials | Runtime secret provider plus enterprise-backed Credential Center |
+| Permissions        | Conservative defaults with local approvals                        | Explicit policies, roles, audit, and approval flows              |
+| Workspace          | Local folders and snapshots                                       | Managed workspace projections and snapshots                      |
+| Sessions           | Canonical sessions with provider session attachments              | Same model, often with more audit and retention policy           |
+| Runs               | Local run events and logs                                         | API-visible event stream, webhooks, audits, and monitoring       |
 
 ## Implementation Guidance
 

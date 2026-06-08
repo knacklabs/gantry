@@ -66,7 +66,11 @@ export async function startGantryRuntime(
       await getRuntimeEventExchange().publish(event);
     },
   });
-  const channelWiring = createChannelWiring(app);
+  const channelWiring = createChannelWiring(app, {
+    publishRuntimeEvent: async (event) => {
+      await getRuntimeEventExchange().publish(event);
+    },
+  });
   const controlServerRef: {
     current?: {
       close: () => Promise<void>;
@@ -178,7 +182,19 @@ export async function startGantryRuntime(
         (await loadBrowserToolModule()).closeBrowserToolBackends(profileName),
     },
   );
-  controlServerRef.current = startControlServer({ app, getBrowserStatus });
+  controlServerRef.current = startControlServer({
+    app,
+    getBrowserStatus,
+    sendConversationIngressProjection: async (input) => {
+      await channelWiring.sendMessage(input.conversationJid, input.text, {
+        durability: 'required',
+        throwOnMissing: true,
+        messageOptions: input.threadId
+          ? { threadId: input.threadId }
+          : undefined,
+      });
+    },
+  });
 }
 
 const isDirectRun =

@@ -439,7 +439,7 @@ function autonomousGrantRecovery(request: ToolExecutionRequest): string {
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
-    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "http", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP server capability." }`;
+    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "stdio_template", "templateId": "npx-package", "args": ["<reviewed-package>"], "sandboxProfileId": "mcp-stdio", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP server capability." }`;
   }
   const toolName = isKnownProjectedBrowserMcpToolName(request.toolName)
     ? 'Browser'

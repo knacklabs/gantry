@@ -1,8 +1,5 @@
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
-import {
-  isOpenRouterModelRoute,
-  type ModelCatalogEntry,
-} from '../../../shared/model-catalog.js';
+import type { ModelCatalogEntry } from '../../../shared/model-catalog.js';
 
 export function validateModelCredentialProjectionForEntry(input: {
   model: ModelCatalogEntry;
@@ -11,45 +8,67 @@ export function validateModelCredentialProjectionForEntry(input: {
   };
 }): void {
   const { model, projection } = input;
-  const isExternalBrokerProjection = projection.brokerProfile === 'external';
-  const isOpenRouterRoute = isOpenRouterModelRoute(model);
-  if (
-    isOpenRouterRoute &&
-    !isExternalBrokerProjection &&
-    (!projection.env.ANTHROPIC_AUTH_TOKEN ||
-      projection.credentialProviders?.ANTHROPIC_AUTH_TOKEN !== 'openrouter')
-  ) {
+  const isGantryGatewayProjection = projection.brokerProfile === 'gantry';
+  if (!isGantryGatewayProjection) {
     throw new Error(
-      `OpenRouter model ${model.displayName} requires an OpenRouter-scoped credential from Model Access. Configure Model Access/OpenRouter credentials before selecting this model.`,
+      `Model ${model.displayName} requires Gantry Model Gateway credentials from Model Access. Run \`gantry credentials model set ${model.modelRoute.id}\`.`,
+    );
+  }
+  validateGantryGatewayProjection(projection.env, model);
+}
+
+function validateGantryGatewayProjection(
+  env: Partial<
+    Record<
+      | 'ANTHROPIC_BASE_URL'
+      | 'ANTHROPIC_API_KEY'
+      | 'ANTHROPIC_AUTH_TOKEN'
+      | 'CLAUDE_CODE_OAUTH_TOKEN',
+      string
+    >
+  >,
+  model: ModelCatalogEntry,
+): void {
+  if (env.CLAUDE_CODE_OAUTH_TOKEN) {
+    if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
+      throw new Error(
+        `Gantry Model Gateway projection for ${model.displayName} must use only one Anthropic credential mode.`,
+      );
+    }
+    return;
+  }
+  if (!isLoopbackGatewayUrl(env.ANTHROPIC_BASE_URL)) {
+    throw new Error(
+      `Gantry Model Gateway projection for ${model.displayName} must use a loopback ANTHROPIC_BASE_URL.`,
+    );
+  }
+  if (!env.ANTHROPIC_API_KEY?.startsWith('gtw_')) {
+    throw new Error(
+      `Gantry Model Gateway projection for ${model.displayName} must use a run-scoped gateway token.`,
     );
   }
   if (
-    !isOpenRouterRoute &&
-    (projection.credentialProviders?.ANTHROPIC_AUTH_TOKEN === 'openrouter' ||
-      isOpenRouterBaseUrl(projection.env.ANTHROPIC_BASE_URL))
+    env.ANTHROPIC_AUTH_TOKEN &&
+    !env.ANTHROPIC_AUTH_TOKEN.startsWith('gtw_')
   ) {
     throw new Error(
-      `Model ${model.displayName} is configured for ${model.modelRoute.label}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${model.modelRoute.label} credentials for this model.`,
-    );
-  }
-  if (
-    model.modelRoute.id === 'anthropic' &&
-    !isExternalBrokerProjection &&
-    !projection.env.ANTHROPIC_AUTH_TOKEN &&
-    !projection.env.ANTHROPIC_API_KEY &&
-    !projection.env.CLAUDE_CODE_OAUTH_TOKEN
-  ) {
-    throw new Error(
-      `Anthropic model ${model.displayName} requires Anthropic credentials from Model Access. Add an Anthropic API key in Model Access before selecting this model.`,
+      `Gantry Model Gateway projection for ${model.displayName} must not expose provider auth tokens.`,
     );
   }
 }
 
-export function isOpenRouterBaseUrl(value?: string): boolean {
+function isLoopbackGatewayUrl(value?: string): boolean {
   if (!value) return false;
   try {
-    const hostname = new URL(value).hostname.toLowerCase().replace(/\.+$/, '');
-    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai');
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'http:' &&
+      (hostname === '127.0.0.1' ||
+        hostname === 'localhost' ||
+        hostname === '::1' ||
+        hostname === '[::1]')
+    );
   } catch {
     return false;
   }

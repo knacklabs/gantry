@@ -26,16 +26,18 @@ export function deriveMemoryMode(health: MemoryHealthInspection): {
   const embeddingsOn =
     health.embeddingsEnabled && health.embeddingProvider !== 'disabled';
   const dreamingOn = health.dreamingEnabled;
+  const hybridLiveNote =
+    'hybrid lexical + semantic recall is live for indexed memories. Run `gantry memory embeddings backfill` to index existing memories; check `/memory-status` for live ready/pending counts';
   if (embeddingsOn && dreamingOn) {
     return {
-      mode: 'continuity-mode',
-      note: 'dreaming is on and embeddings are configured, but runtime retrieval is currently lexical + keyword; vector retrieval is not active yet',
+      mode: 'full-mode',
+      note: `dreaming and embeddings are on; ${hybridLiveNote}`,
     };
   }
   if (embeddingsOn) {
     return {
-      mode: 'keyword-mode',
-      note: 'embeddings are configured, but runtime retrieval is currently lexical + keyword; vector retrieval is not active yet',
+      mode: 'semantic-mode',
+      note: `embeddings are on; ${hybridLiveNote}`,
     };
   }
   if (dreamingOn) {

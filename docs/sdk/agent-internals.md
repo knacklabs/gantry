@@ -117,8 +117,8 @@ Webhook URLs are registered by the app, signed with per-destination secrets, ret
 Postgres is the runtime store:
 
 - `pg-boss` schedules and claims jobs.
-- `pgvector` and embedding cache tables are available for future brokered embedding work, but active memory retrieval is lexical today.
-- Postgres full-text search handles current memory retrieval and filtering.
+- `pgvector` and embedding cache tables support optional semantic memory recall when embeddings are enabled and backfilled.
+- Postgres full-text search remains the always-available retrieval path and the lexical fallback when query embedding is unavailable.
 - Control events, messages, jobs, runs, triggers, sessions, webhooks, deliveries, and memory records are first-party Gantry tables.
 
 ## Event Contract

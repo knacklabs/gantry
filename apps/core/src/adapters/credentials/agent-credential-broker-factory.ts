@@ -2,44 +2,53 @@ import {
   ensureAgentCredentialBinding as ensureApplicationAgentCredentialBinding,
   ensureModelCredentialBinding as ensureApplicationModelCredentialBinding,
 } from '../../application/credentials/agent-credential-service.js';
+import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
+import type { ModelCredentialRepository } from '../../domain/ports/repositories.js';
 import type { CredentialBrokerProfile } from '../../domain/models/credentials.js';
-import { OnecliAgentCredentialBroker } from './onecli/broker.js';
+import { GantryModelGatewayBroker } from '../llm/anthropic-claude-agent/gantry-model-gateway.js';
 
 export interface AgentCredentialBrokerFactoryOptions {
   mode: CredentialBrokerProfile;
   broker?: AgentCredentialBroker;
-  onecliUrl?: string;
-  dataDir?: string;
+  modelCredentials?: ModelCredentialRepository;
+  gatewayBindHost?: string;
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
 }
 
 export async function createAgentCredentialBroker(
   options: AgentCredentialBrokerFactoryOptions,
 ): Promise<AgentCredentialBroker | undefined> {
   if (options.broker) return options.broker;
-  if (options.mode !== 'onecli') return undefined;
-  if (!options.dataDir) {
+  if (options.mode !== 'gantry') return undefined;
+  if (!options.modelCredentials) {
     throw new Error(
-      'OneCLI credential broker creation requires an adapter-owned data directory.',
+      'Gantry Model Gateway requires a model credential repository.',
     );
   }
-  return new OnecliAgentCredentialBroker({
-    onecliUrl: options.onecliUrl,
-    dataDir: options.dataDir,
+  return new GantryModelGatewayBroker(options.modelCredentials, {
+    bindHost: options.gatewayBindHost,
+    audit: options.publishRuntimeEvent,
   });
 }
 
 export async function ensureModelCredentialBinding(input: {
   mode: CredentialBrokerProfile;
-  onecliUrl?: string;
-  dataDir?: string;
   broker?: AgentCredentialBroker;
+  modelCredentials?: ModelCredentialRepository;
+  gatewayBindHost?: string;
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
 }): Promise<{ created?: boolean } | undefined> {
   const broker = await createAgentCredentialBroker({
     mode: input.mode,
     broker: input.broker,
-    onecliUrl: input.onecliUrl,
-    dataDir: input.dataDir,
+    modelCredentials: input.modelCredentials,
+    gatewayBindHost: input.gatewayBindHost,
+    publishRuntimeEvent: input.publishRuntimeEvent,
   });
   return ensureApplicationModelCredentialBinding({
     mode: input.mode,
@@ -49,17 +58,21 @@ export async function ensureModelCredentialBinding(input: {
 
 export async function ensureAgentCredentialBinding(input: {
   mode: CredentialBrokerProfile;
-  onecliUrl?: string;
-  dataDir?: string;
   broker?: AgentCredentialBroker;
+  modelCredentials?: ModelCredentialRepository;
+  gatewayBindHost?: string;
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
   name: string;
   identifier: string;
 }): Promise<{ created?: boolean } | undefined> {
   const broker = await createAgentCredentialBroker({
     mode: input.mode,
     broker: input.broker,
-    onecliUrl: input.onecliUrl,
-    dataDir: input.dataDir,
+    modelCredentials: input.modelCredentials,
+    gatewayBindHost: input.gatewayBindHost,
+    publishRuntimeEvent: input.publishRuntimeEvent,
   });
   return ensureApplicationAgentCredentialBinding({
     mode: input.mode,

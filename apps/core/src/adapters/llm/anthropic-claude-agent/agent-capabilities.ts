@@ -29,6 +29,7 @@ import {
   SAFE_NATIVE_SDK_TOOLS,
   UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
 } from './native-sdk-tools.js';
+import type { SemanticCapabilityDefinition } from '../../../shared/semantic-capabilities.js';
 
 export interface AgentCapabilityContext {
   mcpServerPath: string;
@@ -43,9 +44,10 @@ export interface AgentCapabilityContext {
   persona?: AgentPersona;
   browserProfileName?: string;
   configuredAllowedTools?: readonly string[];
-  selectedSkillIds?: readonly string[];
+  attachedSkillSourceIds?: readonly string[];
   selectedSkillDisplays?: readonly string[];
-  selectedMcpServerIds?: readonly string[];
+  attachedMcpSourceIds?: readonly string[];
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
   ipcDir?: string;
   ipcAuthToken?: string;
   browserIpcAuthToken?: string;
@@ -181,12 +183,17 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify(
         ctx.configuredAllowedTools ?? [],
       ),
-      GANTRY_SELECTED_SKILLS_JSON: JSON.stringify(ctx.selectedSkillIds ?? []),
+      GANTRY_SELECTED_SKILLS_JSON: JSON.stringify(
+        ctx.attachedSkillSourceIds ?? [],
+      ),
       GANTRY_SELECTED_SKILL_DISPLAYS_JSON: JSON.stringify(
-        ctx.selectedSkillDisplays ?? ctx.selectedSkillIds ?? [],
+        ctx.selectedSkillDisplays ?? ctx.attachedSkillSourceIds ?? [],
       ),
       GANTRY_SELECTED_MCP_SERVERS_JSON: JSON.stringify(
-        ctx.selectedMcpServerIds ?? [],
+        ctx.attachedMcpSourceIds ?? [],
+      ),
+      GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(
+        ctx.semanticCapabilities ?? [],
       ),
       GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(
         selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {

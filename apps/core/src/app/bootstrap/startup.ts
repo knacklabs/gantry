@@ -243,17 +243,17 @@ async function waitForCredentialBindings(
         {
           timeoutMs: STARTUP_CREDENTIAL_BINDING_TIMEOUT_MS,
         },
-        'Credential broker binding did not finish during startup; continuing channel startup',
+        'Gantry Model Gateway binding did not finish during startup; continuing channel startup',
       );
       bindings.catch((err) => {
         logger.warn(
           { err },
-          'Credential broker binding failed after startup continued',
+          'Gantry Model Gateway binding failed after startup continued',
         );
       });
     }
   } catch (err) {
-    logger.warn({ err }, 'Credential broker binding failed during startup');
+    logger.warn({ err }, 'Gantry Model Gateway binding failed during startup');
   } finally {
     if (timeout) clearTimeout(timeout);
   }

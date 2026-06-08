@@ -22,18 +22,23 @@ export function resolveExecutionContext(
   if (!executionConversation) return null;
   const group = groups[executionConversation];
   if (!group) return null;
+  const notificationRoutes = resolveJobNotificationRoutes(job);
+  const primaryExecutionRoute = notificationRoutes.find(
+    (route) => route.conversationJid === executionConversation,
+  );
   const stopAliasJids = Array.from(
     new Set([
       executionConversation,
-      ...resolveJobNotificationRoutes(job).map(
-        (route) => route.conversationJid,
-      ),
+      ...notificationRoutes.map((route) => route.conversationJid),
     ]),
   );
   return {
     group,
     executionJid: executionConversation,
-    threadId: normalizeOptional(job.execution_context?.threadId) ?? null,
+    threadId:
+      normalizeOptional(job.execution_context?.threadId) ??
+      primaryExecutionRoute?.threadId ??
+      null,
     stopAliasJids,
   };
 }

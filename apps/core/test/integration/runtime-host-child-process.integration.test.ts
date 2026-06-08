@@ -115,7 +115,7 @@ describe('host child-process runtime smoke', () => {
         IDLE_TIMEOUT: 5_000,
         GANTRY_HOME: agentRoot,
         GANTRY_HOME: agentRoot,
-        ONECLI_URL: '',
+        GANTRY_MODEL_GATEWAY_URL: '',
         PERMISSION_APPROVAL_TIMEOUT_MS: 5_000,
         TIMEZONE: 'UTC',
         getEffectiveModelConfig: () => ({ source: 'unset' }),
@@ -135,7 +135,7 @@ describe('host child-process runtime smoke', () => {
         env: { ANTHROPIC_BASE_URL: 'https://broker.example.com/anthropic' },
         credentialProviders: {},
         brokerApplied: true,
-        brokerProfile: 'external',
+        brokerProfile: 'gantry',
       }),
       prepareHostRuntimeContext: () => ({
         groupDir,

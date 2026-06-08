@@ -2,7 +2,10 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { ExternalIngressModule } from '@core/application/external-ingress/external-ingress-module.js';
+import {
+  EXTERNAL_INGRESS_RUNTIME_DISPATCH,
+  ExternalIngressModule,
+} from '@core/application/external-ingress/external-ingress-module.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
 
 const signatureCrypto = {
@@ -56,6 +59,8 @@ function signedInvokeInput(input: {
 function makeModule(overrides?: {
   control?: Partial<ExternalIngressControl>;
   sessions?: Partial<ExternalIngressSessions>;
+  conversationMessages?: Partial<ExternalIngressConversationMessages>;
+  conversationProviderMessages?: Partial<ExternalIngressConversationProviderMessages>;
   jobs?: Partial<ExternalIngressJobs>;
   metadata?: unknown;
 }) {
@@ -162,10 +167,34 @@ function makeModule(overrides?: {
     createJob: vi.fn(),
     ...overrides?.jobs,
   };
+  const conversationMessages: ExternalIngressConversationMessages = {
+    acceptMessage: vi.fn(async () => ({
+      messageId: 'conversation-message-1',
+      conversationId: 'conversation:tg:-100',
+      threadId: 'thread:tg:-100:42',
+      acceptedEventId: 202,
+      enqueue: {
+        conversationJid: 'tg:-100',
+        threadId: '42',
+        queueKey: 'tg:-100::thread:42',
+      },
+    })),
+    ...overrides?.conversationMessages,
+  };
+  const conversationProviderMessages:
+    | ExternalIngressConversationProviderMessages
+    | undefined = overrides?.conversationProviderMessages
+    ? ({
+        send: vi.fn(async () => undefined),
+        ...overrides.conversationProviderMessages,
+      } as ExternalIngressConversationProviderMessages)
+    : undefined;
 
   const module = new ExternalIngressModule({
     control: control as never,
     sessions: sessions as never,
+    conversationMessages: conversationMessages as never,
+    conversationProviderMessages: conversationProviderMessages as never,
     jobs: jobs as never,
     now: () => '2026-04-30T00:00:00.000Z',
     createSecret: () => 'secret-generated',
@@ -175,7 +204,14 @@ function makeModule(overrides?: {
     perJobTriggerLimit: 2,
   });
 
-  return { module, control, sessions, jobs };
+  return {
+    module,
+    control,
+    sessions,
+    conversationMessages,
+    conversationProviderMessages,
+    jobs,
+  };
 }
 
 type ExternalIngressControl = {
@@ -194,6 +230,14 @@ type ExternalIngressControl = {
 type ExternalIngressSessions = {
   ensureSession: ReturnType<typeof vi.fn>;
   acceptMessage: ReturnType<typeof vi.fn>;
+};
+
+type ExternalIngressConversationMessages = {
+  acceptMessage: ReturnType<typeof vi.fn>;
+};
+
+type ExternalIngressConversationProviderMessages = {
+  send: ReturnType<typeof vi.fn>;
 };
 
 type ExternalIngressJobs = {
@@ -572,6 +616,145 @@ describe('ExternalIngressModule', () => {
     expect(
       control.createExternalIngressInvocation.mock.calls[0]![0].requestBody,
     ).not.toContain('launch now');
+  });
+
+  it('accepts conversation_message targets without storing runtime routing in the public response', async () => {
+    const { module, conversationMessages, control } = makeModule({
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['conversation_message'],
+          conversationIds: ['conversation:tg:-100'],
+        },
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'conversation_message',
+        conversationId: 'conversation:tg:-100',
+        threadId: 'thread:tg:-100:42',
+        message: 'hello from external system',
+        senderId: 'crm-worker',
+        senderName: 'CRM Worker',
+      },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-conversation-message',
+    });
+
+    const result = await module.invoke(request);
+
+    expect(result).toMatchObject({
+      invocationId: 'invocation-new',
+      duplicate: false,
+      targetKind: 'conversation_message',
+      conversationId: 'conversation:tg:-100',
+      threadId: 'thread:tg:-100:42',
+      messageId: 'conversation-message-1',
+      acceptedEventId: 202,
+    });
+    expect(result).not.toHaveProperty('enqueue');
+    expect(JSON.stringify(result)).not.toContain('queueKey');
+    expect(
+      (result as Record<PropertyKey, unknown>)[
+        EXTERNAL_INGRESS_RUNTIME_DISPATCH
+      ],
+    ).toMatchObject({
+      enqueue: {
+        queueKey: 'tg:-100::thread:42',
+      },
+    });
+    expect(conversationMessages.acceptMessage).toHaveBeenCalledWith({
+      appId: 'app-one',
+      invocationId: 'invocation-new',
+      conversationId: 'conversation:tg:-100',
+      threadId: 'thread:tg:-100:42',
+      message: 'hello from external system',
+      senderId: 'crm-worker',
+      senderName: 'CRM Worker',
+      correlationId: null,
+    });
+    expect(control.updateExternalIngressInvocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response: expect.not.objectContaining({
+          enqueue: expect.anything(),
+        }),
+      }),
+    );
+  });
+
+  it('mirrors conversation_message input into the provider conversation before queueing', async () => {
+    const { module, conversationProviderMessages } = makeModule({
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['conversation_message'],
+          conversationIds: ['conversation:tg:-100'],
+        },
+      },
+      conversationProviderMessages: {},
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'conversation_message',
+        conversationId: 'conversation:tg:-100',
+        threadId: 'thread:tg:-100:42',
+        message: 'trigger the job',
+        senderName: 'QA Worker',
+      },
+    });
+
+    const result = await module.invoke(
+      signedInvokeInput({
+        secret: 'secret-1',
+        rawBody,
+        nonce: 'nonce-conversation-provider-projection',
+      }),
+    );
+
+    expect(conversationProviderMessages?.send).toHaveBeenCalledWith({
+      conversationJid: 'tg:-100',
+      threadId: '42',
+      text: 'QA Worker: trigger the job',
+    });
+    expect(
+      (result as Record<PropertyKey, unknown>)[
+        EXTERNAL_INGRESS_RUNTIME_DISPATCH
+      ],
+    ).toMatchObject({
+      enqueue: {
+        queueKey: 'tg:-100::thread:42',
+      },
+    });
+  });
+
+  it('rejects conversation_message targets not allowed by the ingress policy', async () => {
+    const { module, conversationMessages } = makeModule({
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['conversation_message'],
+          conversationIds: ['conversation:tg:-100'],
+        },
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'conversation_message',
+        conversationId: 'conversation:tg:-200',
+        message: 'launch now',
+      },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-conversation-policy-deny',
+    });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Ingress is not allowed to invoke this conversation target',
+    });
+    expect(conversationMessages.acceptMessage).not.toHaveBeenCalled();
   });
 
   it('rejects session_message targets not allowed by the ingress policy', async () => {

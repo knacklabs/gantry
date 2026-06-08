@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
   vector,
 } from 'drizzle-orm/pg-core';
 
@@ -294,7 +295,8 @@ export const embeddingCachePostgres = pgTable(
     textHash: text('text_hash').notNull(),
     model: text('model').notNull(),
     embeddingJson: text('embedding_json').notNull(),
-    embedding: vector('embedding', { dimensions: 3072 }),
+    embedding: vector('embedding', { dimensions: 1536 }),
+    dimensions: integer('dimensions').notNull().default(1536),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'string',
@@ -316,7 +318,20 @@ export const memoryItemEmbeddingsPostgres = pgTable(
     model: text('model').notNull(),
     contentHash: text('content_hash').notNull(),
     embeddingJson: text('embedding_json'),
+    embedding: vector('embedding', { dimensions: 1536 }),
+    dimensions: integer('dimensions').notNull().default(1536),
     status: text('status').notNull().default('ready'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lastAttemptAt: timestamp('last_attempt_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    resumeAfter: timestamp('resume_after', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    runId: uuid('run_id'),
+    providerBatchId: text('provider_batch_id'),
     error: text('error'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
@@ -340,6 +355,86 @@ export const memoryItemEmbeddingsPostgres = pgTable(
       table.status,
       table.updatedAt,
     ),
+    resumeIdx: index('idx_memory_item_embeddings_resume').on(
+      table.status,
+      table.resumeAfter,
+    ),
+    providerBatchIdx: index('idx_memory_item_embeddings_provider_batch').on(
+      table.provider,
+      table.model,
+      table.status,
+      table.providerBatchId,
+      table.updatedAt,
+      table.itemId,
+    ),
+    readyLookupIdx: index('idx_memory_item_embeddings_ready_lookup')
+      .on(
+        table.provider,
+        table.model,
+        table.dimensions,
+        table.status,
+        table.itemId,
+      )
+      .where(sql`status = 'ready' AND embedding IS NOT NULL`),
+    hnswIdx: index('idx_memory_item_embeddings_hnsw')
+      .using('hnsw', table.embedding.op('vector_cosine_ops'))
+      .where(sql`status = 'ready' AND embedding IS NOT NULL`),
+  }),
+);
+
+export const memoryEmbeddingBackfillRunsPostgres = pgTable(
+  'memory_embedding_backfill_runs',
+  {
+    id: uuid('id').primaryKey(),
+    appId: text('app_id').notNull(),
+    agentId: text('agent_id'),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    dimensions: integer('dimensions').notNull(),
+    trigger: text('trigger').notNull(),
+    mode: text('mode').notNull(),
+    status: text('status').notNull(),
+    totalCandidates: integer('total_candidates').notNull().default(0),
+    processedCount: integer('processed_count').notNull().default(0),
+    readyCount: integer('ready_count').notNull().default(0),
+    skippedReadyCount: integer('skipped_ready_count').notNull().default(0),
+    retryableCount: integer('retryable_count').notNull().default(0),
+    blockedCount: integer('blocked_count').notNull().default(0),
+    pauseReason: text('pause_reason'),
+    lastErrorCode: text('last_error_code'),
+    lastErrorMessage: text('last_error_message'),
+    resumeAfter: timestamp('resume_after', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    startedAt: timestamp('started_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => ({
+    scopeIdx: index('idx_memory_embedding_backfill_runs_scope').on(
+      table.appId,
+      table.agentId,
+      table.startedAt.desc(),
+    ),
+    statusIdx: index('idx_memory_embedding_backfill_runs_status').on(
+      table.status,
+      table.updatedAt.desc(),
+    ),
+    runningInlineUniqueIdx: uniqueIndex(
+      'idx_memory_embedding_backfill_runs_running',
+    )
+      .on(table.appId, sql`(coalesce(${table.agentId}, ''))`)
+      .where(sql`status = 'running' AND mode = 'inline'`),
   }),
 );
 

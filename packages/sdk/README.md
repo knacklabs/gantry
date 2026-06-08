@@ -56,7 +56,7 @@ endpoints on the running runtime:
 - `client.runs` — `list`, `get`
 - `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`
 - `client.agents` — admin CRUD plus `skills`, `mcpServers`, `conversationBindings`
-- `client.skillDrafts` — manage proposed skills
+- `client.skills` — install, list, and inspect skills
 - `client.mcpServers` — catalog of MCP servers
 - `client.providers` — list channel providers
 - `client.providerConnections` — CRUD plus `discoverConversations`
@@ -65,6 +65,7 @@ endpoints on the running runtime:
 - `client.memory` — `save`, `search`, `list`, `patch`, `delete`, plus `dreaming.trigger` / `dreaming.status`
 - `client.settings` — read runtime settings
 - `client.ingresses` — manage external ingress configurations
+- `conversationMessageTarget` — build a typed signed-ingress target for an existing Gantry conversation/thread.
 
 ### Standalone signing helpers
 

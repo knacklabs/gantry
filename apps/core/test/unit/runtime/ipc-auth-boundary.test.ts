@@ -233,7 +233,7 @@ describe('validateIpcAuthRequest', () => {
     assertRejected({ required_tools: ['Browser'] });
     assertRejected({
       capability_requirements: [
-        { capabilityId: 'google.sheets.write', reason: 'required' },
+        { capabilityId: 'acme.records.append', reason: 'required' },
       ],
     });
   });
@@ -339,13 +339,17 @@ describe('validateIpcAuthRequest', () => {
       scheduleValue: '60000',
       capabilityRequirements: [
         {
-          capabilityId: 'google.sheets.write',
+          capabilityId: 'acme.records.append',
           reason: 'Need spreadsheet',
           implementation: {
             kind: 'local_cli',
             name: 'Sheets CLI',
+            executablePath: '/usr/local/bin/sheet-write',
+            executableVersion: 'v0.9.0',
+            executableHash: 'sha256:abc123',
             commandTemplate: 'sheet-write',
             protectedPaths: ['/tmp'],
+            networkHosts: ['sheets.example.test'],
           },
         },
       ],
@@ -355,13 +359,17 @@ describe('validateIpcAuthRequest', () => {
       type: 'scheduler_upsert_job',
       capabilityRequirements: [
         {
-          capabilityId: 'google.sheets.write',
+          capabilityId: 'acme.records.append',
           reason: 'Need spreadsheet',
           implementation: {
             kind: 'local_cli',
             name: 'Sheets CLI',
+            executablePath: '/usr/local/bin/sheet-write',
+            executableVersion: 'v0.9.0',
+            executableHash: 'sha256:abc123',
             commandTemplate: 'sheet-write',
             protectedPaths: ['/tmp'],
+            networkHosts: ['sheets.example.test'],
           },
         },
       ],

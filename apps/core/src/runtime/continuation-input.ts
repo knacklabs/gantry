@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { DATA_DIR } from '../config/index.js';
-import { normalizeThreadQueueId } from './thread-queue-key.js';
+import { normalizeThreadQueueId } from '../shared/thread-queue-key.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
 const THREAD_INPUT_PREFIX = 'thread-';

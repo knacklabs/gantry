@@ -15,11 +15,9 @@ import type {
   PreparedAgentExecution,
 } from '../../../application/agent-execution/agent-execution-adapter.js';
 import {
-  applyOpenRouterSdkEnv,
   materializeClaudeRuntime,
   projectClaudeModelCredentialEnv,
 } from './claude-config-materializer.js';
-import { isOpenRouterModelRoute } from '../../../shared/model-catalog.js';
 import { validateModelCredentialProjectionForEntry } from './model-provider-credential-validation.js';
 import {
   AgentBundledClaudeSkillSource,
@@ -101,9 +99,6 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     const modelCredentialEnv = projectClaudeModelCredentialEnv(
       input.modelCredentialProjection.env,
     );
-    if (isOpenRouterModelRoute(input.effectiveModelEntry)) {
-      applyOpenRouterSdkEnv(modelCredentialEnv);
-    }
     const serializedModelCredentialEnv = Object.fromEntries(
       Object.entries(modelCredentialEnv).filter(
         (entry): entry is [string, string] => typeof entry[1] === 'string',
@@ -127,26 +122,22 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
       env[ANTHROPIC_MODEL_ENV] = input.effectiveModel;
       env[GANTRY_EFFECTIVE_MODEL_SOURCE_ENV] = 'runtime';
     }
-    const selectedSkillIds = input.input.selectedSkillIds
-      ? new Set(input.input.selectedSkillIds)
+    const attachedSkillSourceIds = input.input.attachedSkillSourceIds
+      ? new Set(input.input.attachedSkillSourceIds)
       : undefined;
     const skillActionDefinitions = (materialization.materializedSkills ?? [])
-      .filter((skill) => !selectedSkillIds || selectedSkillIds.has(skill.id))
+      .filter(
+        (skill) =>
+          !attachedSkillSourceIds || attachedSkillSourceIds.has(skill.id),
+      )
       .flatMap((skill) =>
-        (skill.actionPermissions ?? []).map((action) => {
-          if (!skill.version || !skill.contentHash) return undefined;
-          return skillActionSemanticCapability({
+        (skill.actionPermissions ?? []).map((action) =>
+          skillActionSemanticCapability({
             skillId: skill.id,
             skillName: skill.name,
-            skillVersion: skill.version,
-            skillContentHash: skill.contentHash,
             action,
-          });
-        }),
-      )
-      .filter(
-        (item): item is ReturnType<typeof skillActionSemanticCapability> =>
-          Boolean(item),
+          }),
+        ),
       );
     if (skillActionDefinitions.length > 0) {
       env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify(skillActionDefinitions);
@@ -156,6 +147,10 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     if (Object.keys(serializedModelCredentialEnv).length > 0) {
       runnerInputPatch.modelCredentialEnv = serializedModelCredentialEnv;
     }
+    runnerInputPatch.semanticCapabilities = [
+      ...(input.input.semanticCapabilities ?? []),
+      ...skillActionDefinitions,
+    ];
 
     return {
       providerId: this.id,

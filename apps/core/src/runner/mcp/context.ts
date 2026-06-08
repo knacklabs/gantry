@@ -18,6 +18,10 @@ import {
   formatAgentToolAccess,
   PERMISSION_GATED_NATIVE_TOOLS,
 } from '../../shared/tool-access-view.js';
+import {
+  parseSemanticCapabilityDefinitionsRecord,
+  type SemanticCapabilityDefinition,
+} from '../../shared/semantic-capabilities.js';
 
 function requirePathEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -70,14 +74,17 @@ export const enabledGantryMcpTools = parseEnabledGantryMcpToolNames(
 export const configuredAllowedTools = parseConfiguredAllowedTools(
   process.env.GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON,
 );
-export const selectedSkillIds = parseJsonStringArray(
+export const attachedSkillSourceIds = parseJsonStringArray(
   process.env.GANTRY_SELECTED_SKILLS_JSON,
 );
 export const selectedSkillDisplays = parseJsonStringArray(
   process.env.GANTRY_SELECTED_SKILL_DISPLAYS_JSON,
 );
-export const selectedMcpServerIds = parseJsonStringArray(
+export const attachedMcpSourceIds = parseJsonStringArray(
   process.env.GANTRY_SELECTED_MCP_SERVERS_JSON,
+);
+export const availableSemanticCapabilities = parseSemanticCapabilities(
+  process.env.GANTRY_SEMANTIC_CAPABILITIES_JSON,
 );
 
 export function isAdminMcpToolEnabled(toolName: AdminMcpToolName): boolean {
@@ -117,6 +124,37 @@ function parseJsonStringArray(raw: string | undefined): string[] {
   }
 }
 
+function parseSemanticCapabilities(
+  raw: string | undefined,
+): SemanticCapabilityDefinition[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const record = Object.fromEntries(
+        parsed
+          .filter((item): item is SemanticCapabilityDefinition =>
+            Boolean(
+              item &&
+              typeof item === 'object' &&
+              !Array.isArray(item) &&
+              typeof item.capabilityId === 'string',
+            ),
+          )
+          .map((item) => [item.capabilityId, item]),
+      );
+      return Object.values(
+        parseSemanticCapabilityDefinitionsRecord(record) ?? {},
+      );
+    }
+    return Object.values(
+      parseSemanticCapabilityDefinitionsRecord(parsed) ?? {},
+    );
+  } catch {
+    return [];
+  }
+}
+
 function parseEnabledAdminMcpTools(
   raw: string | undefined,
 ): Set<AdminMcpToolName> {
@@ -137,7 +175,9 @@ function parseEnabledAdminMcpTools(
 export function capabilityStatusText(): string {
   const currentAdminTools = currentEnabledAdminMcpTools();
   const selectedSkillStatusItems =
-    selectedSkillDisplays.length > 0 ? selectedSkillDisplays : selectedSkillIds;
+    selectedSkillDisplays.length > 0
+      ? selectedSkillDisplays
+      : attachedSkillSourceIds;
   const availableToolNames = [...enabledGantryMcpTools].filter(
     (toolName) => !isAdminMcpToolName(toolName),
   );
@@ -156,7 +196,7 @@ export function capabilityStatusText(): string {
       .map((toolName) => `- available: ${gantryMcpFullToolName(toolName)}`),
     '',
     'Semantic capability tools:',
-    '- capability_search: find built-in capabilities such as google.sheets.write',
+    '- capability_search: find reviewed capabilities generated from attached tools, skills, MCP servers, adapters, and CLI manifests',
     '- propose_capability: request an approved semantic capability or propose a reviewed local_cli capability with pinned executable details',
     '- manage_capability: view/change/revoke/test/audit guidance for selected capabilities',
     '',
@@ -188,8 +228,8 @@ export function capabilityStatusText(): string {
       : ['- none installed yet']),
     '',
     'Connected MCP services ready for this agent:',
-    ...(selectedMcpServerIds.length > 0
-      ? selectedMcpServerIds
+    ...(attachedMcpSourceIds.length > 0
+      ? attachedMcpSourceIds
           .slice()
           .sort()
           .map((serverId) => `- ready: ${serverId}`)

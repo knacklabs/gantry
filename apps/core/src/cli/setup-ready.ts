@@ -10,7 +10,6 @@ export interface SetupReadyDraft {
   slackChatJid: string;
   selectedModel: string;
   credentialMode: HostCredentialMode;
-  onecliUrl: string;
   memoryEnabled: boolean;
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
@@ -39,8 +38,7 @@ export async function runReadyStep(
       `Primary provider: ${draft.primaryProvider}`,
       `${providerLabel}: ${providerChatJid}`,
       `Main model: ${draft.selectedModel}`,
-      `Credential mode: ${draft.credentialMode}`,
-      ...(draft.onecliUrl ? [`Model Access URL: ${draft.onecliUrl}`] : []),
+      `Model access: ${draft.credentialMode === 'gantry' ? 'enabled' : 'disabled'}`,
       `Memory: ${summarizeToggle(draft.memoryEnabled)}`,
       `Embeddings: ${draft.embeddingsEnabled ? 'brokered provider' : 'disabled'}`,
       `Dreaming: ${summarizeToggle(draft.dreamingEnabled)}`,

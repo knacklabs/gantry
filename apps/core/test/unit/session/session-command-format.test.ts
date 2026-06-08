@@ -31,7 +31,7 @@ describe('formatMemoryStatus', () => {
     expect(text).toContain(
       'sample: latest 100 active memories; counts/top/stale are from this sample',
     );
-    expect(text).toContain('retrieval: lexical + keyword');
+    expect(text).toContain('retrieval: lexical_keyword');
     expect(text).toContain('embeddings: configured');
     expect(text).toContain('vector_search: inactive');
     expect(text).toContain('pipeline: staged:3, promoted:2, needs_review:1');

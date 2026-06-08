@@ -567,22 +567,22 @@ describe('createCanUseToolCallback', () => {
         threadId: undefined,
         runtimeAccess: [
           {
-            selectedCapabilityId: 'gog.sheets.get',
+            selectedCapabilityId: 'acme.records.get',
             sourceType: 'local_cli',
             auditLabel: 'Gog Sheets get',
-            commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+            commandRules: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
             credentialDirs: [],
             networkBindings: [
               {
                 commandRules: [
-                  'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+                  'RunCommand(/opt/homebrew/bin/acme records get *)',
                 ],
                 hosts: ['oauth2.googleapis.com'],
               },
             ],
           },
         ],
-        allowedTools: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+        allowedTools: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
         yoloMode: {
           enabled: true,
           denylist: [],
@@ -594,7 +594,7 @@ describe('createCanUseToolCallback', () => {
       'Bash',
       {
         command:
-          '/opt/homebrew/bin/gog sheets get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
+          '/opt/homebrew/bin/acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
       },
       makePermissionOptions({
         toolUseID: 'toolu_bash_1',
@@ -703,7 +703,7 @@ describe('createCanUseToolCallback', () => {
     await expect(
       canUseTool(
         'Bash',
-        { command: 'python3 ~/gantry/agents/main_agent/scripts/dedup.py' },
+        { command: 'npm test' },
         makePermissionOptions() as never,
       ),
     ).resolves.toEqual(
@@ -724,7 +724,7 @@ describe('createCanUseToolCallback', () => {
     expect(output).toContain('"jobId":"job-1"');
   });
 
-  it('omits timed grants from autonomous job prompts with persistent suggestions', async () => {
+  it('omits timed access from autonomous job prompts with persistent suggestions', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
       mode: 'allow_once',
@@ -760,7 +760,7 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('omits timed grants from autonomous job prompts with persistent facade suggestions', async () => {
+  it('omits timed access from autonomous job prompts with persistent facade suggestions', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
       mode: 'allow_once',
@@ -796,7 +796,7 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('returns ungrantable autonomous Bash denials without pausing the job', async () => {
+  it('returns nonpersistent autonomous Bash denials without pausing the job', async () => {
     const canUseTool = makeCallback({
       agentInput: {
         runMode: 'normal',

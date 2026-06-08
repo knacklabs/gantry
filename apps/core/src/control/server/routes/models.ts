@@ -3,16 +3,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ModelDefaultsResponseSchema } from '@gantry/contracts';
 
 import { ApplicationError } from '../../../application/common/application-error.js';
+import type { AppId } from '../../../domain/app/app.js';
 import {
   DEFAULT_MODEL_PRESET_ID,
   getModelPreset,
   isModelPresetId,
-  isOpenRouterModelRoute,
   listModelCatalogEntries,
   resolveModelSelectionForWorkload,
   type ModelPresetId,
   type ModelWorkload,
 } from '../../../shared/model-catalog.js';
+import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
 import { createJobManagementService } from './jobs.js';
 import {
   authorizeControlRequest,
@@ -45,6 +46,7 @@ function modelToResponse(
     maxOutputTokens: entry.maxOutputTokens,
     cacheMode: entry.cacheMode,
     cacheTokenFields: entry.cacheTokenFields,
+    cacheSupport: resolveModelCacheSupport(entry),
     supportsThinking: entry.supportsThinking,
     supportsTools: entry.supportsTools,
     source: entry.source,
@@ -208,16 +210,19 @@ function presetFromDefaults(
   );
 }
 
-function aliasUsesOpenRouter(value: unknown, workload: ModelWorkload): boolean {
-  if (typeof value !== 'string' || value === 'inherit') return false;
+function providerForAlias(
+  value: unknown,
+  workload: ModelWorkload,
+): ModelPresetId | undefined {
+  if (typeof value !== 'string' || value === 'inherit') return undefined;
   const resolved = resolveModelSelectionForWorkload(value, workload);
-  return resolved.ok && isOpenRouterModelRoute(resolved.entry);
+  return resolved.ok ? resolved.entry.modelRoute.id : undefined;
 }
 
-function patchCanSelectOpenRouter(
+function providersSelectedByPatch(
   body: Record<string, unknown>,
   defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
-): boolean {
+): ModelPresetId[] {
   const preset = isModelPresetId(body.preset)
     ? body.preset
     : presetFromDefaults(defaults);
@@ -296,9 +301,11 @@ function patchCanSelectOpenRouter(
     [memoryExtractorAlias, 'memory_extractor'],
     [memoryDreamingAlias, 'memory_dreaming'],
     [memoryConsolidationAlias, 'memory_consolidation'],
-  ].some(([alias, workload]) =>
-    aliasUsesOpenRouter(alias, workload as ModelWorkload),
-  );
+  ].reduce<ModelPresetId[]>((providers, [alias, workload]) => {
+    const provider = providerForAlias(alias, workload as ModelWorkload);
+    if (provider && !providers.includes(provider)) providers.push(provider);
+    return providers;
+  }, []);
 }
 
 type ModelPreviewRouteResult =
@@ -586,7 +593,10 @@ export async function handleModelRoutes(
     }
 
     if (req.method === 'PATCH') {
-      if (!authorizeControlRequest(req, res, ctx.keys, ['agents:admin'])) {
+      const auth = authorizeControlRequest(req, res, ctx.keys, [
+        'agents:admin',
+      ]);
+      if (!auth) {
         return true;
       }
       const rawBody = await readJson(req);
@@ -599,8 +609,14 @@ export async function handleModelRoutes(
         return true;
       }
       const body = rawBody as Record<string, unknown>;
-      if (patchCanSelectOpenRouter(body, ctx.getModelDefaults())) {
-        const preflight = await ctx.preflightModelPreset('openrouter');
+      for (const provider of providersSelectedByPatch(
+        body,
+        ctx.getModelDefaults(),
+      )) {
+        const preflight = await ctx.preflightModelPreset(
+          provider,
+          auth.appId as AppId,
+        );
         if (!preflight.ok) {
           sendError(
             res,

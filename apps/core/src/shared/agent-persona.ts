@@ -1,6 +1,6 @@
 export const AGENT_PERSONAS = [
   'developer',
-  'personal_assistant',
+  'generalist',
   'sales',
   'marketing',
   'operations',
@@ -10,8 +10,7 @@ export const AGENT_PERSONAS = [
 export type AgentPersona = (typeof AGENT_PERSONAS)[number];
 
 export const DEFAULT_AGENT_PERSONA: AgentPersona = 'developer';
-export const UNKNOWN_AGENT_PERSONA_FALLBACK: AgentPersona =
-  'personal_assistant';
+export const UNKNOWN_AGENT_PERSONA_FALLBACK: AgentPersona = 'generalist';
 
 export function resolveAgentPersona(value: unknown): AgentPersona {
   if (typeof value !== 'string') return DEFAULT_AGENT_PERSONA;

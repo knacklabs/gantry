@@ -62,7 +62,7 @@ function makeRuntimeSettings(enabled: {
       embeddings: {
         enabled: false,
         provider: 'disabled',
-        model: 'text-embedding-3-large',
+        model: 'text-embedding-3-small',
       },
       dreaming: {
         enabled: false,
@@ -1171,6 +1171,53 @@ describe('createChannelWiring', () => {
         external_message_id: '171.123',
         delivery_status: 'sent',
         delivered_at: expect.any(String),
+      }),
+    );
+  });
+
+  it('publishes provider-neutral outbound conversation message events', async () => {
+    const app = makeApp();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => ({ externalMessageId: '171.123' })),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      publishRuntimeEvent,
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await wiring.sendMessage('sl:C123', 'done', {
+      durability: 'best_effort',
+      messageOptions: { threadId: '1700.1' },
+    });
+
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        conversationId: 'sl:C123',
+        threadId: '1700.1',
+        eventType: 'conversation.message.outbound',
+        actor: 'agent',
+        responseMode: 'none',
+        payload: expect.objectContaining({
+          conversationId: 'conversation:sl:C123',
+          threadId: 'thread:sl:C123:1700.1',
+          direction: 'outbound',
+          deliveryStatus: 'sent',
+          externalMessageId: '171.123',
+          sender: { id: 'gantry', name: 'Gantry' },
+          text: 'done',
+        }),
       }),
     );
   });

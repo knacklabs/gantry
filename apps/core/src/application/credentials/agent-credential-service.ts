@@ -10,17 +10,29 @@ import {
 } from '../../domain/models/credentials.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import { isCredentialBrokerBoundaryError } from '../../domain/models/credential-errors.js';
+import type { AppId } from '../../domain/app/app.js';
+import type { AgentId } from '../../domain/agent/agent.js';
+import type {
+  ConversationId,
+  ConversationThreadId,
+} from '../../domain/conversation/conversation.js';
+import type { AgentRunId } from '../../domain/events/events.js';
+import type { JobId } from '../../domain/jobs/jobs.js';
+import type { ModelCredentialProvider } from '../../domain/model-credentials/model-credentials.js';
+import type { ModelRouteId } from '../../shared/model-catalog.js';
 
 export type AgentCredentialInjectionInput =
   | {
-      mode: 'external';
+      mode: 'gantry';
       purpose?: AgentCredentialPurpose;
-      agentIdentifier?: string;
-      externalInjection: AgentCredentialInjection;
-    }
-  | {
-      mode: 'onecli';
-      purpose?: AgentCredentialPurpose;
+      appId?: AppId;
+      agentId?: AgentId;
+      runId?: AgentRunId;
+      jobId?: JobId;
+      conversationId?: ConversationId;
+      threadId?: ConversationThreadId;
+      modelCredentialProviderId?: ModelCredentialProvider;
+      modelRouteId?: ModelRouteId;
       agentIdentifier?: string;
       broker: AgentCredentialBroker;
     }
@@ -33,12 +45,36 @@ export type AgentCredentialInjectionInput =
 function brokerBindingFor(input: {
   mode: CredentialBrokerProfile;
   purpose?: AgentCredentialPurpose;
+  appId?: AppId;
+  agentId?: AgentId;
+  runId?: AgentRunId;
+  jobId?: JobId;
+  conversationId?: ConversationId;
+  threadId?: ConversationThreadId;
+  modelCredentialProviderId?: ModelCredentialProvider;
+  modelRouteId?: ModelRouteId;
   agentIdentifier?: string;
 }): AgentCredentialBrokerBinding {
   const purpose = input.purpose ?? 'model_runtime';
   return {
     profile: input.mode,
     purpose,
+    ...('appId' in input && input.appId ? { appId: input.appId } : {}),
+    ...('agentId' in input && input.agentId ? { agentId: input.agentId } : {}),
+    ...('runId' in input && input.runId ? { runId: input.runId } : {}),
+    ...('jobId' in input && input.jobId ? { jobId: input.jobId } : {}),
+    ...('conversationId' in input && input.conversationId
+      ? { conversationId: input.conversationId }
+      : {}),
+    ...('threadId' in input && input.threadId
+      ? { threadId: input.threadId }
+      : {}),
+    ...('modelCredentialProviderId' in input && input.modelCredentialProviderId
+      ? { modelCredentialProviderId: input.modelCredentialProviderId }
+      : {}),
+    ...('modelRouteId' in input && input.modelRouteId
+      ? { modelRouteId: input.modelRouteId }
+      : {}),
     ...(purpose === 'tool_capability'
       ? { agentIdentifier: input.agentIdentifier }
       : {}),
@@ -55,30 +91,15 @@ function describeBrokerError(err: unknown): string {
 }
 
 function recoveryHintFor(mode: CredentialBrokerProfile): string {
-  if (mode === 'onecli') {
-    return [
-      'Run `gantry doctor` and `gantry local doctor`.',
-      "If you use Gantry's provided local stack, start or recover OneCLI from the directory containing its shipped stack file, or pass that stack file explicitly.",
-    ].join(' ');
+  if (mode === 'gantry') {
+    return 'Run `gantry credentials model status` and add the missing provider key with `gantry credentials model set <provider>`.';
   }
-  if (mode === 'external') {
-    return 'Run `gantry doctor` and verify credential_broker.external.base_url points at a reachable broker endpoint.';
-  }
-  return 'Run `gantry doctor` and configure credential_broker in settings.yaml if this agent needs brokered credentials.';
+  return 'Run `gantry doctor` and configure Gantry Model Access before selecting provider-backed models.';
 }
 
 export async function getAgentCredentialInjection(
   input: AgentCredentialInjectionInput,
 ): Promise<AgentCredentialInjection> {
-  if (input.mode === 'external') {
-    if (!input.externalInjection) {
-      throw new Error(
-        'External credential mode is enabled but no external credential injection was provided.',
-      );
-    }
-    return input.externalInjection;
-  }
-
   if (input.mode === 'none') {
     return {
       env: {},
@@ -90,7 +111,7 @@ export async function getAgentCredentialInjection(
   const broker = input.broker;
   if (!broker) {
     throw new Error(
-      'Credential broker mode is enabled but no agent credential broker was provided.',
+      'Gantry Model Gateway is enabled but no model gateway broker was provided.',
     );
   }
 
@@ -121,7 +142,7 @@ export async function getAgentCredentialInjection(
       `Recovery: ${recoveryHintFor(input.mode)}`,
     ].filter(Boolean);
     throw new Error(
-      `Credential broker mode is enabled but the credential broker is not reachable${suffix}. ${details.join(' ')}`,
+      `Gantry Model Gateway is enabled but is not reachable${suffix}. ${details.join(' ')}`,
       { cause: err },
     );
   }
@@ -145,23 +166,6 @@ export async function ensureAgentCredentialBinding(input: {
   name: string;
   identifier: string;
 }): Promise<{ created?: boolean } | undefined> {
-  if (input.mode !== 'onecli') return undefined;
-  const broker = input.broker;
-  if (!broker) {
-    throw new Error(
-      'Credential broker mode is enabled but no agent credential broker was provided.',
-    );
-  }
-  const bindable = broker as
-    | (AgentCredentialBroker & {
-        ensureAgent?: (agent: {
-          name: string;
-          identifier: string;
-        }) => Promise<{ created?: boolean }>;
-      })
-    | undefined;
-  return bindable?.ensureAgent?.({
-    name: input.name,
-    identifier: input.identifier,
-  });
+  void input;
+  return undefined;
 }

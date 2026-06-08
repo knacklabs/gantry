@@ -1,17 +1,24 @@
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
 
-import { DATA_DIR, getCredentialBrokerRuntimeConfig } from '../config/index.js';
-import { resolveExternalCredentialBaseUrl } from '../config/credentials/broker-url-policy.js';
+import { getCredentialBrokerRuntimeConfig } from '../config/index.js';
 import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
-import { createAgentCredentialBroker } from '../adapters/credentials/agent-credential-broker-factory.js';
-import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
 import { ConversationRoute } from '../domain/types.js';
+import type { AppId } from '../domain/app/app.js';
+import type { AgentId } from '../domain/agent/agent.js';
+import type {
+  ConversationId,
+  ConversationThreadId,
+} from '../domain/conversation/conversation.js';
+import type { AgentRunId } from '../domain/events/events.js';
+import type { JobId } from '../domain/jobs/jobs.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type {
   AgentCredentialPurpose,
   AgentCredentialInjection,
   CredentialBrokerProfile,
 } from '../domain/models/credentials.js';
+import type { ModelRouteId } from '../shared/model-catalog.js';
 import {
   resolveGroupFolderPath,
   resolveGroupIpcPath,
@@ -20,10 +27,21 @@ import {
   ensureGroupIpcLayout,
   getHostAgentRunnerDistDir,
 } from './agent-spawn-layout.js';
-import { HostRuntimeContext } from './agent-spawn-types.js';
+import { AgentInput, HostRuntimeContext } from './agent-spawn-types.js';
 
 export interface HostRuntimeCredentialEnvOptions {
   purpose?: AgentCredentialPurpose;
+  appId?: AppId;
+  agentId?: AgentId;
+  runId?: AgentRunId;
+  jobId?: JobId;
+  conversationId?: ConversationId;
+  threadId?: ConversationThreadId;
+  modelRouteId?: ModelRouteId;
+  runContext?: Pick<
+    AgentInput,
+    'appId' | 'agentId' | 'runId' | 'jobId' | 'chatJid' | 'threadId'
+  >;
 }
 
 export async function getHostRuntimeCredentialEnv(
@@ -38,33 +56,38 @@ export async function getHostRuntimeCredentialEnv(
   proxy?: AgentCredentialInjection['proxy'];
   brokerApplied: boolean;
   brokerProfile: CredentialBrokerProfile;
+  revoke?: () => Promise<void>;
 }> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const purpose = options.purpose ?? 'model_runtime';
+  const runId =
+    options.runId ??
+    (options.runContext?.runId as AgentRunId | undefined) ??
+    (`credential-run:${randomUUID()}` as AgentRunId);
+  const bindingOptions = {
+    purpose,
+    appId: options.appId ?? (options.runContext?.appId as never),
+    agentId: options.agentId ?? (options.runContext?.agentId as never),
+    runId,
+    jobId: options.jobId ?? (options.runContext?.jobId as never),
+    conversationId:
+      options.conversationId ?? (options.runContext?.chatJid as never),
+    threadId: options.threadId ?? (options.runContext?.threadId as never),
+    modelRouteId: options.modelRouteId,
+  };
   const injection =
-    brokerConfig.mode === 'external'
+    brokerConfig.mode === 'gantry'
       ? await getAgentCredentialInjection({
-          mode: 'external',
+          mode: 'gantry',
+          ...bindingOptions,
+          agentIdentifier,
+          broker: requireGantryBroker(broker),
+        })
+      : await getAgentCredentialInjection({
+          mode: 'none',
           purpose,
           agentIdentifier,
-          externalInjection: createExternalAgentCredentialInjection({
-            normalizedBaseUrl: resolveExternalCredentialBaseUrl(
-              brokerConfig.externalBrokerBaseUrl,
-            ),
-          }),
-        })
-      : brokerConfig.mode === 'onecli'
-        ? await getAgentCredentialInjection({
-            mode: 'onecli',
-            purpose,
-            agentIdentifier,
-            broker: await resolveOnecliBroker(broker, brokerConfig.onecliUrl),
-          })
-        : await getAgentCredentialInjection({
-            mode: 'none',
-            purpose,
-            agentIdentifier,
-          });
+        });
 
   return {
     env: injection.env,
@@ -72,26 +95,30 @@ export async function getHostRuntimeCredentialEnv(
     ...(injection.proxy ? { proxy: injection.proxy } : {}),
     brokerApplied: injection.applied,
     brokerProfile: injection.brokerProfile,
+    ...(brokerConfig.mode === 'gantry' && broker?.revokeInjection
+      ? {
+          revoke: () =>
+            broker.revokeInjection?.({
+              binding: {
+                profile: 'gantry',
+                ...bindingOptions,
+                ...(agentIdentifier ? { agentIdentifier } : {}),
+              },
+            }) ?? Promise.resolve(),
+        }
+      : {}),
   };
 }
 
-async function resolveOnecliBroker(
+function requireGantryBroker(
   broker: AgentCredentialBroker | undefined,
-  onecliUrl: string,
-): Promise<AgentCredentialBroker> {
-  const resolved =
-    broker ??
-    (await createAgentCredentialBroker({
-      mode: 'onecli',
-      onecliUrl,
-      dataDir: DATA_DIR,
-    }));
-  if (!resolved) {
+): AgentCredentialBroker {
+  if (!broker) {
     throw new Error(
-      'Credential broker mode is enabled but no agent credential broker was provided.',
+      'Gantry Model Gateway is enabled but no model credential broker was provided.',
     );
   }
-  return resolved;
+  return broker;
 }
 
 export function prepareHostRuntimeContext(

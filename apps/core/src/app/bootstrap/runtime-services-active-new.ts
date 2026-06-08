@@ -5,7 +5,7 @@ import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
-import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
+import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
 import type { ChannelWiring } from './channel-wiring.js';

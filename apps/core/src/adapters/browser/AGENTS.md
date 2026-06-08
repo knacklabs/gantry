@@ -71,9 +71,9 @@
 - Text-only backend tab lists are not trusted UI state. Tab projection consumes
   adapter-owned structured metadata only; missing metadata fails closed and
   clears stale visible-index mappings.
-- Browser status may surface broker health for broker-backed semantic
-  capabilities, but MCP and skill env vars come from Gantry Secrets rather than
-  the model credential broker.
+- Browser status is profile/session/CDP readiness only. It must not call model
+  gateway or credential broker health; MCP and skill env vars come from Gantry
+  Credentials rather than the model credential path.
 - Browser deadline and artifact timestamp code should use the shared
   datetime helpers (`nowMs`/`nowIso`) instead of direct `Date.now()` or
   `new Date()` current-time reads so runtime timeout behavior stays

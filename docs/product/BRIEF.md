@@ -2,7 +2,7 @@
 
 ## Problem
 
-People need a personal agent runtime that is secure by default, easy to customize in code, and predictable across messaging channels.
+Teams and individuals need a provider-neutral agent runtime that is secure by default, easy to customize in code, and predictable across messaging and application channels.
 
 ## Core Outcomes
 

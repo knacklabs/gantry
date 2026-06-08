@@ -27,13 +27,13 @@ export async function seedDefaultRuntimeData(
       .values({
         id: DEFAULT_APP_ID,
         slug: 'personal',
-        name: 'Default Personal App',
+        name: 'Default Local App',
       })
       .onConflictDoUpdate({
         target: pgSchema.appsPostgres.id,
         set: {
           slug: 'personal',
-          name: 'Default Personal App',
+          name: 'Default Local App',
           updatedAt: sql`now()`,
         },
       });
@@ -72,7 +72,7 @@ export async function seedDefaultRuntimeData(
       .values({
         id: DEFAULT_AGENT_ID,
         appId: DEFAULT_APP_ID,
-        name: 'Personal Agent',
+        name: 'Default Agent',
         currentConfigVersionId: configVersionId,
       })
       .onConflictDoUpdate({
@@ -99,7 +99,7 @@ export async function seedDefaultRuntimeData(
       .values({
         id: DEFAULT_PERMISSION_POLICY_ID,
         appId: DEFAULT_APP_ID,
-        name: 'Default personal policy',
+        name: 'Default local policy',
         description: 'Default local development policy seeded by Gantry.',
       })
       .onConflictDoNothing();
@@ -151,8 +151,7 @@ export async function seedDefaultRuntimeData(
           id: skill.id,
           appId: DEFAULT_APP_ID,
           name: skill.name,
-          version: 'builtin',
-          status: 'approved',
+          status: 'installed',
         })
         .onConflictDoNothing();
     }

@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  conversationMessageTarget,
   GantryClient,
   signIngressRequest,
   verifyIngressSignature,
@@ -133,6 +134,25 @@ describe('@gantry/sdk ingress signature verification', () => {
         nowMs: Date.now(),
       }),
     ).toBe(false);
+  });
+
+  it('builds typed conversation_message ingress targets', () => {
+    expect(
+      conversationMessageTarget({
+        conversationId: 'conversation:ops-room',
+        threadId: 'thread:ops-room:daily',
+        message: 'Run the test',
+        senderId: 'external-ci',
+        senderName: 'External CI',
+      }),
+    ).toEqual({
+      kind: 'conversation_message',
+      conversationId: 'conversation:ops-room',
+      threadId: 'thread:ops-room:daily',
+      message: 'Run the test',
+      senderId: 'external-ci',
+      senderName: 'External CI',
+    });
   });
 });
 
@@ -332,19 +352,12 @@ describe('@gantry/sdk transport', () => {
         threadId: 'thread/1',
       },
     );
-    await client.skillDrafts.upload({
+    await client.skills.install({
       agentId: 'agent/1',
       createdBy: 'admin',
       zip: new Uint8Array([1, 2, 3]),
     });
-    await client.skillDrafts.list({ agentId: 'agent/1' });
-    await client.skillDrafts.approve('skill/1', {
-      target: 'local',
-      approvedBy: 'admin',
-    });
-    await client.skillDrafts.reject('skill/2', {
-      rejectedBy: 'admin',
-    });
+    await client.skills.list({ agentId: 'agent/1' });
     await client.agents.skills.list('agent/1');
     await client.agents.skills.enable('agent/1', 'skill/1');
     await client.agents.skills.disable('agent/1', 'skill/1');
@@ -431,23 +444,13 @@ describe('@gantry/sdk transport', () => {
       },
       {
         method: 'POST',
-        url: '/v1/skills/drafts/upload?agentId=agent%2F1&createdBy=admin',
+        url: '/v1/skills/install?agentId=agent%2F1&createdBy=admin',
         body: [1, 2, 3],
       },
       {
         method: 'GET',
-        url: '/v1/skills/drafts?agentId=agent%2F1',
+        url: '/v1/skills?agentId=agent%2F1',
         body: null,
-      },
-      {
-        method: 'POST',
-        url: '/v1/skills/drafts/skill%2F1/approve',
-        body: { target: 'local', approvedBy: 'admin' },
-      },
-      {
-        method: 'POST',
-        url: '/v1/skills/drafts/skill%2F2/reject',
-        body: { rejectedBy: 'admin' },
       },
       {
         method: 'GET',

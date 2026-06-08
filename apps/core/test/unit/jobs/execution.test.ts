@@ -129,7 +129,25 @@ function makeOpsRepository(job: Job) {
 }
 
 function makeToolRepository(toolNames: string[]) {
+  const toolFor = (toolName: string) => ({
+    id: toolName,
+    appId: 'default',
+    name: toolName,
+    kind: 'host',
+    provider: 'gantry',
+    displayName: toolName,
+    category: 'agent',
+    risk: 'medium',
+    selectable: true,
+    status: 'active',
+    adapterRef: toolName,
+    createdAt: '2026-05-08T00:00:00.000Z',
+    updatedAt: '2026-05-08T00:00:00.000Z',
+  });
   return {
+    listTools: vi.fn(async () =>
+      toolNames.map((toolName) => toolFor(toolName)),
+    ),
     listAgentToolBindings: vi.fn(async () =>
       toolNames.map((toolName) => ({
         toolId: toolName,
@@ -138,12 +156,7 @@ function makeToolRepository(toolNames: string[]) {
         status: 'active',
       })),
     ),
-    getTool: vi.fn(async (toolId: string) => ({
-      id: toolId,
-      appId: 'default',
-      name: toolId,
-      status: 'active',
-    })),
+    getTool: vi.fn(async (toolId: string) => toolFor(toolId)),
   };
 }
 
@@ -1024,11 +1037,29 @@ describe('jobs/execution', () => {
         opsRepository: opsRepository as never,
         getToolRepository: () =>
           ({
+            listTools: vi.fn(async () => [
+              {
+                id: 'tool:Browser',
+                appId: 'default',
+                name: 'Browser',
+                kind: 'browser',
+                provider: 'gantry',
+                displayName: 'Browser',
+                category: 'web',
+                risk: 'medium',
+                selectable: true,
+                status: 'active',
+                adapterRef: 'Browser',
+                createdAt: '2026-05-08T00:00:00.000Z',
+                updatedAt: '2026-05-08T00:00:00.000Z',
+              },
+            ]),
             listAgentToolBindings: vi.fn(async () => [
               { toolId: 'tool:Browser', status: 'active' },
             ]),
             getTool: vi.fn(async () => ({
               id: 'tool:Browser',
+              appId: 'default',
               name: 'Browser',
             })),
           }) as never,
@@ -1065,7 +1096,7 @@ describe('jobs/execution', () => {
       ]),
       getSkill: vi.fn(async (id: string) =>
         id === 'skill:release'
-          ? { id, appId: 'default', name: 'release', status: 'approved' }
+          ? { id, appId: 'default', name: 'release', status: 'installed' }
           : null,
       ),
     };
@@ -1081,21 +1112,46 @@ describe('jobs/execution', () => {
       ),
     };
     const toolRepository = {
+      listTools: vi.fn(async () => [
+        {
+          id: 'tool:github-search',
+          appId: 'default',
+          name: 'capability:repo.search.repositories',
+          inputSchema: {
+            format: 'gantry.semantic-capability.v1',
+            schema: {
+              capabilityId: 'repo.search.repositories',
+              displayName: 'Repo search repositories',
+              category: 'Repository',
+              risk: 'read',
+              can: 'Search repositories through reviewed source access.',
+              cannot: 'Modify repositories or change repository settings.',
+              credentialSource: 'none',
+              implementationBindings: [
+                {
+                  kind: 'mcp_tool',
+                  mcpTool: 'mcp__github__search_repositories',
+                },
+              ],
+            },
+          },
+        },
+      ]),
       listAgentToolBindings: vi.fn(async () => [
         { toolId: 'tool:github-search', status: 'active' },
       ]),
       getTool: vi.fn(async () => ({
         appId: 'default',
-        name: 'capability:github.search',
+        name: 'capability:repo.search.repositories',
         inputSchema: {
           format: 'gantry.semantic-capability.v1',
           schema: {
-            capabilityId: 'github.search',
-            displayName: 'GitHub search',
-            category: 'GitHub',
+            capabilityId: 'repo.search.repositories',
+            displayName: 'Repo search repositories',
+            category: 'Repository',
             risk: 'read',
-            can: 'Search GitHub repositories.',
-            cannot: 'Modify GitHub repositories.',
+            can: 'Search repositories through reviewed source access.',
+            cannot: 'Modify repositories or change repository settings.',
             credentialSource: 'none',
             implementationBindings: [
               {
@@ -1156,9 +1212,9 @@ describe('jobs/execution', () => {
     expect(runAgent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        selectedSkillIds: ['skill:release'],
+        attachedSkillSourceIds: ['skill:release'],
         selectedSkillDisplays: ['release (skill:release)'],
-        selectedMcpServerIds: ['mcp:github'],
+        attachedMcpSourceIds: ['mcp:github'],
       }),
       expect.any(Function),
       expect.any(Function),
@@ -1505,10 +1561,17 @@ describe('jobs/execution', () => {
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository(['Browser']);
-    const getBrowserStatus = vi
+    toolRepository.listAgentToolBindings = vi
       .fn()
-      .mockResolvedValueOnce({ hasState: true })
-      .mockResolvedValueOnce({ hasState: false });
+      .mockResolvedValueOnce([
+        {
+          toolId: 'Browser',
+          appId: 'default',
+          agentId: 'agent:scheduler_agent',
+          status: 'active',
+        },
+      ])
+      .mockResolvedValueOnce([]);
     const runAgent = vi.fn();
 
     await runJob(
@@ -1520,7 +1583,6 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         getToolRepository: () => toolRepository as never,
-        getBrowserStatus,
         runAgent: runAgent as never,
       },
       'tg:scheduler',
@@ -1540,7 +1602,7 @@ describe('jobs/execution', () => {
       expect.any(String),
       'failed',
       null,
-      expect.stringContaining('Setup required'),
+      expect.stringContaining('Missing tool access requirement before run'),
     );
   });
 
@@ -1641,14 +1703,14 @@ describe('jobs/execution', () => {
   it('does not require every declared RunCommand rule to be exercised', async () => {
     const job = makeJob({
       tool_access_requirements: [
-        'RunCommand(gog sheets get *)',
-        'RunCommand(gog sheets update *)',
+        'RunCommand(acme records get *)',
+        'RunCommand(acme records update *)',
       ],
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository([
-      'RunCommand(gog sheets get *)',
-      'RunCommand(gog sheets update *)',
+      'RunCommand(acme records get *)',
+      'RunCommand(acme records update *)',
     ]);
     const runAgent = vi.fn(async (_group, _input) => {
       expect(_input.toolAccessRequirements).toEqual(
@@ -1681,15 +1743,15 @@ describe('jobs/execution', () => {
 
   it('passes canonical absolute CLI requirements into scheduled runner prompts', async () => {
     const job = makeJob({
-      tool_access_requirements: ['RunCommand(gog sheets get *)'],
+      tool_access_requirements: ['RunCommand(acme records get *)'],
     });
     const opsRepository = makeOpsRepository(job);
     const toolRepository = makeToolRepository([
-      'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+      'RunCommand(/opt/homebrew/bin/acme records get *)',
     ]);
     const runAgent = vi.fn(async (_group, _input) => {
       expect(_input.toolAccessRequirements).toEqual([
-        'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+        'RunCommand(/opt/homebrew/bin/acme records get *)',
       ]);
       return { status: 'success', result: 'sheet read complete' };
     });
@@ -1715,7 +1777,7 @@ describe('jobs/execution', () => {
         payload: expect.objectContaining({
           phase: 'tool_access_preflight',
           tool_access_requirements: [
-            'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+            'RunCommand(/opt/homebrew/bin/acme records get *)',
           ],
           missing_tool_access_requirements: [],
           ok: true,
@@ -1727,12 +1789,14 @@ describe('jobs/execution', () => {
   it('fails before launch when a declared RunCommand access requirement is missing', async () => {
     const job = makeJob({
       tool_access_requirements: [
-        'RunCommand(gog sheets get *)',
-        'RunCommand(gog sheets update *)',
+        'RunCommand(acme records get *)',
+        'RunCommand(acme records update *)',
       ],
     });
     const opsRepository = makeOpsRepository(job);
-    const toolRepository = makeToolRepository(['RunCommand(gog sheets get *)']);
+    const toolRepository = makeToolRepository([
+      'RunCommand(acme records get *)',
+    ]);
     const runAgent = vi.fn(async () => ({
       status: 'success',
       result: 'unused',
@@ -1762,7 +1826,7 @@ describe('jobs/execution', () => {
           state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirementId: 'RunCommand(gog sheets update *)',
+              requirementId: 'RunCommand(acme records update *)',
             }),
           ],
         }),
@@ -1776,7 +1840,7 @@ describe('jobs/execution', () => {
           setup_state: 'missing_capability',
           blockers: [
             expect.objectContaining({
-              requirement_id: 'RunCommand(gog sheets update *)',
+              requirement_id: 'RunCommand(acme records update *)',
             }),
           ],
         }),

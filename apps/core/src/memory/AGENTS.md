@@ -118,8 +118,28 @@
   stays efficient without narrowing to unthreaded rows.
 - Automatic durable promotion/update must stay dreaming-only; boundary capture
   flows must not bypass dreaming review into active memory promotion logic.
-- Embedding/index update work should run only during dreaming
-  promotion/update flows, never as a requirement for turn-time recall.
+- Item embedding/index writes run during dreaming promotion/update flows and in
+  the resumable embedding backfill (CLI `gantry memory embeddings backfill` and
+  the scheduled backfill job). They must never be a requirement for turn-time
+  recall: live recall only reads ready embeddings and never indexes items.
+- Turn-time recall is hybrid when embeddings are enabled and a query embedding is
+  available: lexical full-text candidates and pgvector cosine candidates are
+  fused with Reciprocal Rank Fusion (`RRF_K = 60`, per-branch candidate limit
+  `min(100, max(limit*4, 20))`, final score `rrfScore + confidence * 0.001`).
+  Recall must fall back to lexical-only when embeddings are disabled/paused or the
+  query embedding fails (budget/quota/rate-limit/provider error); it must not
+  throw.
+- The embedded text and content hash for an item are
+  `sha256(key + "\n" + value + "\n" + why)`. Writing a ready embedding prunes
+  sibling rows for the same `(item_id, provider, model)` with a different content
+  hash so at most one ready vector represents an item's current text.
+- v1 semantic memory only stores 1536-dimension vectors. A provider/model that
+  returns another dimension is a hard config failure or `blocked_invalid_dimension`,
+  never a silently stored vector.
+- The embedding backfill is resumable: funds/quota/rate-limit/daily-budget
+  exhaustion pauses the run (exit code 0) and resumes from remaining items on the
+  next run without duplicate embedding calls; only invalid config or unsupported
+  dimensions are hard failures (exit code 1).
 - IPC `memory_save.kind` must fail visibly when present and not one of
   `preference`, `decision`, `fact`, `correction`, or `constraint`; omitted kind
   may continue to use the service default.

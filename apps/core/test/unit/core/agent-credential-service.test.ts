@@ -1,45 +1,47 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentCredentialBroker } from '@core/domain/ports/agent-credential-broker.js';
 import { CredentialBrokerPolicyError } from '@core/domain/models/credential-errors.js';
+
+const claudeCodeOAuthTokenKey = () =>
+  ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
 
 function makeBroker(
   overrides: {
     getInjection?: AgentCredentialBroker['getInjection'];
     healthCheck?: AgentCredentialBroker['healthCheck'];
-    ensureAgent?: (agent: {
-      name: string;
-      identifier: string;
-    }) => Promise<{ created?: boolean }>;
   } = {},
-): AgentCredentialBroker & {
-  ensureAgent?: (agent: {
-    name: string;
-    identifier: string;
-  }) => Promise<{ created?: boolean }>;
-} {
+): AgentCredentialBroker {
   return {
     getInjection:
       overrides.getInjection ||
       (async () => ({
         env: {
-          ANTHROPIC_BASE_URL: 'https://broker.example.com',
+          ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/anthropic',
+          ANTHROPIC_API_KEY: 'gtw_test',
         },
         applied: true,
-        brokerProfile: 'onecli',
+        brokerProfile: 'gantry',
       })),
-    healthCheck: async () => ({
-      status: 'pass',
-      message: 'ok',
-    }),
+    healthCheck:
+      overrides.healthCheck ||
+      (async () => ({
+        status: 'pass',
+        message: 'ok',
+      })),
     getCapabilities: () => ({
-      profile: 'onecli',
-      supportsAgentBinding: true,
-      returnsRawSecrets: false,
-      projectsProviderTokens: false,
+      profile: 'gantry',
+      supportsAgentBinding: false,
+      supportsModelRuntimeProfile: true,
+      modelRuntimeProfileIdentifier: 'gantry-model-access',
+      returnsRawSecrets: true,
+      projectsProviderTokens: true,
+      projectedSecretEnvKeys: [
+        'ANTHROPIC_BASE_URL',
+        'ANTHROPIC_API_KEY',
+        claudeCodeOAuthTokenKey(),
+      ],
     }),
-    ...(overrides.healthCheck ? { healthCheck: overrides.healthCheck } : {}),
-    ...(overrides.ensureAgent ? { ensureAgent: overrides.ensureAgent } : {}),
   };
 }
 
@@ -48,11 +50,6 @@ async function loadCredentialService() {
   return import('@core/application/credentials/agent-credential-service.js');
 }
 
-beforeEach(() => {
-  vi.restoreAllMocks();
-  vi.resetModules();
-});
-
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -60,14 +57,14 @@ afterEach(() => {
 });
 
 describe('agent credential service', () => {
-  it('requires a broker only when broker mode is enabled', async () => {
+  it('requires a broker only when Gantry gateway mode is enabled', async () => {
     const { getAgentCredentialInjection } = await loadCredentialService();
 
     await expect(
       getAgentCredentialInjection({
-        mode: 'onecli',
+        mode: 'gantry',
       } as never),
-    ).rejects.toThrow('no agent credential broker was provided');
+    ).rejects.toThrow('no model gateway broker was provided');
 
     await expect(
       getAgentCredentialInjection({
@@ -78,145 +75,50 @@ describe('agent credential service', () => {
       applied: false,
       brokerProfile: 'none',
     });
-
-    await expect(
-      getAgentCredentialInjection({
-        mode: 'external',
-      } as never),
-    ).rejects.toThrow('no external credential injection was provided');
   });
 
-  it('passes safe external broker env to spawned agents', async () => {
-    const { createExternalAgentCredentialInjection } =
-      await import('@core/adapters/llm/external-credential-injection.js');
-    const { getAgentCredentialInjection } = await loadCredentialService();
-
-    await expect(
-      getAgentCredentialInjection({
-        mode: 'external',
-        externalInjection: createExternalAgentCredentialInjection({
-          normalizedBaseUrl: 'https://broker.example.com',
-        }),
-      }),
-    ).resolves.toEqual({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-      applied: true,
-      brokerProfile: 'external',
-    });
-  });
-
-  it('fails closed for external broker env without copying caller env', async () => {
-    const { createExternalAgentCredentialInjection } =
-      await import('@core/adapters/llm/external-credential-injection.js');
-
-    expect(
-      createExternalAgentCredentialInjection({
-        normalizedBaseUrl: 'https://broker.example.com',
-      }),
-    ).toEqual({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-      applied: true,
-      brokerProfile: 'external',
-    });
-  });
-
-  it('does not manufacture OpenRouter token provenance from external env', async () => {
-    const { createExternalAgentCredentialInjection } =
-      await import('@core/adapters/llm/external-credential-injection.js');
-
-    expect(
-      createExternalAgentCredentialInjection({
-        normalizedBaseUrl: 'https://openrouter.ai/api',
-      }),
-    ).toEqual({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
-      },
-      applied: true,
-      brokerProfile: 'external',
-    });
-
-    expect(
-      createExternalAgentCredentialInjection({
-        normalizedBaseUrl: 'https://broker.example.com',
-      }),
-    ).toEqual({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-      applied: true,
-      brokerProfile: 'external',
-    });
-  });
-
-  it('uses externally prepared credential injection without reading adapter config', async () => {
-    const { getAgentCredentialInjection } = await loadCredentialService();
-
-    await expect(
-      getAgentCredentialInjection({
-        mode: 'external',
-        externalInjection: {
-          env: { PROVIDER_BASE_URL: 'https://broker.example.com' },
-          applied: true,
-          brokerProfile: 'external',
-        },
-      }),
-    ).resolves.toEqual({
-      env: { PROVIDER_BASE_URL: 'https://broker.example.com' },
-      applied: true,
-      brokerProfile: 'external',
-    });
-  });
-
-  it('requests brokered model credentials through the shared model runtime purpose', async () => {
+  it('requests model credentials through route-scoped gateway binding', async () => {
     const getInjection = vi.fn(async () => ({
       env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/openrouter',
+        ANTHROPIC_API_KEY: 'gtw_test',
+        ANTHROPIC_AUTH_TOKEN: 'gtw_test',
       },
       applied: true,
-      brokerProfile: 'onecli' as const,
+      brokerProfile: 'gantry' as const,
     }));
     const broker = makeBroker({ getInjection });
     const { getAgentCredentialInjection } = await loadCredentialService();
 
     const result = await getAgentCredentialInjection({
-      mode: 'onecli',
-      agentIdentifier: 'memory',
+      mode: 'gantry',
+      appId: 'app_1' as never,
+      modelRouteId: 'openrouter' as never,
       broker,
     });
 
-    expect(result).toEqual({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-      applied: true,
-      brokerProfile: 'onecli',
-    });
+    expect(result.brokerProfile).toBe('gantry');
     expect(getInjection).toHaveBeenCalledWith({
       binding: {
-        profile: 'onecli',
+        profile: 'gantry',
         purpose: 'model_runtime',
+        appId: 'app_1',
+        modelRouteId: 'openrouter',
       },
     });
   });
 
-  it('keeps tool capability credential requests agent-scoped', async () => {
+  it('keeps tool capability requests agent-scoped when a broker needs them', async () => {
     const getInjection = vi.fn(async () => ({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
+      env: {},
       applied: true,
-      brokerProfile: 'onecli' as const,
+      brokerProfile: 'gantry' as const,
     }));
     const broker = makeBroker({ getInjection });
     const { getAgentCredentialInjection } = await loadCredentialService();
 
     await getAgentCredentialInjection({
-      mode: 'onecli',
+      mode: 'gantry',
       purpose: 'tool_capability',
       agentIdentifier: 'agent-one',
       broker,
@@ -224,150 +126,68 @@ describe('agent credential service', () => {
 
     expect(getInjection).toHaveBeenCalledWith({
       binding: {
-        profile: 'onecli',
+        profile: 'gantry',
         purpose: 'tool_capability',
         agentIdentifier: 'agent-one',
       },
     });
   });
 
-  it('propagates forbidden raw-secret broker failures and wraps transport failures', async () => {
+  it('propagates boundary failures and wraps gateway outages', async () => {
     const { getAgentCredentialInjection } = await loadCredentialService();
-
-    const forbiddenBroker = makeBroker({
+    const boundaryBroker = makeBroker({
       getInjection: async () => {
-        throw new CredentialBrokerPolicyError(
-          'OneCLI returned forbidden raw credential env key: OPENAI_API_KEY',
-        );
+        throw new CredentialBrokerPolicyError('forbidden raw credential');
       },
     });
-    await expect(
-      getAgentCredentialInjection({
-        mode: 'onecli',
-        broker: forbiddenBroker,
-      }),
-    ).rejects.toThrow('forbidden raw credential env key: OPENAI_API_KEY');
 
-    const forbiddenValueBroker = makeBroker({
-      getInjection: async () => {
-        throw new CredentialBrokerPolicyError(
-          'OneCLI returned forbidden raw credential env value',
-        );
-      },
-    });
     await expect(
       getAgentCredentialInjection({
-        mode: 'onecli',
-        broker: forbiddenValueBroker,
+        mode: 'gantry',
+        broker: boundaryBroker,
       }),
-    ).rejects.toThrow('forbidden raw credential env value');
+    ).rejects.toThrow('forbidden raw credential');
 
     const unreachableBroker = makeBroker({
       getInjection: async () => {
         throw new Error('connect ECONNREFUSED');
       },
+      healthCheck: async () => ({
+        status: 'fail',
+        message:
+          'Gantry Model Gateway is missing an active anthropic credential.',
+        nextAction: 'Run `gantry credentials model set anthropic`.',
+      }),
     });
+
     await expect(
       getAgentCredentialInjection({
-        mode: 'onecli',
+        mode: 'gantry',
         agentIdentifier: 'agent-one',
         broker: unreachableBroker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for Gantry Model Access. Reason: connect ECONNREFUSED.',
+      'Run `gantry credentials model status` and add the missing provider key',
     );
   });
 
-  it('includes broker health and recovery guidance for tool capability broker outages', async () => {
-    const { getAgentCredentialInjection } = await loadCredentialService();
-    const error = Object.assign(
-      new Error('connect ECONNREFUSED 127.0.0.1:10254'),
-      { code: 'ECONNREFUSED' },
-    );
-    const broker = makeBroker({
-      getInjection: async () => {
-        throw error;
-      },
-      healthCheck: async () => ({
-        status: 'fail',
-        message:
-          'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED 127.0.0.1:10254',
-        nextAction:
-          "Run `gantry local doctor`. If you use Gantry's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
-      }),
-    });
-
-    await expect(
-      getAgentCredentialInjection({
-        mode: 'onecli',
-        purpose: 'tool_capability',
-        agentIdentifier: 'agent:main_agent',
-        broker,
-      }),
-    ).rejects.toThrow(
-      [
-        'Credential broker mode is enabled but the credential broker is not reachable for agent agent:main_agent.',
-        'Reason: ECONNREFUSED: connect ECONNREFUSED 127.0.0.1:10254.',
-        'Broker health: Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED 127.0.0.1:10254',
-        "Next action: Run `gantry local doctor`. If you use Gantry's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
-        "Recovery: Run `gantry doctor` and `gantry local doctor`. If you use Gantry's provided local stack, start or recover OneCLI from the directory containing its shipped stack file, or pass that stack file explicitly.",
-      ].join(' '),
-    );
-  });
-
-  it('does not fail-open when a generic broker error mentions policy text', async () => {
-    const { getAgentCredentialInjection } = await loadCredentialService();
-    const broker = makeBroker({
-      getInjection: async () => {
-        throw new Error('forbidden raw credential env key: OPENAI_API_KEY');
-      },
-    });
-
-    await expect(
-      getAgentCredentialInjection({
-        mode: 'onecli',
-        broker,
-      }),
-    ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for Gantry Model Access. Reason: forbidden raw credential env key: OPENAI_API_KEY.',
-    );
-  });
-
-  it('ensures only the shared Model Access profile for onecli model credentials', async () => {
-    const ensureAgent = vi.fn(async () => ({ created: true }));
-    const broker = makeBroker({ ensureAgent });
-    const { ensureModelCredentialBinding } = await loadCredentialService();
+  it('does not create credential broker profiles during setup', async () => {
+    const { ensureAgentCredentialBinding, ensureModelCredentialBinding } =
+      await loadCredentialService();
 
     await expect(
       ensureModelCredentialBinding({
-        mode: 'onecli',
-        broker,
+        mode: 'gantry',
+        broker: makeBroker(),
       }),
-    ).resolves.toEqual({ created: true });
-
-    expect(ensureAgent).toHaveBeenCalledWith({
-      name: 'Gantry Model Access',
-      identifier: 'gantry-model-access',
-    });
-  });
-
-  it('ensures agent-scoped credential profiles for tool capabilities', async () => {
-    const ensureAgent = vi.fn(async () => ({ created: false }));
-    const broker = makeBroker({ ensureAgent });
-    const { ensureAgentCredentialBinding } = await loadCredentialService();
-
+    ).resolves.toBeUndefined();
     await expect(
       ensureAgentCredentialBinding({
-        mode: 'onecli',
-        broker,
+        mode: 'gantry',
+        broker: makeBroker(),
         name: 'Default Agent',
         identifier: 'agent:main_agent',
       }),
-    ).resolves.toEqual({ created: false });
-
-    expect(ensureAgent).toHaveBeenCalledWith({
-      name: 'Default Agent',
-      identifier: 'agent:main_agent',
-    });
+    ).resolves.toBeUndefined();
   });
 });

@@ -152,27 +152,13 @@ describe('scheduledPermissionSuggestions', () => {
       synthesizePermissionSuggestions('Bash', {
         toolInput: { command: 'python3 /tmp/check.py' },
       }),
-    ).toEqual([
-      {
-        type: 'addRules',
-        behavior: 'allow',
-        destination: 'session',
-        rules: [{ toolName: 'RunCommand', ruleContent: '/tmp/check.py *' }],
-      },
-    ]);
+    ).toBeUndefined();
 
     expect(
       synthesizePermissionSuggestions('Bash', {
         toolInput: { command: 'python3 /tmp/check.py \'[["lead"]]\'' },
       }),
-    ).toEqual([
-      {
-        type: 'addRules',
-        behavior: 'allow',
-        destination: 'session',
-        rules: [{ toolName: 'RunCommand', ruleContent: '/tmp/check.py *' }],
-      },
-    ]);
+    ).toBeUndefined();
 
     expect(
       synthesizePermissionSuggestions('Bash', {
@@ -207,6 +193,47 @@ describe('scheduledPermissionSuggestions', () => {
         toolInput: {
           command:
             'python3 skills/linkedin-posting/post.py --file /tmp/post.md',
+        },
+        semanticCapabilityDefinitions: [capability],
+      }),
+    ).toEqual({
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+        },
+      ],
+      semanticCapabilityDefinitions: {
+        'skill.linkedin-posting.publish': capability,
+      },
+    });
+  });
+
+  it('matches selected skill actions with runtime-managed CA trust env prefixes', () => {
+    const capability: SemanticCapabilityDefinition = {
+      capabilityId: 'skill.linkedin-posting.publish',
+      displayName: 'LinkedIn posting',
+      category: 'linkedin-posting',
+      risk: 'write',
+      can: 'Publish a prepared LinkedIn post through the approved script.',
+      cannot: 'Read unrelated accounts or receive raw credentials.',
+      credentialSource: 'skill_secret',
+      implementationBindings: [
+        {
+          kind: 'tool_rule',
+          rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+        },
+      ],
+      preflight: { kind: 'none' },
+    };
+
+    expect(
+      scheduledPermissionSuggestionPlan('Bash', undefined, {
+        toolInput: {
+          command:
+            'REQUESTS_CA_BUNDLE=$NODE_EXTRA_CA_CERTS /opt/homebrew/bin/python3 "$CLAUDE_PROJECT_DIR/skills/linkedin-posting/post.py" --file /tmp/post.md',
         },
         semanticCapabilityDefinitions: [capability],
       }),

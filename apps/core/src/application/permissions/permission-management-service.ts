@@ -17,7 +17,6 @@ import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalo
 import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import {
   expandSemanticCapabilityPermissionRules,
-  getBuiltinSemanticCapability,
   semanticCapabilityRuntimeRules,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
@@ -497,9 +496,7 @@ function persistentPermissionGrantAuditMetadata(input: {
     .map((rule) => {
       const capabilityId = parseSemanticCapabilityRule(rule);
       if (!capabilityId) return undefined;
-      const capability =
-        input.semanticCapabilityDefinitions?.[capabilityId] ??
-        getBuiltinSemanticCapability(capabilityId);
+      const capability = input.semanticCapabilityDefinitions?.[capabilityId];
       if (!capability) return undefined;
       const source = skillActionSource(capability);
       if (!source) return undefined;
@@ -508,8 +505,6 @@ function persistentPermissionGrantAuditMetadata(input: {
         displayName: capability.displayName,
         skillId: source.skillId,
         skillName: source.skillName,
-        skillVersion: source.skillVersion,
-        skillContentHash: source.skillContentHash,
         actionId: source.actionId,
         commandPreviewHashes: semanticCapabilityRuntimeRules(capability).map(
           (runtimeRule) => `sha256:${stableSha256Json({ runtimeRule })}`,

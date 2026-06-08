@@ -314,7 +314,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: '*Gantry Slack Channel*\\nUse threaded replies for best assistant UX.',
+            text: '*Gantry Slack Channel*\\nUse threaded replies for the best agent UX.',
           },
         },
         {

@@ -132,7 +132,7 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
         type: 'text',
         text: [
           `${humanizeTechnicalIdentifier(fullName)} is not approved for this agent yet.`,
-          `Ask a configured conversation approver to approve it, then choose Always allow. Details: ${fullName}.`,
+          `Ask a configured conversation approver to approve ${toolName}, then choose persistent access. Details: ${fullName}.`,
         ].join(' '),
       },
     ],

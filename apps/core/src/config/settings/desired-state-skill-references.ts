@@ -33,11 +33,11 @@ export async function resolveConfiguredSkillReferences(input: {
   references: readonly string[];
 }): Promise<ResolvedSkillReferences> {
   const uniqueReferences = [...new Set(input.references)];
-  const [exactSkills, approvedSkills] = await Promise.all([
+  const [exactSkills, installedSkills] = await Promise.all([
     loadExactSkillReferences(input.repository, uniqueReferences),
     input.repository.listSkills({
       appId: input.appId,
-      statuses: ['approved'],
+      statuses: ['installed'],
     }),
   ]);
   const skills = new Map<string, SkillCatalogItem>();
@@ -60,7 +60,7 @@ export async function resolveConfiguredSkillReferences(input: {
     }
 
     const skillName = reference;
-    const matches = approvedSkills.filter(
+    const matches = installedSkills.filter(
       (skill) =>
         skill.name === skillName &&
         isUsableSkillForSettings(input.appId, input.agentId, skill),
@@ -106,7 +106,7 @@ function ambiguousSkillNameError(
   matches: readonly SkillCatalogItem[],
 ): string {
   const candidates = matches.map(canonicalSkillReference).sort();
-  return `ambiguous skill name: ${skillName} matched ${matches.length} approved skills; use an exact skill id in settings, such as ${candidates.join(', ')}`;
+  return `ambiguous skill name: ${skillName} matched ${matches.length} installed skills; use an exact skill id in settings, such as ${candidates.join(', ')}`;
 }
 
 function isUsableSkillForSettings(
@@ -114,6 +114,6 @@ function isUsableSkillForSettings(
   agentId: AgentId,
   skill: SkillCatalogItem,
 ): boolean {
-  if (skill.appId !== appId || skill.status !== 'approved') return false;
+  if (skill.appId !== appId || skill.status !== 'installed') return false;
   return !skill.agentId || skill.agentId === agentId;
 }

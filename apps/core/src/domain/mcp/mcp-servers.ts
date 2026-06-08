@@ -9,11 +9,10 @@ import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 
 export type McpServerId = BrandedId<'McpServerId'>;
-export type McpServerVersionId = BrandedId<'McpServerVersionId'>;
 export type AgentMcpServerBindingId = BrandedId<'AgentMcpServerBindingId'>;
 export type McpServerAuditEventId = BrandedId<'McpServerAuditEventId'>;
 
-export type McpServerStatus = 'draft' | 'approved' | 'rejected' | 'disabled';
+export type McpServerStatus = 'active' | 'disabled';
 export type McpServerCreatedSource = 'admin' | 'agent_request';
 export type McpServerTransport = 'http' | 'sse' | 'stdio_template';
 export type McpServerRiskClass = 'low' | 'medium' | 'high';
@@ -56,32 +55,16 @@ export interface McpServerDefinition {
   riskClass: McpServerRiskClass;
   requestedBy?: string;
   requestedReason?: string;
-  latestApprovedVersionId?: McpServerVersionId;
-  createdAt: IsoTimestamp;
-  updatedAt: IsoTimestamp;
-  approvedBy?: string;
-  approvedAt?: IsoTimestamp;
-  rejectedBy?: string;
-  rejectedAt?: IsoTimestamp;
-  disabledBy?: string;
-  disabledAt?: IsoTimestamp;
-}
-
-export interface McpServerVersion {
-  id: McpServerVersionId;
-  appId: AppId;
-  serverId: McpServerId;
-  version: number;
   transport: McpServerTransport;
   config: McpServerTransportConfig;
   allowedToolPatterns: string[];
   autoApproveToolPatterns: string[];
   credentialRefs: McpCredentialRef[];
   sandboxProfileId?: string;
-  configHash: string;
-  reviewedBy?: string;
-  reviewedAt?: IsoTimestamp;
   createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+  disabledBy?: string;
+  disabledAt?: IsoTimestamp;
 }
 
 export interface AgentMcpServerBinding {
@@ -89,7 +72,6 @@ export interface AgentMcpServerBinding {
   appId: AppId;
   agentId: AgentId;
   serverId: McpServerId;
-  versionId: McpServerVersionId;
   status: AgentMcpServerBindingStatus;
   required: boolean;
   permissionPolicyIds: PermissionPolicyId[];
@@ -101,8 +83,8 @@ export interface AgentMcpServerBinding {
 
 export type McpServerAuditEventType =
   | 'request'
-  | 'approve'
-  | 'reject'
+  | 'connect'
+  | 'request_reject'
   | 'bind'
   | 'unbind'
   | 'disable'
@@ -117,7 +99,6 @@ export interface McpServerAuditEvent {
   appId: AppId;
   agentId?: AgentId;
   serverId?: McpServerId;
-  versionId?: McpServerVersionId;
   bindingId?: AgentMcpServerBindingId;
   eventType: McpServerAuditEventType;
   actorId?: string;
@@ -128,7 +109,6 @@ export interface McpServerAuditEvent {
 
 export interface MaterializedMcpServer {
   definition: McpServerDefinition;
-  version: McpServerVersion;
   binding: AgentMcpServerBinding;
 }
 
@@ -193,9 +173,6 @@ export function assertNoRawSecretsInMcpConfig(
   }
 }
 
-export function isMcpServerApproved(definition: McpServerDefinition): boolean {
-  return (
-    definition.status === 'approved' &&
-    Boolean(definition.latestApprovedVersionId)
-  );
+export function isMcpServerActive(definition: McpServerDefinition): boolean {
+  return definition.status === 'active';
 }

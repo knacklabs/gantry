@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 describe('mcp CLI', () => {
-  it('creates MCP drafts through the control API only', async () => {
+  it('connects MCP servers through the control API only', async () => {
     const note = vi.fn();
     vi.doMock('@clack/prompts', () => ({
       note,
@@ -52,13 +52,29 @@ describe('mcp CLI', () => {
       const chunks: Buffer[] = [];
       req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
       req.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
         seen.push({
           method: req.method,
           url: req.url,
-          body: JSON.parse(Buffer.concat(chunks).toString('utf-8')),
+          body: body ? JSON.parse(body) : undefined,
         });
-        res.writeHead(201, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ server: { id: 'mcp:one', status: 'draft' } }));
+        if (req.method === 'POST' && req.url === '/v1/mcp-servers') {
+          res.writeHead(201, { 'content-type': 'application/json' });
+          res.end(
+            JSON.stringify({ server: { id: 'mcp:one', status: 'active' } }),
+          );
+          return;
+        }
+        if (
+          req.method === 'PUT' &&
+          req.url === '/v1/agents/agent%3Amain/mcp-servers/mcp%3Aone'
+        ) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ binding: { status: 'active' } }));
+          return;
+        }
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'unexpected route' } }));
       });
     });
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -73,46 +89,58 @@ describe('mcp CLI', () => {
 
     const { runMcpCommand } = await import('@core/cli/mcp.js');
     const code = await runMcpCommand(makeTempDir(), [
-      'draft',
-      'create',
+      'connect',
       '--name',
       'github',
       '--transport',
-      'http',
-      '--url',
-      'https://mcp.example.test/github',
+      'stdio_template',
+      '--template',
+      'npx-package',
+      '--arg',
+      '@modelcontextprotocol/server-github',
+      '--sandbox-profile',
+      'mcp-stdio',
+      '--agent',
+      'main',
       '--tool',
       'search_repositories',
       '--credential',
-      'github_token:header:Authorization',
+      'github_token:env:GITHUB_TOKEN',
     ]);
 
     expect(code).toBe(0);
     expect(seen).toEqual([
       {
         method: 'POST',
-        url: '/v1/mcp-servers/drafts',
+        url: '/v1/mcp-servers',
         body: expect.objectContaining({
           name: 'github',
-          transport: 'http',
+          transport: 'stdio_template',
           config: {
-            transport: 'http',
-            url: 'https://mcp.example.test/github',
+            transport: 'stdio_template',
+            templateId: 'npx-package',
+            args: ['@modelcontextprotocol/server-github'],
           },
+          sandboxProfileId: 'mcp-stdio',
           allowedToolPatterns: ['search_repositories'],
           credentialRefs: [
             {
               name: 'github_token',
-              target: 'header',
-              key: 'Authorization',
+              target: 'env',
+              key: 'GITHUB_TOKEN',
             },
           ],
         }),
       },
+      {
+        method: 'PUT',
+        url: '/v1/agents/agent%3Amain/mcp-servers/mcp%3Aone',
+        body: { permissionPolicyIds: [] },
+      },
     ]);
     expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('"mcp:one"'),
-      'MCP Draft Created',
+      expect.stringContaining('server: mcp:one'),
+      'MCP Connected',
     );
   });
 
@@ -144,6 +172,6 @@ describe('mcp CLI', () => {
 
     expect(code).toBe(0);
     expect(seen).toEqual([{ method: 'GET', url: '/v1/mcp-servers' }]);
-    expect(note).toHaveBeenCalledWith('(none)', 'MCP Servers');
+    expect(note).toHaveBeenCalledWith('No records found.', 'MCP Servers');
   });
 });

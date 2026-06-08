@@ -4,73 +4,37 @@ import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
-import {
-  inspectOnecliPersistenceReadiness,
-  ONECLI_DATABASE_URL_ENV,
-  ONECLI_DEFAULT_SCHEMA,
-  ONECLI_SECRET_ENCRYPTION_KEY_ENV,
-} from '../adapters/credentials/onecli/local/persistence.js';
-
-const LOCAL_ONECLI_URL = 'http://localhost:10254';
 
 function composeGuidance(): string {
   return [
     'Gantry does not create or manage Docker containers.',
-    'For a local database and local Model Access, use the root docker-compose.yml yourself:',
+    'For a local database, use the root docker-compose.yml yourself:',
     '',
     '  docker compose --env-file ~/gantry/.env up -d',
     '',
-    'Then run `gantry setup` and paste the Postgres URLs.',
-    `Normal setup uses OneCLI at ${LOCAL_ONECLI_URL}.`,
+    'Then run `gantry setup` and paste the Gantry Postgres URL.',
+    'Model provider keys are stored with `gantry credentials model set <provider>`.',
   ].join('\n');
 }
 
 function localEnvSummary(runtimeHome: string): string {
   const env = readEnvFile(envFilePath(runtimeHome));
-  let onecliDatabaseUrlEnv = ONECLI_DATABASE_URL_ENV;
-  let onecliUrl = LOCAL_ONECLI_URL;
-  let onecliSchema = ONECLI_DEFAULT_SCHEMA;
   let gantrySchema = 'gantry';
   try {
     const settings = ensureRuntimeSettings(runtimeHome);
-    onecliDatabaseUrlEnv = settings.credentialBroker.onecli.postgres.urlEnv;
-    onecliUrl = settings.credentialBroker.onecli.url || LOCAL_ONECLI_URL;
-    onecliSchema = settings.credentialBroker.onecli.postgres.schema;
     gantrySchema = settings.storage.postgres.schema;
   } catch {
     // local guidance must work before setup creates settings.yaml.
   }
   return [
     `GANTRY_DATABASE_URL: ${env.GANTRY_DATABASE_URL ? 'configured' : 'missing'}`,
-    `${onecliDatabaseUrlEnv}: ${env[onecliDatabaseUrlEnv] ? 'configured' : 'missing'}`,
-    `OneCLI URL: ${onecliUrl} (settings.yaml credential_broker.onecli.url)`,
+    `SECRET_ENCRYPTION_KEY: ${env.SECRET_ENCRYPTION_KEY ? 'configured' : 'missing'}`,
     `Gantry schema: ${gantrySchema}`,
-    `OneCLI schema: ${onecliSchema}`,
   ].join('\n');
 }
 
 async function runLocalDoctor(runtimeHome: string): Promise<number> {
-  const env = readEnvFile(envFilePath(runtimeHome));
-  let onecliDatabaseUrlEnv = ONECLI_DATABASE_URL_ENV;
-  let onecliSchema = ONECLI_DEFAULT_SCHEMA;
-  let gantrySchema = 'gantry';
-  try {
-    const settings = ensureRuntimeSettings(runtimeHome);
-    onecliDatabaseUrlEnv = settings.credentialBroker.onecli.postgres.urlEnv;
-    onecliSchema = settings.credentialBroker.onecli.postgres.schema;
-    gantrySchema = settings.storage.postgres.schema;
-  } catch {
-    // local doctor still reports config/env state before setup is complete.
-  }
-
   const storage = await inspectRuntimeStorageReadiness(runtimeHome);
-  const onecliPersistence = await inspectOnecliPersistenceReadiness({
-    postgresUrl: env[onecliDatabaseUrlEnv]?.trim() || '',
-    schema: onecliSchema,
-    secretEncryptionKey: env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim() || '',
-    gantryPostgresUrl: env.GANTRY_DATABASE_URL?.trim() || '',
-    gantrySchema,
-  });
 
   p.note(
     [
@@ -80,18 +44,12 @@ async function runLocalDoctor(runtimeHome: string): Promise<number> {
       storage.message,
       ...(storage.details || []),
       '',
-      `OneCLI persistence: ${onecliPersistence.status}`,
-      onecliPersistence.message,
-      ...(onecliPersistence.details || []),
-      '',
       composeGuidance(),
     ].join('\n'),
     'Local Doctor',
   );
 
-  return storage.status === 'fail' || onecliPersistence.status === 'fail'
-    ? 1
-    : 0;
+  return storage.status === 'fail' ? 1 : 0;
 }
 
 export async function runLocalCommand(
@@ -115,7 +73,7 @@ export async function runLocalCommand(
   }
   if (command === 'stop') {
     p.note(
-      'Gantry does not stop local databases or OneCLI. Use `docker compose stop` if you started the provided Compose stack.',
+      'Gantry does not stop local databases. Use `docker compose stop` if you started the provided Compose stack.',
       'Local Stop',
     );
     return 0;

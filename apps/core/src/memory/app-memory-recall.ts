@@ -15,6 +15,9 @@ import type {
 } from './memory-types.js';
 import { nowIso as currentIso } from '../shared/time/datetime.js';
 import { withStatementTimeout } from './app-memory-service-query-helpers.js';
+import { runHybridRecall } from './app-memory-recall-hybrid.js';
+
+const QUERY_EMBEDDING_TIMEOUT_MS = 1500;
 
 export type AppMemorySearchEmptyReason =
   | 'no_visible_subject_filters'
@@ -38,6 +41,23 @@ interface AppMemoryRecallDeps {
     or: (...args: any[]) => any;
     sql: any;
   };
+  /**
+   * Optional hybrid-recall capability. When present and `enabled`, ranked
+   * non-empty queries fuse lexical + vector candidates; otherwise recall stays
+   * lexical-only. `embedQuery` returns null to signal a lexical fallback
+   * (budget/quota/rate-limit/provider error).
+   */
+  embeddings?: {
+    enabled: boolean;
+    provider: string;
+    model: string;
+    dimensions: number;
+    memoryItemEmbeddingsPostgres: any;
+    embedQuery: (
+      query: string,
+      signal?: AbortSignal,
+    ) => Promise<number[] | null>;
+  };
 }
 
 function nowIso(): string {
@@ -56,6 +76,30 @@ function visibleSubjectFilterCount(input: AppMemorySearchInput): number {
   if (context.channelId && allowed.has('channel')) count += 1;
   if (count === 0 && allowed.has(context.subjectType)) count += 1;
   return count;
+}
+
+async function embedQueryWithDeadline(
+  embedQuery: (query: string, signal?: AbortSignal) => Promise<number[] | null>,
+  query: string,
+  parentSignal?: AbortSignal,
+): Promise<number[] | null> {
+  parentSignal?.throwIfAborted();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error('memory recall query embedding timed out'));
+  }, QUERY_EMBEDDING_TIMEOUT_MS);
+  const abortFromParent = () => controller.abort(parentSignal?.reason);
+  parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+  try {
+    return await embedQuery(query, controller.signal);
+  } catch (error) {
+    if (parentSignal?.aborted) throw error;
+    if (controller.signal.aborted) return null;
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    parentSignal?.removeEventListener('abort', abortFromParent);
+  }
 }
 
 export function describeAppMemorySearchOutcome(
@@ -98,6 +142,34 @@ export async function queryAppMemoryItems(
   const context = normalizeSubject(input);
   const query = input.query?.trim() || '';
   const i = deps.schema.memoryItemsPostgres;
+
+  if (ranked && query && deps.embeddings?.enabled) {
+    const queryVector = await embedQueryWithDeadline(
+      deps.embeddings.embedQuery,
+      query,
+      options.signal,
+    );
+    options.signal?.throwIfAborted();
+    if (queryVector) {
+      return runHybridRecall(
+        db,
+        input,
+        queryVector,
+        {
+          schema: { memoryItemsPostgres: i },
+          sqlOps: deps.sqlOps,
+          embeddings: {
+            provider: deps.embeddings.provider,
+            model: deps.embeddings.model,
+            dimensions: deps.embeddings.dimensions,
+            memoryItemEmbeddingsPostgres:
+              deps.embeddings.memoryItemEmbeddingsPostgres,
+          },
+        },
+        options,
+      );
+    }
+  }
   const valueText = sql`${i.valueJson}->>'value'`;
   const whyText = sql`${i.valueJson}->>'why'`;
   const document = sql`to_tsvector('english', ${i.key} || ' ' || COALESCE(${valueText}, '') || ' ' || COALESCE(${whyText}, ''))`;

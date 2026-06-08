@@ -36,6 +36,7 @@ import { sendError } from './http.js';
 import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
+import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
 import { handleInteraktWebhookRoutes } from './routes/interakt-webhook.js';
@@ -134,6 +135,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
       if (await handleProviderConversationRoutes(req, res, ctx, url, pathname))
         return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleCredentialRoutes(req, res, ctx, pathname)) return;
       if (await handleModelRoutes(req, res, ctx, pathname)) return;
       if (await handleJobRoutes(req, res, ctx, url, pathname)) return;
       if (await handleExternalIngressRoutes(req, res, ctx, pathname)) return;
@@ -180,6 +182,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
 export function startControlServer(input: {
   app: RuntimeApp;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
+  sendConversationIngressProjection?: ControlRouteContext['sendConversationIngressProjection'];
 }): ControlServerHandle {
   const keys = parseControlApiKeysStrict({
     rawJson: getControlEnvValue('GANTRY_CONTROL_API_KEYS_JSON'),
@@ -210,12 +213,14 @@ export function startControlServer(input: {
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,
     patchModelDefaults: patchRuntimeModelDefaults,
-    preflightModelPreset: (preset) =>
+    preflightModelPreset: (preset, appId) =>
       preflightModelPreset({
         runtimeHome: GANTRY_HOME,
         preset,
         settings: getRuntimeSettingsForConfig(),
+        appId,
       }),
+    sendConversationIngressProjection: input.sendConversationIngressProjection,
     getBrowserStatus: input.getBrowserStatus,
     syncSettingsFromProjection: (appId: AppId) =>
       syncRuntimeSettingsFromProjection({

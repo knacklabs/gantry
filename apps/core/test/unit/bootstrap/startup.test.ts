@@ -293,7 +293,7 @@ describe('runStartup', () => {
       expect(order).toEqual(['load-state', 'ensure-credentials-start']);
       expect(warn).toHaveBeenCalledWith(
         { timeoutMs: 3_000 },
-        expect.stringContaining('Credential broker binding did not finish'),
+        expect.stringContaining('Gantry Model Gateway binding did not finish'),
       );
     } finally {
       vi.useRealTimers();

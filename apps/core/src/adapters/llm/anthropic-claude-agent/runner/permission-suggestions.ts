@@ -22,6 +22,7 @@ import {
   canonicalizeGeneratedRuntimeSkillPaths,
   containsGeneratedRuntimeSkillPath,
 } from '../../../../shared/generated-runtime-paths.js';
+import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
 import { semanticCapabilityRule } from '../../../../shared/semantic-capability-ids.js';
 import { evaluateAutonomousToolUse } from '../../../../shared/tool-rule-matcher.js';
 
@@ -341,12 +342,55 @@ function canonicalizeToolInputGeneratedRuntimePaths(
   const input = toolInput as Record<string, unknown>;
   const next = { ...input };
   if (typeof next.command === 'string') {
-    next.command = canonicalizeGeneratedRuntimeSkillPaths(next.command);
+    next.command = canonicalizeSkillActionCommandForMatching(next.command);
   }
   if (typeof next.cmd === 'string') {
-    next.cmd = canonicalizeGeneratedRuntimeSkillPaths(next.cmd);
+    next.cmd = canonicalizeSkillActionCommandForMatching(next.cmd);
   }
   return next;
+}
+
+function canonicalizeSkillActionCommandForMatching(command: string): string {
+  return stripRuntimeManagedEnvAssignments(
+    canonicalizeProjectSkillRoot(
+      canonicalizeGeneratedRuntimeSkillPaths(command),
+    ),
+  );
+}
+
+function canonicalizeProjectSkillRoot(command: string): string {
+  return command
+    .replace(
+      /(["']?)\$\{CLAUDE_PROJECT_DIR\}\/skills\//g,
+      (_match, quote: string) => `${quote}skills/`,
+    )
+    .replace(
+      /(["']?)\$CLAUDE_PROJECT_DIR\/skills\//g,
+      (_match, quote: string) => `${quote}skills/`,
+    );
+}
+
+function stripRuntimeManagedEnvAssignments(command: string): string {
+  let remaining = command.trimStart();
+  let changed = false;
+  do {
+    changed = false;
+    for (const key of NEUTRAL_CA_TRUST_ENV_KEYS) {
+      const pattern = new RegExp(
+        `^${escapeRegex(key)}=(?:"?\\$\\{?NODE_EXTRA_CA_CERTS\\}?"?|'\\$\\{?NODE_EXTRA_CA_CERTS\\}?')\\s+`,
+      );
+      const next = remaining.replace(pattern, '');
+      if (next !== remaining) {
+        remaining = next.trimStart();
+        changed = true;
+      }
+    }
+  } while (changed);
+  return remaining;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
 }
 
 function splitReadableToolRule(rule: string): [string, string | undefined] {

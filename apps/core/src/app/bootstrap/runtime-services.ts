@@ -22,7 +22,7 @@ import { createIdleSessionSweeper } from '../../runtime/idle-session-sweep.js';
 // prettier-ignore
 import { requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
+import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
 import type {
   CapabilitySecretRepository,
@@ -90,6 +90,7 @@ interface Deps {
   publishBrowserJobActivity: IpcDeps['publishBrowserJobActivity'];
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
   executionAdapter?: RuntimeApp['executionAdapter'];
+  executionAdapters?: RuntimeApp['executionAdapters'];
   exit: (code: number) => never;
 }
 type RuntimeServicesDefaults = Omit<
@@ -210,6 +211,7 @@ export async function startRuntimeServices(
       getToolRepository: resolved.getToolRepository,
       getBrowserStatus,
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+      executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });

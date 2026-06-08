@@ -1,7 +1,16 @@
-export type ModelResponseFamily = 'anthropic' | 'openai';
-export type ModelRouteId = 'anthropic' | 'openrouter';
+import {
+  getModelProviderDefinition,
+  normalizeModelRouteProviderId,
+  type ModelRouteProviderId,
+} from './model-provider-registry.js';
+import { resolveModelCacheProvider } from './model-cache-support.js';
+
+export type ModelResponseFamily = string;
+export type ModelRouteId = ModelRouteProviderId;
 export type ModelPresetId = ModelRouteId;
-export type ModelExecutionProviderId = 'anthropic:claude-agent-sdk';
+export type ModelExecutionProviderId =
+  | 'anthropic:claude-agent-sdk'
+  | (string & {});
 
 export type ModelWorkload =
   | 'chat'
@@ -13,12 +22,14 @@ export type ModelWorkload =
 
 export type ModelCacheMode =
   | 'anthropic-prompt'
+  | 'openai-automatic-prompt'
   | 'openrouter-provider-prompt'
   | 'openrouter-response-disabled'
   | 'none';
 
 export type NormalizedCacheProvider =
   | 'anthropic'
+  | 'openai'
   | 'openrouter-provider'
   | 'openrouter-response'
   | 'mixed'
@@ -36,7 +47,7 @@ const MODEL_RUNTIME_CREDENTIAL_PROFILE_REF = 'gantry-model-access';
 const CLAUDE_MODELS_OVERVIEW_SOURCE = {
   label: 'Anthropic models overview',
   url: 'https://platform.claude.com/docs/en/about-claude/models/overview',
-  verifiedAt: '2026-05-21',
+  verifiedAt: '2026-05-29',
 };
 const CLAUDE_MODEL_IDS_SOURCE = {
   label: 'Anthropic model IDs and versions',
@@ -215,15 +226,24 @@ export function getModelPreset(presetId: ModelPresetId): ModelPreset {
   return preset;
 }
 
+function providerRoute(providerId: string, providerModelId: string) {
+  const id = normalizeModelRouteProviderId(providerId);
+  const provider = getModelProviderDefinition(id);
+  if (!provider?.modelRoute) {
+    throw new Error(`Model provider ${providerId} is not routeable.`);
+  }
+  return { id, label: provider.label, providerModelId };
+}
+
 function anthropicRoute(providerModelId: string) {
-  return { id: 'anthropic' as const, label: 'Anthropic', providerModelId };
+  return providerRoute('anthropic', providerModelId);
 }
 
 function openRouterRoute(providerModelId: string) {
-  return { id: 'openrouter' as const, label: 'OpenRouter', providerModelId };
+  return providerRoute('openrouter', providerModelId);
 }
 
-function anthropicEntry(input: {
+function executableModelEntry(input: {
   id: string;
   route: { id: ModelRouteId; label: string; providerModelId: string };
   displayName: string;
@@ -242,10 +262,17 @@ function anthropicEntry(input: {
   supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
 }): ModelCatalogEntry {
+  const provider = getModelProviderDefinition(input.route.id);
+  const executionProviderId = provider?.executionProviderIds[0];
+  if (!provider?.modelRoute || !executionProviderId) {
+    throw new Error(
+      `Model catalog route ${input.route.id} is not executable in the provider registry.`,
+    );
+  }
   return {
     ...input,
-    responseFamily: 'anthropic',
-    executionProviderId: 'anthropic:claude-agent-sdk',
+    responseFamily: provider.responseFamily,
+    executionProviderId,
     credentialProfileRef: MODEL_RUNTIME_CREDENTIAL_PROFILE_REF,
     modelRoute: input.route,
     capabilities: {
@@ -278,12 +305,12 @@ export type ModelResolution =
     };
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
-  anthropicEntry({
-    id: 'anthropic:opus-4.7',
-    route: anthropicRoute('claude-opus-4-7'),
-    displayName: 'Opus 4.7',
-    runnerModel: 'claude-opus-4-7',
-    aliases: ['opus', 'opus-4.7'],
+  executableModelEntry({
+    id: 'anthropic:opus-4.8',
+    route: anthropicRoute('claude-opus-4-8'),
+    displayName: 'Opus 4.8',
+    runnerModel: 'claude-opus-4-8',
+    aliases: ['opus', 'opus-4.8'],
     recommendedAlias: 'opus',
     source: CLAUDE_MODELS_OVERVIEW_SOURCE,
     contextWindowTokens: 1_000_000,
@@ -299,7 +326,28 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   }),
-  anthropicEntry({
+  executableModelEntry({
+    id: 'anthropic:opus-4.7',
+    route: anthropicRoute('claude-opus-4-7'),
+    displayName: 'Opus 4.7',
+    runnerModel: 'claude-opus-4-7',
+    aliases: ['opus-4.7'],
+    recommendedAlias: 'opus-4.7',
+    source: CLAUDE_MODELS_OVERVIEW_SOURCE,
+    contextWindowTokens: 1_000_000,
+    maxOutputTokens: 128_000,
+    inputUsdPerMillionTokens: 5,
+    outputUsdPerMillionTokens: 25,
+    cacheMode: DIRECT_PROMPT_CACHE_MODE,
+    cacheTokenFields: [
+      'cache_creation_input_tokens',
+      'cache_read_input_tokens',
+    ],
+    supportsThinking: true,
+    supportsTools: true,
+    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+  }),
+  executableModelEntry({
     id: 'anthropic:opus-4.6',
     route: anthropicRoute('claude-opus-4-6'),
     displayName: 'Opus 4.6',
@@ -320,7 +368,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   }),
-  anthropicEntry({
+  executableModelEntry({
     id: 'anthropic:sonnet-4.6',
     route: anthropicRoute('claude-sonnet-4-6'),
     displayName: 'Sonnet 4.6',
@@ -348,7 +396,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
       'memory_consolidation',
     ],
   }),
-  anthropicEntry({
+  executableModelEntry({
     id: 'anthropic:haiku-4.5',
     route: anthropicRoute('claude-haiku-4-5-20251001'),
     displayName: 'Haiku 4.5',
@@ -376,7 +424,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
       'memory_consolidation',
     ],
   }),
-  anthropicEntry({
+  executableModelEntry({
     id: 'openrouter:kimi-k2.6',
     route: openRouterRoute('moonshotai/kimi-k2.6'),
     displayName: 'Kimi K2.6',
@@ -411,6 +459,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
   }),
 ] as const;
 
+validateModelCatalogProviderSupport(MODEL_CATALOG);
+
 const RAW_PROVIDER_MODEL_IDS = new Set(
   MODEL_CATALOG.flatMap((entry) => [
     normalizeModelLookupKey(entry.modelRoute.providerModelId),
@@ -423,6 +473,32 @@ function looksLikeRawProviderModelId(input: string): boolean {
   if (!value) return false;
   if (/^claude-[a-z0-9][a-z0-9._-]*$/.test(value)) return true;
   return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/.test(value);
+}
+
+function validateModelCatalogProviderSupport(
+  entries: readonly ModelCatalogEntry[],
+): void {
+  for (const entry of entries) {
+    const provider = getModelProviderDefinition(entry.modelRoute.id);
+    if (!provider?.modelRoute) {
+      throw new Error(
+        `Model catalog entry ${entry.id} references unsupported provider route ${entry.modelRoute.id}.`,
+      );
+    }
+    if (!provider.executionProviderIds.includes(entry.executionProviderId)) {
+      throw new Error(
+        `Model catalog entry ${entry.id} uses execution provider ${entry.executionProviderId}, but ${provider.id} only supports ${provider.executionProviderIds.join(', ') || 'none'}.`,
+      );
+    }
+    if (
+      entry.cacheMode !== 'none' &&
+      resolveModelCacheProvider(entry) === 'none'
+    ) {
+      throw new Error(
+        `Model catalog entry ${entry.id} declares cache mode ${entry.cacheMode}, but provider ${provider.id} does not support it.`,
+      );
+    }
+  }
 }
 
 function normalizeModelLookupKey(value: string): string {
@@ -610,50 +686,4 @@ export function findModelByRunnerModel(
   if (!trimmed) return undefined;
   const key = normalizeModelLookupKey(trimmed);
   return RUNNER_MODEL_INDEX.get(key) ?? ALIAS_INDEX.get(key)?.entry;
-}
-
-export function isOpenRouterModelRoute(entry?: ModelCatalogEntry): boolean {
-  return entry?.modelRoute.id === 'openrouter';
-}
-
-export function formatTokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `${tokens / 1_000_000}M`;
-  }
-  if (tokens >= 1_000) {
-    return `${tokens / 1_000}k`;
-  }
-  return String(tokens);
-}
-
-export function formatModelDisplay(entry: ModelCatalogEntry): string {
-  const experimental = entry.experimental ? ' experimental' : '';
-  return `${entry.displayName} (${entry.modelRoute.label}${experimental})`;
-}
-
-export function formatModelCatalog(defaults: ModelDefaultAliases = {}): string {
-  const lines = [
-    'Supported model aliases',
-    'Alias | Model | Response family | Route | Status',
-    '--- | --- | --- | --- | ---',
-  ];
-  for (const entry of MODEL_CATALOG) {
-    for (const alias of entry.aliases) {
-      const badges: string[] = [];
-      if (alias === entry.recommendedAlias) badges.push('recommended');
-      else badges.push('pinned');
-      if (defaults.chat === alias) badges.push('chat default');
-      if (defaults.oneTime === alias) badges.push('one-time default');
-      if (defaults.recurring === alias) badges.push('recurring default');
-      if (defaults.memoryExtractor === alias) badges.push('memory extractor');
-      if (defaults.memoryDreaming === alias) badges.push('memory dreaming');
-      if (defaults.memoryConsolidation === alias) {
-        badges.push('memory consolidation');
-      }
-      lines.push(
-        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${badges.join(', ')}`,
-      );
-    }
-  }
-  return lines.join('\n');
 }

@@ -116,8 +116,6 @@ function processOneBrowserRequest(input: {
         conversationId: request.chatJid,
       }),
       browserIpcAuthorized,
-      getCredentialBroker: deps.getCredentialBroker,
-      getCredentialBrokerProfile: deps.getCredentialBrokerProfile,
       getFileArtifactStore: deps.getFileArtifactStore,
       callBrowserTool: deps.callBrowserTool,
       publishBrowserJobActivity: deps.publishBrowserJobActivity,

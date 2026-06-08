@@ -5,7 +5,6 @@ import type { AgentToolSource } from '../../domain/tools/tools.js';
 export interface ReadableSkillSource {
   name?: string;
   id: string;
-  version: string;
 }
 
 export interface ReadableToolSource {
@@ -29,7 +28,6 @@ export async function readableSkillSources(input: {
     return {
       ...(skill ? { name: skill.name } : {}),
       id: String(binding.skillId),
-      version: 'approved',
     };
   });
 }

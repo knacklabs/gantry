@@ -6,7 +6,7 @@ export const schedulerCapabilityRequirementSchema = z
   .object({
     capability_id: z
       .string()
-      .describe('Stable semantic capability id, such as google.sheets.write'),
+      .describe('Stable semantic capability id, such as app.resource.action'),
     reason: z.string().describe('Why this job needs the capability'),
     implementation: z
       .object({
@@ -19,7 +19,7 @@ export const schedulerCapabilityRequirementSchema = z
         name: z
           .string()
           .optional()
-          .describe('Human-readable implementation name, such as gog'),
+          .describe('Human-readable implementation name'),
         executable_path: z.string().optional(),
         executable_version: z.string().optional(),
         executable_hash: z.string().optional(),

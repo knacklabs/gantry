@@ -22,7 +22,6 @@ import {
 } from '../shared/persistent-permission-rules.js';
 import {
   buildLocalCliSemanticCapability,
-  getBuiltinSemanticCapability,
   semanticCapabilityDefinitionFromToolInput,
   type SemanticCapabilityDefinition,
   validateSemanticCapabilityDefinition,
@@ -152,12 +151,7 @@ export function requestPermissionReviewSuggestions(
   if (capabilityId && toolNames.length === 0) {
     if (!isValidSemanticCapabilityId(capabilityId)) return undefined;
     const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
-    if (
-      !definitions?.[capabilityId] &&
-      !getBuiltinSemanticCapability(capabilityId)
-    ) {
-      return undefined;
-    }
+    if (!definitions?.[capabilityId]) return undefined;
     const publicToolRule = semanticCapabilityRule(capabilityId);
     if (
       !isPersistentRequestPermissionRuleAllowed(publicToolRule, {
@@ -242,7 +236,7 @@ export function validateRequestPermissionSemanticCapability(
   });
   if (!capabilityId) return undefined;
   if (!isValidSemanticCapabilityId(capabilityId)) {
-    return 'Capability id must use lowercase dot-separated words such as google.sheets.write.';
+    return 'Capability id must use lowercase dot-separated words such as app.resource.action.';
   }
   const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
   const definition = definitions?.[capabilityId];
@@ -263,7 +257,7 @@ export function semanticCapabilityDefinitionsForToolInput(
     toolInput,
     capabilityId,
   );
-  if (explicitDefinition?.credentialSource === 'local_cli') {
+  if (explicitDefinition) {
     return { [explicitDefinition.capabilityId]: explicitDefinition };
   }
   if (toolInput.credentialSource !== 'local_cli') return undefined;
@@ -322,6 +316,25 @@ export function semanticCapabilityDefinitionsForToolInput(
     ),
   });
   return { [capability.capabilityId]: capability };
+}
+
+export function validateRequestPermissionCapabilityProposal(input: {
+  capabilityId?: string;
+  toolNames: readonly string[];
+  capabilityRequestSource?: unknown;
+  toolInput: Record<string, unknown>;
+}): string | undefined {
+  if (!input.capabilityId || input.toolNames.length > 0) return undefined;
+  if (input.capabilityRequestSource !== 'propose_capability') {
+    return 'Capability requests must use propose_capability, not request_permission.';
+  }
+  const definitions = semanticCapabilityDefinitionsForToolInput(
+    input.toolInput,
+  );
+  if (!definitions?.[input.capabilityId]) {
+    return 'Capability proposals must include a reviewed semantic capability definition.';
+  }
+  return undefined;
 }
 
 function strictRuleContent(value: unknown): string | undefined | null {

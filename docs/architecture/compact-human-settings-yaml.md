@@ -8,6 +8,11 @@ the file understandable to a non-technical admin by rendering only values the
 user can reasonably change and by hiding defaults, internal IDs, timestamps, and
 artifact hashes.
 
+`gantry settings validate` is the strict schema check for manual edits. It
+parses the same compact and verbose settings shapes used by runtime startup and
+admin update flows, rejects unsupported keys and duplicate YAML keys, and does
+not require Postgres, provider credentials, or runtime preflight checks.
+
 The current file is confusing because it mixes `agent` and `agents`, separates
 `conversations` from `bindings`, exposes empty defaults, and uses opaque skill
 UUIDs that do not help users recognize or manage skills.
@@ -78,6 +83,64 @@ defaults. `denylist` and `denylist_paths` are user additions; the effective
 runtime policy always merges them with the shipped command and path defaults
 unless `enabled: false`.
 
+## Settings Ownership
+
+`settings.yaml` is desired state, not runtime history. It has three ownership
+lanes:
+
+- User/admin editable configuration: values a local operator may edit, validate,
+  and apply through setup, CLI, Control API admin routes, or reviewed settings
+  tools.
+- Agent-requested reviewed changes: values an agent can ask to change, but only
+  Gantry writes them after the user/admin approval flow succeeds.
+- Runtime-owned state: data that must stay out of `settings.yaml` and live in
+  Postgres, Credential Center, runtime secrets, logs, or artifact stores.
+
+Supported settings roots:
+
+| Root                   | Ownership lane                          | Notes                                                                                                                                        |
+| ---------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaults`             | User/admin editable                     | Compact defaults for display name, chat model, and job model defaults.                                                                       |
+| `agent`                | User/admin editable, verbose form       | Verbose global agent defaults after compact normalization.                                                                                   |
+| `agents`               | Mixed                                   | Identity/model/persona fields are user/admin editable; `sources` and `capabilities` may also be written by approved source/capability flows. |
+| `providers`            | User/admin editable                     | Provider enablement and compact runtime-secret env references.                                                                               |
+| `provider_connections` | User/admin editable, advanced form      | Explicit provider connection records for multi-connection or imported state.                                                                 |
+| `conversations`        | User/admin editable                     | External conversation id, kind, display name, approvers, sender policy, trigger, bound agent, and optional model override.                   |
+| `bindings`             | User/admin editable, advanced form      | Explicit route bindings when compact conversation ownership is not enough.                                                                   |
+| `memory`               | User/admin editable                     | Memory, embeddings, dreaming, LLM model aliases, and maintenance knobs.                                                                      |
+| `permissions`          | User/admin editable                     | YOLO-mode additions and egress denylist.                                                                                                     |
+| `browser`              | User/admin editable                     | Browser usage policy and per-site limits.                                                                                                    |
+| `runtime`              | User/admin editable, operational tuning | Runtime queue concurrency and retry policy. Restart after changing queue values.                                                             |
+| `storage`              | User/admin editable, advanced form      | Postgres URL env key and schema only; the URL itself is not stored here.                                                                     |
+| `model_access`         | User/admin editable, advanced form      | Gantry model gateway enablement and loopback bind host only.                                                                                 |
+| `desired_state`        | Admin/export flow                       | Desired-state reconciliation switch.                                                                                                         |
+
+`agents.<id>.sources` is inventory. Installing a skill, connecting an MCP
+server, attaching a built-in, adapter, or local CLI may update this list after
+review, but it never grants authority by itself.
+
+`agents.<id>.capabilities` is durable authority. Agents may request capability
+changes with `capability_search`, `propose_capability`, and
+`manage_capability`; Gantry writes the selected capability only after the
+approval flow succeeds. `request_permission` remains the exact one-off fallback,
+not the normal path for durable semantic authority.
+
+Optional queue tuning:
+
+```yaml
+runtime:
+  queue:
+    max_message_runs: 3
+    max_job_runs: 4
+    max_retries: 5
+    base_retry_ms: 5000
+```
+
+Runtime-owned state must not be mirrored into settings: message transcripts,
+job runs, run events, audit events, memory records, generated runtime
+directories, artifact hashes, Postgres projection rows, raw provider secrets,
+model credentials, and capability secret values.
+
 ## Inherited Settings Documentation
 
 The implementation must include user-facing documentation that explains how
@@ -132,14 +195,13 @@ agents:
     sources:
       skills:
         - name: company-handbook
-          id: "skill:266c421f-a072-44f7-9cb0-43c52eba8ad9"
-          version: approved
+          id: 'skill:266c421f-a072-44f7-9cb0-43c52eba8ad9'
 ```
 
-The skill catalog keeps internal IDs, artifact hashes, versions, and audit
-history. The `name` field is a display hint exported from the catalog; editing
-or deleting it must not change what runs. The `id` field is the source of truth
-for selection, validation, runtime materialization, and duplicate-name
+The skill catalog keeps internal IDs, storage pointers, and audit history. The
+`name` field is a display hint exported from the catalog; editing or deleting
+it must not change what runs. The `id` field is the source of truth for
+selection, validation, runtime materialization, and duplicate-name
 disambiguation. CLI/API/admin-tool output should show `name (skill:<id>)` when
 space allows, while artifact refs remain debug detail.
 
@@ -156,7 +218,7 @@ space allows, while artifact refs remain debug detail.
 | Gantry MCP/admin skill      | Changed              | Settings patch tools use compact fields and skill aliases.                                       |
 | Channel/provider adapters   | Unchanged by design  | Runtime adapter behavior stays the same.                                                         |
 | Docs/prompts                | Changed              | Add settings guide with inherited setting examples and reset behavior.                           |
-| Audit/events                | Read-only/observable | Skill version and artifact history remain in DB/artifact stores.                                 |
+| Audit/events                | Read-only/observable | Skill artifact history remains in DB/artifact stores.                                            |
 | Tests/verification          | Changed              | Add parse/render/reconcile and effective-source tests.                                           |
 
 ## Implementation Notes
@@ -189,6 +251,6 @@ space allows, while artifact refs remain debug detail.
 
 - This is a single clean cut because Gantry is still early-stage.
 - Runtime/audit/history data stays out of `settings.yaml`.
-- Skill aliases are the user-facing contract; IDs and artifact hashes are
+- Skill aliases are the user-facing contract; IDs and artifact refs are
   internal.
 - Defaults should be invisible unless the user changes them.

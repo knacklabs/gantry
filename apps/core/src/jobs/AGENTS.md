@@ -22,7 +22,7 @@
   updated, and pass the remaining deadline through maintenance queues into the
   actual subsystem instead of relying on stale-lease recovery as the timeout.
 - `request_skill_install` has two distinct IPC outcomes: staged `files` go
-  through skill draft approval and, on approval, immediately approve, bind,
+  through same-channel approval and, on approval, immediately install, bind,
   sync settings, and return immediate skill context; `installCommandArgv`
   without files goes through the same approval, then runs the exact argv in a
   temporary staging directory with scrubbed env, imports the produced

@@ -23,6 +23,123 @@ describe('Postgres migration journal', () => {
     }
   });
 
+  it('registers the semantic memory vectors migration and schema', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0070_semantic_memory_vectors',
+    );
+    expect(entry).toMatchObject({ idx: 70 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0070_semantic_memory_vectors.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN IF NOT EXISTS embedding vector(1536)',
+    );
+    expect(migration).toContain('USING hnsw (embedding vector_cosine_ops)');
+    expect(migration).toContain(
+      "WHERE status = 'ready' AND embedding IS NOT NULL",
+    );
+    expect(migration).toContain('idx_memory_item_embeddings_ready_lookup');
+    expect(migration).toContain(
+      'ON memory_item_embeddings(provider, model, status, provider_batch_id, updated_at, item_id)',
+    );
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS memory_embedding_backfill_runs',
+    );
+    expect(migration).toContain('run_id uuid');
+    expect(migration).toContain('idx_memory_embedding_backfill_runs_running');
+    expect(migration).toContain("WHERE status = 'running' AND mode = 'inline'");
+
+    const schema = fs.readFileSync(
+      path.resolve('apps/core/src/adapters/storage/postgres/schema/schema.ts'),
+      'utf8',
+    );
+    expect(schema).toContain('memoryEmbeddingBackfillRunsPostgres');
+    expect(schema).toContain("vector('embedding', { dimensions: 1536 })");
+    expect(schema).toContain('idx_memory_item_embeddings_hnsw');
+    expect(schema).toContain('idx_memory_item_embeddings_ready_lookup');
+  });
+
+  it('keeps model credential auth migration safe after branch migration id collisions', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0068_model_credential_auth_mode.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS model_credentials');
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_model_credentials_app_provider',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN IF NOT EXISTS auth_mode text NOT NULL DEFAULT',
+    );
+    expect(
+      migration.indexOf('CREATE TABLE IF NOT EXISTS model_credentials'),
+    ).toBeLessThan(migration.indexOf('ADD COLUMN IF NOT EXISTS auth_mode'));
+  });
+
+  it('registers agent config source and capability column cleanup migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0072_agent_config_source_capability_columns',
+    );
+    expect(entry).toMatchObject({ idx: 72 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0072_agent_config_source_capability_columns.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN IF NOT EXISTS capability_refs_json',
+    );
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS source_refs_json');
+    expect(migration).toContain('SET capability_refs_json = tool_ids_json');
+    expect(migration).toContain('SET source_refs_json = skill_ids_json');
+    expect(migration).toContain('DROP COLUMN IF EXISTS tool_ids_json');
+    expect(migration).toContain('DROP COLUMN IF EXISTS skill_ids_json');
+  });
+
+  it('registers skill catalog tool refs cleanup migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0073_skill_catalog_tool_refs_column',
+    );
+    expect(entry).toMatchObject({ idx: 73 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0073_skill_catalog_tool_refs_column.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS tool_refs_json');
+    expect(migration).toContain('SET tool_refs_json = tool_ids_json');
+    expect(migration).toContain('DROP COLUMN IF EXISTS tool_ids_json');
+  });
+
   it('applies the memory schema migration on fresh databases', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
@@ -571,6 +688,28 @@ describe('Postgres migration journal', () => {
     expect(migration).not.toContain("COALESCE(thread_id, '')");
   });
 
+  it('keeps pending skill and MCP drafts disabled during simple capability cutover', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0069_simple_capability_lifecycle.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain(
+      "WHEN status IN ('active', 'approved') THEN 'installed'",
+    );
+    expect(migration).toContain(
+      "WHEN status IN ('draft', 'rejected') THEN 'disabled'",
+    );
+    expect(migration).toContain(
+      "WHEN status IN ('approved', 'active') THEN 'active'",
+    );
+    expect(migration).toContain("WHEN status = 'draft' THEN 'disabled'");
+    expect(migration).not.toContain("'draft') THEN 'installed'");
+    expect(migration).not.toContain("'draft', 'active') THEN 'active'");
+  });
+
   it('registers message attachment message lookup index migration and schema', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
@@ -753,7 +892,7 @@ describe('Postgres migration journal', () => {
     expect(sessionDeletePolicyMigration).toContain('ON DELETE SET NULL');
   });
 
-  it('keeps skill draft persistence indexes aligned with one binding per agent skill', () => {
+  it('keeps skill persistence indexes aligned with one binding per agent skill', () => {
     const canonicalMigration = fs.readFileSync(
       path.resolve(
         'apps/core/src/adapters/storage/postgres/schema/migrations/0009_canonical_persistence_adapter_cut.sql',
@@ -775,6 +914,12 @@ describe('Postgres migration journal', () => {
     const repository = fs.readFileSync(
       path.resolve(
         'apps/core/src/adapters/storage/postgres/repositories/skill-repository.postgres.ts',
+      ),
+      'utf8',
+    );
+    const simpleCapabilityMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0069_simple_capability_lifecycle.sql',
       ),
       'utf8',
     );
@@ -812,7 +957,14 @@ describe('Postgres migration journal', () => {
     expect(skillOwnerScopedMigration).toContain(
       "ON skill_catalog(app_id, (coalesce(agent_id, '')), name, version)",
     );
-    expect(repository).toContain(
+    expect(simpleCapabilityMigration).toContain(
+      'DROP INDEX IF EXISTS idx_skill_catalog_app_hash',
+    );
+    expect(simpleCapabilityMigration).toContain('ranked_skill_slugs');
+    expect(simpleCapabilityMigration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_catalog_app_skill_slug_installed',
+    );
+    expect(repository).not.toContain(
       'coalesce(${pgSchema.skillCatalogPostgres.agentId}',
     );
     expect(repository).toContain('configVersionId: binding.configVersionId');

@@ -1,17 +1,14 @@
 import * as p from '@clack/prompts';
-import { OneCLI } from '@onecli-sh/sdk';
 
 import type { HostCredentialMode } from '../config/credentials/mode.js';
-import { filterTrustedOnecliEnv } from '../adapters/credentials/onecli/env-policy.js';
-import { validateOnecliUrl } from '../adapters/credentials/onecli/policy.js';
+import { listModelRouteProviders } from '../shared/model-provider-registry.js';
 import {
-  MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-  MODEL_RUNTIME_CREDENTIAL_NAME,
-} from '../domain/models/credentials.js';
+  promptModelCredentialPayload,
+  storeModelCredentialInput,
+} from './credentials.js';
 
 export interface CredentialSetupDraft {
   credentialMode: HostCredentialMode;
-  onecliUrl: string;
   postgresSetupKind?: 'local' | 'hosted' | 'existing';
 }
 
@@ -21,141 +18,103 @@ export type CredentialStepAction =
   | { type: 'resume' }
   | { type: 'cancel' };
 
-export const DEFAULT_LOCAL_ONECLI_URL = 'http://localhost:10254';
-
-async function validateOneCLIReachability(
-  onecliUrl: string,
-): Promise<{ ok: boolean; message: string }> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const urlValidation = validateOnecliUrl(onecliUrl);
-    if (!urlValidation.ok || !urlValidation.normalizedUrl) {
-      return {
-        ok: false,
-        message: urlValidation.error || 'Invalid OneCLI URL.',
-      };
-    }
-    const client = new OneCLI({ url: urlValidation.normalizedUrl });
-    await client.ensureAgent({
-      name: MODEL_RUNTIME_CREDENTIAL_NAME,
-      identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-    });
-    const config = await Promise.race([
-      client.getContainerConfig(MODEL_RUNTIME_CREDENTIAL_IDENTIFIER),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error('connection timed out after 8 seconds'));
-        }, 8_000);
-      }),
-    ]);
-    filterTrustedOnecliEnv(config.env || {});
-    return {
-      ok: true,
-      message: `Connected to OneCLI at ${urlValidation.normalizedUrl}`,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      ok: false,
-      message: `OneCLI check failed for ${onecliUrl}: ${message}`,
-    };
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-}
-
 export async function verifyModelAccess(
-  onecliUrl: string,
+  _url?: string,
 ): Promise<{ ok: boolean; message: string; nextAction?: string }> {
-  const check = await validateOneCLIReachability(onecliUrl);
-  if (!check.ok) {
-    return {
-      ok: false,
-      message: check.message,
-      nextAction:
-        'Open Model Access, add the required Claude/OpenRouter credentials once, then rerun `gantry setup`.',
-    };
-  }
   return {
     ok: true,
-    message: 'Model Access check passed with broker-safe configuration.',
+    message:
+      'Gantry Model Gateway credentials are stored in Postgres and validated during model preflight.',
   };
 }
 
 export async function runCredentialsStep(
   draft: CredentialSetupDraft,
+  runtimeHome: string,
 ): Promise<CredentialStepAction> {
+  draft.credentialMode = 'gantry';
+  const providers = listModelRouteProviders();
+  const selectedProvider = await p.select({
+    message: 'Model access provider',
+    options: providers.map((provider) => ({
+      value: provider.id,
+      label: provider.label,
+      hint: provider.supportedWorkloads.join(', '),
+    })),
+  });
+  if (p.isCancel(selectedProvider)) return { type: 'cancel' };
+  const provider = providers.find((item) => item.id === selectedProvider);
+  if (!provider) return { type: 'cancel' };
+  const selectedMode =
+    provider.credentialModes.length === 1
+      ? provider.credentialModes[0]!.id
+      : await p.select({
+          message: 'Credential auth mode',
+          options: provider.credentialModes.map((mode) => ({
+            value: mode.id,
+            label: mode.label,
+            hint: mode.helpText,
+          })),
+        });
+  if (p.isCancel(selectedMode)) return { type: 'cancel' };
+  const selectedModeId = String(selectedMode);
+  const selectedCredentialMode = provider.credentialModes.find(
+    (mode) => mode.id === selectedModeId,
+  );
   p.note(
     [
-      'Model Access gives agents brokered access to Claude and other model providers.',
-      'Claude/OpenRouter credentials are configured once and apply to every agent, subagent, memory run, and scheduled job.',
-      'The agent runner receives broker-safe model endpoint settings only. Proxy, certificate, and raw Claude credential values are ignored.',
+      'Gantry stores the real provider credential encrypted in Credential Center.',
+      selectedModeId === 'claude_code_oauth'
+        ? 'The trusted Claude Code SDK runner receives the Claude Code OAuth token; tools and skills do not.'
+        : 'Sandboxed agent runners receive only a loopback gateway URL and a short-lived gtw_* token.',
+      selectedModeId === 'claude_code_oauth'
+        ? 'Claude Code owns the OAuth auth path; Gantry only stores and scopes the projection.'
+        : 'The trusted host injects the real provider auth only when forwarding approved model API calls.',
+    ].join('\n'),
+    'Model Access',
+  );
+  const captureChoice = await p.select({
+    message: 'Store this model credential now?',
+    options: [
+      {
+        value: 'store',
+        label: 'Store now',
+        hint: 'Recommended: finish Model Access setup in this flow.',
+      },
+      {
+        value: 'defer',
+        label: 'Do later',
+        hint: `Show the exact \`gantry credentials model set ${provider.id}\` command.`,
+      },
+    ],
+  });
+  if (p.isCancel(captureChoice)) return { type: 'cancel' };
+  if (captureChoice === 'store') {
+    const credentialInput = await promptModelCredentialPayload(provider.id, {
+      authMode: selectedModeId,
+    });
+    if (!credentialInput) return { type: 'cancel' };
+    await storeModelCredentialInput({
+      runtimeHome,
+      providerId: provider.id,
+      authMode: credentialInput.authMode,
+      payload: credentialInput.payload,
+    });
+    p.log.success(
+      `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
+    );
+    return { type: 'next' };
+  }
+  p.note(
+    [
+      `${provider.label} uses ${selectedCredentialMode?.label ?? selectedModeId} credentials.`,
+      `Run \`gantry credentials model set ${provider.id}\` after setup to store the credential.`,
+      selectedModeId === 'claude_code_oauth'
+        ? 'The agent runner receives the OAuth token only in the private Claude Code SDK model credential env.'
+        : 'The agent runner receives a loopback gateway token, not raw provider keys.',
       'Channel, Postgres, and runtime-owned secrets still stay in runtime .env.',
     ].join('\n'),
     'Model Access',
   );
-
-  while (true) {
-    draft.credentialMode = 'onecli';
-    draft.onecliUrl = draft.onecliUrl || DEFAULT_LOCAL_ONECLI_URL;
-    p.note(
-      [
-        `Model Access URL: ${draft.onecliUrl}`,
-        'For normal local setup this is the local OneCLI dashboard. Setup does not ask for this URL.',
-        'Start OneCLI with the provided docker-compose.yml or your own service before continuing.',
-      ].join('\n'),
-      'Model Access URL',
-    );
-
-    const spinner = p.spinner();
-    spinner.start('Validating Model Access...');
-    const check = await validateOneCLIReachability(draft.onecliUrl);
-    spinner.stop(
-      check.ok
-        ? 'Model Access validation passed'
-        : 'Model Access validation failed',
-    );
-
-    if (check.ok) {
-      p.note(
-        `${check.message}\nLocal Claude credentials will be removed from runtime .env.`,
-        'Model Access',
-      );
-      return { type: 'next' };
-    }
-
-    p.note(
-      `${check.message}\nNext action: confirm Model Access URL and gateway availability.`,
-      'Model Access Validation',
-    );
-
-    const followUp = await p.select({
-      message: 'Model Access must be reachable before agents can run.',
-      options: [
-        {
-          value: 'retry',
-          label: 'Retry OneCLI check (Recommended)',
-        },
-        {
-          value: 'back',
-          label: 'Back',
-        },
-        {
-          value: 'resume',
-          label: 'Resume Later',
-        },
-        {
-          value: 'cancel',
-          label: 'Cancel Setup',
-        },
-      ],
-    });
-    if (p.isCancel(followUp)) return { type: 'resume' };
-    if (followUp === 'retry') {
-      continue;
-    }
-    if (followUp === 'back') return { type: 'back' };
-    if (followUp === 'resume') return { type: 'resume' };
-    return { type: 'cancel' };
-  }
+  return { type: 'next' };
 }

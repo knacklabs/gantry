@@ -9,10 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       GANTRY_DB_USER: gantry_app
       GANTRY_DB_PASSWORD: ${GANTRY_DB_PASSWORD:-gantry_app_password}
-      ONECLI_DB_USER: onecli_app
-      ONECLI_DB_PASSWORD: ${ONECLI_DB_PASSWORD:-onecli_app_password}
       GANTRY_SCHEMA: gantry
-      ONECLI_SCHEMA: onecli
       PGBOSS_SCHEMA: pgboss
     ports:
       - '127.0.0.1:5432:5432'
@@ -21,32 +18,6 @@ services:
       - ./ops/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d gantry']
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
-  onecli:
-    image: ghcr.io/onecli/onecli@sha256:88e8d6688789d4e4acca51a4bfa0916d1c546b1bb56e5901db1085243790eb6f
-    container_name: gantry-onecli
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://onecli_app:${ONECLI_DB_PASSWORD:-onecli_app_password}@postgres:5432/gantry?schema=onecli
-      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:?Set SECRET_ENCRYPTION_KEY before starting OneCLI}
-      DO_NOT_TRACK: '1'
-    ports:
-      - '127.0.0.1:10254:10254'
-      - '127.0.0.1:10255:10255'
-    volumes:
-      - ${ONECLI_DATA:-${HOME}/gantry/onecli}:/app/data
-    healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          'wget -qO- http://127.0.0.1:10255/healthz >/dev/null 2>&1 || exit 1',
-        ]
       interval: 2s
       timeout: 3s
       retries: 30

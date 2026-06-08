@@ -98,6 +98,47 @@ afterEach(() => {
 });
 
 describe('admin IPC handlers', () => {
+  it('rejects remote MCP server requests before approval because runtime cannot project them yet', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_mcp_server({
+      data: taskData('remote-mcp', {
+        type: 'request_mcp_server',
+        chatJid: 'sl:C123',
+        targetJid: 'sl:C123',
+        payload: {
+          name: 'github',
+          transport: 'http',
+          origin: 'https://mcp.example.test/github',
+          reason: 'Use the github MCP server.',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'remote-mcp')).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error:
+        'request_mcp_server supports only stdio_template servers until Gantry has a DNS-pinned remote MCP transport.',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('rejects direct request_permission semantic capability requests outside propose_capability', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
@@ -116,7 +157,7 @@ describe('admin IPC handlers', () => {
         chatJid: 'sl:C123',
         payload: {
           permissionKind: 'tool',
-          capabilityId: 'google.sheets.write',
+          capabilityId: 'acme.records.append',
           temporaryOnly: false,
           reason: 'write leads',
         },
@@ -136,6 +177,49 @@ describe('admin IPC handlers', () => {
       code: 'invalid_request',
       error:
         'Capability requests must use propose_capability, not request_permission.',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects request_permission semantic proposals without a reviewed definition', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('forged-capability-proposal', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'propose_capability',
+          capabilityId: 'acme.records.append',
+          temporaryOnly: false,
+          reason: 'write leads',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'forged-capability-proposal'),
+    ).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error:
+        'Capability proposals must include a reviewed semantic capability definition.',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
@@ -289,15 +373,27 @@ describe('admin IPC handlers', () => {
     }));
 
     await adminTaskHandlers.request_permission({
-      data: taskData('request-generic-sheets', {
+      data: taskData('request-generic-records', {
         type: 'request_permission',
         chatJid: 'sl:C123',
         jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
           capabilityRequestSource: 'propose_capability',
-          capabilityId: 'google.sheets.write',
-          capabilityDisplayName: 'Google Sheets write',
+          capabilityId: 'acme.records.append',
+          capabilityDisplayName: 'Acme records append',
+          semanticCapabilityDefinition: {
+            capabilityId: 'acme.records.append',
+            displayName: 'Acme records append',
+            category: 'Acme Records',
+            risk: 'write',
+            can: 'Append rows through a configured adapter.',
+            cannot: 'Receive raw credentials.',
+            credentialSource: 'configured_access',
+            implementationBindings: [
+              { kind: 'adapter', adapterRef: 'adapter:google-records' },
+            ],
+          },
           temporaryOnly: false,
           reason: 'write leads',
         },
@@ -309,16 +405,16 @@ describe('admin IPC handlers', () => {
           getJobById: vi.fn(async () => ({
             capability_requirements: [
               {
-                capabilityId: 'google.sheets.write',
+                capabilityId: 'acme.records.append',
                 reason: 'write leads',
                 implementation: {
                   kind: 'local_cli',
-                  name: 'gog',
-                  executablePath: '/usr/local/bin/gog',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
                   executableVersion: 'v0.9.0',
                   executableHash: 'sha256:abc123',
                   commandTemplate:
-                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                    '/usr/local/bin/acme records append <sheet_id> ...',
                 },
               },
             ],
@@ -329,14 +425,14 @@ describe('admin IPC handlers', () => {
       sourceAgentFolderJids: ['sl:C123'],
     });
 
-    expect(readResponse(runtimeHome, 'request-generic-sheets')).toMatchObject({
+    expect(readResponse(runtimeHome, 'request-generic-records')).toMatchObject({
       ok: false,
       code: 'wrong_capability_lane',
-      error: expect.stringContaining('Google Sheets write using gog'),
+      error: expect.stringContaining('Acme Records Append using acme'),
     });
-    expect(readResponse(runtimeHome, 'request-generic-sheets').error).toContain(
-      'RunCommand(/usr/local/bin/gog sheets append *)',
-    );
+    expect(
+      readResponse(runtimeHome, 'request-generic-records').error,
+    ).toContain('RunCommand(/usr/local/bin/acme records append *)');
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
@@ -353,13 +449,13 @@ describe('admin IPC handlers', () => {
     }));
 
     await adminTaskHandlers.request_permission({
-      data: taskData('request-semantic-toolname-sheets', {
+      data: taskData('request-semantic-toolname-records', {
         type: 'request_permission',
         chatJid: 'sl:C123',
         jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
-          toolName: 'capability:google.sheets.write',
+          toolName: 'capability:acme.records.append',
           temporaryOnly: false,
           reason: 'write leads',
         },
@@ -371,16 +467,16 @@ describe('admin IPC handlers', () => {
           getJobById: vi.fn(async () => ({
             capability_requirements: [
               {
-                capabilityId: 'google.sheets.write',
+                capabilityId: 'acme.records.append',
                 reason: 'write leads',
                 implementation: {
                   kind: 'local_cli',
-                  name: 'gog',
-                  executablePath: '/usr/local/bin/gog',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
                   executableVersion: 'v0.9.0',
                   executableHash: 'sha256:abc123',
                   commandTemplate:
-                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                    '/usr/local/bin/acme records append <sheet_id> ...',
                 },
               },
             ],
@@ -392,12 +488,12 @@ describe('admin IPC handlers', () => {
     });
 
     expect(
-      readResponse(runtimeHome, 'request-semantic-toolname-sheets'),
+      readResponse(runtimeHome, 'request-semantic-toolname-records'),
     ).toMatchObject({
       ok: false,
       code: 'wrong_capability_lane',
       error: expect.stringContaining(
-        'RunCommand(/usr/local/bin/gog sheets append *)',
+        'RunCommand(/usr/local/bin/acme records append *)',
       ),
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
@@ -416,13 +512,13 @@ describe('admin IPC handlers', () => {
     }));
 
     await adminTaskHandlers.request_permission({
-      data: taskData('request-semantic-toolnames-sheets', {
+      data: taskData('request-semantic-toolnames-records', {
         type: 'request_permission',
         chatJid: 'sl:C123',
         jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
-          toolNames: ['capability:google.sheets.write'],
+          toolNames: ['capability:acme.records.append'],
           temporaryOnly: false,
           reason: 'write leads',
         },
@@ -434,16 +530,16 @@ describe('admin IPC handlers', () => {
           getJobById: vi.fn(async () => ({
             capability_requirements: [
               {
-                capabilityId: 'google.sheets.write',
+                capabilityId: 'acme.records.append',
                 reason: 'write leads',
                 implementation: {
                   kind: 'local_cli',
-                  name: 'gog',
-                  executablePath: '/usr/local/bin/gog',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
                   executableVersion: 'v0.9.0',
                   executableHash: 'sha256:abc123',
                   commandTemplate:
-                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                    '/usr/local/bin/acme records append <sheet_id> ...',
                 },
               },
             ],
@@ -455,12 +551,12 @@ describe('admin IPC handlers', () => {
     });
 
     expect(
-      readResponse(runtimeHome, 'request-semantic-toolnames-sheets'),
+      readResponse(runtimeHome, 'request-semantic-toolnames-records'),
     ).toMatchObject({
       ok: false,
       code: 'wrong_capability_lane',
       error: expect.stringContaining(
-        'RunCommand(/usr/local/bin/gog sheets append *)',
+        'RunCommand(/usr/local/bin/acme records append *)',
       ),
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
@@ -479,20 +575,20 @@ describe('admin IPC handlers', () => {
     }));
 
     await adminTaskHandlers.request_permission({
-      data: taskData('request-local-cli-proposal-sheets', {
+      data: taskData('request-local-cli-proposal-records', {
         type: 'request_permission',
         chatJid: 'sl:C123',
         jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
           capabilityRequestSource: 'propose_capability',
-          capabilityId: 'google.sheets.write',
-          capabilityDisplayName: 'Google Sheets write using gog',
+          capabilityId: 'acme.records.append',
+          capabilityDisplayName: 'Acme records append using acme',
           credentialSource: 'local_cli',
-          executablePath: '/usr/local/bin/gog',
+          executablePath: '/usr/local/bin/acme',
           executableVersion: '1.2.3',
-          executableHash: 'sha256:gog',
-          commandTemplates: ['/usr/local/bin/gog sheets append *'],
+          executableHash: 'sha256:acme',
+          commandTemplates: ['/usr/local/bin/acme records append *'],
           temporaryOnly: false,
           reason: 'write leads',
         },
@@ -504,16 +600,16 @@ describe('admin IPC handlers', () => {
           getJobById: vi.fn(async () => ({
             capability_requirements: [
               {
-                capabilityId: 'google.sheets.write',
+                capabilityId: 'acme.records.append',
                 reason: 'write leads',
                 implementation: {
                   kind: 'local_cli',
-                  name: 'gog',
-                  executablePath: '/usr/local/bin/gog',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
                   executableVersion: 'v0.9.0',
                   executableHash: 'sha256:abc123',
                   commandTemplate:
-                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                    '/usr/local/bin/acme records append <sheet_id> ...',
                 },
               },
             ],
@@ -525,12 +621,12 @@ describe('admin IPC handlers', () => {
     });
 
     expect(
-      readResponse(runtimeHome, 'request-local-cli-proposal-sheets'),
+      readResponse(runtimeHome, 'request-local-cli-proposal-records'),
     ).toMatchObject({
       ok: false,
       code: 'wrong_capability_lane',
       error: expect.stringContaining(
-        'RunCommand(/usr/local/bin/gog sheets append *)',
+        'RunCommand(/usr/local/bin/acme records append *)',
       ),
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
@@ -559,20 +655,20 @@ describe('admin IPC handlers', () => {
       payload: {
         permissionKind: 'tool',
         toolName: 'Bash',
-        rule: '/usr/local/bin/gog sheets append *',
+        rule: '/usr/local/bin/acme records append *',
         temporaryOnly: false,
-        reason: 'write leads with gog',
+        reason: 'write leads with acme',
       },
     };
     await adminTaskHandlers.request_permission({
-      data: taskData('request-gog-1', baseTask) as never,
+      data: taskData('request-acme-1', baseTask) as never,
       sourceAgentFolder: 'main_agent',
       deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
       conversationBindings: {},
       sourceAgentFolderJids: ['sl:C123'],
     });
     await adminTaskHandlers.request_permission({
-      data: taskData('request-gog-2', baseTask) as never,
+      data: taskData('request-acme-2', baseTask) as never,
       sourceAgentFolder: 'main_agent',
       deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
       conversationBindings: {},
@@ -580,11 +676,11 @@ describe('admin IPC handlers', () => {
     });
 
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
-    expect(readResponse(runtimeHome, 'request-gog-1')).toMatchObject({
+    expect(readResponse(runtimeHome, 'request-acme-1')).toMatchObject({
       ok: true,
       code: 'capability_request_recorded',
     });
-    expect(readResponse(runtimeHome, 'request-gog-2')).toMatchObject({
+    expect(readResponse(runtimeHome, 'request-acme-2')).toMatchObject({
       ok: true,
       code: 'capability_request_already_pending',
     });
@@ -679,7 +775,7 @@ describe('admin IPC handlers', () => {
     expect(readResponse(runtimeHome, 'skill-missing-app')).toMatchObject({
       ok: false,
       code: 'forbidden',
-      error: 'Skill draft requests require signed app scope.',
+      error: 'Skill proposal requests require signed app scope.',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });

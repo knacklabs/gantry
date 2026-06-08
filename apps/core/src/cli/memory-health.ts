@@ -1,4 +1,5 @@
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
+import { DEFAULT_EMBED_MODEL } from '../config/settings/runtime-settings-defaults.js';
 import {
   createEmbeddingProvider,
   isEmbeddingProviderRegistered,
@@ -119,7 +120,7 @@ export function inspectMemoryHealth(
       : 'disabled'
     : 'disabled';
   const embeddingModel =
-    settingsMemory?.embeddings.model || 'text-embedding-3-large';
+    settingsMemory?.embeddings.model || DEFAULT_EMBED_MODEL;
 
   const memoryCheck = inspectMemoryStorage(memoryEnabled);
   const embeddingCheck = inspectEmbeddings({

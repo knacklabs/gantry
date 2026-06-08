@@ -100,15 +100,15 @@ describe('job tool access requirements', () => {
   it('treats an absolute local CLI grant as satisfying a stale bare executable requirement', () => {
     expect(
       evaluateToolAccessRequirements({
-        toolAccessRequirements: ['RunCommand(gog sheets get *)'],
+        toolAccessRequirements: ['RunCommand(acme records get *)'],
         effectiveAllowedTools: [
-          'capability:gog.sheets.get',
-          'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+          'capability:acme.records.get',
+          'RunCommand(/opt/homebrew/bin/acme records get *)',
         ],
       }),
     ).toEqual({
       toolAccessRequirements: [
-        'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+        'RunCommand(/opt/homebrew/bin/acme records get *)',
       ],
       missingTools: [],
     });
@@ -118,15 +118,15 @@ describe('job tool access requirements', () => {
     expect(
       evaluateToolAccessRequirements({
         toolAccessRequirements: [
-          'RunCommand(gog sheets get "Bot Recommendation!A1:Z1" --json *)',
+          'RunCommand(acme records get "Bot Recommendation!A1:Z1" --json *)',
         ],
         effectiveAllowedTools: [
-          'RunCommand(/opt/homebrew/bin/gog sheets get * --json *)',
+          'RunCommand(/opt/homebrew/bin/acme records get * --json *)',
         ],
       }),
     ).toEqual({
       toolAccessRequirements: [
-        "RunCommand(/opt/homebrew/bin/gog sheets get 'Bot Recommendation!A1:Z1' --json *)",
+        "RunCommand(/opt/homebrew/bin/acme records get 'Bot Recommendation!A1:Z1' --json *)",
       ],
       missingTools: [],
     });
@@ -135,26 +135,26 @@ describe('job tool access requirements', () => {
   it('does not satisfy a bare executable requirement with a different absolute CLI grant', () => {
     expect(
       evaluateToolAccessRequirements({
-        toolAccessRequirements: ['RunCommand(gog sheets get *)'],
+        toolAccessRequirements: ['RunCommand(acme records get *)'],
         effectiveAllowedTools: [
-          'RunCommand(/opt/homebrew/bin/gog sheets update *)',
+          'RunCommand(/opt/homebrew/bin/acme records update *)',
         ],
       }),
     ).toEqual({
-      toolAccessRequirements: ['RunCommand(gog sheets get *)'],
-      missingTools: ['RunCommand(gog sheets get *)'],
+      toolAccessRequirements: ['RunCommand(acme records get *)'],
+      missingTools: ['RunCommand(acme records get *)'],
     });
   });
 
   it('builds durable recovery actions for scoped RunCommand requirements', () => {
     const action = toolAccessRequirementRecoveryAction(
-      'RunCommand(gog sheets append *)',
+      'RunCommand(acme records append *)',
     );
 
     expect(action).toContain('"toolName":"RunCommand"');
-    expect(action).toContain('"rule":"gog sheets append *"');
+    expect(action).toContain('"rule":"acme records append *"');
     expect(action).not.toContain(
-      '"toolName":"RunCommand(gog sheets append *)"',
+      '"toolName":"RunCommand(acme records append *)"',
     );
   });
 });

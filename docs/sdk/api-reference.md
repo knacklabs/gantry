@@ -97,9 +97,9 @@ DELETE /v1/agents/:agentId/conversation-bindings/:conversationId
 ```
 
 Agents expose `sources` and `capabilities` as separate API surfaces.
-`sources` lists attached approved resources such as skills, MCP servers,
+`sources` lists attached installed resources such as skills, MCP servers,
 built-in tools, adapters, and local CLIs. `capabilities` is the only durable
-grant list and contains approved capability ids plus immutable versions.
+grant list and contains selected capability ids.
 Conversations own sender policy, trigger policy, bound agents, sessions, and
 control approvers. Control approvers must be members of the Conversation and
 are used for both direct/private and group/channel approval flows. There is no
@@ -118,9 +118,9 @@ Agent-facing tools:
 - `request_skill_install`: reviewed skill install requests with staged package files or an installer command that produces a `SKILL.md` package in host-controlled staging.
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
-- `request_mcp_server`: third-party MCP server requests with transport, origin, tool patterns, credential needs, and reason.
+- `request_mcp_server`: third-party MCP server requests with a reviewed `stdio_template`, sandbox profile, tool patterns, credential needs, and reason.
 - `request_permission`: one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand` fallback when no reviewed semantic capability fits.
-- `capability_search`: search built-in semantic capabilities such as `google.sheets.write`.
+- `capability_search`: search reviewed semantic capabilities generated from attached tools, skills, MCP servers, adapters, and CLI manifests.
 - `propose_capability`: request an approved semantic capability when the id already exists, or propose a reviewed `local_cli` capability with pinned executable path/version/hash, command templates, preflight, protected paths, and account label.
 - `manage_capability`: view/change/revoke/test/audit guidance for selected capabilities.
 - `capability_status`: current tool access, semantic capability tools, readable configured rules, selected skills, selected MCP servers, and request arguments for missing admin tools.
@@ -128,17 +128,17 @@ Agent-facing tools:
 - `request_settings_update`: selected-capability reviewed edit to non-secret `settings.yaml` desired state.
 - `admin_permission_list`: selected-capability list of current-agent persistent Gantry MCP grants.
 - `admin_permission_revoke`: selected-capability revocation of a current-agent persistent Gantry MCP grant.
-- `mcp_list_tools` / `mcp_call_tool`: list and call approved third-party MCP tools through the Gantry proxy.
+- `mcp_list_tools` / `mcp_call_tool`: list and call connected third-party MCP tools through the Gantry proxy.
 - `service_restart`: selected-capability restart after approved changes that require host restart.
 - `register_agent`: selected-capability binding of a channel conversation to an agent.
 
 Every persistent capability change follows request, validation, review,
 decision, durable audit, new config version, and next-run activation.
 Persistent agent grants are mirrored into `settings.yaml` as readable
-`agents.<id>.capabilities` entries such as `google.sheets.write`,
+`agents.<id>.capabilities` entries such as a reviewed app capability,
 `browser.use`, or a reviewed composite capability version. The `browser.use`
 entry projects to the canonical runtime `Browser` tool rule. Sources are
-mirrored under `agents.<id>.sources` and do not grant execution authority by
+mirrored under `agents.<id>.sources` and do not create execution authority by
 themselves. Durable `request_permission` does not mint broad exact SDK/native
 tools or exact third-party MCP tools; those must be represented by selected
 semantic capabilities or reviewed MCP server bindings. Jobs inherit the target
@@ -175,12 +175,12 @@ Capability catalog response:
 {
   "capabilities": [
     {
-      "id": "google.sheets.write",
-      "version": "builtin",
-      "displayName": "Google Sheets write",
-      "category": "Google Sheets",
+      "id": "acme.records.append",
+      "version": "1",
+      "displayName": "Acme records append",
+      "category": "Acme",
       "risk": "write",
-      "source": "builtin"
+      "source": "local_cli"
     }
   ]
 }
@@ -197,11 +197,10 @@ Content-Type: application/json
     "skills": [
       {
         "name": "linkedin-posting",
-        "id": "skill:266c421f-a072-44f7-9cb0-43c52eba8ad9",
-        "version": "approved"
+        "id": "skill:266c421f-a072-44f7-9cb0-43c52eba8ad9"
       }
     ],
-    "mcpServers": [{ "id": "linkedin", "version": 1 }],
+    "mcpServers": [{ "id": "linkedin" }],
     "tools": [{ "id": "browser", "kind": "builtin" }]
   }
 }
@@ -215,7 +214,7 @@ Content-Type: application/json
 
 {
   "capabilities": [
-    { "id": "google.sheets.write", "version": "builtin" },
+    { "id": "acme.records.append", "version": "1" },
     { "id": "browser.use", "version": "builtin" }
   ]
 }
@@ -231,19 +230,18 @@ and projected runtime access:
     "skills": [
       {
         "name": "linkedin-posting",
-        "id": "skill:266c421f-a072-44f7-9cb0-43c52eba8ad9",
-        "version": "approved"
+        "id": "skill:266c421f-a072-44f7-9cb0-43c52eba8ad9"
       }
     ],
-    "mcpServers": [{ "id": "linkedin", "version": 1 }],
+    "mcpServers": [{ "id": "linkedin" }],
     "tools": [{ "id": "browser", "kind": "builtin" }]
   },
   "capabilities": [
-    { "id": "google.sheets.write", "version": "builtin" },
+    { "id": "acme.records.append", "version": "1" },
     { "id": "browser.use", "version": "builtin" }
   ],
   "toolAccess": {
-    "configuredTools": ["capability:google.sheets.write", "Browser"],
+    "configuredTools": ["capability:acme.records.append", "Browser"],
     "defaultTools": [],
     "availableButGatedTools": ["RunCommand", "FileEdit", "FileWrite"],
     "requestableAdminTools": [
@@ -264,18 +262,17 @@ The routes validate catalog ownership, mirror readable entries into
 
 ## Skills
 
-Gantry exposes the reviewable lifecycle for skill drafts and admin-uploaded
-skill packages. The SDK does not expose hosted provider search/import yet.
+Gantry exposes installed skill packages. Admin setup installs a package
+directly; agent-requested installs remain pending review until approval, then
+use the same install-and-bind service path.
 
 ```ts
-client.skillDrafts.upload({
+client.skills.install({
   agentId?,
   createdBy?,
   zip, // Uint8Array containing application/zip bytes
 })
-client.skillDrafts.list({ agentId? })
-client.skillDrafts.approve(skillId, { approvedBy?, target? }) // local | hosted
-client.skillDrafts.reject(skillId, { rejectedBy? })
+client.skills.list({ agentId? })
 
 client.skills.files.list(skillId)
 client.skills.files.get(skillId, path)
@@ -285,14 +282,11 @@ client.agents.skills.enable(agentId, skillId)
 client.agents.skills.disable(agentId, skillId)
 ```
 
-Drafts are durable across restart because metadata lives in Postgres and file
-bytes live as readable skill folders (`skills/<skill-slug>/...` or
-`skill-drafts/<request-id>/<skill-slug>/...`) in the selected file/object
-backend. The database stores metadata, source type, hashes, bindings, and audit
-only. Draft, rejected, and disabled skills are not materialized into per-run
-`CLAUDE_CONFIG_DIR/skills`. Skill name and description are parsed from
+Installed skill metadata lives in Postgres and file bytes live in the selected
+local or object artifact backend. Disabled skills are not materialized into
+per-run `CLAUDE_CONFIG_DIR/skills`. Skill name and description are parsed from
 `SKILL.md`; upload, catalog, URL, and CLI-command installs all become the same
-reviewed local skill package after approval.
+installed local skill package after review.
 
 Agent source responses include a readable skill `name` when the catalog row is
 available, but `id` is the only durable selection authority. Source replacement
@@ -301,24 +295,21 @@ for authorization and returns the current catalog name on the next read/export.
 
 ## MCP Servers
 
-MCP servers are managed as reviewed agent capabilities. The SDK creates drafts,
-admins approve or reject them, and approved versions can be bound to agents.
-Agent-requested MCP servers remain drafts until an admin approves and binds
-them.
+MCP servers are managed as connected agent resources. Admin setup connects the
+current server definition directly. Agent-requested MCP servers remain pending
+review until approval, then use the same connect-and-bind service path.
 
 ```ts
-client.mcpServers.drafts.create({
+client.mcpServers.connect({
   name,
-  transport, // http | sse; stdio_template is control API/SDK only
+  transport, // stdio_template is runtime-projectable today; http/sse fail closed until DNS-pinned remote transport lands.
   config,
   credentialRefs?,
   allowedToolPatterns?,
   autoApproveToolPatterns?,
 })
-client.mcpServers.drafts.list({ limit?, cursor? })
-client.mcpServers.drafts.approve(serverId, { approvedBy? })
-client.mcpServers.drafts.reject(serverId, { rejectedBy?, reason? })
 client.mcpServers.list({ status?, limit?, cursor? })
+client.mcpServers.get(serverId)
 client.mcpServers.test(serverId, { testedBy? })
 client.mcpServers.disable(serverId, { disabledBy?, reason? })
 
@@ -328,7 +319,7 @@ client.agents.mcpServers.update(agentId, serverId, { required?, permissionPolicy
 client.agents.mcpServers.disable(agentId, serverId)
 ```
 
-MCP definitions store Gantry Secret reference names only. Resolved values are
+MCP definitions store Gantry Credential reference names only. Resolved values are
 projected into a private per-run config file with `0600` permissions and
 deleted by the runner after startup and by the host on early spawn failures;
 they are not saved in Claude config, FileArtifacts, or MCP definition rows.
@@ -336,16 +327,16 @@ they are not saved in Claude config, FileArtifacts, or MCP definition rows.
 names. `autoApproveToolPatterns` is session auto-allow scope and must be a
 subset of `allowedToolPatterns` when an explicit allowlist is present.
 Agent-requested MCP credential needs are labels, not raw secret values. The host
-normalizes them to Gantry Secret env names such as `GITHUB_TOKEN` before any
-approved current-run or next-run materialization.
+normalizes them to Gantry Credential env names such as `GITHUB_TOKEN` before any
+current-run or next-run materialization.
 Remote MCP URLs must use HTTPS and cannot target local, private, link-local, or
 metadata hosts. Gantry resolves remote MCP hostnames during approval, testing,
 and each materialization pass and rejects any A/AAAA record in private,
 loopback, link-local, multicast, unspecified, documentation, or metadata ranges.
 Runtime materialization uses a short in-process validation cache for same-batch
 coalescing only; it must not be treated as durable DNS trust.
-Stdio-template MCP servers require an approved sandbox profile and are not
-available from agent-requested or CLI draft creation in this version. The
+Stdio-template MCP servers require an approved sandbox profile and are
+available from agent-requested and CLI connect commands in this version. The
 `npx-package` template accepts exactly one safe npm package argument. MCP server
 bindings are agent-wide in this version. Chat approvals are sent only to the
 trusted originating chat/thread registered for the requesting agent. Conversation
@@ -413,11 +404,15 @@ Postgres `AgentSession`, `Message`, `AgentRun`, and `ProviderSession` records.
 
 ```ts
 const ingress = await client.ingresses.create({
-  name: 'scraper',
+  name: 'ops-ingress',
   metadata: {
     targetPolicy: {
-      allowedTargetKinds: ['session_message', 'job_template'],
-      conversationIds: ['scraper-task-42'],
+      allowedTargetKinds: [
+        'conversation_message',
+        'session_message',
+        'job_template',
+      ],
+      conversationIds: ['conversation:ops-room'],
       templateIds: ['captcha_resolution'],
     },
     templates: {
@@ -445,16 +440,24 @@ Ingress records are scoped capabilities. A signed caller can only invoke target
 kinds and concrete sessions, conversations, jobs, or templates listed in
 `metadata.targetPolicy`; omitted policy fields deny access by default.
 
+Use `conversation_message` when an external system needs to talk to an existing
+Telegram, Slack, Teams, or App/Web conversation. The caller uses Gantry ids from
+`GET /v1/conversations` and `GET /v1/conversations/:id/threads`; raw provider
+ids such as Telegram chat ids or Slack channel ids are not accepted by the
+ingress contract.
+
 ```ts
-import { signIngressRequest } from '@gantry/sdk';
+import { conversationMessageTarget, signIngressRequest } from '@gantry/sdk';
 
 const path = `/v1/ingresses/${ingressId}/invoke`;
 const rawBody = JSON.stringify({
-  target: {
-    kind: 'session_message',
-    conversationId: 'scraper-task-42',
-    message: 'Captcha solved: 1234',
-  },
+  target: conversationMessageTarget({
+    conversationId: 'conversation:ops-room',
+    threadId: 'thread:ops-room:daily',
+    message: 'Build finished; summarize the failure.',
+    senderId: 'ci-worker',
+    senderName: 'CI Worker',
+  }),
 });
 const timestamp = String(Date.now());
 const nonce = crypto.randomUUID();
@@ -467,6 +470,30 @@ const signature = signIngressRequest({
   rawBody,
 });
 ```
+
+`conversation_message` is asynchronous. `/invoke` returns durable acceptance
+with `invocationId`, `duplicate`, `targetKind`, `conversationId`, optional
+`threadId`, `messageId`, and `acceptedEventId`. It never exposes internal queue
+or transport details (`enqueue`, `queueKey`, raw provider chat ids).
+
+Ingress is **inbound invocation** (an external system addressing a Gantry
+conversation); outbound webhooks are **outbound observation** of the resulting
+runtime events. The same logical message applies to every provider — a client
+can present acceptance as:
+
+> Message queued to `<conversation label>`/`<delivery label>`. Replies appear in
+> the provider conversation and outbound webhook events.
+
+`<delivery label>` is a provider-neutral rendering term derived from the
+conversation and thread — for example `Telegram group`/`Telegram topic`,
+`Telegram chat`, `Slack channel`/`Slack thread`, `Slack DM`,
+`Teams conversation`/`Teams reply thread`, or `App conversation`/`App session`.
+These labels are display terms only; they carry no routing authority. Gantry
+`conversationId`/`threadId` remain the only addressing the contract accepts.
+
+The agent response is delivered through the configured conversation adapter,
+and the `conversation.message.inbound` and `conversation.message.outbound`
+runtime events can be observed through outbound webhook delivery.
 
 ## Jobs
 
@@ -516,11 +543,12 @@ client.jobs.trigger(jobId)
 client.jobs.wait(triggerId, timeoutMs?)
 ```
 
-Job create, update, list, get, and trigger responses include `toolAccess` so
-callers can show the inherited target-agent projection. The arrays above are
-readiness assertions; they do not grant tools to the job. Use selected agent
-capabilities, attached sources, or the reviewed Gantry MCP request tools to
-change authority.
+Job create, update, list, get, and trigger responses include `toolAccess` plus
+display-only `ownerLabel`, `deliveryLabel`, `setupLabel`, and `nextActionLabel`
+so callers can show the inherited target-agent projection without parsing raw
+runtime ids. The arrays above are readiness assertions; they do not create tool
+access for the job. Use selected agent capabilities, attached sources, or the
+reviewed Gantry MCP request tools to change authority.
 
 Use `client.models.list()` to inspect supported model aliases, response family,
 route metadata, capabilities, context windows, cache policy, and supported
@@ -538,7 +566,7 @@ await client.models.defaults.update({
 });
 
 await client.models.defaults.update({
-  chat: 'opus-4.7',
+  chat: 'opus-4.8',
   jobs: 'inherit',
   memory: null,
 });
@@ -642,6 +670,10 @@ GET    /v1/models                                  sessions:read
 GET    /v1/models/defaults                         sessions:read
 POST   /v1/models/preview                          sessions:read or jobs:read; stored job previews require jobs:read
 PATCH  /v1/models/defaults                         agents:admin
+GET    /v1/credentials/models                      credentials:read
+PUT    /v1/credentials/models/:providerId          credentials:admin
+PATCH  /v1/credentials/models/:providerId          credentials:admin
+DELETE /v1/credentials/models/:providerId          credentials:admin
 
 GET    /v1/agents                                  agents:admin
 POST   /v1/agents                                  agents:admin
@@ -729,16 +761,14 @@ it does not delete the row.
 ## Agent Skill Bindings
 
 Prefer `PUT /v1/agents/:agentId/sources` for deterministic replacement of
-attached skills. Selecting a skill source does not grant risky skill actions;
+attached skills. Selecting a skill source does not create risky skill action access;
 those actions require selected reviewed capabilities through
 `PUT /v1/agents/:agentId/capabilities`. The routes below remain specialized
-skill draft/file lifecycle routes.
+skill install/file lifecycle routes.
 
 ```http
-POST   /v1/skills/drafts/upload                  skills:admin
-GET    /v1/skills/drafts                         skills:read
-POST   /v1/skills/drafts/:id/approve             skills:admin
-POST   /v1/skills/drafts/:id/reject              skills:admin
+GET    /v1/skills                                 skills:read
+POST   /v1/skills/install                         skills:admin
 GET    /v1/skills/:skillId/files                 skills:read
 GET    /v1/skills/:skillId/files/:path           skills:read
 GET    /v1/agents/:agentId/skills                skills:read
@@ -746,24 +776,22 @@ PUT    /v1/agents/:agentId/skills/:skillId       skills:admin
 DELETE /v1/agents/:agentId/skills/:skillId       skills:admin
 ```
 
-An enabled binding only affects runtime when the skill is approved.
-Approved skills are unpacked into the per-run Claude config from Gantry-owned
+An enabled binding only affects runtime when the skill is installed.
+Installed skills are unpacked into the per-run Claude config from Gantry-owned
 skill artifacts.
 
 ## Agent MCP Server Bindings
 
 Prefer `PUT /v1/agents/:agentId/sources` for deterministic replacement of
-attached MCP servers. Selecting an MCP source does not grant execution by
+attached MCP servers. Selecting an MCP source does not create execution access by
 itself; callable MCP actions must be projected from selected reviewed
-capabilities. The routes below remain specialized MCP draft, validation, and
+capabilities. The routes below remain specialized MCP validation and
 disable lifecycle routes.
 
 ```http
-POST   /v1/mcp-servers/drafts                    mcp:admin
-GET    /v1/mcp-servers/drafts?limit=&cursor=     mcp:read
+POST   /v1/mcp-servers                           mcp:admin
 GET    /v1/mcp-servers?status=&limit=&cursor=    mcp:read
-POST   /v1/mcp-servers/drafts/:id/approve        mcp:admin
-POST   /v1/mcp-servers/drafts/:id/reject         mcp:admin
+GET    /v1/mcp-servers/:id                       mcp:read
 POST   /v1/mcp-servers/:id/test                  mcp:admin
 POST   /v1/mcp-servers/:id/disable               mcp:admin
 GET    /v1/agents/:agentId/mcp-servers?limit=&cursor= mcp:read
@@ -773,7 +801,7 @@ DELETE /v1/agents/:agentId/mcp-servers/:id       mcp:admin + agents:admin
 ```
 
 An enabled MCP binding affects runtime only when the server definition is
-approved. The built-in `gantry` MCP server is internal and is not managed by
+active. The built-in `gantry` MCP server is internal and is not managed by
 these routes. Conversation or thread scoped MCP bindings are not part of this
 API version.
 

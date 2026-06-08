@@ -7,6 +7,7 @@ import {
   searchInputForResolvedMemorySubject,
 } from '../memory/app-memory-subject-resolver.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
+import { getEmbeddingBackfillStatus } from '../memory/app-memory-embedding-status.js';
 import type { AppMemoryItem } from '../memory/memory-types.js';
 import type { MemoryStatusSnapshot } from '../session/session-command-format.js';
 
@@ -166,6 +167,20 @@ async function getContinuityStatusData(
     : undefined;
 }
 
+async function safeEmbeddingStatus(
+  service: AppMemoryService,
+  subject: { appId: string; agentId?: string | null },
+): Promise<Awaited<ReturnType<typeof getEmbeddingBackfillStatus>> | undefined> {
+  try {
+    return await getEmbeddingBackfillStatus(service.db, {
+      appId: subject.appId,
+      agentId: subject.agentId,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getGroupMemoryStatus(
   input:
     | string
@@ -261,6 +276,7 @@ export async function getGroupMemoryStatus(
     continuityStatus?.lastInjectedBlock ??
       continuityStatus?.last_injected_block,
   );
+  const embeddingStatus = await safeEmbeddingStatus(service, subject);
   return {
     items_by_kind: memories.reduce<Record<string, number>>((acc, item) => {
       acc[item.kind] = (acc[item.kind] || 0) + 1;
@@ -279,9 +295,22 @@ export async function getGroupMemoryStatus(
         updated_at: item.updatedAt,
       })),
     retrieval: {
-      searchMode: 'lexical_keyword',
-      embeddings: options.embeddings ?? 'disabled',
-      vectorSearch: 'inactive',
+      searchMode: embeddingStatus?.searchMode ?? 'lexical_keyword',
+      embeddings: embeddingStatus
+        ? embeddingStatus.enabled
+          ? 'configured'
+          : 'disabled'
+        : (options.embeddings ?? 'disabled'),
+      vectorSearch: embeddingStatus?.vectorSearch ?? 'inactive',
+      ...(embeddingStatus?.pauseReason
+        ? { pauseReason: embeddingStatus.pauseReason }
+        : {}),
+      ...(embeddingStatus
+        ? {
+            ready: embeddingStatus.readyItems,
+            pending: embeddingStatus.pending,
+          }
+        : {}),
     },
     memory_pipeline: {
       staged: stagedCount,

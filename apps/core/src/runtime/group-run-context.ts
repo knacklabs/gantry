@@ -4,7 +4,12 @@ import {
   type ConfiguredAgentToolPolicy,
 } from './configured-agent-tools.js';
 import { authorizedMcpServerIdsForAgent } from '../application/mcp/mcp-authorized-servers.js';
+import { skillActionDefinitionsForAgent } from '../application/agents/agent-capability-skill-actions.js';
 import { selectedSkillDisplay } from '../domain/skills/skill-identity.js';
+import {
+  semanticCapabilityFromToolCatalogItem,
+  type SemanticCapabilityDefinition,
+} from '../shared/semantic-capabilities.js';
 
 export function memoryScopeForConversationKind(
   conversationKind?: string,
@@ -83,4 +88,37 @@ export async function resolveTurnSelectedMcpServerIds(
     agentId: turnContext.agentId,
     allowedTools,
   });
+}
+
+export async function resolveTurnSemanticCapabilities(
+  deps: Pick<GroupProcessingDeps, 'getToolRepository' | 'getSkillRepository'>,
+  turnContext?: { appId: string; agentId: string } | null,
+): Promise<SemanticCapabilityDefinition[]> {
+  if (!turnContext) return [];
+  const byId = new Map<string, SemanticCapabilityDefinition>();
+  const toolRepository = deps.getToolRepository?.();
+  if (toolRepository) {
+    const tools = await toolRepository.listTools({
+      appId: turnContext.appId as never,
+      statuses: ['active'],
+    });
+    for (const tool of tools) {
+      const capability = semanticCapabilityFromToolCatalogItem(tool);
+      if (capability) byId.set(capability.capabilityId, capability);
+    }
+  }
+  const skillRepository = deps.getSkillRepository?.();
+  if (skillRepository) {
+    const definitions = await skillActionDefinitionsForAgent({
+      appId: turnContext.appId as never,
+      agentId: turnContext.agentId as never,
+      skillRepository,
+    });
+    for (const definition of Object.values(definitions)) {
+      byId.set(definition.capabilityId, definition);
+    }
+  }
+  return [...byId.values()].sort((left, right) =>
+    left.capabilityId.localeCompare(right.capabilityId),
+  );
 }

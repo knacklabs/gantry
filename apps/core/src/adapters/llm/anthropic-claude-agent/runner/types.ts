@@ -6,6 +6,7 @@ import type {
 import type { AgentPersona } from '../../../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../../../shared/yolo-mode-policy.js';
 import type { CapabilityRuntimeAccess } from '../../../../shared/capability-runtime-access.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -23,9 +24,10 @@ export interface AgentRunnerInput {
   browserProfileName?: string;
   allowedTools?: string[];
   toolAccessRequirements?: string[];
-  selectedSkillIds?: string[];
+  attachedSkillSourceIds?: string[];
   selectedSkillDisplays?: string[];
-  selectedMcpServerIds?: string[];
+  attachedMcpSourceIds?: string[];
+  semanticCapabilities?: SemanticCapabilityDefinition[];
   isScheduledJob?: boolean;
   jobId?: string;
   runId?: string;

@@ -1,6 +1,6 @@
 # Codebase Refactor Principles
 
-Gantry is moving from a personal Anthropic/Claude SDK assistant toward a personal and enterprise agent runtime platform. This refactor must be a clean cut, not a gradual compatibility layer.
+Gantry is moving from earlier Anthropic/Claude SDK runtime code toward a provider-neutral and channel-neutral agent runtime platform. This refactor must be a clean cut, not a gradual compatibility layer.
 
 ## Product Direction
 

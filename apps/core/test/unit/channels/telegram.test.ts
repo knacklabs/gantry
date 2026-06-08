@@ -159,8 +159,11 @@ function createTestOpts(
         postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
       },
       credentialBroker: {
-        onecli: {
-          postgres: { urlEnv: 'ONECLI_DATABASE_URL', schema: 'onecli' },
+        model_gateway: {
+          postgres: {
+            urlEnv: 'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+            schema: 'model_gateway',
+          },
         },
       },
       memory: {
@@ -168,7 +171,7 @@ function createTestOpts(
         embeddings: {
           enabled: false,
           provider: 'disabled',
-          model: 'text-embedding-3-large',
+          model: 'text-embedding-3-small',
         },
         dreaming: { enabled: true },
         llm: {
@@ -1913,6 +1916,27 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('streams in groups even when private draft streaming is unavailable', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      (channel as unknown as { draftStreamApi: null }).draftStreamApi = null;
+
+      const delivered = await channel.sendStreamingChunk(
+        'tg:-1001234567890',
+        'group update',
+        { threadId: '1' },
+      );
+
+      expect(delivered).toBe(true);
+      expect(currentBot().api.sendMessageDraft).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '-1001234567890',
+        'group update',
+        { message_thread_id: 1 },
+      );
+    });
+
     it('does not duplicate final group message when edit returns "message is not modified"', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -2440,6 +2464,7 @@ describe('TelegramChannel', () => {
         {
           requestId: 'perm-command',
           sourceAgentFolder: 'whatsapp_main',
+          targetJid: 'tg:100200300',
           threadId: '42',
           toolName: 'Bash',
           toolInput: {
@@ -2452,7 +2477,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         expect.stringContaining(
-          'Route: shown in this topic/thread; approval applies to the parent conversation.',
+          'Route: shown in this Telegram topic; approval applies to the parent conversation.',
         ),
         expect.objectContaining({ message_thread_id: 42 }),
       );
@@ -2529,7 +2554,7 @@ describe('TelegramChannel', () => {
         '100200300',
         987,
         expect.stringContaining(
-          'Allowed once: exact command access\nFor: RunCommand',
+          'Allowed once: exact command access\nFor: Allow command',
         ),
         expect.objectContaining({
           reply_markup: { inline_keyboard: [] },

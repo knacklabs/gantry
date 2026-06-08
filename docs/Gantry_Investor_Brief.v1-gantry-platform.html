@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gantry — Investor Brief · KnackLabs</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --deep:#0C3529; --deep2:#0A2C22; --emerald:#1C6B49; --mint:#6AF1B0;
+  --white:#fff; --off:#F4F7F6; --paper:#FBFCFB; --slate:#5F706A;
+  --ink:#28332E; --ink2:#3C4A44; --line:#D9E1DD; --amber:#9A6614;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--off);color:var(--ink);line-height:1.72;font-size:16px;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* ===================== COVER (full-bleed dark, page 1) ===================== */
+.cover{position:relative;min-height:820px;display:flex;align-items:stretch;overflow:hidden;
+  background:radial-gradient(130% 100% at 18% 30%, #114635 0%, var(--deep) 55%, var(--deep2) 100%);color:#C8D6D0}
+.cover-top{position:absolute;top:0;left:0;right:0;z-index:4;display:flex;justify-content:space-between;align-items:center;
+  padding:26px 46px;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--slate)}
+.cover-top .brand{font-weight:700;color:#fff;letter-spacing:.32em}
+
+.cover .art{flex:0 0 34%;position:relative;display:flex;align-items:stretch;justify-content:flex-start;overflow:hidden;
+  opacity:.9;
+  -webkit-mask-image:linear-gradient(90deg,#000 80%,transparent 100%);mask-image:linear-gradient(90deg,#000 80%,transparent 100%)}
+.cover .art svg{height:100%;width:100%;display:block}
+
+.cover .text{flex:1;display:flex;flex-direction:column;justify-content:center;z-index:2;padding:70px 60px 70px 8px}
+.kicker{font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.30em;text-transform:uppercase;color:var(--mint);margin-bottom:14px}
+.gantry-word{font-weight:800;color:#fff;font-size:96px;line-height:.92;letter-spacing:-.03em;margin-bottom:18px}
+.gantry-word b{color:var(--mint)}
+.tagline{font-size:19px;color:var(--slate);margin-bottom:26px;max-width:460px}
+.tagline em{color:#C8D6D0;font-style:normal;font-weight:500}
+.intro{max-width:480px;font-size:16.5px;line-height:1.6;color:#C8D6D0}
+.intro b{color:#fff;font-weight:600}
+
+/* ===================== DOCUMENT (off-white, page 2+) ===================== */
+.doc{max-width:760px;margin:0 auto;padding:64px 44px 30px}
+.section{padding:14px 0 30px}
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--emerald);margin-bottom:6px}
+.eyebrow .n{color:var(--slate)}
+h2{font-size:25px;font-weight:700;color:var(--deep);line-height:1.22;letter-spacing:-.01em;margin-bottom:14px}
+h3{font-size:16px;font-weight:700;color:var(--deep);margin:18px 0 2px}
+p{margin-bottom:14px;color:var(--ink2)}
+p.lead{font-size:17px;color:var(--ink)}
+strong{color:var(--deep);font-weight:600}
+a{color:var(--emerald)}
+.rule{height:1px;background:var(--line);border:0;margin:6px 0 30px}
+
+.vision-item{margin-bottom:14px}
+.vision-item .goal{font-weight:700;color:var(--deep)}
+.vision-item .today{color:var(--emerald);font-weight:600}
+
+.voicebox{border-left:3px solid var(--emerald);background:rgba(28,107,73,.05);border-radius:0 8px 8px 0;padding:16px 22px;margin:20px 0 4px}
+.voicebox .vl{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--emerald);margin-bottom:5px}
+.voicebox p{margin:0;color:var(--ink)}
+.voicebox b{color:var(--deep)}
+
+table.status{width:100%;border-collapse:collapse;margin:18px 0 6px;font-size:14.5px}
+table.status th{background:var(--emerald);color:#fff;text-align:left;padding:11px 14px;font-weight:600;font-size:13px}
+table.status th:first-child{border-radius:7px 0 0 0}table.status th:last-child{border-radius:0 7px 0 0}
+table.status td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink2)}
+table.status tr:nth-child(even) td{background:var(--paper)}
+table.status td.cap{font-weight:600;color:var(--deep);width:40%}
+table.status td.st{width:118px;white-space:nowrap}
+.badge{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:5px;letter-spacing:.03em}
+.b-live{background:rgba(28,107,73,.12);color:var(--emerald)}
+.b-prog{background:rgba(154,102,20,.13);color:var(--amber)}
+.b-next{background:rgba(95,112,106,.14);color:var(--slate)}
+
+.phase{position:relative;padding-left:26px;margin:20px 0;border-left:2px solid var(--line)}
+.phase::before{content:"";position:absolute;left:-7px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--emerald)}
+.phase .when{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--emerald);letter-spacing:.03em;margin-bottom:8px}
+.phase ul{list-style:none;margin:0}
+.phase li{position:relative;padding:4px 0 4px 20px;font-size:15px;color:var(--ink2)}
+.phase li::before{content:"\2192";position:absolute;left:0;color:var(--emerald)}
+.milestone{border-left:3px solid var(--emerald);background:rgba(28,107,73,.07);border-radius:0 8px 8px 0;padding:16px 22px;margin:22px 0 8px;font-size:17px;line-height:1.5;color:var(--deep)}
+.milestone b{color:var(--emerald)}
+
+.capcom{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:16px 0}
+.capcom .ch{background:rgba(28,107,73,.07);border-bottom:1px solid var(--line);padding:18px 22px}
+.capcom .ch .name{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:22px;letter-spacing:.12em;color:var(--deep)}
+.capcom .ch .tag{display:block;font-size:14px;color:var(--emerald);margin-top:4px}
+.capcom .cb{padding:18px 22px}
+.capcom .cb p{font-size:15px}
+.capcom .cb p:last-child{margin-bottom:0}
+
+footer{max-width:760px;margin:0 auto;padding:24px 44px 56px;border-top:1px solid var(--line);font-size:12.5px;color:var(--slate);text-align:center}
+footer .fb{font-weight:700;letter-spacing:.26em;color:var(--ink2);margin-bottom:8px;font-size:12px}
+
+@media screen and (max-width:760px){
+  .cover{min-height:0;flex-direction:column}
+  .cover .art{flex:none;height:220px;opacity:.5}
+  .cover .text{padding:90px 26px 50px}
+  .gantry-word{font-size:64px}
+  .doc,footer{padding-left:24px;padding-right:24px}
+  table.status td.cap{width:auto}
+}
+
+/* ===================== PRINT (full-bleed cover, no margins) ===================== */
+@page{size:A4;margin:0}
+@media print{
+  body{background:var(--off);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cover{height:100vh;min-height:0;overflow:hidden;page-break-after:always;display:flex;flex-direction:row;align-items:stretch}
+  .cover .art{flex:0 0 34%;height:100vh}
+  .cover .text{padding:0 14mm 0 7mm}
+  .doc{padding:0 16mm;max-width:none}
+  .section{page-break-inside:avoid;padding:11mm 0 4mm}
+  .section:first-child{padding-top:13mm}
+  footer{padding:16px 16mm 14mm;max-width:none}
+  .capcom,table.status,.milestone,.voicebox{page-break-inside:avoid}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER ===================== -->
+<header class="cover">
+  <div class="cover-top">
+    <div class="brand">KNACKLABS</div>
+    <div>Investor Brief · Confidential (NDA) · May 2026</div>
+  </div>
+
+  <!-- LEFT: gantry tower (no rocket), upright, anchored left -->
+  <div class="art" aria-hidden="true">
+    <svg viewBox="0 0 250 1060" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+          <path d="M30 0 L0 0 0 30" fill="none" stroke="#6AF1B0" stroke-width="0.5" opacity="0.10"/>
+        </pattern>
+        <style>
+          .g{stroke:#3E9E72;stroke-width:1.7;fill:none}
+          .g2{stroke:#2E7E5B;stroke-width:1.1;fill:none}
+          .gh{stroke:#6AF1B0;stroke-width:1.7;fill:none}
+          .dim{stroke:#7C8E88;stroke-width:.8;fill:none}
+          .lbl2{font-family:'JetBrains Mono',monospace;font-size:9px;fill:#7C8E88;letter-spacing:.06em}
+        </style>
+      </defs>
+      <rect x="0" y="0" width="250" height="1060" fill="url(#grid)"/>
+      <line class="dim" x1="30" y1="60" x2="30" y2="980"/><line class="dim" x1="24" y1="60" x2="36" y2="60"/><line class="dim" x1="24" y1="980" x2="36" y2="980"/>
+      <line class="g" x1="70" y1="60" x2="70" y2="980"/>
+      <line class="g" x1="170" y1="60" x2="170" y2="980"/>
+      <line class="g" x1="70" y1="60" x2="170" y2="60"/>
+      <line class="g" x1="170" y1="60" x2="228" y2="60"/>
+      <line class="g2" x1="170" y1="71" x2="220" y2="71"/>
+      <line class="g" x1="228" y1="60" x2="220" y2="71"/>
+      <line class="g2" x1="206" y1="71" x2="206" y2="116"/><path class="g2" d="M201 116 q5 8 10 0"/>
+      <g class="g">
+        <line x1="70" y1="170" x2="170" y2="170"/>
+        <line x1="70" y1="280" x2="170" y2="280"/>
+        <line x1="70" y1="390" x2="170" y2="390"/>
+        <line x1="70" y1="500" x2="170" y2="500"/>
+        <line x1="70" y1="610" x2="170" y2="610"/>
+        <line x1="70" y1="720" x2="170" y2="720"/>
+        <line x1="70" y1="830" x2="170" y2="830"/>
+        <line x1="70" y1="940" x2="170" y2="940"/>
+      </g>
+      <g class="g2">
+        <line x1="70" y1="60" x2="170" y2="170"/><line x1="170" y1="60" x2="70" y2="170"/>
+        <line x1="70" y1="170" x2="170" y2="280"/><line x1="170" y1="170" x2="70" y2="280"/>
+        <line x1="70" y1="280" x2="170" y2="390"/><line x1="170" y1="280" x2="70" y2="390"/>
+        <line x1="70" y1="390" x2="170" y2="500"/><line x1="170" y1="390" x2="70" y2="500"/>
+        <line x1="70" y1="500" x2="170" y2="610"/><line x1="170" y1="500" x2="70" y2="610"/>
+        <line x1="70" y1="610" x2="170" y2="720"/><line x1="170" y1="610" x2="70" y2="720"/>
+        <line x1="70" y1="720" x2="170" y2="830"/><line x1="170" y1="720" x2="70" y2="830"/>
+        <line x1="70" y1="830" x2="170" y2="940"/><line x1="170" y1="830" x2="70" y2="940"/>
+        <line x1="70" y1="940" x2="170" y2="980"/><line x1="170" y1="940" x2="70" y2="980"/>
+      </g>
+      <g>
+        <line class="gh" x1="170" y1="225" x2="218" y2="225"/><line class="gh" x1="170" y1="231" x2="218" y2="231"/><line class="gh" x1="218" y1="225" x2="218" y2="238"/>
+        <line class="gh" x1="170" y1="395" x2="218" y2="395"/><line class="gh" x1="170" y1="401" x2="218" y2="401"/><line class="gh" x1="218" y1="395" x2="218" y2="408"/>
+        <line class="gh" x1="170" y1="565" x2="218" y2="565"/><line class="gh" x1="170" y1="571" x2="218" y2="571"/><line class="gh" x1="218" y1="565" x2="218" y2="578"/>
+        <line class="gh" x1="170" y1="735" x2="218" y2="735"/><line class="gh" x1="170" y1="741" x2="218" y2="741"/><line class="gh" x1="218" y1="735" x2="218" y2="748"/>
+      </g>
+      <rect class="g" x="40" y="980" width="160" height="22"/>
+      <line class="g2" x1="48" y1="1002" x2="38" y2="1024"/><line class="g2" x1="88" y1="1002" x2="78" y2="1024"/><line class="g2" x1="128" y1="1002" x2="118" y2="1024"/><line class="g2" x1="168" y1="1002" x2="158" y2="1024"/><line class="g2" x1="200" y1="1002" x2="190" y2="1024"/>
+      <text class="lbl2" x="40" y="1042">FIG. 1 — GANTRY</text>
+    </svg>
+  </div>
+
+  <!-- RIGHT: text -->
+  <div class="text">
+    <div class="kicker">Enterprise Agent Runtime</div>
+    <div class="gantry-word">GANTR<b>Y</b></div>
+    <div class="tagline">A gantry does everything <em>except</em> fly — it exists so the rocket can.</div>
+    <p class="intro"><b>Gantry is the enterprise agent runtime that gives AI agents a governed place to run</b> — durable memory, a per-conversation security perimeter, and an audit trail on every action — so an enterprise can deploy agents the way it manages people, not the way it installs software.</p>
+  </div>
+</header>
+
+<!-- ===================== DOCUMENT ===================== -->
+<main class="doc">
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">01 /</span> What it is</div>
+    <h2>Past scaffolding, not yet a finished platform</h2>
+    <hr class="rule">
+    <p class="lead">Two words get used loosely in this market, and the honest answer to "which is Gantry?" is that it has crossed most of the way from one to the other.</p>
+    <p>A <strong>harness</strong> (or scaffolding) is what you build around a single agent to make it work — its tools, memory, instructions, and guardrails. That is craft. A <strong>platform</strong> is the shared, governed layer that runs many agents reliably in production — durable state, security, identity, audit, multi-channel delivery. That is infrastructure.</p>
+    <p>Gantry began as the first — a working agent harness built by our engineering lead — and has already built most of the second. The platform-grade bones exist today: a provider- and channel-neutral core, durable Postgres-backed state, a per-conversation security gate, scoped memory, an audit trail on every action, an embeddable SDK, and a control API. What remains is the final mile of enterprise hardening, not the foundation — and that last mile is now the roadmap, not the unknown.</p>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">02 /</span> Why it matters, and why it is hard to copy</div>
+    <h2>Agents need a place to run, not just a model to call</h2>
+    <hr class="rule">
+    <p>KnackLabs' bet is that AI is a labor shift, not an IT shift — and that agents, being nondeterministic, need supervision and accountability the way a new employee does. That implies a product: the layer an enterprise runs agents on. Gantry is that layer, and it is where account value compounds — every workflow deployed on it adds context, trust, and switching cost. Internal teams that try to build it hit four walls, and SaaS tools clear none of them.</p>
+    <h3>Security by default</h3>
+    <p>Every conversation is its own perimeter; every tool call passes a who-and-what gate; agents cannot approve themselves; credentials are brokered so agents never hold raw keys.</p>
+    <h3>Scoped memory with a "dreaming" lifecycle</h3>
+    <p>Boundaries are enforced at the data layer, and a background process promotes raw conversation into vetted, durable memory — surfacing contradictions instead of overwriting them.</p>
+    <h3>A governed capability lifecycle</h3>
+    <p>Agents cannot silently expand their own powers; new tools move through request, review, audit, and versioned activation.</p>
+    <h3>Audit by construction</h3>
+    <p>Every action is logged and traceable — the precondition for deploying agents into regulated functions at all.</p>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">03 /</span> Vision</div>
+    <h2>The platform we are building toward</h2>
+    <hr class="rule">
+    <p>This is the ultimate goal Gantry is being built to reach. We are deliberate about not letting the vision outrun the build, so each part of it is paired with what already makes it credible today.</p>
+    <p class="vision-item"><span class="goal">Provider-neutral.</span> Enterprises run Gantry on whatever model they choose. <span class="today">Today:</span> the adapter seam is built and the Anthropic dependency is isolated to one module — what remains is proving a second provider live.</p>
+    <p class="vision-item"><span class="goal">Multi-channel.</span> One agent on every surface — Slack, Teams, Telegram, Web, and Voice. <span class="today">Today:</span> Slack and Telegram are live with native approvals and streaming; Microsoft Teams normalization is built, with transport in progress; and Voice is the next channel we will add.</p>
+    <p class="vision-item"><span class="goal">Intelligent memory at scale.</span> Agents that recall the right thing across millions of interactions. <span class="today">Today:</span> durable scoped memory and the dreaming pipeline work; semantic (vector) retrieval is the next switch to flip.</p>
+    <div class="voicebox">
+      <div class="vl">Why voice matters</div>
+      <p><b>A labor replacer that cannot talk is not, fully, a labor replacer.</b> A large share of the work agents are meant to take on — support, collections, scheduling, front-office operations — lives on the phone. We believe Voice will be a primary differentiator: bringing it into Gantry as a first-class channel, governed by the same security gate, memory, and audit as every other surface, is what lets an agent stand in for a role that is defined by conversation, not just text.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">04 /</span> Where we are in the journey</div>
+    <h2>Built, then dated</h2>
+    <hr class="rule">
+    <p>Status as of May 2026, read from the codebase and the team. The proof of seriousness: roughly 140,000 lines of TypeScript, 284 test files, and 18 architecture decision records, with the layering rule enforced automatically.</p>
+    <table class="status">
+      <thead><tr><th>Capability</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Core runtime · security gate · scoped memory + dreaming</td><td class="st"><span class="badge b-live">BUILT</span></td><td>Built and internally validated; deterministic permissions, no agent self-approval.</td></tr>
+        <tr><td class="cap">Slack &amp; Telegram · async jobs · SDK + Control API · MCP / browser / webhooks</td><td class="st"><span class="badge b-live">BUILT</span></td><td>Native surfaces, durable jobs, per-tool allowlists, HMAC-signed delivery, full audit.</td></tr>
+        <tr><td class="cap">Semantic (vector) memory retrieval</td><td class="st"><span class="badge b-prog">IN PROGRESS</span></td><td>pgvector present; indexing / query path is the next switch. Lexical recall works today.</td></tr>
+        <tr><td class="cap">Microsoft Teams transport</td><td class="st"><span class="badge b-prog">IN PROGRESS</span></td><td>Normalization and approval scaffolding done; Bot Framework transport not yet wired.</td></tr>
+        <tr><td class="cap">Provider-neutral execution · personal → enterprise migration</td><td class="st"><span class="badge b-prog">IN PROGRESS</span></td><td>Clean adapter seam, one live provider (Anthropic) today; canonical domain model defined, refactor in flight.</td></tr>
+        <tr><td class="cap">Voice channel</td><td class="st"><span class="badge b-next">NEXT</span></td><td>Planned first-class channel; the differentiator for true labor replacement.</td></tr>
+        <tr><td class="cap">First client agent deployments</td><td class="st"><span class="badge b-next">NEXT</span></td><td>2 agents live June 2026, 2 more in July — internal and external.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">05 /</span> Roadmap</div>
+    <h2>Closing the last mile — to platform by end of July</h2>
+    <hr class="rule">
+    <p>The last mile is a short list of dated milestones, not open research — each is a switch to flip on something already built, plus the production proof of putting agents in front of real clients.</p>
+    <div class="phase">
+      <div class="when">JUNE 2026 — production proof + foundation closed</div>
+      <ul>
+        <li>Complete the personal-runtime → enterprise domain migration to parity.</li>
+        <li>Turn on semantic (vector) memory retrieval — the staged pgvector path.</li>
+        <li>Clean packaging to <span class="mono" style="color:var(--emerald)">@knacklabs/gantry</span> — private, obfuscated, enterprise metadata.</li>
+        <li>First two client agents live (internal + external) — Gantry's first production deployments.</li>
+      </ul>
+    </div>
+    <div class="phase">
+      <div class="when">JULY 2026 — multi-channel, multi-provider, hardened</div>
+      <ul>
+        <li>Wire Microsoft Teams transport — the third native channel alongside Slack and Telegram.</li>
+        <li>Prove a second model provider live through the existing adapter seam.</li>
+        <li>Two more client agents live (four total), spanning internal and external workflows.</li>
+        <li>Hardening: architecture documentation, second owners to reduce key-person risk, observability polish.</li>
+      </ul>
+    </div>
+    <div class="phase">
+      <div class="when">AFTER JULY — voice + fleet control</div>
+      <ul>
+        <li>Add Voice as a first-class channel — the surface we believe most defines a labor replacer.</li>
+        <li>Begin Capcom, the platform that monitors every deployed Gantry agent (below).</li>
+      </ul>
+    </div>
+    <div class="milestone"><b>End of July — the last mile is closed.</b> Multi-channel, multi-provider-proven, semantic memory, migration complete, and running in client production. Gantry is a platform.</div>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">06 /</span> After July</div>
+    <h2>Capcom — mission control for the fleet</h2>
+    <hr class="rule">
+    <div class="capcom">
+      <div class="ch">
+        <span class="name">CAPCOM</span>
+        <span class="tag">A single platform to monitor every Gantry agent deployed across an enterprise.</span>
+      </div>
+      <div class="cb">
+        <p>Once an enterprise runs more than one agent on Gantry, the next need is obvious: one place to watch them all. Capcom is that layer — a single pane of glass over every deployed agent: health and activity, the full audit trail, cost and usage, and the ability to intervene. The metaphor closes neatly. Gantry is the launch infrastructure that holds and fuels each agent; <strong>Capcom is mission control, watching the whole fleet.</strong></p>
+        <p>Strategically, Capcom is what turns Gantry from a runtime deployed one workflow at a time into the platform an enterprise standardizes on. It is where fleet-level governance lives, and where switching cost and account value compound — the eventual, earned answer to the multi-agent control plane Gantry today deliberately does not claim.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="fb">KNACKLABS</div>
+  <div>Chimps At Work Studios Pvt Ltd · KnackLabs &nbsp;·&nbsp; Confidential — for discussion under NDA &nbsp;·&nbsp; v0.1 draft, May 2026</div>
+</footer>
+
+</body>
+</html>

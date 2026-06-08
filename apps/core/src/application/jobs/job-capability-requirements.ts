@@ -4,7 +4,6 @@ import {
   isValidSemanticCapabilityId,
   semanticCapabilityRule,
 } from '../../shared/semantic-capability-ids.js';
-import { getBuiltinSemanticCapability } from '../../shared/semantic-capabilities.js';
 import {
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
@@ -35,7 +34,7 @@ export function normalizeCapabilityRequirements(
     if (!isValidSemanticCapabilityId(capabilityId)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements capabilityId must use lowercase dot-separated words such as google.sheets.write.',
+        'capabilityRequirements capabilityId must use lowercase dot-separated words such as app.resource.action.',
       );
     }
     const reason = stringField(entry.reason, 'reason');
@@ -275,8 +274,6 @@ function normalizePlaceholderCommandTemplate(
 }
 
 function humanizeCapabilityId(capabilityId: string): string {
-  const builtin = getBuiltinSemanticCapability(capabilityId);
-  if (builtin) return builtin.displayName;
   return capabilityId
     .split('.')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

@@ -26,8 +26,8 @@ async function loadRuntimeApp() {
       DATA_DIR: '/tmp/gantry-test',
       GANTRY_IPC_AUTH_SECRET: 'runtime-app-test-secret',
       getCredentialBrokerRuntimeConfig: () => ({
-        mode: 'onecli',
-        onecliUrl: 'http://localhost:10254',
+        mode: 'gantry',
+        model_gatewayUrl: 'http://localhost:10254',
         externalBrokerBaseUrl: undefined,
       }),
     };
@@ -57,8 +57,8 @@ async function loadRuntimeAppWithGroupProcessorSpy() {
       DATA_DIR: '/tmp/gantry-test',
       GANTRY_IPC_AUTH_SECRET: 'runtime-app-test-secret',
       getCredentialBrokerRuntimeConfig: () => ({
-        mode: 'onecli',
-        onecliUrl: 'http://localhost:10254',
+        mode: 'gantry',
+        model_gatewayUrl: 'http://localhost:10254',
         externalBrokerBaseUrl: undefined,
       }),
     };
@@ -125,14 +125,14 @@ describe('runtime app credential binding', () => {
       agentIdentifier: 'agent:side_agent',
       agentName: 'Side Agent',
     });
-  }, 10_000);
+  });
 
   it('retries a failed credential profile ensure attempt', async () => {
     const { createRuntimeApp } = await loadRuntimeApp();
     const group = makeGroup();
     const ensureCredentialBinding = vi
       .fn()
-      .mockRejectedValueOnce(new Error('OneCLI starting'))
+      .mockRejectedValueOnce(new Error('Gantry Model Gateway starting'))
       .mockResolvedValueOnce({ created: false });
     const app = createRuntimeApp({ ensureCredentialBinding });
 

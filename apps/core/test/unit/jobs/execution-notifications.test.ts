@@ -380,18 +380,18 @@ describe('jobs/execution-notifications', () => {
   it('sends setup-required notifications with plain user actions', async () => {
     const sendMessage = vi.fn(async () => undefined);
     const setupState: JobSetupState = {
-      state: 'draft_only',
+      state: 'missing_capability',
       checked_at: '2026-05-16T00:00:00.000Z',
       fingerprint: 'setup-fingerprint',
       blockers: [
         {
-          state: 'draft_only',
+          state: 'missing_capability',
           requirementType: 'local_cli',
-          requirementId: 'google.sheets.write',
+          requirementId: 'acme.records.append',
           message:
-            'Google Sheets write using gog needs reviewed local CLI access before this job can run autonomously.',
+            'Acme records append using acme needs reviewed local CLI access before this job can run autonomously.',
           nextAction:
-            'propose_capability {"capabilityId":"google.sheets.write","source":"local_cli","executablePath":"/usr/local/bin/gog","executableVersion":"v0.9.0","executableHash":"sha256:abc123"}',
+            'propose_capability {"capabilityId":"acme.records.append","source":"local_cli","executablePath":"/usr/local/bin/acme","executableVersion":"v0.9.0","executableHash":"sha256:abc123"}',
         },
       ],
     };
@@ -405,12 +405,12 @@ describe('jobs/execution-notifications', () => {
     expect(delivered).toBe(true);
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('Setup needed: Lead maintenance');
-    expect(message).toContain('Why: Google Sheets write');
+    expect(message).toContain('Why: Acme Records Append');
     expect(message).toContain(
-      'Action: Approve Google Sheets write, then resume the job.',
+      'Action: Approve Acme Records Append, then resume the job.',
     );
     expect(message).not.toContain('request_permission');
-    expect(message).not.toContain('/usr/local/bin/gog sheets append');
+    expect(message).not.toContain('/usr/local/bin/acme records append');
   });
 
   it('describes expected long-running timeout recovery without blaming job scope', async () => {

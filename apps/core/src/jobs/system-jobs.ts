@@ -1,14 +1,28 @@
 import { createHash } from 'node:crypto';
 
 import {
+  MEMORY_BACKFILL_CRON,
+  MEMORY_BACKFILL_ENABLED,
+  MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+  MEMORY_BACKFILL_MODE,
+  MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
   MEMORY_DREAMING_CRON,
+  MEMORY_EMBED_BATCH_SIZE,
+  MEMORY_EMBED_DIMENSIONS,
+  MEMORY_EMBED_MODEL,
+  MEMORY_EMBED_PROVIDER,
+  OPENAI_DAILY_EMBED_LIMIT,
   RUNTIME_MEMORY_DREAMING_ENABLED,
 } from '../config/index.js';
+import type { AppId } from '../domain/app/app.js';
 import type { Job } from '../domain/types.js';
 import {
   getMemoryMaintenanceQueue,
   type MemoryMaintenanceQueueEnqueueResult,
 } from '../memory/maintenance-queue.js';
+import { runEmbeddingBackfill } from '../memory/app-memory-backfill.js';
+import { pollAndImportProviderBatches } from '../memory/app-memory-backfill-provider-batch.js';
+import { createEmbeddingProvider } from '../memory/memory-embeddings.js';
 import type {
   DreamingRunStatus,
   NormalizedMemorySubject,
@@ -35,7 +49,15 @@ import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import type { SchedulerDependencies } from './types.js';
 
 export const MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream';
+export const MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT =
+  '__system:memory_embedding_backfill';
+const MEMORY_EMBEDDING_BACKFILL_JOB_ID = 'system:embedding-backfill';
+const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
+
+function embeddingBackfillEnabled(): boolean {
+  return MEMORY_BACKFILL_ENABLED && MEMORY_EMBED_PROVIDER !== 'disabled';
+}
 
 type MemoryMaintenanceQueueLike = {
   enqueueAndWait: (
@@ -121,6 +143,8 @@ export async function registerSystemJobs(
     dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
     dreamingCron: MEMORY_DREAMING_CRON,
     dreamingTimeoutMs: MEMORY_DREAM_SYSTEM_JOB_TIMEOUT_MS,
+    backfillEnabled: embeddingBackfillEnabled(),
+    backfillCron: MEMORY_BACKFILL_CRON,
     routes: registrations
       .map(({ jid, group }) => [
         group.folder,
@@ -188,6 +212,51 @@ export async function registerSystemJobs(
       );
     }
   }
+
+  // One app-wide embedding backfill job (not per conversation). It routes
+  // lifecycle/notifications through the primary conversation when available.
+  const primary = registrations[0];
+  if (embeddingBackfillEnabled() && primary) {
+    const existing = await deps.opsRepository.getJobById(
+      MEMORY_EMBEDDING_BACKFILL_JOB_ID,
+    );
+    if (existing?.status !== 'dead_lettered') {
+      const computedNextRun = computeNextJobRun(
+        { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
+        nowIso,
+      );
+      const target = buildCanonicalJobLifecycleTarget({
+        conversationJid: primary.jid,
+        groupScope: primary.group.folder,
+        threadId: null,
+        label: 'primary',
+      });
+      const backfillJob = {
+        id: MEMORY_EMBEDDING_BACKFILL_JOB_ID,
+        name: 'Memory Embedding Backfill',
+        prompt: MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+        schedule_type: 'cron',
+        schedule_value: MEMORY_BACKFILL_CRON,
+        session_id: null,
+        group_scope: primary.group.folder,
+        created_by: 'agent',
+        status: existing?.status === 'paused' ? 'paused' : 'active',
+        next_run: existing?.next_run || computedNextRun,
+        silent: true,
+        timeout_ms: MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS,
+        max_retries: 1,
+        retry_backoff_ms: 30_000,
+        max_consecutive_failures: 3,
+        execution_context: target.executionContext,
+        notification_routes: target.notificationRoutes,
+      };
+      await deps.opsRepository.upsertJob(
+        backfillJob as unknown as Parameters<
+          SchedulerDependencies['opsRepository']['upsertJob']
+        >[0],
+      );
+    }
+  }
   setSystemJobRegistrationSignature(deps.opsRepository, registrationSignature);
 }
 
@@ -202,6 +271,9 @@ export async function handleSystemJob(
   },
   options: { signal?: AbortSignal; deadlineAtMs?: number } = {},
 ): Promise<string> {
+  if (job.prompt === MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
+    return runScheduledEmbeddingBackfill(options.signal);
+  }
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
     options.signal?.throwIfAborted();
     const defaultScope = context.conversationKind === 'dm' ? 'user' : 'group';
@@ -266,6 +338,59 @@ export async function handleSystemJob(
     }
   }
   throw new Error(`Unknown system job: ${job.prompt}`);
+}
+
+async function runScheduledEmbeddingBackfill(
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
+  if (!embeddingBackfillEnabled()) {
+    return 'Memory embedding backfill is disabled.';
+  }
+  const memory = AppMemoryService.getInstance();
+  const db = memory.db;
+  const provider = createEmbeddingProvider(MEMORY_EMBED_PROVIDER, {
+    model: MEMORY_EMBED_MODEL,
+    dimensions: MEMORY_EMBED_DIMENSIONS,
+    appId: DEFAULT_MEMORY_APP_ID as AppId,
+  });
+  // Import any completed provider batches before scanning for new work.
+  const poll = await pollAndImportProviderBatches({
+    db,
+    provider,
+    providerName: MEMORY_EMBED_PROVIDER,
+    model: MEMORY_EMBED_MODEL,
+    signal,
+  });
+  const pollNote =
+    poll.batchesPolled > 0
+      ? ` Polled ${poll.batchesPolled} provider batch(es): ${poll.imported} imported, ${poll.retried} retried, ${poll.blocked} blocked, ${poll.stale} stale, ${poll.stillPending} pending, ${poll.deferred} deferred.`
+      : '';
+  const result = await runEmbeddingBackfill({
+    db,
+    appId: DEFAULT_MEMORY_APP_ID,
+    trigger: 'schedule',
+    provider: MEMORY_EMBED_PROVIDER,
+    model: MEMORY_EMBED_MODEL,
+    dimensions: MEMORY_EMBED_DIMENSIONS,
+    batchSize: MEMORY_EMBED_BATCH_SIZE,
+    dailyLimit: OPENAI_DAILY_EMBED_LIMIT,
+    maxItemsPerRun: MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+    providerBatchMinItems: MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
+    mode: MEMORY_BACKFILL_MODE,
+    embeddingProvider: provider,
+    signal,
+  });
+  if (result.pausedByPriorRun) {
+    return `Memory embedding backfill paused: ${result.pauseReason ?? 'waiting for resume time'}.${pollNote}`;
+  }
+  if (result.alreadyRunning) {
+    return `Memory embedding backfill skipped: another run is already in progress.${pollNote}`;
+  }
+  if (result.mode === 'provider_batch' && result.submitted > 0) {
+    return `Memory embedding batch submitted: ${result.submitted} items queued.${pollNote}`;
+  }
+  return `Memory embedding backfill ${result.status}: ${result.indexed} indexed, ${result.pending} pending.${pollNote}`;
 }
 
 function numericSummaryValue(

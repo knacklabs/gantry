@@ -1,5 +1,6 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
 import { listModelPresets } from '../../shared/model-catalog.js';
+import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
 
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
@@ -118,6 +119,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     },
   },
   CapabilityListResponse: arrayEnvelope('capabilities', 'CapabilityManifest'),
+  ...modelCredentialSchemas,
   AgentSourceSelection: {
     type: 'object',
     required: ['id'],
@@ -228,13 +230,14 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       'modelRoute',
       'capabilities',
       'supportedWorkloads',
+      'cacheSupport',
     ],
     properties: {
       id: { type: 'string' },
       displayName: { type: 'string' },
       aliases: stringArray,
       recommendedAlias: { type: 'string' },
-      responseFamily: { type: 'string', enum: ['anthropic', 'openai'] },
+      responseFamily: { type: 'string' },
       executionProviderId: { type: 'string' },
       credentialProfileRef: { type: 'string' },
       modelRoute: {
@@ -301,6 +304,79 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       maxOutputTokens: { type: 'integer' },
       cacheMode: { type: 'string' },
       cacheTokenFields: stringArray,
+      cacheSupport: {
+        type: 'object',
+        required: [
+          'providerId',
+          'providerLabel',
+          'cacheProvider',
+          'statusLabel',
+          'prompt',
+          'response',
+          'tokenFields',
+        ],
+        properties: {
+          providerId: { type: 'string' },
+          providerLabel: { type: 'string' },
+          cacheProvider: { type: 'string' },
+          statusLabel: { type: 'string' },
+          prompt: {
+            type: 'object',
+            required: [
+              'mode',
+              'automatic',
+              'requestControl',
+              'ttlOptions',
+              'minimumTokenThresholds',
+              'usageFields',
+              'supported',
+              'accounted',
+            ],
+            properties: {
+              mode: { type: 'string' },
+              automatic: { type: 'boolean' },
+              requestControl: { type: 'string' },
+              ttlOptions: stringArray,
+              minimumTokenThresholds: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['modelFamily', 'tokens'],
+                  properties: {
+                    modelFamily: { type: 'string' },
+                    tokens: { type: 'integer' },
+                  },
+                },
+              },
+              usageFields: metadata,
+              supported: { type: 'boolean' },
+              accounted: { type: 'boolean' },
+            },
+          },
+          response: {
+            type: 'object',
+            required: [
+              'mode',
+              'enabledByDefault',
+              'requestControl',
+              'requestHeaders',
+              'responseHeaders',
+              'usageBehavior',
+              'available',
+            ],
+            properties: {
+              mode: { type: 'string' },
+              enabledByDefault: { type: 'boolean' },
+              requestControl: { type: 'string' },
+              requestHeaders: stringArray,
+              responseHeaders: stringArray,
+              usageBehavior: { type: 'string' },
+              available: { type: 'boolean' },
+            },
+          },
+          tokenFields: stringArray,
+        },
+      },
       supportsTools: { type: 'boolean' },
       supportsThinking: { type: 'boolean' },
       source: metadata,

@@ -109,7 +109,7 @@ export async function runSetupFlow(
     } else if (step === 'channel') {
       action = await runChannelStep(draft);
     } else if (step === 'credentials') {
-      action = await runCredentialsStep(draft);
+      action = await runCredentialsStep(draft, runtimeHome);
     } else if (step === 'model') {
       action = await runModelStep(draft);
     } else if (step === 'telegram') {

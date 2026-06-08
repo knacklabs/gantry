@@ -5,9 +5,8 @@ import type {
   AgentMcpServerBinding,
   McpServerDefinition,
   McpServerId,
-  McpServerVersionId,
 } from '../../domain/mcp/mcp-servers.js';
-import { isMcpServerApproved } from '../../domain/mcp/mcp-servers.js';
+import { isMcpServerActive } from '../../domain/mcp/mcp-servers.js';
 import type {
   AgentRepository,
   McpServerRepository,
@@ -32,6 +31,7 @@ import type {
 } from '../../domain/tools/tools.js';
 import {
   displayToolReference,
+  isGantryFacadeExactToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
@@ -41,7 +41,10 @@ import {
   PERMISSION_GATED_NATIVE_TOOLS,
   type AgentToolAccessView,
 } from '../../shared/tool-access-view.js';
-import { adminMcpToolNameFromFullName } from '../../shared/admin-mcp-tools.js';
+import {
+  adminMcpToolNameFromFullName,
+  isAdminMcpToolFullName,
+} from '../../shared/admin-mcp-tools.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
   canonicalToolReferenceForView,
@@ -66,7 +69,7 @@ export interface AgentCapabilitiesView {
   agentId: AgentId;
   sources: {
     skills: ReadableSkillSource[];
-    mcpServers: Array<{ id: string; version: string }>;
+    mcpServers: Array<{ id: string }>;
     tools: ReadableToolSource[];
   };
   capabilities: Array<{ id: string; version: string }>;
@@ -96,10 +99,10 @@ export class AgentCapabilityAdministrationService {
   async listCatalog(appId: AppId): Promise<CapabilityCatalogView> {
     const [tools, skills, mcpServers] = await Promise.all([
       this.repositories.tools.listTools({ appId, statuses: ['active'] }),
-      this.repositories.skills.listSkills({ appId, statuses: ['approved'] }),
+      this.repositories.skills.listSkills({ appId, statuses: ['installed'] }),
       this.repositories.mcpServers.listServers({
         appId,
-        statuses: ['approved'],
+        statuses: ['active'],
         limit: 500,
       }),
     ]);
@@ -176,7 +179,6 @@ export class AgentCapabilityAdministrationService {
           .filter((binding) => binding.status === 'active')
           .map((binding) => ({
             id: String(binding.serverId),
-            version: String(binding.versionId),
           })),
         tools: readableToolSources(toolSources),
       },
@@ -325,7 +327,6 @@ export class AgentCapabilityAdministrationService {
           .filter((binding) => binding.status === 'active')
           .map((binding) => ({
             id: String(binding.serverId),
-            version: String(binding.versionId),
           })),
         tools: readableToolSources(toolSources),
       },
@@ -393,8 +394,8 @@ export class AgentCapabilityAdministrationService {
       now,
     });
     const [skillMap, mcpMap] = await Promise.all([
-      this.requireApprovedSkills(input.appId, sourceSkillIds),
-      this.requireApprovedMcpServers(input.appId, sourceMcpServerIds),
+      this.requireInstalledSkills(input.appId, sourceSkillIds),
+      this.requireActiveMcpServers(input.appId, sourceMcpServerIds),
     ]);
     assertUniqueSkillMaterializationKeys(sourceSkillIds, skillMap);
     const [toolBindings, skillBindings, mcpBindings] = await Promise.all([
@@ -427,17 +428,6 @@ export class AgentCapabilityAdministrationService {
     const mcpBindingMap = new Map(
       mcpBindings.map((binding) => [binding.serverId, binding]),
     );
-    const requestedMcpVersions = new Map(
-      input.sources.mcpServers.map((source) => [
-        source.id as McpServerId,
-        source.version as McpServerVersionId,
-      ]),
-    );
-    const mcpVersionByServerId = await this.resolveMcpSourceVersions({
-      appId: input.appId,
-      requestedVersions: requestedMcpVersions,
-      serversById: mcpMap,
-    });
     const nextMcpBindings: AgentMcpServerBinding[] = sourceMcpServerIds.map(
       (serverId) => {
         const existing = mcpBindingMap.get(serverId);
@@ -446,7 +436,6 @@ export class AgentCapabilityAdministrationService {
           appId: input.appId,
           agentId: input.agentId,
           serverId,
-          versionId: mcpVersionByServerId.get(serverId)!,
           status: 'active' as const,
           required: existing?.required ?? false,
           permissionPolicyIds: existing?.permissionPolicyIds ?? [],
@@ -472,40 +461,6 @@ export class AgentCapabilityAdministrationService {
       updatedAt: now,
     });
     return this.getSources(input);
-  }
-
-  private async resolveMcpSourceVersions(input: {
-    appId: AppId;
-    requestedVersions: Map<McpServerId, McpServerVersionId>;
-    serversById: Map<McpServerId, McpServerDefinition>;
-  }): Promise<Map<McpServerId, McpServerVersionId>> {
-    const entries = await Promise.all(
-      [...input.requestedVersions.entries()].map(
-        async ([serverId, requestedVersionId]) => {
-          const server = input.serversById.get(serverId);
-          if (!server?.latestApprovedVersionId) {
-            throw new ApplicationError(
-              'INVALID_REQUEST',
-              `MCP server ${serverId} has no approved version.`,
-            );
-          }
-          const version =
-            await this.repositories.mcpServers.getVersion(requestedVersionId);
-          if (
-            !version ||
-            version.appId !== input.appId ||
-            version.serverId !== serverId
-          ) {
-            throw new ApplicationError(
-              'INVALID_REQUEST',
-              `MCP server ${serverId} version ${requestedVersionId} is not approved for that source.`,
-            );
-          }
-          return [serverId, requestedVersionId] as const;
-        },
-      ),
-    );
-    return new Map(entries);
   }
 
   private async listAgentToolSources(input: {
@@ -571,7 +526,7 @@ export class AgentCapabilityAdministrationService {
     return tools;
   }
 
-  private async requireApprovedSkills(
+  private async requireInstalledSkills(
     appId: AppId,
     skillIds: SkillId[],
   ): Promise<Map<SkillId, SkillCatalogItem>> {
@@ -588,7 +543,7 @@ export class AgentCapabilityAdministrationService {
         if (!isSkillUsableForBinding(skill)) {
           throw new ApplicationError(
             'INVALID_REQUEST',
-            `Skill is not approved: ${skillId}`,
+            `Skill is not installed: ${skillId}`,
           );
         }
         skills.set(skillId, skill);
@@ -597,7 +552,7 @@ export class AgentCapabilityAdministrationService {
     return skills;
   }
 
-  private async requireApprovedMcpServers(
+  private async requireActiveMcpServers(
     appId: AppId,
     serverIds: McpServerId[],
   ): Promise<Map<McpServerId, McpServerDefinition>> {
@@ -611,10 +566,10 @@ export class AgentCapabilityAdministrationService {
             `MCP server not found: ${serverId}`,
           );
         }
-        if (!isMcpServerApproved(server)) {
+        if (!isMcpServerActive(server)) {
           throw new ApplicationError(
             'INVALID_REQUEST',
-            `MCP server is not approved: ${serverId}`,
+            `MCP server is not active: ${serverId}`,
           );
         }
         servers.set(serverId, server);
@@ -649,6 +604,7 @@ function capabilitySelectionToToolReference(capabilityId: string): string {
   const id = capabilityId.trim();
   if (id === 'browser.use') return 'Browser';
   if (id.startsWith('RunCommand(')) return id;
+  if (isAdminMcpToolFullName(id) || isGantryFacadeExactToolRule(id)) return id;
   return `capability:${id}`;
 }
 

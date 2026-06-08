@@ -35,37 +35,47 @@ describe('autonomous tool rule matcher', () => {
     }
   });
 
-  it('allows scoped RunCommand rules and denies unrelated Bash commands', () => {
-    expect(
-      validateAutonomousToolRule('RunCommand(dedup-append-lead.py *)'),
-    ).toEqual({
+  it('allows scoped non-script RunCommand rules and denies unrelated Bash commands', () => {
+    expect(validateAutonomousToolRule('RunCommand(npm test *)')).toEqual({
       ok: true,
     });
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(dedup-append-lead.py *)'],
+        rules: ['RunCommand(npm test *)'],
         toolName: 'Bash',
-        toolInput: { command: 'dedup-append-lead.py --dry-run' },
+        toolInput: { command: 'npm test -- --runInBand' },
       }),
     ).toMatchObject({ allowed: true });
 
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(dedup-append-lead.py *)'],
+        rules: ['RunCommand(npm test *)'],
         toolName: 'Bash',
-        toolInput: { command: 'npm test' },
+        toolInput: { command: 'pnpm test' },
       }),
     ).toMatchObject({
       allowed: false,
       closestRule: {
-        rule: 'RunCommand(dedup-append-lead.py *)',
-        reason: expect.stringContaining('npm test'),
+        rule: 'RunCommand(npm test *)',
+        reason: expect.stringContaining('pnpm test'),
       },
       reason: expect.stringContaining('did not match'),
     });
   });
 
-  it('canonicalizes legacy interpreter script Bash rules while matching', () => {
+  it('rejects host-owned Python script rules as durable autonomous rules', () => {
+    for (const rule of [
+      'RunCommand(dedup-append-lead.py *)',
+      'RunCommand(/tmp/dedup-append-lead.py *)',
+      'RunCommand(python3 /Users/example/scripts/dedup-append-lead.py)',
+      'RunCommand(python3 /Users/example/scripts/dedup-append-lead.py *)',
+    ]) {
+      expect(validateAutonomousToolRule(rule)).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/host-owned Python scripts|too broad/),
+      });
+    }
+
     expect(
       evaluateAutonomousToolUse({
         rules: [
@@ -78,38 +88,37 @@ describe('autonomous tool rule matcher', () => {
         },
       }),
     ).toMatchObject({
-      allowed: true,
-      matchedRule:
-        'RunCommand(python3 /Users/example/scripts/dedup-append-lead.py)',
+      allowed: false,
+      reason: expect.stringContaining('did not match'),
     });
   });
 
   it('does not let wildcard scoped RunCommand rules cover extra shell segments', () => {
-    expect(validateAutonomousToolRule('RunCommand(gog sheets *)')).toEqual({
+    expect(validateAutonomousToolRule('RunCommand(acme records *)')).toEqual({
       ok: true,
     });
     expect(
-      validateAutonomousToolRule('RunCommand(gog sheets * | python3 *)'),
+      validateAutonomousToolRule('RunCommand(acme records * | python3 *)'),
     ).toEqual({
       ok: false,
       reason: expect.stringContaining('exactly one simple command leaf'),
     });
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(gog sheets *)'],
+        rules: ['RunCommand(acme records *)'],
         toolName: 'Bash',
-        toolInput: { command: 'gog sheets get budget' },
+        toolInput: { command: 'acme records get budget' },
       }),
     ).toMatchObject({ allowed: true });
 
     for (const command of [
-      'gog sheets get budget | python3 -c "print(1)"',
-      'gog sheets get budget; rm -rf /tmp/unsafe',
-      'gog sheets get "$(python3 -c \'print(1)\')"',
+      'acme records get budget | python3 -c "print(1)"',
+      'acme records get budget; rm -rf /tmp/unsafe',
+      'acme records get "$(python3 -c \'print(1)\')"',
     ]) {
       expect(
         evaluateAutonomousToolUse({
-          rules: ['RunCommand(gog sheets *)'],
+          rules: ['RunCommand(acme records *)'],
           toolName: 'Bash',
           toolInput: { command },
         }),
@@ -267,22 +276,22 @@ describe('autonomous tool rule matcher', () => {
   it('allows non-destructive stderr redirection used by common CLI probes', () => {
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(gog sheets get *)'],
+        rules: ['RunCommand(acme records get *)'],
         toolName: 'Bash',
         toolInput: {
           command:
-            'gog sheets get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "\'Bot Recommendation\'!A1:G5000" --json --account ravi@knacklabs.ai 2>&1',
+            'acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "\'Bot Recommendation\'!A1:G5000" --json --account ravi@knacklabs.ai 2>&1',
         },
       }),
     ).toMatchObject({ allowed: true });
 
     expect(
       evaluateAutonomousToolUse({
-        rules: ['RunCommand(gog sheets get *)'],
+        rules: ['RunCommand(acme records get *)'],
         toolName: 'Bash',
         toolInput: {
           command:
-            'gog sheets get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "\'Bot Recommendation\'!A1:G5000" --json --account ravi@knacklabs.ai 2>&1 | head -20',
+            'acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "\'Bot Recommendation\'!A1:G5000" --json --account ravi@knacklabs.ai 2>&1 | head -20',
         },
       }),
     ).toMatchObject({
@@ -316,12 +325,18 @@ describe('autonomous tool rule matcher', () => {
       reason: expect.stringContaining('too broad'),
     });
     expect(
+      validateAutonomousToolRule('RunCommand(python3 /tmp/check.py)'),
+    ).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('host-owned Python scripts'),
+    });
+    expect(
       evaluateAutonomousToolUse({
         rules: ['RunCommand(python3 /tmp/check.py)'],
         toolName: 'Bash',
         toolInput: { command: 'python3 /tmp/check.py' },
       }),
-    ).toMatchObject({ allowed: true });
+    ).toMatchObject({ allowed: false });
     expect(
       evaluateAutonomousToolUse({
         rules: ['RunCommand(python3 /tmp/check.py)'],
@@ -331,30 +346,23 @@ describe('autonomous tool rule matcher', () => {
     ).toMatchObject({ allowed: false });
   });
 
-  it('allows safe interpreter invocation of an approved script path', () => {
-    for (const command of [
-      'python3 /tmp/dedup-append-lead.py \'[["lead"]]\'',
-      '/usr/bin/python3 /tmp/dedup-append-lead.py \'[["lead"]]\'',
-      'python /tmp/dedup-append-lead.py \'[["lead"]]\'',
-    ]) {
-      expect(
-        evaluateAutonomousToolUse({
-          rules: ['RunCommand(/tmp/dedup-append-lead.py *)'],
-          toolName: 'Bash',
-          toolInput: { command },
-        }),
-      ).toMatchObject({
-        allowed: true,
-        matchedRule: 'RunCommand(/tmp/dedup-append-lead.py *)',
-      });
-    }
-
+  it('denies host-owned script wildcard rules even when invoked through an interpreter', () => {
     expect(
       evaluateAutonomousToolUse({
         rules: ['RunCommand(/tmp/dedup-append-lead.py *)'],
         toolName: 'Bash',
         toolInput: {
           command: 'python3 -c "print(1)" /tmp/dedup-append-lead.py',
+        },
+      }),
+    ).toMatchObject({ allowed: false });
+
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['RunCommand(/tmp/dedup-append-lead.py *)'],
+        toolName: 'Bash',
+        toolInput: {
+          command: 'python3 /tmp/dedup-append-lead.py \'[["lead"]]\'',
         },
       }),
     ).toMatchObject({ allowed: false });
@@ -399,11 +407,7 @@ describe('autonomous tool rule matcher', () => {
             'python3 /Users/tester/gantry/agents/main_agent/.llm-runtime/claude/skills/linkedin-posting/post.py --file /tmp/post.md',
         },
       }),
-    ).toMatchObject({
-      allowed: true,
-      matchedRule:
-        'RunCommand(/Users/tester/gantry/agents/main_agent/.llm-runtime/claude/skills/linkedin-posting/post.py *)',
-    });
+    ).toMatchObject({ allowed: false });
   });
 
   it('rejects exact bare Bash as too broad', () => {

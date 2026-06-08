@@ -3,8 +3,14 @@ export interface RuntimeMemorySettingsSnapshot {
   embeddingsEnabled?: boolean;
   embeddingProvider?: string;
   embeddingModel?: string;
+  embeddingDimensions?: number;
   dailyEmbedLimit?: number;
   embedBatchSize?: number;
+  backfillEnabled?: boolean;
+  backfillCron?: string;
+  backfillMaxItemsPerRun?: number;
+  backfillMode?: string;
+  backfillProviderBatchMinItems?: number;
   dreamingEnabled?: boolean;
   dreamingCron?: string;
   dreamingEmbeddingsEnabled?: boolean;
@@ -123,6 +129,25 @@ export function parseRuntimeMemorySnapshotFromRoot(
       'memory.embeddings.provider must be a lowercase provider id such as disabled or openai',
     );
   }
+  const backfillRaw = embeddings.backfill;
+  if (
+    backfillRaw !== undefined &&
+    (typeof backfillRaw !== 'object' ||
+      backfillRaw === null ||
+      Array.isArray(backfillRaw))
+  ) {
+    throw new Error('memory.embeddings.backfill must be a mapping');
+  }
+  const backfill = (backfillRaw || {}) as Record<string, unknown>;
+  const backfillMode = parseOptionalString(backfill.mode);
+  if (
+    backfillMode !== undefined &&
+    !['auto', 'inline', 'provider_batch'].includes(backfillMode)
+  ) {
+    throw new Error(
+      'memory.embeddings.backfill.mode must be one of auto, inline, or provider_batch',
+    );
+  }
 
   const dreamingRaw = memory.dreaming;
   if (
@@ -197,6 +222,10 @@ export function parseRuntimeMemorySnapshotFromRoot(
     ),
     embeddingProvider,
     embeddingModel: parseOptionalString(embeddings.model),
+    embeddingDimensions: parseOptionalPositiveInteger(
+      embeddings.dimensions,
+      'memory.embeddings.dimensions',
+    ),
     dailyEmbedLimit: parseOptionalNonNegativeInteger(
       embeddings.daily_limit,
       'memory.embeddings.daily_limit',
@@ -204,6 +233,20 @@ export function parseRuntimeMemorySnapshotFromRoot(
     embedBatchSize: parseOptionalPositiveInteger(
       embeddings.batch_size,
       'memory.embeddings.batch_size',
+    ),
+    backfillEnabled: parseOptionalBoolean(
+      backfill.enabled,
+      'memory.embeddings.backfill.enabled',
+    ),
+    backfillCron: parseOptionalString(backfill.cron),
+    backfillMaxItemsPerRun: parseOptionalPositiveInteger(
+      backfill.max_items_per_run,
+      'memory.embeddings.backfill.max_items_per_run',
+    ),
+    backfillMode,
+    backfillProviderBatchMinItems: parseOptionalPositiveInteger(
+      backfill.provider_batch_min_items,
+      'memory.embeddings.backfill.provider_batch_min_items',
     ),
     dreamingEnabled: parseOptionalBoolean(
       dreaming.enabled,
@@ -248,7 +291,7 @@ export function parseRuntimeStorageSnapshotFromRoot(
     'agents',
     'storage',
     'agent',
-    'credential_broker',
+    'model_access',
     'memory',
     'runtime',
     'browser',
@@ -257,7 +300,7 @@ export function parseRuntimeStorageSnapshotFromRoot(
   for (const key of Object.keys(root)) {
     if (!supportedRootKeys.has(key)) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, mcp_servers, conversations, bindings, agents, storage, credential_broker, memory, runtime, browser, and permissions.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, mcp_servers, conversations, bindings, agents, storage, model_access, memory, runtime, browser, and permissions.`,
       );
     }
   }

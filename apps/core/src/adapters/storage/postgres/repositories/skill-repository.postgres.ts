@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
 
 import type { SkillCatalogRepository } from '../../../../domain/ports/repositories.js';
 import type {
@@ -37,38 +37,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
     return row ? this.mapSkill(row) : null;
   }
 
-  async getSkillByContentHash(input: {
-    appId: SkillCatalogItem['appId'];
-    contentHash: string;
-    agentId?: SkillCatalogItem['agentId'] | null;
-    statuses?: SkillCatalogItem['status'][];
-  }): Promise<SkillCatalogItem | null> {
-    const filters: SQL[] = [
-      eq(pgSchema.skillCatalogPostgres.appId, input.appId),
-      eq(pgSchema.skillCatalogPostgres.contentHash, input.contentHash),
-    ];
-    if (input.agentId !== undefined) {
-      filters.push(
-        eq(
-          sql<string>`coalesce(${pgSchema.skillCatalogPostgres.agentId}, '')`,
-          input.agentId ?? '',
-        ),
-      );
-    }
-    if (input.statuses?.length) {
-      filters.push(
-        inArray(pgSchema.skillCatalogPostgres.status, input.statuses),
-      );
-    }
-    const rows = await this.db
-      .select()
-      .from(pgSchema.skillCatalogPostgres)
-      .where(and(...filters))
-      .orderBy(desc(pgSchema.skillCatalogPostgres.updatedAt))
-      .limit(1);
-    return rows[0] ? this.mapSkill(rows[0]) : null;
-  }
-
   async listSkills(input: {
     appId: SkillCatalogItem['appId'];
     agentId?: SkillCatalogItem['agentId'];
@@ -102,7 +70,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
         agentId: item.agentId ?? null,
         name: item.name,
         description: item.description ?? null,
-        version: item.version,
         source: item.source,
         status: item.status,
         promptRefsJson: encodeJson(item.promptRefs),
@@ -115,10 +82,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
         contentHash: item.storage?.contentHash ?? null,
         sizeBytes: item.storage?.sizeBytes ?? null,
         createdBy: item.createdBy ?? null,
-        approvedBy: item.approvedBy ?? null,
-        approvedAt: item.approvedAt ?? null,
-        rejectedBy: item.rejectedBy ?? null,
-        rejectedAt: item.rejectedAt ?? null,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       })
@@ -128,7 +91,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
           agentId: item.agentId ?? null,
           name: item.name,
           description: item.description ?? null,
-          version: item.version,
           source: item.source,
           status: item.status,
           promptRefsJson: encodeJson(item.promptRefs),
@@ -141,10 +103,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
           contentHash: item.storage?.contentHash ?? null,
           sizeBytes: item.storage?.sizeBytes ?? null,
           createdBy: item.createdBy ?? null,
-          approvedBy: item.approvedBy ?? null,
-          approvedAt: item.approvedAt ?? null,
-          rejectedBy: item.rejectedBy ?? null,
-          rejectedAt: item.rejectedAt ?? null,
           updatedAt: item.updatedAt,
         },
       });
@@ -256,7 +214,7 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
           eq(pgSchema.agentSkillBindingsPostgres.appId, input.appId),
           eq(pgSchema.agentSkillBindingsPostgres.agentId, input.agentId),
           eq(pgSchema.agentSkillBindingsPostgres.status, 'active'),
-          eq(pgSchema.skillCatalogPostgres.status, 'approved'),
+          eq(pgSchema.skillCatalogPostgres.status, 'installed'),
         ),
       )
       .orderBy(asc(pgSchema.skillCatalogPostgres.name));
@@ -272,7 +230,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
       agentId: row.agentId ?? undefined,
       name: row.name,
       description: row.description ?? undefined,
-      version: row.version,
       source: row.source as SkillCatalogItem['source'],
       status: row.status as SkillCatalogItem['status'],
       promptRefs: parseJsonArray(row.promptRefsJson),
@@ -292,10 +249,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
             }
           : undefined,
       createdBy: row.createdBy ?? undefined,
-      approvedBy: row.approvedBy ?? undefined,
-      approvedAt: row.approvedAt ?? undefined,
-      rejectedBy: row.rejectedBy ?? undefined,
-      rejectedAt: row.rejectedAt ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     } as SkillCatalogItem;

@@ -254,6 +254,49 @@ describe('contracts package', () => {
               maxOutputTokens: 64000,
               cacheMode: 'openrouter-provider-prompt',
               cacheTokenFields: [],
+              cacheSupport: {
+                providerId: 'openrouter',
+                providerLabel: 'OpenRouter',
+                cacheProvider: 'openrouter-provider',
+                statusLabel:
+                  'prompt cache supported/accounted; response cache available but disabled',
+                prompt: {
+                  mode: 'openrouter_anthropic_cache_control',
+                  automatic: false,
+                  requestControl: 'cache_control_blocks',
+                  ttlOptions: ['5m', '1h'],
+                  minimumTokenThresholds: [
+                    {
+                      modelFamily: 'anthropic-compatible',
+                      tokens: 2048,
+                    },
+                  ],
+                  usageFields: {
+                    readTokens: 'prompt_tokens_details.cached_tokens',
+                    writeTokens: 'prompt_tokens_details.cache_write_tokens',
+                  },
+                  supported: true,
+                  accounted: true,
+                },
+                response: {
+                  mode: 'openrouter_response_cache',
+                  enabledByDefault: false,
+                  requestControl: 'request_header',
+                  requestHeaders: [
+                    'X-OpenRouter-Cache',
+                    'X-OpenRouter-Cache-TTL',
+                    'X-OpenRouter-Cache-Clear',
+                  ],
+                  responseHeaders: [
+                    'X-OpenRouter-Cache-Status',
+                    'X-OpenRouter-Cache-Age',
+                    'X-OpenRouter-Cache-TTL',
+                  ],
+                  usageBehavior: 'zero_usage_on_hit',
+                  available: true,
+                },
+                tokenFields: [],
+              },
               supportsThinking: true,
               supportsTools: true,
               source: {
@@ -369,6 +412,19 @@ describe('contracts package', () => {
     expect(JobModelPreviewSchema.parse(jobModelPreview)).toEqual(
       jobModelPreview,
     );
+    expect(
+      JobModelPreviewSchema.parse({
+        ...jobModelPreview,
+        responseFamily: 'gemini',
+        modelRoute: {
+          id: 'gemini',
+          label: 'Gemini',
+        },
+      }),
+    ).toMatchObject({
+      responseFamily: 'gemini',
+      modelRoute: { id: 'gemini' },
+    });
     expectInvalid(JobModelPreviewSchema, {
       ...jobModelPreview,
       providerSlug: 'anthropic',
@@ -512,15 +568,15 @@ describe('contracts package', () => {
       ],
       capabilityRequirements: [
         {
-          capabilityId: 'google.sheets.write',
-          reason: 'Append rows after each run',
+          capabilityId: 'acme.records.append',
+          reason: 'Append reviewed records after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executablePath: '/usr/local/bin/gog',
+            name: 'acme',
+            executablePath: '/usr/local/bin/acme',
             executableVersion: 'v0.9.0',
             executableHash: 'sha256:abc123',
-            commandTemplate: '/usr/local/bin/gog sheets append *',
+            commandTemplate: '/usr/local/bin/acme records append *',
           },
         },
       ],
@@ -533,8 +589,8 @@ describe('contracts package', () => {
       name: 'Daily summary',
       capabilityRequirements: [
         expect.objectContaining({
-          capabilityId: 'google.sheets.write',
-          implementation: expect.objectContaining({ name: 'gog' }),
+          capabilityId: 'acme.records.append',
+          implementation: expect.objectContaining({ name: 'acme' }),
         }),
       ],
       toolAccessRequirements: ['Browser'],
@@ -648,8 +704,8 @@ describe('contracts package', () => {
       modelAlias: null,
       capabilityRequirements: [
         {
-          capabilityId: 'google.sheets.write',
-          reason: 'Append rows after each run',
+          capabilityId: 'acme.records.append',
+          reason: 'Append reviewed records after each run',
         },
       ],
       toolAccessRequirements: ['Browser'],
@@ -659,8 +715,8 @@ describe('contracts package', () => {
       modelAlias: null,
       capabilityRequirements: [
         {
-          capabilityId: 'google.sheets.write',
-          reason: 'Append rows after each run',
+          capabilityId: 'acme.records.append',
+          reason: 'Append reviewed records after each run',
         },
       ],
       toolAccessRequirements: ['Browser'],
@@ -731,8 +787,8 @@ describe('contracts package', () => {
         ],
         capabilityRequirements: [
           {
-            capabilityId: 'google.sheets.write',
-            reason: 'Append rows after each run',
+            capabilityId: 'acme.records.append',
+            reason: 'Append reviewed records after each run',
           },
         ],
         toolAccessRequirements: ['Browser'],
@@ -772,7 +828,7 @@ describe('contracts package', () => {
       }),
     ).toMatchObject({
       staleness: 'missed_window',
-      capabilityRequirements: [{ capabilityId: 'google.sheets.write' }],
+      capabilityRequirements: [{ capabilityId: 'acme.records.append' }],
       health: { state: 'needs_permission' },
       recovery: { state: 'running', kind: 'permission_denied' },
     });

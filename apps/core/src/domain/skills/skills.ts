@@ -12,7 +12,7 @@ export type SkillId = BrandedId<'SkillId'>;
 export type AgentSkillBindingId = BrandedId<'AgentSkillBindingId'>;
 
 export type SkillSource = 'bundled' | 'agent_created' | 'admin_uploaded';
-export type SkillStatus = 'draft' | 'approved' | 'rejected' | 'disabled';
+export type SkillStatus = 'installed' | 'disabled';
 export type SkillStorageType = 'local-filesystem' | 'object-store';
 
 export const RESERVED_MATERIALIZED_SKILL_DIRECTORY_NAMES = [
@@ -37,7 +37,6 @@ export interface SkillCatalogItem {
   agentId?: AgentId;
   name: string;
   description?: string;
-  version: string;
   source: SkillSource;
   status: SkillStatus;
   promptRefs: string[];
@@ -47,10 +46,6 @@ export interface SkillCatalogItem {
   actionPermissions?: SkillActionPermission[];
   storage?: SkillStorageRef;
   createdBy?: string;
-  approvedBy?: string;
-  approvedAt?: IsoTimestamp;
-  rejectedBy?: string;
-  rejectedAt?: IsoTimestamp;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }
@@ -67,7 +62,7 @@ export interface AgentSkillBinding {
 }
 
 export function isSkillUsableForBinding(skill: SkillCatalogItem): boolean {
-  return skill.status === 'approved';
+  return skill.status === 'installed';
 }
 
 export function isSkillMaterializableLocally(skill: SkillCatalogItem): boolean {

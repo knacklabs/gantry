@@ -96,7 +96,7 @@ export async function exportCurrentDesiredState(input: {
     }),
     deps.repositories.skills.listSkills({
       appId,
-      statuses: ['approved'],
+      statuses: ['installed'],
     }),
     deps.repositories.providerConnections?.listProviderConnections
       ? deps.repositories.providerConnections.listProviderConnections(appId)

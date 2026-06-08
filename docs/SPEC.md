@@ -1,6 +1,6 @@
 # Gantry Specification
 
-A personal Claude assistant with multi-channel support, persistent memory per conversation, scheduled jobs, and host-runtime agent execution.
+A provider-neutral and channel-neutral agent runtime with multi-channel support, persistent memory per conversation, scheduled jobs, and host-runtime agent execution.
 
 ---
 
@@ -73,14 +73,14 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 
 ### Technology Stack
 
-| Component          | Technology                                                        | Purpose                                                               |
-| ------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix                  |
-| Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state               |
-| Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths                        |
-| Agent              | Provider execution adapters (current default: Anthropic Claude)    | Run agent models with tools and MCP servers through adapter boundaries |
-| Browser Automation | Gantry Browser capability + Chromium                              | Web interaction and screenshots through the projected Browser gateway |
-| Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution                    |
+| Component          | Technology                                                        | Purpose                                                                |
+| ------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix                   |
+| Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state                |
+| Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths                         |
+| Agent              | Provider execution adapters (current default: Anthropic Claude)   | Run agent models with tools and MCP servers through adapter boundaries |
+| Browser Automation | Gantry Browser capability + Chromium                              | Web interaction and screenshots through the projected Browser gateway  |
+| Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution                     |
 
 ---
 
@@ -241,7 +241,7 @@ gantry/
 │       │   ├── config/            # Env, settings, credentials, redaction
 │       │   ├── control/           # HTTP/SSE SDK control server
 │       │   ├── domain/            # Pure domain types and repository contracts
-│       │   ├── infrastructure/    # Postgres, pg-boss, IPC, OneCLI, logging, service wrappers
+│       │   ├── infrastructure/    # Postgres, pg-boss, IPC, logging, service wrappers
 │       │   ├── jobs/              # Gantry job lifecycle and scheduler ports
 │       │   ├── memory/            # Memory ingestion, retrieval, and storage logic
 │       │   ├── messaging/         # Routing and formatting
@@ -361,43 +361,34 @@ Use `/model` in a group session to switch the live model (`/model`, `/model <ali
 ### Model Access
 
 Gantry uses an agent credential broker boundary for agent and memory LLM
-credentials. `credential_broker.mode` in `settings.yaml` supports `onecli`,
-`external`, and `none`.
-OneCLI is the default local/personal broker adapter, but enterprise deployments
-can replace it with an external broker without changing the runtime agent-spawn
-path. Runtime-owned secrets such as `GANTRY_DATABASE_URL`, channel tokens,
-webhook/control secrets, and OneCLI persistence secrets are read through runtime
+credentials. `model_access.enabled` in `settings.yaml` controls whether Gantry
+Model Gateway is active. Gantry Model Gateway is the default local/personal
+model access adapter.
+Runtime-owned secrets such as `GANTRY_DATABASE_URL`, channel tokens, webhook
+secrets, control secrets, and `SECRET_ENCRYPTION_KEY` are read through runtime
 secret configuration, not requested from the agent credential broker.
 
-Runtime `.env` is for runtime-owned secrets only. In `onecli` mode it stores
-`ONECLI_DATABASE_URL` and a generated base64-encoded 32-byte
-`SECRET_ENCRYPTION_KEY` used by OneCLI broker state and Gantry Secrets, but not
-the OneCLI URL, credential mode, default model, or raw model-provider
-credentials.
-Non-secret broker and model configuration lives in `settings.yaml`, for example
-`credential_broker.onecli.url`,
-`agent.default_model`, or
-`credential_broker.external.base_url`. Gantry and OneCLI can share one Postgres
-database with separate schemas and roles: `gantry`, `onecli`, and `pgboss`.
-OneCLI owns its schema and migrations; Gantry only provisions and verifies the
-schema boundary. `GANTRY_DATABASE_URL` and `ONECLI_DATABASE_URL` must use
-different Postgres users.
+Runtime `.env` is for runtime-owned secrets only. It stores
+`GANTRY_DATABASE_URL` and a generated base64-encoded 32-byte
+`SECRET_ENCRYPTION_KEY` used by Gantry model credentials and capability
+credentials, but not model access settings, default model, or raw model-provider
+credentials. Non-secret model access and model configuration lives in
+`settings.yaml`, for example `model_access.enabled`,
+`model_access.gateway.bind_host`, or `agent.default_model`.
 
 The model SDK credential lane receives only broker-safe model endpoint settings
 from the selected broker. Raw provider tokens and runtime-owned database URLs
 are not forwarded to tools, the general child runner environment, or MCP
-servers. Runner-wide proxy environment variables are not accepted from OneCLI
-because they affect Bash, hooks, MCP stdio servers, skills, monitors, and other
-tools. Provider access is projected to the Agent SDK through explicit model
-endpoint settings such as `ANTHROPIC_BASE_URL` and adapter-materialized CA
-certificate references. `NO_PROXY`/`no_proxy` defaults are cooperative-tool
+servers. Provider access is projected to the Agent SDK through explicit
+loopback model endpoint settings such as `ANTHROPIC_BASE_URL` and a run-local
+gateway token. `NO_PROXY`/`no_proxy` defaults are cooperative-tool
 compatibility hints only; vulnerable-tool protection remains capability,
 permission, sandbox, and audit policy.
 If `.env` or process env contains raw agent credentials such as
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`,
 doctor/preflight reports a wrong-lane configuration error.
 
-### Changing the Assistant Name
+### Changing the Agent Mention Name
 
 Set the `ASSISTANT_NAME` environment variable:
 
@@ -489,13 +480,13 @@ checks.
 
 Agents interact with memory via MCP tools over IPC:
 
-| Tool             | Purpose                                                                                  |
-| ---------------- | ---------------------------------------------------------------------------------------- |
-| `memory_save`    | Save a durable preference, decision, fact, correction, or constraint in user/group scope |
-| `memory_search`  | Search scoped memory statements and source snippets                                      |
+| Tool                 | Purpose                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `memory_save`        | Save a durable preference, decision, fact, correction, or constraint in user/group scope  |
+| `memory_search`      | Search scoped memory statements and source snippets                                       |
 | `continuity_summary` | Summarize current durable memory continuity, staged candidates, and last injected context |
-| `procedure_save` | Save a reusable multi-step procedure                                                     |
-| `file`           | List, read, write, or promote Gantry FileArtifacts by virtual scope/path                 |
+| `procedure_save`     | Save a reusable multi-step procedure                                                      |
+| `file`               | List, read, write, or promote Gantry FileArtifacts by virtual scope/path                  |
 
 Patch and review tools exist in the host protocol for reviewed/admin flows, but
 they are not part of the default agent capability bundle.
@@ -526,15 +517,15 @@ Provider ids are stored without changing the boundary meaning:
 
 #### Search Architecture
 
-Search currently uses Postgres full-text lexical ranking plus keyword-style
-fallback over visible `memory_items`. This works when embeddings are disabled,
-which is the default local setup.
+Search uses Postgres full-text lexical ranking over visible `memory_items` when
+embeddings are disabled, which is the default local setup. When embeddings are
+enabled and item vectors are ready for the configured provider/model/dimensions,
+runtime recall fuses lexical and pgvector cosine candidates with reciprocal
+rank fusion. Query embedding is deadline-bounded and falls back to lexical
+retrieval on quota, rate-limit, provider error, or timeout.
 
-Embedding providers and the `embedding_cache` table exist for brokered
-embedding work, but vector memory retrieval is inactive until the runtime has a
-complete memory item embedding index and query path. Do not describe current
-runtime recall as hybrid or RRF-based.
-Embedding work is limited to dreaming promotion/update workflows in this slice.
+Embedding writes happen outside turn-time recall through dreaming
+promotion/update workflows and resumable embedding backfill.
 
 #### Source Ingestion
 
@@ -584,32 +575,29 @@ continuation state.
 
 ### Memory Configuration Reference
 
-| Setting                                     | Default                  | Description                                                     |
-| ------------------------------------------- | ------------------------ | --------------------------------------------------------------- |
-| `storage.postgres.url_env`                  | `GANTRY_DATABASE_URL`    | Env key for Postgres connection URL                             |
-| `storage.postgres.schema`                   | `gantry`                 | Postgres schema name                                            |
-| `agent.default_model`                       | empty                    | Default provider-neutral model alias                            |
-| `agent.one_time_job_default_model`          | empty                    | One-time/manual job model alias; inherits `agent.default_model` |
-| `agent.recurring_job_default_model`         | empty                    | Cron/interval job model alias; inherits `agent.default_model`   |
-| `memory.llm.models.extractor`               | `haiku`                  | Memory extraction model alias                                   |
-| `memory.llm.models.dreaming`                | `sonnet`                 | Memory dreaming model alias                                     |
-| `memory.llm.models.consolidation`           | `sonnet`                 | Memory consolidation model alias                                |
-| `credential_broker.mode`                    | `onecli`                 | Agent credential broker mode (`onecli`, `external`, `none`)     |
-| `credential_broker.onecli.url`              | `http://localhost:10254` | OneCLI gateway URL                                              |
-| `credential_broker.onecli.postgres.url_env` | `ONECLI_DATABASE_URL`    | Env key for the OneCLI Postgres URL with `schema=onecli`        |
-| `credential_broker.onecli.postgres.schema`  | `onecli`                 | OneCLI-owned Postgres schema                                    |
-| `credential_broker.external.base_url`       | empty                    | External broker-safe endpoint URL for `external` mode           |
-| `memory.enabled`                            | `true`                   | Enables durable memory                                          |
-| `memory.embeddings.enabled`                 | `false`                  | Optional embedding toggle                                       |
-| `memory.embeddings.provider`                | `disabled`               | Embedding provider (`disabled` or `openai`)                     |
-| `memory.embeddings.model`                   | `text-embedding-3-large` | Embedding model                                                 |
-| `memory.embeddings.batch_size`              | `16`                     | Texts per embedding API call                                    |
-| `memory.embeddings.daily_limit`             | `500`                    | Daily embedding API call limit                                  |
-| `memory.llm.extractor_max_facts`            | `8`                      | Max candidate facts extracted per evidence batch                |
-| `memory.llm.extractor_min_confidence`       | `0.6`                    | Min confidence for extracted candidates                         |
-| `memory.dreaming.enabled`                   | `false`                  | Enables scheduled dreaming maintenance                          |
-| `memory.dreaming.cron`                      | `15 3 * * *`             | Dreaming maintenance schedule                                   |
-| `memory.maintenance.max_pending`            | `5000`                   | Max pending memory maintenance items per pass                   |
+| Setting                               | Default                  | Description                                                     |
+| ------------------------------------- | ------------------------ | --------------------------------------------------------------- |
+| `storage.postgres.url_env`            | `GANTRY_DATABASE_URL`    | Env key for Postgres connection URL                             |
+| `storage.postgres.schema`             | `gantry`                 | Postgres schema name                                            |
+| `agent.default_model`                 | empty                    | Default provider-neutral model alias                            |
+| `agent.one_time_job_default_model`    | empty                    | One-time/manual job model alias; inherits `agent.default_model` |
+| `agent.recurring_job_default_model`   | empty                    | Cron/interval job model alias; inherits `agent.default_model`   |
+| `memory.llm.models.extractor`         | `haiku`                  | Memory extraction model alias                                   |
+| `memory.llm.models.dreaming`          | `sonnet`                 | Memory dreaming model alias                                     |
+| `memory.llm.models.consolidation`     | `sonnet`                 | Memory consolidation model alias                                |
+| `model_access.enabled`                | `true`                   | Enables Gantry Model Gateway                                    |
+| `model_access.gateway.bind_host`      | `127.0.0.1`              | Loopback bind host for Gantry Model Gateway                     |
+| `memory.enabled`                      | `true`                   | Enables durable memory                                          |
+| `memory.embeddings.enabled`           | `false`                  | Optional embedding toggle                                       |
+| `memory.embeddings.provider`          | `disabled`               | Embedding provider (`disabled` or `openai`)                     |
+| `memory.embeddings.model`             | `text-embedding-3-small` | Embedding model                                                 |
+| `memory.embeddings.batch_size`        | `16`                     | Texts per embedding API call                                    |
+| `memory.embeddings.daily_limit`       | `500`                    | Daily embedding API call limit                                  |
+| `memory.llm.extractor_max_facts`      | `8`                      | Max candidate facts extracted per evidence batch                |
+| `memory.llm.extractor_min_confidence` | `0.6`                    | Min confidence for extracted candidates                         |
+| `memory.dreaming.enabled`             | `false`                  | Enables scheduled dreaming maintenance                          |
+| `memory.dreaming.cron`                | `15 3 * * *`             | Dreaming maintenance schedule                                   |
+| `memory.maintenance.max_pending`      | `5000`                   | Max pending memory maintenance items per pass                   |
 
 ---
 
@@ -714,42 +702,42 @@ This allows the agent to understand the conversation context even if it wasn't m
 
 | Command                | Example                     | Effect         |
 | ---------------------- | --------------------------- | -------------- |
-| `@Assistant [message]` | `@Andy what's the weather?` | Talk to Claude |
+| `@Agent [message]` | `@Andy what's the weather?` | Message the configured agent |
 
 ### Commands Available in Main Channel Only
 
 | Command                          | Example                             | Effect                    |
 | -------------------------------- | ----------------------------------- | ------------------------- |
-| `@Assistant add group "Name"`    | `@Andy add group "Family Chat"`     | Register a new group      |
-| `@Assistant remove group "Name"` | `@Andy remove group "Work Team"`    | Unregister a group        |
-| `@Assistant list groups`         | `@Andy list groups`                 | Show registered groups    |
-| `@Assistant remember [fact]`     | `@Andy remember I prefer dark mode` | Add scoped durable memory |
+| `@Agent add group "Name"`    | `@Andy add group "Family Chat"`     | Register a new group      |
+| `@Agent remove group "Name"` | `@Andy remove group "Work Team"`    | Unregister a group        |
+| `@Agent list groups`         | `@Andy list groups`                 | Show registered groups    |
+| `@Agent remember [fact]`     | `@Andy remember I prefer dark mode` | Add scoped durable memory |
 
 ---
 
 ## Scheduled Jobs
 
-Gantry has a built-in scheduler that runs jobs as full agents in their group's context.
+Gantry has a built-in scheduler that runs jobs as full agents in the owning conversation's context.
 Job definitions, job instances/runs, and notification routes are runtime
 Postgres state and are never written to `settings.yaml`.
 
 ### How Scheduling Works
 
-1. **Group Context**: Jobs created in a group run with that group's working directory and memory
+1. **Conversation Context**: Jobs created in a conversation run with that conversation's working directory and memory. A thread or topic can control delivery, but it does not own the job.
 2. **Agent Capabilities**: Scheduled jobs inherit the selected target agent's
    selected capabilities plus attached sources. They do not carry job-specific
    capability grants, raw tool grants, or receive all tools by default.
    Job `capabilityRequirements`, `toolAccessRequirements`, and
    `requiredMcpServers` are readiness assertions that pause the job until the
    target agent has the required capability, tool facade, or MCP source.
-3. **Optional Messaging**: Jobs can send messages to their group using the `send_message` tool, or complete silently
+3. **Optional Messaging**: Jobs can send messages to their configured conversation or thread/topic route using the `send_message` tool, or complete silently
 4. **Admin Privileges**: Admin-wide job management belongs to the Control API
    and local/admin CLI surfaces. Normal agent-facing scheduler MCP tools stay
    scoped to the calling agent and originating conversation.
 5. **Browser Action Gating**: Browser actions use the selected canonical
    `Browser` capability and projected gateway tools: `browser_status`,
    `browser_open`, `browser_inspect`, `browser_act`, and `browser_close`.
-   Private browser backend job tool names are rejected instead of granting
+   Private browser backend job tool names are rejected instead of creating
    browser action access.
 
 ### Schedule Types
@@ -765,7 +753,7 @@ Postgres state and are never written to `settings.yaml`.
 ```
 User: @Andy remind me every Monday at 9am to review the weekly metrics
 
-Claude: [calls mcp__gantry__scheduler_upsert_job]
+Agent: [calls mcp__gantry__scheduler_upsert_job]
         {
           "name": "weekly-metrics-reminder",
           "prompt": "Send a reminder to review weekly metrics. Be encouraging!",
@@ -782,7 +770,7 @@ Claude: [calls mcp__gantry__scheduler_upsert_job]
           ]
         }
 
-Claude: Done! I'll remind you every Monday at 9am.
+Agent: Done! I'll remind you every Monday at 9am.
 ```
 
 ### One-Time Jobs
@@ -790,7 +778,7 @@ Claude: Done! I'll remind you every Monday at 9am.
 ```
 User: @Andy at 5pm today, send me a summary of today's emails
 
-Claude: [calls mcp__gantry__scheduler_upsert_job]
+Agent: [calls mcp__gantry__scheduler_upsert_job]
         {
           "name": "today-email-summary",
           "prompt": "Search for today's emails, summarize the important ones, and send the summary to the group.",
@@ -810,17 +798,17 @@ Claude: [calls mcp__gantry__scheduler_upsert_job]
 
 ### Managing Jobs
 
-From any group:
+From any conversation:
 
-- `@Andy list my scheduled jobs` - View jobs for this group
+- `@Andy list my scheduled jobs` - View jobs for this conversation
 - `@Andy pause job [id]` - Pause a job
 - `@Andy resume job [id]` - Resume a paused job
 - `@Andy delete job [id]` - Delete a job
 
 With selected scheduler capability and conversation approval:
 
-- `@Andy list all jobs` - View jobs from all groups
-- `@Andy schedule job for "Family Chat": [prompt]` - Schedule for another group
+- `@Andy list all jobs` - View jobs from all conversations
+- `@Andy schedule job for "Family Chat": [prompt]` - Schedule for another conversation
 
 ---
 
@@ -828,7 +816,7 @@ With selected scheduler capability and conversation approval:
 
 ### Gantry MCP (built-in)
 
-The `gantry` MCP server is created dynamically per agent call with the current group's context.
+The `gantry` MCP server is created dynamically per agent call with the current conversation context.
 
 **Available Tools:**
 | Tool | Purpose |
@@ -843,13 +831,13 @@ The `gantry` MCP server is created dynamically per agent call with the current g
 | `scheduler_run_now` | Queue an immediate run of an existing job |
 | `scheduler_list_runs` | List job run history |
 | `scheduler_get_dead_letter` | List dead-lettered runs |
-| `send_message` | Send a message to the group via its channel |
+| `send_message` | Send a message to the configured conversation route |
 
 Scheduler MCP job visibility and mutation are scoped to both the calling
-agent's group and the current conversation: `group_scope` must match the
+agent's runtime scope and the current conversation: `group_scope` must match the
 agent, and `executionContext.conversationJid` must match the originating chat.
 Thread/topic ids may be checked to prevent delivery retargeting, but they do
-not grant job visibility or run authority.
+not create job visibility or run authority.
 
 ---
 
@@ -987,10 +975,10 @@ Inbound channel and SDK messages could contain malicious instructions attempting
 
 ### Credential Storage
 
-| Credential      | Storage Location              | Notes                                                |
-| --------------- | ----------------------------- | ---------------------------------------------------- |
-| Claude CLI Auth | Runtime credential adapter    | Shared config is copied into per-run temp dirs       |
-| Channel secrets | Runtime environment or OneCLI | Loaded by provider setup and never exposed to agents |
+| Credential          | Storage Location         | Notes                                                            |
+| ------------------- | ------------------------ | ---------------------------------------------------------------- |
+| Model provider keys | Gantry model credentials | Encrypted in Postgres and projected through the loopback gateway |
+| Channel secrets     | Runtime environment      | Loaded by provider setup and never exposed to agents             |
 
 ### File Permissions
 

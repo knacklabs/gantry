@@ -18,7 +18,7 @@ describe('permission tool rule extraction', () => {
     ).toEqual(['RunCommand(npm test *)', 'FileRead']);
   });
 
-  it('normalizes safe Python script approvals to script-path wildcard rules', () => {
+  it('does not widen Python script approvals to script-path wildcard rules', () => {
     expect(
       permissionUpdateAllowedToolRules([
         {
@@ -38,8 +38,8 @@ describe('permission tool rule extraction', () => {
         },
       ]),
     ).toEqual([
-      'RunCommand(/tmp/dedup-append-lead.py *)',
-      'RunCommand(/tmp/other-dedup-append-lead.py *)',
+      'RunCommand(python3 /tmp/dedup-append-lead.py)',
+      'RunCommand(python /tmp/other-dedup-append-lead.py \'[["lead"]]\')',
     ]);
   });
 

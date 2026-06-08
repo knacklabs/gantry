@@ -18,10 +18,12 @@ Gantry must present one runtime truth across runtime code, CLI, diagnostics, set
 5. `settings.yaml` is rendered as compact current desired state for humans:
    `defaults.*`, enabled `providers.*`, editable `agents.*`, and
    `conversations.*`. Advanced sections such as `provider_connections.*`,
-   `storage.*`, `credential_broker.*`, `memory.*`, and
+   `storage.*`, `model_access.*`, `memory.*`, and
    `desired_state.authoritative` are omitted when they match built-in defaults.
    There is no versioned settings lane because Gantry is still early-stage.
-6. `credential_broker.onecli.postgres.*` declares the OneCLI persistence contract. It stores only the env key and schema name; the URL and encryption key stay in `.env`.
+6. `model_access.*` stores only non-secret model gateway configuration.
+   Model provider keys live in typed encrypted model credential records, and
+   `SECRET_ENCRYPTION_KEY` stays in runtime `.env`.
 7. Runtime memory injection is query-scoped: the current message or scheduled
    job prompt drives retrieval, and no memory block is injected when nothing
    matches. Provider/session continuity remains separate from durable memory and

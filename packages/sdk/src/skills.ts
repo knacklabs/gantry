@@ -7,23 +7,23 @@ type TransportLike = {
   }): Promise<T>;
 };
 
-type UploadSkillDraftInput = {
+type InstallSkillInput = {
   appId?: string;
   agentId?: string;
   createdBy?: string;
   zip: Uint8Array;
 };
 
-export function createSkillDraftsClient(transport: TransportLike) {
+export function createSkillsClient(transport: TransportLike) {
   return {
-    upload: (input: UploadSkillDraftInput) => {
+    install: (input: InstallSkillInput) => {
       const params = new URLSearchParams();
       if (input.appId) params.set('appId', input.appId);
       if (input.agentId) params.set('agentId', input.agentId);
       if (input.createdBy) params.set('createdBy', input.createdBy);
       return transport.request<Record<string, unknown>>({
         method: 'POST',
-        path: `/v1/skills/drafts/upload${params.toString() ? `?${params}` : ''}`,
+        path: `/v1/skills/install${params.toString() ? `?${params}` : ''}`,
         body: input.zip,
         contentType: 'application/zip',
       });
@@ -31,32 +31,11 @@ export function createSkillDraftsClient(transport: TransportLike) {
     list: (input: { agentId?: string } = {}) => {
       const params = new URLSearchParams();
       if (input.agentId) params.set('agentId', input.agentId);
-      return transport.request<{ drafts: unknown[] }>({
+      return transport.request<{ skills: unknown[] }>({
         method: 'GET',
-        path: `/v1/skills/drafts${params.toString() ? `?${params}` : ''}`,
+        path: `/v1/skills${params.toString() ? `?${params}` : ''}`,
       });
     },
-    approve: (
-      skillId: string,
-      input: {
-        appId?: string;
-        approvedBy?: string;
-      } = {},
-    ) =>
-      transport.request<Record<string, unknown>>({
-        method: 'POST',
-        path: `/v1/skills/drafts/${encodeURIComponent(skillId)}/approve`,
-        body: input,
-      }),
-    reject: (
-      skillId: string,
-      input: { appId?: string; rejectedBy?: string } = {},
-    ) =>
-      transport.request<Record<string, unknown>>({
-        method: 'POST',
-        path: `/v1/skills/drafts/${encodeURIComponent(skillId)}/reject`,
-        body: input,
-      }),
   };
 }
 

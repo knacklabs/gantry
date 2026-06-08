@@ -2,7 +2,7 @@
 
 ## Context
 
-Gantry is moving from a personal Claude assistant implementation toward a
+Gantry is moving from an early Claude-backed local implementation toward a
 provider-neutral and channel-neutral agent runtime platform. The existing code
 and older docs still expose several implementation concepts as if they were the
 product architecture:

@@ -279,13 +279,13 @@ describe('scheduler IPC adapter contracts', () => {
         ],
         capabilityRequirements: [
           {
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Write lead rows after each run',
             implementation: {
               kind: 'local_cli',
-              name: 'gog',
-              executablePath: '/usr/local/bin/gog',
-              commandTemplate: '/usr/local/bin/gog sheets append *',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
+              commandTemplate: '/usr/local/bin/acme records append *',
             },
           },
         ],
@@ -309,13 +309,13 @@ describe('scheduler IPC adapter contracts', () => {
           ],
           capabilityRequirements: [
             {
-              capabilityId: 'google.sheets.write',
+              capabilityId: 'acme.records.append',
               reason: 'Write lead rows after each run',
               implementation: {
                 kind: 'local_cli',
-                name: 'gog',
-                executablePath: '/usr/local/bin/gog',
-                commandTemplate: '/usr/local/bin/gog sheets append *',
+                name: 'acme',
+                executablePath: '/usr/local/bin/acme',
+                commandTemplate: '/usr/local/bin/acme records append *',
               },
             },
           ],
@@ -341,13 +341,13 @@ describe('scheduler IPC adapter contracts', () => {
         toolAccessRequirements: ['Browser'],
         capabilityRequirements: [
           {
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Write lead rows after each run',
             implementation: {
               kind: 'local_cli',
-              name: 'gog',
-              executablePath: '/usr/local/bin/gog',
-              commandTemplate: '/usr/local/bin/gog sheets append *',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
+              commandTemplate: '/usr/local/bin/acme records append *',
             },
           },
         ],

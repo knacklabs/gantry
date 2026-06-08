@@ -21,7 +21,6 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@core/config/index.js', () => ({
   GANTRY_HOME: '/tmp/gantry-channel-integration-home',
-  ONECLI_ALLOWED_ENV_KEYS: [],
   getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
   syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
   getDefaultModelConfig: vi.fn(() => ({

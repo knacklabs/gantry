@@ -38,7 +38,7 @@ export async function resolveMcpCredentialEnvForAgent(input: {
   const service = new CapabilitySecretService(input.secrets);
   const credentialEnv: Record<string, string> = {};
   for (const record of records) {
-    const config = record.version.config;
+    const config = record.definition.config;
     const identity = config.callerIdentity;
     const isRemoteTransport =
       config.transport === 'http' || config.transport === 'sse';
@@ -65,7 +65,7 @@ export async function resolveMcpCredentialEnvForAgent(input: {
     // stdio_template servers are spawned by core, which injects their env from
     // the reviewed capability secret store.
     const refs = [
-      ...record.version.credentialRefs.map((ref) => ref.name),
+      ...record.definition.credentialRefs.map((ref) => ref.name),
       ...(identity?.mode === 'required' ? [identity.signingRef] : []),
     ];
     if (refs.length === 0) continue;

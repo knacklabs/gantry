@@ -30,7 +30,10 @@ import {
   isSessionCommandAllowed,
 } from '../session/session-commands.js';
 import type { SessionCommand } from '../session/session-commands.js';
-import { makeThreadQueueKey, parseThreadQueueKey } from './thread-queue-key.js';
+import {
+  makeThreadQueueKey,
+  parseThreadQueueKey,
+} from '../shared/thread-queue-key.js';
 import { resolveNonSelfSenderIds } from './session-resume-runtime.js';
 import { isTestOperatorJid } from '../shared/test-mode.js';
 import { IDLE_SWEEP_INTERVAL_MS } from './idle-session-sweep.js';

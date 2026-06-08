@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ChildProcess } from 'child_process';
 import type { NewMessage, ConversationRoute } from '@core/domain/types.js';
-import { MEMORY_BOUNDARY_COLLECTION_TIMEOUT_MS } from '@core/shared/memory-dreaming-timeout.js';
 import {
   decodeGroupMessageCursor,
   encodeGroupMessageCursor,
@@ -29,7 +28,6 @@ vi.mock('@core/config/index.js', () => ({
       },
     },
   }),
-  getRuntimeEnvValue: vi.fn(() => ''),
   getDefaultModelConfig: () => ({ model: undefined }),
   getTriggerPattern: (trigger?: string) =>
     trigger ? new RegExp(`^@${trigger}\\b`, 'i') : /^@Andy\b/i,
@@ -43,26 +41,6 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     debug: vi.fn(),
   },
 }));
-
-// The guardrail policy is an agent-owned plugin loaded from the runtime folder.
-// These tests exercise group-processing's INTEGRATION with the guardrail (not
-// the loader, which has its own test), so resolve the real Boondi plugin
-// directly rather than staging a file under the mocked config's AGENTS_DIR.
-vi.mock('@core/application/guardrails/policy-registry.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('@core/application/guardrails/policy-registry.js')
-  >('@core/application/guardrails/policy-registry.js');
-  const boondiPolicy = (
-    await import('../../../../../agents/boondi_support/guardrails/guardrail.ts')
-  ).default;
-  return {
-    ...actual,
-    resolveGuardrailPolicy: vi.fn(async () => ({
-      policy: boondiPolicy,
-      source: 'plugin' as const,
-    })),
-  };
-});
 
 const mockRunDreamingSweep = vi.fn();
 const mockGetMemoryStatus = vi.fn();
@@ -500,119 +478,6 @@ describe('createGroupProcessor', () => {
 
       expect(result).toBe(true);
       expect(mockSpawnAgent).not.toHaveBeenCalled();
-    });
-  });
-
-  // =======================================================================
-  // Agent guardrails
-  // =======================================================================
-
-  describe('agent guardrails', () => {
-    const plugins = {
-      guardrail: { file: 'guardrail.ts', model: 'haiku' },
-    };
-
-    it('rejects out-of-scope messages before typing or agent spawn', async () => {
-      const group = makeGroup({
-        requiresTrigger: false,
-        agentConfig: { plugins },
-      });
-      const messages = [makeMessage({ content: 'What is the weather?' })];
-      const { deps, channel } = setupHappyPath({ group, messages });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages('group1@g.us');
-
-      expect(result).toBe(true);
-      expect(channel.sendMessage).toHaveBeenCalledWith(
-        'group1@g.us',
-        expect.stringContaining('I can only help with Bombay Sweet Shop'),
-      );
-      expect(channel.setTyping).not.toHaveBeenCalled();
-      expect(mockSpawnAgent).not.toHaveBeenCalled();
-      expect(mockFormatMessages).not.toHaveBeenCalled();
-      expect(deps.setCursor).toHaveBeenCalledWith(
-        'group1@g.us',
-        encodeGroupMessageCursor({
-          timestamp: '1700000001',
-          id: 'msg-1',
-        }),
-      );
-    });
-
-    it('answers greetings directly before agent spawn', async () => {
-      const group = makeGroup({
-        requiresTrigger: false,
-        agentConfig: { plugins },
-      });
-      const messages = [makeMessage({ content: 'Hey' })];
-      const { deps, channel } = setupHappyPath({ group, messages });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages('group1@g.us');
-
-      expect(result).toBe(true);
-      expect(channel.sendMessage).toHaveBeenCalledWith(
-        'group1@g.us',
-        expect.stringContaining('I am Boondi'),
-      );
-      expect(channel.setTyping).not.toHaveBeenCalled();
-      expect(mockSpawnAgent).not.toHaveBeenCalled();
-    });
-
-    it('allows BSS support messages through the existing runner path', async () => {
-      const group = makeGroup({
-        requiresTrigger: false,
-        agentConfig: { plugins },
-      });
-      const messages = [makeMessage({ content: 'What was my last order?' })];
-      const { deps, channel } = setupHappyPath({ group, messages });
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages('group1@g.us');
-
-      expect(result).toBe(true);
-      expect(channel.setTyping).toHaveBeenCalledWith('group1@g.us', true);
-      expect(mockFormatMessages).toHaveBeenCalled();
-      expect(mockSpawnAgent).toHaveBeenCalled();
-    });
-
-    it('classifies ambiguous messages once without spawning tools first', async () => {
-      const group = makeGroup({
-        requiresTrigger: false,
-        agentConfig: { plugins },
-      });
-      const messages = [makeMessage({ content: 'Can you help me?' })];
-      const classifier = vi.fn().mockResolvedValue({
-        action: 'direct_response',
-        responseKind: 'scope_clarification',
-        reason: 'ambiguous_support_intent',
-      });
-      const { deps, channel } = setupHappyPath({
-        group,
-        messages,
-      });
-      deps.guardrailClassifier = classifier;
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages('group1@g.us');
-
-      expect(result).toBe(true);
-      expect(classifier).toHaveBeenCalledTimes(1);
-      expect(classifier).toHaveBeenCalledWith(
-        expect.objectContaining({
-          policy: 'bss_customer_support',
-          model: 'haiku',
-          messages: ['Can you help me?'],
-        }),
-      );
-      expect(channel.setTyping).not.toHaveBeenCalled();
-      expect(mockFormatMessages).not.toHaveBeenCalled();
-      expect(mockSpawnAgent).not.toHaveBeenCalled();
-      expect(channel.sendMessage).toHaveBeenCalledWith(
-        'group1@g.us',
-        expect.stringContaining('I can help with Bombay Sweet Shop'),
-      );
     });
   });
 
@@ -1112,7 +977,7 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('expires a stale Claude resume id and retries with a fresh session', async () => {
+    it('expires a missing provider session and retries the turn without resume', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
       (deps.opsRepository as any).getAgentTurnContext = vi
@@ -1122,61 +987,61 @@ describe('createGroupProcessor', () => {
           agentId: 'agent:test',
           agentSessionId: 'agent-session:1',
           providerSessionId: 'provider-session:1',
-          providerSessionProvider: 'test-provider',
-          externalSessionId: 'missing-claude-session',
-          agentSessionResetAt: null,
+          externalSessionId: 'claude-session-stale',
         });
-      mockSpawnAgent
-        .mockResolvedValueOnce({
-          status: 'error',
-          result: null,
-          error:
-            'Claude Code returned an error result: No conversation found with session ID: missing-claude-session',
-        } satisfies AgentOutput)
-        .mockImplementationOnce(
-          async (
-            _group: ConversationRoute,
-            _input: unknown,
-            _onProc: unknown,
-            onOutput?: (output: AgentOutput) => Promise<void>,
-          ) => {
-            const output = {
-              status: 'success',
-              result: 'fresh response',
-              newSessionId: 'fresh-claude-session',
-            } satisfies AgentOutput;
-            if (onOutput) await onOutput(output);
-            return output;
-          },
-        );
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:message-1');
+
+      mockSpawnAgent.mockImplementationOnce(async () => ({
+        status: 'error',
+        result: null,
+        error: 'No conversation found with session ID: stale',
+      }));
+      mockSpawnAgent.mockImplementationOnce(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          const output: AgentOutput = {
+            status: 'success',
+            result: 'fresh reply',
+            newSessionId: 'claude-session-fresh',
+          };
+          await onOutput?.(output);
+          return output;
+        },
+      );
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      const result = await processGroupMessages('group1@g.us');
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
 
-      expect(result).toBe(true);
       expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        sessionId: 'missing-claude-session',
+        sessionId: 'claude-session-stale',
       });
       expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
       expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
         providerSessionId: 'provider-session:1',
         agentSessionId: 'agent-session:1',
-        provider: 'test-provider',
-        externalSessionId: 'missing-claude-session',
+        provider: 'anthropic:claude-agent-sdk',
+        externalSessionId: 'claude-session-stale',
+      });
+      expect(
+        deps.opsRepository.updateAgentRunProviderMetadata,
+      ).toHaveBeenCalledWith({
+        runId: 'agent-run:message-1',
+        providerSessionId: null,
       });
       expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
         group.folder,
-        'fresh-claude-session',
+        'claude-session-fresh',
         null,
-        {
-          conversationJid: 'group1@g.us',
-          conversationKind: undefined,
-          memoryUserId: 'user1@s.whatsapp.net',
+        expect.objectContaining({
           expectedAgentSessionId: 'agent-session:1',
-          expectedAgentSessionResetAt: null,
-          executionProviderId: 'anthropic:claude-agent-sdk',
-        },
+        }),
       );
     });
 
@@ -1864,55 +1729,6 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('redacts a leaky streamed transcript before persisting it (no raw internal detail stored)', async () => {
-      const streamingChannel = makeChannel({
-        sendStreamingChunk: vi.fn().mockResolvedValue(true),
-      });
-      const { deps } = setupHappyPath();
-      deps.channelRuntime = streamingChannel;
-
-      // Agent emits a reply that leaks an internal detail ("mcp"). The wire is
-      // guarded in channel-wiring (covered elsewhere); here we assert the
-      // accumulated transcript is run through the same fail-closed backstop
-      // before it is persisted, so the stored bot message — which also re-enters
-      // the guardrail classifier context on later turns — holds the decline, not
-      // the raw leak.
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: ConversationRoute,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          await onOutput?.({
-            status: 'success',
-            result: 'your mcp call failed',
-          });
-          return {
-            status: 'success',
-            result: 'your mcp call failed',
-          } as AgentOutput;
-        },
-      );
-
-      const storeMessage = deps.opsRepository!
-        .storeMessage as unknown as ReturnType<typeof vi.fn>;
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      const streamedPersist = storeMessage.mock.calls.find(
-        (call) =>
-          typeof call[0]?.content === 'string' &&
-          typeof call[0]?.id === 'string' &&
-          call[0].id.startsWith('streamed-outbound:'),
-      );
-      expect(streamedPersist).toBeTruthy();
-      expect(streamedPersist![0].content).toContain(
-        "Sorry, I can't share that here",
-      );
-      expect(streamedPersist![0].content).not.toMatch(/\bmcp\b/);
-    });
-
     it('preserves whitespace-only streaming deltas from provider output', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
@@ -2397,8 +2213,8 @@ describe('createGroupProcessor', () => {
           trigger: 'precompact',
           defaultScope: 'group',
           signal: expect.any(AbortSignal),
-          timeoutMs: MEMORY_BOUNDARY_COLLECTION_TIMEOUT_MS,
-          statementTimeoutMs: MEMORY_BOUNDARY_COLLECTION_TIMEOUT_MS,
+          timeoutMs: 45_000,
+          statementTimeoutMs: 45_000,
         }),
       );
       expect(deps.queue.notifyIdle).not.toHaveBeenCalled();
@@ -4085,8 +3901,8 @@ describe('createGroupProcessor', () => {
           trigger: 'precompact',
           defaultScope: 'group',
           signal: expect.any(AbortSignal),
-          timeoutMs: MEMORY_BOUNDARY_COLLECTION_TIMEOUT_MS,
-          statementTimeoutMs: MEMORY_BOUNDARY_COLLECTION_TIMEOUT_MS,
+          timeoutMs: 45_000,
+          statementTimeoutMs: 45_000,
         }),
       );
     });

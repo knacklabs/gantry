@@ -170,7 +170,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     text: string,
     options: StreamingChunkOptions = {},
   ): Promise<boolean> {
-    if (!this.bot || !this.draftStreamApi) return false;
+    if (!this.bot) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
 
     const numericId = jid.replace(/^tg:/, '');
@@ -182,6 +182,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (!this.isLikelyPrivateChatId(numericId)) {
       return this.handleGroupStreamingChunk(jid, numericId, text, options);
     }
+    if (!this.draftStreamApi) return false;
 
     const parsedThreadId = options.threadId
       ? Number.parseInt(options.threadId, 10)

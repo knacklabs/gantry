@@ -29,13 +29,16 @@ export async function resolveAuthenticatedRouteContextForUpdate(input: {
   groupScope: string;
 } | null> {
   if (input.access) {
-    return assertExecutionContextMatchesAuthenticatedContext({
+    const authenticatedContext = authenticatedContextFromAccess(
+      input.access,
+      input.groupScope,
+    );
+    assertExecutionContextMatchesAuthenticatedContext({
       executionContext: input.patchExecutionContext,
-      authenticatedContext: authenticatedContextFromAccess(
-        input.access,
-        input.groupScope,
-      ),
+      authenticatedContext,
+      enforceThread: input.patchExecutionContext !== undefined,
     });
+    return authenticatedContext;
   }
   if (!input.deps.control) return null;
   const requestedExecutionContext =

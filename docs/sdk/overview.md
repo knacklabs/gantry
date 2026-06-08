@@ -91,6 +91,7 @@ as a scraper worker or task resolver. Ingress callers sign `method`, `path`,
 Supported target kinds:
 
 - `session_message`: accept a normal user message into a configured or derived session.
+- `conversation_message`: accept a normal inbound message into a configured Gantry conversation and optional thread/topic. This is async-only and uses `conversationId`/`threadId` from the Conversations API, not provider transport ids.
 - `job_trigger`: trigger an existing manual, once, or recurring job.
 - `job_template`: invoke a Gantry-owned one-time job template with variables and metadata only.
 

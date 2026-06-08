@@ -27,12 +27,11 @@ function makeFixture() {
           bot_token: 'SLACK_BOT_TOKEN',
         },
       };
-      settings.credentialBroker.mode = 'external';
-      settings.credentialBroker.external.baseUrl =
-        'https://broker.example.com/anthropic';
+      settings.credentialBroker.mode = 'gantry';
     },
     env: {
       GANTRY_DATABASE_URL: 'postgres://gantry:pass@localhost:15432/gantry',
+      SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
       SLACK_APP_TOKEN: 'xapp-isolated',
       SLACK_BOT_TOKEN: 'xoxb-isolated',
     },
@@ -59,11 +58,6 @@ async function loadCliWithBoundaryMocks(options?: {
     isCancel: () => false,
     select: vi.fn(),
   }));
-  vi.doMock('@onecli-sh/sdk', () => ({
-    OneCLI: vi.fn(() => ({
-      getContainerConfig: vi.fn(async () => ({ env: {} })),
-    })),
-  }));
   vi.doMock('@core/infrastructure/service/package-paths.js', () => ({
     assertRuntimeEntryExists: vi.fn(),
     getRuntimeEntryPath: () => '/isolated/dist/index.js',
@@ -81,27 +75,36 @@ async function loadCliWithBoundaryMocks(options?: {
       message: 'Postgres is ready.',
     })),
   }));
+  vi.doMock('@core/adapters/storage/postgres/factory.js', () => ({
+    createStorageRuntime: vi.fn(() => ({
+      repositories: {
+        modelCredentials: {
+          listModelCredentials: vi.fn(async () => [
+            {
+              id: 'model-credential:default:anthropic',
+              appId: 'default',
+              providerId: 'anthropic',
+              authMode: 'api_key',
+              schemaVersion: 1,
+              fingerprint: 'test-fingerprint',
+              fieldFingerprints: [],
+              status: 'active',
+              createdAt: new Date('2026-01-01T00:00:00.000Z'),
+              updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            },
+          ]),
+        },
+      },
+      runtimeEventNotifier: { close: vi.fn(async () => {}) },
+      service: { close: vi.fn(async () => {}) },
+    })),
+  }));
   vi.doMock('@core/cli/runtime-group-db.js', () => ({
     openRuntimeGroupDb: vi.fn(async () => ({
       countConversationRoutesByJidPrefix: vi.fn(async () => 1),
       close: vi.fn(async () => {}),
     })),
   }));
-  vi.doMock(
-    '@core/adapters/credentials/onecli/local/persistence.js',
-    async () => {
-      const actual = await vi.importActual<any>(
-        '@core/adapters/credentials/onecli/local/persistence.js',
-      );
-      return {
-        ...actual,
-        inspectOnecliPersistenceReadiness: vi.fn(async () => ({
-          status: 'pass',
-          message: 'OneCLI local state was not required.',
-        })),
-      };
-    },
-  );
   vi.doMock('@core/config/preflight.js', async () => {
     const actual = await vi.importActual<any>('@core/config/preflight.js');
     return {
@@ -161,9 +164,7 @@ describe('runtime setup and doctor CLI e2e', () => {
     const rendered = note.mock.calls.map((call) => String(call[0])).join('\n');
     expect(code, rendered).toBe(0);
     expect(rendered).toContain('Postgres is ready.');
-    expect(rendered).toContain(
-      'Model Access is managed by external credential mode.',
-    );
+    expect(rendered).toContain('Gantry Model Gateway config is enabled');
     expect(rendered).not.toContain(process.env.HOME);
   });
 

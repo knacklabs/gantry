@@ -1240,6 +1240,9 @@ describe('app memory dreaming settings', () => {
           };
         }),
       })),
+      delete: vi.fn(() => ({
+        where: vi.fn(async () => undefined),
+      })),
       update: vi.fn(() => ({
         set: vi.fn((value: any) => {
           updated.push(value);
@@ -1274,7 +1277,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: false,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     const { AppMemoryService: MockedAppMemoryService } =
       await import('@core/memory/app-memory-service.js');
@@ -1317,6 +1320,7 @@ describe('app memory dreaming settings', () => {
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: true,
       MEMORY_DREAMING_EMBED_PROVIDER: 'test_embedder',
       MEMORY_DREAMING_EMBED_MODEL: 'test-embedding-model',
+      MEMORY_EMBED_DIMENSIONS: 1536,
     }));
     vi.doMock('@core/memory/memory-embeddings.js', () => ({
       createEmbeddingProvider,
@@ -1346,6 +1350,7 @@ describe('app memory dreaming settings', () => {
     });
 
     expect(createEmbeddingProvider).toHaveBeenCalledWith('test_embedder', {
+      appId: 'app-a',
       model: 'test-embedding-model',
     });
     expect(validateConfiguration).toHaveBeenCalledOnce();
@@ -1384,7 +1389,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: true,
       MEMORY_DREAMING_EMBED_PROVIDER: 'openai',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
       MEMORY_EMBED_MODEL: 'text-embedding-3-small',
     }));
     vi.doMock('@core/memory/memory-embeddings.js', () => ({
@@ -1405,7 +1410,8 @@ describe('app memory dreaming settings', () => {
     });
 
     expect(createEmbeddingProvider).toHaveBeenCalledWith('openai', {
-      model: 'text-embedding-3-large',
+      appId: 'app-a',
+      model: 'text-embedding-3-small',
     });
     expect(validateConfiguration).toHaveBeenCalledOnce();
     expect(validateReady).toHaveBeenCalledOnce();
@@ -1435,7 +1441,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     vi.doMock('@core/memory/memory-embeddings.js', () => ({
       createEmbeddingProvider,
@@ -1481,7 +1487,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     vi.doMock('@core/memory/app-memory-dreaming.js', () => ({
       runAppMemoryDreamPass,
@@ -1531,7 +1537,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     vi.doMock('@core/memory/app-memory-dreaming.js', () => ({
       runAppMemoryDreamPass,
@@ -1586,7 +1592,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     vi.doMock('@core/memory/app-memory-dreaming.js', () => ({
       runAppMemoryDreamPass,
@@ -1627,7 +1633,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     try {
       const { AppMemoryService: MockedAppMemoryService } =
@@ -1689,7 +1695,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     vi.doMock('@core/memory/app-memory-dreaming.js', () => ({
       runAppMemoryDreamPass,
@@ -1740,7 +1746,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     try {
       const { AppMemoryService: MockedAppMemoryService } =
@@ -1806,7 +1812,7 @@ describe('app memory dreaming settings', () => {
       RUNTIME_MEMORY_DREAMING_ENABLED: true,
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: false,
       MEMORY_DREAMING_EMBED_PROVIDER: 'disabled',
-      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-large',
+      MEMORY_DREAMING_EMBED_MODEL: 'text-embedding-3-small',
     }));
     try {
       const { AppMemoryService: MockedAppMemoryService } =
@@ -1889,6 +1895,7 @@ describe('app memory dreaming settings', () => {
         MEMORY_DREAMING_EMBEDDINGS_ENABLED: true,
         MEMORY_DREAMING_EMBED_PROVIDER: 'test_embedder',
         MEMORY_DREAMING_EMBED_MODEL: 'test-embedding-model',
+        MEMORY_EMBED_DIMENSIONS: 1536,
       }));
       vi.doMock('@core/memory/memory-embeddings.js', () => ({
         createEmbeddingProvider,
@@ -1973,6 +1980,7 @@ describe('app memory dreaming settings', () => {
         MEMORY_DREAMING_EMBEDDINGS_ENABLED: true,
         MEMORY_DREAMING_EMBED_PROVIDER: 'test_embedder',
         MEMORY_DREAMING_EMBED_MODEL: 'test-embedding-model',
+        MEMORY_EMBED_DIMENSIONS: 1536,
       }));
       vi.doMock('@core/memory/memory-embeddings.js', () => ({
         createEmbeddingProvider,
@@ -2052,6 +2060,7 @@ describe('app memory dreaming settings', () => {
       MEMORY_DREAMING_EMBEDDINGS_ENABLED: true,
       MEMORY_DREAMING_EMBED_PROVIDER: 'test_embedder',
       MEMORY_DREAMING_EMBED_MODEL: 'test-embedding-model',
+      MEMORY_EMBED_DIMENSIONS: 1536,
     }));
     vi.doMock('@core/memory/memory-embeddings.js', () => ({
       createEmbeddingProvider,
@@ -2089,6 +2098,7 @@ describe('app memory dreaming settings', () => {
       }),
     );
     expect(createEmbeddingProvider).toHaveBeenCalledWith('test_embedder', {
+      appId: 'app-a',
       model: 'test-embedding-model',
     });
     expect(inserted).toContainEqual(

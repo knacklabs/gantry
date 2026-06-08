@@ -51,7 +51,7 @@ Then follow this order:
 2. Choose `Use local Postgres URL` if you started the provided Compose stack, or choose hosted/existing Postgres and paste those URLs.
 3. Choose your first channel: `Telegram` or `Slack`.
 4. Follow the in-CLI channel guide, choose the default agent name, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually). Setup binds that conversation to the default agent; channel IDs and runtime folders stay internal.
-5. Connect Model Access once for all agent, subagent, memory, and scheduled job model calls. Gantry uses the reserved `gantry-model-access` OneCLI profile for Anthropic/OpenRouter credentials; agents only select catalog model aliases and never receive database URLs or raw provider credentials.
+5. Connect Model Access once for all agent, subagent, memory, and scheduled job model calls. Gantry stores provider keys in encrypted Postgres rows and projects only loopback gateway tokens to the model SDK; agents select catalog model aliases and never receive database URLs or raw provider credentials.
 6. Choose a provider, then a main model alias. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`.
 7. Confirm memory settings. Memory model defaults are preset-managed.
 8. Choose whether to install/start a background service.
@@ -81,10 +81,9 @@ gantry model reset chat|jobs|memory
 gantry model why chat [group-scope|conversation-id]
 gantry model why jobs|memory|job <id>
 gantry model doctor
-gantry secrets list
-gantry secrets set <NAME> [--allow <capabilityId>]
-gantry secrets import-env <NAME> [--allow <capabilityId>]
-gantry secrets unset <NAME>
+gantry credentials model status|set|rotate|disable|doctor
+gantry credentials capability list|set|import-env|unset
+gantry credentials browser status
 gantry provider connect telegram
 gantry provider connect slack
 gantry provider connect teams
@@ -93,6 +92,7 @@ gantry provider doctor
 gantry conversation approvers <conversation-id> [--allow <userId,userId>]
 gantry agent list
 gantry agent add <jid|chat-id> [--name <name>]
+gantry settings validate
 gantry service install|start|stop|restart
 ```
 
@@ -111,7 +111,7 @@ Defaults in v1:
 
 Runtime home is a single-cut contract. Gantry reads `~/gantry` by default unless `--runtime-home` or `GANTRY_HOME` is set.
 
-Human-editable runtime settings live in `~/gantry/settings.yaml`. The common shape is compact and only includes values users normally change:
+Human-editable runtime settings live in `~/gantry/settings.yaml`. Validate edits with `gantry settings validate`; it performs strict schema parsing without requiring Postgres, provider credentials, or runtime preflight checks. The common shape is compact and only includes values users normally change:
 
 ```yaml
 defaults:
@@ -129,7 +129,7 @@ providers:
 agents:
   main_agent:
     name: Default Agent
-    persona: personal_assistant
+    persona: generalist
     sources:
       skills: []
       mcp_servers: []
@@ -142,7 +142,7 @@ memory:
   embeddings:
     enabled: false
     provider: disabled
-    model: text-embedding-3-large
+    model: text-embedding-3-small
   dreaming:
     enabled: true
 
@@ -166,6 +166,48 @@ conversations:
     agent: main_agent
     trigger: '@Default Agent'
 ```
+
+### Settings Ownership
+
+`settings.yaml` is desired state. Users and admins may edit it directly, but
+the safer path is setup, local CLI commands, Control API admin calls, or the
+reviewed Gantry MCP settings tools. Agents do not mutate it by themselves; they
+can request reviewed changes, and Gantry writes the file only after the
+appropriate user/admin approval.
+
+| Setting area                                   | Who changes it                              | Purpose                                                                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaults`                                     | User/admin                                  | Global agent name, default model, and job model defaults.                                                                                                         |
+| `providers`                                    | Setup or user/admin                         | Enable channel providers and point them at runtime secret env refs.                                                                                               |
+| `provider_connections`                         | Setup or advanced user/admin                | Explicit workspace/bot/tenant/provider connection records when compact provider settings are not enough.                                                          |
+| `conversations`                                | Setup or user/admin                         | Conversation ids, display names, sender policy, approvers, bound agent, trigger, and per-conversation model override.                                             |
+| `bindings`                                     | Advanced user/admin                         | Explicit route bindings when one compact `conversations.<id>.agent` field is not expressive enough.                                                               |
+| `agents.<id>.name`, `persona`, `model`, `jobs` | User/admin                                  | Agent identity and default model behavior.                                                                                                                        |
+| `agents.<id>.sources`                          | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                   |
+| `agents.<id>.capabilities`                     | User/admin or approved capability flow      | Durable allowed capabilities. Agents may request with `capability_search`, `propose_capability`, or `manage_capability`; approval writes the selected capability. |
+| `memory`                                       | User/admin                                  | Memory, embeddings, dreaming, LLM, and maintenance settings.                                                                                                      |
+| `permissions`                                  | User/admin                                  | YOLO-mode denylist additions and egress hostname denylist.                                                                                                        |
+| `browser`                                      | User/admin                                  | Browser usage policy and per-site limits.                                                                                                                         |
+| `runtime.queue`                                | User/admin                                  | Runtime concurrency and retry tuning. Restart after changing it.                                                                                                  |
+| `storage`                                      | Advanced user/admin                         | Postgres URL env key and schema. Secrets stay in `.env` or credential stores.                                                                                     |
+| `model_access`                                 | Advanced user/admin                         | Gantry model gateway enablement and loopback bind host. Model provider credentials stay in Credential Center.                                                     |
+| `desired_state`                                | Admin/export flow                           | Reconcile/export mode switch for settings-owned desired state.                                                                                                    |
+
+Optional runtime queue tuning:
+
+```yaml
+runtime:
+  queue:
+    max_message_runs: 3
+    max_job_runs: 4
+    max_retries: 5
+    base_retry_ms: 5000
+```
+
+Do not put runtime facts in `settings.yaml`: message history, job runs, audit
+events, memory records, generated runtime directories, artifact hashes,
+Postgres projection rows, raw provider secrets, and capability secret values
+belong in their runtime stores.
 
 For the same agent across Slack and Teams, configure approvers on each conversation:
 
@@ -192,7 +234,7 @@ conversations:
 
 Advanced storage and credential broker overrides stay supported, but setup keeps them out of `settings.yaml` unless you change them from defaults.
 
-Gantry uses Postgres for runtime state, jobs, events, memory, semantic search, and lexical search. Runtime readiness expects `pgvector`, `pg_trgm`, and `pg-boss` schema readiness. The supported deployment model is one database with separate schemas and roles: `gantry` for runtime state, `onecli` for broker state, and `pgboss` for job queue internals. `GANTRY_DATABASE_URL` and `ONECLI_DATABASE_URL` must use different Postgres users.
+Gantry uses Postgres for runtime state, jobs, events, memory, semantic search, lexical search, and encrypted model credentials. Runtime readiness expects `pgvector`, `pg_trgm`, and `pg-boss` schema readiness. The supported deployment model is one database role and schema for Gantry runtime state, plus pg-boss internals.
 
 No Postgres or Model Access service installed? Use the provided Compose file, then paste the resulting URLs during setup:
 
@@ -221,16 +263,14 @@ Then keep the runtime URLs pointed at the default host port:
 
 ```env
 GANTRY_DATABASE_URL=postgresql://gantry_app:gantry_app_password@127.0.0.1:5432/gantry?schema=gantry
-ONECLI_DATABASE_URL=postgresql://onecli_app:onecli_app_password@127.0.0.1:5432/gantry?schema=onecli
+SECRET_ENCRYPTION_KEY=<base64-encoded-32-byte-secret>
 ```
 
-The Compose file hardcodes the local ports, schema names, and non-secret role names. `~/gantry/.env` only needs local passwords, `SECRET_ENCRYPTION_KEY`, and the runtime connection URLs. Gantry setup does not start Docker or create containers; it asks for `GANTRY_DATABASE_URL` and `ONECLI_DATABASE_URL`, creates the `gantry-model-access` Model Access profile, then writes the non-secret OneCLI gateway URL to `settings.yaml` as `credential_broker.onecli.url`.
-
-If an older local `.env` still contains settings-owned keys such as `GANTRY_CREDENTIAL_MODE`, `ONECLI_URL`, `ANTHROPIC_MODEL`, or `SLACK_PERMISSION_APPROVER_IDS`, move those values into `settings.yaml` and remove them from `.env` before starting the runtime.
+The Compose file hardcodes the local ports, schema names, and non-secret role names. `~/gantry/.env` only needs local passwords, `SECRET_ENCRYPTION_KEY`, and the runtime connection URL. Gantry setup does not start Docker or create containers; it asks for `GANTRY_DATABASE_URL`, enables `model_access`, and uses encrypted Postgres model credential rows for Model Access.
 
 Gantry intentionally does not expose a destructive database-reset command in the runtime CLI. If you need to start over during development, stop Gantry, reset your local Postgres outside the agent-facing CLI, then run `gantry provider connect telegram` or `gantry provider connect slack` to re-register chats.
 
-For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste two URLs during setup: one Gantry-role URL with `sslmode=require`, and one OneCLI-role URL for the same database with `sslmode=require` and `schema=onecli`.
+For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste the Gantry-role URL with `sslmode=require` during setup.
 
 ### Provider And Conversation Setup
 
@@ -281,15 +321,15 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 
 Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Durable semantic capability changes use `capability_search`, `propose_capability`, and `manage_capability`; `request_permission` is only for one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand` fallback when no reviewed semantic capability fits. Interactive fallback permission prompts present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Privileged admin tools such as `settings_desired_state`, `request_settings_update`, `admin_permission_list`, `admin_permission_revoke`, `service_restart`, and `register_agent` require exact selected capabilities; `capability_status` reports what is available, requestable, and blocked without exposing raw grant internals as the primary user path.
 
-Persistent agent authority is visible in `settings.yaml` under `agents.<id>.capabilities` as readable capability ids and immutable versions, such as `browser.use`. Agent attachments live separately under `agents.<id>.sources`; sources can attach skills, MCP servers, built-in tools, adapters, or local CLIs, but do not grant execution authority by themselves.
+Persistent agent authority is visible in `settings.yaml` under `agents.<id>.capabilities` as readable capability ids and immutable versions, such as `browser.use`. Agent attachments live separately under `agents.<id>.sources`; sources can attach skills, MCP servers, built-in tools, adapters, or local CLIs, but do not create execution authority by themselves.
 
 Durable SDK and host tool grants use Gantry names, not provider-native harness names. Exact web, file, and delegation facades are `WebSearch`, `WebRead`, `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, and `AgentDelegation`; command access is a scoped `RunCommand(<argv pattern>)` rule. Provider-native names such as `Read`, `Write`, `Edit`, `WebFetch`, `Bash`, and `Agent` are adapter projections and are rejected as persistent Gantry authority.
 
 Browser authority is selected in `settings.yaml` and the public capabilities API as `browser.use`, then translated to the canonical runtime `Browser` tool rule. When selected, the runtime projects it to Gantry-owned gateway tools: `browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and `browser_close`. `browser_act` includes `action: "file_attach"` for upload inputs and accepts `bytes`, Gantry `artifact`, or allowlisted `path` sources through host-owned staging.
 
-Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time. Job `capabilityRequirements`, `toolAccessRequirements`, and `requiredMcpServers` are readiness and preflight assertions, not job-local grants. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
+Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time. Job `capabilityRequirements`, `toolAccessRequirements`, and `requiredMcpServers` are readiness and preflight assertions, not job-local authority. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
 
-Capability-owned secrets for selected skills and MCP servers use Gantry Secrets rather than runtime `.env` or model broker profiles. Use `gantry secrets set <NAME>`, `gantry secrets import-env <NAME>`, `gantry secrets list`, and `gantry secrets unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
+Capability-owned secrets for selected skills and MCP servers use Gantry Credential Center rather than runtime `.env` or model credentials. Use `gantry credentials capability set <NAME>`, `gantry credentials capability import-env <NAME>`, `gantry credentials capability list`, and `gantry credentials capability unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
 
 `permissions.yolo_mode` controls the denylist applied only to the 5-minute
 all-tools timed grant. Gantry ships defaults for destructive commands such as
@@ -352,7 +392,7 @@ Continuity is explicit runtime resume/current-work state. Durable memory is sepa
 - open loops once commitment tracking is enabled
 - dream status (enabled/schedule/last run outcome)
 
-Embeddings are off by default. Memory search and context injection work without embeddings today through lexical search and keyword fallback. Configuring embeddings prepares provider access, but vector retrieval is not active until the runtime indexing/query path is enabled.
+Embeddings are off by default. Memory search and context injection work without embeddings through lexical search and keyword fallback. When embeddings are enabled and backfilled, recall uses hybrid lexical plus pgvector ranking with lexical fallback if query embedding is unavailable, paused, or over its live deadline.
 
 Host runtime injects a digest-first memory context block when a fresh chat runner or scheduled job starts: recent session digests (when persisted), then active durable memory items. Follow-up chat messages continue through the same live Claude SDK stream while the runner is alive, so Gantry does not replay raw message history or run logs into every prompt. The memory block is sent as structured untrusted data with a system-level boundary policy that forbids treating memory records as instructions or tool-use authority.
 
@@ -399,7 +439,7 @@ control server is exposed over `GANTRY_CONTROL_PORT`. TCP binding defaults to
 loopback; set `GANTRY_CONTROL_HOST=0.0.0.0` only for an authenticated hosted
 deployment such as Render.
 
-External systems that should not hold a control API key use signed external ingress records under `/v1/ingresses`. Ingress supports session messages, existing job triggers, and constrained one-time job templates. Each ingress record has an explicit target policy, so its secret only authorizes configured sessions, conversations, jobs, or templates. `/v1/webhooks` remains outbound callback delivery for runtime events.
+External systems that should not hold a control API key use signed external ingress records under `/v1/ingresses`. Ingress supports app/API session messages, provider-neutral conversation messages, existing job triggers, and constrained one-time job templates. `conversation_message` targets use Gantry `conversationId` and optional `threadId` values from the Conversations API, then Gantry resolves provider routing internally. Each ingress record has an explicit target policy, so its secret only authorizes configured sessions, conversations, jobs, or templates. `/v1/webhooks` remains outbound callback delivery for runtime events.
 
 ## Runtime
 
@@ -463,7 +503,7 @@ npm run test:e2e
 
 ## Shipped Chat Surfaces
 
-Gantry ships host-managed chat commands and in-house skill surfaces. Skills are bundled into the npm package or uploaded as reviewable skill zips. Runtime copies approved skills into a temporary per-run Claude config directory; runtime-home `.claude/skills` is not the durable source of truth.
+Gantry ships host-managed chat commands and in-house skill surfaces. Skills are bundled into the npm package or installed as reviewed skill zips. Runtime copies installed skills into a temporary per-run Claude config directory; runtime-home `.claude/skills` is not the durable source of truth.
 
 | Surface        | Purpose                                                               |
 | -------------- | --------------------------------------------------------------------- |
@@ -517,7 +557,7 @@ Use these as standalone chat messages:
 ```
 
 - `/commands` lists the host-managed commands available in chat. It is direct Gantry runtime behavior, not a Claude SDK skill.
-- `/new` resets the current Gantry session boundary and captures best-effort boundary memory/digests. It preserves durable memory, approved skills, MCP bindings, model choices, and agent configuration; the next user message starts fresh and drives memory retrieval. Transcript export is an explicit debug/export workflow, not provider continuity.
+- `/new` resets the current Gantry session boundary and captures best-effort boundary memory/digests. It preserves durable memory, installed skills, MCP bindings, model choices, and agent configuration; the next user message starts fresh and drives memory retrieval. Transcript export is an explicit debug/export workflow, not provider continuity.
 - `/models` lists the curated model catalog with aliases, provider label, context window, cache support, and default badges.
 - `/model <value>` switches the group model override through the catalog. Friendly aliases are case/punctuation-insensitive; raw provider model IDs are rejected.
 - `/status` shows the current model source, context window usage percentage, cache hit percentage, top context contributors when the SDK reports them, current/cumulative input/output/cache tokens, and estimated cost when reported.
@@ -551,8 +591,7 @@ Key paths:
 - Prompt FileArtifact path `<agent-folder>/SOUL` plus `.md` suffix — per-agent personality prompt
 - Prompt FileArtifact path `<agent-folder>/CLAUDE` plus `.md` suffix — stable agent-specific prompt guidance
 - `GANTRY_DATABASE_URL` — Postgres runtime and memory database
-- `ONECLI_DATABASE_URL` — same Postgres database with a separate OneCLI role and `schema=onecli` for broker persistence
-- `SECRET_ENCRYPTION_KEY` — stable generated base64-encoded 32-byte deployment secret for OneCLI broker state and Gantry Secrets encryption
+- `SECRET_ENCRYPTION_KEY` — stable generated base64-encoded 32-byte deployment secret for Gantry credential encryption
 
 ## Factory Mode
 

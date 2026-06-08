@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   isAdminMcpToolFullName,
   isGantryMcpWildcardRule,
@@ -20,10 +18,7 @@ import {
   containsGeneratedRuntimeSkillPath,
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from './generated-runtime-paths.js';
-import {
-  getBuiltinSemanticCapability,
-  type SemanticCapabilityDefinition,
-} from './semantic-capabilities.js';
+import type { SemanticCapabilityDefinition } from './semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from './semantic-capability-ids.js';
 import {
   classifySensitiveMemoryMaterial,
@@ -53,23 +48,26 @@ export function validatePersistentRequestPermissionRule(
     };
   }
 
+  const scoped = parseReadableScopedToolRule(trimmed);
+  if (scoped?.toolName === RUN_COMMAND_TOOL_NAME) {
+    if (containsGeneratedRuntimeSkillPath(scoped.scope)) {
+      return {
+        ok: false,
+        reason: GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
+      };
+    }
+  }
+
   const readableValidation = validateReadableAgentToolRule(trimmed);
   if (!readableValidation.ok) return readableValidation;
   if (isGantryFacadeExactToolRule(trimmed)) return { ok: true };
 
-  const scoped = parseReadableScopedToolRule(trimmed);
   if (scoped) {
     if (scoped.toolName !== RUN_COMMAND_TOOL_NAME) {
       return {
         ok: false,
         reason:
           'Only RunCommand supports persistent scoped tool rules; use an exact tool name for other tools.',
-      };
-    }
-    if (containsGeneratedRuntimeSkillPath(scoped.scope)) {
-      return {
-        ok: false,
-        reason: GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
       };
     }
     const parsed = parseBashCommand(scoped.scope);
@@ -111,9 +109,7 @@ export function validatePersistentRequestPermissionRule(
 
   const capabilityId = parseSemanticCapabilityRule(trimmed);
   if (capabilityId) {
-    const definition =
-      options.semanticCapabilityDefinitions?.[capabilityId] ??
-      getBuiltinSemanticCapability(capabilityId);
+    const definition = options.semanticCapabilityDefinitions?.[capabilityId];
     if (!definition) {
       if (options.allowUnknownSemanticCapability) return { ok: true };
       return {
@@ -172,19 +168,21 @@ function formatPersistentPermissionRuleForUser(
   } = {},
 ): string {
   const trimmed = rule.trim();
-  const hash = shortRuleHash(trimmed);
   const scoped = parseReadableScopedToolRule(trimmed);
   if (scoped?.toolName === RUN_COMMAND_TOOL_NAME) {
-    return `scoped RunCommand rule [sha256:${hash}]`;
+    return `matching command access`;
   }
   const capabilityId = parseSemanticCapabilityRule(trimmed);
   if (capabilityId) {
-    const definition =
-      options.semanticCapabilityDefinitions?.[capabilityId] ??
-      getBuiltinSemanticCapability(capabilityId);
-    if (definition) return `${definition.displayName} [sha256:${hash}]`;
+    const definition = options.semanticCapabilityDefinitions?.[capabilityId];
+    if (definition) return definition.displayName;
   }
-  return `${truncate(redactSensitiveText(trimmed), 160)} [sha256:${hash}]`;
+  if (isCanonicalBrowserCapabilityRule(trimmed)) return 'Browser';
+  const adminName = isAdminMcpToolFullName(trimmed)
+    ? trimmed.replace(/^mcp__gantry__/, '').replaceAll(/[._-]+/g, ' ')
+    : undefined;
+  if (adminName) return `Gantry ${titleCase(adminName)}`;
+  return truncate(redactSensitiveText(trimmed), 160);
 }
 
 function persistentBashSecretReason(scope: string): string | null {
@@ -196,10 +194,10 @@ function persistentBashSecretReason(scope: string): string | null {
   );
 }
 
-function shortRuleHash(rule: string): string {
-  return createHash('sha256').update(rule).digest('hex').slice(0, 16);
-}
-
 function truncate(value: string, maxLen: number): string {
   return value.length <= maxLen ? value : `${value.slice(0, maxLen - 1)}...`;
+}
+
+function titleCase(value: string): string {
+  return value.trim().replace(/\b\w/g, (char) => char.toUpperCase());
 }

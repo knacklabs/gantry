@@ -63,9 +63,9 @@ surface.
 This rule is general, not browser-specific:
 
 - Durable authorization stores human-level capabilities: `Browser`, exact
-  semantic capability entries such as `capability:google.sheets.write`, exact
+  reviewed semantic capability entries such as `capability:acme.records.append`, exact
   Gantry-owned file/web facades such as `FileRead` and `WebRead`, scoped
-  command rules such as `RunCommand(npm test *)`, approved MCP server ids, skill
+  command rules such as `RunCommand(npm test *)`, connected MCP server ids, skill
   ids, scheduler grants, and future tool-family grants.
 - Runtime projects approved capabilities into concrete tools for that run.
 - Concrete backend tool names are audited but are not persisted as durable

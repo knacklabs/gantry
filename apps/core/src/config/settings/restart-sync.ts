@@ -10,7 +10,7 @@ import {
   removeAgentToolRulesFromRuntimeSettings,
   saveRuntimeSettings,
 } from './runtime-settings.js';
-import { cleanupGeneratedRuntimeCapabilitiesInSettings } from './generated-runtime-capability-cleanup.js';
+import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
 
@@ -28,13 +28,13 @@ export async function applyRuntimeSettingsDesiredState(input: {
     repositories: input.repositories,
     appId: input.appId,
   });
-  const cleanup = await cleanupGeneratedRuntimeCapabilitiesInSettings({
+  const normalization = await normalizeConfiguredCapabilitiesInSettings({
     settings: input.settings,
     repositories: input.repositories,
     appId: input.appId ?? ('default' as AppId),
   });
-  const settings = cleanup.settings;
-  const reconcileSettings = cleanup.changed ? input.settings : settings;
+  const settings = normalization.settings;
+  const reconcileSettings = normalization.changed ? input.settings : settings;
   const validation = validateLoadedRuntimeSettings(input.runtimeHome, settings);
   if (!validation.ok) {
     throw new Error(

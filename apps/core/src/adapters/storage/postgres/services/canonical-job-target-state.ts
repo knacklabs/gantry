@@ -12,8 +12,7 @@ export function parseSetupState(input: unknown): Job['setup_state'] {
     state !== 'broker_unreachable' &&
     state !== 'credential_unknown' &&
     state !== 'browser_login_may_be_required' &&
-    state !== 'mcp_missing_credential' &&
-    state !== 'draft_only'
+    state !== 'mcp_missing_credential'
   ) {
     return undefined;
   }
@@ -104,8 +103,7 @@ function parseSetupBlocker(
     state !== 'broker_unreachable' &&
     state !== 'credential_unknown' &&
     state !== 'browser_login_may_be_required' &&
-    state !== 'mcp_missing_credential' &&
-    state !== 'draft_only'
+    state !== 'mcp_missing_credential'
   ) {
     return [];
   }

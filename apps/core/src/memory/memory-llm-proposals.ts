@@ -1,5 +1,6 @@
 import { getMemoryModelRuntimeConfig } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import type { AppId } from '../domain/app/app.js';
 import {
   parseItemSource,
   type CanonicalMemoryItemRow,
@@ -154,6 +155,7 @@ export async function proposeMemoryDreamingActions(input: {
   };
   try {
     const text = await memoryLlm.query({
+      appId: input.subject.appId as AppId,
       model,
       modelProfile: modelProfiles?.dreaming,
       prompt: `${MEMORY_DREAMING_PROPOSAL_PROMPT}\n\n${JSON.stringify(payload, null, 2)}`,
@@ -201,6 +203,7 @@ export async function proposeMemoryConsolidationActions(input: {
   };
   try {
     const text = await memoryLlm.query({
+      appId: input.subject.appId as AppId,
       model,
       modelProfile: modelProfiles?.consolidation,
       prompt: `${MEMORY_CONSOLIDATION_PROPOSAL_PROMPT}\n\n${JSON.stringify(payload, null, 2)}`,

@@ -67,16 +67,26 @@ function parseVersionValue(raw: unknown, pathPrefix: string): string {
 function parseConfiguredAgentSourceRef(
   raw: unknown,
   pathPrefix: string,
-  options: { requireVersion?: boolean; requireKind?: boolean },
+  options: {
+    allowVersion?: boolean;
+    requireVersion?: boolean;
+    requireKind?: boolean;
+  },
 ): RuntimeConfiguredAgentSourceRef {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error(`${pathPrefix} must be a mapping`);
   }
   const map = raw as Record<string, unknown>;
+  const allowVersion = options.allowVersion ?? true;
   for (const key of Object.keys(map)) {
     if (key !== 'name' && key !== 'id' && key !== 'version' && key !== 'kind') {
       throw new Error(
         `${pathPrefix}.${key} is not supported. Configure name, id, version, or kind.`,
+      );
+    }
+    if (key === 'version' && !allowVersion) {
+      throw new Error(
+        `${pathPrefix}.version is not supported. Configure id only.`,
       );
     }
   }
@@ -110,7 +120,11 @@ function parseConfiguredAgentSourceRef(
 function parseConfiguredAgentSourceArray(
   raw: unknown,
   pathPrefix: string,
-  options: { requireVersion?: boolean; requireKind?: boolean },
+  options: {
+    allowVersion?: boolean;
+    requireVersion?: boolean;
+    requireKind?: boolean;
+  },
 ): RuntimeConfiguredAgentSourceRef[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw new Error(`${pathPrefix} must be an array`);
@@ -139,12 +153,12 @@ function parseConfiguredAgentSources(
     skills: parseConfiguredAgentSourceArray(
       map.skills,
       `${pathPrefix}.skills`,
-      { requireVersion: true },
+      { allowVersion: false },
     ),
     mcpServers: parseConfiguredAgentSourceArray(
       map.mcp_servers,
       `${pathPrefix}.mcp_servers`,
-      { requireVersion: false },
+      { allowVersion: false },
     ),
     tools: parseConfiguredAgentSourceArray(map.tools, `${pathPrefix}.tools`, {
       requireKind: true,
@@ -347,7 +361,7 @@ function parseConfiguredAgentCapabilities(
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
     throw new Error(
-      `${pathPrefix} must be an array of approved capability selections`,
+      `${pathPrefix} must be an array of selected capability entries`,
     );
   }
   return raw.map((item, index) => {
@@ -368,35 +382,6 @@ function parseConfiguredAgentCapabilities(
       version: parseVersionValue(map.version, `${itemPath}.version`),
     };
   });
-}
-
-function rejectLegacyAgentGrantField(pathPrefix: string, key: string): never {
-  throw new Error(
-    `${pathPrefix}.${key} is not supported. Configure sources for attachments and capabilities for durable authority.`,
-  );
-}
-
-function rejectLegacyAgentCapabilityShape(
-  raw: unknown,
-  pathPrefix: string,
-): void {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return;
-  for (const key of Object.keys(raw as Record<string, unknown>)) {
-    if (key === 'tool_ids' || key === 'skill_ids' || key === 'mcp_server_ids') {
-      rejectLegacyAgentGrantField(pathPrefix, key);
-    }
-  }
-}
-
-function legacyGrantKey(key: string): boolean {
-  return (
-    key === 'tools' ||
-    key === 'skills' ||
-    key === 'mcp_servers' ||
-    key === 'tool_ids' ||
-    key === 'skill_ids' ||
-    key === 'mcp_server_ids'
-  );
 }
 
 function parseConfiguredAgentBindings(
@@ -550,16 +535,11 @@ export function parseConfiguredAgents(
         key !== 'sources' &&
         key !== 'capabilities'
       ) {
-        if (legacyGrantKey(key)) rejectLegacyAgentGrantField(pathPrefix, key);
         throw new Error(
           `${pathPrefix}.${key} is not supported. Configure name, persona, model, job model defaults, thinking, plugins (guardrail/memory_extraction/skills), memory (idle_end_minutes), bindings, sources, or capabilities.`,
         );
       }
     }
-    rejectLegacyAgentCapabilityShape(
-      map.capabilities,
-      `${pathPrefix}.capabilities`,
-    );
     const model =
       map.model === undefined
         ? undefined

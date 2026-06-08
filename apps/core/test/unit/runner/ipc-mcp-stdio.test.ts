@@ -69,6 +69,7 @@ function createMcpFixture(): {
   const runnerDir = path.join(root, 'runner');
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const jobsDir = path.join(root, 'jobs');
+  const channelsDir = path.join(root, 'channels');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const serverPath = path.join(runnerMcpDir, 'stdio.ts');
@@ -85,6 +86,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(jobsDir, { recursive: true });
+  fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   fs.mkdirSync(sdkServerDir, { recursive: true });
@@ -96,6 +98,18 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-catalog.ts'),
     path.join(sharedDir, 'model-catalog.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-provider-registry.ts'),
+    path.join(sharedDir, 'model-provider-registry.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-cache-support.ts'),
+    path.join(sharedDir, 'model-cache-support.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-catalog-format.ts'),
+    path.join(sharedDir, 'model-catalog-format.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/scheduler-job-plan.ts'),
@@ -138,6 +152,10 @@ function createMcpFixture(): {
     path.join(sharedDir, 'job-setup-labels.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/channels/provider-delivery-labels.ts'),
+    path.join(channelsDir, 'provider-delivery-labels.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/user-visible-messages.ts'),
     path.join(sharedDir, 'user-visible-messages.ts'),
   );
@@ -172,6 +190,10 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/tool-access-view.ts'),
     path.join(sharedDir, 'tool-access-view.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/capability-guidance.ts'),
+    path.join(sharedDir, 'capability-guidance.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/generated-runtime-paths.ts'),
@@ -595,7 +617,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Gantry Service Restart is not approved for this agent yet.',
     );
     expect(record.result.content[0].text).toContain(
-      'Ask a configured conversation approver to approve it, then choose Always allow.',
+      'Ask a configured conversation approver to approve service_restart, then choose persistent access.',
     );
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
@@ -1047,21 +1069,21 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'propose_capability', {
-      capabilityId: 'google.sheets.write',
-      displayName: 'Google Sheets write using gog',
+      capabilityId: 'acme.records.append',
+      displayName: 'Acme records append using acme',
       category: 'Local CLI',
       risk: 'write',
       source: 'local_cli',
       credentialSource: 'local_cli',
-      accountLabel: 'gog',
-      can: 'Append reviewed rows to Google Sheets through gog.',
+      accountLabel: 'acme',
+      can: 'Append reviewed rows to Acme Records through acme.',
       cannot: 'Run commands outside the reviewed templates.',
-      executablePath: '/usr/local/bin/gog',
+      executablePath: '/usr/local/bin/acme',
       executableVersion: 'v0.9.0',
       executableHash: 'sha256:abc123',
-      commandTemplates: ['/usr/local/bin/gog sheets append *'],
-      authPreflightCommand: '/usr/local/bin/gog auth status',
-      protectedPaths: ['~/.config/gog/*'],
+      commandTemplates: ['/usr/local/bin/acme records append *'],
+      authPreflightCommand: '/usr/local/bin/acme auth status',
+      protectedPaths: ['~/.config/acme/*'],
       reason: 'This job writes lead rows after each run.',
     });
 
@@ -1080,15 +1102,73 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       chatJid: 'tg:team',
       payload: {
         capabilityRequestSource: 'propose_capability',
-        capabilityId: 'google.sheets.write',
+        capabilityId: 'acme.records.append',
         source: 'local_cli',
         credentialSource: 'local_cli',
-        executablePath: '/usr/local/bin/gog',
+        executablePath: '/usr/local/bin/acme',
         executableVersion: 'v0.9.0',
         executableHash: 'sha256:abc123',
-        commandTemplates: ['/usr/local/bin/gog sheets append *'],
+        commandTemplates: ['/usr/local/bin/acme records append *'],
       },
     });
+  });
+
+  it('returns only reviewed capabilities from capability_search and gives source review guidance when none match', async () => {
+    const fixture = createMcpFixture();
+
+    const reviewedCapabilities = [
+      {
+        capabilityId: 'acme.records.append',
+        version: '1',
+        displayName: 'Acme records append',
+        category: 'Acme',
+        risk: 'write',
+        can: 'Append reviewed records through an approved source action.',
+        cannot: 'Read unrelated records or receive raw credentials.',
+        credentialSource: 'local_cli',
+        implementationBindings: [
+          {
+            kind: 'local_cli',
+            executablePath: '/usr/local/bin/acme',
+            executableVersion: '1.0.0',
+            executableHash: 'sha256:abc123',
+            commandTemplates: ['/usr/local/bin/acme records append *'],
+          },
+        ],
+      },
+    ];
+
+    const match = await runMcpFixture(
+      fixture,
+      'capability_search',
+      { query: 'records' },
+      {
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(reviewedCapabilities),
+      },
+    );
+    expect(match.exitCode, match.stderr).toBe(0);
+    const matchResult = JSON.parse(
+      fs.readFileSync(fixture.resultPath, 'utf-8'),
+    );
+    expect(JSON.stringify(matchResult.result)).toContain('acme.records.append');
+    expect(JSON.stringify(matchResult.result)).not.toContain(
+      'mcp__github__search_repositories',
+    );
+
+    const miss = await runMcpFixture(
+      fixture,
+      'capability_search',
+      { query: 'github search' },
+      {
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify(reviewedCapabilities),
+      },
+    );
+    expect(miss.exitCode, miss.stderr).toBe(0);
+    const missResult = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    const missText = JSON.stringify(missResult.result);
+    expect(missText).toContain('No reviewed capabilities matched.');
+    expect(missText).toContain('request source install/connect/attach');
+    expect(missText).toContain('request_permission');
   });
 
   it('rejects browser-control skill install requests with request_permission guidance', async () => {
@@ -1123,8 +1203,10 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
 
     const result = await runMcpFixture(fixture, 'request_mcp_server', {
       name: `${'browser'}_${'backend'}`,
-      transport: 'http',
-      origin: 'https://example.test/browser/control',
+      transport: 'stdio_template',
+      templateId: 'npx-package',
+      args: ['browser-control-mcp'],
+      sandboxProfileId: 'mcp-stdio',
       requestedToolPatterns: ['browser_*', 'page_*'],
       reason: 'Use a browser-control server.',
       docsUrl: 'https://example.test/browser-control',

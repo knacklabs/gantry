@@ -24,11 +24,10 @@ export const skillCatalogPostgres = pgTable(
     }),
     name: text('name').notNull(),
     description: text('description'),
-    version: text('version').notNull(),
     source: text('source').notNull().default('bundled'),
-    status: text('status').notNull().default('approved'),
+    status: text('status').notNull().default('installed'),
     promptRefsJson: text('prompt_refs_json').notNull().default('[]'),
-    toolIdsJson: text('tool_ids_json').notNull().default('[]'),
+    toolIdsJson: text('tool_refs_json').notNull().default('[]'),
     workflowRefsJson: text('workflow_refs_json').notNull().default('[]'),
     requiredEnvVarsJson: text('required_env_vars_json').notNull().default('[]'),
     actionPermissionsJson: jsonb('action_permissions_json')
@@ -39,16 +38,6 @@ export const skillCatalogPostgres = pgTable(
     contentHash: text('content_hash'),
     sizeBytes: integer('size_bytes'),
     createdBy: text('created_by'),
-    approvedBy: text('approved_by'),
-    approvedAt: timestamp('approved_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
-    rejectedBy: text('rejected_by'),
-    rejectedAt: timestamp('rejected_at', {
-      withTimezone: true,
-      mode: 'string',
-    }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -57,12 +46,6 @@ export const skillCatalogPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    appNameVersionUnique: uniqueIndex('idx_skill_catalog_app_name_version').on(
-      table.appId,
-      sql`coalesce(${table.agentId}, '')`,
-      table.name,
-      table.version,
-    ),
     appStatusIdx: index('idx_skill_catalog_app_status').on(
       table.appId,
       table.status,
@@ -72,11 +55,14 @@ export const skillCatalogPostgres = pgTable(
       table.agentId,
       table.status,
     ),
-    appHashUnique: uniqueIndex('idx_skill_catalog_app_hash').on(
-      table.appId,
-      sql`coalesce(${table.agentId}, '')`,
-      table.contentHash,
-    ),
+    appSkillSlugUnique: uniqueIndex(
+      'idx_skill_catalog_app_skill_slug_installed',
+    )
+      .on(
+        table.appId,
+        sql`lower(regexp_replace(regexp_replace(trim(${table.name}), '[^A-Za-z0-9._-]+', '-', 'g'), '-+', '-', 'g'))`,
+      )
+      .where(sql`${table.status} = 'installed'`),
   }),
 );
 

@@ -19,6 +19,7 @@ export interface SkillArtifactStore {
   putSkillArtifact(input: {
     appId: string;
     skillId: string;
+    skillName: string;
     bundle: SkillArtifactBundle;
   }): Promise<StoredSkillArtifact>;
   getSkillArtifact(storageRef: string): Promise<SkillArtifactBundle>;

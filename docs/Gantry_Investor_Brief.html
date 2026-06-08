@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KnackLabs — Investor Brief</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --deep:#0C3529; --deep2:#0A2C22; --emerald:#1C6B49; --mint:#6AF1B0;
+  --white:#fff; --off:#F4F7F6; --paper:#FBFCFB; --slate:#5F706A;
+  --ink:#28332E; --ink2:#3C4A44; --line:#D9E1DD; --amber:#9A6614;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--off);color:var(--ink);line-height:1.72;font-size:16px;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* ===================== COVER (full-bleed dark, page 1) ===================== */
+.cover{position:relative;min-height:820px;display:flex;align-items:stretch;overflow:hidden;
+  background:radial-gradient(130% 100% at 18% 30%, #114635 0%, var(--deep) 55%, var(--deep2) 100%);color:#C8D6D0}
+.cover-top{position:absolute;top:0;left:0;right:0;z-index:4;display:flex;justify-content:space-between;align-items:center;
+  padding:26px 46px;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:#9FB2AB}
+.cover-top .brand{font-weight:700;color:#fff;letter-spacing:.32em}
+
+.cover .art{flex:0 0 34%;position:relative;display:flex;align-items:stretch;justify-content:flex-start;overflow:hidden;
+  opacity:.9;
+  -webkit-mask-image:linear-gradient(90deg,#000 80%,transparent 100%);mask-image:linear-gradient(90deg,#000 80%,transparent 100%)}
+.cover .art svg{height:100%;width:100%;display:block}
+
+.cover .text{flex:1;display:flex;flex-direction:column;justify-content:center;z-index:2;padding:70px 60px 70px 8px}
+.kicker{font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.30em;text-transform:uppercase;color:var(--mint);margin-bottom:14px}
+.knack-word{font-weight:800;color:#fff;font-size:80px;line-height:.92;letter-spacing:-.03em;margin-bottom:18px}
+.knack-word b{color:var(--mint)}
+.tagline{font-size:19px;color:#C8D6D0;margin-bottom:26px;max-width:470px}
+.tagline em{color:#fff;font-style:normal;font-weight:600}
+.intro{max-width:485px;font-size:16.5px;line-height:1.6;color:#C8D6D0}
+.intro b{color:#fff;font-weight:600}
+
+/* ===================== DOCUMENT (off-white, page 2+) ===================== */
+.doc{max-width:760px;margin:0 auto;padding:64px 44px 30px}
+.section{padding:14px 0 30px}
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--emerald);margin-bottom:6px}
+.eyebrow .n{color:var(--slate)}
+h2{font-size:25px;font-weight:700;color:var(--deep);line-height:1.22;letter-spacing:-.01em;margin-bottom:14px}
+h3{font-size:16px;font-weight:700;color:var(--deep);margin:18px 0 2px}
+p{margin-bottom:14px;color:var(--ink2)}
+p.lead{font-size:17px;color:var(--ink)}
+strong{color:var(--deep);font-weight:600}
+a{color:var(--emerald)}
+.rule{height:1px;background:var(--line);border:0;margin:6px 0 30px}
+
+.vision-item{margin-bottom:14px}
+.vision-item .goal{font-weight:700;color:var(--deep)}
+.vision-item .today{color:var(--emerald);font-weight:600}
+
+.voicebox{border-left:3px solid var(--emerald);background:rgba(28,107,73,.05);border-radius:0 8px 8px 0;padding:16px 22px;margin:20px 0 4px}
+.voicebox .vl{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--emerald);margin-bottom:5px}
+.voicebox p{margin:0;color:var(--ink)}
+.voicebox b{color:var(--deep)}
+
+table.status{width:100%;border-collapse:collapse;margin:18px 0 6px;font-size:14.5px}
+table.status th{background:var(--emerald);color:#fff;text-align:left;padding:11px 14px;font-weight:600;font-size:13px}
+table.status th:first-child{border-radius:7px 0 0 0}table.status th:last-child{border-radius:0 7px 0 0}
+table.status td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink2)}
+table.status tr:nth-child(even) td{background:var(--paper)}
+table.status td.cap{font-weight:600;color:var(--deep);width:40%}
+table.status td.st{width:118px;white-space:nowrap}
+.badge{font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:5px;letter-spacing:.03em}
+.b-live{background:rgba(28,107,73,.12);color:var(--emerald)}
+.b-prog{background:rgba(154,102,20,.13);color:var(--amber)}
+.b-next{background:rgba(95,112,106,.14);color:var(--slate)}
+
+.phase{position:relative;padding-left:26px;margin:20px 0;border-left:2px solid var(--line)}
+.phase::before{content:"";position:absolute;left:-7px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--emerald)}
+.phase .when{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--emerald);letter-spacing:.03em;margin-bottom:8px}
+.phase ul{list-style:none;margin:0}
+.phase li{position:relative;padding:4px 0 4px 20px;font-size:15px;color:var(--ink2)}
+.phase li::before{content:"\2192";position:absolute;left:0;color:var(--emerald)}
+.milestone{border-left:3px solid var(--emerald);background:rgba(28,107,73,.07);border-radius:0 8px 8px 0;padding:16px 22px;margin:22px 0 8px;font-size:17px;line-height:1.5;color:var(--deep)}
+.milestone b{color:var(--emerald)}
+
+.capcom{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:16px 0}
+.capcom .ch{background:rgba(28,107,73,.07);border-bottom:1px solid var(--line);padding:18px 22px}
+.capcom .ch .name{font-family:'JetBrains Mono',monospace;font-weight:600;font-size:22px;letter-spacing:.12em;color:var(--deep)}
+.capcom .ch .tag{display:block;font-size:14px;color:var(--emerald);margin-top:4px}
+.capcom .cb{padding:18px 22px}
+.capcom .cb p{font-size:15px}
+.capcom .cb p:last-child{margin-bottom:0}
+
+/* ===================== ADDITIONS for KnackLabs rebuild ===================== */
+.proofline{font-weight:600;color:var(--deep);margin-top:10px}
+.quote{border-left:3px solid var(--mint);background:rgba(28,107,73,.05);border-radius:0 8px 8px 0;padding:14px 20px;margin:16px 0 4px;color:var(--ink);font-size:15.5px}
+.quote .who{display:block;font-size:12.5px;color:var(--slate);margin-top:6px;font-family:'JetBrains Mono',monospace;letter-spacing:.04em}
+.chartwrap{border:1px solid var(--line);border-radius:12px;padding:18px 18px 12px;margin:18px 0 6px;background:var(--paper)}
+.chartwrap svg{width:100%;height:auto;display:block}
+.chart-cap{font-size:12.5px;color:var(--slate);margin-top:8px;font-style:italic}
+.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{width:16px;height:0;border-top:3px solid;display:inline-block}
+.pricing{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0 6px}
+.pcard{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--paper)}
+.pcard .pl{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--emerald);margin-bottom:6px}
+.pcard b{color:var(--deep);font-size:15px}
+.pcard p{font-size:13.5px;margin:5px 0 0;line-height:1.55}
+
+@media screen and (max-width:760px){
+  .cover{min-height:0;flex-direction:column}
+  .cover .art{flex:none;height:220px;opacity:.5}
+  .cover .text{padding:90px 26px 50px}
+  .knack-word{font-size:56px}
+  .doc,footer{padding-left:24px;padding-right:24px}
+  table.status td.cap{width:auto}
+  .pricing{grid-template-columns:1fr}
+}
+
+footer{max-width:760px;margin:0 auto;padding:24px 44px 56px;border-top:1px solid var(--line);font-size:12.5px;color:var(--slate);text-align:center}
+footer .fb{font-weight:700;letter-spacing:.26em;color:var(--ink2);margin-bottom:8px;font-size:12px}
+
+/* ===================== PRINT (full-bleed cover, margined content) ===================== */
+@page{size:A4;margin:15mm 0}
+@page :first{margin:0}
+@media print{
+  body{background:var(--off);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cover{height:100vh;min-height:0;overflow:hidden;page-break-after:always;display:flex;flex-direction:row;align-items:stretch}
+  .cover .art{flex:0 0 34%;height:100vh}
+  .cover .text{padding:0 14mm 0 7mm}
+  .doc{padding:0 16mm;max-width:none}
+  .section{padding:8mm 0 2mm}
+  .section:first-child{padding-top:0}
+  footer{padding:10mm 16mm 0;max-width:none}
+  table.status tr,.capcom,.milestone,.voicebox,.chartwrap,.pricing,.quote,.phase{page-break-inside:avoid}
+  h2,h3{page-break-after:avoid}
+  p{orphans:2;widows:2}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER ===================== -->
+<header class="cover">
+  <div class="cover-top">
+    <div class="brand">KNACKLABS</div>
+    <div>Investor Brief · Confidential (NDA) · May 2026</div>
+  </div>
+
+  <!-- LEFT: gantry tower (the engine), upright, anchored left -->
+  <div class="art" aria-hidden="true">
+    <svg viewBox="0 0 250 1060" preserveAspectRatio="xMinYMid meet" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+          <path d="M30 0 L0 0 0 30" fill="none" stroke="#6AF1B0" stroke-width="0.5" opacity="0.10"/>
+        </pattern>
+        <style>
+          .g{stroke:#3E9E72;stroke-width:1.7;fill:none}
+          .g2{stroke:#2E7E5B;stroke-width:1.1;fill:none}
+          .gh{stroke:#6AF1B0;stroke-width:1.7;fill:none}
+          .dim{stroke:#7C8E88;stroke-width:.8;fill:none}
+          .lbl2{font-family:'JetBrains Mono',monospace;font-size:9px;fill:#9FB2AB;letter-spacing:.06em}
+        </style>
+      </defs>
+      <rect x="0" y="0" width="250" height="1060" fill="url(#grid)"/>
+      <line class="dim" x1="30" y1="60" x2="30" y2="980"/><line class="dim" x1="24" y1="60" x2="36" y2="60"/><line class="dim" x1="24" y1="980" x2="36" y2="980"/>
+      <line class="g" x1="70" y1="60" x2="70" y2="980"/>
+      <line class="g" x1="170" y1="60" x2="170" y2="980"/>
+      <line class="g" x1="70" y1="60" x2="170" y2="60"/>
+      <line class="g" x1="170" y1="60" x2="228" y2="60"/>
+      <line class="g2" x1="170" y1="71" x2="220" y2="71"/>
+      <line class="g" x1="228" y1="60" x2="220" y2="71"/>
+      <line class="g2" x1="206" y1="71" x2="206" y2="116"/><path class="g2" d="M201 116 q5 8 10 0"/>
+      <g class="g">
+        <line x1="70" y1="170" x2="170" y2="170"/>
+        <line x1="70" y1="280" x2="170" y2="280"/>
+        <line x1="70" y1="390" x2="170" y2="390"/>
+        <line x1="70" y1="500" x2="170" y2="500"/>
+        <line x1="70" y1="610" x2="170" y2="610"/>
+        <line x1="70" y1="720" x2="170" y2="720"/>
+        <line x1="70" y1="830" x2="170" y2="830"/>
+        <line x1="70" y1="940" x2="170" y2="940"/>
+      </g>
+      <g class="g2">
+        <line x1="70" y1="60" x2="170" y2="170"/><line x1="170" y1="60" x2="70" y2="170"/>
+        <line x1="70" y1="170" x2="170" y2="280"/><line x1="170" y1="170" x2="70" y2="280"/>
+        <line x1="70" y1="280" x2="170" y2="390"/><line x1="170" y1="280" x2="70" y2="390"/>
+        <line x1="70" y1="390" x2="170" y2="500"/><line x1="170" y1="390" x2="70" y2="500"/>
+        <line x1="70" y1="500" x2="170" y2="610"/><line x1="170" y1="500" x2="70" y2="610"/>
+        <line x1="70" y1="610" x2="170" y2="720"/><line x1="170" y1="610" x2="70" y2="720"/>
+        <line x1="70" y1="720" x2="170" y2="830"/><line x1="170" y1="720" x2="70" y2="830"/>
+        <line x1="70" y1="830" x2="170" y2="940"/><line x1="170" y1="830" x2="70" y2="940"/>
+        <line x1="70" y1="940" x2="170" y2="980"/><line x1="170" y1="940" x2="70" y2="980"/>
+      </g>
+      <g>
+        <line class="gh" x1="170" y1="225" x2="218" y2="225"/><line class="gh" x1="170" y1="231" x2="218" y2="231"/><line class="gh" x1="218" y1="225" x2="218" y2="238"/>
+        <line class="gh" x1="170" y1="395" x2="218" y2="395"/><line class="gh" x1="170" y1="401" x2="218" y2="401"/><line class="gh" x1="218" y1="395" x2="218" y2="408"/>
+        <line class="gh" x1="170" y1="565" x2="218" y2="565"/><line class="gh" x1="170" y1="571" x2="218" y2="571"/><line class="gh" x1="218" y1="565" x2="218" y2="578"/>
+        <line class="gh" x1="170" y1="735" x2="218" y2="735"/><line class="gh" x1="170" y1="741" x2="218" y2="741"/><line class="gh" x1="218" y1="735" x2="218" y2="748"/>
+      </g>
+      <rect class="g" x="40" y="980" width="160" height="22"/>
+      <line class="g2" x1="48" y1="1002" x2="38" y2="1024"/><line class="g2" x1="88" y1="1002" x2="78" y2="1024"/><line class="g2" x1="128" y1="1002" x2="118" y2="1024"/><line class="g2" x1="168" y1="1002" x2="158" y2="1024"/><line class="g2" x1="200" y1="1002" x2="190" y2="1024"/>
+      <text class="lbl2" x="40" y="1042">FIG. 1 — GANTRY · THE ENGINE</text>
+    </svg>
+  </div>
+
+  <!-- RIGHT: text -->
+  <div class="text">
+    <div class="kicker">Vertical AI Applications · Enterprise</div>
+    <h1 class="knack-word">KNACK<b>LABS</b></h1>
+    <div class="tagline">We ship governed AI apps enterprises trust. <em>Fast.</em></div>
+    <p class="intro"><b>KnackLabs builds vertical AI applications</b> — tender discovery, customer service, and the workflows after them — for enterprises. Every one runs on <b>Gantry, the engine we built</b>: a proprietary governed agent runtime. Each vertical we ship makes the next one faster and cheaper.</p>
+  </div>
+</header>
+
+<!-- ===================== DOCUMENT ===================== -->
+<main class="doc">
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">01 /</span> Traction</div>
+    <h2>Paid before launch</h2>
+    <hr class="rule">
+    <p class="lead">Two enterprises committed money before we launched. That is the strongest signal a pre-launch company can give: customers who paid before they saw a finished product.</p>
+    <table class="status">
+      <thead><tr><th scope="col">Customer</th><th scope="col">Vertical</th><th scope="col">Channel</th><th scope="col">Status</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Manipal Group</td><td>Tender discovery</td><td>Microsoft Teams</td><td class="st"><span class="badge b-prog">IN TESTING</span></td></tr>
+        <tr><td class="cap">Bombay Sweet House</td><td>Customer service</td><td>WhatsApp · Interakt</td><td class="st"><span class="badge b-prog">IN BUILD</span></td></tr>
+        <tr><td class="cap">Additional tender buyers</td><td>Tender discovery</td><td>Multiple</td><td class="st"><span class="badge b-next">IN CONVERSATION</span></td></tr>
+      </tbody>
+    </table>
+    <p>The Manipal tender agent is built on Gantry, with the Teams integration in final testing. The Bombay Sweet House customer-service agent is in build on WhatsApp. Both are targeted to go live this summer. More tender buyers are in active conversations (interest shown, not yet signed).</p>
+    <p class="proofline">Two paid, signed build engagements, both inbound, both before the product was finished.</p>
+    <!-- Quote template: uncomment and fill once a customer quote is approved.
+    <div class="quote">"[One or two lines, in the customer's own words, on what the agent does for them and what they would lose without it.]"
+      <span class="who">Name, Title, Company</span>
+    </div>
+    -->
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">02 /</span> The problem</div>
+    <h2>You cannot write an agent's job description before it starts working</h2>
+    <hr class="rule">
+    <p>Enterprises want AI agents. But an agent is not software you can specify in advance. You discover what it should do by running it. That breaks the normal way enterprises buy and build software, and it is why so much agent ambition is stuck in pilots.</p>
+    <p><strong>Agents are labor, not code.</strong> Give two agents the same instructions and different memory and they behave differently. No two are identical, so a static spec can never fully hold them.</p>
+    <p><strong>Without a security perimeter and an audit trail, no enterprise will put an agent near real work.</strong> So most agent projects stall before production: impressive demo, then nothing a CISO will sign off.</p>
+    <p>The result is enormous demand and almost nothing live. That gap is the opportunity.</p>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">03 /</span> What we do</div>
+    <h2>We ship the governed vertical app that gets past the pilot</h2>
+    <hr class="rule">
+    <p>KnackLabs builds vertical, domain-specific AI applications, governed, auditable, and shipped fast. We start with the workflow an enterprise already pays people to do, and we deliver an agent that does it inside the tools they already use.</p>
+    <p><strong>First build for a new client is bespoke. Then the vertical becomes a product.</strong> The second customer in a vertical gets most of it off the shelf, because the hard parts already exist.</p>
+    <p>We meet the enterprise where they work: Teams, WhatsApp, Slack, web. Gantry is embedded as a library inside their stack through our SDK, not a portal they have to migrate onto.</p>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">04 /</span> Why we win</div>
+    <h2>Gantry: the governed engine a dev shop will not build for one client</h2>
+    <hr class="rule">
+    <p>Every app we ship runs on Gantry, our proprietary agent runtime. An enterprise could try to build this themselves; it would take a team a year and a security review to get right, for one workflow. We bring it on day one, and reuse it on every vertical after. That is why our apps are trustworthy enough for an enterprise, and why each new build is cheap.</p>
+    <p><strong>The core idea: an agent holds no standing power. It earns capabilities one at a time.</strong> A capability is composed from a source, a skill, an MCP server, or a tool, and the agent can only <em>request</em> it. The conversation's human admin is the only one who can approve; the agent can never grant itself anything; every grant and every action is written to an audit trail; and the jobs an agent schedules carry their own scoped permissions. This is the answer to the problem above. You put a nondeterministic worker into a real workflow by granting trust narrowly, having a human approve it, and auditing all of it. The industry agrees this is required; most tools stop at allowing or blocking a whole server. We do it per capability.</p>
+    <h3>Auditable by construction</h3>
+    <p>Every action is logged and traceable. This is the precondition for putting an agent anywhere near work that matters, regulated or not.</p>
+    <h3>A security perimeter per conversation</h3>
+    <p>Every tool call passes a who-and-what gate. Agents never hold raw keys; access is granted and revoked the way you manage an employee's permissions, and agents cannot approve themselves.</p>
+    <h3>A governed capability lifecycle</h3>
+    <p>Agents cannot silently expand their own powers. New tools move through request, review, audit, and versioned activation.</p>
+    <h3>Scoped memory with a dreaming lifecycle</h3>
+    <p>Boundaries are enforced at the data layer, and a background process promotes raw conversation into vetted, durable memory, surfacing contradictions instead of overwriting them.</p>
+    <h3>A provider-neutral model gateway <span class="badge b-prog">IN PROGRESS</span></h3>
+    <p>Not locked to one model vendor. This is also the precondition for running our own distilled models later (see the moat).</p>
+    <h3>One agent, every channel</h3>
+    <p>Slack and Telegram are live today; Teams and WhatsApp are in final integration for our first two customers; voice is next. The same perimeter, memory, and audit on every surface.</p>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">05 /</span> The moat</div>
+    <h2>Each vertical makes the next one cheaper</h2>
+    <hr class="rule">
+    <p>A custom AI build is a project. A vertical that productizes is a company. The difference is what happens on the <em>second</em> deployment.</p>
+    <p>The first build in a vertical is bespoke: real engineering, services margin. Every build after it reuses Gantry plus the vertical's template, so the one-time build fee shrinks while recurring revenue grows. Margin bends from agency toward software.</p>
+
+    <div class="pricing">
+      <div class="pcard"><div class="pl">Layer 1 · one-time</div><b>Build fee</b><p>The bespoke first build per client. Shrinks each time the vertical is resold.</p></div>
+      <div class="pcard"><div class="pl">Layer 2 · recurring</div><b>Platform license</b><p>Annual, predictable. The product revenue that compounds.</p></div>
+      <div class="pcard"><div class="pl">Layer 3 · value</div><b>Usage / outcome</b><p>For tender: per bid prepared or per tender won. Priced to the customer's ROI.</p></div>
+    </div>
+
+    <div class="chartwrap">
+      <svg viewBox="0 0 600 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Illustrative: build fee falls and recurring revenue rises across deployments of a vertical">
+        <line x1="74" y1="30" x2="74" y2="200" stroke="#D9E1DD" stroke-width="1.2"/>
+        <line x1="74" y1="200" x2="560" y2="200" stroke="#D9E1DD" stroke-width="1.2"/>
+        <!-- build fee (one-time): falling; deployment 1 real, 2-3 projected -->
+        <polyline points="150,66 320,135 490,178" fill="none" stroke="#9A6614" stroke-width="2.4" stroke-dasharray="6 5"/>
+        <circle cx="150" cy="66" r="5" fill="#9A6614"/>
+        <!-- recurring (license + usage): rising; deployment 1 real, 2-3 projected -->
+        <polyline points="150,182 320,112 490,58" fill="none" stroke="#1C6B49" stroke-width="2.4" stroke-dasharray="6 5"/>
+        <circle cx="150" cy="182" r="5" fill="#1C6B49"/>
+        <!-- x labels -->
+        <text x="150" y="220" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5F706A">1 · in test</text>
+        <text x="320" y="220" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5F706A">2 · projected</text>
+        <text x="490" y="220" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5F706A">3 · projected</text>
+        <text x="317" y="242" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#7C8E88">deployments of a vertical &#8594;</text>
+        <!-- y label -->
+        <text x="22" y="115" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="10" fill="#5F706A" transform="rotate(-90 22 115)">per-client revenue mix (illustrative)</text>
+      </svg>
+      <div class="legend">
+        <span><i style="border-color:#9A6614"></i> One-time build fee (falls)</span>
+        <span><i style="border-color:#1C6B49"></i> Recurring license + usage (grows)</span>
+        <span><i style="border-color:#5F706A;border-top-style:dashed"></i> dot = actual (deployment 1), dashed = projected</span>
+      </div>
+      <div class="chart-cap">Illustrative model, not historical data, and a revenue mix rather than absolute dollars. Deployment 1 is our flagship, in test today; deployments 2 and 3 are projected as the vertical productizes.</div>
+    </div>
+
+    <h3>The Expert Learning Model <span class="badge b-next">ON THE ROADMAP</span></h3>
+    <p>This is where the conversations compound. Today every vertical runs on frontier models, which is correct: they are the most capable, and every conversation they handle becomes labeled training data for that domain. Once a vertical has volume, we fine-tune a small, specialized model on that data, an Expert Learning Model, tuned per domain and per customer. The ELM serves everyday inference cheaply; the frontier model is called only for the hard cases and to correct the ELM when it is wrong, and each correction becomes the next round of training.</p>
+    <p>As agents take on more work, model inference becomes the largest cost of delivering a vertical, and that cost should not be hostage to one vendor's pricing. An ELM that is excellent at one domain, or one customer's version of it, and cheap to run, is a margin and quality advantage no horizontal platform can hand a customer. The provider-neutral model gateway we are building now is the precondition: it is what lets us route between a frontier model and our own ELM without rewriting an app. This is the plan, not a shipped capability, and it is why provider-neutrality comes first.</p>
+    <p class="proofline">We are proving this now: one vertical, first paid client in test, more buyers in conversation, a second vertical in build. It becomes proven the day tender client #2 signs.</p>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">06 /</span> Where we are</div>
+    <h2>The engine is real, and we grade ourselves</h2>
+    <hr class="rule">
+    <p>Status as of May 2026, measured from the codebase. The runtime is substantial and tested: 281 test files, 17 architecture decision records, and an architecture layering rule enforced in CI, across more than 260,000 lines of TypeScript. The point is not the line count; it is that the engine is real, tested, and disciplined. We keep ourselves honest about what is and is not done.</p>
+    <table class="status">
+      <thead><tr><th scope="col">Capability</th><th scope="col">Status</th><th scope="col">Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Core runtime · capability permissions · human-only approval · audit</td><td class="st"><span class="badge b-live">BUILT</span></td><td>Capabilities composed from skills, MCP servers, and tools; conversation-admin approval only; no agent self-approval; every grant and action audited; jobs carry scoped permissions. Runtime-enforced.</td></tr>
+        <tr><td class="cap">Slack &amp; Telegram · async jobs · SDK + Control API · MCP / browser / webhooks</td><td class="st"><span class="badge b-live">BUILT</span></td><td>Native surfaces, durable jobs, per-tool allowlists, HMAC-signed delivery, full audit.</td></tr>
+        <tr><td class="cap">Semantic (vector) memory retrieval</td><td class="st"><span class="badge b-prog">IN PROGRESS</span></td><td>Embeddings and the pgvector column are present; lexical recall is live today, vector ranking shipping now.</td></tr>
+        <tr><td class="cap">Microsoft Teams transport</td><td class="st"><span class="badge b-prog">IN PROGRESS</span></td><td>Normalization and approvals done; Bot Framework transport in final testing with Manipal.</td></tr>
+        <tr><td class="cap">Provider-neutral execution · personal → enterprise migration</td><td class="st"><span class="badge b-prog">IN PROGRESS</span></td><td>Clean adapter seam, one live provider (Anthropic) today; second provider next.</td></tr>
+        <tr><td class="cap">Voice channel</td><td class="st"><span class="badge b-next">NEXT</span></td><td>Planned first-class channel; the surface that most defines a labor replacer.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">07 /</span> Roadmap</div>
+    <h2>The last mile, and the playbook that repeats</h2>
+    <hr class="rule">
+    <div class="phase">
+      <div class="when">SUMMER 2026 — first verticals live + foundation closed</div>
+      <ul>
+        <li>Manipal tender agent live on Teams; Bombay Sweet House customer service live on WhatsApp (target).</li>
+        <li>Turn on semantic (vector) memory retrieval — the staged pgvector path.</li>
+        <li>Complete the personal-runtime → enterprise domain migration to parity.</li>
+        <li>Clean packaging to <span class="mono" style="color:var(--emerald)">@knacklabs/gantry</span> — private, enterprise metadata.</li>
+      </ul>
+    </div>
+    <div class="phase">
+      <div class="when">BY Q4 2026 — multi-channel, multi-provider, hardened</div>
+      <ul>
+        <li>Prove a second model provider live through the existing adapter seam.</li>
+        <li>Sign tender client #2 — the moment "proving repeatability" becomes "proven."</li>
+        <li>Hardening: architecture docs, second owners to reduce key-person risk, observability.</li>
+      </ul>
+    </div>
+    <div class="phase">
+      <div class="when">THE PLAYBOOK — ongoing</div>
+      <ul>
+        <li>Ship a vertical, productize it, resell it. Each one ships the next one faster.</li>
+        <li>Begin per-vertical Expert Learning Models (fine-tuned domain and customer models) once a vertical has volume.</li>
+        <li>Add Voice, then Capcom fleet control (below).</li>
+      </ul>
+    </div>
+    <div class="milestone"><b>The shape of the company:</b> services revenue today, bending toward product revenue as each vertical productizes, with a data moat that compounds per vertical.</div>
+  </section>
+
+  <section class="section">
+    <div class="eyebrow"><span class="n">08 /</span> The vision, earned</div>
+    <h2>Every application's core becomes an agent</h2>
+    <hr class="rule">
+    <p>The deterministic shell of an app (auth, user management, dashboards) becomes scaffolding. The real work gets done by an agent connecting to the enterprise's tools. Our SDK is how that app gets built, and Gantry is what makes the agent safe enough to ship.</p>
+    <div class="voicebox">
+      <div class="vl">Why voice matters</div>
+      <p><b>A labor replacer that cannot talk is not, fully, a labor replacer.</b> Support, collections, scheduling, and front-office work live on the phone. Voice, governed by the same perimeter, memory, and audit as every other channel, is what lets an agent stand in for a role defined by conversation.</p>
+    </div>
+    <div class="capcom">
+      <div class="ch">
+        <span class="name">CAPCOM</span>
+        <span class="tag">One screen for every Gantry agent an enterprise runs.</span>
+      </div>
+      <div class="cb">
+        <p>Once an enterprise runs more than one agent, the next need is obvious: one view of health, activity, the full audit trail, cost, and the ability to intervene. Gantry holds and fuels each agent; <strong>Capcom is mission control for the fleet.</strong></p>
+        <p>This is where fleet-level governance and switching cost compound, the eventual, earned answer to the multi-agent control plane we deliberately do not claim today. We earn it one vertical at a time.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="fb">KNACKLABS</div>
+  <div>Chimps At Work Studios Pvt Ltd · KnackLabs &nbsp;·&nbsp; Confidential — for discussion under NDA &nbsp;·&nbsp; v0.3, May 2026</div>
+</footer>
+
+</body>
+</html>

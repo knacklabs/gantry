@@ -1,6 +1,10 @@
 import { ApplicationError } from '../common/application-error.js';
 import { JobManagementService } from '../jobs/job-management-service.js';
 import type { SessionInteractionModule } from '../sessions/session-interaction-module.js';
+import type {
+  ConversationMessageIngressModule,
+  ConversationMessageQueueIntent,
+} from './conversation-message-ingress.js';
 import {
   type ExternalIngressSignaturePort,
   verifyExternalIngressRequestSignature,
@@ -114,11 +118,29 @@ type ExternalIngressInvocationRecord = {
   updatedAt: string;
 };
 
+export const EXTERNAL_INGRESS_RUNTIME_DISPATCH = Symbol(
+  'externalIngressRuntimeDispatch',
+);
+
+export type ExternalIngressRuntimeDispatch = {
+  enqueue?: ConversationMessageQueueIntent;
+};
+
+type ConversationMessageProjectionPort = {
+  send(input: {
+    conversationJid: string;
+    threadId: string | null;
+    text: string;
+  }): Promise<void>;
+};
+
 export class ExternalIngressModule {
   constructor(
     private readonly deps: {
       control: ExternalIngressControlPort;
       sessions: SessionInteractionModule;
+      conversationMessages?: ConversationMessageIngressModule;
+      conversationProviderMessages?: ConversationMessageProjectionPort;
       jobs: JobManagementService;
       now: () => string;
       createSecret: () => string;
@@ -412,6 +434,13 @@ export class ExternalIngressModule {
     if (target.kind === 'session_message') {
       return this.invokeSessionMessage(input.appId, target);
     }
+    if (target.kind === 'conversation_message') {
+      return this.invokeConversationMessage(
+        input.appId,
+        input.invocationId,
+        target,
+      );
+    }
     if (target.kind === 'job_trigger') {
       return this.invokeJobTrigger(input.appId, target);
     }
@@ -463,6 +492,49 @@ export class ExternalIngressModule {
       },
       ...(registerGroup ? { registerGroup } : {}),
       enqueue: accepted.enqueue,
+    };
+  }
+
+  private async invokeConversationMessage(
+    appId: string,
+    invocationId: string,
+    target: IngressTarget,
+  ) {
+    if (!this.deps.conversationMessages) {
+      throw new ApplicationError(
+        'UNAVAILABLE',
+        'Conversation message ingress is unavailable',
+      );
+    }
+    const conversationId = readString(target, 'conversationId');
+    const message = readString(target, 'message');
+    const senderName = readOptionalString(target, 'senderName');
+    const accepted = await this.deps.conversationMessages.acceptMessage({
+      appId,
+      invocationId,
+      conversationId,
+      threadId: readOptionalString(target, 'threadId'),
+      message,
+      senderId: readOptionalString(target, 'senderId'),
+      senderName,
+      correlationId: readOptionalString(target, 'correlationId'),
+    });
+    if (this.deps.conversationProviderMessages) {
+      await this.deps.conversationProviderMessages.send({
+        conversationJid: accepted.enqueue.conversationJid,
+        threadId: accepted.enqueue.threadId,
+        text: formatConversationMessageProjection({ message, senderName }),
+      });
+    }
+    return {
+      targetKind: 'conversation_message',
+      conversationId: accepted.conversationId,
+      threadId: accepted.threadId,
+      messageId: accepted.messageId,
+      acceptedEventId: accepted.acceptedEventId,
+      [EXTERNAL_INGRESS_RUNTIME_DISPATCH]: {
+        enqueue: accepted.enqueue,
+      },
     };
   }
 
@@ -541,6 +613,14 @@ export class ExternalIngressModule {
       // best-effort failure status update races with shutdown or deletion.
     }
   }
+}
+
+function formatConversationMessageProjection(input: {
+  message: string;
+  senderName?: string | null;
+}): string {
+  const senderName = input.senderName?.trim() || 'External System';
+  return `${senderName}: ${input.message.trim()}`;
 }
 
 function publicIngress(ingress: ExternalIngressRecord) {

@@ -1,5 +1,4 @@
 import { createHash } from 'crypto';
-import { getBuiltinSemanticCapability } from './semantic-capabilities.js';
 
 export interface SchedulerJobPlanInput {
   jobId?: string | null;
@@ -95,7 +94,7 @@ export function formatSchedulerJobPlan(
     `- Required capabilities: ${requiredCapabilities}`,
     `- Tool access requirements: ${toolAccessRequirements}`,
     `- Required MCP servers: ${requiredMcpServers}`,
-    '- Tool access: inherited from the target agent capability selection; use capability:<id> for semantic access such as gog.sheets.get, and reserve scoped RunCommand(...) for one-off exact command preflights.',
+    '- Tool access: inherited from the target agent capability selection; use capability:<id> for reviewed semantic access, and reserve scoped RunCommand(...) for one-off exact command preflights.',
     '- Network: governed by the same tool permission and sandbox policy as live runs; no standalone scheduler network grant is created.',
     '- Memory: uses the target agent runtime memory settings; no memory schema or store changes are made by this plan.',
     `- Runtime: ${runtime}`,
@@ -141,12 +140,10 @@ function formatCapabilityRequirement(
     SchedulerJobPlanInput['capabilityRequirements']
   >[number],
 ): string {
-  const capability =
-    getBuiltinSemanticCapability(requirement.capabilityId)?.displayName ??
-    requirement.capabilityId
-      .split('.')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
+  const capability = requirement.capabilityId
+    .split('.')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
   const name = requirement.implementation?.name?.trim();
   return name ? `${capability} using ${name}` : capability;
 }

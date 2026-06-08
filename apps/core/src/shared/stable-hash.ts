@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 
+export function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 export function stableSha256Json(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex');
+  return sha256Hex(canonicalJson(value));
 }
 
 function canonicalJson(value: unknown): string {

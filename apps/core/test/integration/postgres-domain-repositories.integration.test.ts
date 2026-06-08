@@ -188,7 +188,7 @@ maybeDescribe('Postgres domain repositories', () => {
       'select value_encrypted from capability_secrets where app_id = $1 and name = $2',
       [appId, 'GITHUB_TOKEN'],
     );
-    expect(raw.rows[0]?.value_encrypted).toContain('enc:v1:');
+    expect(raw.rows[0]?.value_encrypted).toContain('gcred:v2:');
     expect(raw.rows[0]?.value_encrypted).not.toContain('plain-token-value');
   });
 
@@ -411,6 +411,15 @@ maybeDescribe('Postgres domain repositories', () => {
 
   it('stores source-only tool attachments separately from capability bindings', async () => {
     const updatedAt = '2026-05-02T00:00:00.000Z';
+
+    await repositories.agents.replaceAgentCapabilityBindings({
+      appId,
+      agentId,
+      toolBindings: [],
+      skillBindings: [],
+      mcpBindings: [],
+      updatedAt,
+    });
 
     await repositories.tools.replaceAgentToolSources?.({
       appId,
@@ -1177,7 +1186,7 @@ maybeDescribe('Postgres domain repositories', () => {
       agentId,
       providerConnectionId: providerConnectionId,
       conversationId,
-      displayName: 'Personal Agent',
+      displayName: 'Default Agent',
       status: 'active',
       triggerMode: 'always',
       requiresTrigger: false,
@@ -1219,7 +1228,7 @@ maybeDescribe('Postgres domain repositories', () => {
         conversationId,
       }),
     ).resolves.toMatchObject({
-      displayName: 'Personal Agent',
+      displayName: 'Default Agent',
       status: 'disabled',
       triggerMode: 'always',
       memoryScope: 'conversation',

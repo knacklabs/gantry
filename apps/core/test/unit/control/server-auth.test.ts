@@ -28,7 +28,7 @@ vi.mock('@core/adapters/llm/model-preset-preflight.js', () => ({
   preflightModelPreset: vi.fn(async () => ({
     ok: true,
     status: 'pass',
-    message: 'OpenRouter-scoped Model Access credential is available.',
+    message: 'OpenRouter Model Access credential is available.',
   })),
 }));
 
@@ -460,7 +460,7 @@ beforeEach(() => {
   mockedPreflightModelPreset.mockResolvedValue({
     ok: true,
     status: 'pass',
-    message: 'OpenRouter-scoped Model Access credential is available.',
+    message: 'OpenRouter Model Access credential is available.',
   });
   controlRepo.listDueWebhookDeliveries.mockResolvedValue([]);
   controlRepo.claimDueWebhookDeliveries.mockResolvedValue([]);
@@ -1213,7 +1213,7 @@ describe('control server runtime hardening', () => {
     mockedPreflightModelPreset.mockResolvedValueOnce({
       ok: false,
       status: 'fail',
-      message: 'OpenRouter-scoped Model Access credential is missing.',
+      message: 'OpenRouter Model Access credential is missing.',
     });
 
     const handle = startControlServer({
@@ -1267,7 +1267,7 @@ describe('control server runtime hardening', () => {
     mockedPreflightModelPreset.mockResolvedValueOnce({
       ok: false,
       status: 'fail',
-      message: 'OpenRouter-scoped Model Access credential is missing.',
+      message: 'OpenRouter Model Access credential is missing.',
     });
 
     const handle = startControlServer({
@@ -1798,6 +1798,139 @@ describe('control server runtime hardening', () => {
       expect(app.registerGroup.mock.invocationCallOrder[0]).toBeLessThan(
         app.queue.enqueueMessageCheck.mock.invocationCallOrder[0],
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('accepts signed external ingress conversation messages with Gantry ids only in the response', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    const app = {
+      registerGroup: vi.fn(async () => undefined),
+      getConversationRoutes: vi.fn(() => ({
+        'tg:-100': {
+          name: 'Team Topic',
+          folder: 'main_agent',
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      })),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    controlRepo.getExternalIngressById.mockResolvedValue({
+      ingressId: 'ingress-1',
+      appId: 'app-one',
+      name: 'ingress-main',
+      secret: 'ingress-secret',
+      enabled: true,
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['conversation_message'],
+          conversationIds: ['conversation:tg:-100'],
+        },
+      },
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.getConversation.mockResolvedValue({
+      id: 'conversation:tg:-100',
+      appId: 'app-one',
+      providerConnectionId: 'channel-providerConnection:app-one:telegram',
+      externalRef: { kind: 'conversation', value: '-100' },
+      kind: 'group',
+      title: 'Team Topic',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.getThread.mockResolvedValue({
+      id: 'thread:tg:-100:42',
+      appId: 'app-one',
+      conversationId: 'conversation:tg:-100',
+      externalRef: { kind: 'conversation_thread', value: '42' },
+      title: 'Topic',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    const handle = startControlServer({ app: app as any });
+    const path = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'conversation_message',
+        conversationId: 'conversation:tg:-100',
+        threadId: 'thread:tg:-100:42',
+        message: 'run the test',
+        senderId: 'external-ci',
+        senderName: 'External CI',
+      },
+      idempotencyKey: 'idem-ingress-conversation-message',
+    });
+    const signed = signIngressRequest({
+      ingressId: 'ingress-1',
+      path,
+      rawBody,
+      nonce: 'nonce-ingress-conversation-message',
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}${path}`,
+        '',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-gantry-ingress-timestamp': signed.timestamp,
+            'x-gantry-ingress-nonce': signed.nonce,
+            'x-gantry-ingress-signature': signed.signature,
+          },
+          body: rawBody,
+        },
+      );
+
+      expect(response.status).toBe(202);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        duplicate: false,
+        targetKind: 'conversation_message',
+        conversationId: 'conversation:tg:-100',
+        threadId: 'thread:tg:-100:42',
+        messageId: expect.any(String),
+        acceptedEventId: 1001,
+      });
+      expect(body).not.toHaveProperty('enqueue');
+      expect(body).not.toHaveProperty('conversationJid');
+      expect(JSON.stringify(body)).not.toContain('queueKey');
+      expect(opsRepo.storeMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chat_jid: 'tg:-100',
+          thread_id: '42',
+          sender: 'external-ci',
+          sender_name: 'External CI',
+          content: 'run the test',
+        }),
+      );
+      expect(runtimeEvents.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app-one',
+          conversationId: 'conversation:tg:-100',
+          threadId: 'thread:tg:-100:42',
+          eventType: 'conversation.message.inbound',
+          actor: 'external-ci',
+          payload: expect.objectContaining({
+            direction: 'inbound',
+            deliveryStatus: 'accepted',
+          }),
+        }),
+      );
+      expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'tg:-100::thread:42',
+      );
+      expect(app.registerGroup).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }

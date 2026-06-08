@@ -18,12 +18,14 @@ export function isSemanticCapabilityRule(value: string): boolean {
 }
 
 export function isValidSemanticCapabilityId(value: string): boolean {
-  return SEMANTIC_CAPABILITY_ID_RE.test(value.trim());
+  const trimmed = value.trim();
+  return SEMANTIC_CAPABILITY_ID_RE.test(trimmed);
 }
 
 export function semanticCapabilityIdValidationReason(
   capabilityId: string,
 ): string | undefined {
-  if (isValidSemanticCapabilityId(capabilityId)) return undefined;
-  return 'Capability id must use lowercase dot-separated words such as google.sheets.write.';
+  const trimmed = capabilityId.trim();
+  if (isValidSemanticCapabilityId(trimmed)) return undefined;
+  return 'Capability id must use lowercase dot-separated words such as app.resource.action.';
 }

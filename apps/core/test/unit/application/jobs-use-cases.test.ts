@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { JobManagementService } from '@core/application/jobs/job-management-service.js';
-import { recheckSetupPausedJobsAfterPermissionGrant } from '@core/application/jobs/job-permission-recovery.js';
+import { recheckSetupPausedJobsAfterCapabilityUpdate } from '@core/application/jobs/job-permission-recovery.js';
 import { isVisibleJob } from '@core/application/jobs/job-list-filters.js';
 import {
   assertSchedulerJobAccess,
@@ -230,7 +230,7 @@ describe('job application use cases', () => {
     });
     const scheduler = { requestSchedulerSync: vi.fn() };
 
-    const result = await recheckSetupPausedJobsAfterPermissionGrant({
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
       appId: 'default',
       sourceAgentFolder: 'team',
       conversationJid: 'tg:team',
@@ -271,7 +271,7 @@ describe('job application use cases', () => {
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-browser');
   });
 
-  it('does not requeue a direct job id outside the permission grant scope', async () => {
+  it('does not requeue a direct job id outside the permission approval scope', async () => {
     const foreignJob = makeJob({
       id: 'job-foreign',
       name: 'Foreign job',
@@ -293,7 +293,7 @@ describe('job application use cases', () => {
     const updateJob = vi.fn();
     const scheduler = { requestSchedulerSync: vi.fn() };
 
-    const result = await recheckSetupPausedJobsAfterPermissionGrant({
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
       appId: 'default',
       sourceAgentFolder: 'team',
       conversationJid: 'tg:team',
@@ -345,7 +345,7 @@ describe('job application use cases', () => {
     });
     const updateJob = vi.fn();
 
-    const result = await recheckSetupPausedJobsAfterPermissionGrant({
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
       appId: 'default',
       sourceAgentFolder: 'team',
       conversationJid: 'tg:team',
@@ -394,19 +394,19 @@ describe('job application use cases', () => {
     await service.createJob({
       appId: 'app-one',
       name: 'Lead sync',
-      prompt: 'Append new leads to Google Sheets',
+      prompt: 'Append new leads to Acme Records',
       sessionId: 'session-app-one',
       capabilityRequirements: [
         {
-          capabilityId: 'google.sheets.write',
+          capabilityId: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executablePath: '/usr/local/bin/gog',
+            name: 'acme',
+            executablePath: '/usr/local/bin/acme',
             executableVersion: 'v0.9.0',
             executableHash: 'sha256:abc123',
-            commandTemplate: '/usr/local/bin/gog sheets append *',
+            commandTemplate: '/usr/local/bin/acme records append *',
           },
         },
       ],
@@ -421,18 +421,18 @@ describe('job application use cases', () => {
         next_run: null,
         capability_requirements: [
           expect.objectContaining({
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Write lead rows after each run',
           }),
         ],
-        tool_access_requirements: ['capability:google.sheets.write'],
+        tool_access_requirements: ['capability:acme.records.append'],
         setup_state: expect.objectContaining({
-          state: 'draft_only',
+          state: 'missing_capability',
           blockers: expect.arrayContaining([
             expect.objectContaining({
-              state: 'draft_only',
+              state: 'missing_capability',
               requirementType: 'local_cli',
-              requirementId: 'google.sheets.write',
+              requirementId: 'acme.records.append',
               nextAction: expect.stringContaining('propose_capability'),
             }),
           ]),
@@ -462,19 +462,19 @@ describe('job application use cases', () => {
       service.createJob({
         appId: 'app-one',
         name: 'Lead sync',
-        prompt: 'Append new leads to Google Sheets',
+        prompt: 'Append new leads to Acme Records',
         sessionId: 'session-app-one',
         capabilityRequirements: [
           {
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Write lead rows after each run',
             implementation: {
               kind: 'local_cli',
-              name: 'gog',
-              executablePath: '/usr/local/bin/gog',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
               executableVersion: 'v0.9.0',
               executableHash: 'sha256:abc123',
-              commandTemplate: 'gog sheets append *',
+              commandTemplate: 'acme records append *',
             },
           },
         ],
@@ -539,15 +539,15 @@ describe('job application use cases', () => {
       patch: {
         capabilityRequirements: [
           {
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Need reviewed CLI before each run',
             implementation: {
               kind: 'local_cli',
-              name: 'gog',
-              executablePath: '/usr/local/bin/gog',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
               executableVersion: 'v0.9.0',
               executableHash: 'sha256:abc123',
-              commandTemplate: '/usr/local/bin/gog sheets append --dry-run',
+              commandTemplate: '/usr/local/bin/acme records append --dry-run',
             },
           },
         ],
@@ -559,19 +559,19 @@ describe('job application use cases', () => {
       expect.objectContaining({
         capability_requirements: [
           {
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Need reviewed CLI before each run',
             implementation: {
               kind: 'local_cli',
-              name: 'gog',
-              executablePath: '/usr/local/bin/gog',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
               executableVersion: 'v0.9.0',
               executableHash: 'sha256:abc123',
-              commandTemplate: '/usr/local/bin/gog sheets append --dry-run',
+              commandTemplate: '/usr/local/bin/acme records append --dry-run',
             },
           },
         ],
-        tool_access_requirements: ['Browser', 'capability:google.sheets.write'],
+        tool_access_requirements: ['Browser', 'capability:acme.records.append'],
         status: 'paused',
         pause_reason: 'Setup required',
       }),
@@ -582,10 +582,10 @@ describe('job application use cases', () => {
   it('preserves capability-derived tool rules when only tool access requirements are updated', async () => {
     const job = makeJob({
       id: 'job-1',
-      tool_access_requirements: ['capability:google.sheets.write'],
+      tool_access_requirements: ['capability:acme.records.append'],
       capability_requirements: [
         {
-          capabilityId: 'google.sheets.write',
+          capabilityId: 'acme.records.append',
           reason: 'Write lead rows after each run',
         },
       ],
@@ -613,7 +613,7 @@ describe('job application use cases', () => {
     expect(ops.updateJob).toHaveBeenCalledWith(
       'job-1',
       expect.objectContaining({
-        tool_access_requirements: ['Browser', 'capability:google.sheets.write'],
+        tool_access_requirements: ['Browser', 'capability:acme.records.append'],
       }),
     );
   });
@@ -1293,7 +1293,7 @@ describe('job application use cases', () => {
         }),
         access,
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       canAccessSchedulerJob(
         makeJob({
@@ -1307,7 +1307,22 @@ describe('job application use cases', () => {
         }),
         access,
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      canAccessSchedulerJob(
+        makeJob({
+          group_scope: 'team',
+          notification_routes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: 'other-thread',
+              label: 'primary',
+            },
+          ],
+        }),
+        access,
+      ),
+    ).toBe(true);
     expect(
       canAccessSchedulerJob(
         makeJob({
@@ -1544,6 +1559,70 @@ describe('job application use cases', () => {
     });
 
     expect(ops.listJobs.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
+  });
+
+  it('keeps an existing job route when upserted from another topic in the same conversation', async () => {
+    const existingJob = makeJob({
+      id: 'lead:knacklabs-controller',
+      group_scope: 'team',
+      thread_id: '2771',
+      execution_context: {
+        conversationJid: 'tg:team',
+        threadId: '2771',
+        groupScope: 'team',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'tg:team',
+          threadId: '2771',
+          label: 'primary',
+        },
+      ],
+    });
+    const upsertJob = vi.fn(async () => ({ created: false }));
+    const service = new JobManagementService({
+      ops: {
+        getJobById: vi.fn(async () => existingJob),
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await service.upsertJobFromIpc({
+      access: {
+        sourceAgentFolder: 'team',
+        originConversationJid: 'tg:team',
+        conversationBindings: {
+          'tg:team': { folder: 'team' },
+        },
+        sourceAgentFolderJids: ['tg:team'],
+        authThreadId: '9999',
+      },
+      jobId: existingJob.id,
+      name: 'Team digest',
+      prompt: 'Summarize updates',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
+    });
+
+    expect(upsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_id: '2771',
+        execution_context: {
+          conversationJid: 'tg:team',
+          threadId: '2771',
+          groupScope: 'team',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: '2771',
+            label: 'primary',
+          },
+        ],
+      }),
+    );
   });
 
   it('maps IPC scheduler schedule validation to invalid_schedule', async () => {

@@ -30,19 +30,12 @@ import { inspectMemoryHealth } from './memory-health.js';
 import { readAgentRuntimeFile } from '../platform/agent-content.js';
 import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
 import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
-import {
-  inspectOnecliPersistenceReadiness,
-  ONECLI_SECRET_ENCRYPTION_KEY_ENV,
-  validateOnecliDatabaseUrl,
-} from '../adapters/credentials/onecli/local/persistence.js';
-import { validateOnecliUrl } from '../adapters/credentials/onecli/policy.js';
-import { validateExternalBrokerUrl } from '../config/credentials/broker-url-policy.js';
 import { validateRuntimeEnvPolicy } from '../config/source-classification.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
+import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
-const ONECLI_DOCTOR_TIMEOUT_MS = 3_000;
 export interface DoctorCheck {
   id: string;
   title: string;
@@ -262,51 +255,26 @@ export function runDoctor(
           'Start or provision Postgres yourself, then run `gantry setup` and paste the database URLs.',
       });
     }
-    const onecliDatabaseUrlEnv =
-      settings.credentialBroker.onecli.postgres.urlEnv;
     const credentialMode = settings.credentialBroker.mode;
-    const onecliDatabaseUrl =
-      env[onecliDatabaseUrlEnv]?.trim() ||
-      process.env[onecliDatabaseUrlEnv]?.trim() ||
+    const modelCredentialSecret =
+      env.SECRET_ENCRYPTION_KEY?.trim() ||
+      process.env.SECRET_ENCRYPTION_KEY?.trim() ||
       '';
-    const onecliSecret =
-      env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim() ||
-      process.env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim() ||
-      '';
-    let onecliPersistenceStatus: DoctorStatus = 'pass';
-    let onecliPersistenceMessage = `OneCLI persistence is configured through ${onecliDatabaseUrlEnv}.`;
-    let onecliPersistenceNextAction: string | undefined;
-    if (credentialMode !== 'onecli') {
-      onecliPersistenceStatus = 'pass';
-      onecliPersistenceMessage = `OneCLI persistence is not required in ${credentialMode} credential mode.`;
-    } else if (!onecliDatabaseUrl) {
-      onecliPersistenceStatus = 'fail';
-      onecliPersistenceMessage = `${onecliDatabaseUrlEnv} is missing.`;
-      onecliPersistenceNextAction =
-        'Run `gantry local setup`, or set it to the shared Postgres URL with schema=onecli.';
-    } else {
-      const validation = validateOnecliDatabaseUrl({
-        postgresUrl: onecliDatabaseUrl,
-        schema: settings.credentialBroker.onecli.postgres.schema,
-      });
-      if (!validation.ok) {
-        onecliPersistenceStatus = 'fail';
-        onecliPersistenceMessage = validation.message;
-        onecliPersistenceNextAction = validation.nextAction;
-      } else if (!onecliSecret) {
-        onecliPersistenceStatus = 'fail';
-        onecliPersistenceMessage =
-          'SECRET_ENCRYPTION_KEY is missing for OneCLI broker persistence.';
-        onecliPersistenceNextAction =
-          'Generate a deployment secret and set SECRET_ENCRYPTION_KEY before starting OneCLI.';
-      }
-    }
     add(checks, {
-      id: 'onecli-persistence-config',
-      title: 'OneCLI Persistence Config',
-      status: onecliPersistenceStatus,
-      message: onecliPersistenceMessage,
-      nextAction: onecliPersistenceNextAction,
+      id: 'model-credential-encryption',
+      title: 'Model Credential Encryption',
+      status:
+        credentialMode === 'gantry' && !modelCredentialSecret ? 'fail' : 'pass',
+      message:
+        credentialMode === 'gantry'
+          ? modelCredentialSecret
+            ? 'SECRET_ENCRYPTION_KEY is configured for Gantry credential encryption.'
+            : 'SECRET_ENCRYPTION_KEY is missing for Gantry credential encryption.'
+          : 'Model credential encryption is not required when model_access is disabled.',
+      nextAction:
+        credentialMode === 'gantry' && !modelCredentialSecret
+          ? 'Generate a base64-encoded 32-byte SECRET_ENCRYPTION_KEY, then restart Gantry.'
+          : undefined,
     });
   } else {
     add(checks, {
@@ -325,13 +293,13 @@ export function runDoctor(
   const allEnvPolicyViolations = envViolations.concat(processViolations);
   const runtimeEnvBoundaryNextActions = [
     envViolations.length
-      ? 'Manually move wrong-lane Gantry .env values to settings.yaml or the selected credential broker.'
+      ? 'Manually move wrong-lane Gantry .env values to settings.yaml or Gantry Credential Center.'
       : '',
     processViolations.length
       ? 'Unset wrong-lane keys from your shell or service environment.'
       : '',
     allEnvPolicyViolations.length
-      ? 'Move non-secret settings to settings.yaml and agent credentials to Model Access or the selected credential broker.'
+      ? 'Move non-secret settings to settings.yaml and model provider keys to `gantry credentials model set`.'
       : '',
   ].filter(Boolean);
   add(checks, {
@@ -345,16 +313,7 @@ export function runDoctor(
       ? runtimeEnvBoundaryNextActions.join(' ')
       : undefined,
   });
-  const onecliUrl = settings?.credentialBroker.onecli.url.trim() || '';
-  const credentialMode = settings?.credentialBroker.mode || 'onecli';
-  const externalBrokerUrl =
-    settings?.credentialBroker.external.baseUrl.trim() || '';
-  const externalBrokerValidation = externalBrokerUrl
-    ? validateExternalBrokerUrl(
-        externalBrokerUrl,
-        'credential_broker.external.base_url',
-      )
-    : undefined;
+  const credentialMode = settings?.credentialBroker.mode || 'gantry';
 
   for (const provider of providers) {
     const enabled = settings?.providers[provider.id]?.enabled ?? false;
@@ -468,41 +427,16 @@ export function runDoctor(
       }
     }
   }
-  let modelAccessStatus: DoctorStatus = 'pass';
-  let modelAccessMessage = `Model Access is managed by ${credentialMode} credential mode.`;
+  let modelAccessStatus: DoctorStatus =
+    credentialMode === 'gantry' ? 'pass' : 'warn';
+  let modelAccessMessage =
+    credentialMode === 'gantry'
+      ? 'Gantry Model Gateway config is enabled; provider credential readiness is checked separately.'
+      : 'Model Access is disabled. Agent execution and memory LLM extraction require Gantry Model Gateway credentials.';
   let modelAccessNextAction: string | undefined;
-  if (credentialMode === 'external') {
-    if (!externalBrokerUrl) {
-      modelAccessStatus = 'fail';
-      modelAccessMessage =
-        'External credential mode requires credential_broker.external.base_url.';
-      modelAccessNextAction =
-        'Set credential_broker.external.base_url to the external credential broker endpoint, then rerun `gantry doctor`.';
-    } else if (!externalBrokerValidation?.ok) {
-      modelAccessStatus = 'fail';
-      modelAccessMessage =
-        externalBrokerValidation?.error ||
-        'credential_broker.external.base_url is invalid.';
-      modelAccessNextAction =
-        'Set credential_broker.external.base_url to an HTTPS broker URL without embedded credentials, query parameters, or fragments.';
-    }
-  } else if (credentialMode === 'onecli') {
-    const onecliUrlValidation = onecliUrl
-      ? validateOnecliUrl(onecliUrl, 'credential_broker.onecli.url')
-      : undefined;
-    if (!onecliUrl) {
-      modelAccessStatus = 'warn';
-      modelAccessMessage =
-        'Model Access is missing. Agent execution and memory LLM extraction require brokered model access.';
-      modelAccessNextAction =
-        'Run `gantry setup` and configure Model Access, then rerun `gantry doctor`.';
-    } else if (!onecliUrlValidation?.ok) {
-      modelAccessStatus = 'fail';
-      modelAccessMessage =
-        onecliUrlValidation?.error || 'Model Access URL is invalid.';
-    } else {
-      modelAccessMessage = `Model Access is configured at ${onecliUrl}.`;
-    }
+  if (credentialMode !== 'gantry') {
+    modelAccessNextAction =
+      'Set model_access.enabled to true and add model credentials before running agents.';
   }
   add(checks, {
     id: 'claude-broker',
@@ -615,60 +549,10 @@ export async function runDoctorWithNetwork(
 
   const settings = loadSettingsForDoctor(runtimeHome).settings;
   if (settings) {
-    const env = readEnvFile(envFilePath(runtimeHome));
-    const credentialMode = settings.credentialBroker.mode;
-    if (credentialMode !== 'onecli') {
-      return report;
-    }
-    const onecliUrl = settings.credentialBroker.onecli.url;
-    const onecliDatabaseUrlEnv =
-      settings.credentialBroker.onecli.postgres.urlEnv;
-    const onecliDatabaseUrl = resolveRuntimeEnvValue(env, onecliDatabaseUrlEnv);
-    const onecliSecret = resolveRuntimeEnvValue(
-      env,
-      ONECLI_SECRET_ENCRYPTION_KEY_ENV,
+    report = addToReport(
+      report,
+      await inspectModelCredentialReadiness(runtimeHome, settings),
     );
-    const onecliPersistence = await inspectOnecliPersistenceReadiness({
-      postgresUrl: onecliDatabaseUrl,
-      schema: settings.credentialBroker.onecli.postgres.schema,
-      secretEncryptionKey: onecliSecret,
-      gantryPostgresUrl: resolveRuntimeEnvValue(
-        env,
-        settings.storage.postgres.urlEnv,
-      ),
-      gantrySchema: settings.storage.postgres.schema,
-    });
-    report = addToReport(report, {
-      id: 'onecli-persistence',
-      title: 'OneCLI Persistence',
-      status: onecliPersistence.status,
-      message: onecliPersistence.details?.length
-        ? `${onecliPersistence.message} ${onecliPersistence.details.join(' | ')}`
-        : onecliPersistence.message,
-      nextAction: onecliPersistence.nextAction,
-    });
-
-    const { OnecliAgentCredentialBroker } =
-      await import('../adapters/credentials/onecli/broker.js');
-    const broker = new OnecliAgentCredentialBroker({
-      onecliUrl,
-      dataDir: path.join(runtimeHome, 'data'),
-      timeoutMs: ONECLI_DOCTOR_TIMEOUT_MS,
-    });
-    const health = await broker.healthCheck();
-    report = addToReport(report, {
-      id: 'onecli-reachability',
-      title: 'OneCLI Reachability',
-      status: health.status,
-      message: health.details?.length
-        ? `${health.message} ${health.details.join(' | ')}`
-        : health.message,
-      nextAction:
-        health.nextAction ||
-        (health.status === 'fail'
-          ? 'Start Model Access with DATABASE_URL from ONECLI_DATABASE_URL and rerun `gantry doctor`.'
-          : undefined),
-    });
   }
   return report;
 }
@@ -704,7 +588,6 @@ export function hasRuntimeConfig(runtimeHome: string): boolean {
     return false;
   }
 }
-
 export async function hasProcessableGroupForConfiguredChannel(
   runtimeHome: string,
 ): Promise<boolean> {
@@ -736,6 +619,5 @@ export async function hasProcessableGroupForConfiguredChannel(
       await db?.close();
     }
   }
-
   return false;
 }

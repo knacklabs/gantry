@@ -71,7 +71,7 @@
   copying, unzipping, or constructing files. Do not treat those prep permissions
   as durable install authority; the final selected skill still goes through
   `request_skill_install`. `requiredEnvVars` describe runtime skill secrets from
-  Gantry Secrets, not generic installer environment.
+  Gantry Credentials, not generic installer environment.
 - Agent-facing capability status blocks are runtime context, not user copy.
   When replying to users, translate them into plain results such as "approval
   requested", "installed", "available now", or "needs setup"; do not echo

@@ -31,6 +31,16 @@ export function assertTargetAllowed(
       'Ingress is not allowed to invoke this session target',
     );
   }
+  if (target.kind === 'conversation_message') {
+    const conversationId = readOptionalString(target, 'conversationId');
+    if (conversationId && allows(policy.conversationIds, conversationId)) {
+      return;
+    }
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'Ingress is not allowed to invoke this conversation target',
+    );
+  }
   if (target.kind === 'job_trigger') {
     const jobId = readOptionalString(target, 'jobId');
     if (jobId && allows(policy.jobIds, jobId)) return;
@@ -174,6 +184,7 @@ function validateTargetPolicy(value: unknown): void {
   }
   validatePolicySet(policy.allowedTargetKinds, 'allowedTargetKinds', [
     'session_message',
+    'conversation_message',
     'job_trigger',
     'job_template',
   ]);

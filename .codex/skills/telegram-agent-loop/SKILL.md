@@ -1,11 +1,13 @@
 ---
 name: telegram-agent-loop
-description: Use when Codex must drive a Kai or Telegram-hosted agent test through Chrome, send prompts in a visible Telegram topic, monitor responses like a user, iterate with follow-up instructions, and cross-check Gantry CLI/runtime evidence until the agent certifies a job or issue as fixed.
+description: Drives Gantry tests through the visible Telegram UI with Chrome. Use only when testing Telegram rendering, Telegram buttons, topic routing, or visible Telegram conversation behavior; use agent-chat-test for direct runtime agent-chat tests.
 ---
 
 # Telegram Agent Loop
 
-Use this skill for operator-style verification loops where a remote agent in Telegram must run or certify a Gantry job.
+Use this skill for operator-style verification loops where the Telegram UI
+itself is part of the behavior under test. For direct runtime agent-chat tests,
+use `agent-chat-test` instead.
 
 ## Ground Rules
 

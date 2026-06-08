@@ -1,16 +1,17 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { randomUUID } from 'node:crypto';
 
 import {
-  DATA_DIR,
   getCredentialBrokerRuntimeConfig,
   type ClaudeAuthMode,
 } from '../../../config/index.js';
-import { resolveExternalCredentialBaseUrl } from '../../../config/credentials/broker-url-policy.js';
 import { getAgentCredentialInjection } from '../../../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../../credentials/agent-credential-broker-factory.js';
-import { createExternalAgentCredentialInjection } from '../external-credential-injection.js';
+import { getRuntimeStorage } from '../../storage/postgres/runtime-store.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
+import type { AgentRunId } from '../../../domain/events/events.js';
+import type { AppId } from '../../../domain/app/app.js';
 import type { MemoryLlmModelProfile } from '../../../domain/ports/memory-llm-client.js';
 import {
   abortReason,
@@ -20,16 +21,17 @@ import { AGENT_CREDENTIAL_ENV_KEYS } from '../../../config/source-classification
 import { applyNeutralCaTrustAliases } from '../../../shared/neutral-ca-trust-env.js';
 import {
   findModelByRunnerModel,
-  isOpenRouterModelRoute,
+  type ModelRouteId,
 } from '../../../shared/model-catalog.js';
-import { applyOpenRouterSdkEnv } from './claude-config-materializer.js';
 import { validateModelCredentialProjectionForEntry } from './model-provider-credential-validation.js';
 import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
 } from './native-sdk-skills.js';
+import { logger } from '../../../infrastructure/logging/logger.js';
 
 export interface ClaudeQueryOpts {
+  appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
   prompt: string;
@@ -60,19 +62,14 @@ export interface ClaudeAuthAvailability {
 let memoryCredentialBrokerPromise:
   | Promise<AgentCredentialBroker | undefined>
   | undefined;
-let memoryCredentialBrokerCacheKey = '';
+let memoryCredentialBrokerConfigKey = '';
 
 export function getClaudeAuthAvailability(): ClaudeAuthAvailability {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   return {
     hasOauthToken: false,
     hasApiKey: false,
-    mode:
-      (brokerConfig.mode === 'onecli' && brokerConfig.onecliUrl.trim()) ||
-      (brokerConfig.mode === 'external' &&
-        brokerConfig.externalBrokerBaseUrl.trim())
-        ? 'broker'
-        : 'none',
+    mode: brokerConfig.mode === 'gantry' ? 'broker' : 'none',
   };
 }
 
@@ -120,119 +117,148 @@ function flattenPrompt(opts: ClaudeQueryOpts): string {
   return parts.join('\n\n');
 }
 
-async function resolveOnecliMemoryInjection(): Promise<AgentCredentialInjection> {
+async function resolveGantryMemoryInjection(
+  appId: AppId,
+  modelRouteId: ModelRouteId,
+  runId: AgentRunId,
+): Promise<{
+  injection: AgentCredentialInjection;
+  revoke: () => Promise<void>;
+}> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
-  const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
-  if (memoryCredentialBrokerCacheKey !== cacheKey) {
+  const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
+  if (memoryCredentialBrokerConfigKey !== configKey) {
+    void memoryCredentialBrokerPromise
+      ?.then((broker) => broker?.close?.())
+      .catch((error) => {
+        logger.warn(
+          { err: error },
+          'Failed to close replaced memory credential broker',
+        );
+      });
     memoryCredentialBrokerPromise = undefined;
-    memoryCredentialBrokerCacheKey = cacheKey;
+    memoryCredentialBrokerConfigKey = configKey;
   }
-  if (brokerConfig.mode === 'external') {
-    return getAgentCredentialInjection({
-      mode: 'external',
-      purpose: 'model_runtime',
-      externalInjection: createExternalAgentCredentialInjection({
-        normalizedBaseUrl: resolveExternalCredentialBaseUrl(
-          brokerConfig.externalBrokerBaseUrl,
-        ),
-      }),
-    });
-  }
-  if (brokerConfig.mode !== 'onecli') {
-    throw new Error('Credential broker is not configured for Claude access');
-  }
-  if (!brokerConfig.onecliUrl.trim()) {
-    throw new Error('OneCLI is not configured for Claude access');
+  if (brokerConfig.mode !== 'gantry') {
+    throw new Error('Gantry Model Gateway is not configured for Claude access');
   }
   memoryCredentialBrokerPromise ??= createAgentCredentialBroker({
     mode: brokerConfig.mode,
-    onecliUrl: brokerConfig.onecliUrl,
-    dataDir: DATA_DIR,
+    modelCredentials: getRuntimeStorage().repositories.modelCredentials,
+    gatewayBindHost: brokerConfig.gatewayBindHost,
+    publishRuntimeEvent: (event) =>
+      getRuntimeStorage().runtimeEvents.publish(event),
   }).catch((error) => {
     memoryCredentialBrokerPromise = undefined;
     throw error;
   });
-  return getAgentCredentialInjection({
-    mode: 'onecli',
+  const broker = requireGantryBroker(await memoryCredentialBrokerPromise);
+  const injection = await getAgentCredentialInjection({
+    mode: 'gantry',
     purpose: 'model_runtime',
-    broker: requireOnecliBroker(await memoryCredentialBrokerPromise),
+    appId,
+    runId,
+    modelRouteId,
+    broker,
   });
+  return {
+    injection,
+    revoke: () =>
+      broker.revokeInjection?.({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId,
+          modelRouteId,
+        },
+      }) ?? Promise.resolve(),
+  };
 }
 
-function requireOnecliBroker(
+function requireGantryBroker(
   broker: AgentCredentialBroker | undefined,
 ): AgentCredentialBroker {
   if (!broker) {
     throw new Error(
-      'Credential broker mode is enabled but no agent credential broker was provided.',
+      'Gantry Model Gateway is enabled but no model gateway broker was provided.',
     );
   }
   return broker;
 }
 
-async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {
-  opts.signal?.throwIfAborted();
-  const injection = await resolveOnecliMemoryInjection();
+async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
   opts.signal?.throwIfAborted();
   const modelEntry = opts.modelProfile
     ? findModelByRunnerModel(opts.modelProfile.runnerModel)
     : findModelByRunnerModel(opts.model);
-  if (modelEntry) {
-    validateModelCredentialProjectionForEntry({
-      model: modelEntry,
-      projection: {
-        env: injection.env,
-        credentialProviders: injection.credentialProviders,
-        brokerProfile: injection.brokerProfile,
-      },
-    });
-  }
-  const sdkEnv = {
-    ...scrubAmbientAgentCredentials(injection.env),
-    ...SDK_NATIVE_SKILL_DISABLE_ENV,
-  };
-  if (isOpenRouterModelRoute(modelEntry)) applyOpenRouterSdkEnv(sdkEnv);
-  const abortController = new AbortController();
-  const onAbort = () => abortController.abort(abortReason(opts.signal!));
-  if (opts.signal?.aborted) {
-    onAbort();
-  } else {
-    opts.signal?.addEventListener('abort', onAbort, { once: true });
-  }
-  const stream = query({
-    prompt: flattenPrompt(opts),
-    options: {
-      abortController,
-      model: opts.model,
-      maxTurns: 1,
-      ...(opts.disableTools ? { tools: [] as [] } : {}),
-      env: sdkEnv,
-      settings: {
-        autoMemoryEnabled: false,
-        skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
-      },
-      skills: [],
-      settingSources: [],
-    },
-  }) as AsyncIterable<unknown>;
-
-  let assistantText = '';
-  let resultText = '';
-
+  const runId = `memory-query:${randomUUID()}` as AgentRunId;
+  const gateway = await resolveGantryMemoryInjection(
+    opts.appId,
+    modelEntry?.modelRoute.id ?? 'anthropic',
+    runId,
+  );
   try {
-    for await (const message of stream) {
-      opts.signal?.throwIfAborted();
-      assistantText += readAssistantText(message);
-      if (!resultText) {
-        resultText = readResultText(message);
-      }
+    const injection = gateway.injection;
+    opts.signal?.throwIfAborted();
+    if (modelEntry) {
+      validateModelCredentialProjectionForEntry({
+        model: modelEntry,
+        projection: {
+          env: injection.env,
+          credentialProviders: injection.credentialProviders,
+          brokerProfile: injection.brokerProfile,
+        },
+      });
     }
-  } finally {
-    opts.signal?.removeEventListener('abort', onAbort);
-  }
-  opts.signal?.throwIfAborted();
+    const sdkEnv = {
+      ...scrubAmbientAgentCredentials(injection.env),
+      ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    };
+    const abortController = new AbortController();
+    const onAbort = () => abortController.abort(abortReason(opts.signal!));
+    if (opts.signal?.aborted) {
+      onAbort();
+    } else {
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
+    }
+    const stream = query({
+      prompt: flattenPrompt(opts),
+      options: {
+        abortController,
+        model: opts.model,
+        maxTurns: 1,
+        ...(opts.disableTools ? { tools: [] as [] } : {}),
+        env: sdkEnv,
+        settings: {
+          autoMemoryEnabled: false,
+          skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
+        },
+        skills: [],
+        settingSources: [],
+      },
+    }) as AsyncIterable<unknown>;
 
-  return (assistantText || resultText).trim();
+    let assistantText = '';
+    let resultText = '';
+
+    try {
+      for await (const message of stream) {
+        opts.signal?.throwIfAborted();
+        assistantText += readAssistantText(message);
+        if (!resultText) {
+          resultText = readResultText(message);
+        }
+      }
+    } finally {
+      opts.signal?.removeEventListener('abort', onAbort);
+    }
+    opts.signal?.throwIfAborted();
+
+    return (assistantText || resultText).trim();
+  } finally {
+    await gateway.revoke();
+  }
 }
 
 function scrubAmbientAgentCredentials(
@@ -253,7 +279,7 @@ export async function runClaudeQuery(opts: ClaudeQueryOpts): Promise<string> {
     );
   }
   return runWithMemoryOperationTimeout(
-    (signal) => runWithOnecli({ ...opts, signal }),
+    (signal) => runWithGantryGateway({ ...opts, signal }),
     {
       timeoutMs: opts.timeoutMs,
       parentSignal: opts.signal,

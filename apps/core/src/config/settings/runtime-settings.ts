@@ -13,6 +13,8 @@ import {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
   createDefaultRuntimeSettings,
+  DEFAULT_EMBED_DIMENSIONS,
+  DEFAULT_EMBED_MODEL,
   getPresetManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
 import { parseRuntimeSettings } from './runtime-settings-parser.js';
@@ -35,10 +37,10 @@ import {
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from '../../shared/generated-runtime-paths.js';
 import {
-  cleanupGeneratedRuntimeCapabilities,
+  normalizeConfiguredCapabilities,
   settingsCapabilityIdToToolRule,
   toolRuleToSettingsCapability,
-} from './generated-runtime-capability-cleanup.js';
+} from './configured-capability-normalization.js';
 import { nowIso, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
 const DEFAULT_PROVIDER_CONNECTION_IDS: Record<string, string> = {
@@ -80,6 +82,8 @@ export {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
   createDefaultRuntimeSettings,
+  DEFAULT_EMBED_DIMENSIONS,
+  DEFAULT_EMBED_MODEL,
   getPresetManagedMemoryDefaults,
   parseRuntimeSettings,
   readRuntimeMemorySettingsSnapshot,
@@ -128,7 +132,7 @@ export function mirrorAgentToolRulesToRuntimeSettings(input: {
       input.rules,
     );
   }
-  dropGeneratedRuntimeCapabilities(settings);
+  normalizeAgentCapabilities(settings);
   saveRuntimeSettings(input.runtimeHome, settings);
 }
 
@@ -148,16 +152,12 @@ export function addAgentToolRulesToRuntimeSettings(
   for (const existing of agent.capabilities) {
     const readable = capabilityToToolRule(existing.id);
     if (!readable) continue;
-    if (!containsGeneratedRuntimeSkillPath(readable)) {
-      validateSettingsAgentToolRule(readable);
-    }
+    validateSettingsAgentToolRule(readable);
     next.add(readable);
   }
   for (const rule of rules) {
     const readable = rule.trim();
-    if (!containsGeneratedRuntimeSkillPath(readable)) {
-      validateSettingsAgentToolRule(readable);
-    }
+    validateSettingsAgentToolRule(readable);
     if (readable) next.add(readable);
   }
   agent.capabilities = [...next].map((rule) =>
@@ -180,15 +180,12 @@ export function removeAgentToolRulesFromRuntimeSettings(
   const remove = new Set<string>();
   for (const rule of rules) {
     const readable = rule.trim();
-    if (!containsGeneratedRuntimeSkillPath(readable)) {
-      validateSettingsAgentToolRule(readable);
-    }
+    validateSettingsAgentToolRule(readable);
     if (readable) remove.add(readable);
   }
   agent.capabilities = agent.capabilities.filter((capability) => {
     const readable = capabilityToToolRule(capability.id);
     if (!readable) return false;
-    if (containsGeneratedRuntimeSkillPath(readable)) return false;
     validateSettingsAgentToolRule(readable);
     return !remove.has(readable);
   });
@@ -199,16 +196,16 @@ export function capabilityToToolRule(capabilityId: string): string {
 }
 
 function validateSettingsAgentToolRule(readable: string): void {
-  const validation = validateReadableAgentToolRule(readable);
-  if (!validation.ok) throw new Error(validation.reason);
   if (containsGeneratedRuntimeSkillPath(readable)) {
     throw new Error(GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON);
   }
+  const validation = validateReadableAgentToolRule(readable);
+  if (!validation.ok) throw new Error(validation.reason);
 }
 
-function dropGeneratedRuntimeCapabilities(settings: RuntimeSettings): void {
+function normalizeAgentCapabilities(settings: RuntimeSettings): void {
   for (const agent of Object.values(settings.agents)) {
-    agent.capabilities = cleanupGeneratedRuntimeCapabilities({
+    agent.capabilities = normalizeConfiguredCapabilities({
       capabilities: agent.capabilities,
     }).capabilities;
   }

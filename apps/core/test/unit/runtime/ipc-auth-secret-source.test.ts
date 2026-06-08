@@ -35,9 +35,12 @@ describe('ipc auth secret source', () => {
         agent: { defaultModel: '' },
         credentialBroker: {
           mode: 'none',
-          onecli: {
+          model_gateway: {
             url: '',
-            postgres: { urlEnv: 'ONECLI_DATABASE_URL', schema: 'onecli' },
+            postgres: {
+              urlEnv: 'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+              schema: 'model_gateway',
+            },
           },
           external: { baseUrl: '' },
         },
@@ -74,9 +77,12 @@ describe('ipc auth secret source', () => {
         agent: { defaultModel: '' },
         credentialBroker: {
           mode: 'none',
-          onecli: {
+          model_gateway: {
             url: '',
-            postgres: { urlEnv: 'ONECLI_DATABASE_URL', schema: 'onecli' },
+            postgres: {
+              urlEnv: 'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+              schema: 'model_gateway',
+            },
           },
           external: { baseUrl: '' },
         },

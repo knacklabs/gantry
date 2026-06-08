@@ -1,5 +1,7 @@
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import { getEffectiveModelConfig } from '../config/index.js';
+import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import type { Job } from '../domain/types.js';
 import { spawnAgent } from '../runtime/agent-spawn.js';
 import type { AgentOutput } from '../runtime/agent-spawn.js';
@@ -12,6 +14,7 @@ import {
   createRuntimeUserVisibleResultAccumulator,
 } from '../runtime/session-resume-runtime.js';
 import {
+  resolveTurnSemanticCapabilities,
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillContext,
 } from '../runtime/group-run-context.js';
@@ -19,7 +22,7 @@ import {
   DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID,
   resolveRuntimeExecutionProviderId,
 } from '../runtime/execution-provider-id.js';
-import { makeThreadQueueKey } from '../runtime/thread-queue-key.js';
+import { makeThreadQueueKey } from '../shared/thread-queue-key.js';
 import {
   createJobRecoveryIntent,
   shouldRunRecoveryIntent,
@@ -33,6 +36,10 @@ import {
   resolveExecutionMemoryContext,
 } from './execution-context.js';
 import type { JobTurnContext, SchedulerDependencies } from './types.js';
+import {
+  modelUseKindForJobSchedule,
+  resolveJobModel,
+} from './model-resolution.js';
 
 const MAX_RECOVERY_TURN_TIMEOUT_MS = 300_000;
 const DEFAULT_RECOVERY_ASSISTANT_NAME = 'Gantry';
@@ -316,10 +323,18 @@ async function runJobRecoveryAgentTurn(input: {
   ) => Promise<unknown> | unknown;
 }): Promise<AgentOutput> {
   const runAgentImpl = input.deps.runAgent ?? spawnAgent;
-  const executionProviderId =
-    input.deps.executionAdapter || !input.deps.runAgent
+  const resolvedModel = resolveJobModel(
+    input.job,
+    getEffectiveModelConfig(
+      undefined,
+      modelUseKindForJobSchedule(input.job.schedule_type),
+      input.execution.group.folder,
+    ),
+  );
+  const executionProviderId = (resolvedModel.entry?.executionProviderId ??
+    (input.deps.executionAdapter || !input.deps.runAgent
       ? resolveRuntimeExecutionProviderId(input.deps.executionAdapter)
-      : DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID;
+      : DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID)) as ExecutionProviderId;
   const { memoryDefaultScope, memoryUserId } = resolveExecutionMemoryContext({
     conversationKind: input.execution.group.conversationKind,
     executionJid: input.execution.executionJid,
@@ -343,6 +358,7 @@ async function runJobRecoveryAgentTurn(input: {
   const [
     toolPolicy,
     selectedSkillContext,
+    semanticCapabilities,
     credentialBroker,
     approvedSkillContext,
   ] = await Promise.all([
@@ -357,6 +373,10 @@ async function runJobRecoveryAgentTurn(input: {
       appId: executionAppId,
       agentId: executionAgentId,
     }),
+    resolveTurnSemanticCapabilities(input.deps, {
+      appId: executionAppId,
+      agentId: executionAgentId,
+    }),
     input.deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
     buildApprovedSkillContextBlock({
       skillRepository: input.deps.getSkillRepository?.(),
@@ -364,7 +384,7 @@ async function runJobRecoveryAgentTurn(input: {
       turnContext: turnContextForSkillContext(turnContext),
     }),
   ]);
-  const selectedMcpServerIds = await resolveTurnSelectedMcpServerIds(
+  const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
     input.deps,
     {
       appId: executionAppId,
@@ -383,6 +403,7 @@ async function runJobRecoveryAgentTurn(input: {
     mcpDnsValidationCache: input.deps.getMcpDnsValidationCache?.(),
     publishRuntimeEvent: input.publishRuntimeEvent,
     executionAdapter: input.deps.executionAdapter,
+    executionAdapters: input.deps.executionAdapters,
     skillContext: {
       appId: executionAppId,
       agentId: executionAgentId,
@@ -417,9 +438,10 @@ async function runJobRecoveryAgentTurn(input: {
       .join('\n\n'),
     allowedTools: toolPolicy.effectiveAllowedTools,
     runtimeAccess: toolPolicy.runtimeAccess,
-    selectedSkillIds: selectedSkillContext.ids,
+    attachedSkillSourceIds: selectedSkillContext.ids,
     selectedSkillDisplays: selectedSkillContext.displays,
-    selectedMcpServerIds,
+    attachedMcpSourceIds,
+    semanticCapabilities,
     ...(turnContext?.externalSessionId
       ? { sessionId: turnContext.externalSessionId }
       : {}),

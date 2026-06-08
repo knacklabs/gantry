@@ -3,8 +3,14 @@ import { z } from 'zod';
 
 import {
   DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS,
-  listBuiltinSemanticCapabilities,
+  type SemanticCapabilityDefinition,
+  validateSemanticCapabilityDefinition,
 } from '../../../shared/semantic-capabilities.js';
+import {
+  NO_REVIEWED_CAPABILITY_GUIDANCE,
+  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+  UNREVIEWED_DISCOVERY_GUIDANCE,
+} from '../../../shared/capability-guidance.js';
 
 type ToolResponse = {
   content: { type: 'text'; text: string }[];
@@ -17,8 +23,11 @@ export type CapabilityReviewSubmitter = (
   payload: Record<string, unknown>,
 ) => Promise<ToolResponse>;
 
+export type SemanticCapabilityProvider = () =>
+  | readonly SemanticCapabilityDefinition[]
+  | Promise<readonly SemanticCapabilityDefinition[]>;
+
 const CAPABILITY_SOURCES = [
-  'builtin',
   'skill',
   'mcp',
   'adapter',
@@ -29,8 +38,6 @@ const CAPABILITY_SOURCES = [
 
 const CAPABILITY_CREDENTIAL_SOURCES = [
   'none',
-  'onecli',
-  'external_broker',
   'configured_access',
   'skill',
   'mcp',
@@ -43,16 +50,19 @@ const CAPABILITY_CREDENTIAL_SOURCES = [
 export function registerSemanticCapabilityTools(
   server: McpServer,
   submitCapabilityReviewTask: CapabilityReviewSubmitter,
+  options: { listCapabilities?: SemanticCapabilityProvider } = {},
 ): void {
   server.tool(
     'capability_search',
-    'Search built-in semantic capabilities by app, action, or capability id.',
+    'Search reviewed capabilities only by source, app, action, or capability id. Unreviewed CLI help, MCP tools, skill text, and adapter discoveries are inventory, not public capability definitions.',
     {
       query: z.string().optional().describe('Optional search text'),
     },
     async (args) => {
       const query = (args.query ?? '').trim().toLowerCase();
-      const capabilities = listBuiltinSemanticCapabilities().filter(
+      const capabilities = (
+        await availableSemanticCapabilities(options)
+      ).filter(
         (capability) =>
           !query ||
           [
@@ -77,15 +87,16 @@ export function registerSemanticCapabilityTools(
                     `- ${capability.displayName}`,
                     `  capability_id: ${capability.capabilityId}`,
                     `  risk: ${capability.risk}`,
+                    `  source: ${capability.credentialSource}`,
                     capability.accountLabel
                       ? `  access: ${capability.accountLabel}`
                       : undefined,
-                    `  propose_capability: capabilityId=${capability.capabilityId} reason="<why this agent needs it>"`,
+                    `  grant_request: propose_capability capabilityId=${capability.capabilityId} reason="<why this agent needs it>"`,
                   ]
                     .filter(Boolean)
                     .join('\n'),
                 )
-                .join('\n') || 'No matching semantic capabilities.',
+                .join('\n') || NO_REVIEWED_CAPABILITY_GUIDANCE,
           },
         ],
       };
@@ -109,7 +120,7 @@ export function registerSemanticCapabilityTools(
         .enum(CAPABILITY_SOURCES)
         .default('composite')
         .describe(
-          'Capability source family. New user-defined proposals currently require local_cli; approved capability ids ignore this field.',
+          'Capability source family. New user-defined proposals currently require local_cli; available capability ids ignore this field.',
         ),
       credentialSource: z
         .enum(CAPABILITY_CREDENTIAL_SOURCES)
@@ -166,9 +177,7 @@ export function registerSemanticCapabilityTools(
       networkHosts: z
         .array(z.string())
         .optional()
-        .describe(
-          'Network hostnames the reviewed local CLI may contact, such as oauth2.googleapis.com',
-        ),
+        .describe('Network hostnames the reviewed local CLI may contact'),
       deniedEnvPatterns: z
         .array(z.string())
         .optional()
@@ -183,7 +192,7 @@ export function registerSemanticCapabilityTools(
         Boolean(args.executableVersion) ||
         Boolean(args.executableHash) ||
         Boolean(args.commandTemplates?.length);
-      const approved = listBuiltinSemanticCapabilities().find(
+      const approved = (await availableSemanticCapabilities(options)).find(
         (candidate) => candidate.capabilityId === args.capabilityId,
       );
       if (approved && !hasProposalManifest) {
@@ -196,6 +205,7 @@ export function registerSemanticCapabilityTools(
           can: approved.can,
           cannot: approved.cannot,
           credentialSource: approved.credentialSource,
+          semanticCapabilityDefinition: approved,
           risk: approved.risk,
           temporaryOnly: false,
           reason: args.reason,
@@ -214,7 +224,11 @@ export function registerSemanticCapabilityTools(
           content: [
             {
               type: 'text' as const,
-              text: `New capability proposals require ${missingManifestFields.join(', ')}. Use only capabilityId and reason when requesting an already-approved capability from capability_search.`,
+              text: [
+                `New capability proposals require ${missingManifestFields.join(', ')}.`,
+                'Use only capabilityId and reason when requesting an already-reviewed capability from capability_search.',
+                SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+              ].join('\n'),
             },
           ],
         };
@@ -227,7 +241,12 @@ export function registerSemanticCapabilityTools(
           content: [
             {
               type: 'text' as const,
-              text: 'New capability proposals require source=local_cli with pinned executable details. Use capability_search and capabilityId+reason for already-approved capabilities.',
+              text: [
+                'New capability proposals currently require source=local_cli with pinned executable details.',
+                'For skills, MCP servers, adapters, and Gantry built-ins, attach or refresh the source and send the discovered action through review.',
+                UNREVIEWED_DISCOVERY_GUIDANCE,
+                'Use capability_search and capabilityId+reason for already-reviewed capabilities.',
+              ].join('\n'),
             },
           ],
         };
@@ -245,7 +264,10 @@ export function registerSemanticCapabilityTools(
             content: [
               {
                 type: 'text' as const,
-                text: `local_cli capability proposals require ${missing.join(', ')}.`,
+                text: [
+                  `local_cli capability proposals require ${missing.join(', ')}.`,
+                  'Help/manpage output can guide the proposal, but the reviewed manifest must pin executable identity and narrow command templates before runtime projection.',
+                ].join('\n'),
               },
             ],
           };
@@ -302,7 +324,7 @@ export function registerSemanticCapabilityTools(
             args.capabilityId
               ? `Capability: ${args.capabilityId}`
               : 'Capability: all selected capabilities',
-            'Use the Control API /v1/agents/:agentId/capabilities or local admin CLI to change durable bindings.',
+            'Use the Control API /v1/agents/:agentId/capabilities or local admin CLI to change agent grants.',
             'Use capability_status for current run access and propose_capability for reviewed additions.',
             'Revocation and account changes update settings.yaml and the Postgres projection; raw tokens are never shown.',
           ].join('\n'),
@@ -310,4 +332,15 @@ export function registerSemanticCapabilityTools(
       ],
     }),
   );
+}
+
+async function availableSemanticCapabilities(options: {
+  listCapabilities?: SemanticCapabilityProvider;
+}): Promise<SemanticCapabilityDefinition[]> {
+  const capabilities = await options.listCapabilities?.();
+  if (!capabilities?.length) return [];
+  return capabilities.filter((capability) => {
+    const validation = validateSemanticCapabilityDefinition(capability);
+    return validation.ok;
+  });
 }

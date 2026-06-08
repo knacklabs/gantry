@@ -2,16 +2,8 @@ import {
   getProvider,
   normalizeProviderId,
 } from '../../channels/provider-registry.js';
-import {
-  ONECLI_SECRET_ENCRYPTION_KEY_ENV,
-  validateSharedPostgresDatabase,
-  validateOnecliDatabaseUrl,
-  validateOnecliSecretEncryptionKey,
-} from '../../adapters/credentials/onecli/local/persistence.js';
 import { validatePostgresConnectionUrl } from '../../adapters/storage/postgres/url.js';
 import { readEnvFile } from '../env/file.js';
-import { validateOnecliUrl } from '../../adapters/credentials/onecli/policy.js';
-import { validateExternalBrokerUrl } from '../credentials/broker-url-policy.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
 import {
   resolveModelSelectionForWorkload,
@@ -46,7 +38,6 @@ export function validateLoadedRuntimeSettings(
   for (const violation of processEnvPolicy.violations) {
     details.push(violation.message);
   }
-  const credentialMode = settings.credentialBroker.mode;
   for (const [field, value, workload] of [
     ['agent.default_model', settings.agent.defaultModel, 'chat'],
     [
@@ -107,96 +98,12 @@ export function validateLoadedRuntimeSettings(
     }
   }
 
-  const onecliDatabaseUrlEnv = settings.credentialBroker.onecli.postgres.urlEnv;
-  const onecliDatabaseUrl =
-    process.env[onecliDatabaseUrlEnv]?.trim() ||
-    env[onecliDatabaseUrlEnv]?.trim() ||
-    '';
-  if (!onecliDatabaseUrl && credentialMode === 'onecli') {
-    details.push(
-      `${onecliDatabaseUrlEnv} is required for OneCLI broker persistence.`,
-    );
-  } else if (onecliDatabaseUrl && credentialMode === 'onecli') {
-    try {
-      validatePostgresConnectionUrl(onecliDatabaseUrl, {
-        allowLocalhost: true,
-      });
-      const onecliValidation = validateOnecliDatabaseUrl({
-        postgresUrl: onecliDatabaseUrl,
-        schema: settings.credentialBroker.onecli.postgres.schema,
-      });
-      if (!onecliValidation.ok) {
-        details.push(onecliValidation.message);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      details.push(`${onecliDatabaseUrlEnv} is invalid: ${message}`);
-    }
-  }
-  if (postgresUrl && onecliDatabaseUrl && credentialMode === 'onecli') {
-    try {
-      const sharedDatabase = validateSharedPostgresDatabase({
-        gantryPostgresUrl: postgresUrl,
-        onecliPostgresUrl: onecliDatabaseUrl,
-      });
-      if (!sharedDatabase.ok) {
-        details.push(sharedDatabase.message);
-      }
-      const gantryUser = new URL(postgresUrl).username;
-      const onecliUser = new URL(onecliDatabaseUrl).username;
-      if (gantryUser && onecliUser && gantryUser === onecliUser) {
-        details.push(
-          'GANTRY_DATABASE_URL and ONECLI_DATABASE_URL must use different Postgres roles.',
-        );
-      }
-    } catch {
-      // URL validity is reported by the concrete validators above.
-    }
-  }
-  const onecliSecret =
-    process.env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim() ||
-    env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim();
-  if (credentialMode === 'onecli') {
-    const secretValidation = validateOnecliSecretEncryptionKey(onecliSecret);
-    if (!secretValidation.ok) {
-      details.push(secretValidation.message);
-    }
-  }
-
-  const onecliUrl = settings.credentialBroker.onecli.url.trim();
-  if (!onecliUrl && credentialMode === 'onecli') {
-    details.push(
-      'credential_broker.onecli.url is required for OneCLI broker access.',
-    );
-  } else if (onecliUrl && credentialMode === 'onecli') {
-    const onecliUrlValidation = validateOnecliUrl(
-      onecliUrl,
-      'credential_broker.onecli.url',
-    );
-    if (!onecliUrlValidation.ok) {
-      details.push(
-        onecliUrlValidation.error || 'credential_broker.onecli.url is invalid.',
-      );
-    }
-  }
-  if (credentialMode === 'external') {
-    const externalUrl = settings.credentialBroker.external.baseUrl.trim();
-    if (!externalUrl) {
-      details.push(
-        'credential_broker.external.base_url is required for external credential broker access.',
-      );
-    } else {
-      const externalUrlValidation = validateExternalBrokerUrl(
-        externalUrl,
-        'credential_broker.external.base_url',
-      );
-      if (!externalUrlValidation.ok) {
-        details.push(
-          externalUrlValidation.error ||
-            'credential_broker.external.base_url is invalid.',
-        );
-      }
-    }
+  const credentialSecret =
+    process.env.SECRET_ENCRYPTION_KEY?.trim() ||
+    env.SECRET_ENCRYPTION_KEY?.trim();
+  if (settings.credentialBroker.mode === 'gantry') {
+    const secretValidation = validateCredentialEncryptionKey(credentialSecret);
+    if (!secretValidation.ok) details.push(secretValidation.message);
   }
 
   const enabledProviderIds = Object.entries(settings.providers)
@@ -321,6 +228,28 @@ export function validateLoadedRuntimeSettings(
   }
 
   return { ok: true, settings };
+}
+
+function validateCredentialEncryptionKey(raw?: string): {
+  ok: boolean;
+  message: string;
+} {
+  if (!raw) {
+    return {
+      ok: false,
+      message:
+        'SECRET_ENCRYPTION_KEY is required for Gantry credential encryption.',
+    };
+  }
+  const decoded = Buffer.from(raw, 'base64');
+  if (decoded.length === 32) {
+    return { ok: true, message: 'SECRET_ENCRYPTION_KEY is configured.' };
+  }
+  return {
+    ok: false,
+    message:
+      'SECRET_ENCRYPTION_KEY must be a base64-encoded 32-byte secret for Gantry credential encryption.',
+  };
 }
 
 function explicitProviderIdForExternalId(value: string): string | null {

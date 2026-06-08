@@ -55,10 +55,10 @@ function localCliRuntimeAccess(
     credentialDirs?: string[];
   } = {},
 ): NonNullable<AgentRunnerInput['runtimeAccess']> {
-  const commandRules = input.commandRules ?? ['RunCommand(gog sheets get *)'];
+  const commandRules = input.commandRules ?? ['RunCommand(acme records get *)'];
   return [
     {
-      selectedCapabilityId: 'gog.sheets.get',
+      selectedCapabilityId: 'acme.records.get',
       sourceType: 'local_cli',
       auditLabel: 'Gog Sheets get',
       commandRules,
@@ -66,7 +66,7 @@ function localCliRuntimeAccess(
       networkBindings: [
         {
           commandRules,
-          hosts: input.hosts ?? ['sheets.googleapis.com'],
+          hosts: input.hosts ?? ['records.googleapis.com'],
         },
       ],
     },
@@ -337,7 +337,7 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog sheets get leads --json' },
+      { command: 'acme records get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
@@ -370,17 +370,17 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog sheets get leads --json' },
+      { command: 'acme records get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const first = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_1' },
     );
     const second = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_2' },
     );
 
@@ -394,7 +394,7 @@ describe('sdk sandbox network gate', () => {
     expect(latestPayload()).toMatchObject({
       decision: 'sdk_network_gate_denied',
       networkToolUseIDHash: sha256('toolu_network_2'),
-      hostHash: sha256('sheets.googleapis.com'),
+      hostHash: sha256('records.googleapis.com'),
       expiredTokenCount: 0,
     });
   });
@@ -405,12 +405,12 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog sheets get leads --json' },
+      { command: 'acme records get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_1' },
     );
 
@@ -418,7 +418,7 @@ describe('sdk sandbox network gate', () => {
     expect(latestPayload()).toMatchObject({
       decision: 'sdk_network_gate_denied',
       networkToolUseIDHash: sha256('toolu_network_1'),
-      hostHash: sha256('sheets.googleapis.com'),
+      hostHash: sha256('records.googleapis.com'),
     });
   });
 
@@ -432,25 +432,25 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog sheets get leads --json' },
+      { command: 'acme records get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_1' },
     );
 
     expect(decision).toEqual({
       behavior: 'allow',
-      updatedInput: { host: 'sheets.googleapis.com' },
+      updatedInput: { host: 'records.googleapis.com' },
     });
     expect(latestPayload()).toMatchObject({
       decision: 'sdk_network_gate_suppressed_parentless_recent_tool',
       networkToolUseIDHash: sha256('toolu_network_1'),
       parentToolUseIDHash: sha256('toolu_bash_1'),
-      hostHash: sha256('sheets.googleapis.com'),
-      approvedHostHashes: [sha256('sheets.googleapis.com')],
+      hostHash: sha256('records.googleapis.com'),
+      approvedHostHashes: [sha256('records.googleapis.com')],
     });
   });
 
@@ -461,15 +461,17 @@ describe('sdk sandbox network gate', () => {
       isScheduledJob: true,
       runtimeAccess: [
         {
-          selectedCapabilityId: 'gog.sheets.get',
+          selectedCapabilityId: 'acme.records.get',
           sourceType: 'local_cli',
           auditLabel: 'Gog Sheets get',
-          commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
-          credentialDirs: ['~/.config/gog'],
+          commandRules: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
+          credentialDirs: ['~/.config/acme'],
           networkBindings: [
             {
-              commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
-              hosts: ['oauth2.googleapis.com', 'sheets.googleapis.com'],
+              commandRules: [
+                'RunCommand(/opt/homebrew/bin/acme records get *)',
+              ],
+              hosts: ['oauth2.googleapis.com', 'records.googleapis.com'],
             },
           ],
         },
@@ -480,7 +482,7 @@ describe('sdk sandbox network gate', () => {
       'Bash',
       {
         command:
-          '/opt/homebrew/bin/gog sheets get leads --json --account test@example.com',
+          '/opt/homebrew/bin/acme records get leads --json --account test@example.com',
       },
       { toolUseID: 'toolu_bash_1' },
     );
@@ -498,7 +500,7 @@ describe('sdk sandbox network gate', () => {
       decision: 'sdk_network_gate_suppressed_parentless_recent_tool',
       approvedHostHashes: [
         sha256('oauth2.googleapis.com'),
-        sha256('sheets.googleapis.com'),
+        sha256('records.googleapis.com'),
       ],
     });
   });
@@ -513,12 +515,12 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog drive get leads --json' },
+      { command: 'acme drive get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_1' },
     );
 
@@ -526,7 +528,7 @@ describe('sdk sandbox network gate', () => {
     expect(latestPayload()).toMatchObject({
       decision: 'sdk_network_gate_denied',
       networkToolUseIDHash: sha256('toolu_network_1'),
-      hostHash: sha256('sheets.googleapis.com'),
+      hostHash: sha256('records.googleapis.com'),
     });
   });
 
@@ -542,13 +544,13 @@ describe('sdk sandbox network gate', () => {
       'Bash',
       {
         command:
-          'gog sheets get leads --json && curl https://sheets.googleapis.com',
+          'acme records get leads --json && curl https://records.googleapis.com',
       },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_1' },
     );
 
@@ -556,7 +558,7 @@ describe('sdk sandbox network gate', () => {
     expect(latestPayload()).toMatchObject({
       decision: 'sdk_network_gate_denied',
       networkToolUseIDHash: sha256('toolu_network_1'),
-      hostHash: sha256('sheets.googleapis.com'),
+      hostHash: sha256('records.googleapis.com'),
     });
   });
 
@@ -570,7 +572,7 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog sheets get leads --json' },
+      { command: 'acme records get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
@@ -597,12 +599,12 @@ describe('sdk sandbox network gate', () => {
 
     gate.rememberAllowedTool(
       'Bash',
-      { command: 'gog sheets get leads --json' },
+      { command: 'acme records get leads --json' },
       { toolUseID: 'toolu_bash_1' },
     );
     const decision = gate.decide(
       'SandboxNetworkAccess',
-      { host: 'sheets.googleapis.com' },
+      { host: 'records.googleapis.com' },
       { toolUseID: 'toolu_network_1' },
     );
 
@@ -610,7 +612,7 @@ describe('sdk sandbox network gate', () => {
     expect(latestPayload()).toMatchObject({
       decision: 'sdk_network_gate_denied',
       networkToolUseIDHash: sha256('toolu_network_1'),
-      hostHash: sha256('sheets.googleapis.com'),
+      hostHash: sha256('records.googleapis.com'),
     });
   });
 

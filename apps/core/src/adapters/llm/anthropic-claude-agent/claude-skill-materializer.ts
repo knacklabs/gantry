@@ -18,7 +18,6 @@ export interface ClaudeSkillSourceItem {
   sourceType?: 'bundled' | 'agent' | 'artifact' | 'runtime';
   sourceDir?: string;
   assets?: Array<{ path: string; content: Uint8Array }>;
-  version?: string;
   contentHash?: string;
   actionPermissions?: SkillActionPermission[];
   materializedName?: string;
@@ -160,7 +159,6 @@ export class ArtifactClaudeSkillSource implements SkillSource {
         name: skill.name,
         sourceType: 'artifact',
         assets: bundle.assets,
-        version: skill.version,
         contentHash: skill.storage.contentHash,
         actionPermissions: skill.actionPermissions ?? [],
         enabled: true,

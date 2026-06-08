@@ -53,6 +53,16 @@ async function loadSystemJobs(
     MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
     RUNTIME_MEMORY_DREAMING_ENABLED: true,
     TIMEZONE: 'UTC',
+    MEMORY_BACKFILL_ENABLED: false,
+    MEMORY_BACKFILL_CRON: '45 3 * * *',
+    MEMORY_BACKFILL_MAX_ITEMS_PER_RUN: 500,
+    MEMORY_BACKFILL_MODE: 'auto',
+    MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS: 100,
+    MEMORY_EMBED_PROVIDER: 'disabled',
+    MEMORY_EMBED_MODEL: 'text-embedding-3-small',
+    MEMORY_EMBED_DIMENSIONS: 1536,
+    MEMORY_EMBED_BATCH_SIZE: 16,
+    OPENAI_DAILY_EMBED_LIMIT: 500,
   }));
   vi.doMock('@core/memory/app-memory-service.js', () => ({
     AppMemoryService: {

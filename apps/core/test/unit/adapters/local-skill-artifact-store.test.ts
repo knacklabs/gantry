@@ -26,6 +26,7 @@ describe('LocalSkillArtifactStore', () => {
     const stored = await store.putSkillArtifact({
       appId: 'app:one',
       skillId: 'skill:Uploaded One',
+      skillName: 'Uploaded One',
       bundle: {
         assets: [
           {
@@ -42,9 +43,7 @@ describe('LocalSkillArtifactStore', () => {
     });
 
     expect(stored.storageType).toBe('local-filesystem');
-    expect(stored.storageRef).toMatch(
-      /^skills\/app-one\/skill-Uploaded-One\/[a-f0-9]{64}$/,
-    );
+    expect(stored.storageRef).toBe('skills/Uploaded-One');
     expect(stored.storageRef.endsWith('.json')).toBe(false);
     expect(stored.sizeBytes).toBe(
       Buffer.byteLength('# Uploaded\n') + Buffer.byteLength('context\n'),
@@ -102,6 +101,7 @@ describe('LocalSkillArtifactStore', () => {
     const stored = await store.putSkillArtifact({
       appId: 'app:one',
       skillId: 'skill:metadata',
+      skillName: 'metadata',
       bundle: {
         assets: [{ path: 'SKILL.md', content: Buffer.from('# Skill') }],
       },
@@ -127,6 +127,7 @@ describe('LocalSkillArtifactStore', () => {
       store.putSkillArtifact({
         appId: 'app:one',
         skillId: 'skill:bad',
+        skillName: 'bad',
         bundle: {
           assets: [
             { path: 'SKILL.md', content: Buffer.from('# Skill') },
@@ -142,6 +143,7 @@ describe('LocalSkillArtifactStore', () => {
     const stored = await store.putSkillArtifact({
       appId: 'app:one',
       skillId: 'skill:symlink',
+      skillName: 'symlink',
       bundle: {
         assets: [{ path: 'SKILL.md', content: Buffer.from('# Skill') }],
       },

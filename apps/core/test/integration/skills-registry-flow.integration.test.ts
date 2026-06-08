@@ -25,7 +25,6 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@core/config/index.js', () => ({
   GANTRY_HOME: '/tmp/gantry-skills-integration-home',
-  ONECLI_ALLOWED_ENV_KEYS: [],
   GANTRY_IPC_AUTH_SECRET: 'test-ipc-secret',
   getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
   syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
@@ -117,7 +116,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', async () => {
         .map((binding) => state.skills.get(binding.skillId))
         .filter(
           (skill): skill is StoredSkill =>
-            Boolean(skill) && skill.status === 'approved',
+            Boolean(skill) && skill.status === 'installed',
         )
         .sort((left, right) => left.name.localeCompare(right.name)),
     ),
@@ -305,7 +304,7 @@ describe('skill registry integration flow', () => {
     };
   }
 
-  it('uploads, deduplicates, approves, binds, resolves, and disables a local skill through control SDK and services', async () => {
+  it('installs, deduplicates, binds, resolves, and disables a local skill through control SDK and services', async () => {
     const server = await startTestControlServer({
       token: 'token-skills',
       appId: 'app-one',
@@ -329,44 +328,43 @@ describe('skill registry integration flow', () => {
         'deep-skill/prompts/main.md': 'Do a useful thing.',
       });
 
-      const uploaded = await client.skillDrafts.upload({
+      const uploaded = await client.skills.install({
         agentId: 'agent:one',
         createdBy: 'admin-user',
         zip,
       });
-      const draft = SkillCatalogItemResponseSchema.parse(
-        (uploaded as any).draft,
+      const installed = SkillCatalogItemResponseSchema.parse(
+        (uploaded as any).skill,
       );
-      expect(draft).toMatchObject({
+      expect(installed).toMatchObject({
         appId: 'app-one',
-        agentId: 'agent:one',
         name: 'Deep Skill',
-        status: 'draft',
+        status: 'installed',
         createdBy: 'admin-user',
       });
-      expect(draft.storage?.storageType).toBe('local-filesystem');
+      expect(installed.storage?.storageType).toBe('local-filesystem');
       expect(
-        fs.existsSync(path.join(artifactRoot, draft.storage?.storageRef ?? '')),
+        fs.existsSync(
+          path.join(artifactRoot, installed.storage?.storageRef ?? ''),
+        ),
       ).toBe(true);
 
-      const duplicate = await client.skillDrafts.upload({
+      const duplicate = await client.skills.install({
         agentId: 'agent:one',
         createdBy: 'admin-user',
         zip,
       });
-      expect((duplicate as any).draft.id).toBe(draft.id);
+      expect((duplicate as any).skill.id).toBe(installed.id);
       expect(state.skills).toHaveLength(1);
 
-      const approved = await client.skillDrafts.approve(draft.id, {
-        approvedBy: 'reviewer',
-      });
-      expect((approved as any).skill.status).toBe('approved');
-
-      const binding = await client.agents.skills.enable('agent:one', draft.id);
+      const binding = await client.agents.skills.enable(
+        'agent:one',
+        installed.id,
+      );
       expect((binding as any).binding).toMatchObject({
         appId: 'app-one',
         agentId: 'agent:one',
-        skillId: draft.id,
+        skillId: installed.id,
         status: 'active',
       });
 
@@ -379,12 +377,12 @@ describe('skill registry integration flow', () => {
           agentId: 'agent:one',
         });
       expect(localSkills.map((skill: StoredSkill) => skill.id)).toEqual([
-        draft.id,
+        installed.id,
       ]);
 
       const disabled = await client.agents.skills.disable(
         'agent:one',
-        draft.id,
+        installed.id,
       );
       expect(disabled.disabled).toBe(true);
       await expect(
@@ -401,13 +399,12 @@ describe('skill registry integration flow', () => {
   });
 
   it('rolls back Control API skill bindings when settings sync fails', async () => {
-    state.skills.set('skill:approved', {
-      id: 'skill:approved',
+    state.skills.set('skill:installed', {
+      id: 'skill:installed',
       appId: 'app-one',
-      name: 'Approved Skill',
-      version: 'v1',
+      name: 'Installed Skill',
       source: 'admin_uploaded',
-      status: 'approved',
+      status: 'installed',
       promptRefs: [],
       toolIds: [],
       workflowRefs: [],
@@ -430,7 +427,7 @@ describe('skill registry integration flow', () => {
 
     try {
       await expect(
-        client.agents.skills.enable('agent:one', 'skill:approved'),
+        client.agents.skills.enable('agent:one', 'skill:installed'),
       ).rejects.toMatchObject({
         code: 'INVALID_REQUEST',
       });
@@ -439,12 +436,12 @@ describe('skill registry integration flow', () => {
         expect.objectContaining({
           appId: 'app-one',
           agentId: 'agent:one',
-          skillId: 'skill:approved',
+          skillId: 'skill:installed',
           status: 'disabled',
         }),
       ]);
-      expect(state.skills.get('skill:approved')).toMatchObject({
-        status: 'approved',
+      expect(state.skills.get('skill:installed')).toMatchObject({
+        status: 'installed',
       });
     } finally {
       await server.close();
@@ -468,19 +465,18 @@ describe('skill registry integration flow', () => {
         'SKILL.md': '# Cross App',
       });
       await expect(
-        client.skillDrafts.upload({ appId: 'app-two', zip }),
+        client.skills.install({ appId: 'app-two', zip }),
       ).rejects.toMatchObject({
         code: 'FORBIDDEN',
       });
       expect(state.skills).toHaveLength(0);
 
-      state.skills.set('skill:approved', {
-        id: 'skill:approved',
+      state.skills.set('skill:installed', {
+        id: 'skill:installed',
         appId: 'default',
-        name: 'Approved',
-        version: 'v1',
+        name: 'Installed',
         source: 'admin_uploaded',
-        status: 'approved',
+        status: 'installed',
         promptRefs: [],
         toolIds: [],
         workflowRefs: [],
@@ -488,14 +484,14 @@ describe('skill registry integration flow', () => {
         updatedAt: new Date(0).toISOString(),
       });
       await expect(
-        client.agents.skills.enable('agent:one', 'skill:approved', {
+        client.agents.skills.enable('agent:one', 'skill:installed', {
           appId: 'app-two',
         }),
       ).rejects.toMatchObject({
         code: 'FORBIDDEN',
       });
       await expect(
-        client.agents.skills.enable('agent:other', 'skill:approved'),
+        client.agents.skills.enable('agent:other', 'skill:installed'),
       ).rejects.toMatchObject({
         code: 'INVALID_REQUEST',
       });
@@ -505,7 +501,7 @@ describe('skill registry integration flow', () => {
     }
   });
 
-  it('rejects malformed skill zip uploads before persisting drafts or artifacts', async () => {
+  it('rejects malformed skill zip uploads before persisting skills or artifacts', async () => {
     const server = await startTestControlServer({
       token: 'token-skills',
       appId: 'app-one',
@@ -519,7 +515,7 @@ describe('skill registry integration flow', () => {
 
     try {
       await expect(
-        client.skillDrafts.upload({
+        client.skills.install({
           zip: Buffer.from('not-a-zip-file'),
         }),
       ).rejects.toMatchObject({
@@ -527,7 +523,7 @@ describe('skill registry integration flow', () => {
       });
 
       await expect(
-        client.skillDrafts.upload({
+        client.skills.install({
           zip: makeSkillZip({ 'README.md': '# Missing required skill file' }),
         }),
       ).rejects.toMatchObject({
@@ -720,7 +716,7 @@ describe('skill registry integration flow', () => {
             files: [
               expect.objectContaining({
                 path: 'SKILL.md',
-                contentHash: expect.stringMatching(/^sha256:/),
+                sizeBytes: expect.any(Number),
               }),
             ],
           }),
@@ -736,11 +732,10 @@ describe('skill registry integration flow', () => {
     });
 
     const approved = [...state.skills.values()].filter(
-      (skill) => skill.status === 'approved',
+      (skill) => skill.status === 'installed',
     );
     expect(approved).toHaveLength(1);
     expect(approved[0]).toMatchObject({
-      agentId: 'agent:one',
       name: 'LinkedIn Posting',
     });
     expect([...state.bindings.values()]).toEqual([
@@ -754,7 +749,7 @@ describe('skill registry integration flow', () => {
     expect(syncRuntimeSettingsFromProjection).toHaveBeenCalledTimes(1);
   });
 
-  it('replaces older active same-name skill bindings while retaining reviewed artifacts', async () => {
+  it('replaces the current same-name skill package without creating duplicate installed rows', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const { deps } = createCapabilityReviewDeps();
 
@@ -809,19 +804,17 @@ describe('skill registry integration flow', () => {
         (binding) => binding.status === 'disabled',
       );
       expect(activeBindings).toHaveLength(1);
-      expect(disabledBindings).toEqual([
-        expect.objectContaining({ skillId: firstActiveSkillId }),
-      ]);
+      expect(disabledBindings).toEqual([]);
     });
 
     const approved = [...state.skills.values()].filter(
-      (skill) => skill.status === 'approved',
+      (skill) => skill.status === 'installed',
     );
     const activeBinding = [...state.bindings.values()].find(
       (binding) => binding.status === 'active',
     );
-    expect(approved).toHaveLength(2);
-    expect(activeBinding?.skillId).not.toBe(firstActiveSkillId);
+    expect(approved).toHaveLength(1);
+    expect(activeBinding?.skillId).toBe(firstActiveSkillId);
 
     const storage =
       await import('@core/adapters/storage/postgres/runtime-store.js');
@@ -903,7 +896,7 @@ describe('skill registry integration flow', () => {
     );
 
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
-    expect([...state.skills.values()]).toHaveLength(1);
+    expect([...state.skills.values()]).toHaveLength(0);
     expect([...state.bindings.values()]).toEqual([]);
 
     resolveApproval?.({
@@ -921,7 +914,7 @@ describe('skill registry integration flow', () => {
     expect([...state.bindings.values()]).toHaveLength(1);
   });
 
-  it('runs approved skill installer commands and enables the produced skill', async () => {
+  it('runs reviewed skill installer commands and enables the produced skill', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const { deps, sendMessage, requestPermissionApproval } =
       createCapabilityReviewDeps();
@@ -980,15 +973,16 @@ describe('skill registry integration flow', () => {
     });
     expect(
       sendMessage.mock.calls.some((call) =>
-        String(call[1]).includes('gantry secrets set LINKEDIN_ACCESS_TOKEN'),
+        String(call[1]).includes(
+          'gantry credentials capability set LINKEDIN_ACCESS_TOKEN',
+        ),
       ),
     ).toBe(true);
     const approved = [...state.skills.values()].filter(
-      (skill) => skill.status === 'approved',
+      (skill) => skill.status === 'installed',
     );
     expect(approved).toHaveLength(1);
     expect(approved[0]).toMatchObject({
-      agentId: 'agent:one',
       name: 'LinkedIn Posting',
       requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
     });
@@ -1130,7 +1124,7 @@ describe('skill registry integration flow', () => {
             destination: 'session',
             rules: [
               {
-                toolName: 'capability:google.sheets.write',
+                toolName: 'capability:acme.records.append',
               },
             ],
           },
@@ -1149,11 +1143,25 @@ describe('skill registry integration flow', () => {
         payload: {
           permissionKind: 'tool',
           capabilityRequestSource: 'propose_capability',
-          capabilityId: 'google.sheets.write',
-          capabilityDisplayName: 'Google Sheets write',
+          capabilityId: 'acme.records.append',
+          capabilityDisplayName: 'Acme records append',
           accountLabel: 'Configured Google access',
           can: 'Read and update spreadsheet values.',
           cannot: 'Change sharing or receive raw OAuth tokens.',
+          credentialSource: 'configured_access',
+          semanticCapabilityDefinition: {
+            capabilityId: 'acme.records.append',
+            displayName: 'Acme records append',
+            category: 'Acme Records',
+            risk: 'write',
+            accountLabel: 'Configured Google access',
+            can: 'Read and update spreadsheet values.',
+            cannot: 'Change sharing or receive raw OAuth tokens.',
+            credentialSource: 'configured_access',
+            implementationBindings: [
+              { kind: 'adapter', adapterRef: 'adapter:google-records' },
+            ],
+          },
           temporaryOnly: false,
           reason:
             'Update the status spreadsheet repeatedly during this session.',
@@ -1166,11 +1174,11 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(toolRepository.saveTool).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: 'tool:capability:google.sheets.write',
+          id: 'tool:capability:acme.records.append',
           appId: 'app-one',
-          name: 'capability:google.sheets.write',
-          displayName: 'Google Sheets write',
-          adapterRef: 'capability/google.sheets.write',
+          name: 'capability:acme.records.append',
+          displayName: 'Acme records append',
+          adapterRef: 'capability/acme.records.append',
           status: 'active',
         }),
       );
@@ -1180,21 +1188,21 @@ describe('skill registry integration flow', () => {
         expect.objectContaining({
           appId: 'app-one',
           agentId: 'agent:one',
-          toolId: 'tool:capability:google.sheets.write',
+          toolId: 'tool:capability:acme.records.append',
           status: 'active',
         }),
       );
     });
     expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
       'agent:one',
-      ['capability:google.sheets.write'],
+      ['capability:acme.records.append'],
       { appId: 'app-one' },
     );
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining(
-          'Allowed Permission: Google Sheets write. Future matching requests are allowed.',
+          'Allowed Permission: Acme records append. Future matching requests are allowed.',
         ),
         { threadId: 'thread-origin' },
       );
@@ -1437,18 +1445,15 @@ describe('skill registry integration flow', () => {
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         toolInput: expect.objectContaining({
-          packageContentHash: expect.stringMatching(/^sha256:/),
           skillMarkdownPreview: expect.objectContaining({
             path: 'SKILL.md',
             content: expect.stringContaining('name: Channel Posting'),
             truncated: false,
-            contentHash: expect.stringMatching(/^sha256:/),
           }),
           files: [
             expect.objectContaining({
               path: 'SKILL.md',
               sizeBytes: expect.any(Number),
-              contentHash: expect.stringMatching(/^sha256:/),
             }),
           ],
         }),
@@ -1457,20 +1462,19 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Approved skill Channel Posting'),
+        expect.stringContaining('Installed skill Channel Posting'),
         { threadId: 'thread-origin' },
       );
     });
 
     const approved = [...state.skills.values()].filter(
-      (skill) => skill.status === 'approved',
+      (skill) => skill.status === 'installed',
     );
     expect(approved).toHaveLength(1);
     expect(approved[0]).toMatchObject({
-      agentId: 'agent:one',
       name: 'Channel Posting',
       source: 'agent_created',
-      createdBy: 'agent:agent:one',
+      createdBy: 'Approver',
     });
     expect([...state.bindings.values()]).toEqual([
       expect.objectContaining({
@@ -1486,7 +1490,7 @@ describe('skill registry integration flow', () => {
     );
   });
 
-  it('rolls back approved skill proposals when settings sync fails', async () => {
+  it('rolls back installed skill proposal bindings when settings sync fails', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
@@ -1550,9 +1554,7 @@ describe('skill registry integration flow', () => {
     expect(skills).toHaveLength(1);
     expect(skills[0]).toMatchObject({
       name: 'Rollback Skill',
-      status: 'draft',
-      approvedBy: undefined,
-      approvedAt: undefined,
+      status: 'installed',
     });
     expect([...state.bindings.values()]).toEqual([
       expect.objectContaining({
@@ -1569,7 +1571,7 @@ describe('skill registry integration flow', () => {
     );
   });
 
-  it('rejects agent-created skill drafts when SKILL.md cannot be fully shown for channel approval', async () => {
+  it('rejects agent-created skill packages when SKILL.md cannot be fully shown for channel approval', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const requestPermissionApproval = vi.fn(async () => ({
       approved: true,
@@ -1697,20 +1699,19 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Did not approve skill Denied Capability'),
+        expect.stringContaining('Did not install skill Denied Capability'),
         { threadId: 'thread-origin' },
       );
     });
 
     const denied = [...state.skills.values()].filter(
-      (skill) =>
-        skill.name === 'Denied Capability' && skill.status === 'rejected',
+      (skill) => skill.name === 'Denied Capability',
     );
-    expect(denied).toHaveLength(1);
+    expect(denied).toHaveLength(0);
     expect([...state.bindings.values()]).toEqual([]);
   });
 
-  it('handles reserved URL skill ids through approve and binding routes', async () => {
+  it('handles reserved URL skill ids through binding routes', async () => {
     const server = await startTestControlServer({
       token: 'token-skills',
       appId: 'app-one',
@@ -1727,6 +1728,7 @@ describe('skill registry integration flow', () => {
     ).putSkillArtifact({
       appId: 'app-one',
       skillId: reservedSkillId,
+      skillName: 'Slash Skill',
       bundle: {
         assets: [
           {
@@ -1743,9 +1745,8 @@ describe('skill registry integration flow', () => {
       appId: 'app-one',
       agentId: 'agent:one',
       name: 'Slash Skill',
-      version: 'v1',
       source: 'admin_uploaded',
-      status: 'draft',
+      status: 'installed',
       promptRefs: [],
       toolIds: [],
       workflowRefs: [],
@@ -1755,14 +1756,6 @@ describe('skill registry integration flow', () => {
     });
 
     try {
-      const approved = await client.skillDrafts.approve(reservedSkillId, {
-        approvedBy: 'reviewer',
-      });
-      expect((approved as any).skill).toMatchObject({
-        id: reservedSkillId,
-        status: 'approved',
-      });
-
       const enabled = await client.agents.skills.enable(
         'agent:one',
         reservedSkillId,

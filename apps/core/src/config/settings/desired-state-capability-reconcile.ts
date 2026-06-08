@@ -1,9 +1,6 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type {
-  McpServerId,
-  McpServerVersionId,
-} from '../../domain/mcp/mcp-servers.js';
+import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
 import type { RuntimeConfiguredAgent } from './runtime-settings-types.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
@@ -19,11 +16,11 @@ import {
   skillMaterializationCollisions,
 } from '../../domain/skills/skill-identity.js';
 import {
-  cleanupGeneratedRuntimeCapabilities,
+  normalizeConfiguredCapabilities,
   semanticCapabilityDefinitionsById,
   settingsCapabilityIdToToolRule,
   skillActionDefinitionsForSkills,
-} from './generated-runtime-capability-cleanup.js';
+} from './configured-capability-normalization.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 
 export async function replaceDesiredStateCapabilities(input: {
@@ -61,7 +58,7 @@ export async function replaceDesiredStateCapabilities(input: {
   const skillActionDefinitions = skillActionDefinitionsForSkills([
     ...resolvedSkills.skills.values(),
   ]);
-  const mcpVersionByServerId = await resolveConfiguredMcpSourceVersions(input);
+  await assertConfiguredMcpSources(input);
   const toolIds = await toolIdsForReplacement({
     ...input,
     skillActionDefinitions,
@@ -95,7 +92,6 @@ export async function replaceDesiredStateCapabilities(input: {
           appId: input.appId,
           agentId: input.agentId,
           serverId: serverId as never,
-          versionId: mcpVersionByServerId.get(serverId)! as never,
           status: 'active' as const,
           required: false,
           permissionPolicyIds: [],
@@ -170,16 +166,17 @@ async function toolIdsForReplacement(input: {
   now: string;
   skillActionDefinitions?: readonly SemanticCapabilityDefinition[];
 }): Promise<string[]> {
-  const cleanup = cleanupGeneratedRuntimeCapabilities({
+  const normalized = normalizeConfiguredCapabilities({
     capabilities: input.agent.capabilities,
-    skillActionDefinitions: input.skillActionDefinitions,
   });
   const semanticCapabilityDefinitions = semanticCapabilityDefinitionsById(
     input.skillActionDefinitions ?? [],
   );
   const ids = await Promise.all(
     [
-      ...new Set(cleanup.capabilities.map(settingsCapabilityToToolReference)),
+      ...new Set(
+        normalized.capabilities.map(settingsCapabilityToToolReference),
+      ),
     ].map(async (reference) => {
       const tool = await ensureAgentToolCatalogItem({
         repository: input.repositories.tools,
@@ -194,45 +191,29 @@ async function toolIdsForReplacement(input: {
   return ids;
 }
 
-async function resolveConfiguredMcpSourceVersions(input: {
+async function assertConfiguredMcpSources(input: {
   appId: AppId;
   agent: RuntimeConfiguredAgent;
   repositories: SettingsDesiredStateRepositories;
-}): Promise<Map<McpServerId, McpServerVersionId>> {
-  const sourceMap = new Map(
-    input.agent.sources.mcpServers.map((source) => [
-      source.id as McpServerId,
-      source.version as McpServerVersionId | undefined,
-    ]),
-  );
-  const entries = await Promise.all(
+}): Promise<void> {
+  await Promise.all(
     [...new Set(input.agent.sources.mcpServers.map((source) => source.id))].map(
       async (serverId) => {
-        const requestedVersionId = sourceMap.get(serverId as McpServerId);
         const server = await input.repositories.mcpServers.getServer(
           serverId as never,
         );
-        if (!server?.latestApprovedVersionId) {
-          throw new Error(`MCP server ${serverId} has no approved version.`);
-        }
-        const effectiveVersionId = (requestedVersionId ??
-          server.latestApprovedVersionId) as McpServerVersionId;
-        const version =
-          await input.repositories.mcpServers.getVersion(effectiveVersionId);
         if (
-          !version ||
-          version.appId !== input.appId ||
-          version.serverId !== serverId
+          !server ||
+          server.appId !== input.appId ||
+          server.status !== 'active'
         ) {
           throw new Error(
-            `MCP server ${serverId} version ${effectiveVersionId} is not approved for that source.`,
+            `MCP server ${serverId} is not active for that source.`,
           );
         }
-        return [serverId as McpServerId, effectiveVersionId] as const;
       },
     ),
   );
-  return new Map(entries);
 }
 
 export function settingsCapabilityToToolReference(capability: {

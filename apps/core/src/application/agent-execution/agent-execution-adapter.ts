@@ -17,6 +17,7 @@ import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { ModelCatalogEntry } from '../../shared/model-catalog.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
+import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 
 export type AgentExecutionProviderId = ExecutionProviderId;
 
@@ -34,9 +35,10 @@ export interface AgentExecutionRunInput {
   persona?: AgentPersona;
   browserProfileName?: string;
   allowedTools?: string[];
-  selectedSkillIds?: string[];
+  attachedSkillSourceIds?: string[];
   selectedSkillDisplays?: string[];
-  selectedMcpServerIds?: string[];
+  attachedMcpSourceIds?: string[];
+  semanticCapabilities?: SemanticCapabilityDefinition[];
   isScheduledJob?: boolean;
   jobId?: string;
   jobName?: string;
@@ -106,6 +108,7 @@ export interface PreparedAgentExecution {
   runnerArgs: string[];
   runnerInputPatch?: {
     modelCredentialEnv?: Record<string, string>;
+    semanticCapabilities?: SemanticCapabilityDefinition[];
   };
   env: NodeJS.ProcessEnv;
   protectedFilesystemPaths: string[];

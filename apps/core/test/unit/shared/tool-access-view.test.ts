@@ -37,7 +37,7 @@ describe('tool access view', () => {
     ).toHaveLength(1);
   });
 
-  it('projects canonical Browser and facade grants into runtime tools for jobs', () => {
+  it('projects canonical Browser and facade authority into runtime tools for jobs', () => {
     expect(
       buildJobToolAccessView({
         effectiveAllowedTools: [

@@ -7,22 +7,19 @@ job creation, CLI defaults, recurring jobs, one-time jobs, and internal MCP
 scheduler tools. Raw provider model IDs are hard to remember and make provider
 details leak into user workflows.
 
-The supported catalog for this cut is intentionally small: Anthropic Opus 4.7,
-Opus 4.6, Sonnet 4.6, Haiku 4.5, and OpenRouter Kimi K2.6. Anthropic documents
-Opus 4.7, Sonnet 4.6, and Haiku 4.5 IDs, context windows, max outputs, and
-pricing in its model overview. Anthropic prompt caching reports
-`cache_creation_input_tokens` and `cache_read_input_tokens`. OpenRouter's
-Anthropic Agent SDK route uses `https://openrouter.ai/api`,
-`ANTHROPIC_AUTH_TOKEN`, and an explicitly blank `ANTHROPIC_API_KEY`.
-OpenRouter lists Kimi K2.6 as `moonshotai/kimi-k2.6` with a 262,142-token
-context window.
+The supported catalog for this cut is intentionally small: Anthropic Opus 4.8,
+Opus 4.7, Opus 4.6, Sonnet 4.6, Haiku 4.5, and OpenRouter Kimi K2.6.
+Anthropic documents Opus 4.8, Sonnet 4.6, and Haiku 4.5 IDs, context windows,
+max outputs, and pricing in its model overview. Anthropic prompt caching reports
+`cache_creation_input_tokens` and `cache_read_input_tokens`. OpenRouter lists
+Kimi K2.6 as `moonshotai/kimi-k2.6` with a 262,142-token context window.
 
 ## Decision
 
 Gantry owns a provider-neutral catalog in application code. Users select models
 through friendly aliases such as `opus`, `sonnet`, `haiku`, and `kimi`; aliases
 are case-insensitive and punctuation-insensitive. Raw provider IDs such as
-`claude-opus-4-7` and `moonshotai/kimi-k2.6` are rejected at user/API/job/MCP
+`claude-opus-4-8` and `moonshotai/kimi-k2.6` are rejected at user/API/job/MCP
 boundaries unless registered as catalog aliases.
 
 Catalog entries declare workload eligibility for chat, one-time jobs,
@@ -86,17 +83,41 @@ Catalog entries expose `responseFamily` as the canonical API shape, currently
 route metadata on Anthropic-family aliases, not a core response family or
 execution provider selector.
 
+Provider-side cache support means upstream model-provider prompt or response
+caching that can reduce cost or latency. It does not mean Gantry caches
+decrypted credentials, semantic model responses, or gateway upstream responses.
+Gateway requests continue to resolve the active credential at request time.
+
 Provider SDK response usage is normalized into input tokens, output tokens,
 cache read tokens, cache write tokens, cache provider/status, and estimated
-cost when known. Job lifecycle events include the resolved catalog entry ID,
-alias, model source, cache policy, and token usage when the provider reports it.
+cost when known. Cache provider/status is derived from the provider registry
+plus the selected catalog route, not from `responseFamily` alone. Job lifecycle
+events include the resolved catalog entry ID, alias, model source, cache policy,
+and token usage when the provider reports it.
 
-OpenRouter remains an Anthropic SDK adapter projection, not a core runtime
+Provider cache behavior is intentionally provider-defined:
+
+- Anthropic prompt caching is explicit request shaping through
+  `cache_control` blocks. The Anthropic adapter lane owns those controls and
+  the normalized usage fields are `cache_creation_input_tokens` and
+  `cache_read_input_tokens`.
+- OpenRouter prompt caching for Anthropic-compatible routes also uses
+  Anthropic-style `cache_control` blocks. Normalized prompt-cache usage comes
+  from `prompt_tokens_details.cached_tokens` and
+  `prompt_tokens_details.cache_write_tokens` when OpenRouter reports them.
+- OpenAI prompt caching is automatic prefix caching. Gantry treats it as
+  accounting-only until an adapter exposes explicit OpenAI cache controls.
+- OpenRouter response caching can replay an identical full response and is
+  disabled by default in this cut. Gantry exposes support metadata only; a
+  later explicit setting is required before sending `X-OpenRouter-Cache`.
+
+OpenRouter remains an Anthropic-compatible catalog route, not a core runtime
 provider branch. For cataloged OpenRouter models, the child process receives
-`ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL=https://openrouter.ai/api`,
-`ANTHROPIC_AUTH_TOKEN` from `AgentCredentialBroker`, and blank
-`ANTHROPIC_API_KEY`. OpenRouter response caching stays disabled; only provider
-prompt-cache token fields are normalized.
+`ANTHROPIC_MODEL`, a Gantry Model Gateway loopback `ANTHROPIC_BASE_URL`, and
+`gtw_*` run-scoped gateway tokens from `AgentCredentialBroker`; it never
+receives the upstream OpenRouter API key or direct OpenRouter base URL.
+OpenRouter response caching stays disabled; only provider prompt-cache token
+fields are normalized.
 
 ## Consequences
 

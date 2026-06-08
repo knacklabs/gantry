@@ -1,5 +1,3 @@
-import { getBuiltinSemanticCapability } from './semantic-capabilities.js';
-
 export interface JobSetupLabelBlocker {
   state?: string;
   requirementType?: string;
@@ -27,7 +25,8 @@ export function setupBlockerLabel(
   if (!blocker) return humanizeIdentifier(fallbackState);
   if (
     blocker.requirementType === 'local_cli' &&
-    blocker.state === 'missing_capability'
+    blocker.state === 'missing_capability' &&
+    !isLocalCliCapabilityAction(blocker.nextAction)
   ) {
     return 'Job CLI configuration';
   }
@@ -58,7 +57,8 @@ export function setupActionLabel(
   const nextAction = blocker.nextAction ?? '';
   if (
     blocker.requirementType === 'local_cli' &&
-    blocker.state === 'missing_capability'
+    blocker.state === 'missing_capability' &&
+    !isLocalCliCapabilityAction(blocker.nextAction)
   ) {
     return 'Fix the job CLI configuration, then resume the job.';
   }
@@ -77,6 +77,9 @@ export function setupActionLabel(
     return 'Approve Browser access, then resume the job.';
   }
   if (blocker.requirementType === 'semantic_capability') {
+    if (nextAction && !/propose_capability\s*\{/.test(nextAction)) {
+      return setupActionLabelFromNextAction(nextAction);
+    }
     return `Approve ${semanticCapabilityLabel(blocker.requirementId)}, then resume the job.`;
   }
   if (blocker.requirementType === 'mcp_server') {
@@ -112,8 +115,7 @@ export function setupActionLabelFromNextAction(
 
 function semanticCapabilityLabel(capabilityId: string | undefined): string {
   return capabilityId
-    ? (getBuiltinSemanticCapability(capabilityId)?.displayName ??
-        humanizeIdentifier(capabilityId))
+    ? humanizeIdentifier(capabilityId)
     : 'Required capability';
 }
 
@@ -128,4 +130,8 @@ function humanizeIdentifier(value: string | undefined): string {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function isLocalCliCapabilityAction(value: string | undefined): boolean {
+  return Boolean(value && /propose_capability|manage_capability/.test(value));
 }

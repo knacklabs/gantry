@@ -468,7 +468,49 @@
       "idx": 67,
       "version": "7",
       "when": 1777227000000,
-      "tag": "0067_memory_extraction_cursor",
+      "tag": "0067_model_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1777230600000,
+      "tag": "0068_model_credential_auth_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1777234200000,
+      "tag": "0069_simple_capability_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1777237800000,
+      "tag": "0070_semantic_memory_vectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1777241400000,
+      "tag": "0071_memory_extraction_cursor",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1777245000000,
+      "tag": "0072_agent_config_source_capability_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1777248600000,
+      "tag": "0073_skill_catalog_tool_refs_column",
       "breakpoints": true
     }
   ]

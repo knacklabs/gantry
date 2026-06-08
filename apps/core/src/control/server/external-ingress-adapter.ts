@@ -6,7 +6,13 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
-import { ExternalIngressModule } from '../../application/external-ingress/external-ingress-module.js';
+import { ConversationMessageIngressModule } from '../../application/external-ingress/conversation-message-ingress.js';
+import { providerIdForJid } from '../../channels/provider-registry.js';
+import {
+  EXTERNAL_INGRESS_RUNTIME_DISPATCH,
+  ExternalIngressModule,
+} from '../../application/external-ingress/external-ingress-module.js';
+import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { SessionInteractionModule } from '../../application/sessions/session-interaction-module.js';
 import {
   getRuntimeControlRepository,
@@ -36,9 +42,30 @@ export function createExternalIngressModule(
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
   });
+  const conversationMessages = new ConversationMessageIngressModule({
+    conversations: getRuntimeStorage().repositories.conversations,
+    ops: getRuntimeRepositories(),
+    runtimeEvents: getRuntimeEventExchange(),
+    isConversationRoutable: (conversationJid) =>
+      Object.prototype.hasOwnProperty.call(
+        ctx.app.getConversationRoutes(),
+        conversationJid,
+      ),
+    providerForConversationJid: (conversationJid) =>
+      providerIdForJid(conversationJid, 'app'),
+    makeQueueKey: makeThreadQueueKey,
+    now: nowIso,
+    createId: randomUUID,
+  });
   return new ExternalIngressModule({
     control,
     sessions,
+    conversationMessages,
+    conversationProviderMessages: ctx.sendConversationIngressProjection
+      ? {
+          send: ctx.sendConversationIngressProjection,
+        }
+      : undefined,
     jobs: createJobManagementService(ctx),
     now: nowIso,
     createSecret: () => randomBytes(32).toString('hex'),
@@ -56,6 +83,13 @@ export async function invokeExternalIngressForControl(
   input: Parameters<ExternalIngressModule['invoke']>[0],
 ): Promise<Awaited<ReturnType<ExternalIngressModule['invoke']>>> {
   const result = await createExternalIngressModule(ctx).invoke(input);
+  const runtimeDispatch = (result as Record<PropertyKey, unknown>)[
+    EXTERNAL_INGRESS_RUNTIME_DISPATCH
+  ];
+  const runtimeEnqueue =
+    runtimeDispatch && typeof runtimeDispatch === 'object'
+      ? (runtimeDispatch as { enqueue?: { queueKey?: unknown } }).enqueue
+      : undefined;
   if (
     'registerGroup' in result &&
     result.registerGroup &&
@@ -68,6 +102,13 @@ export async function invokeExternalIngressForControl(
       result.registerGroup.conversationJid,
       result.registerGroup.group as never,
     );
+  }
+  if (
+    runtimeEnqueue &&
+    typeof runtimeEnqueue === 'object' &&
+    typeof runtimeEnqueue.queueKey === 'string'
+  ) {
+    ctx.app.queue.enqueueMessageCheck(runtimeEnqueue.queueKey);
   }
   if (
     'enqueue' in result &&

@@ -1,15 +1,18 @@
-import { isIP } from 'node:net';
-import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 import { getAgentCredentialInjection } from '../../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../credentials/agent-credential-broker-factory.js';
+import { getRuntimeStorage } from '../storage/postgres/runtime-store.js';
+import type { AppId } from '../../domain/app/app.js';
+import type { AgentRunId } from '../../domain/events/events.js';
+import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import {
   getModelPreset,
   resolveModelSelectionForWorkload,
   type ModelPresetId,
 } from '../../shared/model-catalog.js';
+import { getModelProviderDefinition } from '../../shared/model-provider-registry.js';
 import { validateModelCredentialProjectionForEntry } from './anthropic-claude-agent/model-provider-credential-validation.js';
-import { createExternalAgentCredentialInjection } from './external-credential-injection.js';
 
 export interface ModelPresetPreflightResult {
   ok: boolean;
@@ -19,9 +22,10 @@ export interface ModelPresetPreflightResult {
 
 export interface ModelPresetPreflightSettings {
   credentialBroker: {
-    mode: 'none' | 'onecli' | 'external';
-    onecli: { url: string };
-    external?: { baseUrl?: string };
+    mode: 'none' | 'gantry';
+    gateway?: {
+      bindHost: string;
+    };
   };
 }
 
@@ -29,52 +33,41 @@ export async function preflightModelPreset(input: {
   runtimeHome: string;
   preset: ModelPresetId;
   settings: ModelPresetPreflightSettings;
+  appId?: AppId;
 }): Promise<ModelPresetPreflightResult> {
-  const { runtimeHome, preset: presetId, settings } = input;
+  void input.runtimeHome;
+  const { preset: presetId, settings } = input;
   const preset = getModelPreset(presetId);
   const model = resolveModelSelectionForWorkload(preset.chatDefault, 'chat');
   if (!model.ok) return { ok: false, status: 'fail', message: model.message };
-  if (settings.credentialBroker.mode === 'external') {
-    const baseUrl = resolveExternalModelBrokerBaseUrl(
-      settings.credentialBroker.external?.baseUrl ?? '',
-    );
-    await getAgentCredentialInjection({
-      mode: 'external',
-      purpose: 'model_runtime',
-      externalInjection: createExternalAgentCredentialInjection({
-        normalizedBaseUrl: baseUrl,
-      }),
-    });
-    return {
-      ok: true,
-      status: 'pass',
-      message:
-        'External Model Access broker is configured; credential projection will be validated at runtime.',
-    };
-  }
-  if (settings.credentialBroker.mode !== 'onecli') {
+  if (settings.credentialBroker.mode !== 'gantry') {
     return {
       ok: false,
       status: 'fail',
-      message: `${preset.label} requires Model Access with a configured credential broker.`,
+      message: `${preset.label} requires Gantry Model Gateway credentials.`,
     };
   }
+  const runId = `model-preflight:${randomUUID()}` as AgentRunId;
+  let broker: AgentCredentialBroker | undefined;
   try {
-    const broker = await createAgentCredentialBroker({
+    broker = await createAgentCredentialBroker({
       mode: settings.credentialBroker.mode,
-      onecliUrl: settings.credentialBroker.onecli.url,
-      dataDir: path.join(runtimeHome, 'data'),
+      modelCredentials: getRuntimeStorage().repositories.modelCredentials,
+      gatewayBindHost: settings.credentialBroker.gateway?.bindHost,
     });
     if (!broker) {
       return {
         ok: false,
         status: 'fail',
-        message: 'Model Access broker is not configured.',
+        message: 'Gantry Model Gateway is not configured.',
       };
     }
     const injection = await getAgentCredentialInjection({
-      mode: 'onecli',
+      mode: 'gantry',
       purpose: 'model_runtime',
+      appId: input.appId,
+      runId,
+      modelRouteId: model.entry.modelRoute.id,
       broker,
     });
     validateModelCredentialProjectionForEntry({
@@ -85,18 +78,10 @@ export async function preflightModelPreset(input: {
         brokerProfile: injection.brokerProfile,
       },
     });
-    if (model.entry.modelRoute.id === 'anthropic') {
-      await assertOnecliAnthropicSecretConfigured(
-        settings.credentialBroker.onecli.url,
-      );
-    }
     return {
       ok: true,
       status: 'pass',
-      message:
-        model.entry.modelRoute.id === 'openrouter'
-          ? 'OpenRouter-scoped Model Access credential is available.'
-          : `${preset.label} Model Access credential is available.`,
+      message: `${getModelProviderDefinition(model.entry.modelRoute.id)?.label ?? preset.label} Model Access credential is available.`,
     };
   } catch (error) {
     return {
@@ -104,96 +89,18 @@ export async function preflightModelPreset(input: {
       status: 'fail',
       message: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    await Promise.allSettled([
+      broker?.revokeInjection?.({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId: input.appId,
+          runId,
+          modelRouteId: model.entry.modelRoute.id,
+        },
+      }),
+      broker?.close?.(),
+    ]);
   }
-}
-
-async function assertOnecliAnthropicSecretConfigured(
-  rawOnecliUrl: string,
-): Promise<void> {
-  const validation = validateOnecliLocalUrl(rawOnecliUrl);
-  const response = await fetch(onecliApiUrl(validation, 'api/secrets'));
-  if (!response.ok) {
-    throw new Error(
-      `Could not verify Anthropic Model Access credentials: OneCLI returned ${response.status}.`,
-    );
-  }
-  const secrets = (await response.json()) as unknown;
-  if (!Array.isArray(secrets)) {
-    throw new Error(
-      'Could not verify Anthropic Model Access credentials: OneCLI returned an invalid secrets response.',
-    );
-  }
-  const hasAnthropicSecret = secrets.some((secret) => {
-    if (!secret || typeof secret !== 'object') return false;
-    const item = secret as { type?: unknown; hostPattern?: unknown };
-    if (item.type !== 'anthropic') return false;
-    if (typeof item.hostPattern !== 'string') return true;
-    const host = item.hostPattern.toLowerCase().replace(/\.+$/, '');
-    return (
-      host === 'api.anthropic.com' ||
-      host === '*.anthropic.com' ||
-      host.endsWith('.anthropic.com')
-    );
-  });
-  if (!hasAnthropicSecret) {
-    throw new Error(
-      'Anthropic Model Access credential is missing. Add an Anthropic API key in Model Access before using Anthropic models.',
-    );
-  }
-}
-
-function validateOnecliLocalUrl(rawOnecliUrl: string): string {
-  const input = rawOnecliUrl.trim();
-  if (!input) throw new Error('credential_broker.onecli.url is required.');
-  const parsed = new URL(input);
-  if (!isLoopbackHostname(parsed.hostname)) {
-    throw new Error(
-      'Anthropic credential verification through OneCLI secrets is only supported for a loopback Model Access URL.',
-    );
-  }
-  return parsed.toString().replace(/\/$/, '');
-}
-
-export function onecliApiUrl(rawOnecliUrl: string, apiPath: string): string {
-  const parsed = new URL(rawOnecliUrl);
-  const basePath = parsed.pathname.replace(/\/+$/, '');
-  const relativePath = apiPath.replace(/^\/+/, '');
-  parsed.pathname = `${basePath}/${relativePath}`;
-  parsed.search = '';
-  parsed.hash = '';
-  return parsed.toString();
-}
-
-function resolveExternalModelBrokerBaseUrl(rawBrokerUrl: string): string {
-  const label = 'credential_broker.external.base_url';
-  const input = rawBrokerUrl.trim();
-  if (!input) throw new Error(`${label} is required.`);
-  let parsed: URL;
-  try {
-    parsed = new URL(input);
-  } catch (error) {
-    throw new Error(`${label} must be a valid URL.`, { cause: error });
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error(`${label} must not contain embedded credentials.`);
-  }
-  if (parsed.search || parsed.hash) {
-    throw new Error(`${label} must not contain query parameters or fragments.`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`${label} must use http:// or https://.`);
-  }
-  if (parsed.protocol === 'http:' && !isLoopbackHostname(parsed.hostname)) {
-    throw new Error(`${label} must use HTTPS unless it points to loopback.`);
-  }
-  return parsed.toString().replace(/\/$/, '');
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (normalized === 'localhost') return true;
-  const ipVersion = isIP(normalized);
-  if (ipVersion === 4) return normalized.split('.')[0] === '127';
-  if (ipVersion === 6) return normalized === '::1';
-  return false;
 }

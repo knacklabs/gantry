@@ -28,14 +28,18 @@ function makeStore() {
   const cache = new Map<string, number[]>();
   return {
     cache,
-    getCachedEmbedding: (textHash: string, model: string) =>
-      cache.get(`${model}:${textHash}`) || null,
-    putCachedEmbedding: (
+    getCachedEmbedding: async (
       textHash: string,
       model: string,
+      dimensions: number,
+    ) => cache.get(`${model}:${dimensions}:${textHash}`) || null,
+    putCachedEmbedding: async (
+      textHash: string,
+      model: string,
+      dimensions: number,
       embedding: number[],
     ) => {
-      cache.set(`${model}:${textHash}`, embedding);
+      cache.set(`${model}:${dimensions}:${textHash}`, embedding);
     },
   };
 }
@@ -145,7 +149,7 @@ describe('CachedEmbeddingProvider', () => {
       provider.embedMany(
         Array.from({ length: 10_000 }, (_, index) => `value-${index}`),
       ),
-    ).rejects.toThrow(/Daily embed budget exceeded/);
+    ).rejects.toThrow(/daily embedding budget reached/);
     expect(inner.embedManyCalls).toBe(0);
   });
 
@@ -164,7 +168,7 @@ describe('CachedEmbeddingProvider', () => {
 
     // Now dailyApiCalls === 500. embedOne adds 1 => 501 > 500, so budget exceeded.
     await expect(provider.embedOne('trigger-budget-exceeded')).rejects.toThrow(
-      /Daily embed budget exceeded/,
+      /daily embedding budget reached/,
     );
   });
 
@@ -176,7 +180,7 @@ describe('CachedEmbeddingProvider', () => {
 
     // Confirm budget is exhausted
     await expect(provider.embedOne('still-today')).rejects.toThrow(
-      /Daily embed budget exceeded/,
+      /daily embedding budget reached/,
     );
 
     // Simulate a new day by faking the system time to tomorrow

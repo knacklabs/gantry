@@ -113,7 +113,7 @@ Owns concrete integrations:
 
 - channel adapters: Telegram, WhatsApp, Slack, Teams, Web UI, SDK app channel
 - LLM adapters: Claude/Anthropic, OpenAI, Gemini, local providers
-- credential adapters: OneCLI, external broker, runtime secret providers
+- credential adapters: Gantry Model Gateway, capability credentials, runtime secret providers
 - storage adapters: Postgres, pg-boss, migrations, search indexes
 - control HTTP adapter
 - CLI adapter
@@ -195,17 +195,17 @@ contracts.
 
 Future refactors should move by capability, not by arbitrary file count.
 
-| Current area               | Target direction                                                                                                                |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `channels/`                | Provider-specific channel adapters under `adapters/channels/`; channel-neutral ports and types under `domain` or `application`. |
-| `control/server/`          | Control HTTP adapter under `adapters/control-http/`; route behavior becomes application use cases.                              |
-| `cli/`                     | CLI adapter under `adapters/cli/`; setup and admin operations become application use cases.                                     |
-| `adapters/storage/postgres/` | Postgres storage adapter implementation.                                                                                      |
-| provider-specific runner folders | LLM adapter-owned runner code under `adapters/llm/<provider>/` or equivalent.                                                    |
-| `runtime/group-*`          | Runtime queues and processors keyed by canonical app, agent, conversation, thread, session, and run context.                    |
-| `platform/group-folder*`   | Workspace projection and snapshot behavior under runtime/application boundaries.                                                |
-| `memory/`                  | Application memory services plus storage and LLM extractor adapters.                                                            |
-| `jobs/`                    | Application job lifecycle plus runtime scheduler adapter.                                                                       |
+| Current area                     | Target direction                                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `channels/`                      | Provider-specific channel adapters under `adapters/channels/`; channel-neutral ports and types under `domain` or `application`. |
+| `control/server/`                | Control HTTP adapter under `adapters/control-http/`; route behavior becomes application use cases.                              |
+| `cli/`                           | CLI adapter under `adapters/cli/`; setup and admin operations become application use cases.                                     |
+| `adapters/storage/postgres/`     | Postgres storage adapter implementation.                                                                                        |
+| provider-specific runner folders | LLM adapter-owned runner code under `adapters/llm/<provider>/` or equivalent.                                                   |
+| `runtime/group-*`                | Runtime queues and processors keyed by canonical app, agent, conversation, thread, session, and run context.                    |
+| `platform/group-folder*`         | Workspace projection and snapshot behavior under runtime/application boundaries.                                                |
+| `memory/`                        | Application memory services plus storage and LLM extractor adapters.                                                            |
+| `jobs/`                          | Application job lifecycle plus runtime scheduler adapter.                                                                       |
 
 ## Explicit Non-Goals For This Docs Phase
 

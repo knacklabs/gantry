@@ -546,6 +546,14 @@ function parseCapabilityImplementation(
     record.executablePath ?? record.executable_path,
   );
   if (executablePath) implementation.executablePath = executablePath;
+  const executableVersion = normalizeString(
+    record.executableVersion ?? record.executable_version,
+  );
+  if (executableVersion) implementation.executableVersion = executableVersion;
+  const executableHash = normalizeString(
+    record.executableHash ?? record.executable_hash,
+  );
+  if (executableHash) implementation.executableHash = executableHash;
   const commandTemplate = normalizeString(
     record.commandTemplate ?? record.command_template,
   );
@@ -558,6 +566,10 @@ function parseCapabilityImplementation(
     record.protectedPaths ?? record.protected_paths,
   );
   if (protectedPaths.length > 0) implementation.protectedPaths = protectedPaths;
+  const networkHosts = parseToolAccessRequirements(
+    record.networkHosts ?? record.network_hosts,
+  );
+  if (networkHosts.length > 0) implementation.networkHosts = networkHosts;
   return implementation;
 }
 

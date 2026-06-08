@@ -34,8 +34,6 @@ import {
   resolveActiveBrowserUrlForUsage,
 } from './browser-usage-active-site.js';
 import { type IpcDomainContext } from './ipc-domain-types.js';
-import type { CredentialBrokerHealth } from '../domain/models/credentials.js';
-import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
 import { resolveBrowserFileAttachPayload } from './browser-file-attach-source.js';
 
 interface BrowserRequest {
@@ -60,8 +58,6 @@ type BrowserContext = Pick<
   'sourceAgentFolder' | 'browserProfileName'
 > & {
   browserIpcAuthorized?: boolean;
-  getCredentialBroker?: IpcDomainContext['deps']['getCredentialBroker'];
-  getCredentialBrokerProfile?: IpcDomainContext['deps']['getCredentialBrokerProfile'];
   getFileArtifactStore?: IpcDomainContext['deps']['getFileArtifactStore'];
   callBrowserTool?: IpcDomainContext['deps']['callBrowserTool'];
   publishBrowserJobActivity?: IpcDomainContext['deps']['publishBrowserJobActivity'];
@@ -70,20 +66,10 @@ type BrowserContext = Pick<
   timeoutMs?: number;
   deadlineAtMs?: number;
 };
-type BrowserStatusPayload = Record<string, unknown> & {
-  brokerHealthy?: boolean;
-  brokerHealth?: CredentialBrokerHealth;
-  warning?: string;
-};
-const BROKER_HEALTH_CACHE_MS = 5_000;
 const MIN_BROWSER_BACKEND_TIMEOUT_MS = 1_000;
 const MAX_BROWSER_RESIZE_DIMENSION = 8_192;
 const BROWSER_IPC_UNAUTHORIZED_ERROR =
   'Browser IPC is not authorized for this run. Select the canonical Browser capability before using browser actions.';
-const brokerHealthCache = new Map<
-  string,
-  { expiresAt: number; value: CredentialBrokerHealth | undefined }
->();
 const POINTER_ACTIONS = new Set<BrowserBackendAction>([
   'click',
   'hover',
@@ -272,96 +258,6 @@ async function callBrowserResizeBackend(input: {
   }
 }
 
-async function inspectToolCapabilityBrokerHealth(
-  context: BrowserContext,
-): Promise<CredentialBrokerHealth | undefined> {
-  if (!context.getCredentialBroker) return undefined;
-  const brokerProfile = context.getCredentialBrokerProfile?.();
-  if (!brokerProfile) return undefined;
-  if (brokerProfile === 'none') {
-    return {
-      status: 'warn',
-      message:
-        'Credential broker mode is none; broker-backed semantic tool capabilities cannot receive model-broker credentials.',
-      nextAction:
-        'Configure credential_broker in settings.yaml or use Gantry Secrets for skill and MCP capability env vars.',
-    };
-  }
-  const broker = await context.getCredentialBroker();
-  if (!broker) {
-    return {
-      status: 'warn',
-      message:
-        'Credential broker health is not available from this runtime process.',
-      nextAction: 'Run `gantry doctor` to verify credential broker settings.',
-    };
-  }
-  return broker.healthCheck({
-    binding: {
-      profile: brokerProfile,
-      purpose: 'tool_capability',
-      agentIdentifier: memoryAgentIdForGroupFolder(context.sourceAgentFolder),
-    },
-  });
-}
-
-async function cachedToolCapabilityBrokerHealth(
-  context: BrowserContext,
-): Promise<CredentialBrokerHealth | undefined> {
-  const brokerProfile = context.getCredentialBrokerProfile?.() || 'default';
-  const cacheKey = `${context.sourceAgentFolder}:${brokerProfile}`;
-  const cached = brokerHealthCache.get(cacheKey);
-  if (cached && cached.expiresAt > nowMs()) return cached.value;
-  const value = await inspectToolCapabilityBrokerHealth(context);
-  if (value?.status !== 'fail') {
-    brokerHealthCache.set(cacheKey, {
-      value,
-      expiresAt: nowMs() + BROKER_HEALTH_CACHE_MS,
-    });
-  }
-  return value;
-}
-
-async function attachToolCapabilityBrokerHealth(
-  data: unknown,
-  context: BrowserContext,
-): Promise<unknown> {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
-  let brokerHealth: CredentialBrokerHealth | undefined;
-  try {
-    brokerHealth = await cachedToolCapabilityBrokerHealth(context);
-  } catch (err) {
-    console.warn(
-      'Credential broker health check failed during browser IPC status',
-      {
-        err,
-        sourceAgentFolder: context.sourceAgentFolder,
-      },
-    );
-    brokerHealth = {
-      status: 'fail',
-      message: 'Credential broker health check failed.',
-      nextAction: 'Run `gantry doctor` to verify credential broker settings.',
-    };
-  }
-  if (!brokerHealth) return data;
-  const next: BrowserStatusPayload = {
-    ...(data as Record<string, unknown>),
-    brokerHealthy: brokerHealth.status === 'pass',
-    brokerHealth,
-  };
-  if (brokerHealth.status !== 'pass') {
-    next.cdpReady = false;
-    next.warning = [
-      'Browser CDP is not driveable because the tool-capability credential broker is not healthy.',
-      brokerHealth.nextAction,
-    ]
-      .filter(Boolean)
-      .join(' ');
-  }
-  return next;
-}
-
 async function getBrowserUsageSettings(context: BrowserContext) {
   return context.getBrowserUsageSettings
     ? await context.getBrowserUsageSettings()
@@ -381,10 +277,7 @@ async function handleBrowserToolActionInner(
     case 'status':
       return {
         ok: true,
-        data: await attachToolCapabilityBrokerHealth(
-          sanitizeBrowserStatus(await getBrowserStatus(profileName)),
-          context,
-        ),
+        data: sanitizeBrowserStatus(await getBrowserStatus(profileName)),
       };
   }
   if (!context.browserIpcAuthorized) {
@@ -411,10 +304,7 @@ async function handleBrowserToolActionInner(
       const status = await ensureBrowserReady(launchOptions);
       return {
         ok: true,
-        data: await attachToolCapabilityBrokerHealth(
-          sanitizeBrowserStatus(status),
-          context,
-        ),
+        data: sanitizeBrowserStatus(status),
       };
     }
     case 'close': {

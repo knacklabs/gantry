@@ -269,9 +269,12 @@ function toOptionalCapabilityRequirements(value: unknown):
         kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
         name?: string;
         executablePath?: string;
+        executableVersion?: string;
+        executableHash?: string;
         commandTemplate?: string;
         authPreflight?: string;
         protectedPaths?: string[];
+        networkHosts?: string[];
       };
     }>
   | undefined {
@@ -284,9 +287,12 @@ function toOptionalCapabilityRequirements(value: unknown):
       kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
       name?: string;
       executablePath?: string;
+      executableVersion?: string;
+      executableHash?: string;
       commandTemplate?: string;
       authPreflight?: string;
       protectedPaths?: string[];
+      networkHosts?: string[];
     };
   }> = [];
   const seen = new Set<string>();
@@ -307,9 +313,12 @@ function toOptionalCapabilityRequirements(value: unknown):
         kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
         name?: string;
         executablePath?: string;
+        executableVersion?: string;
+        executableHash?: string;
         commandTemplate?: string;
         authPreflight?: string;
         protectedPaths?: string[];
+        networkHosts?: string[];
       };
     } = {
       capabilityId,
@@ -340,15 +349,26 @@ function toOptionalCapabilityRequirements(value: unknown):
         kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
         name?: string;
         executablePath?: string;
+        executableVersion?: string;
+        executableHash?: string;
         commandTemplate?: string;
         authPreflight?: string;
         protectedPaths?: string[];
+        networkHosts?: string[];
       } = { kind };
       const name = toTrimmedString(implementationRecord.name, {
         maxLen: 120,
       });
       const executablePath = toTrimmedString(
         implementationRecord.executablePath,
+        { maxLen: 255 },
+      );
+      const executableVersion = toTrimmedString(
+        implementationRecord.executableVersion,
+        { maxLen: 255 },
+      );
+      const executableHash = toTrimmedString(
+        implementationRecord.executableHash,
         { maxLen: 255 },
       );
       const commandTemplate = toTrimmedString(
@@ -364,12 +384,22 @@ function toOptionalCapabilityRequirements(value: unknown):
         100,
         255,
       );
+      const networkHosts = toOptionalStringArray(
+        implementationRecord.networkHosts,
+        100,
+        255,
+      );
       if (name) implementation.name = name;
       if (executablePath) implementation.executablePath = executablePath;
+      if (executableVersion)
+        implementation.executableVersion = executableVersion;
+      if (executableHash) implementation.executableHash = executableHash;
       if (commandTemplate) implementation.commandTemplate = commandTemplate;
       if (authPreflight) implementation.authPreflight = authPreflight;
       if (protectedPaths && protectedPaths.length > 0)
         implementation.protectedPaths = protectedPaths;
+      if (networkHosts && networkHosts.length > 0)
+        implementation.networkHosts = networkHosts;
       requirement.implementation = implementation;
     }
     const key = `${requirement.capabilityId}\u0000${

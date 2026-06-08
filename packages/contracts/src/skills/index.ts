@@ -22,11 +22,10 @@ export const SkillCatalogItemResponseSchema = z.object({
   agentId: z.string().optional(),
   name: z.string(),
   description: z.string().nullable().optional(),
-  version: z.string(),
   source: z
     .enum(['bundled', 'agent_created', 'admin_uploaded', 'provider_managed'])
     .optional(),
-  status: z.enum(['draft', 'approved', 'rejected', 'disabled']).optional(),
+  status: z.enum(['installed', 'disabled']).optional(),
   promptRefs: z.array(z.string()),
   toolIds: z.array(z.string()),
   workflowRefs: z.array(z.string()),
@@ -36,7 +35,6 @@ export const SkillCatalogItemResponseSchema = z.object({
     .object({
       storageType: z.enum(['local-filesystem', 'object-store']),
       storageRef: z.string(),
-      contentHash: z.string(),
       sizeBytes: z.number(),
     })
     .optional(),
@@ -45,14 +43,9 @@ export const SkillCatalogItemResponseSchema = z.object({
       provider: z.string(),
       skillId: z.string(),
       type: z.string(),
-      version: z.string().optional(),
     })
     .optional(),
   createdBy: z.string().optional(),
-  approvedBy: z.string().optional(),
-  approvedAt: IsoDateTimeSchema.optional(),
-  rejectedBy: z.string().optional(),
-  rejectedAt: IsoDateTimeSchema.optional(),
   setupRefs: z.array(z.string()).optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
@@ -62,30 +55,12 @@ export type SkillCatalogItemResponse = z.infer<
   typeof SkillCatalogItemResponseSchema
 >;
 
-export const UploadSkillDraftContextSchema = z.object({
+export const InstallSkillContextSchema = z.object({
   appId: z.string().optional(),
   agentId: z.string().optional(),
   createdBy: z.string().optional(),
 });
-export type UploadSkillDraftContext = z.infer<
-  typeof UploadSkillDraftContextSchema
->;
-
-export const ApproveSkillDraftRequestSchema = z.object({
-  appId: z.string().optional(),
-  approvedBy: z.string().optional(),
-});
-export type ApproveSkillDraftRequest = z.infer<
-  typeof ApproveSkillDraftRequestSchema
->;
-
-export const RejectSkillDraftRequestSchema = z.object({
-  appId: z.string().optional(),
-  rejectedBy: z.string().optional(),
-});
-export type RejectSkillDraftRequest = z.infer<
-  typeof RejectSkillDraftRequestSchema
->;
+export type InstallSkillContext = z.infer<typeof InstallSkillContextSchema>;
 
 export const UpdateAgentSkillBindingRequestSchema = z.object({
   appId: z.string().optional(),

@@ -68,6 +68,38 @@ describe('resolveExecutionContext', () => {
     });
   });
 
+  it('uses the same-conversation notification route thread for delivery when the job is conversation-owned', () => {
+    const groups = {
+      'chat-a': group('agent-folder', 'Conversation A'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        group_scope: 'agent-folder',
+        execution_context: {
+          conversationJid: 'chat-a',
+          threadId: null,
+          groupScope: 'agent-folder',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'chat-a',
+            threadId: 'topic-2771',
+            label: 'primary',
+          },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved).toMatchObject({
+      group: groups['chat-a'],
+      executionJid: 'chat-a',
+      threadId: 'topic-2771',
+      stopAliasJids: ['chat-a'],
+    });
+  });
+
   it('returns null without canonical execution context', () => {
     const groups = { 'chat-a': group('agent-folder', 'Conversation A') };
 

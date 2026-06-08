@@ -207,6 +207,49 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
       metadata,
     },
   },
-  ExternalIngressInvokeRequest: metadata,
-  ExternalIngressInvokeResponse: metadata,
+  ExternalIngressConversationMessageTarget: {
+    type: 'object',
+    required: ['kind', 'conversationId', 'message'],
+    properties: {
+      kind: { type: 'string', enum: ['conversation_message'] },
+      conversationId: { type: 'string' },
+      threadId: { type: 'string' },
+      message: { type: 'string' },
+      senderId: { type: 'string' },
+      senderName: { type: 'string' },
+      correlationId: { type: 'string' },
+    },
+  },
+  ExternalIngressInvokeRequest: {
+    type: 'object',
+    required: ['target'],
+    properties: {
+      appId: { type: 'string' },
+      idempotencyKey: { type: 'string' },
+      target: {
+        oneOf: [
+          {
+            $ref: '#/components/schemas/ExternalIngressConversationMessageTarget',
+          },
+          metadata,
+        ],
+      },
+    },
+  },
+  ExternalIngressInvokeResponse: {
+    type: 'object',
+    properties: {
+      invocationId: { type: 'string' },
+      duplicate: { type: 'boolean' },
+      targetKind: { type: 'string' },
+      messageId: { type: 'string' },
+      acceptedEventId: { type: 'integer' },
+      conversationId: { type: 'string' },
+      threadId: { type: 'string', nullable: true },
+      sessionId: { type: 'string' },
+      jobId: { type: 'string' },
+      triggerId: { type: 'string' },
+    },
+    additionalProperties: true,
+  },
 };

@@ -70,14 +70,16 @@ describe('package hygiene', () => {
     expect(sourceSkillFiles).toEqual(expectedSkillFiles);
   }, 30_000);
 
-  it('isolates OneCLI SDK imports to credential adapter and CLI setup adapter', () => {
+  it('isolates Gantry Model Gateway SDK imports to credential adapter and CLI setup adapter', () => {
     const allowed = new Set([
-      path.normalize('apps/core/src/adapters/credentials/onecli/broker.ts'),
+      path.normalize(
+        'apps/core/src/adapters/credentials/model_gateway/broker.ts',
+      ),
       path.normalize('apps/core/src/cli/setup-credentials.ts'),
     ]);
     const offenders = listSourceFiles('apps/core/src')
       .filter((file) =>
-        fs.readFileSync(file, 'utf-8').includes('@onecli-sh/sdk'),
+        fs.readFileSync(file, 'utf-8').includes('@model_gateway-sh/sdk'),
       )
       .map((file) => path.normalize(file))
       .filter((file) => !allowed.has(file));

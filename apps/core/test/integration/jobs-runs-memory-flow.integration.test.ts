@@ -121,9 +121,9 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       subjectType: 'channel',
       groupId: job.group_scope,
       channelId: 'conversation:tg:scheduler',
-      threadId: 'thread-scheduled',
       key: 'handoff',
     });
+    expect(savedMemory.threadId).toBeUndefined();
 
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),

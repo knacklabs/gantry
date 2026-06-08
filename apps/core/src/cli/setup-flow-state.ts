@@ -49,12 +49,9 @@ export interface SetupDraft {
   runtimeHome: string;
   postgresSetupKind: 'local' | 'hosted' | 'existing';
   postgresDatabaseUrl: string;
-  onecliPostgresDatabaseUrl: string;
   postgresSchema: string;
-  onecliPostgresSchema: string;
   primaryProvider: 'telegram' | 'slack';
   credentialMode: HostCredentialMode;
-  onecliUrl: string;
   agentName: string;
   modelPreset: ModelPresetId;
   selectedModel: string;
@@ -114,7 +111,6 @@ export function updateStateData(
     runtimeHome: draft.runtimeHome,
     postgresSetupKind: draft.postgresSetupKind,
     postgresSchema: draft.postgresSchema || undefined,
-    onecliPostgresSchema: draft.onecliPostgresSchema || undefined,
     primaryProvider: draft.primaryProvider,
     serviceChoice: draft.serviceChoice,
     telegramBotUsername: draft.telegramBotUsername || undefined,
@@ -126,7 +122,6 @@ export function updateStateData(
     slackChatJid: draft.slackChatJid || undefined,
     slackPermissionApproverIds: draft.slackPermissionApproverIds || undefined,
     credentialMode: draft.credentialMode,
-    onecliUrl: draft.onecliUrl || undefined,
     agentName: draft.agentName,
     modelPreset: draft.modelPreset,
     selectedModel: draft.selectedModel || undefined,
@@ -161,7 +156,6 @@ export function updateDraftFromState(
   draft.credentialMode = resolveHostCredentialMode(
     state.data.credentialMode || draft.credentialMode,
   );
-  draft.onecliUrl = state.data.onecliUrl || draft.onecliUrl;
   draft.agentName = state.data.agentName || draft.agentName;
   draft.modelPreset = isModelPresetId(state.data.modelPreset)
     ? state.data.modelPreset
@@ -223,30 +217,18 @@ export function restoreDraft(
     settings.storage.postgres.urlEnv || 'GANTRY_DATABASE_URL';
   const postgresDatabaseUrl =
     env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';
-  const onecliDatabaseUrlEnv =
-    settings.credentialBroker.onecli.postgres.urlEnv || 'ONECLI_DATABASE_URL';
-  const onecliPostgresDatabaseUrl =
-    env[onecliDatabaseUrlEnv]?.trim() ||
-    process.env[onecliDatabaseUrlEnv]?.trim() ||
-    '';
   const draft: SetupDraft = {
     runtimeHome,
     postgresSetupKind:
       state?.data.postgresSetupKind ||
       (postgresDatabaseUrl.includes('localhost') ? 'local' : 'existing'),
     postgresDatabaseUrl,
-    onecliPostgresDatabaseUrl,
     postgresSchema:
       state?.data.postgresSchema ||
       settings.storage.postgres.schema ||
       'gantry',
-    onecliPostgresSchema:
-      state?.data.onecliPostgresSchema ||
-      settings.credentialBroker.onecli.postgres.schema ||
-      'onecli',
     primaryProvider,
     credentialMode,
-    onecliUrl: settings.credentialBroker.onecli.url || '',
     agentName:
       state?.data.agentName || settings.agent.name || DEFAULT_AGENT_CLI_NAME,
     modelPreset: isModelPresetId(stateModelPreset)

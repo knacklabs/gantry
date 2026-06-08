@@ -68,11 +68,20 @@ export interface RuntimeConfiguredMcpServer {
 
 export type EmbeddingProviderName = string;
 export type MemoryModelTask = 'extractor' | 'dreaming' | 'consolidation';
+export type MemoryBackfillMode = 'auto' | 'inline' | 'provider_batch';
 
 export interface RuntimeMemoryLlmModels {
   extractor: string;
   dreaming: string;
   consolidation: string;
+}
+
+export interface RuntimeMemoryBackfillSettings {
+  enabled: boolean;
+  cron: string;
+  maxItemsPerRun: number;
+  mode: MemoryBackfillMode;
+  providerBatchMinItems: number;
 }
 
 export interface RuntimeMemorySettings {
@@ -81,8 +90,10 @@ export interface RuntimeMemorySettings {
     enabled: boolean;
     provider: EmbeddingProviderName;
     model: string;
+    dimensions: number;
     dailyLimit: number;
     batchSize: number;
+    backfill: RuntimeMemoryBackfillSettings;
   };
   dreaming: {
     enabled: boolean;
@@ -189,19 +200,12 @@ export interface RuntimeDesiredStateSettings {
   authoritative: boolean;
 }
 
-export type RuntimeCredentialBrokerMode = 'none' | 'onecli' | 'external';
+export type RuntimeCredentialBrokerMode = 'none' | 'gantry';
 
 export interface RuntimeCredentialBrokerSettings {
   mode: RuntimeCredentialBrokerMode;
-  onecli: {
-    url: string;
-    postgres: {
-      urlEnv: string;
-      schema: string;
-    };
-  };
-  external: {
-    baseUrl: string;
+  gateway: {
+    bindHost: string;
   };
 }
 

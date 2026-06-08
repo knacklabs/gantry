@@ -23,11 +23,7 @@ export function formatPermissionToolInputLines(
 ): string[] {
   if (!request.toolInput || typeof request.toolInput !== 'object') return [];
   const input = request.toolInput;
-  if (
-    request.toolName === 'Bash' &&
-    typeof input.command === 'string' &&
-    input.command.trim()
-  ) {
+  if (typeof input.command === 'string' && input.command.trim()) {
     const generatedSkillPath = generatedRuntimeSkillPathDisplay(
       input.command.trim(),
     );

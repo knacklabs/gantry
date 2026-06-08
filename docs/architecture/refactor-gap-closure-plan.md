@@ -46,7 +46,7 @@ Three statements. Conflict with any of them means the gap is not closed.
 | G4  | No `scheduler_cancel_run` and no watchdog reaping zombie `running` rows                 | parent plan A Phase 2                                                                                                      | high        |
 | G5  | Telegram chunker still markdown-unaware; long replies truncate silently                 | `apps/core/src/channels/telegram/channel-shared.ts:132-155`, partial-delivery surface                                      | high        |
 | G6  | `formatOperatorError(err)` helper not introduced; three-line errors only ad-hoc         | spot-checked at `permission-callback.ts:175-176`, `channel-wiring-interactions.ts:44`, `runner/mcp/tools/scheduler.ts:220` | medium      |
-| G7  | Browser facade `status.cdpReady` lies when credential broker is dead                    | parent plan A §95; untouched in this refactor                                                                              | medium      |
+| G7  | Browser facade `status.cdpReady` must stay tied to browser/CDP readiness, not model gateway health | `apps/core/src/runtime/ipc-browser-handler.ts` and browser IPC tests                                                       | medium      |
 | G8  | Net delta of this branch is +1282 lines, violating parent non-negotiable                | `git diff --stat HEAD` summary                                                                                             | medium      |
 
 ## 5. Phases
@@ -170,16 +170,20 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 
 ### Phase 7 — Browser surface honesty (G7)
 
-**Goal:** Browser facade `status.cdpReady` reflects driveability.
+**Goal:** Browser facade `status.cdpReady` reflects browser driveability.
 
 **Scope:**
 
-- `browser_status` checks both process liveness and credential broker reachability before reporting `cdpReady: true`. If the broker is unreachable, `cdpReady: false` with `formatOperatorError`-shaped reason.
+- `browser_status` checks browser process and CDP readiness only. Model gateway
+  and credential readiness belong to `gantry credentials`/`gantry doctor`, not
+  the browser status surface.
 - `mcp_list_tools` / `mcp_call_tool` failures during broker outage return the cause chain (Phase 6 helper), not the wrapper.
 
 **Exit criteria:**
 
-- **Repro:** kill the credential broker. Browser facade status reports `cdpReady: false` with cause + recover.
+- **Repro:** disable model gateway credentials. Browser facade status remains
+  available, reports browser/CDP readiness from the browser backend, and exposes
+  no `brokerHealth` fields.
 - No path returns `cdpReady: true` for a browser the agent cannot drive.
 
 **Deletion target:** ≥30 lines net.
@@ -216,7 +220,7 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 | Partial delivery surface             | `apps/core/src/domain/messages/partial-delivery.ts`                 | 91–99                  | 5     |
 | Group streaming overflow             | `apps/core/src/channels/telegram/channel-state.ts`                  | 431–442                | 5     |
 | Permission denial message            | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts`                | 175–176                | 6     |
-| Credential broker error wrap         | `apps/core/src/application/credentials/agent-credential-service.ts` | 80–83                  | 6, 7  |
+| Model gateway error wrap             | `apps/core/src/application/credentials/agent-credential-service.ts` | 80–83                  | 6, 7  |
 
 ## 7. Pre-merge checklist
 

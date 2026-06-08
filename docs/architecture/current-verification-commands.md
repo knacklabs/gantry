@@ -45,7 +45,9 @@ Canonical tool execution boundary changes should run:
 ```bash
 npm run test:unit -- apps/core/test/unit/shared/tool-execution-policy-service.test.ts apps/core/test/unit/bootstrap/channel-wiring.test.ts apps/core/test/unit/runner/protected-capability-hook.test.ts apps/core/test/unit/runner/protected-capability-guard.test.ts apps/core/test/unit/runner/mcp/scheduler-tools.test.ts apps/core/test/unit/runner/agent-capabilities.test.ts apps/core/test/unit/runner/agent-runner-ipc.test.ts apps/core/test/unit/runtime/agent-spawn.test.ts
 npm run test:integration -- apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts apps/core/test/integration/permission-approval-ipc.integration.test.ts
-rg -n "PROTECTED_CAPABILITY_PATTERN|mcpServers.*Bash|\\.mcp\\.json.*Bash|permissionMode.*Bash|alwaysAllowedTools|continue: false|target_json\\.capabilityPolicy|jobExtraTools|scheduler_grant_tool|allow_job_policy|runScript\\(" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
+rg -n "PROTECTED_CAPABILITY_PATTERN|mcpServers.*Bash|\\.mcp\\.json.*Bash|permissionMode.*Bash|alwaysAllowedTools|continue: false|target_json\\.capabilityPolicy|jobExtraTools|runScript\\(" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
+rg -n "scheduler_grant_tool" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
+rg -n "allow_job_policy" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
 python3 .codex/scripts/check_architecture.py
 ```
 

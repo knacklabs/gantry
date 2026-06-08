@@ -50,37 +50,37 @@ Identity rules:
 
 ## Core Ownership
 
-| Concept               | Owner                    | Meaning                                                                                                                                                                            |
-| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `App`                 | Domain                   | A runtime namespace for agents, users, memory, policies, conversations, jobs, and SDK/API access.                                                                                  |
-| `Agent`               | Domain                   | A configured agent inside an app. It owns prompt profile lineage, model profile selection, tools, skills, memory visibility, and conversation bindings.                            |
-| `AgentConfigVersion`  | Domain                   | An immutable version of agent behavior: prompt profile, model selection, tool/skill catalog references, workspace defaults, permission policy references, and runtime limits.      |
-| `LlmProfile`          | Domain                   | Provider-neutral model intent such as purpose, model alias, budget, thinking mode, embedding usage, and credential-broker reference. Concrete SDK names live in provider adapters. |
-| `Provider`            | Adapter catalog          | A chat adapter type such as Telegram, WhatsApp, Slack, Teams, or Web UI. It describes capabilities and normalization rules.                                                        |
-| `ProviderConnection`  | Application plus adapter | An installed provider connection for an app, including workspace/team/bot/account identity, runtime-owned secrets, webhook/socket config, and enablement state.                    |
-| `Conversation`        | Domain                   | A provider-neutral communication container. It can be a DM, group, channel, chat, SDK conversation, or Web UI chat.                                                                |
-| `ConversationThread`  | Domain                   | A sub-conversation within a conversation, such as Slack `thread_ts`, Telegram forum topic, Teams reply chain, or a Web UI branch.                                                  |
-| `AgentConversationBinding` | Domain              | The relationship that says an agent is present in a conversation or thread with trigger, routing, permissions, memory scope, and workspace projection.                             |
-| `User`                | Domain                   | A human or service actor known to an app. Provider-specific user ids are aliases.                                                                                                  |
-| `Message`             | Domain                   | A normalized inbound, outbound, system, or tool-visible communication event within a conversation or thread.                                                                       |
-| `MessagePart`         | Domain                   | A typed part of a message, such as text, markdown, image, file reference, tool result, form response, or structured data.                                                          |
-| `MessageAttachment`   | Domain plus adapter      | Binary or external media attached to a message. The domain owns metadata and trust classification; adapters own download and upload mechanics.                                     |
-| `AgentSession`        | Domain                   | Canonical continuity state for an agent in an app, conversation, thread, job, or run context. It survives provider swaps.                                                          |
-| `ProviderSession`     | Adapter                  | A provider-specific resume token or transcript pointer, such as a Claude session id. It is attached to an `AgentSession`.                                                          |
-| `AgentRun`            | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                          |
-| `RuntimeEvent`        | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and outbound webhook delivery events. Audit records remain in their owning modules.            |
-| `ExternalIngress`     | Application/storage      | A signed inbound authority record for external systems. It derives app scope, protects nonce replay, records invocations, and dispatches only to approved session/job/template targets. |
-| `MemorySubject`       | Domain                   | A memory boundary for app, agent, user, group/team, conversation, or common shared memory.                                                                                         |
-| `Job`                 | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                           |
-| `ToolCatalogItem`     | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                  |
-| `SkillCatalogItem`    | Domain catalog           | A reusable behavior package or prompt/tool bundle that can be attached to agent config versions.                                                                                   |
-| `PermissionPolicy`    | Domain                   | A named policy attached to an app, agent, binding, tool, job, or sandbox profile.                                                                                                  |
-| `PermissionRule`      | Domain                   | A deterministic rule inside a policy. It can allow, deny, require approval, or require a sandbox lease.                                                                            |
-| `PermissionDecision`  | Domain/application       | The audited result of evaluating a request against policy and runtime context.                                                                                                     |
-| `SandboxProfile`      | Domain/application       | A named execution environment policy: filesystem, network, process, browser, credential, timeout, and approval behavior.                                                           |
-| `SandboxLease`        | Runtime/application      | A time-bounded grant to execute work under a sandbox profile for a specific run or tool call.                                                                                      |
-| `WorkspaceSnapshot`   | Runtime/application      | A stable view of workspace files, mounts, prompt profile inputs, and generated runtime context used for an agent run.                                                              |
-| `BrowserProfile`      | Domain/application       | A named browser identity with storage state, auth markers, allowed usage, and ownership policy.                                                                                    |
+| Concept                    | Owner                    | Meaning                                                                                                                                                                                                    |
+| -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `App`                      | Domain                   | A runtime namespace for agents, users, memory, policies, conversations, jobs, and SDK/API access.                                                                                                          |
+| `Agent`                    | Domain                   | A configured agent inside an app. It owns prompt profile lineage, model profile selection, tools, skills, memory visibility, and conversation bindings.                                                    |
+| `AgentConfigVersion`       | Domain                   | An immutable version of agent behavior: prompt profile, model selection, tool/skill catalog references, workspace defaults, permission policy references, and runtime limits.                              |
+| `LlmProfile`               | Domain                   | Provider-neutral model intent such as purpose, model alias, budget, thinking mode, embedding usage, and credential-broker reference. Concrete SDK names live in provider adapters.                         |
+| `Provider`                 | Adapter catalog          | A chat adapter type such as Telegram, WhatsApp, Slack, Teams, or Web UI. It describes capabilities and normalization rules.                                                                                |
+| `ProviderConnection`       | Application plus adapter | An installed provider connection for an app, including workspace/team/bot/account identity, runtime-owned secrets, webhook/socket config, and enablement state.                                            |
+| `Conversation`             | Domain                   | A provider-neutral communication container. It can be a DM, group, channel, chat, SDK conversation, or Web UI chat.                                                                                        |
+| `ConversationThread`       | Domain                   | A sub-conversation within a conversation, such as Slack `thread_ts`, Telegram forum topic, Teams reply chain, or a Web UI branch.                                                                          |
+| `AgentConversationBinding` | Domain                   | The relationship that says an agent is present in a conversation or thread with trigger, routing, permissions, memory scope, and workspace projection.                                                     |
+| `User`                     | Domain                   | A human or service actor known to an app. Provider-specific user ids are aliases.                                                                                                                          |
+| `Message`                  | Domain                   | A normalized inbound, outbound, system, or tool-visible communication event within a conversation or thread.                                                                                               |
+| `MessagePart`              | Domain                   | A typed part of a message, such as text, markdown, image, file reference, tool result, form response, or structured data.                                                                                  |
+| `MessageAttachment`        | Domain plus adapter      | Binary or external media attached to a message. The domain owns metadata and trust classification; adapters own download and upload mechanics.                                                             |
+| `AgentSession`             | Domain                   | Canonical continuity state for an agent in an app, conversation, thread, job, or run context. It survives provider swaps.                                                                                  |
+| `ProviderSession`          | Adapter                  | A provider-specific resume token or transcript pointer, such as a Claude session id. It is attached to an `AgentSession`.                                                                                  |
+| `AgentRun`                 | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                                                  |
+| `RuntimeEvent`             | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and outbound webhook delivery events. Audit records remain in their owning modules.                                    |
+| `ExternalIngress`          | Application/storage      | A signed inbound authority record for external systems. It derives app scope, protects nonce replay, records invocations, and dispatches only to approved session, conversation, job, or template targets. |
+| `MemorySubject`            | Domain                   | A memory boundary for app, agent, user, group/team, conversation, or common shared memory.                                                                                                                 |
+| `Job`                      | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                                                   |
+| `ToolCatalogItem`          | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                                          |
+| `SkillCatalogItem`         | Domain catalog           | A reusable behavior package or prompt/tool bundle that can be attached to agent config versions.                                                                                                           |
+| `PermissionPolicy`         | Domain                   | A named policy attached to an app, agent, binding, tool, job, or sandbox profile.                                                                                                                          |
+| `PermissionRule`           | Domain                   | A deterministic rule inside a policy. It can allow, deny, require approval, or require a sandbox lease.                                                                                                    |
+| `PermissionDecision`       | Domain/application       | The audited result of evaluating a request against policy and runtime context.                                                                                                                             |
+| `SandboxProfile`           | Domain/application       | A named execution environment policy: filesystem, network, process, browser, credential, timeout, and approval behavior.                                                                                   |
+| `SandboxLease`             | Runtime/application      | A time-bounded grant to execute work under a sandbox profile for a specific run or tool call.                                                                                                              |
+| `WorkspaceSnapshot`        | Runtime/application      | A stable view of workspace files, mounts, prompt profile inputs, and generated runtime context used for an agent run.                                                                                      |
+| `BrowserProfile`           | Domain/application       | A named browser identity with storage state, auth markers, allowed usage, and ownership policy.                                                                                                            |
 
 ## Relationships And Lifecycle
 
@@ -181,7 +181,10 @@ histories remain in their owned modules.
 
 `ExternalIngress` is inbound. It is not a webhook callback destination. It
 derives app scope from its record and can only invoke configured target kinds:
-session messages, existing job triggers, or constrained one-time job templates.
+app/API session messages, provider-neutral conversation messages, existing job
+triggers, or constrained one-time job templates. Conversation-message ingress
+accepts Gantry `conversationId` and `threadId` values only; provider transport
+ids are resolved internally.
 
 ### Memory And Jobs
 
@@ -203,18 +206,18 @@ permission policy or sandbox lease rules.
 input schema, output schema, risk category, default policy, required sandbox
 profile, credential broker needs, and adapter binding.
 
-`SkillCatalogItem` describes a reusable behavior package. It may provide prompt
-sections, tools, workflows, docs, or setup hooks. Attaching a skill to an agent
-requires an approved skill and an agent skill binding. Agent-created
-skills begin as durable draft artifacts with a content hash and storage ref;
-drafts are not runtime inputs until approved.
+`SkillCatalogItem` describes an installed reusable behavior package. It may
+provide prompt sections, tools, workflows, docs, or setup hooks. Attaching a
+skill to an agent requires an installed skill and an agent skill binding.
+Agent-created skills begin as pending review requests; approval installs and
+binds the current package.
 
 `McpServerDefinition` describes a third-party MCP capability before it is
 available to an agent. It stores app ownership, reviewed transport shape, risk
 classification, credential reference names, status, and audit metadata.
-`McpServerVersion` is immutable review output. `AgentMcpServerBinding` attaches
-an approved version to an agent. Provider sessions and Claude config files do
-not own MCP state; they only receive a per-run adapter projection.
+`AgentMcpServerBinding` attaches the current active server definition to an
+agent. Provider sessions and Claude config files do not own MCP state; they
+only receive a per-run adapter projection.
 
 `PermissionPolicy` groups deterministic rules. It is attached explicitly to an
 app, agent, binding, tool catalog item, job, or sandbox profile.
@@ -273,16 +276,16 @@ Mapping rules:
 
 These mappings describe current code so future refactors know what to replace:
 
-| Current implementation             | Canonical target                                                                            |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- |
-| Registered group                   | `AgentConversationBinding` plus `Conversation` and optional `ConversationThread`            |
-| Group JID/chat JID                 | Provider alias for `Conversation`                                                           |
-| Group folder                       | Workspace projection for `AgentConversationBinding` and `WorkspaceSnapshot`                 |
-| Legacy sender/control lists        | Sender policy and conversation approver inputs                                              |
-| Claude session id                  | `ProviderSession` attached to `AgentSession`                                                |
-| Group queue key                    | Queue key derived from canonical app, agent, conversation, thread, session, and run context |
-| Host runner process                | Runtime execution adapter governed by `SandboxProfile` and `SandboxLease`                   |
-| Control events                     | `RuntimeEvent` records projected to SDK lists, SSE/wait, run/job event views, and webhooks  |
+| Current implementation      | Canonical target                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| Registered group            | `AgentConversationBinding` plus `Conversation` and optional `ConversationThread`            |
+| Group JID/chat JID          | Provider alias for `Conversation`                                                           |
+| Group folder                | Workspace projection for `AgentConversationBinding` and `WorkspaceSnapshot`                 |
+| Legacy sender/control lists | Sender policy and conversation approver inputs                                              |
+| Claude session id           | `ProviderSession` attached to `AgentSession`                                                |
+| Group queue key             | Queue key derived from canonical app, agent, conversation, thread, session, and run context |
+| Host runner process         | Runtime execution adapter governed by `SandboxProfile` and `SandboxLease`                   |
+| Control events              | `RuntimeEvent` records projected to SDK lists, SSE/wait, run/job event views, and webhooks  |
 
 ## Adapter Boundaries
 

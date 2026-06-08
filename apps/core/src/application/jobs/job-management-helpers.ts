@@ -143,6 +143,7 @@ export function authenticatedContextFromAccess(
 export function assertExecutionContextMatchesAuthenticatedContext(input: {
   executionContext?: JobExecutionContextInput;
   authenticatedContext: AuthenticatedJobRouteContext;
+  enforceThread?: boolean;
 }): JobExecutionContextInput {
   const expected = input.authenticatedContext;
   const provided =
@@ -161,7 +162,10 @@ export function assertExecutionContextMatchesAuthenticatedContext(input: {
       'executionContext groupScope must match authenticated group scope.',
     );
   }
-  if ((provided.threadId ?? null) !== (expected.threadId ?? null)) {
+  if (
+    input.enforceThread !== false &&
+    (provided.threadId ?? null) !== (expected.threadId ?? null)
+  ) {
     throw new ApplicationError(
       'FORBIDDEN',
       'executionContext threadId must match authenticated thread binding.',

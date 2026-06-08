@@ -33,6 +33,8 @@ export interface TaskIpcData {
       kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
       name?: string;
       executablePath?: string;
+      executableVersion?: string;
+      executableHash?: string;
       commandTemplate?: string;
       authPreflight?: string;
       protectedPaths?: string[];

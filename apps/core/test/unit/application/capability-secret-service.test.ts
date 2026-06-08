@@ -115,7 +115,7 @@ describe('CapabilitySecretService', () => {
     });
   });
 
-  it('resolves skill-scoped secrets for selected skill env vars', async () => {
+  it('resolves skill-scoped secrets for selected skill action env refs', async () => {
     const repository = new InMemoryCapabilitySecretRepository();
     const service = new CapabilitySecretService(repository);
     const appId = 'default' as AppId;
@@ -132,6 +132,17 @@ describe('CapabilitySecretService', () => {
         appId,
         agentId: 'agent:one' as never,
         secrets: repository,
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'skill.private.publish',
+            sourceType: 'skill_action',
+            auditLabel: 'Private Skill publish',
+            skillId: 'skill:private',
+            selectedAction: 'publish',
+            declaredEnvRefs: ['PRIVATE_SKILL_TOKEN_REF'],
+            commandRules: ['RunCommand(skills/private-skill/post.py *)'],
+          },
+        ],
         skills: {
           listEnabledSkillsForAgent: async () => [
             {
@@ -145,6 +156,40 @@ describe('CapabilitySecretService', () => {
       }),
     ).resolves.toEqual({
       env: { PRIVATE_SKILL_TOKEN_REF: 'token-value' },
+    });
+  });
+
+  it('does not project selected skill secrets without selected action authority', async () => {
+    const repository = new InMemoryCapabilitySecretRepository();
+    const service = new CapabilitySecretService(repository);
+    const appId = 'default' as AppId;
+
+    await service.set({
+      appId,
+      name: 'PRIVATE_SKILL_TOKEN_REF',
+      value: 'token-value',
+      allowedCapabilityIds: ['skill.private.publish'],
+    });
+
+    await expect(
+      resolveSelectedSkillEnvForAgent({
+        appId,
+        agentId: 'agent:one' as never,
+        secrets: repository,
+        runtimeAccess: [],
+        skills: {
+          listEnabledSkillsForAgent: async () => [
+            {
+              id: 'skill:private' as never,
+              appId,
+              name: 'Private Skill',
+              requiredEnvVars: ['PRIVATE_SKILL_TOKEN_REF'],
+            },
+          ],
+        } as never,
+      }),
+    ).resolves.toEqual({
+      env: {},
     });
   });
 });

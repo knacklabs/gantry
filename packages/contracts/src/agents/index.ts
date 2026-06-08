@@ -12,7 +12,7 @@ export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
 export const AgentPersonaSchema = z.enum([
   'developer',
-  'personal_assistant',
+  'generalist',
   'sales',
   'marketing',
   'operations',

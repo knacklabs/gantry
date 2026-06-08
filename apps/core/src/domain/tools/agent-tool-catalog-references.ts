@@ -16,7 +16,6 @@ import {
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from '../../shared/generated-runtime-paths.js';
 import {
-  getBuiltinSemanticCapability,
   semanticCapabilityInputSchema,
   type SemanticCapabilityDefinition,
   validateSemanticCapabilityDefinition,
@@ -38,8 +37,7 @@ export async function ensureAgentToolCatalogItem(input: {
   const reference = input.reference.trim();
   const requestedSemanticCapabilityId = parseSemanticCapabilityRule(reference);
   const requestedCapability = requestedSemanticCapabilityId
-    ? (input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId] ??
-      getBuiltinSemanticCapability(requestedSemanticCapabilityId))
+    ? input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId]
     : undefined;
   if (requestedSemanticCapabilityId && requestedCapability) {
     return saveSemanticCapabilityTool({
@@ -67,8 +65,7 @@ export async function ensureAgentToolCatalogItem(input: {
   const semanticCapabilityId = parseSemanticCapabilityRule(allowedRule);
   if (semanticCapabilityId) {
     const capability =
-      input.semanticCapabilityDefinitions?.[semanticCapabilityId] ??
-      getBuiltinSemanticCapability(semanticCapabilityId);
+      input.semanticCapabilityDefinitions?.[semanticCapabilityId];
     if (!capability) {
       throw new Error(
         `Unknown semantic capability ${semanticCapabilityId}. Review and register a user-defined capability before selecting it.`,
@@ -188,10 +185,7 @@ export async function resolveAgentToolReference(input: {
   if (!validation.ok) return { error: validation.reason };
   const semanticCapabilityId = parseSemanticCapabilityRule(reference);
   if (semanticCapabilityId) {
-    if (
-      getBuiltinSemanticCapability(semanticCapabilityId) ||
-      input.semanticCapabilityDefinitions?.[semanticCapabilityId]
-    ) {
+    if (input.semanticCapabilityDefinitions?.[semanticCapabilityId]) {
       return {};
     }
     return {

@@ -33,11 +33,11 @@ Durable state stays outside Claude runtime files:
   permission policy, sessions, messages, and runs.
 - `FileArtifactStore` owns durable agent file bytes by storage ref; Postgres
   stores metadata, ownership, virtual path, scope, version, hash, and policy.
-- `SkillArtifactStore` owns approved or draft local skill source bytes by
-  storage ref; Postgres stores metadata, status, hash, bindings, and provider
+- `SkillArtifactStore` owns installed local skill source bytes by storage ref;
+  Postgres stores metadata, status, storage pointers, bindings, and credential
   refs.
-- Postgres owns MCP server definitions, reviewed versions, agent bindings,
-  Gantry Secret reference names, and audit events. Claude SDK `mcpServers` is a
+- Postgres owns current MCP server definitions, agent bindings, Gantry
+  Credential reference names, and audit events. Claude SDK `mcpServers` is a
   per-run projection, not durable truth.
 - Package or configured local skill folders provide file-based Claude skills.
 - Gantry may add runtime-installed skills into the generated per-run config
@@ -74,7 +74,7 @@ Local Claude skills are files. Durable Gantry skill identity is the exact
 catalog id (`skill:<id>`). Settings and API source views may show the skill
 name beside that id for readability, but the name is only a display hint and
 per-run SDK directory name. The materializer copies valid skill folders or
-approved skill artifacts containing `SKILL.md` into the temp `skills/`
+installed skill artifacts containing `SKILL.md` into the temp `skills/`
 directory for that run. The adapter then passes the exact materialized skill
 names to `query({ options: { skills } })`. Memory and slash helper queries pass
 `skills: []` so they cannot inherit filesystem or Claude-native skills.
@@ -101,14 +101,17 @@ files. It also rejects a skill whose `SKILL.md` frontmatter `name:` would
 materialize to a different SDK skill name than the Gantry catalog name; the
 catalog name, temp directory, and declared SDK skill name must agree.
 
-Agent-created or admin-uploaded skills enter Gantry as zip uploads containing
-`SKILL.md`. Gantry parses display metadata from that file, stores the normalized
-reviewed package under runtime-home `artifacts/skills/...`, and records draft
-lifecycle state in Postgres. Settings and Control API source selections render
-the readable skill name beside the exact `skill:<id>` catalog id; the id is the
-authority and the name is display-only. Drafts survive restart but are not
-materialized or attached to hosted agents until approved. Rejected, disabled,
-and superseded skill artifacts are retained for history and not used at runtime.
+Agent-created or admin-uploaded skills enter Gantry as packages containing
+`SKILL.md`. Gantry parses display metadata from that file and stores the
+normalized installed package under runtime-home
+`artifacts/skills/<skill-directory>/`. Admin
+CLI/API installation installs immediately. Agent requests create a same-channel
+review request; a positive decision installs the current package and binds it
+to the requesting agent, while rejection records only the request outcome.
+Settings and Control API source selections render the readable skill name beside
+the exact `skill:<id>` catalog id; the id is the authority and the name is
+display-only. A reinstall of the same materialized skill directory replaces the
+current package instead of creating another installed skill row.
 
 The canonical tool execution policy, projected through the Claude Agent SDK
 `PreToolUse` hook, blocks direct agent edits to skill capability files such as
@@ -116,13 +119,13 @@ The canonical tool execution policy, projected through the Claude Agent SDK
 Agents must use
 `mcp__gantry__request_skill_install` for reviewed skill installs or
 `mcp__gantry__request_skill_proposal` for skill file bundles. Admins/users can
-also use the zip draft upload API. All paths review and persist the change
+also use the skill install API or CLI. All paths persist the installed package
 outside temporary Claude config before next-run activation.
 
-Approval makes the artifact eligible for per-agent binding and per-run
-materialization. Gantry does not keep catalog, URL, GitHub, or hosted-provider
-refs as skill authority; every install path converges into the reviewed local
-`SKILL.md` package and one approval decision.
+Installation plus selected agent capability makes the artifact eligible for
+per-run materialization. Gantry does not keep catalog, URL, GitHub, or
+hosted-provider refs as skill authority; every install path converges into the
+current local `SKILL.md` package and one binding decision.
 
 ## MCP Servers
 
@@ -130,16 +133,17 @@ The built-in `gantry` MCP server is internal runtime wiring. It is always
 included by the runner, cannot be disabled by admin catalog records, and must be
 reported as connected by Claude init before a run is trusted.
 
-Third-party MCP servers are managed like approved agent capabilities. Admins
-create or approve a Postgres MCP definition and immutable reviewed version, then
-bind that version to an agent. Only approved, enabled bindings are projected
-into Agent SDK `mcpServers` for the next run. Pending, rejected, disabled,
+Third-party MCP servers are managed as connected resources plus selected agent
+capabilities. Admins connect one current Postgres MCP definition and bind it to
+an agent in the same service path. Only active definitions with enabled
+bindings are projected into Agent SDK `mcpServers` for the next run. Disabled,
 cross-app, or unbound MCP definitions are not rendered into Claude settings,
 FileArtifacts, or allowed tools.
 
 Agents can request an MCP server through the built-in Gantry MCP tool, but that
-request only creates a pending draft for admin review. It never approves,
-binds, or activates the server in the current run.
+request only creates a pending review item. A positive decision connects the
+current server definition and binds it to the requesting agent; rejection records
+only the request outcome.
 
 The same canonical policy blocks direct agent edits to MCP capability
 configuration such as `.mcp.json`, MCP server settings, permission settings,
@@ -153,7 +157,7 @@ Same-conversation MCP prompts are only a delivery surface. The deciding user
 must still be listed as a conversation approver for the origin conversation and
 must be a current member when they click approve or reject. Normal chat
 participants cannot grant persistent capabilities. The runner includes the
-origin conversation/thread in IPC, and the host rejects the draft before review
+origin conversation/thread in IPC, and the host rejects the request before review
 if that conversation is not registered to the requesting agent folder or if the
 request tries to route approval to another bound conversation.
 
@@ -165,16 +169,16 @@ approved endpoint into runtime-local or metadata access. Runtime materialization
 uses a short in-process TTL cache for same-batch coalescing only; the cache is
 not durable trust and must not extend the DNS rebinding window across runs.
 Stdio-template MCP servers require an explicit sandbox profile and are control
-API/SDK-only in v1; agent requests and CLI draft creation only advertise
+API/SDK-only in v1; agent requests and simple CLI connect flows only advertise
 HTTP/SSE. The `npx-package` template accepts exactly one safe npm package
 argument; other v1 stdio templates do not accept caller-supplied args.
 
-MCP credentials are Gantry Secret env names such as `GITHUB_TOKEN`. Raw tokens,
+MCP credentials are Gantry Credential env names such as `GITHUB_TOKEN`. Raw tokens,
 API keys, OAuth values, runtime secrets, and database URLs must not be stored in
 MCP definitions or inherited by third-party MCP processes. Runtime
 materialization resolves only the reviewed credential refs for selected MCP
 servers from the encrypted capability secret store, not arbitrary host
-environment keys or model broker profiles. Resolved MCP credentials are handed
+environment keys or model gateway profiles. Resolved MCP credentials are handed
 to the runner through a private per-run config file with `0600` permissions, and
 the runner deletes that file after reading it. The host also removes the
 handoff file during spawn cleanup so early runner failures do not leave
@@ -184,7 +188,7 @@ credential artifacts on disk.
 third-party MCP server. `autoApproveToolPatterns` is narrower session-only
 auto-allow scope and must be inside the allowed set when an explicit allowlist
 exists. Agent-requested credential needs are labels; the host maps them to
-normalized Gantry Secret names like `GITHUB_TOKEN` rather than letting the
+normalized Gantry Credential names like `GITHUB_TOKEN` rather than letting the
 agent submit raw values.
 
 ## Provider Artifacts

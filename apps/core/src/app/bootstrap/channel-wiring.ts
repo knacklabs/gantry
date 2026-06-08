@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
@@ -12,7 +10,6 @@ import {
 } from '../../domain/types.js';
 import {
   findChannel,
-  formatOutboundForChannel,
   stripInternalTagsPreserveWhitespace,
 } from '../../messaging/router.js';
 import {
@@ -78,6 +75,7 @@ import {
   createRecoveryDispatchPermit,
   sanitizeDeliveryError,
 } from './channel-wiring-delivery-guards.js';
+import { createConversationOutboundProjection } from './conversation-outbound-projection.js';
 import { sanitizeRetryTailForCanonicalDestination } from './runtime-services-destination-hints.js';
 import { nowIso } from '../../shared/time/datetime.js';
 export type { ChannelWiring } from './channel-wiring-types.js';
@@ -312,42 +310,39 @@ export function createChannelWiring(
       return;
     }
 
-    const formattedRaw = formatOutboundForChannel(
+    const projection = createConversationOutboundProjection({
       rawText,
-      providerForJid(jid)?.id ?? channel.name,
-    );
-    if (!formattedRaw) return;
-    // Channel-neutral, last-resort customer-safety backstop: redact internal
-    // implementation detail from customer-facing replies (skipped for
-    // developer-persona agents). Behind the system prompt + guardrail, not a
-    // replacement for them.
-    const formatted = guardCustomerVisibleOutput({
-      text: formattedRaw,
-      persona: app.getConversationRoutes()[jid]?.agentConfig?.persona,
+      channelName: channel.name,
+      providerId: providerForJid(jid)?.id ?? channel.name,
       conversationJid: jid,
+      threadId: options.messageOptions?.threadId,
+      appId: resolved.appId,
+      publishRuntimeEvent: resolved.publishRuntimeEvent,
       logger: resolved.logger,
+      guardFormatted: (formatted) =>
+        guardCustomerVisibleOutput({
+          text: formatted,
+          persona: app.getConversationRoutes()[jid]?.agentConfig?.persona,
+          conversationJid: jid,
+          logger: resolved.logger,
+        }),
     });
-    // Flow trace: the final customer-visible reply, keyed by the real
-    // conversation JID.
+    if (!projection) return;
+    const {
+      formatted,
+      provider,
+      messageId,
+      baseMessage,
+      publishEvent: publishConversationOutboundEvent,
+    } = projection;
+
     flowLog(resolved.logger, 'outbound', {
       jid,
       replyChars: formatted.length,
       reply: formatted,
     });
-    // ⚠️ SAFETY: when an LLM/agent is testing, ALWAYS keep
-    // GANTRY_OUTBOUND_DRYRUN=1 so the test reply never reaches a real WhatsApp
-    // user. In dry-run we STILL persist the reply under its own conversation (so
-    // the admin panel shows the full per-number thread — independent test lanes,
-    // no funnelling to the operator), but skip the operator redirect and the
-    // provider send: "everything works + DB persists; only the WhatsApp send is
-    // off". GANTRY_OUTBOUND_DRYRUN=0 (or unset) → reply is sent for real.
+
     if (process.env.GANTRY_OUTBOUND_DRYRUN === '1') {
-      // Dev test mode. Always persist the reply under its OWN conversation (the
-      // admin panel shows the full per-number thread). Then SEND only when the
-      // conversation's number is explicitly in GANTRY_TEST_OPERATOR_PHONE
-      // (self-routed, x->x): a real listed number delivers via the provider, a
-      // fake listed number fails there (still persisted), and any number NOT in
-      // the list — i.e. a real customer — is never sent to.
       let deliveryStatus: 'sent' | 'failed' = 'sent';
       let delivery: MessageDeliveryResult | undefined;
       if (isTestOperatorJid(jid)) {
@@ -381,16 +376,7 @@ export function createChannelWiring(
       if (options.persistence === 'message_row_projection') {
         try {
           await optionalOps()?.storeMessage({
-            id: `outbound:${randomUUID()}`,
-            chat_jid: jid,
-            provider: providerForJid(jid)?.id ?? channel.name,
-            sender: 'gantry',
-            sender_name: 'Gantry',
-            content: formatted,
-            timestamp: nowIso(),
-            is_from_me: true,
-            is_bot_message: true,
-            thread_id: options.messageOptions?.threadId,
+            ...baseMessage,
             delivery_status: deliveryStatus,
           });
         } catch (err) {
@@ -400,27 +386,12 @@ export function createChannelWiring(
           );
         }
       }
-      return delivery ?? { externalMessageId: `dryrun:${randomUUID()}` };
+      await publishConversationOutboundEvent({
+        deliveryStatus,
+        externalMessageId: delivery?.externalMessageId,
+      });
+      return delivery ?? { externalMessageId: `dryrun:${messageId}` };
     }
-    // Past the dry-run branch above, this is a real production send to the actual
-    // conversation. GANTRY_TEST_OPERATOR_PHONE does NOT redirect here — it scopes
-    // sends ONLY inside dry-run (see that branch) and grants session-command
-    // access; in production every reply goes to its own conversation.
-    const provider = providerForJid(jid)?.id ?? channel.name;
-    const now = nowIso();
-    const messageId = `outbound:${randomUUID()}`;
-    const baseMessage = {
-      id: messageId,
-      chat_jid: jid,
-      provider: provider,
-      sender: 'gantry',
-      sender_name: 'Gantry',
-      content: formatted,
-      timestamp: now,
-      is_from_me: true,
-      is_bot_message: true,
-      thread_id: options.messageOptions?.threadId,
-    };
 
     let durableAttempt:
       | Awaited<ReturnType<DurableOutboundAttemptFactory>>
@@ -569,6 +540,10 @@ export function createChannelWiring(
           'Failed to persist outbound delivery failure',
         );
       }
+      await publishConversationOutboundEvent({
+        deliveryStatus: partial ? 'partially_sent' : 'failed',
+        error: sanitizeDeliveryError(err, provider),
+      });
       throw thrownError;
     }
 
@@ -669,6 +644,10 @@ export function createChannelWiring(
         }
       }
     }
+    await publishConversationOutboundEvent({
+      deliveryStatus: 'sent',
+      externalMessageId: result?.externalMessageId,
+    });
     return result;
   }
 

@@ -11,7 +11,6 @@ const configMocks = vi.hoisted(() => ({
 
 vi.mock('@core/config/index.js', () => ({
   GANTRY_HOME: '/tmp/gantry-control-test-home',
-  ONECLI_ALLOWED_ENV_KEYS: [],
   getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
   syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
   getDefaultModelConfig: configMocks.getDefaultModelConfig,
@@ -129,7 +128,7 @@ const opsRepo = {
       folder: 'app-folder',
       trigger: '@App',
       added_at: '2026-04-24T00:00:00.000Z',
-      agentConfig: { persona: 'personal_assistant' },
+      agentConfig: { persona: 'generalist' },
     },
   })),
   upsertJob: vi.fn(async (job) => ({ job, created: true })),
@@ -232,7 +231,7 @@ beforeEach(() => {
       folder: 'app-folder',
       trigger: '@App',
       added_at: '2026-04-24T00:00:00.000Z',
-      agentConfig: { persona: 'personal_assistant' },
+      agentConfig: { persona: 'generalist' },
     },
   });
   opsRepo.upsertJob.mockClear();
@@ -397,13 +396,13 @@ describe('control job trigger', () => {
           source: 'system default',
           workload: 'recurring_job',
           model: {
-            displayName: 'Opus 4.7',
+            displayName: 'Opus 4.8',
             responseFamily: 'anthropic',
             modelRoute: {
               id: 'anthropic',
               label: 'Anthropic',
               metadata: {
-                providerModelId: 'claude-opus-4-7',
+                providerModelId: 'claude-opus-4-8',
               },
             },
           },
@@ -485,7 +484,7 @@ describe('control job trigger', () => {
             trigger: '@App',
             requiresTrigger: false,
             conversationKind: 'channel',
-            agentConfig: { persona: 'personal_assistant' },
+            agentConfig: { persona: 'generalist' },
           },
         }),
       } as never,
@@ -519,7 +518,7 @@ describe('control job trigger', () => {
         modelAlias: 'opus',
         modelSource: 'system default',
         model: {
-          displayName: 'Opus 4.7',
+          displayName: 'Opus 4.8',
         },
         runtimeContext: {
           executionContext: {
@@ -535,7 +534,7 @@ describe('control job trigger', () => {
               label: 'primary',
             },
           ],
-          persona: 'personal_assistant',
+          persona: 'generalist',
           browserProfileLabel: 'App Folder conversation browser',
           browserProfileName: expect.stringMatching(
             /^c-app-folder-[a-f0-9]{12}$/,
@@ -583,7 +582,7 @@ describe('control job trigger', () => {
             trigger: '@App',
             requiresTrigger: false,
             conversationKind: 'channel',
-            agentConfig: { persona: 'personal_assistant' },
+            agentConfig: { persona: 'generalist' },
           },
         }),
       } as never,
@@ -635,7 +634,7 @@ describe('control job trigger', () => {
     }
   });
 
-  it('creates required Browser jobs as active when the control route sees browser readiness', async () => {
+  it('creates required Browser jobs as active when Browser is selected for the agent', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -657,7 +656,7 @@ describe('control job trigger', () => {
             trigger: '@App',
             requiresTrigger: false,
             conversationKind: 'channel',
-            agentConfig: { persona: 'personal_assistant' },
+            agentConfig: { persona: 'generalist' },
           },
         }),
       } as never,
@@ -686,7 +685,7 @@ describe('control job trigger', () => {
       );
 
       expect(response.status).toBe(201);
-      expect(browserMocks.getBrowserStatus).toHaveBeenCalled();
+      expect(browserMocks.getBrowserStatus).not.toHaveBeenCalled();
       expect(opsRepo.upsertJob).toHaveBeenCalledWith(
         expect.objectContaining({
           tool_access_requirements: ['Browser'],
@@ -720,7 +719,7 @@ describe('control job trigger', () => {
             trigger: '@App',
             requiresTrigger: false,
             conversationKind: 'channel',
-            agentConfig: { persona: 'personal_assistant' },
+            agentConfig: { persona: 'generalist' },
           },
         }),
       } as never,
@@ -735,18 +734,18 @@ describe('control job trigger', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             name: 'Lead Sync',
-            prompt: 'Append leads to Google Sheets',
+            prompt: 'Append leads to Acme Records',
             capabilityRequirements: [
               {
-                capabilityId: 'google.sheets.write',
+                capabilityId: 'acme.records.append',
                 reason: 'Write lead rows after each run',
                 implementation: {
                   kind: 'local_cli',
-                  name: 'gog',
-                  executablePath: '/usr/local/bin/gog',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
                   executableVersion: 'v0.9.0',
                   executableHash: 'sha256:abc123',
-                  commandTemplate: '/usr/local/bin/gog sheets append *',
+                  commandTemplate: '/usr/local/bin/acme records append *',
                 },
               },
             ],
@@ -765,13 +764,13 @@ describe('control job trigger', () => {
         expect.objectContaining({
           capability_requirements: [
             expect.objectContaining({
-              capabilityId: 'google.sheets.write',
-              implementation: expect.objectContaining({ name: 'gog' }),
+              capabilityId: 'acme.records.append',
+              implementation: expect.objectContaining({ name: 'acme' }),
             }),
           ],
-          tool_access_requirements: ['capability:google.sheets.write'],
+          tool_access_requirements: ['capability:acme.records.append'],
           status: 'paused',
-          setup_state: expect.objectContaining({ state: 'draft_only' }),
+          setup_state: expect.objectContaining({ state: 'missing_capability' }),
         }),
       );
     } finally {
@@ -800,7 +799,7 @@ describe('control job trigger', () => {
             trigger: '@App',
             requiresTrigger: false,
             conversationKind: 'channel',
-            agentConfig: { persona: 'personal_assistant' },
+            agentConfig: { persona: 'generalist' },
           },
         }),
       } as never,
@@ -872,7 +871,7 @@ describe('control job trigger', () => {
             trigger: '@App',
             requiresTrigger: false,
             conversationKind: 'channel',
-            agentConfig: { persona: 'personal_assistant' },
+            agentConfig: { persona: 'generalist' },
           },
         }),
       } as never,
@@ -1250,15 +1249,15 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             capabilityRequirements: [
               {
-                capabilityId: 'google.sheets.write',
+                capabilityId: 'acme.records.append',
                 reason: 'Write lead rows after each run',
                 implementation: {
                   kind: 'local_cli',
-                  name: 'gog',
-                  executablePath: '/usr/local/bin/gog',
+                  name: 'acme',
+                  executablePath: '/usr/local/bin/acme',
                   executableVersion: 'v0.9.0',
                   executableHash: 'sha256:abc123',
-                  commandTemplate: '/usr/local/bin/gog sheets append *',
+                  commandTemplate: '/usr/local/bin/acme records append *',
                 },
               },
             ],
@@ -1272,13 +1271,13 @@ describe('control job trigger', () => {
         expect.objectContaining({
           capability_requirements: [
             expect.objectContaining({
-              capabilityId: 'google.sheets.write',
-              implementation: expect.objectContaining({ name: 'gog' }),
+              capabilityId: 'acme.records.append',
+              implementation: expect.objectContaining({ name: 'acme' }),
             }),
           ],
-          tool_access_requirements: ['capability:google.sheets.write'],
+          tool_access_requirements: ['capability:acme.records.append'],
           status: 'paused',
-          setup_state: expect.objectContaining({ state: 'draft_only' }),
+          setup_state: expect.objectContaining({ state: 'missing_capability' }),
         }),
       );
     } finally {
@@ -2001,7 +2000,7 @@ describe('control job trigger', () => {
               explicit: false,
             },
             model: expect.objectContaining({
-              displayName: 'Opus 4.7',
+              displayName: 'Opus 4.8',
             }),
             toolAccess: expect.objectContaining({
               inheritedAgentTools: [],
@@ -2065,7 +2064,7 @@ describe('control job trigger', () => {
           explicit: false,
         },
         model: expect.objectContaining({
-          displayName: 'Opus 4.7',
+          displayName: 'Opus 4.8',
         }),
         toolAccess: expect.objectContaining({
           inheritedAgentTools: [],

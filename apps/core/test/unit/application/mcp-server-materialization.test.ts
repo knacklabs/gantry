@@ -4,27 +4,27 @@ import { materializeMcpRecord } from '@core/application/mcp/mcp-server-materiali
 
 function recordWithTemplate(templateId: string | undefined) {
   return {
-    definition: { name: 'github' },
-    binding: { required: false },
-    version: {
+    definition: {
+      name: 'github',
       config: { transport: 'stdio_template', templateId },
       credentialRefs: [],
       allowedToolPatterns: ['search'],
       autoApproveToolPatterns: [],
     },
+    binding: { required: false },
   } as never;
 }
 
 function recordWithRemoteTransport(transport: 'http' | 'sse') {
   return {
-    definition: { name: 'github' },
-    binding: { required: false },
-    version: {
+    definition: {
+      name: 'github',
       config: { transport, url: 'https://mcp.example.test/github' },
       credentialRefs: [],
       allowedToolPatterns: ['search'],
       autoApproveToolPatterns: [],
     },
+    binding: { required: false },
   } as never;
 }
 

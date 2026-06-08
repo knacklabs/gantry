@@ -16,11 +16,12 @@ import type {
   RuntimeConfiguredConversation,
 } from './runtime-settings-types.js';
 import { displayToolReference } from '../../shared/agent-tool-references.js';
-import { semanticCapabilityFromToolCatalogItem } from '../../shared/semantic-capabilities.js';
 import {
-  cleanupGeneratedRuntimeCapabilities,
-  skillActionDefinitionsForSkills,
-} from './generated-runtime-capability-cleanup.js';
+  containsGeneratedRuntimeSkillPath,
+  GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
+} from '../../shared/generated-runtime-paths.js';
+import { semanticCapabilityFromToolCatalogItem } from '../../shared/semantic-capabilities.js';
+import { normalizeConfiguredCapabilities } from './configured-capability-normalization.js';
 
 export function activeCapabilities(
   toolBindings: AgentToolBinding[],
@@ -45,14 +46,12 @@ export function activeSources(
         return {
           ...(skill ? { name: skill.name } : {}),
           id: String(skillId),
-          version: 'approved',
         };
       }),
     mcpServers: mcpBindings
       .filter((binding) => binding.status === 'active')
       .map((binding) => ({
         id: String(binding.serverId),
-        version: String(binding.versionId),
       })),
     tools: toolSources
       .filter((source) => source.status === 'active')
@@ -81,15 +80,13 @@ export function readableActiveCapabilities(
       const reference = tool
         ? displayToolReference({ toolId: binding.toolId, tool })
         : String(binding.toolId).replace(/^tool:/, '');
+      if (containsGeneratedRuntimeSkillPath(reference)) {
+        throw new Error(GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON);
+      }
       return capabilityFromToolReference(reference, tool);
     });
-  const activeSkills = (options.skillBindings ?? [])
-    .filter((binding) => binding.status === 'active')
-    .map((binding) => options.skillCatalogById?.get(binding.skillId))
-    .filter((skill): skill is SkillCatalogItem => Boolean(skill));
-  return cleanupGeneratedRuntimeCapabilities({
+  return normalizeConfiguredCapabilities({
     capabilities: rawCapabilities,
-    skillActionDefinitions: skillActionDefinitionsForSkills(activeSkills),
   }).capabilities;
 }
 

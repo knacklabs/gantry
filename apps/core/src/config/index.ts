@@ -196,18 +196,15 @@ export const AGENT_MAX_OUTPUT_SIZE = parseInt(
 ); // 10MB default
 export function getCredentialBrokerRuntimeConfig(): {
   mode: RuntimeSettings['credentialBroker']['mode'];
-  onecliUrl: string;
-  externalBrokerBaseUrl: string;
+  gatewayBindHost: string;
 } {
   const settings = getRuntimeSettingsForConfig();
   return {
     mode: settings.credentialBroker.mode,
-    onecliUrl: settings.credentialBroker.onecli.url,
-    externalBrokerBaseUrl: settings.credentialBroker.external.baseUrl,
+    gatewayBindHost: settings.credentialBroker.gateway.bindHost,
   };
 }
-export const ONECLI_DATABASE_URL = envValue('ONECLI_DATABASE_URL');
-export const ONECLI_SECRET_ENCRYPTION_KEY = envValue('SECRET_ENCRYPTION_KEY');
+export const SECRET_ENCRYPTION_KEY = envValue('SECRET_ENCRYPTION_KEY');
 const normModel = resolveModelAlias;
 export function getConfiguredDefaultModel(): string {
   return normModel(getRuntimeSettingsForConfig().agent.defaultModel) || '';
@@ -232,7 +229,6 @@ export const HOST_CREDENTIAL_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 ] as const;
-export const ONECLI_ALLOWED_ENV_KEYS = ['ANTHROPIC_BASE_URL'] as const;
 type HostCredentialSource = Partial<Record<string, string | undefined>>;
 function readHostCredentialValue(
   key: (typeof HOST_CREDENTIAL_ENV_KEYS)[number],
@@ -280,14 +276,10 @@ export interface ClaudeAuthState {
 export function resolveClaudeAuthState(): ClaudeAuthState {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const credentialMode = brokerConfig.mode;
-  const configured =
-    (credentialMode === 'onecli' && Boolean(brokerConfig.onecliUrl.trim())) ||
-    (credentialMode === 'external' &&
-      Boolean(brokerConfig.externalBrokerBaseUrl.trim()));
   return {
     hasOauthToken: false,
     hasApiKey: false,
-    mode: configured ? 'broker' : 'none',
+    mode: credentialMode === 'gantry' ? 'broker' : 'none',
   };
 }
 export function getMemoryModelRuntimeConfig(): ReturnType<

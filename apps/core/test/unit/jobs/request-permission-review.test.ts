@@ -12,6 +12,42 @@ import {
   requestPermissionReviewSuggestions,
   requestPermissionSetupDecisionOptions,
 } from '@core/jobs/request-permission-review.js';
+import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
+
+const acmeAppendCapability: SemanticCapabilityDefinition = {
+  capabilityId: 'acme.records.append',
+  displayName: 'Acme records append',
+  category: 'Acme',
+  risk: 'write',
+  can: 'Append records through the reviewed CLI binding.',
+  cannot: 'Read unrelated records or expose raw credentials.',
+  credentialSource: 'local_cli',
+  implementationBindings: [
+    {
+      kind: 'local_cli',
+      executablePath: '/usr/local/bin/acme',
+      executableVersion: '1.0.0',
+      executableHash: 'sha256:abc123',
+      commandTemplates: ['/usr/local/bin/acme records append *'],
+    },
+  ],
+};
+
+const acmeAdapterCapability: SemanticCapabilityDefinition = {
+  capabilityId: 'acme.records.get',
+  displayName: 'Acme records get',
+  category: 'Acme',
+  risk: 'read',
+  can: 'Read records through the reviewed adapter binding.',
+  cannot: 'Write records or expose raw credentials.',
+  credentialSource: 'configured_access',
+  implementationBindings: [
+    {
+      kind: 'adapter',
+      adapterRef: 'adapter:acme.records.get',
+    },
+  ],
+};
 
 function depsWith(repository: unknown) {
   return {
@@ -80,14 +116,32 @@ describe('request permission review helpers', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
-        capabilityId: 'google.sheets.write',
+        capabilityId: 'acme.records.append',
+        semanticCapabilityDefinition: acmeAppendCapability,
       }),
     ).toEqual([
       {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [{ toolName: 'capability:google.sheets.write' }],
+        rules: [{ toolName: 'capability:acme.records.append' }],
+      },
+    ]);
+  });
+
+  it('suggests reviewed non-local semantic capability grants from explicit definitions', () => {
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        capabilityId: 'acme.records.get',
+        semanticCapabilityDefinition: acmeAdapterCapability,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'capability:acme.records.get' }],
       },
     ]);
   });
@@ -116,9 +170,9 @@ describe('request permission review helpers', () => {
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
         toolNames: ['Bash'],
-        rule: '/usr/local/bin/gog sheets append *',
-        capabilityId: 'google.sheets.write',
-        capabilityDisplayName: 'Google Sheets write using gog',
+        rule: '/usr/local/bin/acme records append *',
+        capabilityId: 'acme.records.append',
+        capabilityDisplayName: 'Acme records append using acme',
         temporaryOnly: false,
       }),
     ).toEqual([
@@ -129,14 +183,14 @@ describe('request permission review helpers', () => {
         rules: [
           {
             toolName: 'RunCommand',
-            ruleContent: '/usr/local/bin/gog sheets append *',
+            ruleContent: '/usr/local/bin/acme records append *',
           },
         ],
       },
     ]);
   });
 
-  it('canonicalizes interpreter script requests to script-path scoped RunCommand rules', () => {
+  it('does not suggest durable host-owned Python script RunCommand rules', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
@@ -144,19 +198,7 @@ describe('request permission review helpers', () => {
         rule: 'python3 /Users/example/scripts/dedup-append-lead.py *',
         temporaryOnly: false,
       }),
-    ).toEqual([
-      {
-        type: 'addRules',
-        behavior: 'allow',
-        destination: 'session',
-        rules: [
-          {
-            toolName: 'RunCommand',
-            ruleContent: '/Users/example/scripts/dedup-append-lead.py *',
-          },
-        ],
-      },
-    ]);
+    ).toBeUndefined();
 
     expect(
       requestPermissionReviewSuggestions({
@@ -165,19 +207,7 @@ describe('request permission review helpers', () => {
         rule: 'python3 /Users/example/scripts/dedup-append-lead.py',
         temporaryOnly: false,
       }),
-    ).toEqual([
-      {
-        type: 'addRules',
-        behavior: 'allow',
-        destination: 'session',
-        rules: [
-          {
-            toolName: 'RunCommand',
-            ruleContent: '/Users/example/scripts/dedup-append-lead.py *',
-          },
-        ],
-      },
-    ]);
+    ).toBeUndefined();
   });
 
   it('persists reviewed local CLI capabilities with scoped command templates', async () => {
@@ -266,18 +296,18 @@ describe('request permission review helpers', () => {
       disableAgentToolBinding: vi.fn(async () => null),
     };
     const toolInput = {
-      capabilityId: 'google.sheets.write',
-      capabilityDisplayName: 'Google Sheets write using gog',
-      category: 'Google Sheets',
+      capabilityId: 'acme.records.append',
+      capabilityDisplayName: 'Acme records append using acme',
+      category: 'Acme Records',
       risk: 'write',
-      accountLabel: 'gog',
-      can: 'Append rows using gog.',
+      accountLabel: 'acme',
+      can: 'Append rows using acme.',
       cannot: 'Use configured broker Google access.',
       credentialSource: 'local_cli',
-      executablePath: '/usr/local/bin/gog',
+      executablePath: '/usr/local/bin/acme',
       executableVersion: '1.2.3',
-      executableHash: 'sha256:gog',
-      commandTemplates: ['/usr/local/bin/gog sheets append *'],
+      executableHash: 'sha256:acme',
+      commandTemplates: ['/usr/local/bin/acme records append *'],
     };
 
     expect(
@@ -291,7 +321,7 @@ describe('request permission review helpers', () => {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [{ toolName: 'capability:google.sheets.write' }],
+        rules: [{ toolName: 'capability:acme.records.append' }],
       },
     ]);
 
@@ -305,20 +335,20 @@ describe('request permission review helpers', () => {
         {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: 'capability:google.sheets.write' }],
+          rules: [{ toolName: 'capability:acme.records.append' }],
         },
       ],
     });
     expect(repository.saveTool).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'tool:capability:google.sheets.write',
-        name: 'capability:google.sheets.write',
+        id: 'tool:capability:acme.records.append',
+        name: 'capability:acme.records.append',
         kind: 'local_cli',
       }),
     );
     expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({
-        toolId: 'tool:capability:google.sheets.write',
+        toolId: 'tool:capability:acme.records.append',
         status: 'active',
       }),
     );
@@ -700,20 +730,7 @@ describe('request permission review helpers', () => {
         rule: 'python3 /Users/example/runtime/scripts/dedup-append-lead.py',
         temporaryOnly: false,
       }),
-    ).toEqual([
-      {
-        type: 'addRules',
-        behavior: 'allow',
-        destination: 'session',
-        rules: [
-          {
-            toolName: 'RunCommand',
-            ruleContent:
-              '/Users/example/runtime/scripts/dedup-append-lead.py *',
-          },
-        ],
-      },
-    ]);
+    ).toBeUndefined();
   });
 
   it('suggests persistent scoped RunCommand rules from setup recovery actions', () => {
@@ -721,7 +738,7 @@ describe('request permission review helpers', () => {
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',
         toolName: 'RunCommand',
-        rule: 'gog sheets append *',
+        rule: 'acme records append *',
         temporaryOnly: false,
       }),
     ).toEqual([
@@ -729,7 +746,9 @@ describe('request permission review helpers', () => {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [{ toolName: 'RunCommand', ruleContent: 'gog sheets append *' }],
+        rules: [
+          { toolName: 'RunCommand', ruleContent: 'acme records append *' },
+        ],
       },
     ]);
   });
@@ -919,13 +938,20 @@ describe('request permission review helpers', () => {
   });
 
   it('formats public persistent-rule receipts without raw Bash command material', () => {
-    const formatted = formatPersistentPermissionRulesForUser([
-      'RunCommand(curl https://example.com -H Authorization:Bearer abcdefghijklmnopqrstuvwxyz123456)',
-      'capability:google.sheets.write',
-    ]);
+    const formatted = formatPersistentPermissionRulesForUser(
+      [
+        'RunCommand(curl https://example.com -H Authorization:Bearer abcdefghijklmnopqrstuvwxyz123456)',
+        'capability:acme.records.append',
+      ],
+      {
+        semanticCapabilityDefinitions: {
+          'acme.records.append': acmeAppendCapability,
+        },
+      },
+    );
 
-    expect(formatted).toContain('scoped RunCommand rule [sha256:');
-    expect(formatted).toContain('Google Sheets write [sha256:');
+    expect(formatted).toContain('matching command access');
+    expect(formatted).toContain('Acme records append');
     expect(formatted).not.toContain('curl https://example.com');
     expect(formatted).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });

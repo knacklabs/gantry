@@ -28,6 +28,7 @@ import {
   requestPermissionReviewEffect,
   requestPermissionReviewSuggestions,
   requestPermissionSetupDecisionOptions,
+  validateRequestPermissionCapabilityProposal,
   validateRequestPermissionSemanticCapability,
 } from './request-permission-review.js';
 import {
@@ -50,13 +51,17 @@ import {
   formatApprovalRequestedMessage,
   formatNotApprovedMessage,
 } from '../shared/user-visible-messages.js';
-import { getBuiltinSemanticCapability } from '../shared/semantic-capabilities.js';
+import { semanticCapabilityDefinitionFromToolInput } from '../shared/semantic-capabilities.js';
 import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
 import {
   configureSkillInstallHandlers,
-  requestSkillDraftHandler,
   requestSkillInstallHandler,
+  requestSkillProposalHandler,
 } from './ipc-skill-install-handlers.js';
+import {
+  credentialRefsForRequestedMcp,
+  headerNameForCredentialNeed,
+} from './ipc-mcp-server-request-credentials.js';
 
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 
@@ -143,33 +148,24 @@ const registerAgentHandler: TaskHandler = async (context) => {
 const requestMcpServerHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
-  if (!data.appId) {
-    reject('MCP tool listing requires signed app scope.', 'forbidden');
-    return;
-  }
   const payload = data.payload || {};
-  if (!data.appId) {
-    reject('Skill draft requests require signed app scope.', 'forbidden');
-    return;
-  }
   if (!data.appId) {
     reject('MCP server requests require signed app scope.', 'forbidden');
     return;
   }
   const name = toTrimmedString(payload.name, { maxLen: 80 });
   const transport = toTrimmedString(payload.transport, { maxLen: 32 });
-  const origin = toTrimmedString(payload.origin, { maxLen: 2048 });
+  const templateId = toTrimmedString(payload.templateId, { maxLen: 80 });
+  const sandboxProfileId = toTrimmedString(payload.sandboxProfileId, {
+    maxLen: 120,
+  });
   const reason = toTrimmedString(payload.reason, { maxLen: 2000 }) || '';
   if (!name || !reason) {
     reject('Missing required fields: name and reason.', 'invalid_request');
     return;
   }
-  const requestedTargetJid = validateSameChannelApprovalTarget({
-    data,
-    sourceAgentFolderJids,
-    requestKind: 'MCP server',
-    reject,
-  });
+  // prettier-ignore
+  const requestedTargetJid = validateSameChannelApprovalTarget({ data, sourceAgentFolderJids, requestKind: 'MCP server', reject });
   if (!requestedTargetJid) return;
   if (
     typeof deps.requestPermissionApproval !== 'function' ||
@@ -181,10 +177,25 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
     );
     return;
   }
-  if (transport !== 'http' && transport !== 'sse') {
-    reject('transport must be http or sse.', 'invalid_request');
+  if (transport !== 'stdio_template') {
+    reject(
+      'request_mcp_server supports only stdio_template servers until Gantry has a DNS-pinned remote MCP transport.',
+      'invalid_request',
+    );
     return;
   }
+  if (!templateId || !sandboxProfileId) {
+    reject(
+      'stdio_template MCP server requests require templateId and sandboxProfileId.',
+      'invalid_request',
+    );
+    return;
+  }
+  const args = Array.isArray(payload.args)
+    ? payload.args
+        .map((item) => toTrimmedString(item, { maxLen: 240 }))
+        .filter((item): item is string => Boolean(item))
+    : [];
   const requestedToolPatterns = Array.isArray(payload.requestedToolPatterns)
     ? payload.requestedToolPatterns.filter((item): item is string =>
         Boolean(toTrimmedString(item, { maxLen: 160 })),
@@ -197,30 +208,19 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       })
     : [];
   const storage = getRuntimeStorage();
-  const service = new McpServerService(
-    storage.repositories.mcpServers,
-    undefined,
-    {
-      lookupHostname: deps.mcpHostnameLookup,
-    },
-  );
+  // prettier-ignore
+  const service = new McpServerService(storage.repositories.mcpServers, undefined, { lookupHostname: deps.mcpHostnameLookup });
   try {
-    const config = { transport, url: origin };
-    const created = await service.createDraft({
-      appId: data.appId as never,
+    const config = {
+      transport,
+      templateId,
+      ...(args.length > 0 ? { args } : {}),
+    };
+    const credentialRefs = credentialRefsForRequestedMcp(
       name,
-      createdBy: `agent:${sourceAgentFolder}`,
-      createdSource: 'agent_request',
-      requestedReason: reason,
-      transportConfig: config as never,
-      allowedToolPatterns: requestedToolPatterns,
-      credentialRefs: credentialRefsForRequestedMcp(
-        name,
-        transport,
-        credentialNeeds,
-      ),
-      riskClass: 'medium',
-    });
+      transport,
+      credentialNeeds,
+    );
     startMcpPermissionReview({
       deps,
       responder: { acceptData, reject },
@@ -230,10 +230,13 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
-      server: created.definition,
+      server: { name },
       transport,
-      origin: origin || '',
+      sandboxProfileId,
+      transportConfig: config as never,
+      origin: '',
       requestedToolPatterns,
+      credentialRefs,
       credentialNeeds,
       reason,
     });
@@ -273,7 +276,7 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       ...(serverName ? { serverName } : {}),
     });
-    acceptData('Approved MCP tools listed for this agent.', result);
+    acceptData('Connected MCP tools listed for this agent.', result);
   } catch (err) {
     reject(
       err instanceof Error ? err.message : 'MCP tool listing failed.',
@@ -433,7 +436,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
 };
 
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillDraftHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
 
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
@@ -473,12 +476,8 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
       payload.toolName,
       ...(Array.isArray(payload.toolNames) ? payload.toolNames : []),
     ]);
-    if (capabilityId && toolNames.length === 0 && payload.capabilityRequestSource !== 'propose_capability') {
-      return {
-        ok: false,
-        error: 'Capability requests must use propose_capability, not request_permission.',
-      };
-    }
+    const capabilityProposalError = validateRequestPermissionCapabilityProposal({ capabilityId, toolNames, capabilityRequestSource: payload.capabilityRequestSource, toolInput });
+    if (capabilityProposalError) return { ok: false, error: capabilityProposalError };
     const semanticError = validateRequestPermissionSemanticCapability(toolInput);
     if (semanticError) return { ok: false, error: semanticError };
   }
@@ -516,6 +515,10 @@ function sanitizeCapabilityPayload(payload: Record<string, unknown>) {
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'reason') continue;
+    if ((key === 'semanticCapabilityDefinition' || key === 'capabilityDefinition') && value && typeof value === 'object' && !Array.isArray(value)) {
+      output[key] = structuredClone(value);
+      continue;
+    }
     if (Array.isArray(value)) {
       const list = sanitizedStringList(value);
       if (list.length > 0) output[key] = list;
@@ -662,12 +665,13 @@ function semanticCapabilityInteraction(
       : []),
   ]);
   if (toolNames.length > 0) return undefined;
-  const isLocalCliRequest = review.toolInput.credentialSource === 'local_cli';
+  const definition = semanticCapabilityDefinitionFromToolInput(
+    review.toolInput,
+    capabilityId,
+  );
   const displayName =
     toTrimmedString(review.toolInput.capabilityDisplayName, { maxLen: 200 }) ||
-    (isLocalCliRequest
-      ? undefined
-      : getBuiltinSemanticCapability(capabilityId)?.displayName) ||
+    definition?.displayName ||
     capabilityId;
   return {
     id: requestId,
@@ -686,19 +690,20 @@ function semanticCapabilityInteraction(
 function semanticCapabilityInteractionDetails(
   toolInput: Record<string, unknown>,
 ) {
-  const capabilityId = toTrimmedString(toolInput.capabilityId, {
-    maxLen: 160,
-  });
-  const builtin = capabilityId
-    ? getBuiltinSemanticCapability(capabilityId)
+  const capabilityId = toTrimmedString(toolInput.capabilityId, { maxLen: 160 });
+  const definition = capabilityId
+    ? semanticCapabilityDefinitionFromToolInput(toolInput, capabilityId)
     : undefined;
-  if (builtin && toolInput.credentialSource !== 'local_cli') {
+  if (definition) {
     return [
-      { label: 'Capability', value: `capability:${builtin.capabilityId}` },
-      { label: 'Risk', value: builtin.risk },
-      { label: 'Account', value: builtin.accountLabel ?? 'Configured account' },
-      { label: 'Allows', value: builtin.can },
-      { label: 'Does not allow', value: builtin.cannot },
+      { label: 'Capability', value: `capability:${definition.capabilityId}` },
+      { label: 'Risk', value: definition.risk },
+      {
+        label: 'Account',
+        value: definition.accountLabel ?? 'Configured account',
+      },
+      { label: 'Allows', value: definition.can },
+      { label: 'Does not allow', value: definition.cannot },
     ];
   }
   return [
@@ -722,44 +727,14 @@ function detailFromToolInput(
 }
 
 // prettier-ignore
-function credentialRefsForRequestedMcp(serverName: string, transport: string, credentialNeeds: string[]) {
-  if (transport === 'http' || transport === 'sse') {
-    return credentialNeeds.map((ref, index) => ({
-      name: secretNameForRequestedMcp(serverName, ref),
-      target: 'header' as const,
-      key: credentialNeeds.length === 1 && index === 0 ? 'Authorization' : headerNameForCredentialNeed(ref),
-    }));
-  }
-  return credentialNeeds.map((ref) => ({ name: secretNameForRequestedMcp(serverName, ref), target: 'env' as const, key: secretNameForCredentialNeed(ref) }));
-}
-
-// prettier-ignore
-function secretNameForRequestedMcp(serverName: string, credentialNeed: string): string {
-  const server = serverName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  const need = secretNameForCredentialNeed(credentialNeed);
-  return `MCP_${server || 'SERVER'}_${need}_REF`;
-}
-
-// prettier-ignore
-function secretNameForCredentialNeed(credentialNeed: string): string {
-  const need = credentialNeed.replace(/_REF$/i, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  return need.replace(/^_+|_+$/g, '') || 'MCP_CREDENTIAL';
-}
-
-// prettier-ignore
-function headerNameForCredentialNeed(credentialNeed: string): string {
-  return credentialNeed.replace(/_REF$/i, '').replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-}
-
-// prettier-ignore
-function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { id: string; name: string }; transport: string; origin: string; requestedToolPatterns: string[]; credentialNeeds: string[]; reason: string }): void {
+function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { name: string }; transport: string; sandboxProfileId?: string; transportConfig: import('../domain/mcp/mcp-servers.js').McpServerTransportConfig; origin: string; requestedToolPatterns: string[]; credentialRefs: import('../domain/mcp/mcp-servers.js').McpCredentialRef[]; credentialNeeds: string[]; reason: string }): void {
   void completeMcpPermissionReview(input).catch((err) => {
     logger.error(
-      { err, serverId: input.server.id, sourceAgentFolder: input.sourceAgentFolder },
-      'MCP permission review failed',
+      { err, serverName: input.server.name, sourceAgentFolder: input.sourceAgentFolder },
+      'MCP source review failed',
     );
     input.responder.reject(
-      err instanceof Error ? err.message : 'MCP permission review failed.',
+      err instanceof Error ? err.message : 'MCP source review failed.',
       'permission_review_failed',
     );
   });
@@ -779,94 +754,97 @@ async function completeMcpPermissionReview(
     decisionOptions: ['allow_once', 'cancel'],
     toolName: 'request_mcp_server',
     displayName: `MCP server: ${input.server.name}`,
-    title: 'Approve MCP server for this agent',
+    title: 'Connect MCP source for this agent',
     description:
-      'Only configured approvers can decide this request. Approval connects this service to the agent through the Gantry MCP proxy.',
+      'Only configured approvers can decide this request. Approval records this service as an agent source through the Gantry MCP proxy; durable action authority still requires an agent allowed capability selected from a reviewed definition.',
     decisionReason: input.reason,
     toolInput: {
-      serverId: input.server.id,
       name: input.server.name,
       transport: input.transport,
+      sandboxProfileId: input.sandboxProfileId,
       origin: input.origin,
       requestedToolPatterns: input.requestedToolPatterns,
       credentialNeeds: input.credentialNeeds,
-      activation: 'current_and_future_sessions',
+      activation: 'source_inventory_only',
     },
   });
 
   if (!decision.approved) {
-    await rejectMcpDraftFromPermission(input, decision.reason);
+    await rejectMcpRequestFromPermission(input, decision.reason);
     return;
   }
   if (!decision.decidedBy) {
-    await rejectMcpDraftFromPermission(input, 'missing approving principal');
+    await rejectMcpRequestFromPermission(input, 'missing approving principal');
     return;
   }
 
-  let approvalApplied = false;
+  let connectedServerId: string | undefined;
   try {
-    await input.service.approveDraft({
+    const server = await input.service.connectServer({
       appId: input.appId,
-      serverId: input.server.id as never,
-      approvedBy: decision.decidedBy,
+      name: input.server.name,
+      createdBy: decision.decidedBy,
+      createdSource: 'agent_request',
+      requestedReason: input.reason,
+      transportConfig: input.transportConfig,
+      allowedToolPatterns: input.requestedToolPatterns,
+      credentialRefs: input.credentialRefs,
+      sandboxProfileId: input.sandboxProfileId,
+      riskClass: 'medium',
     });
-    approvalApplied = true;
+    connectedServerId = server.id;
     await input.service.bindToAgent({
       appId: input.appId,
       agentId: input.agentId,
-      serverId: input.server.id as never,
+      serverId: server.id,
     });
     await syncApprovedCapabilitySettings(input.appId);
   } catch (err) {
-    if (approvalApplied) {
-      await input.service.rollbackApprovedBinding({
+    if (connectedServerId) {
+      await input.service.rollbackConnectedServer({
         appId: input.appId,
         agentId: input.agentId,
-        serverId: input.server.id as never,
+        serverId: connectedServerId as never,
       });
     }
     throw err;
   }
   const sameSessionContext = {
-    type: 'approved_mcp_context',
-    activation: 'current_and_future_sessions',
+    type: 'connected_mcp_context',
+    activation: 'source_inventory_only',
     server: {
-      id: input.server.id,
+      id: connectedServerId,
       name: input.server.name,
       transport: input.transport,
       origin: input.origin,
     },
-    approvedToolNames: input.requestedToolPatterns,
+    availableToolNames: input.requestedToolPatterns,
     currentSessionUsage: {
       listToolsTool: 'mcp__gantry__mcp_list_tools',
-      callToolTool: 'mcp__gantry__mcp_call_tool',
+      capabilitySearchTool: 'mcp__gantry__capability_search',
+      proposeCapabilityTool: 'mcp__gantry__propose_capability',
+      oneOffFallbackTool: 'mcp__gantry__request_permission',
       serverName: input.server.name,
     },
   };
   await input.deps.sendMessage(
     input.targetJid,
-    `Approved MCP server ${input.server.name}. It is available now.`,
+    `Connected MCP source ${input.server.name}. Review a capability before using durable MCP actions.`,
     input.threadId ? { threadId: input.threadId } : undefined,
   );
   input.responder.acceptData(
-    `Approved MCP server ${input.server.name}. It is available now.`,
+    `Connected MCP source ${input.server.name}. Review a capability before using durable MCP actions.`,
     sameSessionContext,
-    'mcp_approved',
+    'mcp_connected',
   );
 }
 
-async function rejectMcpDraftFromPermission(
+async function rejectMcpRequestFromPermission(
   input: Parameters<typeof startMcpPermissionReview>[0],
   reason?: string,
 ): Promise<void> {
-  await input.service.rejectDraft({
-    appId: input.appId,
-    serverId: input.server.id as never,
-    rejectedBy: 'permission_review',
-    reason,
-  });
   const message = formatNotApprovedMessage({
-    action: 'approve',
+    action: 'connect',
     noun: 'MCP server',
     name: input.server.name,
     reason,

@@ -26,6 +26,7 @@ import type { SessionMemoryCollector } from '../domain/ports/session-memory-coll
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { GuardrailClassifier } from '../application/guardrails/types.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
+import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
@@ -122,6 +123,7 @@ export interface GroupProcessingDeps {
   ) => Promise<void> | void;
   guardrailClassifier?: GuardrailClassifier;
   executionAdapter?: AgentExecutionAdapter;
+  executionAdapters?: AgentExecutionAdapterRegistry;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
 }

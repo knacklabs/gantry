@@ -10,7 +10,6 @@ import type {
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
-import type { AgentCredentialBrokerBinding } from '../../domain/models/credentials.js';
 import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
 import type { Clock } from '../common/clock.js';
 import { ApplicationError } from '../common/application-error.js';
@@ -35,8 +34,10 @@ import {
   parseSemanticCapabilityRule,
   semanticCapabilityRule,
 } from '../../shared/semantic-capability-ids.js';
-import { getBuiltinSemanticCapability } from '../../shared/semantic-capabilities.js';
-import { resolveConversationBrowserProfile } from '../../shared/browser-profile-scope.js';
+import {
+  semanticCapabilityFromToolCatalogItem,
+  type SemanticCapabilityDefinition,
+} from '../../shared/semantic-capabilities.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
@@ -145,6 +146,20 @@ export async function evaluateJobReadiness(
   );
   for (const missingTool of toolPreflight.missingTools) {
     if (draftOnlyRequirementRules.has(missingTool)) continue;
+    const semanticCapabilityId = parseSemanticCapabilityRule(missingTool);
+    if (semanticCapabilityId && !semanticCapabilityId.startsWith('skill.')) {
+      const capability = await catalogSemanticCapabilityDefinition({
+        capabilityId: semanticCapabilityId,
+        appId,
+        repository: input.toolRepository,
+      });
+      if (!capability) {
+        blockers.push(
+          unreviewedSemanticCapabilityBlocker(semanticCapabilityId),
+        );
+        continue;
+      }
+    }
     blockers.push(missingToolBlocker(missingTool));
   }
   for (const requirement of input.job.capability_requirements ?? []) {
@@ -159,8 +174,6 @@ export async function evaluateJobReadiness(
   for (const toolAccessRequirement of toolPreflight.toolAccessRequirements) {
     if (missingToolSet.has(toolAccessRequirement)) continue;
     if (isCanonicalBrowserCapabilityRule(toolAccessRequirement)) {
-      const browserBlocker = await browserReadinessBlocker(input);
-      if (browserBlocker) blockers.push(browserBlocker);
       continue;
     }
     const semanticCapabilityId = parseSemanticCapabilityRule(
@@ -172,6 +185,11 @@ export async function evaluateJobReadiness(
       }
       const credentialBlocker = await semanticCapabilityCredentialBlocker({
         capabilityId: semanticCapabilityId,
+        capability: await catalogSemanticCapabilityDefinition({
+          capabilityId: semanticCapabilityId,
+          appId,
+          repository: input.toolRepository,
+        }),
         agentId,
         broker: input.credentialBroker,
       });
@@ -240,7 +258,7 @@ function capabilityRequirementBlocker(input: {
     return null;
   }
   return {
-    state: 'draft_only',
+    state: 'missing_capability',
     requirementType: 'local_cli',
     requirementId: requirement.capabilityId,
     message: `${formatCapabilityRequirement(requirement)} needs reviewed local CLI access before this job can run on schedule.`,
@@ -365,6 +383,20 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
   };
 }
 
+function unreviewedSemanticCapabilityBlocker(
+  capabilityId: string,
+): JobSetupBlocker {
+  return {
+    state: 'missing_capability',
+    requirementType: 'semantic_capability',
+    requirementId: capabilityId,
+    message:
+      'This job references a capability that is not reviewed in the capability catalog.',
+    nextAction:
+      'Refresh attached source inventory, then update the job to a reviewed source-neutral capability from capability_search.',
+  };
+}
+
 function invalidAgentToolPolicyBlocker(message: string): JobSetupBlocker {
   return {
     state: 'missing_capability',
@@ -394,58 +426,18 @@ function toolRequirementLabel(toolName: string): string {
   if (isCanonicalBrowserCapabilityRule(toolName)) return 'Browser access';
   const semanticCapabilityId = parseSemanticCapabilityRule(toolName);
   if (semanticCapabilityId) {
-    return (
-      getBuiltinSemanticCapability(semanticCapabilityId)?.displayName ??
-      humanizeTechnicalIdentifier(semanticCapabilityId)
-    );
+    return humanizeTechnicalIdentifier(semanticCapabilityId);
   }
   return humanizeTechnicalIdentifier(toolName);
 }
 
-async function browserReadinessBlocker(
-  input: JobReadinessInput,
-): Promise<JobSetupBlocker | null> {
-  const executionContext = input.job.execution_context;
-  const profileGroupScope = browserProfileGroupScope(input);
-  const profileName = resolveConversationBrowserProfile({
-    agentId: profileGroupScope,
-    workspaceKey: profileGroupScope,
-    conversationId:
-      executionContext?.conversationJid ??
-      input.job.notification_routes?.[0]?.conversationJid ??
-      input.job.group_scope,
-  });
-  let status: JobReadinessBrowserStatus | undefined;
-  try {
-    status = await input.getBrowserStatus?.(profileName);
-  } catch {
-    status = undefined;
-  }
-  const hasLoginSignal =
-    status?.hasState === true || (status?.authMarkers?.length ?? 0) > 0;
-  if (hasLoginSignal) return null;
-  return {
-    state: 'browser_login_may_be_required',
-    requirementType: 'browser',
-    requirementId: 'Browser',
-    message:
-      'Browser is approved, but this profile has no durable login signal yet.',
-    nextAction: `Open Browser profile ${profileName}, sign in if needed, then resume or recheck the job.`,
-  };
-}
-
-function browserProfileGroupScope(input: JobReadinessInput): string {
-  const executionGroupScope = input.job.execution_context?.groupScope?.trim();
-  const jobGroupScope = input.job.group_scope.trim();
-  return (executionGroupScope || jobGroupScope).replace(/^agent:/, '');
-}
-
 async function semanticCapabilityCredentialBlocker(input: {
   capabilityId: string;
+  capability?: SemanticCapabilityDefinition;
   agentId: string;
   broker?: AgentCredentialBroker;
 }): Promise<JobSetupBlocker | null> {
-  const capability = getBuiltinSemanticCapability(input.capabilityId);
+  const capability = input.capability;
   if (!capability && input.capabilityId.startsWith('skill.')) return null;
   if (!capability) {
     return {
@@ -454,62 +446,11 @@ async function semanticCapabilityCredentialBlocker(input: {
       requirementId: input.capabilityId,
       message:
         'Semantic capability is not registered in the capability catalog.',
-      nextAction: proposeCapabilityAction(input.capabilityId),
+      nextAction:
+        'Refresh attached source inventory, then update the job to a reviewed source-neutral capability from capability_search.',
     };
   }
   if (capability.credentialSource === 'local_cli') return null;
-  if (
-    capability.credentialSource !== 'onecli' &&
-    capability.credentialSource !== 'external_broker' &&
-    !semanticCapabilityNeedsBroker(capability)
-  ) {
-    return null;
-  }
-  if (!input.broker) {
-    return {
-      state: 'broker_unreachable',
-      requirementType: 'credential',
-      requirementId: input.capabilityId,
-      message: 'Credential broker is not available for this capability.',
-      nextAction:
-        'Connect or refresh the credential broker account, then resume or recheck the job.',
-    };
-  }
-  const binding = brokerBinding(input.broker, input.agentId);
-  try {
-    const health = await input.broker.healthCheck({ binding });
-    if (health.status === 'fail') {
-      return {
-        state: 'broker_unreachable',
-        requirementType: 'credential',
-        requirementId: input.capabilityId,
-        message: 'Credential broker health check is failing.',
-        nextAction:
-          health.nextAction ||
-          'Connect or refresh the credential broker account, then resume or recheck the job.',
-      };
-    }
-    if (health.status === 'warn') {
-      return {
-        state: 'credential_unknown',
-        requirementType: 'credential',
-        requirementId: input.capabilityId,
-        message: 'Credential broker could not prove this account is ready.',
-        nextAction:
-          health.nextAction ||
-          'Refresh the account connection, then resume or recheck the job.',
-      };
-    }
-  } catch {
-    return {
-      state: 'broker_unreachable',
-      requirementType: 'credential',
-      requirementId: input.capabilityId,
-      message: 'Credential broker health check could not complete.',
-      nextAction:
-        'Connect or refresh the credential broker account, then resume or recheck the job.',
-    };
-  }
   if (capability.preflight?.kind === 'broker') {
     return {
       state: 'credential_unknown',
@@ -524,27 +465,23 @@ async function semanticCapabilityCredentialBlocker(input: {
   return null;
 }
 
-function proposeCapabilityAction(capabilityId: string): string {
-  return `propose_capability ${JSON.stringify({
-    capabilityId,
-    displayName: humanizeTechnicalIdentifier(capabilityId),
-    category: capabilityId.split('.')[0] ?? 'custom',
-    risk: 'read',
-    source: 'composite',
-    credentialSource: 'none',
-    can: 'Describe the exact actions this job needs.',
-    cannot: 'Describe excluded actions, accounts, and data boundaries.',
-    reason:
-      'This autonomous run requires a reviewed capability that is not in the approved catalog.',
-  })}`;
-}
-
-function semanticCapabilityNeedsBroker(
-  capability: NonNullable<ReturnType<typeof getBuiltinSemanticCapability>>,
-): boolean {
-  return capability.implementationBindings.some((binding) =>
-    binding.rule?.startsWith(`${RUN_COMMAND_TOOL_NAME}(onecli `),
-  );
+async function catalogSemanticCapabilityDefinition(input: {
+  capabilityId: string;
+  appId: string;
+  repository?: ToolCatalogRepository;
+}): Promise<SemanticCapabilityDefinition | undefined> {
+  if (!input.repository || typeof input.repository.listTools !== 'function') {
+    return undefined;
+  }
+  const tools = await input.repository.listTools({
+    appId: input.appId as never,
+    statuses: ['active'],
+  });
+  for (const tool of tools) {
+    const capability = semanticCapabilityFromToolCatalogItem(tool);
+    if (capability?.capabilityId === input.capabilityId) return capability;
+  }
+  return undefined;
 }
 
 async function mcpReadinessBlockers(input: {
@@ -584,22 +521,18 @@ async function mcpReadinessBlockers(input: {
             name: requirement,
           });
       blockers.push({
-        state:
-          definition?.status === 'draft' ? 'draft_only' : 'missing_capability',
+        state: 'missing_capability',
         requirementType: 'mcp_server',
         requirementId: requirement,
         message:
-          definition?.status === 'draft'
-            ? `Required MCP server is still a draft: ${requirement}.`
+          definition?.status === 'disabled'
+            ? `Required MCP server is disabled: ${requirement}.`
             : `Required MCP server is not bound to this agent: ${requirement}.`,
-        nextAction:
-          definition?.status === 'draft'
-            ? 'Approve and bind the MCP server, then resume or recheck the job.'
-            : mcpRequestAction(requirement),
+        nextAction: mcpRequestAction(requirement),
       });
       continue;
     }
-    const credentialRefs = record.version.credentialRefs;
+    const credentialRefs = record.definition.credentialRefs;
     if (credentialRefs.length === 0) continue;
     if (!input.secrets) {
       blockers.push(
@@ -638,7 +571,7 @@ function mcpCredentialBlocker(
     requirementType: 'mcp_server',
     requirementId: serverName,
     message: formatMissingGantrySecretsMessage(secretNames),
-    nextAction: `Set ${secretNames.map((name) => `gantry secrets set ${name}`).join(' and ')}, then resume or recheck the job.`,
+    nextAction: `Set ${secretNames.map((name) => `gantry credentials capability set ${name}`).join(' and ')}, then resume or recheck the job.`,
   };
 }
 
@@ -647,15 +580,4 @@ function mcpRequestAction(requirement: string): string {
     name: requirement,
     reason: 'This autonomous run requires this MCP server.',
   })}`;
-}
-
-function brokerBinding(
-  broker: AgentCredentialBroker,
-  agentId: string,
-): AgentCredentialBrokerBinding {
-  return {
-    profile: broker.getCapabilities().profile,
-    purpose: 'tool_capability',
-    agentIdentifier: agentId,
-  };
 }

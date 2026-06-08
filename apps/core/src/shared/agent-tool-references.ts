@@ -17,6 +17,10 @@ import {
   providerNativeToolRejectionReason,
   RUN_COMMAND_TOOL_NAME,
 } from './gantry-tool-facades.js';
+import {
+  containsGeneratedRuntimeSkillPath,
+  GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
+} from './generated-runtime-paths.js';
 
 export {
   GANTRY_FACADE_EXACT_TOOL_NAMES,
@@ -297,6 +301,12 @@ export function validatePersistentBashScope(
   const trimmed = scope.trim();
   if (!trimmed)
     return { ok: false, reason: 'Scoped tool rule cannot be empty.' };
+  if (containsGeneratedRuntimeSkillPath(trimmed)) {
+    return {
+      ok: false,
+      reason: GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
+    };
+  }
   const commandPrefix = trimmed.split(/\s+/, 1)[0] ?? '';
   if (
     !/[^\s*]/.test(trimmed) ||

@@ -938,11 +938,11 @@ describe('handleSessionCommand', () => {
       expect.objectContaining({
         selectionSource: 'session override',
         modelAlias: 'opus',
-        model: expect.objectContaining({ displayName: 'Opus 4.7' }),
+        model: expect.objectContaining({ displayName: 'Opus 4.8' }),
       }),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Using Opus 4.7 for this session.',
+      'Using Opus 4.8 for this session.',
     );
   });
 
@@ -989,7 +989,7 @@ describe('handleSessionCommand', () => {
 
   it('handles /model default by clearing override and using env default when configured', async () => {
     const deps = makeDeps({
-      getDefaultModel: vi.fn().mockReturnValue('claude-opus-4-7'),
+      getDefaultModel: vi.fn().mockReturnValue('opus'),
       updateModelStatusSelection: vi.fn(),
     });
     const result = await handleSessionCommand({
@@ -1007,11 +1007,11 @@ describe('handleSessionCommand', () => {
       expect.objectContaining({
         selectionSource: 'chat default',
         modelAlias: 'opus',
-        model: expect.objectContaining({ displayName: 'Opus 4.7' }),
+        model: expect.objectContaining({ displayName: 'Opus 4.8' }),
       }),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Model override cleared. Using default model: Opus 4.7 (Anthropic).',
+      'Model override cleared. Using default model: Opus 4.8 (Anthropic).',
     );
   });
 
@@ -1419,7 +1419,7 @@ describe('handleSessionCommand', () => {
     const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
       .calls[0][0] as string;
     expect(sentMsg).toContain('Supported model aliases');
-    expect(sentMsg).toContain('Opus 4.7');
+    expect(sentMsg).toContain('Opus 4.8');
     expect(sentMsg).toContain('Kimi K2.6');
     expect(sentMsg).toContain('chat default');
     expect(sentMsg).toContain('one-time default');

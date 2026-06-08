@@ -68,6 +68,7 @@ import {
   buildAppMemoryContinuitySummary,
 } from './app-memory-continuity.js';
 import { triggerAppMemoryDreaming } from './app-memory-trigger-dreaming.js';
+import { buildRecallEmbeddingCapability } from './app-memory-recall-embedding.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 const APP_MEMORY_RECALL_DEPS = {
@@ -95,6 +96,15 @@ export class AppMemoryService {
   get db(): Db {
     if (this.explicitDb) return this.explicitDb;
     return (getRuntimeStorage().service as PostgresStorageService).db;
+  }
+
+  private recallDeps(input: AppMemorySearchInput) {
+    const embeddings = buildRecallEmbeddingCapability(
+      this.db,
+      normalizeSubject(input).appId,
+    );
+    if (!embeddings) return APP_MEMORY_RECALL_DEPS;
+    return { ...APP_MEMORY_RECALL_DEPS, embeddings };
   }
 
   isEnabled(): boolean {
@@ -291,7 +301,7 @@ export class AppMemoryService {
       this.db,
       input,
       true,
-      APP_MEMORY_RECALL_DEPS,
+      this.recallDeps(input),
       {
         signal: options.signal,
         statementTimeoutMs: options.statementTimeoutMs,
@@ -321,7 +331,7 @@ export class AppMemoryService {
       this.db,
       input,
       true,
-      APP_MEMORY_RECALL_DEPS,
+      this.recallDeps(input),
     );
     return toAppMemorySearchResults(rows);
   }

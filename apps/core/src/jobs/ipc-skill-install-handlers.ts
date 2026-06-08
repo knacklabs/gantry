@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { SkillDraftService } from '../application/skills/skill-draft-service.js';
+import { SkillService } from '../application/skills/skill-service.js';
 import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
 import type { SkillCatalogItem } from '../domain/skills/skills.js';
@@ -18,7 +18,7 @@ import {
   formatArgvForDisplay,
   skillInstallCommandDisplayName,
 } from './skill-install-display.js';
-import { parseSkillDraftAssets } from './skill-draft-ipc.js';
+import { parseSkillPackageAssets } from './skill-package-ipc.js';
 
 const pendingSkillInstallCommandReviews = new Set<string>();
 const pendingSkillPackageReviews = new Set<string>();
@@ -26,9 +26,9 @@ const pendingSkillPackageReviews = new Set<string>();
 type SkillInstallRuntimeDeps = {
   getStorage: () => {
     repositories: {
-      skills: ConstructorParameters<typeof SkillDraftService>[0];
+      skills: ConstructorParameters<typeof SkillService>[0];
     };
-    skillArtifacts: ConstructorParameters<typeof SkillDraftService>[1];
+    skillArtifacts: ConstructorParameters<typeof SkillService>[1];
   };
   logInfo: (context: Record<string, unknown>, message: string) => void;
   logError: (context: Record<string, unknown>, message: string) => void;
@@ -61,9 +61,9 @@ function createContextTaskResponder(context: Parameters<TaskHandler>[0]) {
   );
 }
 
-export const requestSkillDraftHandler: TaskHandler = async (context) => {
+export const requestSkillProposalHandler: TaskHandler = async (context) => {
   await requestSkillPackageHandler(context, {
-    requestKind: 'Skill draft',
+    requestKind: 'Skill proposal',
     fallbackName: 'agent-created-skill',
     requestToolName: 'request_skill_proposal',
   });
@@ -256,7 +256,7 @@ async function completeSkillInstallCommandReview(input: {
           : [],
       ),
       runApprovedCommand,
-      approvedBy: decision.decidedBy,
+      installedBy: decision.decidedBy,
     });
     const message = skillInstallCommandSuccessMessage(
       installed.skill.name,
@@ -270,13 +270,12 @@ async function completeSkillInstallCommandReview(input: {
     input.responder.acceptData(
       message,
       {
-        type: 'approved_skill_context',
+        type: 'installed_skill_context',
         activation: 'current_and_future_sessions',
         skill: {
           id: installed.skill.id,
           name: installed.skill.name,
           description: installed.skill.description,
-          contentHash: installed.skill.storage?.contentHash,
           requiredEnvVars: installed.requiredEnvVars,
         },
         requiredEnvVars: installed.requiredEnvVars,
@@ -366,7 +365,7 @@ const requestSkillPackageHandler = async (
     return;
   }
 
-  const parsed = parseSkillDraftAssets(payload.files);
+  const parsed = parseSkillPackageAssets(payload.files);
   if (!parsed.ok) {
     reject(
       skillPackageParseError(input.requestToolName, parsed.error),
@@ -382,7 +381,7 @@ const requestSkillPackageHandler = async (
     data.authThreadId || '',
     input.requestToolName,
     parsed.fileSummaries
-      .map((summary) => `${summary.path}\0${summary.contentHash}`)
+      .map((summary) => `${summary.path}\0${summary.fingerprint}`)
       .sort()
       .join('\0'),
   ].join('\n');
@@ -395,22 +394,18 @@ const requestSkillPackageHandler = async (
   }
   pendingSkillPackageReviews.add(pendingKey);
 
-  const storage = getRuntimeDeps().getStorage();
-  const service = new SkillDraftService(
-    storage.repositories.skills,
-    storage.skillArtifacts,
-  );
   try {
-    const draft = await service.importDraft({
-      appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
-      fallbackName: input.fallbackName,
-      createdBy: `agent:${sourceAgentFolder}`,
-      requiredEnvVars: sanitizedStringList(
-        Array.isArray(payload.requiredEnvVars) ? payload.requiredEnvVars : [],
-      ),
-      assets: parsed.assets,
-    });
+    const storage = getRuntimeDeps().getStorage();
+    const service = new SkillService(
+      storage.repositories.skills,
+      storage.skillArtifacts,
+    );
+    const requiredEnvVars = sanitizedStringList([
+      ...parsed.metadata.requiredEnvVars,
+      ...(Array.isArray(payload.requiredEnvVars)
+        ? payload.requiredEnvVars
+        : []),
+    ]);
     startSkillPermissionReview({
       deps,
       responder: { acceptData, reject },
@@ -423,15 +418,20 @@ const requestSkillPackageHandler = async (
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
       skill: {
-        id: draft.id,
-        name: draft.name,
-        description: draft.description,
-        contentHash: draft.storage?.contentHash,
-        requiredEnvVars: draft.requiredEnvVars ?? [],
+        name: parsed.metadata.name ?? input.fallbackName ?? 'requested-skill',
+        description: parsed.metadata.description,
+        requiredEnvVars,
       },
       assets: parsed.assets,
-      fileSummaries: parsed.fileSummaries,
-      skillMarkdownPreview: parsed.skillMarkdownPreview,
+      fileSummaries: parsed.fileSummaries.map(({ path, sizeBytes }) => ({
+        path,
+        sizeBytes,
+      })),
+      skillMarkdownPreview: {
+        path: parsed.skillMarkdownPreview.path,
+        content: parsed.skillMarkdownPreview.content,
+        truncated: parsed.skillMarkdownPreview.truncated,
+      },
       totalSizeBytes: parsed.totalSizeBytes,
       reason,
       requestToolName: input.requestToolName,
@@ -501,7 +501,7 @@ async function installSkillFromApprovedCommand(input: {
   installCommandArgv: string[];
   requiredEnvVars: string[];
   runApprovedCommand: ApprovedCommandRunner;
-  approvedBy: string;
+  installedBy: string;
 }): Promise<{
   skill: SkillCatalogItem;
   assets: Array<{ path: string; contentType?: string; content: Uint8Array }>;
@@ -520,45 +520,36 @@ async function installSkillFromApprovedCommand(input: {
       redactOutput: redactCommandOutput,
     });
     const assets = collectInstalledSkillAssets(stagingDir);
-    const service = new SkillDraftService(
+    const service = new SkillService(
       storage.repositories.skills,
       storage.skillArtifacts,
     );
-    const draft = await service.importDraft({
+    const installed = await service.installSkill({
       appId: input.appId,
       agentId: input.agentId,
       fallbackName: 'installed-skill',
-      createdBy: `agent:${input.sourceAgentFolder}`,
+      createdBy: input.installedBy,
       requiredEnvVars: input.requiredEnvVars,
       assets,
     });
-    let approvalApplied = false;
     try {
-      const approved = await service.approveDraft({
-        appId: input.appId,
-        skillId: draft.id,
-        approvedBy: input.approvedBy,
-      });
-      approvalApplied = true;
       await service.bindSkillToAgent({
         appId: input.appId,
         agentId: input.agentId,
-        skillId: draft.id,
+        skillId: installed.id,
       });
       await getRuntimeDeps().syncApprovedCapabilitySettings(input.appId);
       return {
-        skill: approved,
+        skill: installed,
         assets,
-        requiredEnvVars: approved.requiredEnvVars ?? [],
+        requiredEnvVars: installed.requiredEnvVars ?? [],
       };
     } catch (err) {
-      if (approvalApplied) {
-        await service.rollbackApprovedSkillBinding({
-          appId: input.appId,
-          agentId: input.agentId,
-          skillId: draft.id,
-        });
-      }
+      await service.rollbackInstalledSkillBinding({
+        appId: input.appId,
+        agentId: input.agentId,
+        skillId: installed.id,
+      });
       throw err;
     }
   } finally {

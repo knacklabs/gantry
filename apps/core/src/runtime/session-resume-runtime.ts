@@ -338,6 +338,7 @@ export function buildRuntimeRunOptions(input: {
   mcpDnsValidationCache?: RemoteMcpDnsValidationCache;
   publishRuntimeEvent?: RunAgentOptions['publishRuntimeEvent'];
   executionAdapter?: RunAgentOptions['executionAdapter'];
+  executionAdapters?: RunAgentOptions['executionAdapters'];
   skillContext?: {
     appId: string;
     agentId: string;
@@ -392,6 +393,9 @@ export function buildRuntimeRunOptions(input: {
       : {}),
     ...(input.executionAdapter
       ? { executionAdapter: input.executionAdapter }
+      : {}),
+    ...(input.executionAdapters
+      ? { executionAdapters: input.executionAdapters }
       : {}),
   };
   return Object.keys(options).length > 0 ? options : undefined;
@@ -480,8 +484,8 @@ export async function buildApprovedSkillContextBlock(input: {
   });
   if (skills.length === 0) return '';
   const sections: string[] = [
-    '[[APPROVED_SKILLS_AVAILABLE_THIS_SESSION]]',
-    'The following Gantry-approved skills are available to use in this session. Follow the SKILL.md instructions when relevant. Do not claim these skills are unavailable solely because the provider session was already running.',
+    '[[INSTALLED_SKILLS_AVAILABLE_THIS_SESSION]]',
+    'The following installed Gantry skills are available to use in this session. Follow the SKILL.md instructions when relevant. Do not claim these skills are unavailable solely because the provider session was already running.',
   ];
   let remaining = maxChars - sections.join('\n').length;
   for (const skill of skills) {
@@ -511,7 +515,6 @@ export async function buildApprovedSkillContextBlock(input: {
       `## ${skill.name}`,
       `id: ${skill.id}`,
       skill.description ? `description: ${skill.description}` : undefined,
-      `contentHash: ${skill.storage.contentHash}`,
       '',
       ...(progressive
         ? [

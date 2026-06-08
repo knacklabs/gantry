@@ -12,7 +12,7 @@ Gantry is a single Node.js process that hosts agents around a provider-neutral
 and channel-neutral capability system. Humans reach it through Slack, Telegram,
 Teams, or web/API surfaces. Backend apps reach it through `@gantry/sdk`.
 External systems reach it through signed `/v1/ingresses/:id/invoke` calls.
-Postgres holds all durable state. OneCLI brokers credentials.
+Postgres holds all durable state. Gantry Model Gateway brokers model credentials.
 
 ```mermaid
 flowchart LR
@@ -38,9 +38,9 @@ flowchart LR
   subgraph "Postgres"
     PGM[(gantry schema)]
     PGB[(pgboss schema)]
-    PGO[(onecli schema)]
+    CRED[(model credentials)]
   end
-  ONE[OneCLI broker]
+  MGW[Model Gateway]
 
   SL --> ORCH
   TG --> ORCH
@@ -48,14 +48,14 @@ flowchart LR
   WB --> CTRL
   SDK --> CTRL
   EXT --> CTRL
+  AGS --> MGW
+  MGW --> CRED
   ORCH --> AGS
   AGS -->|signed IPC| ORCH
   ORCH --> PGM
   CTRL --> PGM
   SCHED --> PGB
   SCHED --> ORCH
-  AGS --> ONE
-  ONE --> PGO
   CTRL --> HOOK
 ```
 
@@ -527,9 +527,11 @@ flowchart LR
     Module --> Policy[target-policy.ts<br/>assertTargetAllowed]
     Policy --> Dispatch{target.kind}
     Dispatch -->|session_message| Sess[SessionInteractionModule.acceptMessage]
+    Dispatch -->|conversation_message| Conv[ConversationMessageIngressModule.acceptMessage]
     Dispatch -->|job_trigger| JT[JobManagementService.triggerJob]
     Dispatch -->|job_template| Tmpl[create+trigger one-shot job]
     Sess --> Enq["queue.enqueueMessageCheck()"]
+    Conv --> Enq
     JT --> Enq
     Tmpl --> Enq
   end
@@ -551,8 +553,8 @@ Cited at:
   `apps/core/src/control/server/external-ingress-adapter.ts`.
 - Module dispatch by target kind — `dispatchTarget` at
   `apps/core/src/application/external-ingress/external-ingress-module.ts`,
-  with concrete branches for `session_message`, `job_trigger`, and
-  `job_template`.
+  with concrete branches for `session_message`, `conversation_message`,
+  `job_trigger`, and `job_template`.
 - Target-policy enforcement (allowlist of kinds, session ids, conversation
   ids, job ids, template ids) —
   `apps/core/src/application/external-ingress/target-policy.ts`.
@@ -560,20 +562,23 @@ Cited at:
   `apps/core/src/control/server/webhook-delivery.ts` and
   `apps/core/src/control/server/routes/webhooks.ts`.
 
-## 10. Inject a Message into a Running Session from Outside
+## 10. Inject a Message from Outside
 
-Backend apps push messages into a live session through the same group
-processor that channel inbound takes. The `app` channel adapter records
-durable runtime events that the SDK observes via `wait` / `stream` or via an
-outbound webhook.
+Backend apps can push messages into a live app/API session, or signed external
+systems can push a `conversation_message` into a configured provider
+conversation/thread. Both paths store a normal inbound message and queue the
+same group processor used by channel inbound. Provider ids are resolved
+internally from Gantry conversation/thread ids.
 
 ```mermaid
 sequenceDiagram
   participant App as "Backend app"
   participant SDK as "@gantry/sdk client"
   participant Routes as "control/server/routes/sessions.ts"
+  participant Ingress as "routes/external-ingress.ts"
   participant Adapter as "session-interaction-adapter.ts"
   participant Module as "SessionInteractionModule"
+  participant Conv as "ConversationMessageIngressModule"
   participant Queue as "GroupQueue"
   participant Proc as "Group processor"
   participant Agent as "Child runner"
@@ -589,7 +594,10 @@ sequenceDiagram
   SDK->>Routes: POST /v1/sessions/:id/messages
   Routes->>Adapter: acceptMessageForControl
   Adapter->>Module: acceptMessage → insert inbound + publish event
+  App->>Ingress: signed POST conversation_message
+  Ingress->>Conv: resolve conversation/thread → insert inbound + publish event
   Module->>Queue: enqueueMessageCheck
+  Conv->>Queue: enqueueMessageCheck
   Queue->>Proc: dispatch
   Proc->>Agent: run
   Agent->>App2: assistant output via app channel adapter
@@ -669,19 +677,19 @@ below is one operation; the columns show how each surface reaches it.
 
 CLI surface (the `usage()` block at `apps/core/src/cli/index.ts`):
 
-| Operation                   | CLI command                                                                                                 | Audience      |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------- |
-| First-run setup / doctor    | `gantry setup`, `gantry doctor`, `gantry status`                                                            | Owner / admin |
-| Service control             | `gantry service install`, `gantry service start`, `gantry service stop`, `gantry service restart`           | Owner / admin |
-| Local dev runtime           | `gantry local setup`, `gantry local start`, `gantry local stop`, `gantry local status`, `gantry local logs` | Owner / admin |
-| Provider connect            | `gantry provider list`, `gantry provider connect`, `gantry provider doctor`                                 | Owner / admin |
-| Conversation administration | `gantry conversation info`, `gantry conversation approvers`                                                 | Owner / admin |
-| Agent administration        | `gantry agent list`, `gantry agent info`, `gantry agent add`, `gantry agent remove`, `gantry agent trigger` | Owner / admin |
-| Browser profiles            | `gantry browser profiles`, `gantry browser status`                                                          | Owner / admin |
-| Model catalog               | `gantry model status`, `gantry model list`, `gantry model set`, `gantry model reset`, `gantry model why`    | Owner / admin |
-| Settings drift / export     | `gantry settings export-current`, `gantry settings drift`                                                   | Owner / admin |
-| Skill upload                | `gantry skill draft upload <skill.zip>`                                                                     | Owner / admin |
-| MCP administration          | `gantry mcp draft`, `gantry mcp list`, `gantry mcp approve`, `gantry mcp reject`, `gantry mcp bind`         | Owner / admin |
+| Operation                   | CLI command                                                                                                                | Audience      |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| First-run setup / doctor    | `gantry setup`, `gantry doctor`, `gantry status`                                                                           | Owner / admin |
+| Service control             | `gantry service install`, `gantry service start`, `gantry service stop`, `gantry service restart`                          | Owner / admin |
+| Local dev runtime           | `gantry local setup`, `gantry local start`, `gantry local stop`, `gantry local status`, `gantry local logs`                | Owner / admin |
+| Provider connect            | `gantry provider list`, `gantry provider connect`, `gantry provider doctor`                                                | Owner / admin |
+| Conversation administration | `gantry conversation info`, `gantry conversation approvers`                                                                | Owner / admin |
+| Agent administration        | `gantry agent list`, `gantry agent info`, `gantry agent add`, `gantry agent remove`, `gantry agent trigger`                | Owner / admin |
+| Browser profiles            | `gantry browser profiles`, `gantry browser status`                                                                         | Owner / admin |
+| Model catalog               | `gantry model status`, `gantry model list`, `gantry model set`, `gantry model reset`, `gantry model why`                   | Owner / admin |
+| Settings drift / export     | `gantry settings export-current`, `gantry settings drift`                                                                  | Owner / admin |
+| Skill administration        | `gantry skill install`, `gantry skill list`, `gantry skill doctor`, `gantry skill remove`                                  | Owner / admin |
+| MCP administration          | `gantry mcp connect`, `gantry mcp list`, `gantry mcp show`, `gantry mcp doctor`, `gantry mcp remove`, `gantry mcp disable` | Owner / admin |
 
 Control API surface (scopes from `apps/core/src/control/server/auth.ts`):
 

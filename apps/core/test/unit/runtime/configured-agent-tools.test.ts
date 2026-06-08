@@ -29,17 +29,38 @@ describe('configured agent tools', () => {
     ).resolves.toEqual(['RunCommand(npm test *)']);
   });
 
-  it('keeps provider-neutral semantic capabilities provider-neutral at runtime', async () => {
+  it('projects reviewed semantic capabilities to runtime rules', async () => {
     const repository = {
       listAgentToolBindings: async () => [
         {
           status: 'active',
-          toolId: 'tool:capability:google.sheets.write',
+          toolId: 'tool:capability:acme.records.append',
         },
       ],
       getTool: async () => ({
         appId: 'default',
-        name: 'capability:google.sheets.write',
+        name: 'capability:acme.records.append',
+        inputSchema: {
+          format: 'gantry.semantic-capability.v1',
+          schema: {
+            capabilityId: 'acme.records.append',
+            displayName: 'Acme records append',
+            category: 'Acme',
+            risk: 'write',
+            can: 'Append records through an approved implementation.',
+            cannot: 'Read unrelated systems or receive raw credentials.',
+            credentialSource: 'local_cli',
+            implementationBindings: [
+              {
+                kind: 'local_cli',
+                executablePath: '/opt/bin/acme',
+                executableVersion: '1.0.0',
+                executableHash: 'sha256:acme',
+                commandTemplates: ['/opt/bin/acme records append *'],
+              },
+            ],
+          },
+        },
       }),
     };
 
@@ -49,10 +70,13 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).resolves.toEqual(['capability:google.sheets.write']);
+    ).resolves.toEqual([
+      'capability:acme.records.append',
+      'RunCommand(/opt/bin/acme records append *)',
+    ]);
   });
 
-  it('projects skill action command rules only while the approved skill hash matches', async () => {
+  it('projects skill action command rules only while the selected installed skill still declares the action', async () => {
     const repository = {
       listAgentToolBindings: async () => [
         {
@@ -83,8 +107,6 @@ describe('configured agent tools', () => {
               kind: 'skill_action',
               skillId: 'skill:linkedin-posting',
               skillName: 'linkedin-posting',
-              skillVersion: 'abc123',
-              skillContentHash: 'sha256:abc123',
               actionId: 'publish',
             },
           },
@@ -99,10 +121,22 @@ describe('configured agent tools', () => {
           name: 'linkedin-posting',
           version: 'abc123',
           source: 'admin_uploaded',
-          status: 'approved',
+          status: 'installed',
           promptRefs: [],
           toolIds: [],
           workflowRefs: [],
+          actionPermissions: [
+            {
+              id: 'publish',
+              capabilityId: 'skill.linkedin-posting.publish',
+              displayName: 'LinkedIn posting',
+              risk: 'write',
+              can: 'Publish a prepared LinkedIn post.',
+              cannot: 'Read unrelated credentials.',
+              requiredEnvVars: [],
+              commandTemplates: ['skills/linkedin-posting/post.py *'],
+            },
+          ],
           storage: {
             storageType: 'local-filesystem',
             storageRef: 'skill',
@@ -118,12 +152,7 @@ describe('configured agent tools', () => {
       listEnabledSkillsForAgent: async () => [
         {
           ...(await matchingSkillRepository.listEnabledSkillsForAgent())[0],
-          storage: {
-            storageType: 'local-filesystem',
-            storageRef: 'skill',
-            contentHash: 'sha256:changed',
-            sizeBytes: 1,
-          },
+          actionPermissions: [],
         },
       ],
     };

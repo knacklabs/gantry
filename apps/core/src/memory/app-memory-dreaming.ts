@@ -11,7 +11,7 @@ import type {
   NormalizedMemorySubject,
   SaveAppMemoryInput,
 } from './memory-types.js';
-import { memoryContentHash } from './app-memory-service-helpers.js';
+import { embeddingContentHash } from './app-memory-service-helpers.js';
 import { hashText } from './app-memory-canonical-codec.js';
 import {
   extractMemoryValue,
@@ -632,13 +632,10 @@ export async function runAppMemoryDreamPass(input: {
         kind: saved.kind,
         value: saved.value,
       });
-      const contentHash = memoryContentHash({
-        appId: subject.appId,
-        agentId: subject.agentId,
-        subjectType: subject.subjectType,
-        subjectId: subject.subjectId,
+      const contentHash = embeddingContentHash({
         key: saved.key,
         value: saved.value,
+        why: saved.why ?? null,
       });
       const embeddingResult = await input.storeDreamEmbedding?.({
         item: saved,

@@ -37,16 +37,12 @@ export interface SkillActionSourceMetadata {
   kind: 'skill_action';
   skillId: string;
   skillName: string;
-  skillVersion: string;
-  skillContentHash: string;
   actionId: string;
 }
 
 export interface SkillActionCapabilitySourceSkill {
   id: string;
   name: string;
-  version: string;
-  storage?: { contentHash?: string };
   actionPermissions?: SkillActionPermission[];
 }
 
@@ -103,16 +99,12 @@ export function parseSkillActionPermissionsFromAssets(input: {
 export function skillActionSemanticCapability(input: {
   skillId: string;
   skillName: string;
-  skillVersion: string;
-  skillContentHash: string;
   action: SkillActionPermission;
 }): SemanticCapabilityDefinition {
   const source: SkillActionSourceMetadata = {
     kind: 'skill_action',
     skillId: input.skillId,
     skillName: input.skillName,
-    skillVersion: input.skillVersion,
-    skillContentHash: input.skillContentHash,
     actionId: input.action.id,
   };
   return {
@@ -145,19 +137,12 @@ export function skillActionSource(
   const skillId = typeof source.skillId === 'string' ? source.skillId : '';
   const skillName =
     typeof source.skillName === 'string' ? source.skillName : '';
-  const skillVersion =
-    typeof source.skillVersion === 'string' ? source.skillVersion : '';
-  const skillContentHash =
-    typeof source.skillContentHash === 'string' ? source.skillContentHash : '';
   const actionId = typeof source.actionId === 'string' ? source.actionId : '';
-  if (!skillId || !skillName || !skillVersion || !skillContentHash || !actionId)
-    return undefined;
+  if (!skillId || !skillName || !actionId) return undefined;
   return {
     kind: 'skill_action',
     skillId,
     skillName,
-    skillVersion,
-    skillContentHash,
     actionId,
   };
 }
@@ -167,14 +152,10 @@ export function skillActionSemanticCapabilitiesForSkills(
 ): Record<string, SemanticCapabilityDefinition> {
   const definitions: Record<string, SemanticCapabilityDefinition> = {};
   for (const skill of skills) {
-    const skillContentHash = skill.storage?.contentHash;
-    if (!skill.version || !skillContentHash) continue;
     for (const action of skill.actionPermissions ?? []) {
       const capability = skillActionSemanticCapability({
         skillId: String(skill.id),
         skillName: skill.name,
-        skillVersion: skill.version,
-        skillContentHash,
         action,
       });
       definitions[capability.capabilityId] = capability;

@@ -28,21 +28,8 @@ const CLASSIFIED_KEYS: Record<string, ClassifiedConfigKey> = {
     'INTERAKT_BUSINESS_PHONE_NUMBER',
   ),
   GANTRY_IPC_AUTH_SECRET: runtimeSecret('GANTRY_IPC_AUTH_SECRET'),
-  ONECLI_DATABASE_URL: runtimeSecret('ONECLI_DATABASE_URL'),
   SECRET_ENCRYPTION_KEY: runtimeSecret('SECRET_ENCRYPTION_KEY'),
 
-  GANTRY_CREDENTIAL_MODE: setting(
-    'GANTRY_CREDENTIAL_MODE',
-    'settings.yaml credential_broker.mode',
-  ),
-  ONECLI_URL: setting(
-    'ONECLI_URL',
-    'settings.yaml credential_broker.onecli.url',
-  ),
-  ANTHROPIC_BASE_URL: setting(
-    'ANTHROPIC_BASE_URL',
-    'settings.yaml credential_broker.external.base_url',
-  ),
   SLACK_PERMISSION_APPROVER_IDS: setting(
     'SLACK_PERMISSION_APPROVER_IDS',
     'settings.yaml conversations.<id>.control_approvers',
@@ -125,8 +112,8 @@ function agentCredential(key: string): ClassifiedConfigKey {
   return {
     key,
     lane: 'agent-credential',
-    destination: 'AgentCredentialBroker',
-    message: `${key} is an agent-accessed credential and must be configured through Model Access or the selected enterprise credential broker, not Gantry .env.`,
+    destination: 'Gantry Credential Center',
+    message: `${key} is an agent-accessed credential and must be configured through Gantry Credential Center, not Gantry .env.`,
   };
 }
 

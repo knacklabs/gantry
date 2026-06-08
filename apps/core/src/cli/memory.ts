@@ -12,17 +12,21 @@ import {
 import { inspectMemoryHealth } from './memory-health.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
+  DEFAULT_EMBED_DIMENSIONS,
+  DEFAULT_EMBED_MODEL,
   getPresetManagedMemoryDefaults,
   loadRuntimeSettings,
   saveRuntimeSettings,
   type EmbeddingProviderName,
 } from '../config/settings/runtime-settings.js';
+import { runEmbeddingBackfillCommand } from './memory-embeddings-backfill.js';
 
 function usage(): string {
   return [
     'Usage:',
     '  gantry memory status [--json]',
     '  gantry memory embeddings <off|disabled|provider>',
+    '  gantry memory embeddings backfill [--limit N] [--mode auto|inline|provider_batch]',
     '  gantry memory dreaming <on|off>',
     '  gantry model memory',
     '  gantry model reset memory',
@@ -71,12 +75,7 @@ function formatMemoryStatus(runtimeHome: string): string {
     globalModel,
     hardDefaults.consolidation,
   );
-  const brokerConfigured =
-    settings.credentialBroker.mode === 'onecli'
-      ? Boolean(settings.credentialBroker.onecli.url.trim())
-      : settings.credentialBroker.mode === 'external'
-        ? Boolean(settings.credentialBroker.external.baseUrl.trim())
-        : false;
+  const brokerConfigured = settings.credentialBroker.mode === 'gantry';
   return [
     'Gantry Memory',
     '',
@@ -88,7 +87,7 @@ function formatMemoryStatus(runtimeHome: string): string {
     `Embedding provider: ${health.embeddingProvider} (${health.embeddingCheck.status}, source: ${health.embeddingProviderSource})`,
     `Embedding model: ${health.embeddingModel} (source: ${health.embeddingModelSource})`,
     `Dreaming: ${health.dreamingEnabled ? 'on' : 'off'} (source: ${health.dreamingSource})`,
-    `Model Access: ${brokerConfigured ? 'configured' : 'missing'} (settings.yaml credential_broker)`,
+    `Model Access: ${brokerConfigured ? 'configured' : 'missing'} (settings.yaml model_access)`,
     `Model extractor: ${extractorModel.model} (source: ${extractorModel.source})`,
     `Model dreaming: ${dreamingModel.model} (source: ${dreamingModel.source})`,
     `Model consolidation: ${consolidationModel.model} (source: ${consolidationModel.source})`,
@@ -119,8 +118,12 @@ async function setEmbeddings(
     };
   }
   settings.memory.embeddings.provider = provider;
-  if (!settings.memory.embeddings.model.trim()) {
-    settings.memory.embeddings.model = 'text-embedding-3-large';
+  if (provider !== 'disabled') {
+    // v1 semantic memory only supports 1536-dim text-embedding-3-small vectors.
+    settings.memory.embeddings.model = DEFAULT_EMBED_MODEL;
+    settings.memory.embeddings.dimensions = DEFAULT_EMBED_DIMENSIONS;
+  } else if (!settings.memory.embeddings.model.trim()) {
+    settings.memory.embeddings.model = DEFAULT_EMBED_MODEL;
   }
   saveRuntimeSettings(runtimeHome, settings);
   return { ok: true };
@@ -150,6 +153,10 @@ export async function runMemoryCommand(
     p.note(formatMemoryStatus(runtimeHome), 'Memory');
     p.note(formatMemoryStatusExtras(snapshot), 'Memory Runtime');
     return 0;
+  }
+
+  if (command === 'embeddings' && value === 'backfill') {
+    return runEmbeddingBackfillCommand(runtimeHome, args.slice(2));
   }
 
   if (command === 'embeddings') {

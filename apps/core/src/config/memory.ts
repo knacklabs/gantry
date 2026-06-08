@@ -1,5 +1,7 @@
 import { MEMORY_CONFIG_HOME, runtimeMemorySettings } from './memory-state.js';
 import {
+  DEFAULT_EMBED_DIMENSIONS,
+  DEFAULT_EMBED_MODEL,
   DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
   DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
@@ -24,7 +26,10 @@ export const OPENAI_DAILY_EMBED_LIMIT =
   runtimeMemorySettings.dailyEmbedLimit ?? DEFAULT_OPENAI_DAILY_EMBED_LIMIT;
 
 export const MEMORY_EMBED_MODEL =
-  runtimeMemorySettings.embeddingModel || 'text-embedding-3-large';
+  runtimeMemorySettings.embeddingModel || DEFAULT_EMBED_MODEL;
+
+export const MEMORY_EMBED_DIMENSIONS =
+  runtimeMemorySettings.embeddingDimensions ?? DEFAULT_EMBED_DIMENSIONS;
 
 export const MEMORY_EMBED_PROVIDER =
   runtimeMemorySettings.embeddingsEnabled === false

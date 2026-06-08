@@ -56,8 +56,8 @@ export const agentConfigVersionsPostgres = pgTable(
     llmProfileId: text('llm_profile_id')
       .notNull()
       .references(() => llmProfilesPostgres.id),
-    toolIdsJson: text('tool_ids_json').notNull().default('[]'),
-    skillIdsJson: text('skill_ids_json').notNull().default('[]'),
+    toolIdsJson: text('capability_refs_json').notNull().default('[]'),
+    skillIdsJson: text('source_refs_json').notNull().default('[]'),
     permissionPolicyIdsJson: text('permission_policy_ids_json')
       .notNull()
       .default('[]'),

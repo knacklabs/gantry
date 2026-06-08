@@ -299,7 +299,7 @@ export function validateCredentialRefs(refs: McpCredentialRef[]): void {
     } catch {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `MCP credential ref must name a Gantry Secret environment variable: ${ref.name}`,
+        `MCP credential ref must name a Gantry Credential environment variable: ${ref.name}`,
       );
     }
     if (!MCP_CREDENTIAL_TARGET_KEY_PATTERN.test(ref.key)) {

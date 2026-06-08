@@ -59,8 +59,8 @@ describe('scheduler MCP tools', () => {
     const response = await tools.get('scheduler_list_models')!();
     const text = response.content[0].text;
 
-    expect(text).toContain('Opus 4.7');
-    expect(text).toContain('opus-4.7 | Opus 4.7');
+    expect(text).toContain('Opus 4.8');
+    expect(text).toContain('opus-4.8 | Opus 4.8');
     expect(text).toContain('Kimi K2.6');
     expect(text).toContain('kimi-2.6 | Kimi K2.6');
     expect(text).toContain('Response family');
@@ -71,7 +71,7 @@ describe('scheduler MCP tools', () => {
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
     const formatModelCatalog = vi.fn(() => 'mocked model catalog output');
-    vi.doMock('../../../../src/shared/model-catalog.js', () => ({
+    vi.doMock('../../../../src/shared/model-catalog-format.js', () => ({
       formatModelCatalog,
     }));
     const { registerSchedulerTools } =
@@ -168,17 +168,17 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
         {
-          capability_id: 'google.sheets.write',
+          capability_id: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executable_path: '/usr/local/bin/gog',
+            name: 'acme',
+            executable_path: '/usr/local/bin/acme',
             executable_version: 'v0.9.0',
             executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/gog sheets append *',
-            auth_preflight: '/usr/local/bin/gog auth status',
-            protected_paths: ['~/.config/gog/*'],
+            command_template: '/usr/local/bin/acme records append *',
+            auth_preflight: '/usr/local/bin/acme auth status',
+            protected_paths: ['~/.config/acme/*'],
           },
         },
       ]).success,
@@ -186,13 +186,13 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
         {
-          capability_id: 'google.sheets.write',
+          capability_id: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executable_path: '/usr/local/bin/gog',
-            command_template: 'gog sheets append *',
+            name: 'acme',
+            executable_path: '/usr/local/bin/acme',
+            command_template: 'acme records append *',
           },
         },
       ]).success,
@@ -200,14 +200,14 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
         {
-          capability_id: 'google.sheets.write',
+          capability_id: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executable_path: '/usr/local/bin/gog',
-            command_template: '/usr/local/bin/gog sheets append *',
-            auth_preflight: 'gog auth status',
+            name: 'acme',
+            executable_path: '/usr/local/bin/acme',
+            command_template: '/usr/local/bin/acme records append *',
+            auth_preflight: 'acme auth status',
           },
         },
       ]).success,
@@ -225,17 +225,17 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_update_job')?.capability_requirements.safeParse([
         {
-          capability_id: 'google.sheets.write',
+          capability_id: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executable_path: '/usr/local/bin/gog',
+            name: 'acme',
+            executable_path: '/usr/local/bin/acme',
             executable_version: 'v0.9.0',
             executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/gog sheets append *',
-            auth_preflight: '/usr/local/bin/gog auth status',
-            protected_paths: ['~/.config/gog/*'],
+            command_template: '/usr/local/bin/acme records append *',
+            auth_preflight: '/usr/local/bin/acme auth status',
+            protected_paths: ['~/.config/acme/*'],
           },
         },
       ]).success,
@@ -282,15 +282,15 @@ describe('scheduler MCP tools', () => {
       },
       capability_requirements: [
         {
-          capability_id: 'google.sheets.write',
+          capability_id: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executable_path: '/usr/local/bin/gog',
+            name: 'acme',
+            executable_path: '/usr/local/bin/acme',
             executable_version: 'v0.9.0',
             executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/gog sheets append *',
+            command_template: '/usr/local/bin/acme records append *',
           },
         },
       ],
@@ -309,15 +309,15 @@ describe('scheduler MCP tools', () => {
         },
         capabilityRequirements: [
           {
-            capabilityId: 'google.sheets.write',
+            capabilityId: 'acme.records.append',
             reason: 'Write lead rows after each run',
             implementation: {
               kind: 'local_cli',
-              name: 'gog',
-              executablePath: '/usr/local/bin/gog',
+              name: 'acme',
+              executablePath: '/usr/local/bin/acme',
               executableVersion: 'v0.9.0',
               executableHash: 'sha256:abc123',
-              commandTemplate: '/usr/local/bin/gog sheets append *',
+              commandTemplate: '/usr/local/bin/acme records append *',
             },
           },
         ],
@@ -420,15 +420,15 @@ describe('scheduler MCP tools', () => {
       target: 'here',
       capability_requirements: [
         {
-          capability_id: 'google.sheets.write',
+          capability_id: 'acme.records.append',
           reason: 'Write lead rows after each run',
           implementation: {
             kind: 'local_cli',
-            name: 'gog',
-            executable_path: '/usr/local/bin/gog',
+            name: 'acme',
+            executable_path: '/usr/local/bin/acme',
             executable_version: 'v0.9.0',
             executable_hash: 'sha256:abc123',
-            command_template: '/usr/local/bin/gog sheets append *',
+            command_template: '/usr/local/bin/acme records append *',
           },
         },
       ],
@@ -441,13 +441,13 @@ describe('scheduler MCP tools', () => {
     expect(response.content[0].text).toContain('- Model: job default');
     expect(response.content[0].text).toContain('- Tool access:');
     expect(response.content[0].text).toContain(
-      '- Required capabilities: Google Sheets write using gog',
+      '- Required capabilities: Acme Records Append using acme',
     );
     expect(response.content[0].text).toContain(
       '- Tool access requirements: Browser',
     );
     expect(response.content[0].text).toContain(
-      'use capability:<id> for semantic access such as gog.sheets.get',
+      'use capability:<id> for reviewed semantic access',
     );
     expect(response.content[0].text).toContain('- Network:');
     expect(response.content[0].text).toContain('- Memory:');
@@ -729,5 +729,103 @@ describe('scheduler MCP tools', () => {
         },
       ]),
     ).toContain('access: Browser');
+  });
+
+  it('renders a provider-neutral owner label in the scheduler list line', async () => {
+    const { schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const summary = schedulerJobsSummary([
+      {
+        id: 'job-1',
+        name: 'Topic digest',
+        status: 'active',
+        visibility: {
+          executionContext: { conversationJid: 'tg:-100team', threadId: '42' },
+          target: { agentId: 'agent:main', conversationJids: ['tg:-100team'] },
+        },
+      },
+    ]);
+    const listLine = summary
+      .split('\n')
+      .find((line) => line.startsWith('- job-1'));
+    expect(listLine).toContain('Telegram group');
+    expect(listLine).not.toContain('tg:-100team');
+  });
+
+  it('renders provider-neutral owner/delivery labels and setup status', async () => {
+    const { schedulerJobSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const telegramTopic = schedulerJobSummary({
+      id: 'job-1',
+      name: 'Topic digest',
+      status: 'active',
+      visibility: {
+        executionContext: { conversationJid: 'tg:-100team', threadId: '42' },
+        notificationRoutes: [
+          { conversationJid: 'tg:-100team', threadId: '42', label: 'primary' },
+        ],
+        target: { agentId: 'agent:main', conversationJids: ['tg:-100team'] },
+        recentRunErrors: [],
+      },
+    });
+    expect(telegramTopic).toContain('Owned by: Telegram group');
+    expect(telegramTopic).toContain('Delivers to: Telegram topic');
+
+    const slackThread = schedulerJobSummary({
+      id: 'job-2',
+      name: 'Thread digest',
+      status: 'active',
+      visibility: {
+        executionContext: { conversationJid: 'sl:C0001', threadId: '123.45' },
+        notificationRoutes: [
+          { conversationJid: 'sl:C0001', threadId: '123.45', label: 'primary' },
+        ],
+        recentRunErrors: [],
+      },
+    });
+    expect(slackThread).toContain('Owned by: Slack channel');
+    expect(slackThread).toContain('Delivers to: Slack thread');
+
+    const wholeConversation = schedulerJobSummary({
+      id: 'job-3',
+      name: 'Conversation digest',
+      status: 'active',
+      visibility: {
+        executionContext: { conversationJid: 'tg:-100team', threadId: null },
+        notificationRoutes: [
+          { conversationJid: 'tg:-100team', threadId: null, label: 'primary' },
+        ],
+        recentRunErrors: [],
+      },
+    });
+    expect(wholeConversation).toContain('Delivers to: Telegram group');
+    expect(wholeConversation).not.toContain('Delivers to: Telegram topic');
+
+    const missingCapability = schedulerJobSummary({
+      id: 'job-4',
+      name: 'Append records',
+      status: 'paused',
+      visibility: {
+        executionContext: { conversationJid: 'tg:-100team', threadId: null },
+        setup: {
+          state: 'missing_capability',
+          blockers: [
+            {
+              state: 'missing_capability',
+              requirementType: 'semantic_capability',
+              requirementId: 'acme.records.append',
+              nextAction: '',
+            },
+          ],
+        },
+        recentRunErrors: [],
+      },
+    });
+    expect(missingCapability).toContain('Setup: Needs approval');
+    expect(missingCapability).toContain(
+      'Next action: Approve Acme Records Append, then resume the job.',
+    );
   });
 });

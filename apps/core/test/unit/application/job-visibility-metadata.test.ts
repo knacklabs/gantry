@@ -211,6 +211,27 @@ describe('job visibility metadata', () => {
     });
   });
 
+  it('keeps raw tool ids out of needs-permission next-action copy', async () => {
+    const metadata = await buildJobListVisibilityMetadata({
+      jobs: [
+        makeJob({
+          status: 'dead_lettered',
+          pause_reason: 'Needs permission: RunCommand',
+        }),
+      ],
+      nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
+    });
+
+    const view = metadata.get('job-1');
+    expect(view?.health.nextAction).toBe(
+      'Approve exact command access, then rerun the job.',
+    );
+    expect(view?.nextActionLabel).toBe(
+      'Approve exact command access, then rerun the job.',
+    );
+    expect(view?.nextActionLabel).not.toContain('RunCommand');
+  });
+
   it('surfaces latest terminal run health in list metadata', async () => {
     const metadata = await buildJobListVisibilityMetadata({
       jobs: [makeJob({ status: 'active' })],

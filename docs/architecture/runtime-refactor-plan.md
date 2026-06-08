@@ -38,7 +38,7 @@ These hold for every PR in this refactor.
 3. **No new tool without a handler.** A tool surface (`mcp_list_tools`, `scheduler_*`, etc.) is registered only when its IPC handler exists and a smoke test exercises it end-to-end.
 4. **Errors carry three things.** What broke, why (with `err.cause` chain unwrapped), how to recover. See §5.2.
 5. **Timeouts are preemptive.** Cooperative timeouts are not allowed. See §5.3.
-6. **Capability rules are durable and inspectable.** A grant either lands in the durable store and is visible via `scheduler_get_job` / `capability_status`, or it didn't happen.
+6. **Capability rules are durable and inspectable.** Allowed capability state either lands in the durable store and is visible via `scheduler_get_job` / `capability_status`, or it didn't happen.
 7. **No compatibility mode.** This is a rewrite with deletion. Old behaviour is replaced, not flagged.
 8. **No new abstractions without two callers.** If only one caller exists, inline it.
 9. **Single source of truth for capability config.** One file format, one merge order, one place that resolves it.
@@ -52,11 +52,11 @@ These hold for every PR in this refactor.
 ├──────────────────────────────────────────────────────────┤
 │ L4  Runner         Claude Code subprocess + streaming    │
 ├──────────────────────────────────────────────────────────┤
-│ L3  Capability     Single gate: policy → grant → audit   │
+│ L3  Capability     Single gate: policy → allow → audit    │
 ├──────────────────────────────────────────────────────────┤
 │ L2  Watchdog       Independent timeout + cancel for L4   │
 ├──────────────────────────────────────────────────────────┤
-│ L1  Persistence    Postgres: jobs, runs, grants, events  │
+│ L1  Persistence    Postgres: jobs, runs, access, events   │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -71,12 +71,12 @@ Cross-cutting:
 
 ### 5.1 Capability rule format
 
-A grant is a tuple: `{ scope, rule, granted_by, granted_at, reason }`.
+An allowed capability entry is a tuple: `{ scope, rule, approved_by, approved_at, reason }`.
 
-- `scope`: `org | agent:<id> | run:<id>` — merged in that order, narrowest wins on conflict, additive otherwise. Scheduled jobs resolve the target agent scope at run time instead of carrying separate job grants.
-- `rule`: a semantic capability entry such as `capability:google.sheets.write`, canonical `Browser`, an exact Gantry file/web facade such as `FileRead`, an exact Gantry admin tool, or a scoped command fallback rule such as `RunCommand(npm test *)`. Broad exact SDK/native request_permission grants and exact third-party MCP tool names are not durable authority. Browser remains the canonical whole browser capability.
+- `scope`: `org | agent:<id> | run:<id>` — merged in that order, narrowest wins on conflict, additive otherwise. Scheduled jobs resolve the target agent scope at run time instead of carrying separate job-local authority.
+- `rule`: a reviewed semantic capability entry such as `capability:acme.records.append`, canonical `Browser`, an exact Gantry file/web facade such as `FileRead`, an exact Gantry admin tool, or a scoped command fallback rule such as `RunCommand(npm test *)`. Broad exact SDK/native request_permission authority and exact third-party MCP tool names are not durable authority. Browser remains the canonical whole browser capability.
 - Persisted in the agent capability stores and mirrored to readable `settings.yaml` capability entries.
-- `scheduler_get_job` returns the **effective** target-agent rule set for the job, not a job-local grant slice.
+- `scheduler_get_job` returns the **effective** target-agent rule set for the job, not a job-local authority slice.
 
 ### 5.2 Error format
 
@@ -136,17 +136,17 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 
 - Build on the current shared policy seam instead of creating a greenfield module by default: `ToolExecutionPolicyService` already exists in `apps/core/src/shared/tool-execution-policy-service.ts` and `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts` already routes interactive and autonomous SDK tool decisions through it.
 - Consolidate active capability composition in `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`. The old apps/core/src/jobs/agent-capabilities.ts anchor is stale and must not be recreated as a compatibility path.
-- Keep scheduled job capability behavior honest: jobs inherit target-agent capabilities and must not grow a separate grant writer. Phase 1 must route missing capability recovery through the same reviewed request tools used by interactive agents.
-- `scheduler_get_job` already exposes effective allowed tools from inherited agent grants. Phase 1 must make that effective set resolve from durable grants with the declared `org -> agent -> run` merge order.
-- Complete the missing durable pieces: add the durable `capability_grants` authority, persist one inspectable permission/capability decision record, and make grant/check/resolve use that store.
+- Keep scheduled job capability behavior honest: jobs inherit target-agent capabilities and must not grow a separate authority writer. Phase 1 must route missing capability recovery through the same reviewed request tools used by interactive agents.
+- `scheduler_get_job` already exposes effective allowed tools from inherited agent capabilities. Phase 1 must make that effective set resolve from durable capability state with the declared `org -> agent -> run` merge order.
+- Complete the missing durable pieces: add durable capability authority, persist one inspectable permission/capability decision record, and make allow/check/resolve use that store.
 - Tighten the protected-capability guard so text payloads are allowed when safe and only target mutations of `.claude/`, `.mcp.json`, provider capability paths, or `settings.yaml` are denied. The current shared policy service contains target-oriented logic, but still has fail-closed protected-path mention branches that Phase 1 must verify against §99-D.
 
 **Exit criteria:**
 
 - One call site for "is this allowed."
-- §99-A repro (persistent grant for autonomous job) passes.
+- §99-A repro (persistent authority for autonomous job) passes.
 - §99-D repro (`gh issue create` with capability words in body) passes.
-- Smoke test: grant a rule, restart the runtime, rule still applies.
+- Smoke test: approve a rule, restart the runtime, rule still applies.
 
 **Deletion target:** ≥600 lines net.
 
@@ -272,7 +272,7 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 
 | Concern                                              | Path                                                                | Line             | Phase |
 | ---------------------------------------------------- | ------------------------------------------------------------------- | ---------------- | ----- |
-| Credential broker error wrap                         | `apps/core/src/application/credentials/agent-credential-service.ts` | 97–126           | 3     |
+| Model gateway error wrap                             | `apps/core/src/application/credentials/agent-credential-service.ts` | 97–126           | 3     |
 | Telegram streaming formatter                         | `apps/core/src/channels/telegram/channel-shared.ts`                 | 131–138          | 3     |
 | Telegram direct delivery chunking and partial errors | `apps/core/src/channels/telegram/channel-delivery.ts`               | 53–158           | 3     |
 | Telegram private streaming divergence                | `apps/core/src/channels/telegram/channel-delivery.ts`               | 161–273          | 3     |
@@ -288,7 +288,7 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 | `future_config_version` style flag                   | `apps/core/src/jobs/ipc-admin-handlers.ts`                          | 407–415          | 1     |
 | Active capability composition                        | `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`                        | 68–95, 294–338   | 1     |
 | Shared tool execution policy service                 | `apps/core/src/shared/tool-execution-policy-service.ts`             | 139–185, 226–339 | 1     |
-| Scheduler grant tool appends job policy              | `apps/core/src/runner/mcp/tools/scheduler.ts`                       | 198–250          | 1     |
+| Scheduler authority tool appends job policy          | `apps/core/src/runner/mcp/tools/scheduler.ts`                       | 198–250          | 1     |
 | Effective job tool view                              | `apps/core/src/application/jobs/job-visibility-metadata.ts`         | 139–147          | 1     |
 | Job policy update persistence                        | `apps/core/src/application/jobs/job-management-helpers.ts`          | 343–345          | 1     |
 | Bash autonomous allowlist check                      | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts`                         | 239–270          | 1     |

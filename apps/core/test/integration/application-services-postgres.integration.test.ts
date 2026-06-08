@@ -186,7 +186,7 @@ maybeDescribe('application services with Postgres repositories', () => {
     });
   });
 
-  it('allows identical skill content in separate admin and agent ownership scopes', async () => {
+  it('keeps one installed skill row per app and materialized skill name', async () => {
     const agentId = 'agent:skill-owner' as AgentId;
     await runtime.repositories.agents.saveAgent({
       id: agentId,
@@ -199,9 +199,8 @@ maybeDescribe('application services with Postgres repositories', () => {
     const baseSkill = {
       appId,
       name: 'Shared Bundle',
-      description: 'Same bundle in separate owner scopes',
-      version: 'same-hash',
-      status: 'draft' as const,
+      description: 'Same skill name in separate install origins',
+      status: 'installed' as const,
       promptRefs: [],
       toolIds: [],
       workflowRefs: [],
@@ -222,35 +221,15 @@ maybeDescribe('application services with Postgres repositories', () => {
       source: 'agent_created',
       createdBy: agentId,
     });
-    await runtime.repositories.skills.saveSkill({
-      ...baseSkill,
-      id: 'skill:admin-owned-duplicate' as never,
-      source: 'admin_uploaded',
-      createdBy: 'admin-user',
-    });
 
     await expect(
-      runtime.repositories.skills.getSkillByContentHash?.({
-        appId,
-        agentId,
-        contentHash: 'sha256:shared-skill-bundle',
-        statuses: ['draft'],
+      runtime.repositories.skills.saveSkill({
+        ...baseSkill,
+        id: 'skill:admin-owned-duplicate' as never,
+        source: 'admin_uploaded',
+        createdBy: 'admin-user',
       }),
-    ).resolves.toMatchObject({
-      id: 'skill:agent-owned-duplicate',
-      agentId,
-    });
-    await expect(
-      runtime.repositories.skills.getSkillByContentHash?.({
-        appId,
-        agentId: null,
-        contentHash: 'sha256:shared-skill-bundle',
-        statuses: ['draft'],
-      }),
-    ).resolves.toMatchObject({
-      id: 'skill:admin-owned-duplicate',
-      agentId: undefined,
-    });
+    ).rejects.toThrow();
   });
 
   it('keeps app memory writes isolated by agent and updates existing memory keys idempotently', async () => {

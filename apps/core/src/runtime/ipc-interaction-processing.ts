@@ -8,7 +8,7 @@ import type {
 } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
-import { recheckSetupPausedJobsAfterPermissionGrant } from '../application/jobs/job-permission-recovery.js';
+import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
 import {
   formatPersistentPermissionRuleForEvent,
   formatPersistentPermissionRulesForUser,
@@ -208,7 +208,7 @@ export async function processPermissionInteractionIpc(input: {
         eventType: RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
         payload: persistedContext,
       });
-      const recovery = await recheckSetupPausedJobsAfterPermissionGrant({
+      const recovery = await recheckSetupPausedJobsAfterCapabilityUpdate({
         appId: input.request.appId,
         sourceAgentFolder: input.sourceAgentFolder,
         conversationJid: input.request.targetJid,
@@ -349,7 +349,7 @@ function formatPersistentPermissionOutcome(input: {
   rules: string[];
   semanticCapabilityDefinitions?: PermissionApprovalRequest['semanticCapabilityDefinitions'];
   recovery: Awaited<
-    ReturnType<typeof recheckSetupPausedJobsAfterPermissionGrant>
+    ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
   >;
 }): string {
   const lines = [
@@ -359,17 +359,15 @@ function formatPersistentPermissionOutcome(input: {
   ];
   if (input.recovery.queued.length > 0) {
     lines.push(
-      `Jobs queued after approval: ${input.recovery.queued
+      `Job ready: ${input.recovery.queued
         .map((job) => job.name || job.jobId)
-        .join(', ')}.`,
+        .join(', ')}`,
     );
   }
   if (input.recovery.stillBlocked.length > 0) {
     const blocker = input.recovery.stillBlocked[0];
     lines.push(
-      `Still blocked: ${blocker.name || blocker.jobId}. Next action: ${
-        blocker.nextAction ?? 'review job setup'
-      }.`,
+      `Still needs setup: ${blocker.nextAction ?? 'review job setup'}`,
     );
   }
   if (

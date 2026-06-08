@@ -197,6 +197,10 @@ describe('OpenAIEmbeddingClient', () => {
       const client = new OpenAIEmbeddingClient(
         'test-key',
         'text-embedding-test',
+        undefined,
+        undefined,
+        undefined,
+        3,
       );
       const result = await client.embedMany(['hello', 'world']);
 
@@ -213,6 +217,7 @@ describe('OpenAIEmbeddingClient', () => {
           body: JSON.stringify({
             model: 'text-embedding-test',
             input: ['hello', 'world'],
+            dimensions: 3,
           }),
         }),
       );
@@ -226,6 +231,10 @@ describe('OpenAIEmbeddingClient', () => {
       const client = new OpenAIEmbeddingClient(
         resolveApiKey,
         'text-embedding-test',
+        undefined,
+        undefined,
+        undefined,
+        3,
       );
       const result = await client.embedMany(['hello']);
 
@@ -242,19 +251,98 @@ describe('OpenAIEmbeddingClient', () => {
       );
     });
 
+    it('routes brokered embeddings through a gateway base URL', async () => {
+      const vectors = [[0.1, 0.2, 0.3]];
+      const fetchSpy = mockFetchOk(vectors.map((v) => ({ embedding: v })));
+      const resolveApiKey = vi.fn(async () => 'gtw_openai');
+      const resolveBaseUrl = vi.fn(async () => 'http://127.0.0.1:8123/openai');
+
+      const client = new OpenAIEmbeddingClient(
+        resolveApiKey,
+        'text-embedding-test',
+        undefined,
+        resolveBaseUrl,
+        undefined,
+        3,
+      );
+      const result = await client.embedMany(['hello']);
+
+      expect(result).toEqual(vectors);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://127.0.0.1:8123/openai/v1/embeddings',
+        expect.objectContaining({
+          headers: {
+            Authorization: 'Bearer gtw_openai',
+            'Content-Type': 'application/json',
+          },
+        }),
+      );
+    });
+
+    it('uses one brokered gateway connection and revokes it after use', async () => {
+      const vectors = [[0.1, 0.2, 0.3]];
+      const fetchSpy = mockFetchOk(vectors.map((v) => ({ embedding: v })));
+      const revoke = vi.fn(async () => undefined);
+      const resolveConnection = vi.fn(async () => ({
+        apiKey: 'gtw_openai_once',
+        baseUrl: 'http://127.0.0.1:8123/openai',
+        revoke,
+      }));
+
+      const client = new OpenAIEmbeddingClient(
+        null,
+        'text-embedding-test',
+        undefined,
+        'https://api.openai.com',
+        resolveConnection,
+        3,
+      );
+      const result = await client.embedMany(['hello']);
+
+      expect(result).toEqual(vectors);
+      expect(resolveConnection).toHaveBeenCalledOnce();
+      expect(revoke).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://127.0.0.1:8123/openai/v1/embeddings',
+        expect.objectContaining({
+          headers: {
+            Authorization: 'Bearer gtw_openai_once',
+            'Content-Type': 'application/json',
+          },
+        }),
+      );
+    });
+
     it('throws on non-ok HTTP response', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({
         ok: false,
         status: 429,
         text: async () => 'rate limited',
-      } as Response);
+        headers: { get: () => null },
+      } as unknown as Response);
 
       const client = new OpenAIEmbeddingClient(
         'test-key',
         'text-embedding-test',
       );
       await expect(client.embedMany(['hello'])).rejects.toThrow(
-        /embedding request failed \(429\): rate limited/,
+        /embedding provider rate limited \(429\): rate limited/,
+      );
+    });
+
+    it('throws invalid_dimension when the returned vector length mismatches', async () => {
+      mockFetchOk([{ embedding: [0.1, 0.2, 0.3, 0.4] }]);
+
+      const client = new OpenAIEmbeddingClient(
+        'test-key',
+        'text-embedding-test',
+        undefined,
+        undefined,
+        undefined,
+        3,
+      );
+      await expect(client.embedMany(['hello'])).rejects.toThrow(
+        /returned 4 dimensions, but Gantry semantic memory is configured for 3/,
       );
     });
 
@@ -334,6 +422,10 @@ describe('OpenAIEmbeddingClient', () => {
       const client = new OpenAIEmbeddingClient(
         'test-key',
         'text-embedding-test',
+        undefined,
+        undefined,
+        undefined,
+        2,
       );
       const result = await client.embedMany(texts);
 
@@ -380,6 +472,10 @@ describe('OpenAIEmbeddingClient', () => {
       const client = new OpenAIEmbeddingClient(
         'test-key',
         'text-embedding-test',
+        undefined,
+        undefined,
+        undefined,
+        4,
       );
       const result = await client.embedOne('hello');
 

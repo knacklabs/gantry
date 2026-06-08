@@ -1,5 +1,11 @@
 import {
+  DEFAULT_EMBED_DIMENSIONS,
   DEFAULT_EMBED_MODEL,
+  DEFAULT_MEMORY_BACKFILL_CRON,
+  DEFAULT_MEMORY_BACKFILL_ENABLED,
+  DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+  DEFAULT_MEMORY_BACKFILL_MODE,
+  DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
   DEFAULT_MEMORY_DREAMING_CRON,
   DEFAULT_MEMORY_EMBED_BATCH_SIZE,
   DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
@@ -8,13 +14,86 @@ import {
   DEFAULT_IDLE_SWEEP_EXTRACTION_TIMEOUT_MS,
   DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING,
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
+  getDefaultMemoryBackfillSettings,
   getPresetManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
 import type {
   EmbeddingProviderName,
+  MemoryBackfillMode,
+  RuntimeMemoryBackfillSettings,
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
 } from './runtime-settings-types.js';
+
+const BACKFILL_MODES: ReadonlySet<MemoryBackfillMode> = new Set([
+  'auto',
+  'inline',
+  'provider_batch',
+]);
+
+function parseBackfillMode(
+  raw: unknown,
+  pathPrefix: string,
+): MemoryBackfillMode {
+  if (raw === undefined) return DEFAULT_MEMORY_BACKFILL_MODE;
+  if (
+    typeof raw !== 'string' ||
+    !BACKFILL_MODES.has(raw as MemoryBackfillMode)
+  ) {
+    throw new Error(
+      `${pathPrefix} must be one of auto, inline, or provider_batch`,
+    );
+  }
+  return raw as MemoryBackfillMode;
+}
+
+function parseBackfillSettings(
+  raw: unknown,
+  pathPrefix: string,
+): RuntimeMemoryBackfillSettings {
+  if (raw === undefined) return getDefaultMemoryBackfillSettings();
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+  const map = raw as Record<string, unknown>;
+  const supportedKeys = new Set([
+    'enabled',
+    'cron',
+    'max_items_per_run',
+    'mode',
+    'provider_batch_min_items',
+  ]);
+  for (const key of Object.keys(map)) {
+    if (!supportedKeys.has(key)) {
+      throw new Error(
+        `${pathPrefix}.${key} is not supported. Use ${pathPrefix}.enabled, cron, max_items_per_run, mode, or provider_batch_min_items.`,
+      );
+    }
+  }
+  return {
+    enabled: parseBooleanValue(
+      map.enabled,
+      `${pathPrefix}.enabled`,
+      DEFAULT_MEMORY_BACKFILL_ENABLED,
+    ),
+    cron: parseStringValue(
+      map.cron,
+      `${pathPrefix}.cron`,
+      DEFAULT_MEMORY_BACKFILL_CRON,
+    ),
+    maxItemsPerRun: parsePositiveIntegerValue(
+      map.max_items_per_run,
+      `${pathPrefix}.max_items_per_run`,
+      DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+    ),
+    mode: parseBackfillMode(map.mode, `${pathPrefix}.mode`),
+    providerBatchMinItems: parsePositiveIntegerValue(
+      map.provider_batch_min_items,
+      `${pathPrefix}.provider_batch_min_items`,
+      DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
+    ),
+  };
+}
 
 function parseStringValue(
   raw: unknown,
@@ -50,6 +129,20 @@ function parsePositiveIntegerValue(
     throw new Error(`${pathPrefix} must be a positive integer`);
   }
   return raw;
+}
+
+function parseEmbeddingDimensions(raw: unknown): number {
+  const dimensions = parsePositiveIntegerValue(
+    raw,
+    'memory.embeddings.dimensions',
+    DEFAULT_EMBED_DIMENSIONS,
+  );
+  if (dimensions !== DEFAULT_EMBED_DIMENSIONS) {
+    throw new Error(
+      `memory.embeddings.dimensions must be ${DEFAULT_EMBED_DIMENSIONS}; Gantry semantic memory v1 stores vector(${DEFAULT_EMBED_DIMENSIONS}) only.`,
+    );
+  }
+  return dimensions;
 }
 
 function parseNonNegativeIntegerValue(
@@ -143,8 +236,10 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
         enabled: false,
         provider: 'disabled',
         model: DEFAULT_EMBED_MODEL,
+        dimensions: DEFAULT_EMBED_DIMENSIONS,
         dailyLimit: DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
         batchSize: DEFAULT_MEMORY_EMBED_BATCH_SIZE,
+        backfill: getDefaultMemoryBackfillSettings(),
       },
       dreaming: {
         enabled: false,
@@ -242,13 +337,15 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
     'enabled',
     'provider',
     'model',
+    'dimensions',
     'daily_limit',
     'batch_size',
+    'backfill',
   ]);
   for (const key of Object.keys(embeddingsMap)) {
     if (!embeddingsKeys.has(key)) {
       throw new Error(
-        `memory.embeddings.${key} is not supported. Use memory.embeddings.enabled, provider, or model.`,
+        `memory.embeddings.${key} is not supported. Use memory.embeddings.enabled, provider, model, dimensions, daily_limit, batch_size, or backfill.`,
       );
     }
   }
@@ -317,6 +414,7 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
         'memory.embeddings.model',
         DEFAULT_EMBED_MODEL,
       ),
+      dimensions: parseEmbeddingDimensions(embeddingsMap.dimensions),
       dailyLimit: parseNonNegativeIntegerValue(
         embeddingsMap.daily_limit,
         'memory.embeddings.daily_limit',
@@ -326,6 +424,10 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
         embeddingsMap.batch_size,
         'memory.embeddings.batch_size',
         DEFAULT_MEMORY_EMBED_BATCH_SIZE,
+      ),
+      backfill: parseBackfillSettings(
+        embeddingsMap.backfill,
+        'memory.embeddings.backfill',
       ),
     },
     dreaming: {

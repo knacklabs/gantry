@@ -177,7 +177,6 @@ export class PostgresAgentRepository implements AgentRepository {
             appId: binding.appId,
             agentId: binding.agentId,
             serverId: binding.serverId,
-            versionId: binding.versionId,
             status: binding.status,
             required: binding.required,
             permissionPolicyIdsJson: JSON.stringify(
@@ -191,7 +190,6 @@ export class PostgresAgentRepository implements AgentRepository {
           .onConflictDoUpdate({
             target: pgSchema.agentMcpServerBindingsPostgres.id,
             set: {
-              versionId: binding.versionId,
               status: binding.status,
               required: binding.required,
               permissionPolicyIdsJson: JSON.stringify(

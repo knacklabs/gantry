@@ -136,6 +136,23 @@ describe('job recovery turn queueing', () => {
         },
         getToolRepository: () =>
           ({
+            listTools: vi.fn(async () => [
+              {
+                id: 'tool:request_permission',
+                appId: 'default',
+                name: 'mcp__gantry__request_permission',
+                kind: 'host',
+                provider: 'gantry',
+                displayName: 'Request permission',
+                category: 'admin',
+                risk: 'medium',
+                selectable: true,
+                status: 'active',
+                adapterRef: 'mcp__gantry__request_permission',
+                createdAt: '2026-05-23T00:00:00.000Z',
+                updatedAt: '2026-05-23T00:00:00.000Z',
+              },
+            ]),
             listAgentToolBindings: vi.fn(async () => [
               {
                 toolId: 'tool:request_permission',

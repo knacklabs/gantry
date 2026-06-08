@@ -39,13 +39,13 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       if (runtime) await runtime.cleanup();
     });
 
-    it('persists approved definitions, bindings, materialization, and audit events in isolated schema', async () => {
+    it('persists connected definitions, bindings, materialization, and audit events in isolated schema', async () => {
       const service = new McpServerService(
         runtime.repositories.mcpServers,
         runtime.repositories.agents,
       );
 
-      const created = await service.createDraft({
+      const created = await service.connectServer({
         appId: 'app-one' as never,
         name: 'linear',
         transportConfig: {
@@ -61,21 +61,10 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         ],
         createdBy: 'admin-user',
       });
-      await service.approveDraft({
-        appId: 'app-one' as never,
-        serverId: created.definition.id,
-        approvedBy: 'reviewer',
-      });
-      await expect(
-        runtime.repositories.mcpServers.getVersion(created.version.id),
-      ).resolves.toMatchObject({
-        reviewedBy: 'reviewer',
-        reviewedAt: expect.any(String),
-      });
       await service.bindToAgent({
         appId: 'app-one' as never,
         agentId: 'agent:one' as never,
-        serverId: created.definition.id,
+        serverId: created.id,
       });
 
       const materialized = await service.materializeForAgent({
@@ -100,7 +89,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         },
       ]);
 
-      const second = await service.createDraft({
+      const second = await service.connectServer({
         appId: 'app-one' as never,
         name: 'github',
         transportConfig: {
@@ -111,15 +100,10 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         sandboxProfileId: 'sandbox:mcp-github',
         allowedToolPatterns: ['search_repositories'],
       });
-      await service.approveDraft({
-        appId: 'app-one' as never,
-        serverId: second.definition.id,
-        approvedBy: 'reviewer',
-      });
       await service.bindToAgent({
         appId: 'app-one' as never,
         agentId: 'agent:one' as never,
-        serverId: second.definition.id,
+        serverId: second.id,
       });
 
       await expect(
@@ -132,18 +116,18 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         runtime.repositories.mcpServers.listMaterializedServersForAgent({
           appId: 'app-one' as never,
           agentId: 'agent:one' as never,
-          serverIds: [created.definition.id],
+          serverIds: [created.id],
         }),
       ).resolves.toEqual([
         expect.objectContaining({
-          definition: expect.objectContaining({ id: created.definition.id }),
+          definition: expect.objectContaining({ id: created.id }),
         }),
       ]);
       await expect(
         service.materializeForAgent({
           appId: 'app-one' as never,
           agentId: 'agent:one' as never,
-          serverIds: [created.definition.id],
+          serverIds: [created.id],
           credentialEnv: { LINEAR_TOKEN_REF: 'broker-safe-linear-token' },
         }),
       ).resolves.toHaveLength(1);
@@ -158,12 +142,11 @@ describe.runIf(hasPostgresIntegrationDatabase)(
       await expect(
         runtime.repositories.mcpServers.listAuditEvents({
           appId: 'app-one' as never,
-          serverId: created.definition.id,
+          serverId: created.id,
         }),
       ).resolves.toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ eventType: 'request' }),
-          expect.objectContaining({ eventType: 'approve' }),
+          expect.objectContaining({ eventType: 'connect' }),
           expect.objectContaining({ eventType: 'bind' }),
           expect.objectContaining({ eventType: 'materialize' }),
         ]),
@@ -175,7 +158,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         runtime.repositories.mcpServers,
         runtime.repositories.agents,
       );
-      const first = await service.createDraft({
+      const first = await service.connectServer({
         appId: 'app-one' as never,
         name: 'first_page',
         transportConfig: {
@@ -183,7 +166,7 @@ describe.runIf(hasPostgresIntegrationDatabase)(
           url: 'https://93.184.216.34/first',
         },
       });
-      await service.createDraft({
+      await service.connectServer({
         appId: 'app-one' as never,
         name: 'second_page',
         transportConfig: {
@@ -194,21 +177,22 @@ describe.runIf(hasPostgresIntegrationDatabase)(
 
       const firstPage = await service.listServers({
         appId: 'app-one' as never,
-        statuses: ['draft'],
+        statuses: ['active'],
         limit: 1,
       });
       expect(firstPage).toHaveLength(1);
-      await service.rejectDraft({
+      await service.disableServer({
         appId: 'app-one' as never,
-        serverId: first.definition.id,
+        serverId: first.id,
         reason: 'not needed',
       });
       await expect(
-        service.approveDraft({
+        service.bindToAgent({
           appId: 'app-one' as never,
-          serverId: first.definition.id,
+          agentId: 'agent:one' as never,
+          serverId: first.id,
         }),
-      ).rejects.toThrow(/Only draft/);
+      ).rejects.toThrow(/must be active/);
     });
   },
 );

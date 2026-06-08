@@ -8,7 +8,13 @@ import {
   DEFAULT_BROWSER_USAGE_MAX_CONCURRENT_PER_SITE,
   DEFAULT_BROWSER_USAGE_MODE,
   DEFAULT_BROWSER_USAGE_WINDOW_MS,
+  DEFAULT_EMBED_DIMENSIONS,
   DEFAULT_EMBED_MODEL,
+  DEFAULT_MEMORY_BACKFILL_CRON,
+  DEFAULT_MEMORY_BACKFILL_ENABLED,
+  DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+  DEFAULT_MEMORY_BACKFILL_MODE,
+  DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
   DEFAULT_MEMORY_DREAMING_CRON,
   DEFAULT_MEMORY_EMBED_BATCH_SIZE,
   DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
@@ -16,9 +22,7 @@ import {
   DEFAULT_IDLE_SWEEP_CONCURRENCY,
   DEFAULT_IDLE_SWEEP_EXTRACTION_TIMEOUT_MS,
   DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING,
-  DEFAULT_ONECLI_DATABASE_URL_ENV,
-  DEFAULT_ONECLI_POSTGRES_SCHEMA,
-  DEFAULT_ONECLI_URL,
+  DEFAULT_MODEL_GATEWAY_BIND_HOST,
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
@@ -120,8 +124,15 @@ function renderMemorySettingsYaml(
     `    enabled: ${memory.embeddings.enabled ? 'true' : 'false'}`,
     `    provider: ${memory.embeddings.provider}`,
     `    model: ${quoteYamlString(memory.embeddings.model)}`,
+    `    dimensions: ${memory.embeddings.dimensions}`,
     `    daily_limit: ${memory.embeddings.dailyLimit}`,
     `    batch_size: ${memory.embeddings.batchSize}`,
+    '    backfill:',
+    `      enabled: ${memory.embeddings.backfill.enabled ? 'true' : 'false'}`,
+    `      cron: ${quoteYamlString(memory.embeddings.backfill.cron)}`,
+    `      max_items_per_run: ${memory.embeddings.backfill.maxItemsPerRun}`,
+    `      mode: ${memory.embeddings.backfill.mode}`,
+    `      provider_batch_min_items: ${memory.embeddings.backfill.providerBatchMinItems}`,
     '  dreaming:',
     `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
     `    cron: ${quoteYamlString(memory.dreaming.cron)}`,
@@ -531,20 +542,15 @@ function bindingsByConversation(
   return grouped;
 }
 
-function renderCredentialBrokerSettingsYaml(
+function renderModelAccessSettingsYaml(
   lines: string[],
   credentialBroker: RuntimeCredentialBrokerSettings,
 ): void {
   lines.push(
-    'credential_broker:',
-    `  mode: ${quoteYamlString(credentialBroker.mode)}`,
-    '  onecli:',
-    `    url: ${quoteYamlString(credentialBroker.onecli.url)}`,
-    '    postgres:',
-    `      url_env: ${quoteYamlString(credentialBroker.onecli.postgres.urlEnv)}`,
-    `      schema: ${quoteYamlString(credentialBroker.onecli.postgres.schema)}`,
-    '  external:',
-    `    base_url: ${quoteYamlString(credentialBroker.external.baseUrl)}`,
+    'model_access:',
+    `  enabled: ${credentialBroker.mode === 'gantry' ? 'true' : 'false'}`,
+    '  gateway:',
+    `    bind_host: ${quoteYamlString(credentialBroker.gateway.bindHost)}`,
     '',
   );
 }
@@ -560,13 +566,8 @@ function isDefaultCredentialBroker(
   credentialBroker: RuntimeCredentialBrokerSettings,
 ): boolean {
   return (
-    credentialBroker.mode === 'onecli' &&
-    credentialBroker.onecli.url === DEFAULT_ONECLI_URL &&
-    credentialBroker.onecli.postgres.urlEnv ===
-      DEFAULT_ONECLI_DATABASE_URL_ENV &&
-    credentialBroker.onecli.postgres.schema ===
-      DEFAULT_ONECLI_POSTGRES_SCHEMA &&
-    credentialBroker.external.baseUrl === ''
+    credentialBroker.mode === 'gantry' &&
+    credentialBroker.gateway.bindHost === DEFAULT_MODEL_GATEWAY_BIND_HOST
   );
 }
 
@@ -577,8 +578,16 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
     memory.embeddings.enabled === false &&
     memory.embeddings.provider === 'disabled' &&
     memory.embeddings.model === DEFAULT_EMBED_MODEL &&
+    memory.embeddings.dimensions === DEFAULT_EMBED_DIMENSIONS &&
     memory.embeddings.dailyLimit === DEFAULT_OPENAI_DAILY_EMBED_LIMIT &&
     memory.embeddings.batchSize === DEFAULT_MEMORY_EMBED_BATCH_SIZE &&
+    memory.embeddings.backfill.enabled === DEFAULT_MEMORY_BACKFILL_ENABLED &&
+    memory.embeddings.backfill.cron === DEFAULT_MEMORY_BACKFILL_CRON &&
+    memory.embeddings.backfill.maxItemsPerRun ===
+      DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN &&
+    memory.embeddings.backfill.mode === DEFAULT_MEMORY_BACKFILL_MODE &&
+    memory.embeddings.backfill.providerBatchMinItems ===
+      DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS &&
     memory.dreaming.enabled === false &&
     memory.dreaming.cron === DEFAULT_MEMORY_DREAMING_CRON &&
     memory.dreaming.embeddings.enabled === false &&
@@ -768,7 +777,7 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     renderStorageSettingsYaml(lines, settings.storage);
   }
   if (!isDefaultCredentialBroker(settings.credentialBroker)) {
-    renderCredentialBrokerSettingsYaml(lines, settings.credentialBroker);
+    renderModelAccessSettingsYaml(lines, settings.credentialBroker);
   }
   if (!isDefaultMemory(settings.memory)) {
     renderMemorySettingsYaml(lines, settings.memory);

@@ -8,8 +8,6 @@ import type {
 import type {
   McpServerDefinition,
   McpServerId,
-  McpServerVersion,
-  McpServerVersionId,
 } from '../../domain/mcp/mcp-servers.js';
 import { assertNoRawSecretsInMcpConfig } from '../../domain/mcp/mcp-servers.js';
 import type {
@@ -24,11 +22,11 @@ import {
 } from './desired-state-capability-reconcile.js';
 import { exportCurrentDesiredState } from './desired-state-current-export.js';
 import {
-  cleanupGeneratedRuntimeCapabilities,
-  cleanupGeneratedRuntimeCapabilitiesInSettings,
+  normalizeConfiguredCapabilities,
+  normalizeConfiguredCapabilitiesInSettings,
   semanticCapabilityDefinitionsById,
   skillActionDefinitionsForSkills,
-} from './generated-runtime-capability-cleanup.js';
+} from './configured-capability-normalization.js';
 import {
   configuredConversationKind,
   jidForConfiguredConversation,
@@ -79,7 +77,6 @@ import type {
 import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {
-  hashRuntimeMcpConfig,
   normalizeRuntimeMcpCredentialRefs,
   validateRuntimeConfiguredMcpServer,
 } from './runtime-settings-mcp-desired-state.js';
@@ -101,8 +98,8 @@ export class SettingsDesiredStateService {
     });
   }
 
-  async cleanupGeneratedRuntimeCapabilities(settings: RuntimeSettings) {
-    return cleanupGeneratedRuntimeCapabilitiesInSettings({
+  async normalizeConfiguredCapabilities(settings: RuntimeSettings) {
+    return normalizeConfiguredCapabilitiesInSettings({
       settings,
       repositories: this.deps.repositories,
       appId: this.appId,
@@ -112,8 +109,7 @@ export class SettingsDesiredStateService {
   async drift(
     settings: RuntimeSettings,
   ): Promise<SettingsDesiredStateDriftReport> {
-    settings = (await this.cleanupGeneratedRuntimeCapabilities(settings))
-      .settings;
+    settings = (await this.normalizeConfiguredCapabilities(settings)).settings;
     const groups = await this.deps.ops.getAllConversationRoutes();
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set(
@@ -138,17 +134,15 @@ export class SettingsDesiredStateService {
   }
 
   async reconcile(settings: RuntimeSettings): Promise<SettingsReconcileResult> {
-    const cleanup = await cleanupGeneratedRuntimeCapabilitiesInSettings({
+    const normalization = await normalizeConfiguredCapabilitiesInSettings({
       settings,
       repositories: this.deps.repositories,
       appId: this.appId,
     });
-    settings = cleanup.settings;
-    const generatedCapabilityCleanupFolders = new Set([
-      ...cleanup.converted.map((item) => item.agentFolder),
-      ...cleanup.dropped.map((item) => item.agentFolder),
-    ]);
-
+    settings = normalization.settings;
+    const normalizedCapabilityFolders = new Set(
+      normalization.changedAgentFolders,
+    );
     const configuredReferenceErrors = [
       ...this.validateConfiguredMcpServers(settings),
     ];
@@ -217,7 +211,7 @@ export class SettingsDesiredStateService {
       if (
         settings.desiredState.authoritative ||
         hasAnyCapability(agent) ||
-        generatedCapabilityCleanupFolders.has(folder)
+        normalizedCapabilityFolders.has(folder)
       ) {
         await this.replaceCapabilities(agentId, agent, now);
         applied.push(`capabilities:${folder}`);
@@ -525,43 +519,6 @@ export class SettingsDesiredStateService {
       const credentialRefs = normalizeRuntimeMcpCredentialRefs(
         server.credentialRefs,
       );
-      const configHash = hashRuntimeMcpConfig({
-        config: server.config,
-        allowedToolPatterns: server.allowedToolPatterns,
-        autoApproveToolPatterns: server.autoApproveToolPatterns,
-        credentialRefs,
-        sandboxProfileId: server.sandboxProfileId,
-      });
-      const versionHash = configHash.slice(
-        'sha256:'.length,
-        'sha256:'.length + 12,
-      );
-      const versionId =
-        `mcp-version:${serverId.slice('mcp:'.length)}:${versionHash}` as McpServerVersionId;
-
-      // Look up existing versions for this server so we can:
-      //  1. short-circuit when settings.yaml hasn't actually changed
-      //     (configHash matches an existing version → reuse its row), and
-      //  2. allocate the next version number when the config DID change
-      //     (avoids violating the (server_id, version) unique constraint).
-      // The mcp_server_versions schema was always built for version history
-      // (see mcp-servers.ts: uniqueIndex on (server_id, version), listVersions
-      // helper, latestApprovedVersionId pointer). This implementation finally
-      // honors that design — every config edit produces a new version row,
-      // bindings transparently re-point via latestApprovedVersionId on the
-      // next capability reconcile, and the old version rows linger only as
-      // history (harmless; restorable via latestApprovedVersionId rollback).
-      const existingVersions =
-        await this.deps.repositories.mcpServers.listVersions(typedServerId);
-      const matchingByHash = existingVersions.find(
-        (v) => v.configHash === configHash,
-      );
-      const versionNumber = matchingByHash
-        ? matchingByHash.version
-        : existingVersions.length === 0
-          ? 1
-          : Math.max(...existingVersions.map((v) => v.version)) + 1;
-      const effectiveVersionId = matchingByHash ? matchingByHash.id : versionId;
 
       const definition: McpServerDefinition = {
         id: typedServerId,
@@ -569,33 +526,19 @@ export class SettingsDesiredStateService {
         name: server.name,
         displayName: server.displayName,
         description: server.description,
-        status: 'approved',
+        status: 'active',
         createdSource: 'admin',
         riskClass: server.riskClass,
-        latestApprovedVersionId: effectiveVersionId,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-        approvedBy: existing?.approvedBy ?? 'settings.yaml',
-        approvedAt: existing?.approvedAt ?? now,
-      };
-      const version: McpServerVersion = {
-        id: effectiveVersionId,
-        appId: this.appId,
-        serverId: typedServerId,
-        version: versionNumber,
         transport: server.config.transport,
         config: server.config,
         allowedToolPatterns: server.allowedToolPatterns,
         autoApproveToolPatterns: server.autoApproveToolPatterns,
         credentialRefs,
         sandboxProfileId: server.sandboxProfileId,
-        configHash,
-        reviewedBy: definition.approvedBy,
-        reviewedAt: definition.approvedAt,
-        createdAt: matchingByHash?.createdAt ?? now,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
       };
       await this.deps.repositories.mcpServers.saveServer(definition);
-      await this.deps.repositories.mcpServers.saveVersion(version);
       applied.push(`mcp_server:${server.name}`);
     }
   }
@@ -638,12 +581,11 @@ export class SettingsDesiredStateService {
       const skillActionDefinitions = semanticCapabilityDefinitionsById(
         skillActionDefinitionsForAgent,
       );
-      const cleanedCapabilities = cleanupGeneratedRuntimeCapabilities({
+      const normalizedCapabilities = normalizeConfiguredCapabilities({
         capabilities: agent.capabilities,
-        skillActionDefinitions: skillActionDefinitionsForAgent,
       }).capabilities;
       for (const capability of [
-        ...new Set(cleanedCapabilities.map((item) => item.id)),
+        ...new Set(normalizedCapabilities.map((item) => item.id)),
       ]) {
         const toolReference = settingsCapabilityToToolReference({
           id: capability,
@@ -684,8 +626,7 @@ export class SettingsDesiredStateService {
         if (
           !server ||
           server.appId !== this.appId ||
-          server.status !== 'approved' ||
-          !server.latestApprovedVersionId
+          server.status !== 'active'
         ) {
           errors.push(
             `agents.${folder}.sources.mcp_servers contains unavailable MCP server: ${serverId}`,

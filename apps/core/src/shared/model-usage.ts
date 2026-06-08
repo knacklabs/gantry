@@ -1,10 +1,13 @@
 import {
   findModelByRunnerModel,
   type ModelCatalogEntry,
-  type NormalizedCacheProvider,
   type NormalizedCacheStatus,
   type NormalizedModelUsage,
 } from './model-catalog.js';
+import {
+  resolveModelCacheProvider,
+  resolveModelCacheSupport,
+} from './model-cache-support.js';
 import { nowIso } from './time/datetime.js';
 
 function numeric(value: unknown): number {
@@ -23,18 +26,15 @@ function normalizeCacheStatus(
   return 'unknown';
 }
 
-function cacheProviderForEntry(
-  entry: ModelCatalogEntry | undefined,
-): NormalizedCacheProvider {
-  if (!entry || entry.cacheMode === 'none') return 'none';
-  const promptSuffix = '-prompt';
-  if (entry.cacheMode.endsWith(promptSuffix)) {
-    return entry.cacheMode.slice(
-      0,
-      -promptSuffix.length,
-    ) as NormalizedCacheProvider;
+function readPath(input: unknown, path?: string): unknown {
+  if (!path) return undefined;
+  let cursor = input;
+  for (const segment of path.split('.')) {
+    if (!segment) return undefined;
+    if (cursor === null || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
   }
-  return 'none';
+  return cursor;
 }
 
 export function normalizeModelUsage(input: {
@@ -53,15 +53,12 @@ export function normalizeModelUsage(input: {
         costUSD?: number;
       }
     >;
-    usage?: {
+    usage?: Record<string, unknown> & {
       input_tokens?: number;
       output_tokens?: number;
       prompt_tokens?: number;
       completion_tokens?: number;
-      prompt_tokens_details?: {
-        cached_tokens?: number;
-        cache_write_tokens?: number;
-      };
+      prompt_tokens_details?: Record<string, unknown>;
     };
   };
 
@@ -80,7 +77,7 @@ export function normalizeModelUsage(input: {
       entries.map((entry) => entry.responseFamily),
     );
     const modelRouteSet = new Set(entries.map((entry) => entry.modelRoute.id));
-    const cacheProviderSet = new Set(entries.map(cacheProviderForEntry));
+    const cacheProviderSet = new Set(entries.map(resolveModelCacheProvider));
     const hasUnknownModel = entries.length !== modelNames.length;
     for (const usage of Object.values(result.modelUsage)) {
       inputTokens += numeric(usage.inputTokens);
@@ -91,6 +88,13 @@ export function normalizeModelUsage(input: {
     }
     const entry = findModelByRunnerModel(firstModel ?? input.fallbackModel);
     const isMixedModel = modelNames.length > 1;
+    const cacheProvider = hasUnknownModel
+      ? 'none'
+      : cacheProviderSet.size === 1
+        ? [...cacheProviderSet][0]
+        : 'mixed';
+    const supportsCacheAccounting =
+      cacheProvider !== 'none' && cacheProviderSet.size > 0;
     return {
       model: isMixedModel ? 'mixed' : (entry?.recommendedAlias ?? firstModel),
       responseFamily:
@@ -115,18 +119,16 @@ export function normalizeModelUsage(input: {
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
-      totalBillableInputTokens: Math.max(0, inputTokens - cacheReadTokens),
+      totalBillableInputTokens: supportsCacheAccounting
+        ? Math.max(0, inputTokens - cacheReadTokens)
+        : inputTokens,
       estimatedCostUsd:
         estimatedCostUsd > 0 ? estimatedCostUsd : result.total_cost_usd,
-      cacheProvider: hasUnknownModel
-        ? 'none'
-        : cacheProviderSet.size === 1
-          ? [...cacheProviderSet][0]
-          : 'mixed',
+      cacheProvider,
       cacheStatus: normalizeCacheStatus(
         cacheReadTokens,
         cacheWriteTokens,
-        !hasUnknownModel,
+        supportsCacheAccounting,
       ),
       at: nowIso(),
     };
@@ -139,11 +141,16 @@ export function normalizeModelUsage(input: {
     const outputTokens =
       numeric(result.usage.output_tokens) ||
       numeric(result.usage.completion_tokens);
+    const cacheProvider = resolveModelCacheProvider(entry);
+    const supportsCacheAccounting = cacheProvider !== 'none';
+    const usageFields = entry
+      ? resolveModelCacheSupport(entry).prompt.usageFields
+      : undefined;
     const cacheReadTokens = numeric(
-      result.usage.prompt_tokens_details?.cached_tokens,
+      readPath(result.usage, usageFields?.readTokens),
     );
     const cacheWriteTokens = numeric(
-      result.usage.prompt_tokens_details?.cache_write_tokens,
+      readPath(result.usage, usageFields?.writeTokens),
     );
     return {
       model: entry?.recommendedAlias ?? input.fallbackModel,
@@ -154,12 +161,14 @@ export function normalizeModelUsage(input: {
       outputTokens,
       cacheReadTokens,
       cacheWriteTokens,
-      totalBillableInputTokens: Math.max(0, inputTokens - cacheReadTokens),
-      cacheProvider: cacheProviderForEntry(entry),
+      totalBillableInputTokens: supportsCacheAccounting
+        ? Math.max(0, inputTokens - cacheReadTokens)
+        : inputTokens,
+      cacheProvider,
       cacheStatus: normalizeCacheStatus(
         cacheReadTokens,
         cacheWriteTokens,
-        Boolean(entry && entry.cacheMode !== 'none'),
+        supportsCacheAccounting,
       ),
       at: nowIso(),
     };

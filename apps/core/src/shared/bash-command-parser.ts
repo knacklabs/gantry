@@ -131,6 +131,10 @@ export function normalizePersistentBashRuleContent(
 export function nonDurableBashLeafReason(
   leaf: BashCommandLeaf,
 ): string | undefined {
+  const scriptPath = pythonScriptPathForLeaf(leaf.argv);
+  if (scriptPath && !isReviewedSkillScriptPath(scriptPath)) {
+    return 'Persistent RunCommand rules cannot grant host-owned Python scripts; install a reviewed skill action or approve a semantic local_cli capability instead.';
+  }
   const command = executableName(leaf.argv[0] ?? '');
   if (STATEFUL_COMMANDS.has(command)) {
     return `Bash ${command} changes shell state and cannot be persisted as an independent leaf.`;
@@ -143,6 +147,13 @@ export function wildcardSensitiveBashLeafReason(
   scope: string,
 ): string | undefined {
   const command = executableName(leaf.argv[0] ?? '');
+  const scriptPath = pythonScriptPathForLeaf(leaf.argv);
+  if (scriptPath && isReviewedSkillScriptPath(scriptPath)) {
+    return undefined;
+  }
+  if (scriptPath && scope.includes('*')) {
+    return 'Bash Python script wildcard scopes are too broad for persistent approval; install a reviewed skill action or approve a semantic local_cli capability.';
+  }
   if (!WILDCARD_SENSITIVE_COMMANDS.has(command) || !scope.includes('*')) {
     return undefined;
   }
@@ -495,6 +506,17 @@ function normalizeScriptLeafRuleContent(
 ): string | undefined {
   const argv = leaf.argv;
   if (argv.length === 0) return undefined;
+  const scriptArg = pythonScriptPathForLeaf(argv);
+  if (!scriptArg || !isReviewedSkillScriptPath(scriptArg)) return undefined;
+  return `${normalizeBashArg(scriptArg)} *`;
+}
+
+function isPythonScriptPath(value: string): boolean {
+  return value.endsWith('.py');
+}
+
+function pythonScriptPathForLeaf(argv: readonly string[]): string | undefined {
+  if (argv.length === 0) return undefined;
   const executable = executableName(argv[0] ?? '');
   const scriptArg = SAFE_SCRIPT_INTERPRETERS.has(executable)
     ? argv[1]
@@ -506,13 +528,12 @@ function normalizeScriptLeafRuleContent(
   ) {
     return undefined;
   }
-  return `${normalizeBashArg(scriptArg)} *`;
+  return scriptArg;
 }
 
-function isPythonScriptPath(value: string): boolean {
-  return (
-    value.endsWith('.py') && (value.includes('/') || value.startsWith('.'))
-  );
+function isReviewedSkillScriptPath(value: string): boolean {
+  const normalized = value.replace(/^\.\/+/, '');
+  return normalized.startsWith('skills/');
 }
 
 function normalizeUrlArg(arg: string): string | undefined {

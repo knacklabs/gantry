@@ -1,6 +1,5 @@
 import {
   ASSISTANT_NAME,
-  DATA_DIR,
   getCredentialBrokerRuntimeConfig,
   getRuntimeQueueConfig,
 } from '../../config/index.js';
@@ -27,7 +26,7 @@ import { createGroupProcessor } from '../../runtime/group-processing.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 import { listAvailableGroups } from '../../runtime/group-registry.js';
 import { GroupQueue } from '../../runtime/group-queue.js';
-import { parseThreadQueueKey } from '../../runtime/thread-queue-key.js';
+import { parseThreadQueueKey } from '../../shared/thread-queue-key.js';
 import {
   registerGroup as registerGroupEntry,
   setGroupModelOverride as setGroupModelOverrideEntry,
@@ -49,10 +48,11 @@ import { AppMemoryService } from '../../memory/app-memory-service.js';
 import { collectDurableMemoryAtBoundary } from '../../memory/app-memory-session-boundary-collector.js';
 import { memoryAgentIdForGroupFolder } from '../../memory/app-memory-boundaries.js';
 import {
-  createDefaultAgentExecutionAdapter,
+  createDefaultAgentExecutionAdapterRegistry,
   createDefaultMemoryLlmClient,
 } from '../../adapters/llm/default-runtime-adapters.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
+import type { AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import { runClaudeQuery } from '../../adapters/llm/anthropic-claude-agent/memory-query.js';
 
@@ -64,6 +64,7 @@ export type RuntimeAppRepository = RuntimeRouterStateRepository &
 
 export interface RuntimeApp {
   executionAdapter: AgentExecutionAdapter;
+  executionAdapters: AgentExecutionAdapterRegistry;
   queue: GroupQueue;
   // The guardrail classifier used on the agent-spawn path. Exposed so the
   // message loop can apply the same guardrail to the continuation path.
@@ -138,6 +139,7 @@ export interface RuntimeAppOptions {
   publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
   guardrailClassifier?: GroupProcessingDeps['guardrailClassifier'];
   executionAdapter?: AgentExecutionAdapter;
+  executionAdapters?: AgentExecutionAdapterRegistry;
   opsRepository?: RuntimeAppRepository;
 }
 
@@ -156,15 +158,26 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   // guardrail behaves identically regardless of which path a message takes.
   const guardrailClassifier =
     options.guardrailClassifier ??
-    createGuardrailClassifier({ query: runClaudeQuery });
+    createGuardrailClassifier({
+      query: (input) =>
+        runClaudeQuery({
+          appId: 'default' as never,
+          ...input,
+        }),
+    });
+  const executionAdapters =
+    options.executionAdapters ?? createDefaultAgentExecutionAdapterRegistry();
   const executionAdapter =
-    options.executionAdapter ?? createDefaultAgentExecutionAdapter();
+    options.executionAdapter ?? executionAdapters.list()[0];
+  if (!executionAdapter) {
+    throw new Error('Runtime requires at least one model execution adapter.');
+  }
   registerMemoryLlmClient(createDefaultMemoryLlmClient());
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
   let credentialBrokerPromise:
     | Promise<AgentCredentialBroker | undefined>
     | undefined;
-  let credentialBrokerCacheKey = '';
+  let credentialBrokerConfigKey = '';
   const credentialBindingPromises = new Map<string, Promise<void>>();
   const ops = () => options.opsRepository ?? getRuntimeRepositories();
   let channelRuntime: GroupProcessingDeps['channelRuntime'] = {
@@ -180,15 +193,24 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
 
   function getCredentialBroker(): Promise<AgentCredentialBroker | undefined> {
     const brokerConfig = getCredentialBrokerRuntimeConfig();
-    const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
-    if (credentialBrokerCacheKey !== cacheKey) {
+    const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
+    if (credentialBrokerConfigKey !== configKey) {
+      void credentialBrokerPromise
+        ?.then((broker) => broker?.close?.())
+        .catch((error) => {
+          logger.warn(
+            { err: error },
+            'Failed to close replaced credential broker',
+          );
+        });
       credentialBrokerPromise = undefined;
-      credentialBrokerCacheKey = cacheKey;
+      credentialBrokerConfigKey = configKey;
     }
     credentialBrokerPromise ??= createAgentCredentialBroker({
       mode: brokerConfig.mode,
-      onecliUrl: brokerConfig.onecliUrl,
-      dataDir: DATA_DIR,
+      modelCredentials: getRuntimeStorage().repositories.modelCredentials,
+      gatewayBindHost: brokerConfig.gatewayBindHost,
+      publishRuntimeEvent: options.publishRuntimeEvent,
     }).catch((error) => {
       credentialBrokerPromise = undefined;
       throw error;
@@ -205,9 +227,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     modelRuntime: boolean;
   }): Promise<void> {
     const { jid, group, brokerConfig, identifier, name, modelRuntime } = input;
-    const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
-    const bindingCacheKey = `${cacheKey}:${identifier}`;
-    const existing = credentialBindingPromises.get(bindingCacheKey);
+    const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
+    const bindingConfigKey = `${configKey}:${identifier}`;
+    const existing = credentialBindingPromises.get(bindingConfigKey);
     if (existing) {
       return existing;
     }
@@ -223,15 +245,19 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
           : modelRuntime
             ? await ensureModelCredentialBinding({
                 mode: brokerConfig.mode,
-                onecliUrl: brokerConfig.onecliUrl,
-                dataDir: DATA_DIR,
                 broker: await getCredentialBroker(),
+                modelCredentials:
+                  getRuntimeStorage().repositories.modelCredentials,
+                gatewayBindHost: brokerConfig.gatewayBindHost,
+                publishRuntimeEvent: options.publishRuntimeEvent,
               })
             : await ensureAgentCredentialBinding({
                 mode: brokerConfig.mode,
-                onecliUrl: brokerConfig.onecliUrl,
-                dataDir: DATA_DIR,
                 broker: await getCredentialBroker(),
+                modelCredentials:
+                  getRuntimeStorage().repositories.modelCredentials,
+                gatewayBindHost: brokerConfig.gatewayBindHost,
+                publishRuntimeEvent: options.publishRuntimeEvent,
                 name,
                 identifier,
               });
@@ -244,7 +270,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
             created: res.created,
             credentialMode: brokerConfig.mode,
           },
-          'Credential broker profile ensured',
+          'Gantry Model Gateway access ensured',
         );
       } catch (err) {
         logger.debug(
@@ -255,15 +281,15 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
             credentialMode: brokerConfig.mode,
             err: String(err),
           },
-          'Credential broker profile ensure skipped',
+          'Gantry Model Gateway access ensure skipped',
         );
-        credentialBindingPromises.delete(bindingCacheKey);
+        credentialBindingPromises.delete(bindingConfigKey);
       }
     })().catch((error) => {
-      credentialBindingPromises.delete(bindingCacheKey);
+      credentialBindingPromises.delete(bindingConfigKey);
       throw error;
     });
-    credentialBindingPromises.set(bindingCacheKey, bindingPromise);
+    credentialBindingPromises.set(bindingConfigKey, bindingPromise);
     return bindingPromise;
   }
 
@@ -548,10 +574,12 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     publishRuntimeEvent: options.publishRuntimeEvent,
     guardrailClassifier,
     executionAdapter,
+    executionAdapters,
   });
 
   return {
     executionAdapter,
+    executionAdapters,
     queue,
     guardrailClassifier,
     loadState,

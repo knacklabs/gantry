@@ -174,12 +174,12 @@ export function parseSimpleYamlObject(raw: string): Record<string, unknown> {
         parent.push(child);
         if (!rest) {
           const nested: Record<string, unknown> = {};
-          child[key] = nested;
+          setMappingValue(child, key, nested, lineNo);
           stack.push({ indent, value: child });
           stack.push({ indent: indent + 2, value: nested, parent: child, key });
           continue;
         }
-        child[key] = parseScalar(rest);
+        setMappingValue(child, key, parseScalar(rest), lineNo);
         stack.push({ indent, value: child });
         continue;
       }
@@ -194,15 +194,27 @@ export function parseSimpleYamlObject(raw: string): Record<string, unknown> {
     const { key, rest } = splitKeyValue(trimmed, lineNo);
     if (!rest) {
       const child: Record<string, unknown> = {};
-      parent[key] = child;
+      setMappingValue(parent, key, child, lineNo);
       stack.push({ indent, value: child, parent, key });
       continue;
     }
 
-    parent[key] = parseScalar(rest);
+    setMappingValue(parent, key, parseScalar(rest), lineNo);
   }
 
   return root;
+}
+
+function setMappingValue(
+  parent: Record<string, unknown>,
+  key: string,
+  value: unknown,
+  lineNo: number,
+): void {
+  if (Object.hasOwn(parent, key)) {
+    throw new Error(`duplicate key "${key}" (line ${lineNo + 1})`);
+  }
+  parent[key] = value;
 }
 
 export function quoteYamlString(value: string): string {

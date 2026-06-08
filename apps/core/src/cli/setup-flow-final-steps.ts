@@ -214,7 +214,7 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       `Runtime home: ${draft.runtimeHome}`,
       `Postgres schema: ${draft.postgresSchema}`,
       `Channel: ${channelLabel}`,
-      `Credential mode: ${draft.credentialMode}`,
+      `Model access: ${draft.credentialMode === 'gantry' ? 'enabled' : 'disabled'}`,
       `Model preset: ${draft.modelPreset}`,
       `Main model: ${draft.selectedModel}`,
       'Memory models: preset-managed',
@@ -242,12 +242,12 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
   spinner.start('Writing runtime config...');
   try {
     ensureRuntimeWritable(draft.runtimeHome);
-    if (!draft.postgresDatabaseUrl || !draft.onecliPostgresDatabaseUrl) {
+    if (!draft.postgresDatabaseUrl) {
       spinner.stop('Database configuration is incomplete');
       p.log.error(
         [
-          'Gantry requires both GANTRY_DATABASE_URL and ONECLI_DATABASE_URL before writing runtime config.',
-          'Next action: return to the storage step and provide both database URLs.',
+          'Gantry requires GANTRY_DATABASE_URL before writing runtime config.',
+          'Next action: return to the storage step and provide the database URL.',
         ].join('\n'),
       );
       return { type: 'goto', step: 'storage' };
@@ -255,9 +255,7 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
     persistOnboardingConfig({
       runtimeHome: draft.runtimeHome,
       postgresDatabaseUrl: draft.postgresDatabaseUrl || undefined,
-      onecliPostgresDatabaseUrl: draft.onecliPostgresDatabaseUrl || undefined,
       postgresSchema: draft.postgresSchema || undefined,
-      onecliPostgresSchema: draft.onecliPostgresSchema || undefined,
       primaryProvider: draft.primaryProvider,
       modelPreset: draft.modelPreset,
       modelAlias: draft.selectedModel || undefined,
@@ -267,7 +265,6 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       slackAppToken: draft.slackAppToken,
       slackPermissionApproverIds: draft.slackPermissionApproverIds,
       credentialMode: draft.credentialMode,
-      onecliUrl: draft.onecliUrl || undefined,
       agentName: draft.agentName,
       memoryEnabled: draft.memoryEnabled,
       embeddingsEnabled: draft.embeddingsEnabled,
@@ -472,7 +469,7 @@ export async function runVerifyStep(
     return { type: 'resume' };
   }
 
-  const modelAccess = await verifyModelAccess(draft.onecliUrl);
+  const modelAccess = await verifyModelAccess();
   if (!modelAccess.ok) {
     p.log.warn(
       `${modelAccess.message}\nNext action: ${modelAccess.nextAction || 'Open Model Access and rerun setup verification.'}`,

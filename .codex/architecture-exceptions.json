@@ -1,24 +1,10 @@
 [
   {
-    "file": "apps/core/src/adapters/credentials/onecli/env-policy.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/adapters/credentials/onecli/env-policy.ts",
+    "file": "apps/core/src/adapters/credentials/agent-credential-broker-factory.ts",
     "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 8
-  },
-  {
-    "file": "apps/core/src/adapters/credentials/onecli/policy.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
+    "reason": "The credential factory composes the Gantry Model Gateway implementation from the approved Anthropic-compatible LLM adapter boundary; capped to this one import path.",
+    "removeByPhase": "model-gateway-composition-boundary-cleanup",
+    "maxViolations": 2
   },
   {
     "file": "apps/core/src/adapters/storage/postgres/factory.ts",
@@ -324,9 +310,9 @@
   {
     "file": "apps/core/src/cli/memory-health.ts",
     "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor, plus embedding default/model imports for the semantic-memory health check; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
+    "maxViolations": 3
   },
   {
     "file": "apps/core/src/cli/model.ts",
@@ -348,6 +334,13 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/cli/memory-embeddings-backfill.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "CLI embedding backfill command drives the runtime backfill engine and reads embedding settings, following the existing CLI memory-administration adapters; capped until the canonical boundary cleanup ports CLI memory writes.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 6
   },
   {
     "file": "apps/core/src/cli/onboarding-config.ts",
@@ -574,13 +567,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/control/server/openapi-schemas.ts",
-    "rule": "provider_specific_path",
-    "reason": "OpenAPI model surfaces intentionally expose canonical response-family enum values while route/provider metadata remains diagnostic.",
-    "removeByPhase": "model-catalog-contract-generation",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/control/server/index.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -663,6 +649,13 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/jobs/recovery.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Job recovery currently reads runtime config directly while scheduler recovery ports are being split from runtime wiring.",
+    "removeByPhase": "scheduler-recovery-config-port",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/jobs/execution.ts",
@@ -812,6 +805,125 @@
     "maxViolations": 4
   },
   {
+    "file": "apps/core/src/memory/app-memory-backfill.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Semantic-memory embedding backfill engine carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Semantic-memory embedding backfill engine carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill-candidates.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Semantic-memory backfill candidate scan carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill-candidates.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Semantic-memory backfill candidate scan carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill-runs.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Semantic-memory backfill run records carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill-runs.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Semantic-memory backfill run records carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill-provider-batch.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Semantic-memory provider batch poll/import carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-backfill-provider-batch.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Semantic-memory provider batch poll/import carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-embedding-writes.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Shared semantic-memory embedding write helper carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-embedding-writes.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Shared semantic-memory embedding write helper carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/memory-embedding-cache-store.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Query-embedding cache store carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/memory-embedding-cache-store.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Query-embedding cache store carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-dream-embeddings.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Dream embedding writes now persist pgvector columns via the shared embedding write helper, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-dream-embeddings.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Dream embedding writes now persist pgvector columns via the shared embedding write helper, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-recall-embedding.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Recall query-embedding capability reads embedding config/schema and the shared logger, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-embedding-status.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Semantic-memory status counts read embedding schema directly, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-embedding-status.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Semantic-memory status counts read embedding schema/config directly, carrying the same Postgres-backed runtime debt as the memory service slice; replace with repository ports in the canonical boundary cleanup.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
     "file": "apps/core/src/memory/app-memory-trigger-dreaming.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Split from app-memory-service to keep file-size ratchet while preserving existing Postgres-backed memory dreaming debt; replace with repository ports in the canonical boundary cleanup.",
@@ -880,13 +992,6 @@
     "reason": "Brokered memory embeddings still resolve credential-broker adapters from the runtime memory module in this slice; extract provider wiring into an adapter-owned composition point.",
     "removeByPhase": "memory-embedding-provider-adapter-extraction",
     "maxViolations": 4
-  },
-  {
-    "file": "apps/core/src/memory/memory-embeddings.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
   },
   {
     "file": "apps/core/src/memory/memory-ipc.ts",
@@ -1303,6 +1408,20 @@
     "maxViolations": 34
   },
   {
+    "file": "apps/core/src/shared/model-cache-support.ts",
+    "rule": "provider_specific_path",
+    "reason": "Provider-side cache accounting maps catalog cache modes to registry-declared provider behavior in one exact helper; capped so cache logic cannot spread into other shared files.",
+    "removeByPhase": "provider-cache-registry-cleanup-phase",
+    "maxViolations": 6
+  },
+  {
+    "file": "apps/core/src/shared/model-provider-registry.ts",
+    "rule": "provider_specific_path",
+    "reason": "The model provider registry is the intentional source of truth for provider definitions, credential modes, gateway behavior, and cache metadata until the architecture checker has first-class provider-registry ownership.",
+    "removeByPhase": "provider-registry-boundary-rule",
+    "maxViolations": 32
+  },
+  {
     "file": "apps/core/src/platform/index.ts",
     "rule": "wrapper_only_file",
     "reason": "Baseline wrapper-only export surface kept temporarily for package/import compatibility during the canonical module cleanup.",
@@ -1333,6 +1452,13 @@
     "reason": "Local settings CLI is an adapter over settings.yaml parsing and runtime storage export; extract a command port before tightening this boundary.",
     "removeByPhase": "settings-desired-state-port-extraction",
     "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/cli/credentials.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "The credentials CLI is an owner/admin adapter over settings-backed credential readiness and still imports runtime settings directly until the credential command service is extracted.",
+    "removeByPhase": "credential-cli-service-boundary",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/jobs/ipc-runtime-admin-handlers.ts",
@@ -1424,19 +1550,5 @@
     "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
     "removeByPhase": "canonical workspace naming cleanup",
     "maxOccurrences": 1
-  },
-  {
-    "file": "packages/contracts/src/jobs/index.ts",
-    "rule": "provider_specific_path",
-    "reason": "Public model contracts intentionally expose canonical response families and route ids; keep this exact-count until contracts are generated from the shared model catalog.",
-    "removeByPhase": "model-catalog-contract-generation",
-    "maxViolations": 7
-  },
-  {
-    "file": "packages/sdk/src/job-model-types.ts",
-    "rule": "provider_specific_path",
-    "reason": "The SDK mirrors public model contract response families and route ids; keep this exact-count until SDK types are generated from the shared model catalog.",
-    "removeByPhase": "model-catalog-contract-generation",
-    "maxViolations": 7
   }
 ]

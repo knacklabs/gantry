@@ -37,8 +37,8 @@ describe('model CLI command', () => {
     const output = logSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Available model aliases');
     expect(output).toContain('Alias | Model | Response family | Route');
-    expect(output).toContain('opus-4.7 | Opus 4.7');
-    expect(output).toContain('Opus 4.7');
+    expect(output).toContain('opus-4.8 | Opus 4.8');
+    expect(output).toContain('Opus 4.8');
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
   });
 

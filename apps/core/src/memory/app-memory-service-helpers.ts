@@ -25,6 +25,28 @@ export function memoryContentHash(input: {
   );
 }
 
+/**
+ * Canonical text that is embedded for a memory item. The content hash is taken
+ * over exactly this string so that any change to key/value/why re-embeds the
+ * item (and only that item). Dreaming and backfill share this so a single ready
+ * vector represents the item's current text.
+ */
+export function embeddingTextForMemory(input: {
+  key: string;
+  value: string;
+  why?: string | null;
+}): string {
+  return `${input.key}\n${input.value}\n${input.why ?? ''}`;
+}
+
+export function embeddingContentHash(input: {
+  key: string;
+  value: string;
+  why?: string | null;
+}): string {
+  return hashText(embeddingTextForMemory(input));
+}
+
 export function isUniqueViolation(err: unknown): boolean {
   if (err !== null && typeof err === 'object') {
     if ('code' in err && (err as { code?: unknown }).code === '23505') {

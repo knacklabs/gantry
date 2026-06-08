@@ -300,14 +300,14 @@ async function activeSkillActionProjectionKeys(
     agentId: input.agentId as never,
   });
   return new Set(
-    skills
-      .filter((skill) => skill.storage?.contentHash)
-      .map((skill) =>
+    skills.flatMap((skill) =>
+      (skill.actionPermissions ?? []).map((action) =>
         skillActionProjectionKey({
           skillId: String(skill.id),
-          contentHash: skill.storage!.contentHash,
+          actionId: action.id,
         }),
       ),
+    ),
   );
 }
 
@@ -321,16 +321,16 @@ function canProjectSemanticCapability(
   return activeSkillActionKeys.has(
     skillActionProjectionKey({
       skillId: source.skillId,
-      contentHash: source.skillContentHash,
+      actionId: source.actionId,
     }),
   );
 }
 
 function skillActionProjectionKey(input: {
   skillId: string;
-  contentHash: string;
+  actionId: string;
 }): string {
-  return `${input.skillId}\0${input.contentHash}`;
+  return `${input.skillId}\0${input.actionId}`;
 }
 
 export function validateAgentToolRuntimeRules(input: {

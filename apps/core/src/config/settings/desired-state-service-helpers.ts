@@ -144,7 +144,7 @@ export function classifySettingsChanges(
     restartRequired.push('storage');
   }
   if (!jsonEqual(before.credentialBroker, after.credentialBroker)) {
-    restartRequired.push('credential_broker');
+    restartRequired.push('model_access');
   }
   const providerTopologyChanged = !jsonEqual(
     providerTopology(before),

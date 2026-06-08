@@ -144,9 +144,7 @@ function recoveryKindForSetup(
   if (source === 'permission_denied') return 'permission_denied';
   if (
     setupState.state === 'missing_capability' ||
-    setupState.state === 'draft_only' ||
-    blocker?.state === 'missing_capability' ||
-    blocker?.state === 'draft_only'
+    blocker?.state === 'missing_capability'
   ) {
     return 'missing_capability';
   }

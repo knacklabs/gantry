@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { ASSISTANT_NAME, getEffectiveModelConfig } from '../config/index.js';
 import type { Job } from '../domain/types.js';
+import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
@@ -21,6 +22,7 @@ import {
   createRuntimeUserVisibleResultAccumulator,
 } from '../runtime/session-resume-runtime.js';
 import {
+  resolveTurnSemanticCapabilities,
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillContext,
 } from '../runtime/group-run-context.js';
@@ -138,10 +140,10 @@ export async function runJob(
     },
   });
   if (pausedForSetup) return;
-  const executionProviderId =
-    deps.executionAdapter || !deps.runAgent
+  const executionProviderId = (resolvedModel.entry?.executionProviderId ??
+    (deps.executionAdapter || !deps.runAgent
       ? resolveRuntimeExecutionProviderId(deps.executionAdapter)
-      : DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID;
+      : DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID)) as ExecutionProviderId;
   const claimed = await deps.opsRepository.claimDueJobRunStart({
     jobId: currentJob.id,
     runId,
@@ -305,22 +307,30 @@ export async function runJob(
           const executionAgentId =
             turnContext?.agentId ??
             jobToolPolicy.agentIdForJobGroupScope(execution.group.folder);
-          const [toolPolicy, selectedSkillContext, credentialBroker] =
-            await Promise.all([
-              jobToolPolicy.resolveJobToolPolicy({
-                job: currentJob,
-                appId: executionAppId,
-                agentId: executionAgentId,
-                toolRepository: deps.getToolRepository?.(),
-                skillRepository: deps.getSkillRepository?.(),
-              }),
-              resolveTurnSelectedSkillContext(deps, {
-                appId: executionAppId,
-                agentId: executionAgentId,
-              }),
-              deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
-            ]);
-          const selectedMcpServerIds = await resolveTurnSelectedMcpServerIds(
+          const [
+            toolPolicy,
+            selectedSkillContext,
+            semanticCapabilities,
+            credentialBroker,
+          ] = await Promise.all([
+            jobToolPolicy.resolveJobToolPolicy({
+              job: currentJob,
+              appId: executionAppId,
+              agentId: executionAgentId,
+              toolRepository: deps.getToolRepository?.(),
+              skillRepository: deps.getSkillRepository?.(),
+            }),
+            resolveTurnSelectedSkillContext(deps, {
+              appId: executionAppId,
+              agentId: executionAgentId,
+            }),
+            resolveTurnSemanticCapabilities(deps, {
+              appId: executionAppId,
+              agentId: executionAgentId,
+            }),
+            deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
+          ]);
+          const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
             deps,
             {
               appId: executionAppId,
@@ -365,6 +375,7 @@ export async function runJob(
                 await getRuntimeEventExchange().publish(event);
               },
               executionAdapter: deps.executionAdapter,
+              executionAdapters: deps.executionAdapters,
               skillContext: {
                 appId: executionAppId,
                 agentId: executionAgentId,
@@ -402,9 +413,10 @@ export async function runJob(
                 toolAccessRequirements:
                   toolAccessRequirementPreflight.toolAccessRequirements,
                 runtimeAccess: toolPolicy.runtimeAccess,
-                selectedSkillIds: selectedSkillContext.ids,
+                attachedSkillSourceIds: selectedSkillContext.ids,
                 selectedSkillDisplays: selectedSkillContext.displays,
-                selectedMcpServerIds,
+                attachedMcpSourceIds,
+                semanticCapabilities,
               },
               (proc, runHandle) => {
                 void updateRunProviderMetadata({ providerRunId: runHandle });

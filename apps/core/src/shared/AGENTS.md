@@ -29,3 +29,6 @@
 - Catalog response families are simple API-shape labels, currently `anthropic`
   and schema-only `openai`. OpenRouter belongs in `modelRoute` metadata and
   preset UX, not in `responseFamily` or raw user-facing model selectors.
+- Provider-side cache support belongs in provider registry metadata and
+  route-aware model helpers. Do not add local semantic response caches,
+  decrypted credential caches, or response-family-derived cache assumptions.

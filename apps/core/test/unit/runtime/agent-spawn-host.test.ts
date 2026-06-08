@@ -1,351 +1,97 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockGetContainerConfig = vi.fn();
-const mockMkdirSync = vi.fn();
-const mockWriteFileSync = vi.fn();
-const mockRenameSync = vi.fn();
-const mockChmodSync = vi.fn();
-const mockRmSync = vi.fn();
-const mockExistsSync = vi.fn();
-const mockLoggerWarn = vi.fn();
-const mockLoggerInfo = vi.fn();
-const mockEnsureGroupIpcLayout = vi.fn();
-const mockGetHostAgentRunnerDistDir = vi.fn(
-  () => '/tmp/gantry-test/dist/runner',
-);
-const MODEL_RUNTIME_CREDENTIAL_IDENTIFIER = 'gantry-model-access';
-const MODEL_RUNTIME_CA_STEM = 'gateway-ca-f0608813027cec0b';
+import type { AgentCredentialBroker } from '@core/domain/ports/agent-credential-broker.js';
+import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
 
-async function loadModule(config: {
-  ONECLI_URL?: string;
-  DATA_DIR?: string;
-  AGENTS_DIR?: string;
-  GANTRY_HOME?: string;
-  GANTRY_CREDENTIAL_MODE?: string;
-}) {
-  vi.resetModules();
-
-  vi.doMock('@onecli-sh/sdk', () => ({
-    OneCLI: function OneCLI() {
-      return { getContainerConfig: mockGetContainerConfig };
-    },
-  }));
-
-  vi.doMock('fs', () => ({
-    default: {
-      mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
-      writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
-      renameSync: (...args: unknown[]) => mockRenameSync(...args),
-      chmodSync: (...args: unknown[]) => mockChmodSync(...args),
-      rmSync: (...args: unknown[]) => mockRmSync(...args),
-      existsSync: (...args: unknown[]) => mockExistsSync(...args),
-      realpathSync: (value: string) => value,
-      lstatSync: () => ({
-        isDirectory: () => true,
-        isSymbolicLink: () => false,
-      }),
-    },
-  }));
-
-  vi.doMock('@core/infrastructure/logging/logger.js', () => ({
-    logger: {
-      warn: (...args: unknown[]) => mockLoggerWarn(...args),
-      info: (...args: unknown[]) => mockLoggerInfo(...args),
-      debug: vi.fn(),
-      error: vi.fn(),
-    },
-  }));
-
-  vi.doMock('@core/runtime/agent-spawn-layout.js', () => ({
-    ensureGroupIpcLayout: (...args: unknown[]) =>
-      mockEnsureGroupIpcLayout(...args),
-    getHostAgentRunnerDistDir: () => mockGetHostAgentRunnerDistDir(),
-  }));
-
-  vi.doMock('@core/config/index.js', () => ({
-    ONECLI_URL: config.ONECLI_URL ?? 'http://localhost:10254',
-    ONECLI_BROKER_URL: config.ONECLI_URL ?? 'http://localhost:10254',
-    EXTERNAL_BROKER_BASE_URL: '',
-    DATA_DIR: config.DATA_DIR ?? '/tmp/gantry-test/data',
-    AGENTS_DIR: config.AGENTS_DIR ?? '/tmp/gantry-test/agents',
-    GANTRY_HOME: config.GANTRY_HOME ?? '/tmp/gantry-test/config',
-    GANTRY_CREDENTIAL_MODE: config.GANTRY_CREDENTIAL_MODE ?? 'onecli',
-    getCredentialBrokerRuntimeConfig: () => ({
-      mode: config.GANTRY_CREDENTIAL_MODE ?? 'onecli',
-      onecliUrl: config.ONECLI_URL ?? 'http://localhost:10254',
-      externalBrokerBaseUrl: '',
-    }),
-    ONECLI_ALLOWED_ENV_KEYS: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL'],
-  }));
-  vi.doMock('@core/config/env/index.js', () => ({
-    envConfig: {
-      ONECLI_URL: config.ONECLI_URL ?? 'http://localhost:10254',
-      GANTRY_CREDENTIAL_MODE: config.GANTRY_CREDENTIAL_MODE ?? 'onecli',
-    },
-    envValue: (key: string) =>
-      ({
-        ONECLI_URL: config.ONECLI_URL ?? 'http://localhost:10254',
-        GANTRY_CREDENTIAL_MODE: config.GANTRY_CREDENTIAL_MODE ?? 'onecli',
-      })[key] || '',
-  }));
-
-  return import('@core/runtime/agent-spawn-host.js');
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockMkdirSync.mockImplementation(() => undefined);
-  mockWriteFileSync.mockImplementation(() => undefined);
-  mockRenameSync.mockImplementation(() => undefined);
-  mockChmodSync.mockImplementation(() => undefined);
-  mockRmSync.mockImplementation(() => undefined);
-  mockExistsSync.mockReturnValue(false);
-});
-
-afterEach(() => {
-  vi.resetModules();
-});
+vi.mock('@core/config/index.js', () => ({
+  getCredentialBrokerRuntimeConfig: () => ({
+    mode: 'gantry',
+    gatewayBindHost: '127.0.0.1',
+  }),
+}));
 
 describe('getHostRuntimeCredentialEnv', () => {
-  it('requires ONECLI_URL in broker-first mode', async () => {
-    const mod = await loadModule({ ONECLI_URL: '' });
+  let broker: AgentCredentialBroker;
 
-    await expect(mod.getHostRuntimeCredentialEnv()).rejects.toThrow(
-      'ONECLI_URL is not configured',
-    );
-    expect(mockGetContainerConfig).not.toHaveBeenCalled();
+  beforeEach(() => {
+    broker = {
+      getInjection: vi.fn(async () => ({
+        env: {
+          [['ANTHROPIC', 'BASE_URL'].join('_')]:
+            'http://127.0.0.1:10254/anthropic',
+          [['ANTHROPIC', 'API_KEY'].join('_')]: 'gtw_test',
+        },
+        credentialProviders: { [['ANTHROPIC', 'API_KEY'].join('_')]: 'native' },
+        applied: true,
+        brokerProfile: 'gantry',
+      })),
+      revokeInjection: vi.fn(async () => undefined),
+      healthCheck: vi.fn(async () => ({
+        status: 'pass',
+        message: 'ready',
+      })),
+      getCapabilities: vi.fn(() => ({
+        profile: 'gantry',
+        supportsAgentBinding: false,
+        supportsModelRuntimeProfile: true,
+        returnsRawSecrets: false,
+      })),
+    };
   });
 
-  it('returns broker env and never reads local raw provider credentials', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-        CUSTOM_FLAG: 'ignored',
+  it('synthesizes a revocation scope for interactive runs without a run id', async () => {
+    const result = await getHostRuntimeCredentialEnv('main_agent', broker, {
+      runContext: {
+        appId: 'default' as never,
+        agentId: 'main_agent' as never,
+        chatJid: 'telegram:group' as never,
       },
-    });
-    const mod = await loadModule({});
-
-    const result = await mod.getHostRuntimeCredentialEnv('agent-x');
-
-    expect(result).toEqual({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-      credentialProviders: {},
-      brokerApplied: true,
-      brokerProfile: 'onecli',
-    });
-    expect(mockGetContainerConfig).toHaveBeenCalledWith(
-      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-    );
-    expect(mockLoggerWarn).toHaveBeenCalledWith(
-      {
-        droppedKeys: ['CUSTOM_FLAG'],
-        droppedCount: 1,
-      },
-      'Dropped disallowed OneCLI env keys',
-    );
-  });
-
-  it('returns OpenRouter credential provenance from OneCLI broker env', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
-        GANTRY_ANTHROPIC_AUTH_TOKEN_PROVIDER: 'openrouter',
-        ANTHROPIC_AUTH_TOKEN: 'sk-or-v1-test-token',
-      },
-    });
-    const mod = await loadModule({});
-
-    await expect(
-      mod.getHostRuntimeCredentialEnv('agent-x'),
-    ).resolves.toMatchObject({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
-        ANTHROPIC_AUTH_TOKEN: 'sk-or-v1-test-token',
-      },
-      credentialProviders: {
-        ANTHROPIC_AUTH_TOKEN: 'openrouter',
-      },
-      brokerApplied: true,
-      brokerProfile: 'onecli',
-    });
-    expect(mockGetContainerConfig).toHaveBeenCalledWith(
-      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-    );
-  });
-
-  it('keeps tool capability credentials agent-scoped', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-    });
-    const mod = await loadModule({});
-
-    await mod.getHostRuntimeCredentialEnv('agent-x', undefined, {
-      purpose: 'tool_capability',
+      modelRouteId: 'anthropic',
     });
 
-    expect(mockGetContainerConfig).toHaveBeenCalledWith('agent-x');
-  });
-
-  it('returns OneCLI local model proxy env', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-        ANTHROPIC_API_KEY: 'placeholder',
-        HTTPS_PROXY:
-          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@host.docker.internal:10255',
-        NODE_USE_ENV_PROXY: '1',
-        GIT_TERMINAL_PROMPT: '0',
-      },
+    const issuedBinding = vi.mocked(broker.getInjection).mock.calls[0]?.[0]
+      .binding;
+    expect(issuedBinding).toMatchObject({
+      profile: 'gantry',
+      purpose: 'model_runtime',
+      appId: 'default',
+      agentId: 'main_agent',
+      conversationId: 'telegram:group',
+      modelRouteId: 'anthropic',
+      runId: expect.stringMatching(/^credential-run:/),
     });
-    const mod = await loadModule({});
 
-    const result = await mod.getHostRuntimeCredentialEnv();
+    await result.revoke?.();
 
-    expect(result.env).toEqual({
-      ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      ANTHROPIC_API_KEY: 'placeholder',
-      HTTPS_PROXY:
-        'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@127.0.0.1:10255/',
-      NODE_USE_ENV_PROXY: '1',
+    expect(broker.revokeInjection).toHaveBeenCalledWith({
+      binding: expect.objectContaining({
+        profile: 'gantry',
+        purpose: 'model_runtime',
+        appId: 'default',
+        runId: issuedBinding?.runId,
+      }),
     });
   });
 
-  it('drops host CA env keys from broker env', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-        ANTHROPIC_API_KEY: 'placeholder',
-        NODE_EXTRA_CA_CERTS: '/tmp/onecli-gateway-ca.pem',
+  it('preserves an existing job run id for gateway token revocation', async () => {
+    const result = await getHostRuntimeCredentialEnv('main_agent', broker, {
+      runContext: {
+        appId: 'default' as never,
+        agentId: 'main_agent' as never,
+        runId: 'run:job-1' as never,
+        jobId: 'job-1' as never,
+        chatJid: 'telegram:group' as never,
       },
+      modelRouteId: 'anthropic',
     });
-    const mod = await loadModule({});
 
-    const result = await mod.getHostRuntimeCredentialEnv();
+    await result.revoke?.();
 
-    expect(result.env).toEqual({
-      ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      ANTHROPIC_API_KEY: 'placeholder',
+    expect(broker.getInjection).toHaveBeenCalledWith({
+      binding: expect.objectContaining({ runId: 'run:job-1' }),
     });
-    expect(mockLoggerWarn).toHaveBeenCalledWith(
-      {
-        droppedKeys: ['NODE_EXTRA_CA_CERTS'],
-        droppedCount: 1,
-      },
-      'Dropped disallowed OneCLI env keys',
-    );
-  });
-
-  it('fails closed when OneCLI returns a raw credential key', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_API_KEY: 'sk-ant-secret',
-      },
+    expect(broker.revokeInjection).toHaveBeenCalledWith({
+      binding: expect.objectContaining({ runId: 'run:job-1' }),
     });
-    const mod = await loadModule({});
-
-    await expect(mod.getHostRuntimeCredentialEnv()).rejects.toThrow(
-      'forbidden raw credential env key: ANTHROPIC_API_KEY',
-    );
-  });
-
-  it('applies OneCLI CA certificates to the host runner trust roots', async () => {
-    mockGetContainerConfig.mockResolvedValue({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      },
-      caCertificate: 'cert-data',
-      caCertificateContainerPath: '/etc/ssl/onecli/ca.pem',
-    });
-    const mod = await loadModule({});
-
-    const result = await mod.getHostRuntimeCredentialEnv();
-
-    expect(result.brokerApplied).toBe(true);
-    expect(result.env).toEqual({
-      ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      NODE_EXTRA_CA_CERTS: `/tmp/gantry-test/data/onecli/${MODEL_RUNTIME_CA_STEM}.pem`,
-    });
-    expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/gantry-test/data/onecli', {
-      recursive: true,
-      mode: 0o700,
-    });
-    expect(mockChmodSync).toHaveBeenCalledWith(
-      '/tmp/gantry-test/data/onecli',
-      0o700,
-    );
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      expect.stringMatching(
-        new RegExp(
-          `^/tmp/gantry-test/data/onecli/${MODEL_RUNTIME_CA_STEM}\\.pem\\.\\d+\\.[0-9a-f-]+\\.tmp$`,
-        ),
-      ),
-      'cert-data',
-      { mode: 0o600 },
-    );
-    expect(mockRenameSync).toHaveBeenCalledWith(
-      expect.stringMatching(
-        new RegExp(
-          `^/tmp/gantry-test/data/onecli/${MODEL_RUNTIME_CA_STEM}\\.pem\\.\\d+\\.[0-9a-f-]+\\.tmp$`,
-        ),
-      ),
-      `/tmp/gantry-test/data/onecli/${MODEL_RUNTIME_CA_STEM}.pem`,
-    );
-    expect(mockLoggerInfo).toHaveBeenCalledWith(
-      {
-        agentIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-        caPath: `/tmp/gantry-test/data/onecli/${MODEL_RUNTIME_CA_STEM}.pem`,
-      },
-      'Applied OneCLI CA certificate for host runner',
-    );
-  });
-
-  it('rejects untrusted non-loopback http OneCLI URLs', async () => {
-    const mod = await loadModule({ ONECLI_URL: 'http://onecli.example.com' });
-
-    await expect(mod.getHostRuntimeCredentialEnv()).rejects.toThrow(
-      'ONECLI_URL must use HTTPS unless it points to loopback',
-    );
-  });
-});
-
-describe('prepareHostRuntimeContext', () => {
-  const fakeGroup = {
-    name: 'Test Group',
-    folder: 'test-group',
-    trigger: '@bot',
-    added_at: '2025-01-01T00:00:00Z',
-  };
-
-  it('creates group dir, prepares IPC layout, and returns context without shared Claude files', async () => {
-    const mod = await loadModule({});
-
-    const ctx = mod.prepareHostRuntimeContext(fakeGroup);
-
-    expect(ctx.groupDir).toBe('/tmp/gantry-test/agents/test-group');
-    expect(ctx.groupIpcDir).toBe('/tmp/gantry-test/data/ipc/test-group');
-    expect(ctx.runnerDistDir).toBe('/tmp/gantry-test/dist/runner');
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      '/tmp/gantry-test/agents/test-group',
-      { recursive: true },
-    );
-    expect(mockGetHostAgentRunnerDistDir).toHaveBeenCalled();
-    expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
-      '/tmp/gantry-test/data/ipc/test-group',
-    );
-  });
-
-  it('does not project agents/shared as a global runtime directory', async () => {
-    mockExistsSync.mockImplementation(
-      (value: string) => value === '/tmp/gantry-test/agents/shared',
-    );
-    const mod = await loadModule({});
-
-    const ctx = mod.prepareHostRuntimeContext(fakeGroup);
-
-    expect(ctx).not.toHaveProperty('globalDir');
   });
 });

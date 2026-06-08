@@ -224,19 +224,16 @@ describe('PromptProfileService', () => {
     expect(soul.content).toBe('existing soul');
   });
 
-  it('suppresses generic PERSONA when an authored SOUL exists', async () => {
+  it('compiles deterministic order without shared context projection', async () => {
     const { store, service } = createService();
     await writePromptArtifact(store, 'team/SOUL.md', '# Soul\nBe direct.');
     await writePromptArtifact(store, 'team/CLAUDE.md', 'group context');
 
     const prompt = await service.compileSystemPrompt({
       agentFolder: 'team',
-      persona: 'sales',
+      persona: 'generalist',
     });
 
-    expect(prompt).not.toContain('[[PERSONA]]');
-    expect(prompt).not.toContain('Sales persona');
-    expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
     expect(prompt.indexOf('[[RUNTIME_RULES]]')).toBeLessThan(
       prompt.indexOf('[[SOUL]]'),
     );
@@ -249,23 +246,13 @@ describe('PromptProfileService', () => {
     expect(prompt.indexOf('[[OPERATING_GUIDANCE]]')).toBeLessThan(
       prompt.indexOf('[[GROUP_CONTEXT]]'),
     );
+    expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
     expect(prompt).toContain('source: gantry://soul');
+    expect(prompt).not.toContain('source: gantry://persona');
+    expect(prompt).not.toContain('Generalist persona');
+    expect(prompt).toContain('source: gantry://capability-guidance');
+    expect(prompt).toContain('source: gantry://operating-guidance');
     expect(prompt).toContain('source: gantry://group-context');
-  });
-
-  it('keeps generic PERSONA when no authored SOUL exists', async () => {
-    const { service } = createService();
-
-    const prompt = await service.compileSystemPrompt({
-      agentFolder: 'team',
-      persona: 'sales',
-    });
-
-    expect(prompt).toContain('[[PERSONA]]');
-    expect(prompt).toContain('Sales persona');
-    expect(prompt.indexOf('[[RUNTIME_RULES]]')).toBeLessThan(
-      prompt.indexOf('[[PERSONA]]'),
-    );
   });
 
   it('consolidates former shared guidance into generated operating guidance', async () => {
@@ -290,7 +277,10 @@ describe('PromptProfileService', () => {
       'Use capability_search, propose_capability, and manage_capability for durable capability changes',
     );
     expect(prompt).toContain(
-      'Approved third-party MCP servers are always used through mcp_list_tools and mcp_call_tool',
+      'Source = what exists; Capability = reviewed action; Grant = this agent is allowed to use the capability',
+    );
+    expect(prompt).toContain(
+      'Approved third-party MCP sources are inspected through mcp_list_tools and used through mcp_call_tool only when reviewed current-run access covers that action',
     );
     expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
   });
@@ -397,113 +387,5 @@ describe('PromptProfileService', () => {
 
     expect(prompt).toContain('Voice line');
     expect(prompt).toContain('group\nrules');
-  });
-
-  it('writes a first authored version when none exists', async () => {
-    const { store, service } = createService();
-
-    const result = await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: '# Soul\nBe sharp.',
-    });
-
-    expect(result).toEqual({ changed: true, version: 1 });
-    const soul = await store.readFileArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualScope: 'prompt-profile',
-      virtualPath: 'team/SOUL.md',
-    });
-    expect(soul.content).toBe('# Soul\nBe sharp.');
-    expect(soul.artifact.createdBy).toBe('authored-file-sync');
-  });
-
-  it('does NOT write a new version when content is unchanged', async () => {
-    const { store, service } = createService();
-    await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: '# Soul\nBe sharp.',
-    });
-
-    const second = await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: '# Soul\nBe sharp.',
-    });
-
-    expect(second).toEqual({ changed: false, version: null });
-    const soul = await store.readFileArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualScope: 'prompt-profile',
-      virtualPath: 'team/SOUL.md',
-    });
-    expect(soul.artifact.version).toBe(1);
-  });
-
-  it('treats CRLF/whitespace-only differences as unchanged', async () => {
-    const { service } = createService();
-    await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: '# Soul\nBe sharp.',
-    });
-
-    const again = await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: '# Soul\r\nBe sharp.\n',
-    });
-
-    expect(again.changed).toBe(false);
-  });
-
-  it('writes a new version when content actually changed', async () => {
-    const { store, service } = createService();
-    await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: 'v1',
-    });
-
-    const changed = await service.syncAuthoredArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualPath: 'team/SOUL.md',
-      content: 'v2',
-    });
-
-    expect(changed).toEqual({ changed: true, version: 2 });
-    const soul = await store.readFileArtifact({
-      appId: 'default',
-      agentId: 'agent:team',
-      virtualScope: 'prompt-profile',
-      virtualPath: 'team/SOUL.md',
-    });
-    expect(soul.content).toBe('v2');
-  });
-
-  it('warns when an authored section exceeds its budget', async () => {
-    const { store } = createService();
-    await writePromptArtifact(store, 'team/CLAUDE.md', 'g'.repeat(9000));
-    const service = new PromptProfileService({
-      fileArtifactStore: () => store,
-      sectionBudgets: { GROUP_CONTEXT: 200 },
-    });
-
-    await service.compileSystemPrompt({ agentFolder: 'team' });
-
-    expect(loggerSpies.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ section: 'GROUP_CONTEXT' }),
-      expect.stringContaining('exceeds budget'),
-    );
   });
 });

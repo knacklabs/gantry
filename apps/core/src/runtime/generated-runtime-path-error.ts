@@ -13,7 +13,7 @@ export function formatGeneratedRuntimePathPermissionError(input: {
   const raw = boundedSingleLine(redactSensitiveText(input.errorText), 240);
   return [
     `${input.runnerLabel} could not access Gantry-generated .llm-runtime files.`,
-    'Runtime skill files should be readable/executable for approved tools, and generated runtime files should stay write-protected from agent tools.',
+    'Runtime skill files should be readable/executable for selected capabilities, and generated runtime files should stay write-protected from agent tools.',
     'This is generated adapter state, not persistent settings.',
     raw ? `Raw error: ${raw}` : '',
   ]

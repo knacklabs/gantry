@@ -8,6 +8,7 @@ import type {
   SkillArtifactStore,
   StoredSkillArtifact,
 } from '../../../domain/ports/skill-artifact-store.js';
+import { materializedSkillDirectoryNameFor } from '../../../domain/skills/skills.js';
 
 export class LocalSkillArtifactStore implements SkillArtifactStore {
   constructor(private readonly artifactRoot: string) {}
@@ -15,15 +16,14 @@ export class LocalSkillArtifactStore implements SkillArtifactStore {
   async putSkillArtifact(input: {
     appId: string;
     skillId: string;
+    skillName: string;
     bundle: SkillArtifactBundle;
   }): Promise<StoredSkillArtifact> {
     const bundle = normalizeSkillBundle(input.bundle);
     const contentHash = hashSkillBundle(bundle);
     const storageRef = path.posix.join(
       'skills',
-      sanitizeSegment(input.appId),
-      sanitizeSegment(input.skillId),
-      contentHash.replace(/^sha256:/, ''),
+      sanitizeSegment(materializedSkillDirectoryNameFor(input.skillName)),
     );
     const target = resolveStoragePath(this.artifactRoot, storageRef);
     fs.rmSync(target, { recursive: true, force: true });

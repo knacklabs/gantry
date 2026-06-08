@@ -30,7 +30,7 @@ function requestBody(kind: BodyKind | undefined): JsonSchema | undefined {
   if (kind === 'zip') {
     return {
       required: true,
-      description: 'Zip archive containing a reviewed package draft.',
+      description: 'Zip archive containing a skill package.',
       content: {
         'application/zip': { schema: { type: 'string', format: 'binary' } },
       },

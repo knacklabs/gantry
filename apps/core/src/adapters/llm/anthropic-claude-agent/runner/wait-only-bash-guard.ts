@@ -3,7 +3,7 @@ const WAIT_ONLY_BASH_GUIDANCE =
 const WAIT_ONLY_BASH_TRIGGER_PATTERN =
   /\b(?:sleep|wait|poll|while\s+true|until\s+done|run\s+completion|scheduler\s+tools|scheduler_wait_for_events)\b/i;
 const REAL_WORK_COMMAND_PATTERN =
-  /\b(?:awk|bun|cat|curl|deno|find|gh|git|gog|grep|jq|node|npm|perl|pnpm|psql|python|python3|rg|ruby|sed|tsx|ts-node|uv)\b/;
+  /\b(?:awk|bun|cat|curl|deno|find|gh|git|grep|jq|node|npm|perl|pnpm|psql|python|python3|rg|ruby|sed|tsx|ts-node|uv)\b/;
 
 export function waitOnlyBashMonitoringDenial(
   toolName: string,

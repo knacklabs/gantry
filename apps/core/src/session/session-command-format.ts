@@ -1,12 +1,15 @@
 import type { ThinkingOverride } from '../domain/types.js';
 import {
   findModelByRunnerModel,
-  formatModelCatalog,
-  formatModelDisplay,
-  formatTokenCount,
   type ModelDefaultAliases,
   type NormalizedModelUsage,
 } from '../shared/model-catalog.js';
+import {
+  formatModelCatalog,
+  formatModelDisplay,
+  formatTokenCount,
+} from '../shared/model-catalog-format.js';
+import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
 import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 
 export interface MemoryStatusSnapshot {
@@ -27,9 +30,19 @@ export interface MemoryStatusSnapshot {
   };
   disk_kb?: Record<string, number>;
   retrieval?: {
-    searchMode?: 'lexical_keyword';
+    searchMode?:
+      | 'lexical_keyword'
+      | 'hybrid_semantic_partial'
+      | 'hybrid_semantic_ready';
     embeddings?: 'disabled' | 'configured';
-    vectorSearch?: 'inactive' | 'active';
+    vectorSearch?: 'inactive' | 'partial' | 'active';
+    pauseReason?:
+      | 'paused_budget'
+      | 'paused_provider_quota'
+      | 'paused_rate_limit'
+      | 'paused_retryable_provider_error';
+    ready?: number;
+    pending?: number;
   };
 }
 
@@ -87,6 +100,23 @@ export function formatBrowserStatus(status: BrowserStatusSnapshot): string {
   return lines.join('\n');
 }
 
+function describeBackfillPause(
+  reason: NonNullable<MemoryStatusSnapshot['retrieval']>['pauseReason'],
+): string {
+  switch (reason) {
+    case 'paused_budget':
+      return 'paused (daily embedding budget reached; resumes tomorrow or when the limit is raised)';
+    case 'paused_provider_quota':
+      return 'paused (provider quota unavailable; resumes on the next run)';
+    case 'paused_rate_limit':
+      return 'paused (provider rate limit; resumes on the next run)';
+    case 'paused_retryable_provider_error':
+      return 'paused (provider error; resumes on the next run)';
+    default:
+      return 'paused';
+  }
+}
+
 export function formatMemoryStatus(status: MemoryStatusSnapshot): string {
   const kinds = Object.entries(status.items_by_kind || {})
     .sort(([a], [b]) => a.localeCompare(b))
@@ -124,7 +154,19 @@ export function formatMemoryStatus(status: MemoryStatusSnapshot): string {
         .join(', ')
     : 'n/a';
   const retrieval = status.retrieval;
-  const searchMode = 'lexical + keyword';
+  const searchMode = retrieval?.searchMode || 'lexical_keyword';
+  const vectorSearch = retrieval?.vectorSearch || 'inactive';
+  const pending = retrieval?.pending ?? 0;
+  const vectorDetail =
+    retrieval?.ready !== undefined || retrieval?.pending !== undefined
+      ? ` (${retrieval?.ready ?? 0} ready, ${pending} pending` +
+        (vectorSearch === 'partial' && pending > 0
+          ? '; run `gantry memory embeddings backfill` to index the rest)'
+          : ')')
+      : '';
+  const pauseLine = retrieval?.pauseReason
+    ? `backfill: ${describeBackfillPause(retrieval.pauseReason)}`
+    : undefined;
   return [
     'Memory status',
     'sample: latest 100 active memories; counts/top/stale are from this sample',
@@ -132,7 +174,8 @@ export function formatMemoryStatus(status: MemoryStatusSnapshot): string {
     `scopes: ${scopes || 'none'}`,
     `retrieval: ${searchMode}`,
     `embeddings: ${retrieval?.embeddings || 'unknown'}`,
-    `vector_search: ${retrieval?.vectorSearch || 'inactive'}`,
+    `vector_search: ${vectorSearch}${vectorDetail}`,
+    ...(pauseLine ? [pauseLine] : []),
     `pipeline: staged:${pipeline?.staged ?? 0}, promoted:${pipeline?.promoted ?? 0}, needs_review:${pipeline?.needs_review ?? 0}`,
     `last_injected_block: ${lastInjectedText}`,
     `top_used: ${used || 'none'}`,
@@ -276,7 +319,7 @@ export function formatModelStatus(
     lines.push(
       formatContextLine(snapshot, entry.contextWindowTokens),
       `Max output: ${formatTokenCount(entry.maxOutputTokens)} tokens`,
-      `Cache: ${entry.cacheMode}`,
+      `Cache: ${resolveModelCacheSupport(entry).statusLabel}`,
     );
   } else {
     lines.push(

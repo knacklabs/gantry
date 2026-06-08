@@ -8,7 +8,7 @@ import type {
   ProviderConnectionPatch,
 } from './provider-types.js';
 import { createAgentAdminClient } from './agents.js';
-import { createAgentSkillsClient, createSkillDraftsClient } from './skills.js';
+import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
 import type {
   ClientOptions,
@@ -436,7 +436,7 @@ export class GantryClient {
       }),
   };
 
-  readonly skillDrafts = createSkillDraftsClient({ request: this.request });
+  readonly skills = createSkillsClient({ request: this.request });
   readonly mcpServers = mcpServerClients.createMcpServersClient({
     request: this.request,
   });
@@ -674,6 +674,15 @@ export class GantryClient {
 export const createClient = (options: ClientOptions) =>
   new GantryClient(options);
 
+export type {
+  ConversationMessageIngressTarget,
+  ExternalIngressInvokeBody,
+  ExternalIngressTarget,
+  JobTemplateIngressTarget,
+  JobTriggerIngressTarget,
+  SessionMessageIngressTarget,
+} from './ingresses.js';
+export { conversationMessageTarget } from './ingresses.js';
 export {
   buildIngressSignaturePayload,
   signIngressRequest,

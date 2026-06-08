@@ -13,13 +13,13 @@ import {
   RUN_COMMAND_TOOL_NAME,
 } from '../shared/agent-tool-references.js';
 import { formatPersistentPermissionRulesForUser } from '../shared/persistent-permission-rules.js';
+import { deliveryLabel } from './provider-delivery-labels.js';
 import {
   redactSensitiveText,
   sanitizeOutboundLlmText,
 } from '../shared/sensitive-material.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
 import {
-  getBuiltinSemanticCapability,
   skillActionCapabilityDisplayName,
   type SemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
@@ -40,6 +40,27 @@ export {
 } from './permission-decision.js';
 
 const PERMISSION_MESSAGE_BUDGET = 2800;
+const USER_FACING_TOOL_LABELS: Record<string, string> = {
+  RunCommand: 'exact command access',
+  Bash: 'exact command access',
+  Browser: 'Browser',
+  WebSearch: 'web search',
+  WebRead: 'web page access',
+  WebFetch: 'web page access',
+  FileSearch: 'file search',
+  Glob: 'file search',
+  Grep: 'file search',
+  FileRead: 'file reading',
+  Read: 'file reading',
+  FileEdit: 'file editing',
+  Edit: 'file editing',
+  MultiEdit: 'file editing',
+  FileWrite: 'file writing',
+  Write: 'file writing',
+  AgentDelegation: 'agent delegation',
+  Agent: 'agent delegation',
+  Task: 'agent delegation',
+};
 
 export type PermissionActionToken =
   | PermissionApprovalDecisionMode
@@ -138,7 +159,7 @@ export function formatPermissionPromptText(
     ...formatPermissionRoutingLines(request),
   ];
   if (requestLabel) {
-    lines.push(`Request: ${sanitizePermissionText(requestLabel, 160, 40)}`);
+    lines.push(`Request: ${formatPermissionRequestLabel(requestLabel)}`);
   }
   if (request.agentID || request.subagentType) {
     lines.push(
@@ -156,9 +177,7 @@ export function formatPermissionPromptText(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
     );
   if (request.decisionReason)
-    lines.push(
-      `Reason: ${sanitizePermissionText(request.decisionReason, 260, 100)}`,
-    );
+    lines.push(`Reason: ${formatPermissionReason(request.decisionReason)}`);
   const closestRule = formatClosestRuleLine(request);
   if (closestRule) lines.push(closestRule);
   if (request.description)
@@ -220,10 +239,10 @@ export function formatPermissionReceiptText(
   }
   if (decision.mode === 'allow_persistent_rule') {
     const rules = request ? persistentRules(request) : [];
-    const scope = requestHasThreadRoute(request)
-      ? ' in parent conversation'
-      : '';
-    const lines = [`Always allowed${scope}: ${label}`];
+    const agent = request
+      ? formatAgentDisplayName(request.sourceAgentFolder)
+      : 'this agent';
+    const lines = [`Always allowed for ${agent}: ${label}`];
     if (rules.length > 0) {
       lines.push(
         `Details: ${formatPersistentPermissionRulesForUser(rules, {
@@ -235,7 +254,7 @@ export function formatPermissionReceiptText(
     lines.push(...formatPermissionOriginLines(request));
     lines.push(...formatPermissionRoutingLines(request));
     lines.push(`By: ${sanitizePermissionText(actor, 120, 40)}`);
-    lines.push('Revoke: /permissions remove <rule>');
+    lines.push('Revoke from Agent Access.');
     return limitPermissionMessage(lines.join('\n'));
   }
   return limitPermissionMessage(
@@ -291,19 +310,38 @@ function formatPermissionOriginLines(
     ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
     : 'agent chat';
   return [
+    `Agent: ${formatAgentDisplayName(request.sourceAgentFolder)}`,
     `From: ${source}`,
-    `Agent: ${sanitizePermissionText(request.sourceAgentFolder, 120, 40)}`,
   ];
+}
+
+function formatAgentDisplayName(sourceAgentFolder: string): string {
+  const sanitized = sanitizePermissionText(sourceAgentFolder, 120, 40).trim();
+  if (!sanitized) return 'this agent';
+  const withoutPrefix = sanitized.replace(/^agent:/i, '');
+  const words = withoutPrefix
+    .replaceAll(/[_-]+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+  if (!words) return 'this agent';
+  return words
+    .split(' ')
+    .map((word) =>
+      /^[A-Z0-9]+$/.test(word)
+        ? word
+        : `${word.charAt(0).toUpperCase()}${word.slice(1)}`,
+    )
+    .join(' ');
 }
 
 function formatPermissionRoutingLines(
   request: PermissionApprovalRequest | undefined,
 ): string[] {
-  return requestHasThreadRoute(request)
-    ? [
-        'Route: shown in this topic/thread; approval applies to the parent conversation.',
-      ]
-    : [];
+  if (!requestHasThreadRoute(request)) return [];
+  const label = deliveryLabel(request?.targetJid ?? '', request?.threadId);
+  return [
+    `Route: shown in this ${label}; approval applies to the parent conversation.`,
+  ];
 }
 
 function formatInteractionPermissionPrompt(
@@ -352,6 +390,7 @@ function formatSemanticPermissionPrompt(
     `Allow ${capabilityName}?`,
     ...formatPermissionOriginLines(request),
     ...formatPermissionRoutingLines(request),
+    `Access: ${sanitizePermissionText(capabilityName, 120, 40)}`,
   ];
   const capabilityId =
     definition?.capabilityId ?? semanticCapabilityId(request, rule);
@@ -372,11 +411,11 @@ function formatSemanticPermissionPrompt(
       `Does not allow: ${sanitizePermissionText(cannot.trim(), 300, 100)}`,
     );
   }
-  const details = [
-    capabilityId ? `capability:${capabilityId}` : undefined,
-    definition?.risk ? `risk: ${definition.risk}` : undefined,
-  ].filter((item): item is string => Boolean(item));
-  if (details.length > 0) lines.push('', `Details: ${details.join('; ')}`);
+  if (definition?.risk) {
+    lines.push('', `Risk: ${humanizeIdentifier(definition.risk)}`);
+  } else if (capabilityId) {
+    lines.push('', `Capability: ${humanizeIdentifier(capabilityId)}`);
+  }
   lines.push('', ...formatPermissionBoundaryLines(request));
   lines.push(`Reply within ${timeoutMinutes} minute(s).`);
   return limitPermissionMessage(lines.join('\n'));
@@ -456,26 +495,16 @@ function permissionAccessLabel(
   }
   const scopedRule = rule ? parseReadableScopedToolRule(rule) : null;
   const requestedToolName = requestedToolNameFromInput(request);
-  if (
-    request.toolName === 'Bash' ||
-    requestedToolName === 'Bash' ||
-    requestedToolName === RUN_COMMAND_TOOL_NAME ||
-    scopedRule?.toolName === RUN_COMMAND_TOOL_NAME
-  ) {
+  if (permissionCommand(request)) {
     return 'exact command access';
   }
   if (capabilityName) return capabilityName;
   const toolName =
     scopedRule?.toolName || requestedToolName || request.toolName;
-  if (isCanonicalBrowserCapabilityRule(toolName)) return 'Browser';
-  if (toolName.startsWith('mcp__gantry__browser_')) return 'Browser';
-  const adminName = adminMcpToolNameFromFullName(toolName);
-  if (adminName) return `Gantry ${humanizeIdentifier(adminName)}`;
-  if (isThirdPartyMcpToolRule(toolName)) {
-    return `${humanizeMcpServerName(toolName)} MCP tool`;
-  }
+  const toolLabel = userFacingToolLabel(toolName);
+  if (toolLabel) return toolLabel;
   const display = request.displayName || request.title || toolName;
-  return sanitizePermissionText(display, 120, 40);
+  return formatPermissionRequestLabel(display);
 }
 
 function requestedToolNameFromInput(
@@ -501,7 +530,7 @@ function humanizeMcpServerName(toolName: string): string {
 function humanizeIdentifier(value: string): string {
   return value
     .replace(/^mcp__/, '')
-    .replaceAll(/[_-]+/g, ' ')
+    .replaceAll(/[._-]+/g, ' ')
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -534,10 +563,7 @@ function semanticCapabilityDefinition(
 ): SemanticCapabilityDefinition | undefined {
   const capabilityId = semanticCapabilityId(request, rule);
   if (!capabilityId) return undefined;
-  return (
-    request.semanticCapabilityDefinitions?.[capabilityId] ??
-    getBuiltinSemanticCapability(capabilityId)
-  );
+  return request.semanticCapabilityDefinitions?.[capabilityId];
 }
 
 function semanticCapabilityId(
@@ -560,9 +586,50 @@ function formatClosestRuleLine(
   request: PermissionApprovalRequest,
 ): string | undefined {
   return request.closestRule
-    ? `Closest existing rule: ${formatPersistentPermissionRulesForUser([request.closestRule.rule], { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions })} (did not match: ${sanitizePermissionText(request.closestRule.reason, 220, 80)})`
+    ? `Closest existing access: ${formatPersistentPermissionRulesForUser([request.closestRule.rule], { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions })} (did not match: ${formatPermissionReason(request.closestRule.reason)})`
     : undefined;
 }
+
+function formatPermissionReason(reason: string): string {
+  return neutralizeImplementationTerms(
+    sanitizePermissionText(reason, 260, 100),
+  );
+}
+
+function formatPermissionRequestLabel(label: string): string {
+  const trimmed = label.trim();
+  const toolLabel = userFacingToolLabel(trimmed);
+  if (toolLabel) return humanizeIdentifier(toolLabel);
+  return neutralizeImplementationTerms(
+    sanitizePermissionText(trimmed, 160, 40),
+  );
+}
+
+function neutralizeImplementationTerms(input: string): string {
+  let text = input
+    .replaceAll('simple_expansion', 'shell expansion')
+    .replaceAll('Bash leaf', 'command');
+  for (const [technical, label] of Object.entries(USER_FACING_TOOL_LABELS)) {
+    text = text.replaceAll(technical, label);
+  }
+  return text;
+}
+
+function userFacingToolLabel(toolName: string | undefined): string | undefined {
+  const publicName = publicGantryToolNameForSdkTool(toolName?.trim() ?? '');
+  if (!publicName) return undefined;
+  const label = USER_FACING_TOOL_LABELS[publicName];
+  if (label) return label;
+  if (isCanonicalBrowserCapabilityRule(publicName)) return 'Browser';
+  if (publicName.startsWith('mcp__gantry__browser_')) return 'Browser';
+  const adminName = adminMcpToolNameFromFullName(publicName);
+  if (adminName) return `Gantry ${humanizeIdentifier(adminName)}`;
+  if (isThirdPartyMcpToolRule(publicName)) {
+    return `${humanizeMcpServerName(publicName)} tool access`;
+  }
+  return undefined;
+}
+
 function permissionCommand(request: PermissionApprovalRequest): string | null {
   if (!request.toolInput) return null;
   const command = request.toolInput.command ?? request.toolInput.cmd;
@@ -573,35 +640,44 @@ function formatPermissionReceiptActionSummary(
   request: PermissionApprovalRequest | undefined,
 ): string {
   if (!request) return 'permission request';
+  const rule = firstPersistentRule(request);
+  const capabilityName = semanticCapabilityName(request, rule);
+  if (capabilityName) return capabilityName;
   const tool =
-    request.displayName || publicGantryToolNameForSdkTool(request.toolName);
+    request.displayName ||
+    request.title ||
+    userFacingToolLabel(request.toolName);
   const input = request.toolInput;
-  if (!input || typeof input !== 'object') return tool;
+  if (!input || typeof input !== 'object') {
+    return tool ? formatPermissionRequestLabel(tool) : 'permission request';
+  }
   const command = permissionCommand(request);
   if (command) {
     const generatedSkillPath = generatedRuntimeSkillPathDisplay(command);
     if (generatedSkillPath) {
-      return `${tool} (generated skill action: ${generatedSkillPath})`;
+      return `Selected skill action (${generatedSkillPath})`;
     }
     const safeCommand = sanitizeReceiptDetail(command);
-    return safeCommand ? `${tool} (${safeCommand})` : `${tool} command`;
+    return safeCommand ? `Command (${safeCommand})` : 'Command';
   }
   const filePath = input.file_path;
   if (typeof filePath === 'string' && filePath.trim()) {
     const safePath = sanitizeReceiptDetail(filePath.trim());
-    return safePath ? `${tool} (${safePath})` : `${tool} file action`;
+    return safePath ? `File action (${safePath})` : 'File action';
   }
   const url = input.url;
   if (typeof url === 'string' && url.trim()) {
     const safeUrl = sanitizeReceiptDetail(url.trim());
-    return safeUrl ? `${tool} (${safeUrl})` : `${tool} URL action`;
+    return safeUrl ? `Web action (${safeUrl})` : 'Web action';
   }
   const pattern = input.pattern;
   if (typeof pattern === 'string' && pattern.trim()) {
     const safePattern = sanitizeReceiptDetail(pattern.trim());
-    return safePattern ? `${tool} (${safePattern})` : `${tool} pattern action`;
+    return safePattern ? `Pattern action (${safePattern})` : 'Pattern action';
   }
-  return tool;
+  return tool
+    ? sanitizePermissionText(humanizeIdentifier(tool), 120, 40)
+    : 'permission request';
 }
 
 function sanitizeReceiptDetail(input: string): string | null {

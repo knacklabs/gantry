@@ -126,40 +126,6 @@ export class JobManagementService {
       access,
       groupScope,
     );
-    const executionContext = assertExecutionContextMatchesAuthenticatedContext({
-      executionContext:
-        input.executionContext === undefined
-          ? {
-              conversationJid: authenticatedContext.conversationJid,
-              groupScope: authenticatedContext.groupScope,
-              threadId: authThreadId ?? null,
-            }
-          : input.executionContext,
-      authenticatedContext,
-    });
-    const requestedNotificationRoutes = normalizeNotificationRoutes(
-      input.notificationRoutes ?? [
-        {
-          conversationJid: authenticatedContext.conversationJid,
-          threadId: authenticatedContext.threadId,
-          label: 'primary',
-        },
-      ],
-    );
-    const toolAccessRequirements = normalizeToolAccessRequirements(
-      input.toolAccessRequirements ?? [],
-    );
-    const capabilityRequirements = normalizeCapabilityRequirements(
-      input.capabilityRequirements ?? [],
-    );
-    const effectiveToolAccessRequirements = normalizeToolAccessRequirements([
-      ...toolAccessRequirements,
-      ...capabilityRequirementToolRules(capabilityRequirements),
-    ]);
-    const requiredMcpServers = normalizeRequiredMcpServers(
-      input.requiredMcpServers ?? [],
-    );
-
     const requestedJobId = normalizeOptional(input.jobId);
     let id = this.deps.schedulePlanner.createJobId({
       name,
@@ -176,6 +142,47 @@ export class JobManagementService {
     }
     existingJob ??= await this.deps.ops.getJobById(id);
     if (existingJob) assertSchedulerJobAccess(existingJob, access);
+    const executionContext = assertExecutionContextMatchesAuthenticatedContext({
+      executionContext:
+        input.executionContext === undefined
+          ? (existingJob?.execution_context ?? {
+              conversationJid: authenticatedContext.conversationJid,
+              groupScope: authenticatedContext.groupScope,
+              threadId: authThreadId ?? null,
+            })
+          : input.executionContext,
+      authenticatedContext,
+      enforceThread: input.executionContext !== undefined,
+    });
+    const existingNotificationRoutes = normalizeStoredNotificationRoutes(
+      existingJob?.notification_routes,
+    );
+    const requestedNotificationRoutes = normalizeNotificationRoutes(
+      input.notificationRoutes ??
+        (existingNotificationRoutes.length > 0
+          ? existingNotificationRoutes
+          : [
+              {
+                conversationJid: authenticatedContext.conversationJid,
+                threadId: authenticatedContext.threadId,
+                label: 'primary',
+              },
+            ]),
+    );
+    const toolAccessRequirements = normalizeToolAccessRequirements(
+      input.toolAccessRequirements ?? [],
+    );
+    const capabilityRequirements = normalizeCapabilityRequirements(
+      input.capabilityRequirements ?? [],
+    );
+    const effectiveToolAccessRequirements = normalizeToolAccessRequirements([
+      ...toolAccessRequirements,
+      ...capabilityRequirementToolRules(capabilityRequirements),
+    ]);
+    const requiredMcpServers = normalizeRequiredMcpServers(
+      input.requiredMcpServers ?? [],
+    );
+
     const { canonicalSession } = await resolveCanonicalAppSessionForOrigin({
       access,
       control: this.deps.control,
@@ -184,23 +191,23 @@ export class JobManagementService {
       canonicalSession?.sessionId && executionContext.sessionId == null
         ? { ...executionContext, sessionId: canonicalSession.sessionId }
         : executionContext;
-    await requireJobNotificationRouteApproval({
-      deps: this.deps as never,
-      request: {
-        operation: existingJob ? 'update' : 'create',
-        jobId: id,
-        jobName: name,
-        authenticatedContext,
-        requestedRoutes: requestedNotificationRoutes,
-        existingRoutes: normalizeStoredNotificationRoutes(
-          existingJob?.notification_routes,
-        ),
-        routesBeyondContext: routesBeyondAuthenticatedContext({
-          routes: requestedNotificationRoutes,
+    if (input.notificationRoutes !== undefined || !existingJob) {
+      await requireJobNotificationRouteApproval({
+        deps: this.deps as never,
+        request: {
+          operation: existingJob ? 'update' : 'create',
+          jobId: id,
+          jobName: name,
           authenticatedContext,
-        }),
-      },
-    });
+          requestedRoutes: requestedNotificationRoutes,
+          existingRoutes: existingNotificationRoutes,
+          routesBeyondContext: routesBeyondAuthenticatedContext({
+            routes: requestedNotificationRoutes,
+            authenticatedContext,
+          }),
+        },
+      });
+    }
     const job: JobUpsertInput = {
       id,
       name,

@@ -35,7 +35,7 @@ describe('status command formatting', () => {
       embeddingProvider: 'disabled',
       embeddingProviderSource: 'settings.yaml',
       embeddingProviderHealth: 'pass',
-      embeddingModel: 'text-embedding-3-large',
+      embeddingModel: 'text-embedding-3-small',
       embeddingModelSource: 'settings.yaml',
       dreamingEnabled: true,
       dreamingSource: 'settings.yaml',

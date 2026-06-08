@@ -1,32 +1,47 @@
 import { SAME_SESSION_SKILL_CONTEXT_MAX_BYTES } from './service-constants.js';
+import {
+  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+  UNREVIEWED_DISCOVERY_GUIDANCE,
+} from '../../../shared/capability-guidance.js';
 
 export function formatMcpApprovalResponse(
   data: unknown,
   message: string,
 ): string {
-  const context = parseApprovedMcpContext(data);
+  const context = parseConnectedMcpContext(data);
   if (!context) return message;
   return [
     message,
     '',
-    'How to use it now:',
-    `- List approved tools: call mcp_list_tools with serverName="${context.server.name}"`,
-    `- Call an approved tool: call mcp_call_tool with serverName="${context.server.name}", toolName="<tool>", arguments={...}`,
-    context.approvedToolNames.length > 0
-      ? `- Approved tool names: ${context.approvedToolNames.join(', ')}`
-      : '- No explicit tool names were provided; use mcp_list_tools to inspect approved tools.',
+    'Source status:',
+    '- Connected Sources: MCP server source recorded.',
+    '- Allowed Capabilities: unchanged until a reviewed capability is granted.',
+    '- Needs Review: raw MCP actions discovered from this source.',
+    '',
+    'Next action:',
+    `- Refresh source inventory: call mcp_list_tools with serverName="${context.server.name}"`,
+    '- Request durable access: use capability_search, then propose_capability when a reviewed capability exists.',
+    '- Immediate one-off: use request_permission for an exact scoped action if no reviewed capability fits.',
+    context.availableToolNames.length > 0
+      ? `- Source-reported tool names: ${context.availableToolNames.join(', ')}`
+      : '- No explicit tool names were provided; use mcp_list_tools to inspect available tools.',
+    SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
   ].join('\n');
 }
 
 export function formatMcpListToolsResponse(data: unknown): string {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    return 'No approved MCP tools were returned.';
+    return 'No MCP tools were returned.';
   }
   const servers = Array.isArray((data as Record<string, unknown>).servers)
     ? ((data as Record<string, unknown>).servers as unknown[])
     : [];
-  if (servers.length === 0) return 'No approved MCP tools are available.';
-  const lines = ['Approved MCP tools:'];
+  if (servers.length === 0) return 'No MCP tools are available.';
+  const lines = [
+    'MCP source inventory:',
+    SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+    UNREVIEWED_DISCOVERY_GUIDANCE,
+  ];
   for (const server of servers) {
     if (!server || typeof server !== 'object' || Array.isArray(server)) {
       continue;
@@ -36,7 +51,7 @@ export function formatMcpListToolsResponse(data: unknown): string {
     const tools = Array.isArray(record.tools) ? record.tools : [];
     lines.push(`\n## ${name}`);
     if (tools.length === 0) {
-      lines.push('- No approved tools exposed by this server.');
+      lines.push('- No tools exposed by this server.');
       continue;
     }
     for (const tool of tools) {
@@ -57,13 +72,13 @@ export function formatMcpCallToolResponse(data: unknown): string {
   return JSON.stringify(data ?? null, null, 2);
 }
 
-function parseApprovedMcpContext(data: unknown): {
+function parseConnectedMcpContext(data: unknown): {
   server: { id: string; name: string };
-  approvedToolNames: string[];
+  availableToolNames: string[];
 } | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const record = data as Record<string, unknown>;
-  if (record.type !== 'approved_mcp_context') return null;
+  if (record.type !== 'connected_mcp_context') return null;
   const server =
     record.server &&
     typeof record.server === 'object' &&
@@ -79,8 +94,8 @@ function parseApprovedMcpContext(data: unknown): {
   }
   return {
     server: { id: server.id, name: server.name },
-    approvedToolNames: Array.isArray(record.approvedToolNames)
-      ? record.approvedToolNames.filter(
+    availableToolNames: Array.isArray(record.availableToolNames)
+      ? record.availableToolNames.filter(
           (item): item is string => typeof item === 'string',
         )
       : [],
@@ -91,7 +106,7 @@ export function formatSkillProposalResponse(
   data: unknown,
   message: string,
 ): string {
-  const context = parseApprovedSkillContext(data);
+  const context = parseInstalledSkillContext(data);
   if (!context) return message;
   const lines = [
     message,
@@ -102,16 +117,18 @@ export function formatSkillProposalResponse(
     context.skill.description
       ? `- Description: ${context.skill.description}`
       : undefined,
-    context.skill.contentHash
-      ? `- Package hash: ${context.skill.contentHash}`
-      : undefined,
     context.requiredEnvVars.length > 0
-      ? `- Required Gantry Secrets: ${context.requiredEnvVars.join(', ')}`
+      ? `- Required Gantry Credentials: ${context.requiredEnvVars.join(', ')}`
       : undefined,
     '',
-    'Use this skill now by following its SKILL.md. Gantry will load it automatically for later runs.',
+    'Source status:',
+    '- Connected Sources: skill source installed.',
+    '- Allowed Capabilities: unchanged until a reviewed capability is granted.',
+    '- Needs Review: any gantry.skill.json actions that are not reviewed yet.',
     '',
-    'Approved skill files:',
+    'Use this skill now by following its SKILL.md. Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs.',
+    '',
+    'Installed skill files:',
   ].filter((line): line is string => line !== undefined);
 
   let remainingBytes = SAME_SESSION_SKILL_CONTEXT_MAX_BYTES;
@@ -119,21 +136,12 @@ export function formatSkillProposalResponse(
     const contentBytes = Buffer.byteLength(file.content, 'utf-8');
     lines.push('');
     lines.push(`## ${file.path}`);
-    if (file.contentHash || typeof file.sizeBytes === 'number') {
-      lines.push(
-        [
-          file.contentHash ? `hash=${file.contentHash}` : undefined,
-          typeof file.sizeBytes === 'number'
-            ? `size=${file.sizeBytes} bytes`
-            : undefined,
-        ]
-          .filter(Boolean)
-          .join(', '),
-      );
+    if (typeof file.sizeBytes === 'number') {
+      lines.push(`size=${file.sizeBytes} bytes`);
     }
     if (remainingBytes <= 0) {
       lines.push(
-        '[Content omitted because the approved skill bundle is large.]',
+        '[Content omitted because the installed skill bundle is large.]',
       );
       continue;
     }
@@ -152,24 +160,22 @@ export function formatSkillProposalResponse(
   return lines.join('\n');
 }
 
-function parseApprovedSkillContext(data: unknown): {
+function parseInstalledSkillContext(data: unknown): {
   skill: {
     id: string;
     name: string;
     description?: string;
-    contentHash?: string;
   };
   requiredEnvVars: string[];
   files: Array<{
     path: string;
     content: string;
-    contentHash?: string;
     sizeBytes?: number;
   }>;
 } | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const record = data as Record<string, unknown>;
-  if (record.type !== 'approved_skill_context') return null;
+  if (record.type !== 'installed_skill_context') return null;
   const skill =
     record.skill &&
     typeof record.skill === 'object' &&
@@ -199,9 +205,6 @@ function parseApprovedSkillContext(data: unknown): {
           return {
             path: item.path,
             content: item.content,
-            ...(typeof item.contentHash === 'string'
-              ? { contentHash: item.contentHash }
-              : {}),
             ...(typeof item.sizeBytes === 'number'
               ? { sizeBytes: item.sizeBytes }
               : {}),
@@ -216,9 +219,6 @@ function parseApprovedSkillContext(data: unknown): {
       name: skill.name,
       ...(typeof skill.description === 'string'
         ? { description: skill.description }
-        : {}),
-      ...(typeof skill.contentHash === 'string'
-        ? { contentHash: skill.contentHash }
         : {}),
     },
     requiredEnvVars: Array.isArray(record.requiredEnvVars)

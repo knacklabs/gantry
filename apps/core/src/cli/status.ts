@@ -185,10 +185,10 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   );
   lines.push(`Model Access: ${brokerCheck?.status || 'unknown'}`);
   const brokerPersistenceCheck = summary.doctor.checks.find(
-    (check) => check.id === 'onecli-persistence',
+    (check) => check.id === 'model-credential-encryption',
   );
   lines.push(
-    `Broker persistence: ${brokerPersistenceCheck?.status || 'unknown'}`,
+    `Credential encryption: ${brokerPersistenceCheck?.status || 'unknown'}`,
   );
   for (const channel of summary.channels) {
     const credentials =

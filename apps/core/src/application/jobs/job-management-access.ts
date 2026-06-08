@@ -11,33 +11,24 @@ export function canAccessSchedulerJob(
   access: SchedulerJobAccess,
 ): boolean {
   const originConversationJid = normalizeOptional(access.originConversationJid);
-  const authThreadId = normalizeOptional(access.authThreadId) ?? null;
   if (!originConversationJid) return false;
   if (job.group_scope !== access.sourceAgentFolder) return false;
   const executionConversationJid = normalizeOptional(
     job.execution_context?.conversationJid,
   );
   if (executionConversationJid) {
-    const executionThreadId =
-      normalizeOptional(job.execution_context?.threadId) ??
-      normalizeOptional(job.thread_id) ??
-      null;
-    if (executionThreadId !== authThreadId) return false;
     return executionConversationJid === originConversationJid;
   }
-  const storedThreadId = normalizeOptional(job.thread_id);
-  if (storedThreadId && storedThreadId !== authThreadId) return false;
   const notificationRoutes = Array.isArray(job.notification_routes)
     ? job.notification_routes
     : [];
   if (notificationRoutes.length > 0) {
     return notificationRoutes.some(
       (route) =>
-        normalizeOptional(route.conversationJid) === originConversationJid &&
-        (normalizeOptional(route.threadId) ?? null) === authThreadId,
+        normalizeOptional(route.conversationJid) === originConversationJid,
     );
   }
-  return authThreadId === null;
+  return true;
 }
 
 export function assertSchedulerJobAccess(

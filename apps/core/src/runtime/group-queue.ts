@@ -9,7 +9,7 @@ import { stopActiveGroupRun } from './group-queue-stop.js';
 import {
   normalizeThreadQueueId,
   parseThreadQueueKey,
-} from './thread-queue-key.js';
+} from '../shared/thread-queue-key.js';
 
 type QueueKind = 'message' | 'task';
 type ContinuationOptions = {

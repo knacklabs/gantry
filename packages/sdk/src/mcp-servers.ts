@@ -7,7 +7,7 @@ type TransportLike = {
   }): Promise<T>;
 };
 
-type CreateMcpServerDraftInput = {
+type ConnectMcpServerInput = {
   appId?: string;
   name: string;
   displayName?: string;
@@ -58,37 +58,12 @@ function pageQuery(input: PageInput = {}): string {
 
 export function createMcpServersClient(transport: TransportLike) {
   return {
-    drafts: {
-      create: (input: CreateMcpServerDraftInput) =>
-        transport.request<Record<string, unknown>>({
-          method: 'POST',
-          path: '/v1/mcp-servers/drafts',
-          body: input,
-        }),
-      list: (input: PageInput = {}) =>
-        transport.request<{ drafts: unknown[] }>({
-          method: 'GET',
-          path: `/v1/mcp-servers/drafts${pageQuery(input)}`,
-        }),
-      approve: (
-        serverId: string,
-        input: { appId?: string; approvedBy?: string } = {},
-      ) =>
-        transport.request<Record<string, unknown>>({
-          method: 'POST',
-          path: `/v1/mcp-servers/drafts/${encodeURIComponent(serverId)}/approve`,
-          body: input,
-        }),
-      reject: (
-        serverId: string,
-        input: { appId?: string; rejectedBy?: string; reason?: string } = {},
-      ) =>
-        transport.request<Record<string, unknown>>({
-          method: 'POST',
-          path: `/v1/mcp-servers/drafts/${encodeURIComponent(serverId)}/reject`,
-          body: input,
-        }),
-    },
+    connect: (input: ConnectMcpServerInput) =>
+      transport.request<Record<string, unknown>>({
+        method: 'POST',
+        path: '/v1/mcp-servers',
+        body: input,
+      }),
     list: (input: { status?: string } & PageInput = {}) => {
       const params = new URLSearchParams();
       if (input.status) params.set('status', input.status);
@@ -99,6 +74,11 @@ export function createMcpServersClient(transport: TransportLike) {
         path: `/v1/mcp-servers${params.toString() ? `?${params}` : ''}`,
       });
     },
+    get: (serverId: string) =>
+      transport.request<Record<string, unknown>>({
+        method: 'GET',
+        path: `/v1/mcp-servers/${encodeURIComponent(serverId)}`,
+      }),
     disable: (
       serverId: string,
       input: { appId?: string; disabledBy?: string; reason?: string } = {},
@@ -132,7 +112,6 @@ export function createAgentMcpServersClient(transport: TransportLike) {
       serverId: string,
       input: {
         appId?: string;
-        versionId?: string;
         required?: boolean;
         permissionPolicyIds?: string[];
       } = {},
@@ -147,7 +126,6 @@ export function createAgentMcpServersClient(transport: TransportLike) {
       serverId: string,
       input: {
         appId?: string;
-        versionId?: string;
         required?: boolean;
         permissionPolicyIds?: string[];
       },

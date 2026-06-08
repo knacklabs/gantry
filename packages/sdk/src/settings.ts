@@ -24,7 +24,7 @@ export type RuntimeSettingsResponse = {
         folder: string;
         persona?:
           | 'developer'
-          | 'personal_assistant'
+          | 'generalist'
           | 'sales'
           | 'marketing'
           | 'operations'

@@ -7,10 +7,10 @@ import type {
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   findModelByRunnerModel,
-  formatModelDisplay,
   resolveModelSelectionForWorkload,
   type ModelDefaultAliases,
 } from '../shared/model-catalog.js';
+import { formatModelDisplay } from '../shared/model-catalog-format.js';
 import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 import {
   describeThinking,

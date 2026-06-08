@@ -10,6 +10,13 @@ import type {
   CapabilitySecretMetadata,
 } from '../capability-secrets/capability-secrets.js';
 import type {
+  ModelCredential,
+  ModelCredentialFieldFingerprint,
+  ModelCredentialMetadata,
+  ModelCredentialProvider,
+} from '../model-credentials/model-credentials.js';
+import type { ModelCredentialPayload } from '../../shared/model-provider-registry.js';
+import type {
   AgentConversationBinding,
   ConversationApprover,
   ProviderConnection,
@@ -49,8 +56,6 @@ import type {
   McpServerAuditEvent,
   McpServerDefinition,
   McpServerId,
-  McpServerVersion,
-  McpServerVersionId,
 } from '../mcp/mcp-servers.js';
 import type {
   PermissionDecision,
@@ -431,12 +436,6 @@ export interface ToolCatalogRepository {
 
 export interface SkillCatalogRepository {
   getSkill(id: SkillId): Promise<SkillCatalogItem | null>;
-  getSkillByContentHash?(input: {
-    appId: AppId;
-    contentHash: string;
-    agentId?: AgentId | null;
-    statuses?: SkillCatalogItem['status'][];
-  }): Promise<SkillCatalogItem | null>;
   listSkills(input: {
     appId: AppId;
     agentId?: AgentId;
@@ -481,6 +480,33 @@ export interface CapabilitySecretRepository {
   deleteSecret(input: { appId: AppId; name: string }): Promise<boolean>;
 }
 
+export interface ModelCredentialRepository {
+  getModelCredential(input: {
+    appId: ModelCredential['appId'];
+    providerId: ModelCredentialProvider;
+  }): Promise<ModelCredential | null>;
+  listModelCredentials(input: {
+    appId: ModelCredentialMetadata['appId'];
+  }): Promise<ModelCredentialMetadata[]>;
+  upsertModelCredential(input: {
+    appId: ModelCredentialMetadata['appId'];
+    providerId: ModelCredentialProvider;
+    authMode: string;
+    schemaVersion: number;
+    payload: ModelCredentialPayload;
+    fingerprint: string;
+    fieldFingerprints: ModelCredentialFieldFingerprint[];
+    actor?: string;
+    now?: string;
+  }): Promise<ModelCredentialMetadata>;
+  disableModelCredential(input: {
+    appId: ModelCredentialMetadata['appId'];
+    providerId: ModelCredentialProvider;
+    actor?: string;
+    now?: string;
+  }): Promise<ModelCredentialMetadata | null>;
+}
+
 export interface McpServerRepository {
   getServer(id: McpServerId): Promise<McpServerDefinition | null>;
   getServerByName(input: {
@@ -500,9 +526,6 @@ export interface McpServerRepository {
     expectedStatus: McpServerDefinition['status'];
     next: McpServerDefinition;
   }): Promise<McpServerDefinition | null>;
-  getVersion(id: McpServerVersionId): Promise<McpServerVersion | null>;
-  listVersions(serverId: McpServerId): Promise<McpServerVersion[]>;
-  saveVersion(version: McpServerVersion): Promise<void>;
   saveAgentBinding(binding: AgentMcpServerBinding): Promise<void>;
   disableAgentBinding(input: {
     appId: AppId;

@@ -58,7 +58,7 @@ export function adminCapabilityRequiredMessage(
   const fullName = adminMcpToolFullName(toolName);
   return [
     `${fullName} requires a selected capability for this agent.`,
-    `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
+    `Ask a configured conversation approver to approve ${toolName}, then choose persistent access.`,
     'Admins can also select this exact admin capability through settings.yaml or the control API.',
   ].join(' ');
 }

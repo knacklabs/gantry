@@ -27,6 +27,10 @@ import {
   parseAutonomousToolDenial,
   type AutonomousToolDenial,
 } from '../../shared/autonomous-tool-denial.js';
+import {
+  setupActionLabel,
+  setupActionLabelFromNextAction,
+} from '../../shared/job-setup-labels.js';
 
 export interface JobVisibilityMetadata {
   executionContext: JobExecutionContextInput;
@@ -38,6 +42,10 @@ export interface JobVisibilityMetadata {
     conversationJids: string[];
     threadId: string | null;
   };
+  ownerLabel: string;
+  deliveryLabel: string;
+  setupLabel: string;
+  nextActionLabel: string | null;
   promptPreview: string;
   fullPrompt?: string;
   inheritedTools: string[];
@@ -66,7 +74,6 @@ export interface JobHealthMetadata {
     | 'credential_unknown'
     | 'browser_login_may_be_required'
     | 'mcp_missing_credential'
-    | 'draft_only'
     | 'running'
     | 'completed'
     | 'failed'
@@ -146,6 +153,12 @@ export async function buildJobVisibilityMetadata(input: {
   });
   const setup = setupMetadataForJob(input.job);
   const recovery = recoveryMetadataForJob(input.job);
+  const displayLabels = deriveJobDisplayLabels({
+    executionContext,
+    notificationRoutes,
+    setup,
+    health,
+  });
   return {
     executionContext,
     notificationRoutes,
@@ -156,6 +169,7 @@ export async function buildJobVisibilityMetadata(input: {
       conversationJids: dedupeConversationJids(notificationRoutes),
       threadId: executionContext.threadId,
     },
+    ...displayLabels,
     promptPreview: promptPreview(input.job.prompt),
     fullPrompt: input.job.prompt,
     inheritedTools: policy.inheritedTools,
@@ -222,6 +236,19 @@ export async function buildJobListVisibilityMetadata(input: {
         const effectiveAllowedTools = mergeUnique(inheritedTools);
         const staleness = schedulerJobStaleness(job, nowMs);
         const runs = latestRunsByJobId.get(job.id) ?? [];
+        const setup = setupMetadataForJob(job);
+        const health = buildJobHealth({
+          job,
+          runs,
+          staleness,
+          nowMs,
+        });
+        const displayLabels = deriveJobDisplayLabels({
+          executionContext,
+          notificationRoutes,
+          setup,
+          health,
+        });
         const metadata: JobVisibilityMetadata = {
           executionContext,
           notificationRoutes,
@@ -232,6 +259,7 @@ export async function buildJobListVisibilityMetadata(input: {
             conversationJids: dedupeConversationJids(notificationRoutes),
             threadId: executionContext.threadId,
           },
+          ...displayLabels,
           promptPreview: promptPreview(job.prompt),
           inheritedTools,
           effectiveAllowedTools,
@@ -242,14 +270,9 @@ export async function buildJobListVisibilityMetadata(input: {
             inheritedAgentTools: inheritedTools,
             effectiveAllowedTools,
           }),
-          setup: setupMetadataForJob(job),
+          setup,
           recovery: recoveryMetadataForJob(job),
-          health: buildJobHealth({
-            job,
-            runs,
-            staleness,
-            nowMs,
-          }),
+          health,
           staleness,
           recentRunErrors: runs
             .filter((run) => Boolean(run.error_summary))
@@ -342,6 +365,67 @@ function buildJobHealth(input: {
   };
 }
 
+function deriveJobDisplayLabels(input: {
+  executionContext: JobExecutionContextInput;
+  notificationRoutes: JobNotificationRouteInput[];
+  setup: JobSetupMetadata;
+  health: JobHealthMetadata;
+}): {
+  ownerLabel: string;
+  deliveryLabel: string;
+  setupLabel: string;
+  nextActionLabel: string | null;
+} {
+  const primaryRoute = input.notificationRoutes[0];
+  const ownerJid =
+    input.executionContext.conversationJid ||
+    primaryRoute?.conversationJid ||
+    '';
+  const deliveryJid =
+    primaryRoute?.conversationJid ||
+    input.executionContext.conversationJid ||
+    '';
+  const deliveryThread =
+    primaryRoute?.threadId ?? input.executionContext.threadId;
+  const blocker = input.setup.blockers[0];
+  const nextActionLabel = blocker
+    ? setupActionLabel(blocker)
+    : input.health.nextAction
+      ? setupActionLabelFromNextAction(input.health.nextAction)
+      : null;
+  return {
+    ownerLabel: genericConversationOwnerLabel(ownerJid),
+    deliveryLabel: genericConversationDeliveryLabel(
+      deliveryJid,
+      deliveryThread,
+    ),
+    setupLabel: setupReadinessLabel(input.setup.state),
+    nextActionLabel,
+  };
+}
+
+function genericConversationOwnerLabel(conversationJid: string): string {
+  return conversationJid.trim() ? 'Conversation' : 'Conversation';
+}
+
+function genericConversationDeliveryLabel(
+  conversationJid: string,
+  threadId?: string | null,
+): string {
+  if (!conversationJid.trim()) return 'Conversation';
+  return typeof threadId === 'string' && threadId.trim()
+    ? 'Conversation thread'
+    : 'Conversation';
+}
+
+// "Needs approval" only fits capability/permission grants; broker, credential,
+// and browser-login blockers are not approvals, so they read as "Needs setup".
+function setupReadinessLabel(state: string | undefined): string {
+  if (state === 'ready' || !state) return 'Ready';
+  if (state === 'missing_capability') return 'Needs approval';
+  return 'Needs setup';
+}
+
 function setupMetadataForJob(job: Job): JobSetupMetadata {
   const setup = job.setup_state;
   const blockers = setup?.blockers ?? [];
@@ -388,10 +472,7 @@ function nextJobHealthAction(
 ): string | null {
   if (denial?.recoveryAction) return denial.recoveryAction;
   if (state === 'needs_permission' && denial?.toolName) {
-    if (denial.toolName.startsWith('mcp__gantry__browser_')) {
-      return 'Approve Browser access, then rerun the job.';
-    }
-    return `Approve ${denial.toolName} access, then rerun the job.`;
+    return `Approve ${neutralToolAccessLabel(denial.toolName)}, then rerun the job.`;
   }
   if (state === 'timed_out') {
     return 'Rerun with a longer job timeout if this work is expected to take more time.';
@@ -413,6 +494,18 @@ function nextJobHealthAction(
 
 function isRestartInterruptedRun(summary: string | null): boolean {
   return /runtime restarted|gantry restarted/i.test(summary ?? '');
+}
+
+// Keep raw implementation tool ids (RunCommand, Bash, mcp__server__tool) out of
+// user-facing next-action copy; map them to provider-neutral access labels.
+function neutralToolAccessLabel(toolName: string): string {
+  if (toolName.startsWith('mcp__gantry__browser_') || toolName === 'Browser') {
+    return 'Browser access';
+  }
+  if (toolName === 'RunCommand' || toolName === 'Bash') {
+    return 'exact command access';
+  }
+  return 'the requested access';
 }
 
 function resolveExecutionContext(job: Job): JobExecutionContextInput {

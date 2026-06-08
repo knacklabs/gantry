@@ -7,8 +7,6 @@ import type {
   McpServerAuditEvent,
   McpServerDefinition,
   McpServerId,
-  McpServerVersion,
-  McpServerVersionId,
 } from '../../../../domain/mcp/mcp-servers.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import * as pgSchema from '../schema/schema.js';
@@ -98,11 +96,14 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         riskClass: definition.riskClass,
         requestedBy: definition.requestedBy ?? null,
         requestedReason: definition.requestedReason ?? null,
-        latestApprovedVersionId: definition.latestApprovedVersionId ?? null,
-        approvedBy: definition.approvedBy ?? null,
-        approvedAt: definition.approvedAt ?? null,
-        rejectedBy: definition.rejectedBy ?? null,
-        rejectedAt: definition.rejectedAt ?? null,
+        transport: definition.transport,
+        configJson: encodeJson(definition.config),
+        allowedToolPatternsJson: encodeJson(definition.allowedToolPatterns),
+        autoApproveToolPatternsJson: encodeJson(
+          definition.autoApproveToolPatterns,
+        ),
+        credentialRefsJson: encodeJson(definition.credentialRefs),
+        sandboxProfileId: definition.sandboxProfileId ?? null,
         disabledBy: definition.disabledBy ?? null,
         disabledAt: definition.disabledAt ?? null,
         createdAt: definition.createdAt,
@@ -117,11 +118,14 @@ export class PostgresMcpServerRepository implements McpServerRepository {
           riskClass: definition.riskClass,
           requestedBy: definition.requestedBy ?? null,
           requestedReason: definition.requestedReason ?? null,
-          latestApprovedVersionId: definition.latestApprovedVersionId ?? null,
-          approvedBy: definition.approvedBy ?? null,
-          approvedAt: definition.approvedAt ?? null,
-          rejectedBy: definition.rejectedBy ?? null,
-          rejectedAt: definition.rejectedAt ?? null,
+          transport: definition.transport,
+          configJson: encodeJson(definition.config),
+          allowedToolPatternsJson: encodeJson(definition.allowedToolPatterns),
+          autoApproveToolPatternsJson: encodeJson(
+            definition.autoApproveToolPatterns,
+          ),
+          credentialRefsJson: encodeJson(definition.credentialRefs),
+          sandboxProfileId: definition.sandboxProfileId ?? null,
           disabledBy: definition.disabledBy ?? null,
           disabledAt: definition.disabledAt ?? null,
           updatedAt: definition.updatedAt,
@@ -144,11 +148,14 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         riskClass: input.next.riskClass,
         requestedBy: input.next.requestedBy ?? null,
         requestedReason: input.next.requestedReason ?? null,
-        latestApprovedVersionId: input.next.latestApprovedVersionId ?? null,
-        approvedBy: input.next.approvedBy ?? null,
-        approvedAt: input.next.approvedAt ?? null,
-        rejectedBy: input.next.rejectedBy ?? null,
-        rejectedAt: input.next.rejectedAt ?? null,
+        transport: input.next.transport,
+        configJson: encodeJson(input.next.config),
+        allowedToolPatternsJson: encodeJson(input.next.allowedToolPatterns),
+        autoApproveToolPatternsJson: encodeJson(
+          input.next.autoApproveToolPatterns,
+        ),
+        credentialRefsJson: encodeJson(input.next.credentialRefs),
+        sandboxProfileId: input.next.sandboxProfileId ?? null,
         disabledBy: input.next.disabledBy ?? null,
         disabledAt: input.next.disabledAt ?? null,
         updatedAt: input.next.updatedAt,
@@ -164,54 +171,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     return row ? this.mapServer(row) : null;
   }
 
-  async getVersion(id: McpServerVersionId): Promise<McpServerVersion | null> {
-    const [row] = await this.db
-      .select()
-      .from(pgSchema.mcpServerVersionsPostgres)
-      .where(eq(pgSchema.mcpServerVersionsPostgres.id, id))
-      .limit(1);
-    return row ? this.mapVersion(row) : null;
-  }
-
-  async listVersions(serverId: McpServerId): Promise<McpServerVersion[]> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.mcpServerVersionsPostgres)
-      .where(eq(pgSchema.mcpServerVersionsPostgres.serverId, serverId))
-      .orderBy(desc(pgSchema.mcpServerVersionsPostgres.version));
-    return rows.map((row) => this.mapVersion(row));
-  }
-
-  async saveVersion(version: McpServerVersion): Promise<void> {
-    await this.db
-      .insert(pgSchema.mcpServerVersionsPostgres)
-      .values({
-        id: version.id,
-        appId: version.appId,
-        serverId: version.serverId,
-        version: version.version,
-        transport: version.transport,
-        configJson: encodeJson(version.config),
-        allowedToolPatternsJson: encodeJson(version.allowedToolPatterns),
-        autoApproveToolPatternsJson: encodeJson(
-          version.autoApproveToolPatterns,
-        ),
-        credentialRefsJson: encodeJson(version.credentialRefs),
-        sandboxProfileId: version.sandboxProfileId ?? null,
-        configHash: version.configHash,
-        reviewedBy: version.reviewedBy ?? null,
-        reviewedAt: version.reviewedAt ?? null,
-        createdAt: version.createdAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.mcpServerVersionsPostgres.id,
-        set: {
-          reviewedBy: version.reviewedBy ?? null,
-          reviewedAt: version.reviewedAt ?? null,
-        },
-      });
-  }
-
   async saveAgentBinding(binding: AgentMcpServerBinding): Promise<void> {
     await this.db
       .insert(pgSchema.agentMcpServerBindingsPostgres)
@@ -220,7 +179,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
         appId: binding.appId,
         agentId: binding.agentId,
         serverId: binding.serverId,
-        versionId: binding.versionId,
         status: binding.status,
         required: binding.required,
         permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
@@ -232,7 +190,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       .onConflictDoUpdate({
         target: pgSchema.agentMcpServerBindingsPostgres.id,
         set: {
-          versionId: binding.versionId,
           status: binding.status,
           required: binding.required,
           permissionPolicyIdsJson: encodeJson(binding.permissionPolicyIds),
@@ -336,7 +293,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
       eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
       eq(pgSchema.agentMcpServerBindingsPostgres.status, 'active'),
-      eq(pgSchema.mcpServersPostgres.status, 'approved'),
+      eq(pgSchema.mcpServersPostgres.status, 'active'),
     ];
     if (input.serverIds) {
       filters.push(
@@ -349,7 +306,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       .select({
         binding: pgSchema.agentMcpServerBindingsPostgres,
         definition: pgSchema.mcpServersPostgres,
-        version: pgSchema.mcpServerVersionsPostgres,
       })
       .from(pgSchema.agentMcpServerBindingsPostgres)
       .innerJoin(
@@ -359,19 +315,11 @@ export class PostgresMcpServerRepository implements McpServerRepository {
           pgSchema.mcpServersPostgres.id,
         ),
       )
-      .innerJoin(
-        pgSchema.mcpServerVersionsPostgres,
-        eq(
-          pgSchema.agentMcpServerBindingsPostgres.versionId,
-          pgSchema.mcpServerVersionsPostgres.id,
-        ),
-      )
       .where(and(...filters))
       .orderBy(asc(pgSchema.mcpServersPostgres.name));
     return rows.map((row) => ({
       binding: this.mapBinding(row.binding),
       definition: this.mapServer(row.definition),
-      version: this.mapVersion(row.version),
     }));
   }
 
@@ -381,7 +329,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       appId: event.appId,
       agentId: event.agentId ?? null,
       serverId: event.serverId ?? null,
-      versionId: event.versionId ?? null,
       bindingId: event.bindingId ?? null,
       eventType: event.eventType,
       actorId: event.actorId ?? null,
@@ -433,42 +380,20 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       riskClass: row.riskClass as McpServerDefinition['riskClass'],
       requestedBy: row.requestedBy ?? undefined,
       requestedReason: row.requestedReason ?? undefined,
-      latestApprovedVersionId: row.latestApprovedVersionId as
-        | McpServerVersionId
-        | undefined,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      approvedBy: row.approvedBy ?? undefined,
-      approvedAt: row.approvedAt ?? undefined,
-      rejectedBy: row.rejectedBy ?? undefined,
-      rejectedAt: row.rejectedAt ?? undefined,
-      disabledBy: row.disabledBy ?? undefined,
-      disabledAt: row.disabledAt ?? undefined,
-    };
-  }
-
-  private mapVersion(
-    row: typeof pgSchema.mcpServerVersionsPostgres.$inferSelect,
-  ): McpServerVersion {
-    return {
-      id: row.id as McpServerVersion['id'],
-      appId: row.appId as McpServerVersion['appId'],
-      serverId: row.serverId as McpServerVersion['serverId'],
-      version: row.version,
-      transport: row.transport as McpServerVersion['transport'],
+      transport: row.transport as McpServerDefinition['transport'],
       config: parseJsonRecord(
         row.configJson,
-      ) as unknown as McpServerVersion['config'],
+      ) as unknown as McpServerDefinition['config'],
       allowedToolPatterns: parseJsonArray(row.allowedToolPatternsJson),
       autoApproveToolPatterns: parseJsonArray(row.autoApproveToolPatternsJson),
       credentialRefs: JSON.parse(
         row.credentialRefsJson || '[]',
-      ) as McpServerVersion['credentialRefs'],
+      ) as McpServerDefinition['credentialRefs'],
       sandboxProfileId: row.sandboxProfileId ?? undefined,
-      configHash: row.configHash,
-      reviewedBy: row.reviewedBy ?? undefined,
-      reviewedAt: row.reviewedAt ?? undefined,
       createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      disabledBy: row.disabledBy ?? undefined,
+      disabledAt: row.disabledAt ?? undefined,
     };
   }
 
@@ -480,7 +405,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       appId: row.appId as AgentMcpServerBinding['appId'],
       agentId: row.agentId as AgentMcpServerBinding['agentId'],
       serverId: row.serverId as AgentMcpServerBinding['serverId'],
-      versionId: row.versionId as AgentMcpServerBinding['versionId'],
       status: row.status as AgentMcpServerBinding['status'],
       required: row.required,
       permissionPolicyIds: parseJsonArray(
@@ -502,7 +426,6 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       appId: row.appId as McpServerAuditEvent['appId'],
       agentId: row.agentId as McpServerAuditEvent['agentId'],
       serverId: row.serverId as McpServerAuditEvent['serverId'],
-      versionId: row.versionId as McpServerAuditEvent['versionId'],
       bindingId: row.bindingId as McpServerAuditEvent['bindingId'],
       eventType: row.eventType as McpServerAuditEvent['eventType'],
       actorId: row.actorId ?? undefined,

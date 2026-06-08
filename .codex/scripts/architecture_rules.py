@@ -340,16 +340,6 @@ FRAMEWORK_BOUNDARY_RULES = (
         ),
         "message": "Anthropic SDK imports must stay in approved provider adapter paths.",
     },
-    {
-        "name": "OneCLI SDK outside credential adapter",
-        "source_prefixes": ("apps/core/src",),
-        "specifier_prefixes": ("@onecli-sh/sdk",),
-        "allowed_prefixes": (
-            "apps/core/src/adapters/credentials/onecli",
-            "apps/core/src/cli/setup-credentials.ts",
-        ),
-        "message": "OneCLI SDK imports must stay behind the credential broker adapter boundary.",
-    },
 )
 
 RECOGNIZED_CODE_PATH_EXTENSIONS = {

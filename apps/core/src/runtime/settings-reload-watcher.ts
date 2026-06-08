@@ -67,10 +67,10 @@ export function startSettingsReloadWatcher(
         repositories: options.repositories,
       });
       const loadedSettings = settings;
-      const cleanup =
-        await service.cleanupGeneratedRuntimeCapabilities(settings);
-      settings = cleanup.settings;
-      if (cleanup.changed) {
+      const normalization =
+        await service.normalizeConfiguredCapabilities(settings);
+      settings = normalization.settings;
+      if (normalization.changed) {
         saveRuntimeSettings(options.runtimeHome, settings);
       }
       const validation = validateLoadedRuntimeSettings(
@@ -85,7 +85,7 @@ export function startSettingsReloadWatcher(
         return;
       }
       const reconcile = await service.reconcile(
-        cleanup.changed ? loadedSettings : settings,
+        normalization.changed ? loadedSettings : settings,
       );
       if (reconcile.invalidReferences.length > 0) {
         logger.warn(

@@ -87,8 +87,6 @@ function skillActionCapability(): SemanticCapabilityDefinition {
       kind: 'skill_action',
       skillId: 'skill:linkedin-posting',
       skillName: 'linkedin-posting',
-      skillVersion: 'abc123',
-      skillContentHash: 'sha256:abc123',
       actionId: 'publish',
     },
   };
@@ -180,8 +178,9 @@ describe('PermissionManagementService', () => {
           capabilityId: 'skill.linkedin-posting.publish',
           displayName: 'LinkedIn posting',
           skillId: 'skill:linkedin-posting',
-          skillContentHash: 'sha256:abc123',
+          skillName: 'linkedin-posting',
           actionId: 'publish',
+          commandPreviewHashes: [expect.stringMatching(/^sha256:/)],
         }),
       ],
     });

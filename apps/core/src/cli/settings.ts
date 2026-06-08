@@ -1,4 +1,5 @@
 import * as p from '@clack/prompts';
+import path from 'node:path';
 
 import {
   closeRuntimeStorage,
@@ -8,12 +9,14 @@ import {
 import { SettingsDesiredStateService } from '../config/settings/desired-state-service.js';
 import {
   loadRuntimeSettings,
+  loadRuntimeSettingsFromPath,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 
 function usage(): string {
   return [
     'Usage:',
+    '  gantry settings validate',
     '  gantry settings export-current',
     '  gantry settings drift',
     '',
@@ -29,6 +32,21 @@ export async function runSettingsCommand(
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {
     console.log(usage());
     return subcommand ? 0 : 1;
+  }
+
+  if (subcommand === 'validate') {
+    try {
+      loadRuntimeSettingsFromPath(path.join(runtimeHome, 'settings.yaml'));
+      p.log.success('settings.yaml schema is valid.');
+      return 0;
+    } catch (err) {
+      p.log.error(
+        `settings.yaml schema is invalid: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return 1;
+    }
   }
 
   await initializeRuntimeStorage();

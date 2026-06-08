@@ -10,6 +10,7 @@ import type {
 import {
   memoryScopeForConversationKind,
   resolveTurnToolPolicy,
+  resolveTurnSemanticCapabilities,
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillContext,
 } from './group-run-context.js';
@@ -28,8 +29,7 @@ import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
-import { logger } from '../infrastructure/logging/logger.js';
-import { flowLog } from '../shared/flow-log.js';
+import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
@@ -60,15 +60,9 @@ const RUNTIME_LOG_PROVIDER_VALUE_PATTERNS: RegExp[] = [
 ];
 const RUNTIME_LOG_REDACT_KEY_PATTERN =
   /^(sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$/i;
-const MISSING_PROVIDER_SESSION_RE = /No conversation found with session ID/i;
 const memoryReviewApproverCache = new Map<string, [boolean, number]>();
-
-function isMissingProviderResumeError(output: AgentOutput): boolean {
-  return (
-    output.status === 'error' &&
-    typeof output.error === 'string' &&
-    MISSING_PROVIDER_SESSION_RE.test(output.error)
-  );
+function isMissingProviderSessionError(error: string | undefined): boolean {
+  return /\bNo conversation found with session ID\b/i.test(error ?? '');
 }
 function redactRuntimeLogString(value: string): string {
   let out = value;
@@ -194,9 +188,14 @@ export function createGroupAgentRunner(input: {
       }[];
     },
   ): Promise<'success' | 'error'> {
-    const executionProviderId = resolveRuntimeExecutionProviderId(
-      deps.executionAdapter,
+    const initialModelSelection = defaultModelStatusSelection(
+      group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS,
     );
+    const executionProviderId = (initialModelSelection.model
+      ?.executionProviderId ??
+      resolveRuntimeExecutionProviderId(
+        deps.executionAdapter,
+      )) as ExecutionProviderId;
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
     const modelStatus = createRuntimeModelStatusAccess(
       group.folder,
@@ -231,7 +230,6 @@ export function createGroupAgentRunner(input: {
     const runState: { runId?: string } = {};
     let latestProviderSessionId =
       turnContext?.externalSessionId?.trim() || undefined;
-    let resumeSessionId = latestProviderSessionId;
     const updateRunProviderMetadata = async (input: {
       providerRunId?: string | null;
       providerSessionId?: string | null;
@@ -363,25 +361,17 @@ export function createGroupAgentRunner(input: {
       skillArtifactStore: deps.getSkillArtifactStore?.(),
       turnContext,
     });
-    const [configuredToolPolicy, selectedSkillContext] = await Promise.all([
-      resolveTurnToolPolicy(deps, turnContext),
-      resolveTurnSelectedSkillContext(deps, turnContext),
-    ]);
-    const selectedMcpServerIds = await resolveTurnSelectedMcpServerIds(
+    const [configuredToolPolicy, selectedSkillContext, semanticCapabilities] =
+      await Promise.all([
+        resolveTurnToolPolicy(deps, turnContext),
+        resolveTurnSelectedSkillContext(deps, turnContext),
+        resolveTurnSemanticCapabilities(deps, turnContext),
+      ]);
+    const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
       deps,
       turnContext,
       configuredToolPolicy.allowedTools,
     );
-    // Flow trace: which capabilities this turn resolved — shows whether the
-    // agent actually receives any MCP servers (e.g. shopify-api) and a valid
-    // app/agent context, so a missing tool capability is visible.
-    flowLog(logger, 'agent.spawn', {
-      chatJid,
-      appId: turnContext?.appId ?? null,
-      agentId: turnContext?.agentId ?? null,
-      selectedMcpServerIds: selectedMcpServerIds ?? [],
-      allowedToolsCount: configuredToolPolicy.allowedTools?.length ?? 0,
-    });
     const memoryContextBlock = [
       turnContext?.memoryContextBlock,
       approvedSkillContextBlock,
@@ -412,14 +402,16 @@ export function createGroupAgentRunner(input: {
         mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
         publishRuntimeEvent: deps.publishRuntimeEvent,
         executionAdapter: deps.executionAdapter,
+        executionAdapters: deps.executionAdapters,
         turnContext,
       });
-      const expireResumeSessionForFreshRetry = async (): Promise<boolean> => {
+      const expireTurnProviderSession = async (
+        reason: string,
+      ): Promise<boolean> => {
         if (
           !turnContext?.providerSessionId ||
           !turnContext.agentSessionId ||
-          !turnContext.providerSessionProvider ||
-          !resumeSessionId ||
+          !turnContext.externalSessionId ||
           !ops().expireProviderSession
         ) {
           return false;
@@ -427,18 +419,21 @@ export function createGroupAgentRunner(input: {
         await ops().expireProviderSession?.({
           providerSessionId: turnContext.providerSessionId,
           agentSessionId: turnContext.agentSessionId,
-          provider: turnContext.providerSessionProvider,
-          externalSessionId: resumeSessionId,
+          provider: executionProviderId,
+          externalSessionId: turnContext.externalSessionId,
         });
-        runtimeLogger.warn(
-          { group: group.name },
-          'Expired missing provider session and retrying with a fresh session',
-        );
-        resumeSessionId = undefined;
         latestProviderSessionId = undefined;
+        await updateRunProviderMetadata({ providerSessionId: null });
+        runtimeLogger.warn(
+          { group: group.name, reason },
+          'Expired stale provider session and retrying without resume',
+        );
         return true;
       };
-      const invokeAgent = (agentInput: { memoryContextBlock?: string }) =>
+      const invokeAgent = (agentInput: {
+        memoryContextBlock?: string;
+        resumeSessionId?: string;
+      }) =>
         runAgentImpl(
           group,
           {
@@ -453,13 +448,16 @@ export function createGroupAgentRunner(input: {
             persona: group.agentConfig?.persona,
             allowedTools: configuredToolPolicy.allowedTools,
             runtimeAccess: configuredToolPolicy.runtimeAccess,
-            selectedSkillIds: selectedSkillContext.ids,
+            attachedSkillSourceIds: selectedSkillContext.ids,
             selectedSkillDisplays: selectedSkillContext.displays,
-            selectedMcpServerIds,
+            attachedMcpSourceIds,
+            semanticCapabilities,
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: agentInput.memoryContextBlock,
-            ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
+            ...(agentInput.resumeSessionId
+              ? { sessionId: agentInput.resumeSessionId }
+              : {}),
             [WORKSPACE_FOLDER_INPUT_KEY]: group.folder,
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) => {
@@ -492,12 +490,16 @@ export function createGroupAgentRunner(input: {
           wrappedOnOutput,
           runOptions,
         );
-      let output = await invokeAgent({ memoryContextBlock });
-      if (isMissingProviderResumeError(output)) {
-        const expired = await expireResumeSessionForFreshRetry();
-        if (expired) {
-          output = await invokeAgent({ memoryContextBlock });
-        }
+      let output = await invokeAgent({
+        memoryContextBlock,
+        resumeSessionId: turnContext?.externalSessionId,
+      });
+      if (
+        output.status === 'error' &&
+        isMissingProviderSessionError(output.error) &&
+        (await expireTurnProviderSession(output.error ?? 'missing session'))
+      ) {
+        output = await invokeAgent({ memoryContextBlock });
       }
       if (output.status === 'error') {
         runtimeLogger.error(

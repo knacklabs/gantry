@@ -9,9 +9,9 @@ import {
   chatJid,
   configuredAllowedTools,
   currentEnabledAdminMcpTools,
-  selectedMcpServerIds,
+  attachedMcpSourceIds,
   selectedSkillDisplays,
-  selectedSkillIds,
+  attachedSkillSourceIds,
   TASKS_DIR,
   threadId,
 } from '../context.js';
@@ -116,7 +116,9 @@ export function registerAdminPermissionTools(
 function formatAdminPermissionList(): string {
   const enabledAdminTools = currentEnabledAdminMcpTools();
   const selectedSkillStatusItems =
-    selectedSkillDisplays.length > 0 ? selectedSkillDisplays : selectedSkillIds;
+    selectedSkillDisplays.length > 0
+      ? selectedSkillDisplays
+      : attachedSkillSourceIds;
   return [
     'Admin permission inventory (read-only runner view):',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
@@ -143,8 +145,8 @@ function formatAdminPermissionList(): string {
       : ['- none installed yet']),
     '',
     'Connected MCP services ready for this agent:',
-    ...(selectedMcpServerIds.length > 0
-      ? selectedMcpServerIds
+    ...(attachedMcpSourceIds.length > 0
+      ? attachedMcpSourceIds
           .slice()
           .sort()
           .map((server) => `- ${server}`)
@@ -165,7 +167,7 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
         type: 'text',
         text: [
           `${humanizeTechnicalIdentifier(fullName)} is not approved for this agent yet.`,
-          `Ask a configured conversation approver to approve it, then choose Always allow. Details: ${fullName}.`,
+          `Ask a configured conversation approver to approve ${toolName}, then choose persistent access. Details: ${fullName}.`,
         ].join(' '),
       },
     ],

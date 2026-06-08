@@ -7,13 +7,11 @@ import type {
   McpServerDefinition,
   McpServerId,
   McpServerTransportConfig,
-  McpServerVersion,
-  McpServerVersionId,
 } from '../../domain/mcp/mcp-servers.js';
 import {
   assertNoRawSecretsInMcpConfig,
   assertValidMcpServerName,
-  isMcpServerApproved,
+  isMcpServerActive,
   normalizeMcpServerName,
 } from '../../domain/mcp/mcp-servers.js';
 import type {
@@ -34,7 +32,6 @@ import {
   materializeMcpRecord,
   type MaterializedMcpCapability,
 } from './mcp-server-materialization.js';
-import { stableSha256Json } from '../../shared/stable-hash.js';
 import { nowIso } from '../../shared/time/datetime.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
@@ -50,7 +47,7 @@ export class McpServerService {
     } = {},
   ) {}
 
-  async createDraft(input: {
+  async connectServer(input: {
     appId: AppId;
     name: string;
     displayName?: string;
@@ -64,7 +61,7 @@ export class McpServerService {
     credentialRefs?: McpCredentialRef[];
     sandboxProfileId?: string;
     riskClass?: McpServerDefinition['riskClass'];
-  }): Promise<{ definition: McpServerDefinition; version: McpServerVersion }> {
+  }): Promise<McpServerDefinition> {
     const name = normalizeMcpServerName(input.name);
     assertValidMcpServerName(name);
     validateTransportConfig(input.transportConfig, {
@@ -76,12 +73,17 @@ export class McpServerService {
       allowedToolPatterns: input.allowedToolPatterns ?? [],
       autoApproveToolPatterns: input.autoApproveToolPatterns ?? [],
     });
+    await assertRemoteMcpDestinationPublic(
+      input.transportConfig,
+      this.options.lookupHostname,
+      { cache: this.options.dnsValidationCache },
+    );
 
     const existing = await this.mcpServers.getServerByName({
       appId: input.appId,
       name,
     });
-    if (existing) {
+    if (existing && isMcpServerActive(existing)) {
       throw new ApplicationError(
         'CONFLICT',
         `MCP server already exists: ${name}`,
@@ -89,43 +91,38 @@ export class McpServerService {
     }
 
     const now = nowIso();
-    const serverId = `mcp:${globalThis.crypto.randomUUID()}` as McpServerId;
+    const serverId =
+      existing?.id ?? (`mcp:${globalThis.crypto.randomUUID()}` as McpServerId);
     const definition: McpServerDefinition = {
       id: serverId,
       appId: input.appId,
       name,
       displayName: input.displayName,
       description: input.description,
-      status: 'draft',
+      status: 'active',
       createdSource: input.createdSource ?? 'admin',
       riskClass: input.riskClass ?? 'medium',
       requestedBy: input.createdBy,
       requestedReason: input.requestedReason,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const version = buildVersion({
-      appId: input.appId,
-      serverId,
-      version: 1,
-      transportConfig: input.transportConfig,
+      transport: input.transportConfig.transport,
+      config: input.transportConfig,
       allowedToolPatterns: input.allowedToolPatterns ?? [],
       autoApproveToolPatterns: input.autoApproveToolPatterns ?? [],
-      credentialRefs: input.credentialRefs ?? [],
+      credentialRefs: normalizeCredentialRefs(input.credentialRefs ?? []),
       sandboxProfileId: input.sandboxProfileId,
-    });
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
     await this.mcpServers.saveServer(definition);
-    await this.mcpServers.saveVersion(version);
     await this.audit({
       appId: input.appId,
       serverId,
-      versionId: version.id,
-      eventType: 'request',
+      eventType: 'connect',
       actorId: input.createdBy,
       reason: input.requestedReason,
       metadata: { createdSource: definition.createdSource },
     });
-    return { definition, version };
+    return definition;
   }
 
   async listServers(input: {
@@ -137,111 +134,6 @@ export class McpServerService {
     return this.mcpServers.listServers(input);
   }
 
-  async approveDraft(input: {
-    appId: AppId;
-    serverId: McpServerId;
-    approvedBy?: string;
-  }): Promise<McpServerDefinition> {
-    const server = await this.requireServer(input.appId, input.serverId);
-    if (server.status !== 'draft') {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        `Only draft MCP servers can be approved: ${server.id}`,
-      );
-    }
-    const versions = await this.mcpServers.listVersions(server.id);
-    const version = versions[0];
-    if (!version) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        `MCP server draft has no version: ${server.id}`,
-      );
-    }
-    await assertRemoteMcpDestinationPublic(
-      version.config,
-      this.options.lookupHostname,
-      { cache: this.options.dnsValidationCache },
-    );
-    const now = nowIso();
-    const approved: McpServerDefinition = {
-      ...server,
-      status: 'approved',
-      latestApprovedVersionId: version.id,
-      approvedBy: input.approvedBy,
-      approvedAt: now,
-      updatedAt: now,
-    };
-    const reviewedVersion: McpServerVersion = {
-      ...version,
-      reviewedBy: input.approvedBy,
-      reviewedAt: now,
-    };
-    const transitioned = await this.mcpServers.transitionServerStatus({
-      appId: input.appId,
-      serverId: server.id,
-      expectedStatus: 'draft',
-      next: approved,
-    });
-    if (!transitioned) {
-      throw new ApplicationError(
-        'CONFLICT',
-        `MCP server draft changed before approval completed: ${server.id}`,
-      );
-    }
-    await this.mcpServers.saveVersion(reviewedVersion);
-    await this.audit({
-      appId: input.appId,
-      serverId: server.id,
-      versionId: version.id,
-      eventType: 'approve',
-      actorId: input.approvedBy,
-    });
-    return transitioned;
-  }
-
-  async rejectDraft(input: {
-    appId: AppId;
-    serverId: McpServerId;
-    rejectedBy?: string;
-    reason?: string;
-  }): Promise<McpServerDefinition> {
-    const server = await this.requireServer(input.appId, input.serverId);
-    if (server.status !== 'draft') {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        `Only draft MCP servers can be rejected: ${server.id}`,
-      );
-    }
-    const now = nowIso();
-    const rejected: McpServerDefinition = {
-      ...server,
-      status: 'rejected',
-      rejectedBy: input.rejectedBy,
-      rejectedAt: now,
-      updatedAt: now,
-    };
-    const transitioned = await this.mcpServers.transitionServerStatus({
-      appId: input.appId,
-      serverId: server.id,
-      expectedStatus: 'draft',
-      next: rejected,
-    });
-    if (!transitioned) {
-      throw new ApplicationError(
-        'CONFLICT',
-        `MCP server draft changed before rejection completed: ${server.id}`,
-      );
-    }
-    await this.audit({
-      appId: input.appId,
-      serverId: server.id,
-      eventType: 'reject',
-      actorId: input.rejectedBy,
-      reason: input.reason,
-    });
-    return transitioned;
-  }
-
   async disableServer(input: {
     appId: AppId;
     serverId: McpServerId;
@@ -249,10 +141,10 @@ export class McpServerService {
     reason?: string;
   }): Promise<McpServerDefinition> {
     const server = await this.requireServer(input.appId, input.serverId);
-    if (!isMcpServerApproved(server)) {
+    if (!isMcpServerActive(server)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `Only approved MCP servers can be disabled: ${server.id}`,
+        `Only active MCP servers can be disabled: ${server.id}`,
       );
     }
     const now = nowIso();
@@ -266,7 +158,7 @@ export class McpServerService {
     const transitioned = await this.mcpServers.transitionServerStatus({
       appId: input.appId,
       serverId: server.id,
-      expectedStatus: 'approved',
+      expectedStatus: 'active',
       next: disabled,
     });
     if (!transitioned) {
@@ -291,37 +183,33 @@ export class McpServerService {
     testedBy?: string;
   }): Promise<{ server: McpServerDefinition; ok: true; message: string }> {
     const server = await this.requireServer(input.appId, input.serverId);
-    const version = server.latestApprovedVersionId
-      ? await this.mcpServers.getVersion(server.latestApprovedVersionId)
-      : null;
-    if (!isMcpServerApproved(server) || !version) {
+    if (!isMcpServerActive(server)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `MCP server must be approved before testing: ${server.id}`,
+        `MCP server must be active before testing: ${server.id}`,
       );
     }
-    validateTransportConfig(version.config, {
-      sandboxProfileId: version.sandboxProfileId,
+    validateTransportConfig(server.config, {
+      sandboxProfileId: server.sandboxProfileId,
     });
     await assertRemoteMcpDestinationPublic(
-      version.config,
+      server.config,
       this.options.lookupHostname,
       { cache: this.options.dnsValidationCache },
     );
-    assertNoRawSecretsInMcpConfig(version.config);
-    validateCredentialRefs(version.credentialRefs);
+    assertNoRawSecretsInMcpConfig(server.config);
+    validateCredentialRefs(server.credentialRefs);
     await this.audit({
       appId: input.appId,
       serverId: server.id,
-      versionId: version.id,
       eventType: 'test',
       actorId: input.testedBy,
-      metadata: { transport: version.transport },
+      metadata: { transport: server.transport },
     });
     return {
       server,
       ok: true,
-      message: 'MCP server definition is approved and safe to materialize.',
+      message: 'MCP server definition is active and safe to materialize.',
     };
   }
 
@@ -329,34 +217,15 @@ export class McpServerService {
     appId: AppId;
     agentId: AgentId;
     serverId: McpServerId;
-    versionId?: McpServerVersionId;
     required?: boolean;
     permissionPolicyIds?: PermissionPolicyId[];
   }): Promise<AgentMcpServerBinding> {
     await this.assertAgentInApp(input.appId, input.agentId);
     const server = await this.requireServer(input.appId, input.serverId);
-    if (!isMcpServerApproved(server)) {
+    if (!isMcpServerActive(server)) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `MCP server must be approved before binding: ${server.id}`,
-      );
-    }
-    const versionId = input.versionId ?? server.latestApprovedVersionId;
-    if (!versionId) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        `MCP server has no approved version: ${server.id}`,
-      );
-    }
-    const version = await this.mcpServers.getVersion(versionId);
-    if (
-      !version ||
-      version.appId !== input.appId ||
-      version.serverId !== input.serverId
-    ) {
-      throw new ApplicationError(
-        'NOT_FOUND',
-        `MCP server version not found: ${versionId}`,
+        `MCP server must be active before binding: ${server.id}`,
       );
     }
     const existingBinding = (
@@ -367,7 +236,7 @@ export class McpServerService {
       })
     ).find((binding) => binding.serverId === input.serverId);
     const latestServer = await this.requireServer(input.appId, input.serverId);
-    if (!isMcpServerApproved(latestServer)) {
+    if (!isMcpServerActive(latestServer)) {
       throw new ApplicationError(
         'CONFLICT',
         `MCP server changed before binding completed: ${input.serverId}`,
@@ -379,9 +248,8 @@ export class McpServerService {
       appId: input.appId,
       agentId: input.agentId,
       serverId: input.serverId,
-      versionId,
       status: 'active',
-      required: input.required ?? false,
+      required: input.required ?? existingBinding?.required ?? false,
       permissionPolicyIds:
         input.permissionPolicyIds ?? existingBinding?.permissionPolicyIds ?? [],
       createdAt: existingBinding?.createdAt ?? now,
@@ -392,7 +260,6 @@ export class McpServerService {
       appId: input.appId,
       agentId: input.agentId,
       serverId: input.serverId,
-      versionId,
       bindingId: binding.id,
       eventType: 'bind',
       metadata: {
@@ -419,7 +286,6 @@ export class McpServerService {
         appId: input.appId,
         agentId: input.agentId,
         serverId: input.serverId,
-        versionId: binding.versionId,
         bindingId: binding.id,
         eventType: 'unbind',
       });
@@ -427,7 +293,7 @@ export class McpServerService {
     return binding;
   }
 
-  async rollbackApprovedBinding(input: {
+  async rollbackBinding(input: {
     appId: AppId;
     agentId: AgentId;
     serverId: McpServerId;
@@ -439,40 +305,49 @@ export class McpServerService {
       serverId: input.serverId,
       updatedAt: now,
     });
-    const server = await this.requireServer(input.appId, input.serverId);
-    if (!isMcpServerApproved(server)) return;
-    const versions = await this.mcpServers.listVersions(server.id);
-    const version = server.latestApprovedVersionId
-      ? versions.find((item) => item.id === server.latestApprovedVersionId)
-      : undefined;
-    const reverted: McpServerDefinition = {
-      ...server,
-      status: 'draft',
-      latestApprovedVersionId: undefined,
-      approvedBy: undefined,
-      approvedAt: undefined,
-      updatedAt: now,
-    };
-    await this.mcpServers.transitionServerStatus({
+    await this.audit({
       appId: input.appId,
-      serverId: server.id,
-      expectedStatus: 'approved',
-      next: reverted,
+      agentId: input.agentId,
+      serverId: input.serverId,
+      eventType: 'unbind',
+      reason: 'Rolled back binding after settings sync failure.',
     });
-    if (version) {
-      await this.mcpServers.saveVersion({
-        ...version,
-        reviewedBy: undefined,
-        reviewedAt: undefined,
+  }
+
+  async rollbackConnectedServer(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverId: McpServerId;
+  }): Promise<void> {
+    const now = nowIso();
+    await this.mcpServers.disableAgentBinding({
+      appId: input.appId,
+      agentId: input.agentId,
+      serverId: input.serverId,
+      updatedAt: now,
+    });
+    const server = await this.mcpServers.getServer(input.serverId);
+    if (server && server.appId === input.appId && isMcpServerActive(server)) {
+      const disabled: McpServerDefinition = {
+        ...server,
+        status: 'disabled',
+        disabledBy: 'rollback',
+        disabledAt: now,
+        updatedAt: now,
+      };
+      await this.mcpServers.transitionServerStatus({
+        appId: input.appId,
+        serverId: input.serverId,
+        expectedStatus: 'active',
+        next: disabled,
       });
     }
     await this.audit({
       appId: input.appId,
       agentId: input.agentId,
       serverId: input.serverId,
-      versionId: version?.id,
-      eventType: 'reject',
-      reason: 'Rolled back approval after settings sync failure.',
+      eventType: 'disable',
+      reason: 'Rolled back MCP server after connect flow failure.',
     });
   }
 
@@ -518,7 +393,6 @@ export class McpServerService {
         appId: input.appId,
         agentId: input.agentId,
         serverId: record.definition.id,
-        versionId: record.version.id,
         bindingId: record.binding.id,
         eventType: 'startup_failure',
         reason,
@@ -529,11 +403,11 @@ export class McpServerService {
       });
       if (
         result.reason instanceof ApplicationError &&
-        /(?:Missing Gantry Secret|Gantry Secret(?:s)? required)/i.test(
+        /(?:Missing Gantry Credential|Gantry (?:Credential|capability credential)(?:s)? required|required Gantry capability credential is missing)/i.test(
           result.reason.message,
         )
       ) {
-        throw result.reason;
+        continue;
       }
       if (record.binding.required) {
         throw new ApplicationError(
@@ -552,7 +426,6 @@ export class McpServerService {
           appId: input.appId,
           agentId: input.agentId,
           serverId: record?.definition.id,
-          versionId: record?.version.id,
           bindingId: record?.binding.id,
           eventType: 'materialize',
           metadata: { name: capability.name, required: capability.required },
@@ -567,7 +440,7 @@ export class McpServerService {
     credentialEnv: Record<string, string>,
   ): Promise<MaterializedMcpCapability> {
     await assertRemoteMcpDestinationPublic(
-      record.version.config,
+      record.definition.config,
       this.options.lookupHostname,
       { cache: this.options.dnsValidationCache },
     );
@@ -614,44 +487,6 @@ export class McpServerService {
       ...input,
     });
   }
-}
-
-function buildVersion(input: {
-  appId: AppId;
-  serverId: McpServerId;
-  version: number;
-  transportConfig: McpServerTransportConfig;
-  allowedToolPatterns: string[];
-  autoApproveToolPatterns: string[];
-  credentialRefs: McpCredentialRef[];
-  sandboxProfileId?: string;
-}): McpServerVersion {
-  const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
-  const configHash = hashMcpConfig({
-    config: input.transportConfig,
-    allowedToolPatterns: input.allowedToolPatterns,
-    autoApproveToolPatterns: input.autoApproveToolPatterns,
-    credentialRefs,
-    sandboxProfileId: input.sandboxProfileId,
-  });
-  return {
-    id: `mcp-version:${globalThis.crypto.randomUUID()}` as McpServerVersionId,
-    appId: input.appId,
-    serverId: input.serverId,
-    version: input.version,
-    transport: input.transportConfig.transport,
-    config: input.transportConfig,
-    allowedToolPatterns: input.allowedToolPatterns,
-    autoApproveToolPatterns: input.autoApproveToolPatterns,
-    credentialRefs,
-    sandboxProfileId: input.sandboxProfileId,
-    configHash,
-    createdAt: nowIso(),
-  };
-}
-
-export function hashMcpConfig(value: unknown): string {
-  return `sha256:${stableSha256Json(value)}`;
 }
 
 const MCP_TOOL_PATTERN = /^[A-Za-z0-9_.-]+(?:\*)?$/;

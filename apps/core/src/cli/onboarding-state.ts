@@ -28,7 +28,6 @@ export interface OnboardingData {
   runtimeHome: string;
   postgresSetupKind?: 'local' | 'hosted' | 'existing';
   postgresSchema?: string;
-  onecliPostgresSchema?: string;
   primaryProvider?: 'telegram' | 'slack';
   serviceChoice?: 'skip' | 'install' | 'install_start';
   telegramBotUsername?: string;
@@ -42,7 +41,6 @@ export interface OnboardingData {
   embeddingsEnabled?: boolean;
   dreamingEnabled?: boolean;
   credentialMode?: HostCredentialMode;
-  onecliUrl?: string;
   agentName?: string;
   modelPreset?: ModelPresetId;
   selectedModel?: string;

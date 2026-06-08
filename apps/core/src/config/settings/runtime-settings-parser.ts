@@ -15,16 +15,13 @@ import {
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
-  DEFAULT_ONECLI_URL,
-  DEFAULT_ONECLI_DATABASE_URL_ENV,
-  DEFAULT_ONECLI_POSTGRES_SCHEMA,
+  DEFAULT_MODEL_GATEWAY_BIND_HOST,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
 } from './runtime-settings-defaults.js';
 import { parseMcpServers } from './runtime-settings-mcp-parser.js';
 import type {
   RuntimeCredentialBrokerSettings,
-  RuntimeCredentialBrokerMode,
   RuntimeAgentSettings,
   RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
@@ -528,134 +525,69 @@ function parsePostgresSchema(
   return value;
 }
 
-function parseCredentialBrokerMode(
-  raw: unknown,
-  fallback: RuntimeCredentialBrokerMode,
-): RuntimeCredentialBrokerMode {
-  const value = parseStringValue(raw, 'credential_broker.mode', fallback);
-  if (value === 'none' || value === 'onecli' || value === 'external') {
-    return value;
-  }
-  throw new Error(
-    'credential_broker.mode must be one of none, onecli, external',
-  );
-}
-
-function parseCredentialBrokerSettings(
+function parseModelAccessSettings(
   raw: unknown,
 ): RuntimeCredentialBrokerSettings {
   const defaultSettings: RuntimeCredentialBrokerSettings = {
-    mode: 'onecli',
-    onecli: {
-      url: DEFAULT_ONECLI_URL,
-      postgres: {
-        urlEnv: DEFAULT_ONECLI_DATABASE_URL_ENV,
-        schema: DEFAULT_ONECLI_POSTGRES_SCHEMA,
-      },
-    },
-    external: {
-      baseUrl: '',
+    mode: 'gantry',
+    gateway: {
+      bindHost: DEFAULT_MODEL_GATEWAY_BIND_HOST,
     },
   };
   if (raw === undefined) return defaultSettings;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error('credential_broker must be a mapping');
+    throw new Error('model_access must be a mapping');
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'mode' && key !== 'onecli' && key !== 'external') {
+    if (key !== 'enabled' && key !== 'gateway') {
       throw new Error(
-        `credential_broker.${key} is not supported. Configure credential_broker.mode, onecli.*, or external.*.`,
+        `model_access.${key} is not supported. Configure model_access.enabled or gateway.*.`,
       );
     }
   }
-  const mode = parseCredentialBrokerMode(map.mode, defaultSettings.mode);
-  const onecliRaw = map.onecli;
+  const enabled =
+    map.enabled === undefined
+      ? defaultSettings.mode === 'gantry'
+      : parseBooleanValue(map.enabled, 'model_access.enabled');
+  const gatewayRaw = map.gateway;
   if (
-    onecliRaw !== undefined &&
-    (typeof onecliRaw !== 'object' ||
-      onecliRaw === null ||
-      Array.isArray(onecliRaw))
+    gatewayRaw !== undefined &&
+    (typeof gatewayRaw !== 'object' ||
+      gatewayRaw === null ||
+      Array.isArray(gatewayRaw))
   ) {
-    throw new Error('credential_broker.onecli must be a mapping');
+    throw new Error('model_access.gateway must be a mapping');
   }
-  const onecli = (onecliRaw || {}) as Record<string, unknown>;
-  for (const key of Object.keys(onecli)) {
-    if (key !== 'url' && key !== 'postgres') {
+  const gateway = (gatewayRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(gateway)) {
+    if (key !== 'bind_host') {
       throw new Error(
-        `credential_broker.onecli.${key} is not supported. Configure credential_broker.onecli.url or postgres.*.`,
-      );
-    }
-  }
-  const postgresRaw = onecli.postgres;
-  if (
-    postgresRaw !== undefined &&
-    (typeof postgresRaw !== 'object' ||
-      postgresRaw === null ||
-      Array.isArray(postgresRaw))
-  ) {
-    throw new Error('credential_broker.onecli.postgres must be a mapping');
-  }
-  const postgres = (postgresRaw || {}) as Record<string, unknown>;
-  for (const key of Object.keys(postgres)) {
-    if (key !== 'url_env' && key !== 'schema') {
-      throw new Error(
-        `credential_broker.onecli.postgres.${key} is not supported. Configure url_env or schema.`,
-      );
-    }
-  }
-  const externalRaw = map.external;
-  if (
-    externalRaw !== undefined &&
-    (typeof externalRaw !== 'object' ||
-      externalRaw === null ||
-      Array.isArray(externalRaw))
-  ) {
-    throw new Error('credential_broker.external must be a mapping');
-  }
-  const external = (externalRaw || {}) as Record<string, unknown>;
-  for (const key of Object.keys(external)) {
-    if (key !== 'base_url') {
-      throw new Error(
-        `credential_broker.external.${key} is not supported. Configure base_url.`,
+        `model_access.gateway.${key} is not supported. Configure bind_host.`,
       );
     }
   }
 
   return {
-    mode,
-    onecli: {
-      url:
-        onecli.url === undefined
-          ? DEFAULT_ONECLI_URL
-          : typeof onecli.url === 'string'
-            ? onecli.url.trim()
-            : parseStringValue(onecli.url, 'credential_broker.onecli.url'),
-      postgres: {
-        urlEnv: parseStringValue(
-          postgres.url_env,
-          'credential_broker.onecli.postgres.url_env',
-          DEFAULT_ONECLI_DATABASE_URL_ENV,
-        ),
-        schema: parsePostgresSchema(
-          postgres.schema,
-          'credential_broker.onecli.postgres.schema',
-          DEFAULT_ONECLI_POSTGRES_SCHEMA,
-        ),
-      },
-    },
-    external: {
-      baseUrl:
-        external.base_url === undefined
-          ? ''
-          : typeof external.base_url === 'string'
-            ? external.base_url.trim()
-            : parseStringValue(
-                external.base_url,
-                'credential_broker.external.base_url',
-              ),
+    mode: enabled ? 'gantry' : 'none',
+    gateway: {
+      bindHost: parseGatewayBindHost(gateway.bind_host),
     },
   };
+}
+
+function parseGatewayBindHost(raw: unknown): string {
+  const value = parseStringValue(
+    raw,
+    'model_access.gateway.bind_host',
+    DEFAULT_MODEL_GATEWAY_BIND_HOST,
+  ).toLowerCase();
+  if (value === '127.0.0.1' || value === 'localhost' || value === '::1') {
+    return value;
+  }
+  throw new Error(
+    'model_access.gateway.bind_host must be a loopback host: 127.0.0.1, ::1, or localhost',
+  );
 }
 
 function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
@@ -931,14 +863,14 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
       key !== 'agents' &&
       key !== 'storage' &&
       key !== 'agent' &&
-      key !== 'credential_broker' &&
+      key !== 'model_access' &&
       key !== 'memory' &&
       key !== 'runtime' &&
       key !== 'browser' &&
       key !== 'permissions'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, mcp_servers, conversations, bindings, agents, storage, agent, credential_broker, memory, runtime, browser, and permissions.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, mcp_servers, conversations, bindings, agents, storage, agent, model_access, memory, runtime, browser, and permissions.`,
       );
     }
   }
@@ -983,9 +915,7 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
   }
 
   const agent = parseAgentSettings(root.agent);
-  const credentialBroker = parseCredentialBrokerSettings(
-    root.credential_broker,
-  );
+  const credentialBroker = parseModelAccessSettings(root.model_access);
   const memory = parseMemorySettings(root.memory);
   const runtime = parseRuntimeProcessSettings(root.runtime);
   const browser = parseBrowserSettings(root.browser);

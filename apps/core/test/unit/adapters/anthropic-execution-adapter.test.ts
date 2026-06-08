@@ -30,7 +30,6 @@ vi.mock('fs', async () => {
 vi.mock(
   '@core/adapters/llm/anthropic-claude-agent/claude-config-materializer.js',
   () => ({
-    applyOpenRouterSdkEnv: vi.fn(),
     materializeClaudeRuntime: mockMaterializeClaudeRuntime,
     projectClaudeModelCredentialEnv: (env: Record<string, string>) => env,
   }),
@@ -69,6 +68,8 @@ function prepareInput(
 }
 
 const anthropicBaseUrlKey = () => 'ANTHROPIC' + '_BASE_URL';
+const claudeCodeOAuthTokenKey = () =>
+  ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
 function catalogEntry(alias: string): ModelCatalogEntry {
   const resolved = resolveModelSelection(alias);
   if (!resolved.ok) throw new Error(resolved.message);
@@ -141,10 +142,10 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
           },
         }),
       ),
-    ).rejects.toThrow('requires an OpenRouter-scoped credential');
+    ).rejects.toThrow('requires Gantry Model Gateway credentials');
   });
 
-  it('allows external broker projections for OpenRouter models', async () => {
+  it('allows Gantry gateway projections for OpenRouter models', async () => {
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
     await expect(
@@ -157,10 +158,12 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
           },
           modelCredentialProjection: {
             env: Object.fromEntries([
-              [anthropicBaseUrlKey(), 'https://broker.example.com'],
+              [anthropicBaseUrlKey(), 'http://127.0.0.1:4567/openrouter'],
+              ['ANTHROPIC_API_KEY', 'gtw_test'],
+              ['ANTHROPIC_AUTH_TOKEN', 'gtw_test'],
             ]),
             credentialProviders: {},
-            brokerProfile: 'external',
+            brokerProfile: 'gantry',
             brokerApplied: true,
           },
         }),
@@ -181,10 +184,10 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
           },
         }),
       ),
-    ).rejects.toThrow('requires Anthropic credentials from Model Access');
+    ).rejects.toThrow('requires Gantry Model Gateway credentials');
   });
 
-  it('allows external broker projections for Anthropic models', async () => {
+  it('allows Gantry gateway projections for Anthropic models', async () => {
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
     await expect(
@@ -197,10 +200,11 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
           },
           modelCredentialProjection: {
             env: Object.fromEntries([
-              [anthropicBaseUrlKey(), 'https://broker.example.com'],
+              [anthropicBaseUrlKey(), 'http://127.0.0.1:4567/anthropic'],
+              ['ANTHROPIC_API_KEY', 'gtw_test'],
             ]),
             credentialProviders: {},
-            brokerProfile: 'external',
+            brokerProfile: 'gantry',
             brokerApplied: true,
           },
         }),
@@ -208,7 +212,58 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     ).resolves.toBeDefined();
   });
 
-  it('rejects OpenRouter-scoped credentials for non-OpenRouter models', async () => {
+  it('allows Gantry Claude Code OAuth projections for Anthropic models', async () => {
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          effectiveModelEntry: {
+            ...catalogEntry('sonnet'),
+            displayName: 'Sonnet',
+            runnerModel: 'claude-sonnet-4-5',
+          },
+          modelCredentialProjection: {
+            env: {
+              [claudeCodeOAuthTokenKey()]: 'sk-ant-oat-test',
+            },
+            credentialProviders: {
+              [claudeCodeOAuthTokenKey()]: 'native',
+            },
+            brokerProfile: 'gantry',
+            brokerApplied: true,
+          },
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('allows IPv6 loopback Gantry gateway projections', async () => {
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          effectiveModelEntry: {
+            ...catalogEntry('sonnet'),
+            displayName: 'Sonnet',
+            runnerModel: 'claude-sonnet-4-5',
+          },
+          modelCredentialProjection: {
+            env: Object.fromEntries([
+              [anthropicBaseUrlKey(), 'http://[::1]:4567/anthropic'],
+              [['ANTHROPIC', 'API_KEY'].join('_'), 'gtw_test'],
+            ]),
+            credentialProviders: {},
+            brokerProfile: 'gantry',
+            brokerApplied: true,
+          },
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('rejects non-loopback gateway credentials for provider models', async () => {
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
     await expect(
@@ -222,12 +277,12 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
           modelCredentialProjection: {
             env: { ANTHROPIC_BASE_URL: 'https://api.openrouter.ai./v1' },
             credentialProviders: {},
-            brokerProfile: 'onecli',
+            brokerProfile: 'gantry',
             brokerApplied: true,
           },
         }),
       ),
-    ).rejects.toThrow('returned OpenRouter-scoped Anthropic SDK credentials');
+    ).rejects.toThrow('must use a loopback ANTHROPIC_BASE_URL');
   });
 
   it('rejects runner paths outside the package root', async () => {

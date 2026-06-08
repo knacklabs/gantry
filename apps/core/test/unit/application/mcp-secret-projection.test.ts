@@ -38,8 +38,14 @@ function httpRecord(opts: {
   credentialRefs?: { name: string; target: 'env' | 'header'; key: string }[];
 }): MaterializedMcpServer {
   return {
-    definition: { id: `srv-${opts.name}`, name: opts.name },
-    version: {
+    definition: {
+      id: `srv-${opts.name}` as never,
+      appId: 'app' as never,
+      name: opts.name,
+      status: 'active',
+      createdSource: 'admin',
+      riskClass: 'medium',
+      transport: 'http',
       config: {
         transport: 'http',
         url: 'http://127.0.0.1:8082/mcp',
@@ -54,8 +60,13 @@ function httpRecord(opts: {
             }
           : {}),
       },
+      allowedToolPatterns: ['*'],
+      autoApproveToolPatterns: [],
       credentialRefs: opts.credentialRefs ?? [],
-    },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    } as never,
+    binding: { required: false } as never,
   } as never;
 }
 
@@ -120,13 +131,24 @@ describe('resolveMcpCredentialEnvForAgent', () => {
       agentId: 'agent' as never,
       mcpServers: fakeMcpServers([
         {
-          definition: { id: 'srv-github', name: 'github' },
-          version: {
+          definition: {
+            id: 'srv-github' as never,
+            appId: 'app' as never,
+            name: 'github',
+            status: 'active',
+            createdSource: 'admin',
+            riskClass: 'medium',
+            transport: 'stdio_template',
             config: { transport: 'stdio_template', templateId: 'github' },
+            allowedToolPatterns: ['*'],
+            autoApproveToolPatterns: [],
             credentialRefs: [
               { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
             ],
-          },
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+          } as never,
+          binding: { required: false } as never,
         } as never,
       ]),
       secrets: repo,

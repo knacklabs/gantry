@@ -41,10 +41,10 @@ export type JobModelSource = z.infer<typeof JobModelSourceSchema>;
 export const JobModelPreviewSchema = z
   .object({
     displayName: z.string(),
-    responseFamily: z.enum(['anthropic', 'openai']),
+    responseFamily: z.string(),
     modelRoute: z
       .object({
-        id: z.enum(['anthropic', 'openrouter']),
+        id: z.string(),
         label: z.string(),
       })
       .strict(),
@@ -151,7 +151,6 @@ export const JobHealthSchema = z
       'credential_unknown',
       'browser_login_may_be_required',
       'mcp_missing_credential',
-      'draft_only',
       'running',
       'completed',
       'failed',
@@ -208,7 +207,6 @@ export const JobSetupSchema = z
       'credential_unknown',
       'browser_login_may_be_required',
       'mcp_missing_credential',
-      'draft_only',
     ]),
     checkedAt: IsoDateTimeSchema.nullable(),
     fingerprint: z.string().nullable(),
@@ -345,6 +343,10 @@ export const JobResponseSchema = z
       .nullable(),
     executionContext: JobExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema),
+    ownerLabel: z.string().optional(),
+    deliveryLabel: z.string().optional(),
+    setupLabel: z.string().optional(),
+    nextActionLabel: z.string().nullable().optional(),
     capabilityRequirements: z.array(JobCapabilityRequirementSchema),
     toolAccessRequirements: z.array(z.string()),
     requiredMcpServers: z.array(z.string()),
@@ -380,16 +382,48 @@ export const CreateJobResponseSchema = z.object({
 });
 export type CreateJobResponse = z.infer<typeof CreateJobResponseSchema>;
 
+const ModelCacheSupportSchema = z.object({
+  providerId: z.string(),
+  providerLabel: z.string(),
+  cacheProvider: z.string(),
+  statusLabel: z.string(),
+  prompt: z.object({
+    mode: z.string(),
+    automatic: z.boolean(),
+    requestControl: z.string(),
+    ttlOptions: z.array(z.string()),
+    minimumTokenThresholds: z.array(
+      z.object({
+        modelFamily: z.string(),
+        tokens: z.number().int().nonnegative(),
+      }),
+    ),
+    usageFields: z.record(z.string(), z.unknown()),
+    supported: z.boolean(),
+    accounted: z.boolean(),
+  }),
+  response: z.object({
+    mode: z.string(),
+    enabledByDefault: z.boolean(),
+    requestControl: z.string(),
+    requestHeaders: z.array(z.string()),
+    responseHeaders: z.array(z.string()),
+    usageBehavior: z.string(),
+    available: z.boolean(),
+  }),
+  tokenFields: z.array(z.string()),
+});
+
 export const ModelRecordSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   aliases: z.array(z.string()),
   recommendedAlias: z.string(),
-  responseFamily: z.enum(['anthropic', 'openai']),
+  responseFamily: z.string(),
   executionProviderId: z.string(),
   credentialProfileRef: z.string(),
   modelRoute: z.object({
-    id: z.enum(['anthropic', 'openrouter']),
+    id: z.string(),
     label: z.string(),
     metadata: z
       .object({
@@ -425,6 +459,7 @@ export const ModelRecordSchema = z.object({
   maxOutputTokens: z.number().int().nonnegative(),
   cacheMode: z.string(),
   cacheTokenFields: z.array(z.string()),
+  cacheSupport: ModelCacheSupportSchema,
   supportsThinking: z.boolean(),
   supportsTools: z.boolean(),
   source: z.object({
@@ -441,7 +476,7 @@ export const ListModelsResponseSchema = z.object({
 });
 export type ListModelsResponse = z.infer<typeof ListModelsResponseSchema>;
 
-export const ModelPresetSchema = z.enum(['anthropic', 'openrouter']);
+export const ModelPresetSchema = z.string().min(1);
 export type ModelPreset = z.infer<typeof ModelPresetSchema>;
 
 export const ModelWorkloadSchema = z.enum([

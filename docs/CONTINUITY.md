@@ -9,7 +9,7 @@ Continuity is not the same as memory.
 
 ## Why This Exists
 
-A useful personal assistant should not start from zero after `/new`, compaction, restart, or a scheduled job. It should know enough to continue work safely:
+A useful agent runtime should not make an agent start from zero after `/new`, compaction, restart, or a scheduled job. It should provide enough context to continue work safely:
 
 - what the current task is
 - which decisions are already settled
@@ -147,13 +147,11 @@ Without embeddings, Gantry uses:
 - memory kind priority
 - pinned/importance signals
 
-Embeddings are configuration and cache plumbing in this slice; enabling them
-does not activate vector memory retrieval. Future vector search can improve
-recall and deduplication only after the memory item embedding index and query
-path are complete. It must never be required to save memory, search memory,
-inject context, or continue work.
-Embedding computation is limited to dreaming promotion/update workflows, not
-normal turn-time recall.
+Embeddings are optional. When embeddings are enabled and item vectors have been
+written by dreaming promotion/update workflows or resumable embedding backfill,
+turn-time recall fuses lexical and vector candidates. It must never be required
+to save memory, search memory, inject context, or continue work; query embedding
+timeouts and provider pauses fall back to lexical recall.
 
 ## User Controls
 

@@ -40,19 +40,17 @@ async function loadStorageStepWithPrompts(responses: unknown[]) {
   }));
   const { runStorageStep } = await import('@core/cli/setup-flow-core-steps.js');
   const { restoreDraft } = await import('@core/cli/setup-flow-state.js');
-  return { runStorageStep, restoreDraft, select, text, note };
+  return { runStorageStep, restoreDraft, text };
 }
 
 describe('setup storage step', () => {
-  it('collects local database URLs without provisioning Docker', async () => {
+  it('collects one Gantry database URL without provisioning Docker', async () => {
     const runtimeHome = makeRuntimeHome();
     const { runStorageStep, restoreDraft, text } =
       await loadStorageStepWithPrompts([
         'local',
         'postgres://gantry_app:pass@localhost:5432/gantry',
         'gantry',
-        'onecli',
-        'postgres://onecli_app:pass@localhost:5432/gantry?schema=onecli',
       ]);
     const draft = restoreDraft(runtimeHome, null);
 
@@ -63,12 +61,9 @@ describe('setup storage step', () => {
     expect(draft.postgresDatabaseUrl).toBe(
       'postgres://gantry_app:pass@localhost:5432/gantry',
     );
-    expect(draft.onecliPostgresDatabaseUrl).toContain('onecli_app');
-    expect(text).toHaveBeenCalledTimes(4);
+    expect(draft.postgresSchema).toBe('gantry');
+    expect(text).toHaveBeenCalledTimes(2);
     expect(fs.existsSync(path.join(runtimeHome, '.env'))).toBe(false);
-    expect(
-      fs.existsSync(path.join(runtimeHome, 'data', 'local-postgres.json')),
-    ).toBe(false);
   });
 
   it('requires SSL for hosted Postgres URLs', async () => {
@@ -88,8 +83,6 @@ describe('setup storage step', () => {
       'existing',
       'postgres://user:pass@localhost:5432/gantry',
       'custom_schema',
-      'agent_vault',
-      'postgres://onecli:pass@localhost:5432/gantry?schema=agent_vault',
     ]);
     const draft = restoreDraft(runtimeHome, null);
 
@@ -100,42 +93,6 @@ describe('setup storage step', () => {
     expect(draft.postgresDatabaseUrl).toBe(
       'postgres://user:pass@localhost:5432/gantry',
     );
-    expect(draft.onecliPostgresDatabaseUrl).toBe(
-      'postgres://onecli:pass@localhost:5432/gantry?schema=agent_vault',
-    );
     expect(draft.postgresSchema).toBe('custom_schema');
-    expect(draft.onecliPostgresSchema).toBe('agent_vault');
-  });
-
-  it('rejects hosted and existing OneCLI URLs that reuse the Gantry role', async () => {
-    const runtimeHome = makeRuntimeHome();
-    const { runStorageStep, restoreDraft } = await loadStorageStepWithPrompts([
-      'existing',
-      'postgres://user:pass@localhost:5432/gantry',
-      'gantry',
-      'onecli',
-      'postgres://user:pass@localhost:5432/gantry?schema=onecli',
-    ]);
-    const draft = restoreDraft(runtimeHome, null);
-
-    await expect(runStorageStep(draft)).rejects.toThrow(
-      /different Postgres roles/,
-    );
-  });
-
-  it('rejects hosted and existing OneCLI URLs that point at a different database', async () => {
-    const runtimeHome = makeRuntimeHome();
-    const { runStorageStep, restoreDraft } = await loadStorageStepWithPrompts([
-      'existing',
-      'postgres://gantry:pass@localhost:5432/gantry',
-      'gantry',
-      'onecli',
-      'postgres://onecli:pass@localhost:5432/other?schema=onecli',
-    ]);
-    const draft = restoreDraft(runtimeHome, null);
-
-    await expect(runStorageStep(draft)).rejects.toThrow(
-      /same Postgres database/,
-    );
   });
 });

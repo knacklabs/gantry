@@ -1632,126 +1632,32 @@ describe('ipc-browser-handler', () => {
     });
   });
 
-  it('includes tool-capability broker health on browser launch', async () => {
-    const healthCheck = vi.fn(async () => ({
-      status: 'fail' as const,
-      message:
-        'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED',
-      nextAction:
-        "Run `gantry local doctor`. If you use Gantry's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
-    }));
+  it('keeps browser status independent from model gateway credentials', async () => {
+    const getCredentialBroker = vi.fn(async () => {
+      throw new Error('model gateway unavailable');
+    });
 
     const response = await processBrowserIpcRequest(
       {
-        requestId: 'req-2b',
-        action: 'open',
-        payload: {},
-      },
-      {
-        sourceAgentFolder: 'main_agent',
-        browserIpcAuthorized: true,
-        getCredentialBrokerProfile: () => 'onecli',
-        getCredentialBroker: async () => ({
-          getInjection: vi.fn(),
-          healthCheck,
-          getCapabilities: () => ({
-            profile: 'onecli',
-            supportsAgentBinding: true,
-            returnsRawSecrets: false,
-          }),
-        }),
-      },
-    );
-
-    expect(response.ok).toBe(true);
-    expect(response.data).toMatchObject({
-      cdpReady: false,
-      brokerHealthy: false,
-      brokerHealth: {
-        status: 'fail',
-        message:
-          'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED',
-      },
-      warning: expect.stringContaining('CDP is not driveable'),
-    });
-    expect(healthCheck).toHaveBeenCalledWith({
-      binding: {
-        profile: 'onecli',
-        purpose: 'tool_capability',
-        agentIdentifier: 'agent:main_agent',
-      },
-    });
-  });
-
-  it('keeps browser status available when broker health check throws', async () => {
-    const response = await processBrowserIpcRequest(
-      {
-        requestId: 'req-2c',
+        requestId: 'req-browser-status-model-gateway-independent',
         action: 'status',
         payload: {},
       },
       {
         sourceAgentFolder: 'main_agent',
-        getCredentialBrokerProfile: () => 'onecli',
-        getCredentialBroker: async () => ({
-          getInjection: vi.fn(),
-          healthCheck: vi.fn(async () => {
-            throw new Error('broker temporarily unavailable');
-          }),
-          getCapabilities: () => ({
-            profile: 'onecli',
-            supportsAgentBinding: true,
-            returnsRawSecrets: false,
-          }),
-        }),
-      },
+        getCredentialBrokerProfile: () => 'gantry',
+        getCredentialBroker,
+      } as any,
     );
 
     expect(response.ok).toBe(true);
     expect(response.data).toMatchObject({
       running: true,
-      cdpReady: false,
-      brokerHealthy: false,
-      brokerHealth: {
-        status: 'fail',
-        message: 'Credential broker health check failed.',
-      },
-      warning: expect.stringContaining('CDP is not driveable'),
+      cdpReady: true,
     });
-  });
-
-  it('caches healthy broker status for repeated browser status calls', async () => {
-    const healthCheck = vi.fn(async () => ({
-      status: 'pass' as const,
-      message: 'ok',
-    }));
-    const context = {
-      sourceAgentFolder: 'cache_agent',
-      getCredentialBrokerProfile: () => 'onecli',
-      getCredentialBroker: async () => ({
-        getInjection: vi.fn(),
-        healthCheck,
-        getCapabilities: () => ({
-          profile: 'onecli',
-          supportsAgentBinding: true,
-          returnsRawSecrets: false,
-        }),
-      }),
-    };
-
-    for (const requestId of ['req-cache-1', 'req-cache-2']) {
-      const response = await processBrowserIpcRequest(
-        {
-          requestId,
-          action: 'status',
-          payload: {},
-        },
-        context,
-      );
-      expect(response.ok).toBe(true);
-      expect(response.data).toMatchObject({ brokerHealthy: true });
-    }
-    expect(healthCheck).toHaveBeenCalledTimes(1);
+    expect(response.data).not.toHaveProperty('brokerHealthy');
+    expect(response.data).not.toHaveProperty('brokerHealth');
+    expect(getCredentialBroker).not.toHaveBeenCalled();
   });
 
   it('ignores main-agent profile overrides and uses host-derived profile', async () => {

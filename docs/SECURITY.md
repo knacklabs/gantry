@@ -107,38 +107,25 @@ command authority.
 | Scheduler control scope             | Job capability and originating conversation policy          |
 | Session commands (`/new`, `/model`) | Sender policy and conversation control approvers            |
 
-### 6. Credential Isolation (OneCLI Agent Vault)
+### 6. Credential Isolation (Gantry Model Gateway)
 
-Credentials should be provided through OneCLI and runtime environment controls.
+Credentials should be provided through Gantry credential stores and runtime
+environment controls.
 
 **How it works:**
 
-1. Credentials are registered once with `onecli secrets create`
-2. Gantry routes outbound calls through configured credential paths
-3. The gateway matches requests by host/path and injects credentials
+1. Model credentials are registered once with `gantry credentials model set <provider>`
+2. Gantry stores provider keys in encrypted Postgres rows
+3. The gateway projects only loopback URLs and run-local `gtw_*` tokens to model SDK runs
 4. Agents do not need raw credentials embedded in project docs or source
 
-Gantry and OneCLI may share one Postgres database, but they must not share
-tables or database roles. Gantry owns the `gantry` schema, OneCLI owns the
-`onecli` schema, and pg-boss owns the `pgboss` schema.
-`ONECLI_DATABASE_URL` must use a different Postgres user than
-`GANTRY_DATABASE_URL` and must include `schema=onecli`.
 `SECRET_ENCRYPTION_KEY` must be a stable generated base64-encoded 32-byte
-deployment secret so broker state and Gantry Secrets survive stateless
+deployment secret so Gantry credentials survive stateless
 restarts. General agent tool, script, browser, and MCP environments do not
-receive `GANTRY_DATABASE_URL`, `ONECLI_DATABASE_URL`, raw provider keys,
-broker-provided proxy variables, or provider credentials. Selected MCP servers
-and skills receive only their named Gantry Secrets. Model broker projection is
-limited to the model SDK credential lane. When that lane includes
-`NODE_EXTRA_CA_CERTS`, the SDK process and approved Bash commands receive only
-the CA bundle path as neutral TLS trust aliases (`SSL_CERT_FILE`,
-`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
-`GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and
-`DENO_CERT`).
-`NO_PROXY`/`no_proxy` values are compatibility hints for
-cooperative tools, not protection against malicious or vulnerable tools; that
-protection belongs to capability selection, permission policy, sandbox policy,
-and audit.
+receive `GANTRY_DATABASE_URL` or raw provider keys. Selected MCP servers and
+selected reviewed skill actions receive only their named Gantry capability
+credentials. Model gateway projection is limited to the model SDK credential
+lane.
 
 ## Security Architecture (Host Runtime)
 
@@ -161,6 +148,6 @@ and audit.
 │                  HOST AGENT RUNTIME PROCESS                      │
 │  • per-group working dirs and session state                      │
 │  • tools and file operations scoped by runtime policy            │
-│  • outbound credentials via OneCLI/environment policy            │
+│  • outbound credentials via Gantry credential policy             │
 └──────────────────────────────────────────────────────────────────┘
 ```

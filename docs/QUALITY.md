@@ -32,7 +32,7 @@ Default test gate:
 
 Explicit e2e gate:
 
-- `npm run test:e2e` must run hermetic runtime flows without external credentials (Telegram, Slack, Claude, OpenAI, OneCLI, browser, or network auth).
+- `npm run test:e2e` must run hermetic runtime flows without external credentials (Telegram, Slack, Claude, OpenAI, browser, or network auth).
 - e2e and integration tests must not use real runtime home paths (`~/gantry`), repo `store/`, repo `data/`, or real user credential files.
 - Feature integration tests should exercise concrete recent capabilities through their real adapter/application/domain boundaries. Use shared harnesses in `apps/core/test/harness/**`; Postgres-specific tests must create a unique schema and skip cleanly when `GANTRY_TEST_DATABASE_URL` is unset.
 - DB-backed changes require explicit evidence from `npm run test:integration:postgres` with `GANTRY_TEST_DATABASE_URL` set. The default `npm test` gate remains credential-free, but it is not sufficient evidence for Postgres repository, FileArtifact, durable message, job, run, or memory changes.

@@ -10,14 +10,14 @@ describe('parseAutonomousToolDenial', () => {
       'request_permission {"toolName":"Browser"}',
     ],
     [
-      'Tool not on autonomous run allowlist: capability:google.sheets.write. Recovery: propose_capability {"capabilityId":"google.sheets.write","reason":"This autonomous run requires capability:google.sheets.write access."}',
-      'capability:google.sheets.write',
-      'propose_capability {"capabilityId":"google.sheets.write","reason":"This autonomous run requires capability:google.sheets.write access."}',
+      'Tool not on autonomous run allowlist: capability:acme.records.append. Recovery: propose_capability {"capabilityId":"acme.records.append","reason":"This autonomous run requires capability:acme.records.append access."}',
+      'capability:acme.records.append',
+      'propose_capability {"capabilityId":"acme.records.append","reason":"This autonomous run requires capability:acme.records.append access."}',
     ],
     [
-      'Missing tool access requirement before run. Tool not on autonomous run allowlist: RunCommand(gog sheets append *). Recovery: request_permission {"toolName":"RunCommand","rule":"gog sheets append *"}',
-      'RunCommand(gog sheets append *)',
-      'request_permission {"toolName":"RunCommand","rule":"gog sheets append *"}',
+      'Missing tool access requirement before run. Tool not on autonomous run allowlist: RunCommand(acme records append *). Recovery: request_permission {"toolName":"RunCommand","rule":"acme records append *"}',
+      'RunCommand(acme records append *)',
+      'request_permission {"toolName":"RunCommand","rule":"acme records append *"}',
     ],
     [
       'Permission denied for Bash. Tool not on autonomous run allowlist: RunCommand. Bash leaf ls scripts did not match any scoped autonomous rule.',

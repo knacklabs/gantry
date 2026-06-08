@@ -58,17 +58,20 @@ describe('config CLI commands', () => {
 
     runConfigCommand(runtimeHome, [
       'set',
-      'ONECLI_DATABASE_URL',
-      'postgresql://onecli:secret@localhost:5432/gantry?schema=onecli',
+      'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+      'postgresql://model_gateway:secret@localhost:5432/gantry?schema=model_gateway',
     ]);
 
     const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    expect(runConfigCommand(runtimeHome, ['get', 'ONECLI_DATABASE_URL'])).toBe(
-      0,
-    );
+    expect(
+      runConfigCommand(runtimeHome, [
+        'get',
+        'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+      ]),
+    ).toBe(0);
     const output = spy.mock.calls.at(-1)?.[0] as string;
 
-    expect(output).toContain('pos***cli');
+    expect(output).toContain('pos***way');
     expect(output).not.toContain('secret');
   });
 

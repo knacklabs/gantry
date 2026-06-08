@@ -6,23 +6,16 @@ import type { MaterializedMcpServer } from '@core/domain/mcp/mcp-servers.js';
 
 function buildHttpRecord(
   url: string,
-  overrides: Partial<MaterializedMcpServer['version']> = {},
+  overrides: Partial<MaterializedMcpServer['definition']> = {},
 ): MaterializedMcpServer {
   return {
     definition: {
       id: 'srv-1' as never,
       appId: 'app-1' as never,
       name: 'inventory-api',
-      status: 'approved',
-      createdBy: 'admin',
+      status: 'active',
       createdSource: 'admin',
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-    } as never,
-    version: {
-      id: 'ver-1' as never,
-      serverId: 'srv-1' as never,
-      versionNumber: 1,
+      riskClass: 'medium',
       transport: 'http',
       config: {
         transport: 'http',
@@ -30,9 +23,9 @@ function buildHttpRecord(
       },
       allowedToolPatterns: ['get_*'],
       autoApproveToolPatterns: ['get_*'],
-      riskClass: 'medium',
       credentialRefs: [],
       createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
       ...overrides,
     } as never,
     binding: {
@@ -40,10 +33,11 @@ function buildHttpRecord(
       appId: 'app-1' as never,
       agentId: 'agent-1' as never,
       serverId: 'srv-1' as never,
-      versionId: 'ver-1' as never,
       status: 'active',
       required: false,
+      permissionPolicyIds: [],
       createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
     } as never,
   };
 }
@@ -70,7 +64,7 @@ describe('materializeMcpRecord (loopback http/sse projection)', () => {
     const record = buildHttpRecord('http://127.0.0.1:8081/sse', {
       transport: 'sse',
       config: { transport: 'sse', url: 'http://127.0.0.1:8081/sse' },
-    } as never);
+    });
     const cap = materializeMcpRecord(record, {});
     expect(cap.config.type).toBe('sse');
   });
@@ -80,7 +74,7 @@ describe('materializeMcpRecord (loopback http/sse projection)', () => {
       credentialRefs: [
         { name: 'MCP_AUTH', target: 'header', key: 'Authorization' },
       ],
-    } as never);
+    });
     const cap = materializeMcpRecord(record, { MCP_AUTH: 'Bearer xyz' });
     expect(cap.config.type).toBe('http');
     expect(
@@ -97,7 +91,7 @@ describe('materializeMcpRecord (loopback http/sse projection)', () => {
           key: 'BOONDI_CRM_DATABASE_URL',
         },
       ],
-    } as never);
+    });
     // The value is NOT in the resolved store env — an http connector reads its
     // own DB url from its own .env, so core must not require it here.
     const cap = materializeMcpRecord(record, {});
@@ -112,7 +106,7 @@ describe('materializeMcpRecord (loopback http/sse projection)', () => {
       credentialRefs: [
         { name: 'MCP_AUTH', target: 'header', key: 'Authorization' },
       ],
-    } as never);
+    });
     expect(() => materializeMcpRecord(record, {})).toThrow(ApplicationError);
   });
 
@@ -128,7 +122,7 @@ describe('materializeMcpRecord (loopback http/sse projection)', () => {
           source: { kind: 'conversation_jid_phone', jidPrefix: 'wa:' },
         },
       },
-    } as never);
+    });
     const cap = materializeMcpRecord(record, {});
     expect(cap.callerIdentity).toEqual({
       mode: 'required',

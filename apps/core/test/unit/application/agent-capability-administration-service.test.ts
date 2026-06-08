@@ -23,10 +23,9 @@ describe('AgentCapabilityAdministrationService', () => {
           {
             name: 'stale-display-name',
             id: 'skill:one',
-            version: 'approved',
           },
         ],
-        mcpServers: [{ id: 'mcp:one', version: 'mcp-version:one' }],
+        mcpServers: [{ id: 'mcp:one' }],
         tools: [{ id: 'browser', kind: 'builtin' }],
       },
     });
@@ -36,8 +35,8 @@ describe('AgentCapabilityAdministrationService', () => {
     });
     expect(sources).toMatchObject({
       sources: {
-        skills: [{ name: 'One', id: 'skill:one', version: 'approved' }],
-        mcpServers: [{ id: 'mcp:one', version: 'mcp-version:one' }],
+        skills: [{ name: 'One', id: 'skill:one' }],
+        mcpServers: [{ id: 'mcp:one' }],
         tools: [{ id: 'browser', kind: 'builtin' }],
       },
     });
@@ -67,7 +66,6 @@ describe('AgentCapabilityAdministrationService', () => {
         expect.objectContaining({ serverId: 'mcp:old', status: 'disabled' }),
         expect.objectContaining({
           serverId: 'mcp:one',
-          versionId: 'mcp-version:one',
           status: 'active',
         }),
       ]),
@@ -90,6 +88,35 @@ describe('AgentCapabilityAdministrationService', () => {
     ).rejects.toThrow('Unknown semantic capability internal.tool');
   });
 
+  it('round-trips exact tools from the capability read response during replacement', async () => {
+    const state = createState();
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    const response = await service.replaceCapabilities({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      capabilities: [
+        { id: 'mcp__gantry__settings_desired_state', version: 'builtin' },
+        { id: 'FileWrite', version: 'builtin' },
+        { id: 'browser.use', version: 'builtin' },
+      ],
+    });
+
+    expect(response.capabilities).toEqual([
+      { id: 'mcp__gantry__settings_desired_state', version: 'builtin' },
+      { id: 'FileWrite', version: 'builtin' },
+      { id: 'browser.use', version: 'builtin' },
+    ]);
+    expect(response.toolAccess.configuredTools).toEqual([
+      'mcp__gantry__settings_desired_state',
+      'FileWrite',
+      'Browser',
+    ]);
+  });
+
   it('rejects selected skills that collide by materialized runtime directory', async () => {
     const state = createState();
     state.skills.set('skill:two', {
@@ -107,10 +134,7 @@ describe('AgentCapabilityAdministrationService', () => {
         appId: 'app:one' as never,
         agentId: 'agent:one' as never,
         sources: {
-          skills: [
-            { id: 'skill:one', version: 'approved' },
-            { id: 'skill:two', version: 'approved' },
-          ],
+          skills: [{ id: 'skill:one' }, { id: 'skill:two' }],
           mcpServers: [],
           tools: [],
         },
@@ -120,7 +144,7 @@ describe('AgentCapabilityAdministrationService', () => {
     );
   });
 
-  it('stores tool sources without granting tool authority', async () => {
+  it('stores tool sources without creating tool authority', async () => {
     const state = createState();
     const service = new AgentCapabilityAdministrationService(
       state.repositories,
@@ -135,14 +159,14 @@ describe('AgentCapabilityAdministrationService', () => {
         mcpServers: [],
         tools: [
           { id: 'browser', kind: 'builtin' },
-          { id: 'gog', kind: 'local_cli', version: 'v0.9.0' },
+          { id: 'acme', kind: 'local_cli', version: 'v0.9.0' },
         ],
       },
     });
 
     expect(response.sources.tools).toEqual([
       { id: 'browser', kind: 'builtin' },
-      { id: 'gog', kind: 'local_cli', version: 'v0.9.0' },
+      { id: 'acme', kind: 'local_cli', version: 'v0.9.0' },
     ]);
 
     expect(state.toolBindings).toEqual([
@@ -155,7 +179,7 @@ describe('AgentCapabilityAdministrationService', () => {
         status: 'active',
       }),
       expect.objectContaining({
-        sourceId: 'gog',
+        sourceId: 'acme',
         kind: 'local_cli',
         version: 'v0.9.0',
         status: 'active',
@@ -186,7 +210,7 @@ describe('AgentCapabilityAdministrationService', () => {
       name: 'linkedin-posting',
       version: '1',
       source: 'admin_uploaded',
-      status: 'approved',
+      status: 'installed',
       promptRefs: [],
       toolIds: [],
       workflowRefs: [],
@@ -196,7 +220,7 @@ describe('AgentCapabilityAdministrationService', () => {
           capabilityId: 'skill.linkedin-posting.publish',
           displayName: 'LinkedIn posting',
           risk: 'write',
-          can: 'Publish a prepared LinkedIn post through the approved script.',
+          can: 'Publish a prepared LinkedIn post through the installed script.',
           cannot:
             'Use unrelated skills, credentials, settings, or broader commands.',
           requiredEnvVars: [],
@@ -319,6 +343,42 @@ function createState() {
       },
     ],
     [
+      'tool:mcp__gantry__settings_desired_state',
+      {
+        id: 'tool:mcp__gantry__settings_desired_state',
+        appId: 'app:one',
+        name: 'mcp__gantry__settings_desired_state',
+        kind: 'host',
+        provider: 'gantry',
+        displayName: 'Settings desired state',
+        category: 'admin',
+        risk: 'high',
+        selectable: true,
+        status: 'active',
+        adapterRef: 'builtin:mcp__gantry__settings_desired_state',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    [
+      'tool:FileWrite',
+      {
+        id: 'tool:FileWrite',
+        appId: 'app:one',
+        name: 'FileWrite',
+        kind: 'host',
+        provider: 'gantry',
+        displayName: 'File write',
+        category: 'filesystem',
+        risk: 'high',
+        selectable: true,
+        status: 'active',
+        adapterRef: 'builtin:FileWrite',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    [
       'tool:BashWildcard',
       {
         id: 'tool:BashWildcard',
@@ -346,7 +406,7 @@ function createState() {
         name: 'One',
         version: 'builtin',
         source: 'bundled',
-        status: 'approved',
+        status: 'installed',
         promptRefs: [],
         toolIds: [],
         workflowRefs: [],
@@ -362,32 +422,16 @@ function createState() {
         id: 'mcp:one',
         appId: 'app:one',
         name: 'one',
-        status: 'approved',
+        status: 'active',
         createdSource: 'admin',
         riskClass: 'medium',
-        latestApprovedVersionId: 'mcp-version:two',
+        transport: 'stdio_template',
+        config: { transport: 'stdio_template', templateId: 'node-script' },
+        allowedToolPatterns: [],
+        autoApproveToolPatterns: [],
+        credentialRefs: [],
         createdAt: now,
         updatedAt: now,
-      },
-    ],
-  ]);
-  const mcpVersions = new Map<string, any>([
-    [
-      'mcp-version:one',
-      {
-        id: 'mcp-version:one',
-        appId: 'app:one',
-        serverId: 'mcp:one',
-        version: 1,
-      },
-    ],
-    [
-      'mcp-version:two',
-      {
-        id: 'mcp-version:two',
-        appId: 'app:one',
-        serverId: 'mcp:one',
-        version: 2,
       },
     ],
   ]);
@@ -420,7 +464,6 @@ function createState() {
       appId: 'app:one',
       agentId: 'agent:one',
       serverId: 'mcp:old',
-      versionId: 'mcp-version:old',
       status: 'active',
       required: false,
       permissionPolicyIds: [],
@@ -564,7 +607,6 @@ function createState() {
       },
       mcpServers: {
         getServer: async (id: string) => mcpServers.get(id) ?? null,
-        getVersion: async (id: string) => mcpVersions.get(id) ?? null,
         listServers: async () => Array.from(mcpServers.values()),
         listAgentBindings: async () => mcpBindings,
         saveAgentBinding: async (binding: any) => {

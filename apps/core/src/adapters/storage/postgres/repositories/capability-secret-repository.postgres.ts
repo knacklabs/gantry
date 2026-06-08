@@ -1,5 +1,3 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-
 import { and, desc, eq } from 'drizzle-orm';
 
 import { EnvRuntimeSecretProvider } from '../../../credentials/env-runtime-secret-provider.js';
@@ -15,11 +13,14 @@ import {
   normalizeCapabilitySecretName,
 } from '../../../../domain/capability-secrets/capability-secrets.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import { logger } from '../../../../infrastructure/logging/logger.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
-
-const SECRET_ENCRYPTION_KEY_ENV = 'SECRET_ENCRYPTION_KEY';
-const CAPABILITY_SECRET_PREFIX = 'enc:v1:';
+import {
+  CredentialSecretCryptoIntegrityError,
+  decryptCredentialSecretValue,
+  encryptCredentialSecretValue,
+} from './credential-secret-crypto.js';
 
 export class PostgresCapabilitySecretRepository implements CapabilitySecretRepository {
   constructor(
@@ -44,15 +45,32 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
       )
       .limit(1);
     const row = rows[0];
-    return row
-      ? {
-          ...mapMetadata(row),
-          value: decryptCapabilitySecretValue(
-            row.valueEncrypted,
-            this.runtimeSecrets,
-          ),
-        }
-      : null;
+    if (!row) return null;
+    try {
+      return {
+        ...mapMetadata(row),
+        value: decryptCapabilitySecretValue(
+          row.valueEncrypted,
+          {
+            appId: row.appId,
+            name: row.name,
+          },
+          this.runtimeSecrets,
+        ),
+      };
+    } catch (error) {
+      if (error instanceof CredentialSecretCryptoIntegrityError) {
+        // Wrong encryption key or tampered ciphertext — not the same as an
+        // absent secret. Surface it so a botched key rotation is debuggable
+        // instead of looking like "needs setup", but still degrade gracefully.
+        logger.error(
+          { err: error, appId: input.appId, name },
+          'Capability secret failed integrity check; treating as unavailable',
+        );
+        return null;
+      }
+      throw error;
+    }
   }
 
   async listSecrets(input: {
@@ -92,6 +110,10 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
         name,
         valueEncrypted: encryptCapabilitySecretValue(
           input.value,
+          {
+            appId: input.appId,
+            name,
+          },
           this.runtimeSecrets,
         ),
         allowedCapabilityIdsJson: encodeJson(allowedCapabilityIds),
@@ -108,6 +130,10 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
         set: {
           valueEncrypted: encryptCapabilitySecretValue(
             input.value,
+            {
+              appId: input.appId,
+              name,
+            },
             this.runtimeSecrets,
           ),
           allowedCapabilityIdsJson: encodeJson(allowedCapabilityIds),
@@ -188,67 +214,35 @@ function toIsoTimestamp(value: string): string {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : value;
 }
 
-function resolveCapabilitySecretKey(
-  runtimeSecrets: RuntimeSecretProvider,
-): Buffer {
-  const raw = runtimeSecrets
-    .getOptionalSecret({ env: SECRET_ENCRYPTION_KEY_ENV })
-    ?.trim();
-  if (!raw) {
-    throw new Error(
-      `${SECRET_ENCRYPTION_KEY_ENV} is required for Gantry Secrets encryption.`,
-    );
-  }
-  const decoded = Buffer.from(raw, 'base64');
-  if (decoded.length === 32) return decoded;
-  throw new Error(
-    `${SECRET_ENCRYPTION_KEY_ENV} must be a base64-encoded 32-byte secret for Gantry Secrets encryption.`,
-  );
-}
-
 export function encryptCapabilitySecretValue(
   value: string,
+  context: { appId: string; name: string },
   runtimeSecrets: RuntimeSecretProvider,
 ): string {
-  if (value.startsWith(CAPABILITY_SECRET_PREFIX)) return value;
-  const iv = randomBytes(12);
-  const cipher = createCipheriv(
-    'aes-256-gcm',
-    resolveCapabilitySecretKey(runtimeSecrets),
-    iv,
+  return encryptCredentialSecretValue(
+    value,
+    capabilitySecretAadContext(context),
+    runtimeSecrets,
   );
-  const ciphertext = Buffer.concat([
-    cipher.update(value, 'utf8'),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag();
-  return [
-    CAPABILITY_SECRET_PREFIX.slice(0, -1),
-    iv.toString('base64url'),
-    tag.toString('base64url'),
-    ciphertext.toString('base64url'),
-  ].join(':');
 }
 
 export function decryptCapabilitySecretValue(
   stored: string,
+  context: { appId: string; name: string },
   runtimeSecrets: RuntimeSecretProvider,
 ): string {
-  if (!stored.startsWith(CAPABILITY_SECRET_PREFIX)) {
-    throw new Error('Gantry Secret is not encrypted. Rotate it before use.');
-  }
-  const [_enc, _v1, ivRaw, tagRaw, ciphertextRaw] = stored.split(':');
-  if (!ivRaw || !tagRaw || !ciphertextRaw) {
-    throw new Error('Gantry Secret ciphertext is malformed.');
-  }
-  const decipher = createDecipheriv(
-    'aes-256-gcm',
-    resolveCapabilitySecretKey(runtimeSecrets),
-    Buffer.from(ivRaw, 'base64url'),
+  return decryptCredentialSecretValue(
+    stored,
+    capabilitySecretAadContext(context),
+    runtimeSecrets,
   );
-  decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
-    decipher.final(),
-  ]).toString('utf8');
+}
+
+function capabilitySecretAadContext(context: { appId: string; name: string }) {
+  return {
+    appId: context.appId,
+    subjectKind: 'capability_secret' as const,
+    subjectId: normalizeCapabilitySecretName(context.name),
+    schemaVersion: 1,
+  };
 }

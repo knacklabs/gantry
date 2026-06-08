@@ -1,14 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createHash } from 'node:crypto';
 
 import {
-  ApproveSkillDraftRequestSchema,
-  RejectSkillDraftRequestSchema,
+  InstallSkillContextSchema,
   UpdateAgentSkillBindingRequestSchema,
-  UploadSkillDraftContextSchema,
 } from '@gantry/contracts';
 
-import { SkillDraftService } from '../../../application/skills/skill-draft-service.js';
+import { SkillService } from '../../../application/skills/skill-service.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
@@ -27,12 +24,9 @@ import {
   parseSkillZipUpload,
 } from '../skill-zip-upload.js';
 
-function service(): SkillDraftService {
+function service(): SkillService {
   const storage = getRuntimeStorage();
-  return new SkillDraftService(
-    storage.repositories.skills,
-    storage.skillArtifacts,
-  );
+  return new SkillService(storage.repositories.skills, storage.skillArtifacts);
 }
 
 export async function handleSkillRoutes(
@@ -42,19 +36,19 @@ export async function handleSkillRoutes(
   url: URL,
   pathname: string,
 ): Promise<boolean> {
-  if (pathname === '/v1/skills/drafts' && req.method === 'GET') {
+  if (pathname === '/v1/skills' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:read']);
     if (!auth) return true;
     const agentId = url.searchParams.get('agentId') || undefined;
-    const drafts = await service().listDrafts({
+    const skills = await service().listSkills({
       appId: auth.appId as AppId,
       agentId: agentId as AgentId | undefined,
     });
-    sendJson(res, 200, { drafts: drafts.map(skillToResponse) });
+    sendJson(res, 200, { skills: skills.map(skillToResponse) });
     return true;
   }
 
-  if (pathname === '/v1/skills/drafts/upload' && req.method === 'POST') {
+  if (pathname === '/v1/skills/install' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:admin']);
     if (!auth) return true;
     const contentType = String(req.headers['content-type'] || '').split(';')[0];
@@ -63,21 +57,21 @@ export async function handleSkillRoutes(
         res,
         415,
         'UNSUPPORTED_MEDIA_TYPE',
-        'Skill draft upload requires application/zip',
+        'Skill install requires application/zip',
       );
       return true;
     }
-    const parsed = UploadSkillDraftContextSchema.safeParse({
+    const parsed = InstallSkillContextSchema.safeParse({
       appId: url.searchParams.get('appId') || undefined,
       agentId: url.searchParams.get('agentId') || undefined,
       createdBy: url.searchParams.get('createdBy') || undefined,
     });
     if (!parsed.success) {
-      sendError(res, 400, 'INVALID_REQUEST', 'Invalid skill draft upload');
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid skill install');
       return true;
     }
     if (parsed.data.appId && parsed.data.appId !== auth.appId) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot upload for this app');
+      sendError(res, 403, 'FORBIDDEN', 'API key cannot install for this app');
       return true;
     }
     try {
@@ -89,14 +83,14 @@ export async function handleSkillRoutes(
       }
       const zip = await readRawBody(req, MAX_SKILL_ZIP_BYTES);
       const uploaded = parseSkillZipUpload(zip);
-      const draft = await service().importDraft({
+      const skill = await service().installSkill({
         appId: auth.appId as AppId,
         agentId: parsed.data.agentId as AgentId | undefined,
         createdBy: parsed.data.createdBy,
         fallbackName: uploaded.fallbackName,
         assets: uploaded.assets,
       });
-      sendJson(res, 201, { draft: skillToResponse(draft) });
+      sendJson(res, 201, { skill: skillToResponse(skill) });
     } catch (error) {
       sendError(
         res,
@@ -104,73 +98,7 @@ export async function handleSkillRoutes(
           ? 413
           : 400,
         'INVALID_REQUEST',
-        error instanceof Error ? error.message : 'Invalid skill draft',
-      );
-    }
-    return true;
-  }
-
-  const approveMatch = pathname.match(
-    /^\/v1\/skills\/drafts\/([^/]+)\/approve$/,
-  );
-  if (approveMatch && req.method === 'POST') {
-    const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:admin']);
-    if (!auth) return true;
-    const parsed = ApproveSkillDraftRequestSchema.safeParse(
-      await readJson(req),
-    );
-    if (!parsed.success) {
-      sendError(res, 400, 'INVALID_REQUEST', 'Invalid skill draft approval');
-      return true;
-    }
-    if (parsed.data.appId && parsed.data.appId !== auth.appId) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot approve for this app');
-      return true;
-    }
-    try {
-      const skill = await service().approveDraft({
-        appId: auth.appId as AppId,
-        skillId: decodeURIComponent(approveMatch[1]) as SkillId,
-        approvedBy: parsed.data.approvedBy,
-      });
-      sendJson(res, 200, { skill: skillToResponse(skill) });
-    } catch (error) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        error instanceof Error ? error.message : 'Skill approval failed',
-      );
-    }
-    return true;
-  }
-
-  const rejectMatch = pathname.match(/^\/v1\/skills\/drafts\/([^/]+)\/reject$/);
-  if (rejectMatch && req.method === 'POST') {
-    const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:admin']);
-    if (!auth) return true;
-    const parsed = RejectSkillDraftRequestSchema.safeParse(await readJson(req));
-    if (!parsed.success) {
-      sendError(res, 400, 'INVALID_REQUEST', 'Invalid skill draft rejection');
-      return true;
-    }
-    if (parsed.data.appId && parsed.data.appId !== auth.appId) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot reject for this app');
-      return true;
-    }
-    try {
-      const skill = await service().rejectDraft({
-        appId: auth.appId as AppId,
-        skillId: decodeURIComponent(rejectMatch[1]) as SkillId,
-        rejectedBy: parsed.data.rejectedBy,
-      });
-      sendJson(res, 200, { skill: skillToResponse(skill) });
-    } catch (error) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        error instanceof Error ? error.message : 'Skill rejection failed',
+        error instanceof Error ? error.message : 'Invalid skill install',
       );
     }
     return true;
@@ -184,7 +112,7 @@ export async function handleSkillRoutes(
     if (!auth) return true;
     try {
       const runtime = getRuntimeStorage();
-      const skill = await new SkillDraftService(
+      const skill = await new SkillService(
         runtime.repositories.skills,
         runtime.skillArtifacts,
       ).requireSkill(
@@ -377,7 +305,6 @@ function skillToResponse(skill: SkillCatalogItem): Record<string, unknown> {
     agentId: skill.agentId,
     name: skill.name,
     description: skill.description,
-    version: skill.version,
     source: skill.source,
     status: skill.status,
     promptRefs: skill.promptRefs,
@@ -385,12 +312,14 @@ function skillToResponse(skill: SkillCatalogItem): Record<string, unknown> {
     workflowRefs: skill.workflowRefs,
     requiredEnvVars: skill.requiredEnvVars ?? [],
     actionPermissions: skill.actionPermissions ?? [],
-    storage: skill.storage,
+    storage: skill.storage
+      ? {
+          storageType: skill.storage.storageType,
+          storageRef: skill.storage.storageRef,
+          sizeBytes: skill.storage.sizeBytes,
+        }
+      : undefined,
     createdBy: skill.createdBy,
-    approvedBy: skill.approvedBy,
-    approvedAt: skill.approvedAt,
-    rejectedBy: skill.rejectedBy,
-    rejectedAt: skill.rejectedAt,
     createdAt: skill.createdAt,
     updatedAt: skill.updatedAt,
   };
@@ -433,7 +362,6 @@ function skillAssetToFileResponse(asset: {
     path: asset.path,
     contentType: asset.contentType,
     sizeBytes: content.byteLength,
-    contentHash: `sha256:${createHash('sha256').update(content).digest('hex')}`,
   };
 }
 
