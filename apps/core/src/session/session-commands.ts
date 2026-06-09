@@ -33,6 +33,7 @@ import {
   type PrepareSessionArchive,
 } from './session-new-archive.js';
 import { handleManualExtractionCommand } from './session-manual-extraction-commands.js';
+import { handleAgentCommand } from './session-agent-command.js';
 
 export type SessionCommand =
   | { kind: 'commands'; raw: '/commands' }
@@ -256,6 +257,12 @@ export interface SessionCommandDeps {
   isSenderControlAllowlisted: (msg: NewMessage) => boolean;
   /** Whether the denied sender would normally be allowed to interact (for denial messages). */
   canSenderInteract: (msg: NewMessage) => boolean;
+  getAgentCommand?: (
+    name: string,
+  ) => Promise<
+    import('../application/commands/agent-command-types.js').AgentCommandModule | null
+  >;
+  buildAgentCommandContext?: () => import('../application/commands/agent-command-types.js').AgentCommandContext;
 }
 
 const MAX_MODEL_ERROR_MESSAGE_CHARS = 240;
@@ -304,15 +311,19 @@ export async function handleSessionCommand(opts: {
   groupName: string;
   triggerPattern: RegExp;
   timezone: string;
+  agentCommandNames?: readonly string[];
   deps: SessionCommandDeps;
 }): Promise<{ handled: false } | { handled: true; success: boolean }> {
   const { missedMessages, groupName, triggerPattern, timezone, deps } = opts;
+  const agentCommandNames = opts.agentCommandNames ?? [];
 
   const cmdMsg = missedMessages.find(
-    (m) => extractSessionCommand(m.content, triggerPattern) !== null,
+    (m) =>
+      extractSessionCommand(m.content, triggerPattern, agentCommandNames) !==
+      null,
   );
   const command = cmdMsg
-    ? extractSessionCommand(cmdMsg.content, triggerPattern)
+    ? extractSessionCommand(cmdMsg.content, triggerPattern, agentCommandNames)
     : null;
 
   if (!command || !cmdMsg) return { handled: false };
@@ -348,7 +359,7 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'commands') {
     deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(formatSessionCommandsHelp());
+    await deps.sendMessage(formatSessionCommandsHelp(agentCommandNames));
     return { handled: true, success: true };
   }
 
@@ -750,9 +761,24 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'agent_command') {
-    // Agent-declared commands are recognised but not dispatched here;
-    // the caller handles them after extractSessionCommand returns.
-    return { handled: false };
+    const { getAgentCommand, buildAgentCommandContext } = deps;
+    if (!getAgentCommand || !buildAgentCommandContext) {
+      deps.advanceCursor(cmdMsg);
+      await deps.sendMessage(`/${command.name} is unavailable in this runtime.`);
+      return { handled: true, success: true };
+    }
+    return handleAgentCommand({
+      name: command.name,
+      cmdMsg,
+      sanitizeErrorText,
+      deps: {
+        sendMessage: deps.sendMessage,
+        setTyping: deps.setTyping,
+        advanceCursor: deps.advanceCursor,
+        getAgentCommand,
+        buildAgentCommandContext,
+      },
+    });
   }
 
   const _exhaustive: never = command;

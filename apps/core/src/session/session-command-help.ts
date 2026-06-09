@@ -1,5 +1,7 @@
-export function formatSessionCommandsHelp(): string {
-  return [
+export function formatSessionCommandsHelp(
+  agentCommandNames: readonly string[] = [],
+): string {
+  const lines = [
     'Gantry commands',
     '',
     'Session',
@@ -18,6 +20,9 @@ export function formatSessionCommandsHelp(): string {
     '/status - Show model/runtime status for this conversation.',
     '/memory-status - Show durable memory status.',
     '/dream - Run memory dreaming now when enabled.',
+    '/digest-session - Capture the current conversation boundary for memory processing.',
+    '/extract-memory-facts - Extract memory facts from the current conversation boundary.',
+    '/extract-leads-queries - Extract CRM lead/query candidates from the current conversation boundary.',
     '',
     'Thinking',
     '/thinking - Show the current thinking setting.',
@@ -30,5 +35,10 @@ export function formatSessionCommandsHelp(): string {
     'In-house agent surfaces',
     'gantry-admin - Runtime administration reference for approved Gantry admin tools.',
     'gantry-browser - Browser gateway guidance when the Browser capability is selected.',
-  ].join('\n');
+  ];
+  if (agentCommandNames.length > 0) {
+    lines.push('', 'Agent commands');
+    for (const name of agentCommandNames) lines.push(`/${name}`);
+  }
+  return lines.join('\n');
 }

@@ -29,9 +29,8 @@ import {
 } from '../messaging/router.js';
 import type { AgentOutput } from './agent-spawn.js';
 import { handleSessionCommand } from '../session/session-commands.js';
+import { loadAgentCommand } from '../application/commands/command-registry.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
-import { getGroupMemoryStatus } from './group-memory-commands.js';
-import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
 import {
   createRuntimeResultSummaryAccumulator,
@@ -54,6 +53,8 @@ import {
 } from './group-processing-flow.js';
 import {
   createAdvanceCursorHandler,
+  createMemorySessionCommandHandlers,
+  createManualExtractionCommandHandlers,
   createSaveProcedureHandler,
   createSenderCommandPolicy,
   createSessionArchiveHandlers,
@@ -146,6 +147,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
     );
+    const memory = getRuntimeSettingsForConfig().memory;
+    const embeddingStatus =
+      memory.enabled &&
+      memory.embeddings.enabled &&
+      memory.embeddings.provider !== 'disabled'
+        ? 'configured'
+        : 'disabled';
     const modelStatus = createRuntimeModelStatusAccess(
       group.folder,
       activeThreadId,
@@ -160,6 +168,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       groupName: group.name,
       triggerPattern: getTriggerPattern(group.trigger),
       timezone: TIMEZONE,
+      agentCommandNames: group.agentConfig?.plugins?.commands ?? [],
       deps: {
         sendMessage: (text, options) =>
           sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
@@ -218,34 +227,25 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             memoryUserId,
           }),
         stopCurrentRun: () => deps.queue.stopGroup?.(queueJid) ?? false,
-        runMemoryDreaming: () =>
-          runDreamingForGroup({
-            folder: group.folder,
-            conversationId: chatJid,
-            userId: memoryUserId,
-            activeThreadId,
-            defaultScope: defaultMemoryScope,
-          }),
-        getMemoryStatus: async () => {
-          const memory = getRuntimeSettingsForConfig().memory;
-          return getGroupMemoryStatus(
-            {
-              folder: group.folder,
-              conversationId: chatJid,
-              userId: memoryUserId,
-              threadId: activeThreadId,
-              defaultScope: defaultMemoryScope,
-            },
-            {
-              embeddings:
-                memory.enabled &&
-                memory.embeddings.enabled &&
-                memory.embeddings.provider !== 'disabled'
-                  ? 'configured'
-                  : 'disabled',
-            },
-          );
-        },
+        ...createMemorySessionCommandHandlers({
+          group,
+          chatJid,
+          activeThreadId,
+          defaultScope: defaultMemoryScope,
+          memoryUserId,
+          embeddingStatus,
+        }),
+        ...createManualExtractionCommandHandlers({
+          ops,
+          group,
+          chatJid,
+          threadId: activeThreadId ?? null,
+          defaultScope: defaultMemoryScope,
+          memoryUserId,
+          collectMemory: collectSessionMemory,
+          executionAdapter: deps.executionAdapter,
+          extractLeadQueries: deps.extractLeadQueries,
+        }),
         saveProcedure: createSaveProcedureHandler({
           folder: group.folder,
           conversationId: chatJid,
@@ -255,6 +255,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           isAdminWrite: true,
         }),
         ...senderCommandPolicy,
+        getAgentCommand: (name) => loadAgentCommand(group.folder, name),
+        buildAgentCommandContext: () => ({
+          conversationId: `conversation:${chatJid}`,
+          conversationJid: chatJid,
+          threadId: activeThreadId ?? null,
+        }),
       },
     });
     if (cmdResult.handled) return cmdResult.success;

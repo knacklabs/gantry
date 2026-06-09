@@ -5,6 +5,7 @@ import {
   TIMEZONE,
 } from '../config/index.js';
 import {
+  decodeGroupMessageCursor,
   encodeGroupMessageCursor,
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
@@ -124,6 +125,17 @@ function saveStateBestEffort(deps: MessageLoopDeps, chatJid: string): void {
   );
 }
 
+function messageIsAfterGroupCursor(
+  cursor: string,
+  message: Pick<NewMessage, 'id' | 'timestamp'>,
+): boolean {
+  const decoded = decodeGroupMessageCursor(cursor);
+  if (!decoded.timestamp) return true;
+  if (message.timestamp > decoded.timestamp) return true;
+  if (message.timestamp < decoded.timestamp) return false;
+  return message.id > decoded.id;
+}
+
 export async function runMessagePollingTick(
   deps: MessageLoopDeps,
 ): Promise<void> {
@@ -171,14 +183,18 @@ export async function runMessagePollingTick(
         }
 
         const triggerPattern = getTriggerPattern(group.trigger);
+        const agentCommandNames = group.agentConfig?.plugins?.commands ?? [];
         const loopCmdMsg = groupMessages.find(
-          (m) => extractSessionCommand(m.content, triggerPattern) !== null,
+          (m) =>
+            extractSessionCommand(m.content, triggerPattern, agentCommandNames) !==
+            null,
         );
 
         if (loopCmdMsg) {
           const loopCommand = extractSessionCommand(
             loopCmdMsg.content,
             triggerPattern,
+            agentCommandNames,
           );
           const controlAllowlistCfg = loadSenderControlAllowlist();
           if (
@@ -236,15 +252,19 @@ export async function runMessagePollingTick(
           if (!hasTrigger) continue;
         }
 
+        const currentCursor = await deps.getOrRecoverCursor(queueJid);
         let initialBatch = await opsRepository.getMessagesSince(
           chatJid,
-          await deps.getOrRecoverCursor(queueJid),
+          currentCursor,
           MAX_MESSAGES_PER_PROMPT,
           { threadId: threadId ?? null },
         );
         if (initialBatch.length === 0) {
-          initialBatch = groupMessages;
+          initialBatch = groupMessages.filter((message) =>
+            messageIsAfterGroupCursor(currentCursor, message),
+          );
         }
+        if (initialBatch.length === 0) continue;
 
         let pipedAny = false;
         let shouldEnqueueMessageCheck = false;

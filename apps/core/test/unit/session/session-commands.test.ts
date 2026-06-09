@@ -1703,6 +1703,33 @@ describe('handleSessionCommand', () => {
       'Using Sonnet 4.6 for this session.',
     );
   });
+
+  it('dispatches a configured agent command end-to-end', async () => {
+    const getAgentCommand = vi.fn().mockResolvedValue({
+      name: 'do-thing',
+      description: 'Does the thing',
+      visibility: 'operator' as const,
+      run: vi.fn().mockResolvedValue('ok'),
+    });
+    const buildAgentCommandContext = vi.fn().mockReturnValue({
+      conversationId: 'conversation:group@test',
+      conversationJid: 'group@test',
+      threadId: null,
+    });
+    const deps = makeDeps({ getAgentCommand, buildAgentCommandContext });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/do-thing', { is_from_me: true })],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      agentCommandNames: ['do-thing'],
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(getAgentCommand).toHaveBeenCalledWith('do-thing');
+    expect(buildAgentCommandContext).toHaveBeenCalledTimes(1);
+    expect(deps.sendMessage).toHaveBeenCalledWith('ok');
+  });
 });
 
 describe('getGroupMemoryStatus', () => {
