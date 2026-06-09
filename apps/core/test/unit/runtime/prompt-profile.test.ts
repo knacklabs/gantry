@@ -304,6 +304,24 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('source: gantry://agent-instructions');
   });
 
+  it('keeps operations persona guidance product-neutral', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      persona: 'operations',
+    });
+
+    expect(prompt).toContain('Operations persona');
+    expect(prompt).toContain(
+      'If an approved operational source is already connected',
+    );
+    expect(prompt).toContain('include the returned deep link');
+    expect(prompt).not.toContain('CAW');
+    expect(prompt).not.toContain('position_url');
+    expect(prompt).not.toContain('positions_url');
+  });
+
   it('consolidates former shared guidance into generated operating guidance', async () => {
     const { service } = createService();
 
@@ -345,10 +363,10 @@ describe('PromptProfileService', () => {
       'mcp_list_tools and used through mcp_call_tool',
     );
     expect(prompt).toContain(
-      'If capability_status shows an MCP source as ready or a reviewed MCP capability is already selected for this run, do not request the same capability again',
+      'When capability_status shows an MCP source as ready, inspect it with mcp_list_tools and call approved actions with mcp_call_tool instead of requesting the same access again',
     );
     expect(prompt).toContain(
-      'When a reviewed MCP source is ready for a task, do not use Bash, RunCommand, shell, curl, node, npm, file tools, or browser automation',
+      'instead of requesting the same access again or using command/browser fallback',
     );
     expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
   });

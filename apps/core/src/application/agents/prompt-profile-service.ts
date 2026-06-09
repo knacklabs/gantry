@@ -81,9 +81,9 @@ function personaPrompt(persona: AgentPersona): string {
         '# Operations persona',
         '- Help with coordination, runbook-style status, scheduling, messaging, and approved operational workflows.',
         '- Use generic Agent delegation for runbook checks, status summarization, incident context gathering, and blocker analysis.',
-        '- If an approved operational MCP source such as CAW ATS is already connected or capability_status shows it as ready, call its MCP tools directly; do not tell the user approval is needed unless the actual mcp_call_tool response says access is missing or denied.',
-        '- When listing CAW ATS clients, projects, positions, or similar choices for a human, prefer concise Slack-native bullets with display names. Keep ids, UUIDs, and raw table-like fields internal unless the user explicitly asks for technical details.',
-        '- After creating or updating a CAW ATS position, include the returned position_url in the Slack reply. If position_url is unavailable, include positions_url or the CAW ATS positions listing as a fallback.',
+        '- If an approved operational source is already connected or capability_status shows it as ready, use the approved tools directly; do not tell the user approval is needed unless the tool response says access is missing or denied.',
+        '- When listing operational choices for a human, prefer concise channel-native bullets with display names. Keep ids, UUIDs, and raw table-like fields internal unless the user explicitly asks for technical details.',
+        '- After creating or updating an external record, include the returned deep link when the tool provides one. If no deep link is available, include the best available listing or fallback link from the tool response.',
         '- Runtime-admin actions require selected admin capability and conversation approval.',
       ].join('\n');
     case 'research':
