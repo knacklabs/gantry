@@ -4,7 +4,7 @@ import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-acces
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export interface ProviderSessionAccessFingerprintInput {
-  allowedTools?: readonly string[];
+  toolPolicyRules?: readonly string[];
   runtimeAccess?: readonly CapabilityRuntimeAccess[];
   attachedSkillSourceIds?: readonly string[];
   attachedMcpSourceIds?: readonly string[];
@@ -16,7 +16,7 @@ export function buildProviderSessionAccessFingerprint(
 ): string {
   const payload = {
     version: 1,
-    allowedTools: sortedUnique(input.allowedTools),
+    toolPolicyRules: sortedUnique(input.toolPolicyRules),
     attachedSkillSourceIds: sortedUnique(input.attachedSkillSourceIds),
     attachedMcpSourceIds: sortedUnique(input.attachedMcpSourceIds),
     runtimeAccess: normalizeRuntimeAccess(input.runtimeAccess),

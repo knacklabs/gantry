@@ -441,7 +441,7 @@ export function createGroupAgentRunner(input: {
       configuredToolPolicy.toolPolicyRules,
     );
     const currentAccessFingerprint = buildProviderSessionAccessFingerprint({
-      allowedTools: configuredToolPolicy.allowedTools,
+      toolPolicyRules: configuredToolPolicy.toolPolicyRules,
       runtimeAccess: configuredToolPolicy.runtimeAccess,
       attachedSkillSourceIds: selectedSkillContext.ids,
       attachedMcpSourceIds,
