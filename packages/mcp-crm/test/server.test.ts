@@ -46,7 +46,7 @@ function makeLogger(): Logger {
   } as unknown as Logger;
 }
 
-async function startTestServer() {
+async function startTestServer(envOverrides: Partial<BoondiCrmEnv> = {}) {
   const port = await freePort();
   const env: BoondiCrmEnv = {
     port,
@@ -64,6 +64,7 @@ async function startTestServer() {
     extractorModel: 'test-model',
     anthropicApiKey: 'test-key',
   };
+  Object.assign(env, envOverrides);
   const logger = makeLogger();
   const { pool } = makeFakePool(() => ({ rows: [] }));
   const running = await startHttpServer({ env, logger, pool });
@@ -172,5 +173,44 @@ describe('Boondi CRM admin extraction route', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'extractor_disabled' });
     expect(mockedManualExtraction).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when identity is required and the header is absent', async () => {
+    const server = await startTestServer({
+      identity: { mode: 'required', secret: 'test-secret', maxAgeSec: 120 },
+      requireVerifiedIdentity: true,
+    } as Partial<BoondiCrmEnv>);
+    closeCurrent = server.running.close;
+
+    const response = await fetch(`${server.url}/admin/extract-leads-queries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationId: 'conversation:wa:919654405340',
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: { code: 'IDENTITY_REQUIRED' },
+    });
+    expect(mockedManualExtraction).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 internal_error when extraction throws', async () => {
+    mockedManualExtraction.mockRejectedValueOnce(new Error('pg down'));
+    const server = await startTestServer();
+    closeCurrent = server.running.close;
+
+    const response = await fetch(`${server.url}/admin/extract-leads-queries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationId: 'conversation:wa:919654405340',
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'internal_error' });
   });
 });

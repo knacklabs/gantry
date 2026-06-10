@@ -143,6 +143,15 @@ export async function startHttpServer(
           sendJson(res, identity.status, identity.payload);
           return;
         }
+        // The route triggers LLM spend + CRM writes: in required mode an
+        // ABSENT identity header must not pass (verifiedIdentityForRequest
+        // only rejects forged/stale ones). The production caller always
+        // signs; /mcp keeps its own downstream tool-layer enforcement.
+        if (env.requireVerifiedIdentity && identity.identity.kind !== 'ok') {
+          logger.warn({}, 'boondi_crm_manual_extract_identity_missing');
+          sendJson(res, 401, { error: { code: 'IDENTITY_REQUIRED' } });
+          return;
+        }
         const bodyResult = await readRequestBody(req);
         if (!bodyResult.ok || !bodyResult.body) {
           logger.warn(
