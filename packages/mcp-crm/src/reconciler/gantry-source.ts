@@ -34,15 +34,16 @@ function isTranscriptControlCommand(text: string): boolean {
 // turns that triggered extraction; the newest window is safe because earlier
 // content is already banked in boondi_business_records and re-enters every
 // prompt via the open-opportunities list.
+// (created_at DESC, id DESC) mirrors core's canonical message ordering and its idx_messages_conversation_recent index, so ties cut deterministically at the window edge.
 export function transcriptSql(gantrySchema: string): string {
   return `SELECT t.direction, t.text
-       FROM (SELECT m.created_at, p.ordinal, m.direction, p.payload_json->>'text' AS text
+       FROM (SELECT m.created_at, m.id, p.ordinal, m.direction, p.payload_json->>'text' AS text
                FROM ${gantrySchema}.messages m
                JOIN ${gantrySchema}.message_parts p ON p.message_id = m.id AND p.kind = 'text'
               WHERE m.conversation_id = $1
-              ORDER BY m.created_at DESC, p.ordinal DESC
+              ORDER BY m.created_at DESC, m.id DESC, p.ordinal DESC
               LIMIT $2) t
-      ORDER BY t.created_at ASC, t.ordinal ASC`;
+      ORDER BY t.created_at ASC, t.id ASC, t.ordinal ASC`;
 }
 
 export async function loadTranscript(

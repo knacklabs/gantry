@@ -9,10 +9,10 @@ describe('transcriptSql / loadTranscript', () => {
   it('selects the NEWEST window, re-sorted oldest→newest', () => {
     const sql = transcriptSql('gantry');
     // Inner query takes the newest rows…
-    expect(sql).toContain('ORDER BY m.created_at DESC, p.ordinal DESC');
+    expect(sql).toContain('ORDER BY m.created_at DESC, m.id DESC, p.ordinal DESC');
     expect(sql).toContain('LIMIT $2');
     // …outer query restores reading order for the prompt.
-    expect(sql).toContain('ORDER BY t.created_at ASC, t.ordinal ASC');
+    expect(sql).toContain('ORDER BY t.created_at ASC, t.id ASC, t.ordinal ASC');
   });
 
   it('returns role-tagged turns with command lines and their acks stripped', async () => {
