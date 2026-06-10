@@ -54,7 +54,13 @@ import {
 } from './external-mcp-tool-rules.js';
 import { startJobHeartbeat } from './job-heartbeat.js';
 import { logUsage } from './usage-logging.js';
+import {
+  formatRateLimitLogLine,
+  rateLimitRuntimeEvent,
+  sdkRateLimitSnapshot,
+} from './model-telemetry.js';
 import { readContextUsage } from './context-usage.js';
+import { createDeferredContextUsageEmitter } from './context-usage-emitter.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
 
@@ -238,6 +244,7 @@ export async function runQuery(
     persona: agentInput.persona,
     browserProfileName: agentInput.browserProfileName,
     configuredAllowedTools: agentInput.allowedTools,
+    gantryMcpToolSurface: agentInput.gantryMcpToolSurface,
     attachedSkillSourceIds: agentInput.attachedSkillSourceIds,
     selectedSkillDisplays: agentInput.selectedSkillDisplays,
     attachedMcpSourceIds: agentInput.attachedMcpSourceIds,
@@ -311,6 +318,14 @@ export async function runQuery(
       mcpServers: capabilities.mcpServers,
       includePartialMessages: true,
     },
+  });
+  // Context usage is diagnostics-only (model-status store / session-command
+  // display) but its fetch round-trips the CLI (0.7-4.1s measured). It is
+  // emitted as a follow-up envelope so the reply envelope is never held back.
+  const contextUsageEmitter = createDeferredContextUsageEmitter({
+    readUsage: () => readContextUsage(sdkQuery),
+    write: writeOutput,
+    getSessionId: () => newSessionId,
   });
   try {
     for await (const message of sdkQuery) {
@@ -395,6 +410,41 @@ export async function runQuery(
           ],
         });
       }
+      if (message.type === 'rate_limit_event') {
+        // Account-pressure telemetry: the same pipeline runs 2-4x slower near
+        // the credential's rate-limit window cap, so every session records the
+        // utilization it ran under (log line + durable runtime event).
+        const rateLimit = sdkRateLimitSnapshot(message);
+        if (!rateLimit) {
+          // The wire shape comes from the bundled CLI, not sdk.d.ts — if it
+          // drifts, say so instead of silently dropping the telemetry.
+          log(
+            `rate_limit_event with unrecognized shape: ${JSON.stringify(message).slice(0, 600)}`,
+          );
+        }
+        if (rateLimit) {
+          log(formatRateLimitLogLine(rateLimit));
+          writeOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            runtimeEvents: [
+              rateLimitRuntimeEvent(
+                {
+                  appId: agentInput.appId,
+                  agentId: agentInput.agentId,
+                  runId: agentInput.runId,
+                  jobId: agentInput.jobId,
+                  chatJid: agentInput.chatJid,
+                  threadId: agentInput.threadId,
+                },
+                rateLimit,
+                newSessionId ?? agentInput.sessionId,
+              ),
+            ],
+          });
+        }
+      }
       if (message.type === 'stream_event') {
         const event = (message as { event?: unknown }).event as
           | {
@@ -430,7 +480,6 @@ export async function runQuery(
           message,
           fallbackModel: configuredModel,
         });
-        const contextUsage = await readContextUsage(sdkQuery);
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',
@@ -439,7 +488,6 @@ export async function runQuery(
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
-          ...(contextUsage ? { contextUsage } : {}),
           ...(usage
             ? {
                 usage,
@@ -452,6 +500,7 @@ export async function runQuery(
               }
             : {}),
         });
+        contextUsageEmitter.emitAfterResult();
         sawPartialTextSinceLastResult = false;
         steeringGate.markTurnBoundary();
       }
@@ -461,6 +510,9 @@ export async function runQuery(
     heartbeat.stop();
     steeringGate.close();
   }
+  // Give the last deferred context-usage emission a bounded chance to land
+  // before the process exits; never stall shutdown on a hung CLI.
+  await contextUsageEmitter.flush(3_000);
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,
   );
