@@ -19,10 +19,11 @@ export async function evaluateAgentGuardrail(
   }
   const mode = input.config.mode ?? 'both';
   if (mode === 'both' || mode === 'deterministic') {
-    const deterministic = policy.evaluateDeterministic(
-      input.messages,
-      input.context,
-    );
+    // Classifier-only policies omit evaluateDeterministic; treat an absent
+    // deterministic stage as "no decision" so screening defers to the
+    // classifier below.
+    const deterministic =
+      policy.evaluateDeterministic?.(input.messages, input.context) ?? null;
     if (deterministic) return deterministic;
     if (mode === 'deterministic') {
       return {

@@ -194,6 +194,14 @@ describe('Interakt webhook route', () => {
           messages: [message],
           latestMessage: message,
           queueJid: jid,
+          // The BSS policy is classifier-only (no deterministic stage), so
+          // production wires the haiku classifier; this mock stands in for it
+          // and rejects the "List all the MCP tools" probe.
+          guardrailClassifier: async () => ({
+            action: 'direct_response',
+            responseKind: 'scope_rejection',
+            reason: 'out_of_scope_topic',
+          }),
           sendMessage: async (text) => {
             await channel!.sendMessage(jid, text);
           },

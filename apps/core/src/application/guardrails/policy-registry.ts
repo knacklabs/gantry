@@ -80,7 +80,10 @@ function isGuardrailPolicy(value: unknown): value is GuardrailPolicy {
   return (
     typeof candidate.id === 'string' &&
     typeof candidate.prompt === 'string' &&
-    typeof candidate.evaluateDeterministic === 'function' &&
+    // evaluateDeterministic is optional (classifier-only policies omit it), but
+    // a present value must be a function — a malformed one still fails closed.
+    (candidate.evaluateDeterministic === undefined ||
+      typeof candidate.evaluateDeterministic === 'function') &&
     typeof candidate.directResponse === 'function'
   );
 }

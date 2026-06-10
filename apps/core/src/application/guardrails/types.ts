@@ -58,11 +58,13 @@ export interface GuardrailPolicy {
   id: string;
   prompt: string;
   /**
-   * Cheap, deterministic pre-classifier. `context` (recent prior turns) is
-   * optional so existing policies that ignore it remain valid; context-aware
-   * policies may use it to allow genuine follow-ups without an LLM call.
+   * Optional cheap, deterministic pre-classifier. Omit it for a classifier-only
+   * policy that screens every message with the LLM (no deterministic fast-path).
+   * `context` (recent prior turns) is optional so policies that ignore it remain
+   * valid; context-aware policies may use it to allow genuine follow-ups without
+   * an LLM call.
    */
-  evaluateDeterministic(
+  evaluateDeterministic?(
     messages: readonly string[],
     context?: readonly GuardrailContextMessage[],
   ): GuardrailDecision | null;
