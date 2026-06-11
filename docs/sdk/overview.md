@@ -11,12 +11,48 @@ Use it from:
 
 Do not use it from browser bundles.
 
+## Deployment shapes
+
+The SDK talks to one control API regardless of how Gantry is deployed. There are
+two shapes, and **the SDK code is identical in both** — only the base URL and how
+you provision the API key change.
+
+- **Same-machine (workstation sidecar).** Gantry runs as a sidecar next to your
+  app, typically via the workstation install or `docker compose`. The parent
+  runtime and the per-turn child runners are co-located on one machine. This is
+  `runtime.deployment_mode: workstation` — vertical scale, one box, live
+  skill/dependency installs, `settings.yaml` watched on disk. The SDK reaches the
+  control API over a **Unix domain socket** (set `socketPath`); loopback TCP is
+  available when a control port is configured.
+- **Separated-to-scale (fleet).** Gantry runs as N immutable worker
+  processes/machines behind an ALB, against RDS Postgres + S3, with desired state
+  distributed through the control API. This is `runtime.deployment_mode: fleet` —
+  horizontal scale, availability via lease failover, no package manager on
+  workers. The SDK reaches the control API over **HTTPS through the ALB**
+  (set `baseUrl`); there is no Unix socket to share across machines.
+
+Switching shapes is a config + base-URL change, not a code change. Which axis to
+scale on, and when to move from workstation to fleet, is the
+[Scaling Decision Guide](../architecture/deployment-profiles.md#scaling-decision-guide-vertical-vs-horizontal).
+To stand up a fleet or locked support stack on AWS, follow the
+[AWS Terraform runbook](../deployment/aws-terraform.md).
+
+Deployment topology (`runtime.deployment_mode`) is a **different axis** from
+security posture (`GANTRY_SECURITY_POSTURE`, values `production|remote`). Fleet
+requires production posture; workstation defaults to the relaxed local posture
+and may opt into production. See
+[Deployment Modes](../decisions/2026-06-11-deployment-modes.md).
+
 ## Transport
 
-The runtime exposes a small internal control API over:
+The runtime exposes a small internal control API. The SDK selects transport from
+the options you pass:
 
-- Unix domain socket by default
-- loopback TCP only when explicitly enabled
+- **Unix domain socket** when `socketPath` is set — the same-machine workstation
+  default.
+- **Loopback or remote TCP/HTTPS** when `baseUrl` is set — required for the
+  fleet shape, where the SDK reaches the control API through the ALB. (There is
+  no shared Unix socket across machines in fleet.)
 
 `@gantry/contracts` is the shared DTO and schema boundary for the control API,
 the server-side SDK, future Web UI integrations, and framework integrations
@@ -74,13 +110,40 @@ sequenceDiagram
 - `runs`
 - `models`
 - `agents`
+- `skills`
+- `mcpServers`
+- `providers`
+- `providerConnections`
+- `conversations`
 - `ingresses`
 - `webhooks`
 - `memory`
+- `settings`
 - `health`
 - `doctor`
 
 For the runtime boundary, message lifecycle, job lifecycle, and outbound webhook delivery internals, see [Agent Internals For SDK Consumers](./agent-internals.md).
+
+## Desired state (settings)
+
+In the fleet shape, desired configuration is distributed as a versioned, typed
+JSON settings document through the control API, not a file workers each watch.
+The SDK exposes this as `client.settings`:
+
+- `client.settings.getDesiredState()` returns the current revision and document.
+- `client.settings.updateDesiredState({ settings, expectedRevision?, note? })`
+  appends a new revision; pass `expectedRevision` for optimistic concurrency.
+- `client.settings.listRevisions()` lists recent revision summaries.
+
+The wire shape is the full snake_case settings document — the same shape stored
+in `settings_revisions` — validated server-side with document-path-level errors.
+YAML never appears on the API wire; it is only the workstation `settings.yaml`
+file and the CLI `--file` edge. In the workstation shape, the same file is
+auto-imported through the identical validation path. See the
+[API reference](./api-reference.md#desired-state) for the contract, scopes,
+409/400 semantics, and an optimistic-concurrency example, and
+[Settings Authority](../decisions/2026-06-11-settings-authority.md) for the
+one-service/two-surfaces decision.
 
 ## External Ingress
 
@@ -122,11 +185,22 @@ Important event types in this cut:
 
 ## Minimal client setup
 
+Same-machine (workstation) over the Unix socket:
+
 ```ts
 import { createClient } from '@gantry/sdk';
 
 const client = createClient({
   socketPath: process.env.GANTRY_CONTROL_SOCKET_PATH,
+  apiKey: process.env.GANTRY_SESSIONS_API_KEY!,
+});
+```
+
+Separated-to-scale (fleet) over the ALB — same code, different option:
+
+```ts
+const client = createClient({
+  baseUrl: process.env.GANTRY_CONTROL_BASE_URL, // https://<alb-host>
   apiKey: process.env.GANTRY_SESSIONS_API_KEY!,
 });
 ```

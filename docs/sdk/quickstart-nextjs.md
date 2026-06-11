@@ -1,5 +1,11 @@
 # Next.js Quickstart
 
+`@gantry/sdk` is **server-side only**. Use it from route handlers, server
+actions, and server components — never from client components or browser
+bundles. The control API key and the control transport must never reach the
+browser; the examples below run entirely on the server and return only what the
+client needs.
+
 ```ts
 // app/api/agent/route.ts
 import { createClient } from '@gantry/sdk';
@@ -79,3 +85,29 @@ export async function GET(req: Request) {
   });
 }
 ```
+
+The route handler proxies the stream to the browser; the SDK client itself stays
+on the server.
+
+## Provision the agent locked
+
+A customer-facing example agent (a support or product assistant your end users
+talk to through this app) should be provisioned with
+`agents.<id>.access.preset: locked` in settings, so it physically cannot
+enumerate or invoke any `request_*`/`admin_*`/`settings_*` tool and works only
+with capabilities an operator pre-provisioned. See
+[Locked Preset](../decisions/2026-06-11-locked-preset.md) and
+[Agent Internals For SDK Consumers](./agent-internals.md#locked-access-preset).
+The preset is set on the agent, not in SDK calls — your client code is unchanged.
+
+## Going to production
+
+Run Gantry as a same-machine sidecar while one box and live installs are enough.
+Move to a separated fleet when you need availability or job throughput beyond one
+machine, or to run locked public-facing agents on isolated stacks. Use the
+[AWS Terraform runbook](../deployment/aws-terraform.md) to stand up the fleet (or
+a locked support stack), and the
+[Scaling Decision Guide](../architecture/deployment-profiles.md#scaling-decision-guide-vertical-vs-horizontal)
+to decide vertical vs horizontal. The only client changes between shapes are the
+base URL (`baseUrl` through the ALB instead of `socketPath`) and how the API key
+is provisioned.
