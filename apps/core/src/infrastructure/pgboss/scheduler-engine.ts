@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PgBoss, type Job as PgBossJob } from 'pg-boss';
 
 import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
   TIMEZONE,
+  getDeploymentMode,
   getRuntimeQueueConfig,
 } from '../../config/index.js';
 import { logger } from '../logging/logger.js';
@@ -12,9 +13,19 @@ import type { Job } from '../../domain/types.js';
 import type { ReleasedStaleJobLease } from '../../domain/repositories/ops-repo.js';
 import {
   getRuntimeControlRepository,
+  getRuntimeEventExchange,
+  getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { acquireRunSlot } from '../../jobs/concurrency.js';
+import {
+  decideCapabilityDispatch,
+  ineligibleRequeueDelayMs,
+  requiredCapabilitiesChanged,
+} from '../../jobs/capability-dispatch.js';
+import { CapabilityStarvationAlerter } from '../../jobs/capability-starvation.js';
+import { scanCapabilityStarvation } from '../../jobs/capability-starvation-scan.js';
+import { currentWorkerInstanceId } from '../../jobs/worker-identity.js';
 import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import { validateScheduleConfig } from '../../jobs/schedule.js';
 import type {
@@ -113,6 +124,7 @@ export class PgBossSchedulerEngine {
   private readonly pendingJobSyncs = new Set<string>();
   private readonly scheduleSignatures = new Map<string, string>();
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+  private starvationAlerter: CapabilityStarvationAlerter | null = null;
 
   constructor(
     private readonly deps: SchedulerDependencies,
@@ -286,8 +298,42 @@ export class PgBossSchedulerEngine {
     } catch (err) {
       logger.warn({ err }, 'Failed to rehydrate scheduler recovery turns');
     }
+    await this.scanCapabilityStarvation(jobs);
     for (const jobId of this.scheduleSignatures.keys()) {
       if (!liveJobIds.has(jobId)) await this.clearDeletedJob(boss, jobId);
+    }
+  }
+
+  /**
+   * Fleet-only capability-starvation safety net, driven by the (stoppable)
+   * maintenance sync. Alerts due jobs whose required capability set no active
+   * worker satisfies — the case the requeue-without-retry-burn loop would
+   * otherwise let starve silently. No-op in workstation mode.
+   */
+  private async scanCapabilityStarvation(
+    jobs: readonly Job[],
+  ): Promise<void> {
+    if (getDeploymentMode() !== 'fleet') return;
+    try {
+      const storage = getRuntimeStorage();
+      if (!this.starvationAlerter) {
+        this.starvationAlerter = new CapabilityStarvationAlerter({
+          publishRuntimeEvent: (event) =>
+            getRuntimeEventExchange().publish(event),
+          warn: (context, message) => logger.warn(context, message),
+        });
+      }
+      await scanCapabilityStarvation(
+        {
+          skills: this.deps.getSkillRepository?.(),
+          runtimeDependencies: storage.repositories.runtimeDependencies,
+          workerRegistry: getWorkerCoordinationRepository(),
+          alerter: this.starvationAlerter,
+        },
+        jobs,
+      );
+    } catch (err) {
+      logger.warn({ err }, 'Capability-starvation scan failed');
     }
   }
 
@@ -445,6 +491,9 @@ export class PgBossSchedulerEngine {
       if (!payload?.jobId) continue;
       const current = await this.deps.opsRepository.getJobById(payload.jobId);
       if (!current) continue;
+      // Capability-matched dispatch (fleet only): an ineligible worker must not
+      // claim. Requeue its delivery and skip runJob so no retry budget burns.
+      if (await this.requeuedIneligibleDelivery(current, payload)) continue;
       const queueJid = schedulerQueueJid(current.workspace_key, current.id);
       const releaseSlot = await acquireRunSlot(current.workspace_key);
       try {
@@ -458,6 +507,99 @@ export class PgBossSchedulerEngine {
         releaseSlot?.();
       }
       this.requestSync();
+    }
+  }
+
+  /**
+   * Capability eligibility gate. Returns true when the delivery was requeued
+   * because THIS worker is ineligible for the job's required capability set —
+   * the caller then skips runJob entirely.
+   *
+   * Requeue-without-retry-burn mechanism: instead of failing the run (which would
+   * increment the job's `consecutive_failures` retry budget), this re-sends a
+   * fresh delivery for the same job with `startAfter = now + delay + jitter` and
+   * `retryLimit: 0`, then returns true so the CURRENT delivery completes normally
+   * (pg-boss marks it completed, not failed/retried). The run is never claimed,
+   * so no lease is taken, no terminal write occurs, and the retry budget is
+   * untouched. An eligible worker claims the requeued delivery later; if no
+   * worker is eligible, the periodic starvation scan pauses + alerts the job.
+   *
+   * No-op in workstation mode (single host is always locally eligible).
+   */
+  private async requeuedIneligibleDelivery(
+    job: Job,
+    payload: SchedulerDispatchPayload,
+  ): Promise<boolean> {
+    if (getDeploymentMode() !== 'fleet') return false;
+    const decision = await decideCapabilityDispatch(
+      {
+        deploymentMode: 'fleet',
+        skills: this.deps.getSkillRepository?.(),
+        runtimeDependencies:
+          getRuntimeStorage().repositories.runtimeDependencies,
+        workerAdvertisedCapabilities: async () => {
+          const workerInstanceId = currentWorkerInstanceId();
+          if (!workerInstanceId) return null;
+          const worker =
+            await getWorkerCoordinationRepository().getWorker(workerInstanceId);
+          return worker?.capabilities ?? null;
+        },
+        warn: (context, message) => logger.warn(context, message),
+      },
+      job,
+    );
+    // Persist the resolved required set durably for observability/readiness.
+    await this.persistRequiredCapabilities(job, decision.requiredCapabilities);
+    if (decision.outcome !== 'ineligible') return false;
+
+    const startAfter = new Date(currentTimeMs() + ineligibleRequeueDelayMs());
+    try {
+      await this.requireBoss().send(
+        SCHEDULER_QUEUE,
+        { ...payload, jobId: job.id },
+        {
+          id: randomUUID(),
+          startAfter,
+          group: { id: pgBossGroupId(job.workspace_key) },
+          retryLimit: 0,
+        },
+      );
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to requeue ineligible scheduler delivery',
+      );
+      return false;
+    }
+    logger.info(
+      {
+        jobId: job.id,
+        requiredCapabilities: decision.requiredCapabilities,
+        missingCapabilities: decision.missingCapabilities,
+        startAfter: startAfter.toISOString(),
+      },
+      'Requeued ineligible scheduler delivery without consuming retry budget',
+    );
+    return true;
+  }
+
+  /** Persist the resolved required set onto the job when it changed. */
+  private async persistRequiredCapabilities(
+    job: Job,
+    resolved: readonly string[],
+  ): Promise<void> {
+    if (!requiredCapabilitiesChanged(job.required_capabilities, resolved)) {
+      return;
+    }
+    try {
+      await this.deps.opsRepository.updateJob(job.id, {
+        required_capabilities: [...resolved],
+      });
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to persist resolved required capabilities',
+      );
     }
   }
 

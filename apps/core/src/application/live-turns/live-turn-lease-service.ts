@@ -282,6 +282,7 @@ export type LiveTurnRecoveryResult =
   | { outcome: 'recovered'; lease: RunLease }
   | { outcome: 'lease_unavailable' }
   | { outcome: 'no_capacity' }
+  | { outcome: 'ineligible' }
   | { outcome: 'turn_gone' };
 
 /**
@@ -289,6 +290,11 @@ export type LiveTurnRecoveryResult =
  * the run lease at a strictly higher fencing version, hold a slot under the
  * new generation, and stamp the turn 'recovered'. Late writes from the old
  * owner are fenced out by run_leases.
+ *
+ * `isEligible` is an optional capability-matched dispatch gate (fleet mode):
+ * when provided and it resolves false, this worker does NOT claim the lease and
+ * returns 'ineligible' so a worker that can run the turn recovers it instead.
+ * Absent ⇒ always eligible (workstation / single live host — unchanged).
  */
 export async function recoverLiveTurnExecution(input: {
   deps: LiveTurnLeaseDeps;
@@ -296,10 +302,14 @@ export async function recoverLiveTurnExecution(input: {
   slotCapacity: number;
   leaseTtlMs: number;
   slotTtlMs?: number;
+  isEligible?: (turn: LiveTurn) => boolean | Promise<boolean>;
   now?: string;
 }): Promise<LiveTurnRecoveryResult> {
   const { deps } = input;
   if (!input.turn.runId) return { outcome: 'turn_gone' };
+  if (input.isEligible && !(await input.isEligible(input.turn))) {
+    return { outcome: 'ineligible' };
+  }
   const lease = await deps.coordination.claimRunLease({
     runId: input.turn.runId,
     jobId: null,

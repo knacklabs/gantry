@@ -122,6 +122,17 @@ export interface WorkerRegistryRepository {
   heartbeatWorker(input: { id: string; now?: string }): Promise<boolean>;
   markStaleWorkersUnhealthy(input: { staleBefore: string }): Promise<string[]>;
   getWorker(id: string): Promise<WorkerInstance | null>;
+  /** List all registered worker instances, most-recent heartbeat first. */
+  listWorkers(): Promise<WorkerInstance[]>;
+  /**
+   * Advertised capability sets of workers whose heartbeat is fresh (within
+   * `staleBefore`). Used by fleet-wide readiness and capability-starvation
+   * checks to decide whether ANY active worker can run a required set, without
+   * a SQL set-containment query — the caller compares in application code.
+   */
+  listActiveWorkerCapabilities(input: {
+    staleBefore: string;
+  }): Promise<string[][]>;
   /**
    * Replace this worker's advertised capability id set in
    * `worker_instances.capabilities_json`. Called by the capability reconciler

@@ -20,6 +20,10 @@ export interface LiveTurnRecoveryTickResult {
   timedOut: number;
   /** Recovery stopped early because this worker has no live capacity. */
   capacityExhausted: boolean;
+  /** Turns this worker skipped because it is ineligible for their capabilities. */
+  ineligible: number;
+  /** Turns with no eligible recoverer in the fleet; a starvation alert fired. */
+  noEligibleRecoverer: number;
 }
 
 export async function runLiveTurnRecoveryTick(input: {
@@ -34,6 +38,17 @@ export async function runLiveTurnRecoveryTick(input: {
     lease: RunLease;
   }) => Promise<void>;
   onTurnTimedOut?: (turn: LiveTurn) => Promise<void> | void;
+  /**
+   * Capability-matched recovery gate (fleet mode): whether THIS worker may
+   * recover `turn`. Absent ⇒ always eligible (single live host — unchanged).
+   */
+  isEligible?: (turn: LiveTurn) => boolean | Promise<boolean>;
+  /**
+   * Invoked when a turn is recoverable but THIS worker is ineligible AND no
+   * active worker is eligible to recover it ("recoverable but no eligible
+   * recoverer"). Emits the capability-starvation alert instead of livelocking.
+   */
+  onNoEligibleRecoverer?: (turn: LiveTurn) => Promise<void> | void;
   slotCapacity: number;
   leaseTtlMs: number;
   /** How long an unleased claim may sit before it is timed out. */
@@ -56,6 +71,8 @@ export async function runLiveTurnRecoveryTick(input: {
     recovered: 0,
     timedOut: 0,
     capacityExhausted: false,
+    ineligible: 0,
+    noEligibleRecoverer: 0,
   };
   for (const turn of candidates) {
     if (
@@ -89,11 +106,24 @@ export async function runLiveTurnRecoveryTick(input: {
       turn,
       slotCapacity: input.slotCapacity,
       leaseTtlMs: input.leaseTtlMs,
+      isEligible: input.isEligible,
       now: input.now,
     });
     if (recovery.outcome === 'no_capacity') {
       result.capacityExhausted = true;
       break;
+    }
+    if (recovery.outcome === 'ineligible') {
+      // This worker cannot run the turn. If no active worker is eligible, the
+      // turn is recoverable-but-stranded ⇒ alert instead of livelocking. The
+      // fleet-wide eligibility decision is the caller's (onNoEligibleRecoverer
+      // only fires when it has confirmed no eligible recoverer exists).
+      result.ineligible += 1;
+      if (input.onNoEligibleRecoverer) {
+        await input.onNoEligibleRecoverer(turn);
+        result.noEligibleRecoverer += 1;
+      }
+      continue;
     }
     if (recovery.outcome !== 'recovered') continue;
     result.recovered += 1;

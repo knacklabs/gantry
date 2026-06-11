@@ -140,7 +140,9 @@ function registry(): {
     registerWorker: async () => {},
     heartbeatWorker: async () => true,
     markStaleWorkersUnhealthy: async () => [],
+    listActiveWorkerCapabilities: async () => [],
     getWorker: async () => null,
+    listWorkers: async () => [],
     advertiseWorkerCapabilities: async (input) => {
       advertised.push(input.capabilities);
       return true;

@@ -22,6 +22,7 @@ import type { CanonicalJobEventRecord, CanonicalJobRecord, CanonicalRunRecord, J
 import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 import {
   parseRecoveryIntent,
+  parseRequiredCapabilities,
   parseSetupState,
 } from './canonical-job-target-state.js';
 
@@ -418,6 +419,9 @@ export class CanonicalJobOpsService {
     );
     const setupState = parseSetupState(target.setupState);
     const recoveryIntent = parseRecoveryIntent(target.recoveryIntent);
+    const requiredCapabilities = parseRequiredCapabilities(
+      target.requiredCapabilities,
+    );
     return {
       id: row.id,
       name: row.name,
@@ -449,6 +453,7 @@ export class CanonicalJobOpsService {
       access_requirements: accessRequirements,
       setup_state: setupState,
       recovery_intent: recoveryIntent,
+      required_capabilities: requiredCapabilities,
     };
   }
 
@@ -485,6 +490,9 @@ export class CanonicalJobOpsService {
         accessRequirements: parseAccessRequirements(job.access_requirements),
         setupState: parseSetupState(job.setup_state),
         recoveryIntent: parseRecoveryIntent(job.recovery_intent),
+        requiredCapabilities: parseRequiredCapabilities(
+          job.required_capabilities,
+        ),
       }),
       silent: Boolean(job.silent),
       timeoutMs: job.timeout_ms ?? 300000,

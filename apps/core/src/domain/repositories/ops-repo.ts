@@ -41,6 +41,7 @@ export interface JobUpsertInput {
   access_requirements?: Job['access_requirements'];
   setup_state?: Job['setup_state'];
   recovery_intent?: Job['recovery_intent'];
+  required_capabilities?: Job['required_capabilities'];
 }
 
 export interface JobListFilters {

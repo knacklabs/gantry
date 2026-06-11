@@ -51,6 +51,24 @@ function toPendingInteraction(
   };
 }
 
+function toWorkerInstance(
+  row: typeof pgSchema.workerInstancesPostgres.$inferSelect,
+): WorkerInstance {
+  return {
+    id: row.id,
+    imageDigest: row.imageDigest,
+    bootNonce: row.bootNonce,
+    version: row.version,
+    capabilities: Array.isArray(row.capabilitiesJson)
+      ? (row.capabilitiesJson as string[])
+      : [],
+    status: row.status as WorkerInstanceStatus,
+    heartbeatAt: row.heartbeatAt,
+    lastSeenAt: row.lastSeenAt,
+    createdAt: row.createdAt,
+  };
+}
+
 export class PostgresWorkerCoordinationRepository implements WorkerCoordinationRepository {
   constructor(private readonly db: CanonicalDb) {}
 
@@ -143,6 +161,30 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
     return rows.map((row) => row.id);
   }
 
+  async listActiveWorkerCapabilities(input: {
+    staleBefore: string;
+  }): Promise<string[][]> {
+    const rows = await this.db
+      .select({
+        capabilitiesJson: pgSchema.workerInstancesPostgres.capabilitiesJson,
+      })
+      .from(pgSchema.workerInstancesPostgres)
+      .where(
+        and(
+          inArray(pgSchema.workerInstancesPostgres.status, [
+            'starting',
+            'healthy',
+          ]),
+          sql`${pgSchema.workerInstancesPostgres.heartbeatAt} > ${input.staleBefore}`,
+        ),
+      );
+    return rows.map((row) =>
+      Array.isArray(row.capabilitiesJson)
+        ? (row.capabilitiesJson as string[])
+        : [],
+    );
+  }
+
   async getWorker(id: string): Promise<WorkerInstance | null> {
     const rows = await this.db
       .select()
@@ -151,19 +193,15 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
       .limit(1);
     const row = rows[0];
     if (!row) return null;
-    return {
-      id: row.id,
-      imageDigest: row.imageDigest,
-      bootNonce: row.bootNonce,
-      version: row.version,
-      capabilities: Array.isArray(row.capabilitiesJson)
-        ? (row.capabilitiesJson as string[])
-        : [],
-      status: row.status as WorkerInstanceStatus,
-      heartbeatAt: row.heartbeatAt,
-      lastSeenAt: row.lastSeenAt,
-      createdAt: row.createdAt,
-    };
+    return toWorkerInstance(row);
+  }
+
+  async listWorkers(): Promise<WorkerInstance[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.workerInstancesPostgres)
+      .orderBy(sql`${pgSchema.workerInstancesPostgres.heartbeatAt} DESC`);
+    return rows.map(toWorkerInstance);
   }
 
   async claimRunLease(input: {

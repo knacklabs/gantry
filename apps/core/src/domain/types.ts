@@ -228,6 +228,13 @@ export interface Job {
   access_requirements?: JobAccessRequirement[];
   setup_state?: JobSetupState;
   recovery_intent?: JobRecoveryIntent | null;
+  /**
+   * Fleet-distributed capability ids the executing worker must advertise to run
+   * this job (`skill:<id>`, `toolchain:<manifestHash>`). Resolved at dispatch in
+   * fleet mode and stored durably for observability; always empty in workstation
+   * mode. Empty/absent ⇒ runnable on any worker.
+   */
+  required_capabilities?: string[];
 }
 
 export type JobRunStatus =

@@ -81,6 +81,23 @@ interface QueueDepthRow {
   count: number;
 }
 
+interface BakeStatusRow {
+  status: string;
+  count: number;
+}
+
+interface StarvedRunsRow {
+  starved: number;
+  max_age_seconds: number;
+}
+
+/**
+ * Starvation threshold for the `gantry_capability_starved_runs` gauge, in
+ * seconds. Kept as a code constant (no settings key) and aligned with the
+ * scheduler starvation scan's 5-minute default.
+ */
+const CAPABILITY_STARVATION_AGE_SECONDS = 5 * 60;
+
 /**
  * Render Prometheus text-format metrics by hand (no client dependency). Every
  * database-derived gauge is guarded so `/metrics` never errors when the DB is
@@ -147,6 +164,62 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
     }
   } catch {
     // Queue depth unavailable; skip this gauge.
+  }
+
+  try {
+    const rows = await deps.query<BakeStatusRow>(
+      `SELECT status, count(*)::int AS count
+       FROM runtime_dependencies
+       GROUP BY status`,
+    );
+    lines.push(
+      '# HELP gantry_bake_jobs Toolchain bake jobs by runtime_dependencies status.',
+    );
+    lines.push('# TYPE gantry_bake_jobs gauge');
+    for (const row of rows) {
+      lines.push(
+        `gantry_bake_jobs${renderLabels({ status: row.status })} ${row.count}`,
+      );
+    }
+  } catch {
+    // Bake state unavailable; skip this gauge.
+  }
+
+  try {
+    // Capability-starved runs: active jobs overdue past the starvation
+    // threshold whose resolved required capability set is non-empty. The set is
+    // persisted on the job target by capability-matched dispatch (fleet only);
+    // workstation jobs never carry one, so this reads 0 there. Cheap and
+    // guarded like the gauges above — a single aggregate over jobs.
+    const rows = await deps.query<StarvedRunsRow>(
+      `SELECT
+         count(*)::int AS starved,
+         coalesce(
+           max(extract(epoch FROM (now() - next_run_at))),
+           0
+         )::int AS max_age_seconds
+       FROM jobs
+       WHERE status = 'active'
+         AND next_run_at IS NOT NULL
+         AND next_run_at < now() - interval '${CAPABILITY_STARVATION_AGE_SECONDS} seconds'
+         AND jsonb_array_length(
+           coalesce(target_json -> 'requiredCapabilities', '[]'::jsonb)
+         ) > 0`,
+    );
+    const starved = rows[0]?.starved ?? 0;
+    const maxAge = starved > 0 ? (rows[0]?.max_age_seconds ?? 0) : 0;
+    gauge(
+      'gantry_capability_starved_runs',
+      'Active due jobs with a non-empty required capability set overdue past the starvation threshold.',
+      starved,
+    );
+    gauge(
+      'gantry_capability_starvation_age_seconds_max',
+      'Age in seconds of the oldest capability-starved due job (0 when none).',
+      maxAge,
+    );
+  } catch {
+    // Starvation state unavailable; skip these gauges.
   }
 
   return `${lines.join('\n')}\n`;

@@ -104,6 +104,15 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
           { state: 'active', count: 1 },
         ] as never[];
       }
+      if (sql.includes('runtime_dependencies')) {
+        return [
+          { status: 'uploaded', count: 2 },
+          { status: 'failed', count: 1 },
+        ] as never[];
+      }
+      if (sql.includes('requiredCapabilities')) {
+        return [{ starved: 3, max_age_seconds: 742 }] as never[];
+      }
       return [] as never[];
     }),
     isDraining: () => false,
@@ -126,6 +135,30 @@ describe('renderMetrics', () => {
     expect(body).toContain('gantry_queue_jobs{state="active"} 1');
   });
 
+  it('renders bake-job and capability-starvation gauges', async () => {
+    const body = await renderMetrics(makeMetricsDeps());
+    expect(body).toContain('# TYPE gantry_bake_jobs gauge');
+    expect(body).toContain('gantry_bake_jobs{status="uploaded"} 2');
+    expect(body).toContain('gantry_bake_jobs{status="failed"} 1');
+    expect(body).toContain('gantry_capability_starved_runs 3');
+    expect(body).toContain('gantry_capability_starvation_age_seconds_max 742');
+  });
+
+  it('reports zero starvation age when no runs are starved', async () => {
+    const body = await renderMetrics(
+      makeMetricsDeps({
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes('requiredCapabilities')) {
+            return [{ starved: 0, max_age_seconds: 999 }] as never[];
+          }
+          return [] as never[];
+        }),
+      }),
+    );
+    expect(body).toContain('gantry_capability_starved_runs 0');
+    expect(body).toContain('gantry_capability_starvation_age_seconds_max 0');
+  });
+
   it('exports gantry_draining=1 while draining', async () => {
     const body = await renderMetrics(
       makeMetricsDeps({ isDraining: () => true }),
@@ -146,5 +179,7 @@ describe('renderMetrics', () => {
     expect(body).toContain('gantry_draining 0');
     expect(body).not.toContain('gantry_worker_instances{');
     expect(body).not.toContain('gantry_queue_jobs{');
+    expect(body).not.toContain('gantry_bake_jobs{');
+    expect(body).not.toContain('gantry_capability_starved_runs');
   });
 });

@@ -81,6 +81,8 @@ describe('runLiveTurnRecoveryTick', () => {
       recovered: 1,
       timedOut: 0,
       capacityExhausted: false,
+      ineligible: 0,
+      noEligibleRecoverer: 0,
     });
     expect(resumed).toHaveLength(1);
     expect(resumed[0]!.lease.fencingVersion).toBe(2);
@@ -151,6 +153,8 @@ describe('runLiveTurnRecoveryTick', () => {
       recovered: 0,
       timedOut: 1,
       capacityExhausted: false,
+      ineligible: 0,
+      noEligibleRecoverer: 0,
     });
     expect(timedOut).toEqual(['turn-unleased']);
     expect(ctx.liveTurns.turns.get('turn-unleased')?.state).toBe('timed_out');
@@ -183,6 +187,8 @@ describe('runLiveTurnRecoveryTick', () => {
       recovered: 0,
       timedOut: 1,
       capacityExhausted: false,
+      ineligible: 0,
+      noEligibleRecoverer: 0,
     });
     expect(timedOut).toEqual(['turn-unleased-run']);
     expect(ctx.liveTurns.turns.get('turn-unleased-run')?.state).toBe(
@@ -251,5 +257,76 @@ describe('runLiveTurnRecoveryTick', () => {
     // admits no recovery generation, so the sweep reports exhaustion.
     expect(result.capacityExhausted).toBe(true);
     expect(result.recovered).toBe(0);
+  });
+
+  it('does not recover a turn this worker is ineligible for', async () => {
+    const ctx = makeDeps();
+    await claimCrashedTurn({
+      deps: ctx,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      conversationId: 'tg:ineligible',
+    });
+    const result = await runLiveTurnRecoveryTick({
+      deps: ctx.deps,
+      resumeRecoveredTurn: async () => {
+        throw new Error('should not resume an ineligible turn');
+      },
+      isEligible: () => false,
+      slotCapacity: 10,
+      leaseTtlMs: 60_000,
+      unleasedStaleMs: 300_000,
+    });
+    expect(result.recovered).toBe(0);
+    expect(result.ineligible).toBe(1);
+    // The lease is untouched so an eligible worker can still recover it.
+    expect(
+      ctx.coordination.leases.filter((row) => row.status === 'active'),
+    ).toEqual([]);
+  });
+
+  it('fires the no-eligible-recoverer alert when no worker can recover', async () => {
+    const ctx = makeDeps();
+    await claimCrashedTurn({
+      deps: ctx,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      conversationId: 'tg:no-recoverer',
+    });
+    const stranded: string[] = [];
+    const result = await runLiveTurnRecoveryTick({
+      deps: ctx.deps,
+      resumeRecoveredTurn: async () => undefined,
+      isEligible: () => false,
+      onNoEligibleRecoverer: async (turn) => {
+        stranded.push(turn.id);
+      },
+      slotCapacity: 10,
+      leaseTtlMs: 60_000,
+      unleasedStaleMs: 300_000,
+    });
+    expect(result.ineligible).toBe(1);
+    expect(result.noEligibleRecoverer).toBe(1);
+    expect(stranded).toEqual(['turn-1']);
+  });
+
+  it('recovers when this worker is eligible for the turn', async () => {
+    const ctx = makeDeps();
+    await claimCrashedTurn({
+      deps: ctx,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      conversationId: 'tg:eligible',
+    });
+    const result = await runLiveTurnRecoveryTick({
+      deps: ctx.deps,
+      resumeRecoveredTurn: async () => undefined,
+      isEligible: () => true,
+      slotCapacity: 10,
+      leaseTtlMs: 60_000,
+      unleasedStaleMs: 300_000,
+    });
+    expect(result.recovered).toBe(1);
+    expect(result.ineligible).toBe(0);
   });
 });
