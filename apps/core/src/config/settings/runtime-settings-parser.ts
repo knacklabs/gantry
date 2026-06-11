@@ -1025,11 +1025,9 @@ function deriveAgentBindingsFromDesiredState(input: {
 
 export function parseRuntimeSettings(raw: string): RuntimeSettings {
   const parsed = parseSimpleYamlObject(raw) as unknown;
-
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('root must be a mapping');
   }
-
   return parseRuntimeSettingsObject(parsed as Record<string, unknown>);
 }
 
