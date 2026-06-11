@@ -128,9 +128,13 @@ variable "worker_cpu_target" {
 
 # --- Ingress. ---
 variable "certificate_arn" {
-  description = "ACM certificate ARN for the ALB HTTPS listener. Empty creates an HTTP-only listener (acceptable for early rehearsal; set for production)."
+  description = "ACM certificate ARN for the ALB HTTPS listener. Required because fleet exposes Gantry control/webhook ingress."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = trimspace(var.certificate_arn) != ""
+    error_message = "certificate_arn is required for fleet deployments."
+  }
 }
 
 variable "drain_deadline_seconds" {

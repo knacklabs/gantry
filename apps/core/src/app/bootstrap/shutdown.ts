@@ -112,7 +112,10 @@ export function installShutdownHandlers(
 
     // 4. Stdin-close active live/message runs so they finish naturally, then
     //    wait for in-flight work up to the configured deadline before exit.
-    await options.queue.shutdown(options.drainDeadlineMs);
+    await runStep(
+      () => options.queue.shutdown(options.drainDeadlineMs),
+      'Failed to shutdown runtime queue during drain',
+    );
 
     // 5. Existing teardown steps, deterministic order. Scheduler, recovery
     //    sweep, and the host lease were already stopped/released above.
@@ -120,8 +123,14 @@ export function installShutdownHandlers(
       options.closeBrowserToolBackends,
       'Failed to close browser tool backends during shutdown',
     );
-    await resolved.closeAllBrowsers();
-    await options.disconnectChannels();
+    await runStep(
+      resolved.closeAllBrowsers,
+      'Failed to close active browser sessions during shutdown',
+    );
+    await runStep(
+      options.disconnectChannels,
+      'Failed to disconnect channels during shutdown',
+    );
     await runStep(
       options.closeControlServer,
       'Failed to close control server during shutdown',

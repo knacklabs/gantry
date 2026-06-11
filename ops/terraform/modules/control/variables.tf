@@ -35,9 +35,13 @@ variable "health_check_path" {
 }
 
 variable "certificate_arn" {
-  description = "ACM certificate ARN for the HTTPS listener. When empty, only an HTTP:80 listener is created (acceptable for rehearsal; production should set this)."
+  description = "ACM certificate ARN for the HTTPS listener. Required for any public Gantry control/webhook ingress."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = trimspace(var.certificate_arn) != ""
+    error_message = "certificate_arn is required; public Gantry control/webhook ingress must not run over plain HTTP."
+  }
 }
 
 variable "ingress_cidrs" {

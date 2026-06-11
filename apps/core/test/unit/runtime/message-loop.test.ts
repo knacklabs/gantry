@@ -362,6 +362,7 @@ describe('thread queue routing', () => {
         threadId: undefined,
         senderUserIds: ['sl:UADMIN', 'sl:UOTHER'],
         idempotencyKey: 'continuation:group@g.us:1,2',
+        cursorAfter: expect.any(String),
       },
     );
   });

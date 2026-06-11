@@ -80,9 +80,13 @@ variable "worker_instance_type" {
 }
 
 variable "certificate_arn" {
-  description = "ACM certificate ARN for the ALB HTTPS listener. Empty creates HTTP-only (rehearsal)."
+  description = "ACM certificate ARN for the ALB HTTPS listener. Required because support exposes Gantry control/webhook ingress."
   type        = string
-  default     = ""
+
+  validation {
+    condition     = trimspace(var.certificate_arn) != ""
+    error_message = "certificate_arn is required for support deployments."
+  }
 }
 
 variable "drain_deadline_seconds" {

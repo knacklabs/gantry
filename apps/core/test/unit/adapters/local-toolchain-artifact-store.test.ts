@@ -55,6 +55,41 @@ describe('LocalToolchainArtifactStore', () => {
     expect(packed).toBe('module.exports = 1;');
   });
 
+  it('preserves executable modes and relative symlinks', async () => {
+    const store = new LocalToolchainArtifactStore(root);
+    const stored = await store.putToolchainArtifact({
+      appId: 'app-1',
+      manifestHash: 'sha256:m-symlink',
+      files: [
+        {
+          path: 'node_modules/tool/bin/cli.js',
+          kind: 'file',
+          mode: 0o755,
+          content: Buffer.from('#!/usr/bin/env node\n'),
+        },
+        {
+          path: 'node_modules/.bin/tool',
+          kind: 'symlink',
+          linkTarget: '../tool/bin/cli.js',
+          content: Buffer.alloc(0),
+        },
+      ],
+    });
+    const activatedDir = path.join(target, 'active');
+
+    await store.materializeToolchainArtifact({
+      storageRef: stored.storageRef,
+      expectedContentHash: stored.contentHash,
+      targetDir: activatedDir,
+      quarantineDir: quarantine,
+    });
+
+    const binPath = path.join(activatedDir, 'node_modules/tool/bin/cli.js');
+    const symlinkPath = path.join(activatedDir, 'node_modules/.bin/tool');
+    expect((await fs.stat(binPath)).mode & 0o777).toBe(0o755);
+    expect(await fs.readlink(symlinkPath)).toBe('../tool/bin/cli.js');
+  });
+
   it('quarantines and throws on a content-hash mismatch without activating', async () => {
     const store = new LocalToolchainArtifactStore(root);
     const stored = await store.putToolchainArtifact({

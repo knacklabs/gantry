@@ -45,11 +45,30 @@ export type RuntimeSettingsResponse = {
             model?: string;
           }
         >;
-        capabilities: {
-          toolIds: string[];
-          skillIds: string[];
-          mcpServerIds: string[];
+        sources: {
+          skills: Array<{
+            name?: string;
+            id: string;
+            version?: string;
+            kind?: string;
+          }>;
+          mcpServers: Array<{
+            name?: string;
+            id: string;
+            version?: string;
+            kind?: string;
+          }>;
+          tools: Array<{
+            name?: string;
+            id: string;
+            version?: string;
+            kind?: string;
+          }>;
         };
+        capabilities: Array<{
+          id: string;
+          version: string;
+        }>;
         access?: {
           preset: 'full' | 'locked';
         };

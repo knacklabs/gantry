@@ -213,6 +213,14 @@ describe('executeToolchainBake', () => {
       const nm = path.join(workDir, 'node_modules', 'left-pad');
       await fs.mkdir(nm, { recursive: true });
       await fs.writeFile(path.join(nm, 'index.js'), 'module.exports = 1;\n');
+      await fs.chmod(path.join(nm, 'index.js'), 0o755);
+      await fs.mkdir(path.join(workDir, 'node_modules', '.bin'), {
+        recursive: true,
+      });
+      await fs.symlink(
+        '../left-pad/index.js',
+        path.join(workDir, 'node_modules', '.bin', 'left-pad'),
+      );
       await fs.writeFile(
         path.join(workDir, 'package-lock.json'),
         '{"lockfileVersion":3}\n',
@@ -242,6 +250,17 @@ describe('executeToolchainBake', () => {
     expect(packed).toContain('package.json');
     expect(packed).toContain('package-lock.json');
     expect(packed).toContain('node_modules/left-pad/index.js');
+    const bin = store.puts[0].files.find(
+      (file) => file.path === 'node_modules/.bin/left-pad',
+    );
+    expect(bin).toMatchObject({
+      kind: 'symlink',
+      linkTarget: '../left-pad/index.js',
+    });
+    const executable = store.puts[0].files.find(
+      (file) => file.path === 'node_modules/left-pad/index.js',
+    );
+    expect(executable?.mode).toBe(0o755);
     expect(notifier.notifications).toEqual([
       { manifestHash: 'sha256:abc', status: 'baking' },
       { manifestHash: 'sha256:abc', status: 'uploaded' },

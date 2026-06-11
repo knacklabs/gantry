@@ -28,17 +28,16 @@ three work items got its own adversarial Opus review pre-commit (all
 COMMIT-READY; fixed pre-commit: a vacuous boot-gate assertion in the chaos test,
 the file-size budget breach, lockfile churn, and an overstated "lossless"
 comment — the round-trip escaping limit is now a TODOS.md row). Hard gates at
-`a9fc3c03`: `npm run build` clean; `npm test` 3581/3582 (see Pending #1 below —
-same single pre-existing failure as the prior baseline);
+post-review fixes: `npm run build` clean; `npm test` 3611/3611 unit and
+53/53 integration tests passed;
 `python3 .codex/scripts/verify.py` fails in `check_architecture` with output
 byte-identical to base `975bb6c1` (pre-existing boundary debt + file budgets,
 none introduced by this branch's continuation work), which in turn makes
 `validate_artifacts.py` fail on `verify.json ok:false`. Postgres integration
 suites + both new tests proven against a disposable pgvector container on this
-machine too. A final whole-diff codex closeout review (autoreview helper) was
-attempted but the codex CLI on this workstation hangs at dyld load (stuck
-macOS Gatekeeper quarantine assessment on the Homebrew-cask binary); the user
-opted to skip it — per-change adversarial reviews above are the review record.
+machine too. Final whole-diff closeout review with the autoreview helper is
+clean after the fixes in section 7: no remaining introduced correctness,
+security, or regression blockers.
 
 User decisions binding on all future work (see also memory/ADRs): no skill
 versioning; YAML is ONLY the personal/workstation+CLI-file surface; no legacy
@@ -48,7 +47,7 @@ first; single autoscaled pool; Go toolchain stays out of the image.
 ## PENDING (in priority order)
 
 ### 1. Pre-existing BASE-BRANCH defects (block merge gates; owned by `feature/mworker-01-safe-multi-worker-execution`, NOT this branch — both verified to fail with this branch's work stashed)
-- `apps/core/test/unit/runtime/message-loop.test.ts` "passes non-self sender ids with continuation batches" — fails at `bdf86d2f`; blocks `npm test`.
+- `apps/core/test/unit/runtime/message-loop.test.ts` "passes non-self sender ids with continuation batches" — fixed after closeout review by aligning the test with the cursor-carrying continuation contract.
 - `apps/core/test/integration/live-horizontal-execution.integration.test.ts` "delivers prompt resolutions to the recovered owner after adapter restart" — fails at base under Postgres; possible real durability bug (`interaction_resolved` command not enqueued after adapter restart + takeover). Ticket-worthy.
 
 ### 2. Architecture-check debt (owned by THIS branch's Phases 2–3, pre-dates the continuation session)
@@ -80,12 +79,21 @@ snapshot/restore becomes necessary with it.
 ### 6. Merge path
 PR `feature/deployment-modes` → likely stacked on `feature/mworker-01-...`
 (this branch contains it). Repo hard gates (AGENTS.md): `npm run build` (clean),
-`npm test` (blocked by Pending #1), `python3 .codex/scripts/verify.py` and
+`npm test` (clean after closeout fixes), `python3 .codex/scripts/verify.py` and
 `python3 .codex/scripts/validate_artifacts.py --allow-missing-run` (both
 blocked by Pending #2). The repo's Codex-factory artifacts (`.factory/*`,
 gitignored machine-local) were NOT produced via the factory flow — this work
 ran as a reviewed-subagent implementation; produce them or waive per team
 policy.
+
+### 7. Closeout review fixes landed after this handoff
+- Scheduler pg-boss workers no longer spin indefinitely while waiting for a saturated cluster run slot; blocked deliveries are requeued without consuming job retry budget.
+- Ineligible scheduler deliveries now fail closed if requeue cannot be persisted.
+- Fleet Terraform now requires TLS for public control/webhook ingress and redirects HTTP to HTTPS only.
+- Worker bootstrap writes the env file at `0600` before resolving Secrets Manager values and rejects newline-bearing env-file secrets.
+- Toolchain artifacts preserve executable modes and relative symlinks so npm `.bin` entries survive bake/materialize; S3 artifact stores batch prefix deletes and fail on per-key delete errors.
+- Shutdown drain no longer aborts when queue/browser/channel teardown rejects.
+- SDK settings response types were realigned with the public contracts `sources` + `capabilities[]` shape.
 
 ## Context locations
 - Repo-resident truth: ADRs `docs/decisions/2026-06-11-*.md`; `docs/architecture/deployment-profiles.md` (mode matrix, worker config, scaling guide); `docs/deployment/aws-terraform.md`; `TODOS.md`.

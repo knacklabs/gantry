@@ -26,6 +26,17 @@ export async function acquireRunSlot(
   workspaceKey: string,
   maxParallelRuns = DEFAULT_MAX_PARALLEL_RUNS_PER_GROUP,
 ): Promise<() => void> {
+  for (;;) {
+    const release = await tryAcquireRunSlot(workspaceKey, maxParallelRuns);
+    if (release) return release;
+    await sleep(RUN_SLOT_RETRY_DELAY_MS);
+  }
+}
+
+export async function tryAcquireRunSlot(
+  workspaceKey: string,
+  maxParallelRuns = DEFAULT_MAX_PARALLEL_RUNS_PER_GROUP,
+): Promise<(() => void) | null> {
   const active = backend;
   if (!active) {
     throw new Error(
@@ -34,23 +45,28 @@ export async function acquireRunSlot(
   }
   const capacity = Math.max(1, Math.floor(maxParallelRuns));
   const holderId = randomUUID();
-  for (;;) {
-    const acquired = await active.repository.acquireRunSlot({
-      slotKey: workspaceKey,
-      holderId,
-      capacity,
-      ttlMs: RUN_SLOT_TTL_MS,
-      workerInstanceId: active.workerInstanceId,
-    });
-    if (acquired) break;
-    await sleep(RUN_SLOT_RETRY_DELAY_MS);
-  }
+  const acquired = await active.repository.acquireRunSlot({
+    slotKey: workspaceKey,
+    holderId,
+    capacity,
+    ttlMs: RUN_SLOT_TTL_MS,
+    workerInstanceId: active.workerInstanceId,
+  });
+  if (!acquired) return null;
   const renewTimer = setInterval(() => {
     void active.repository
       .renewRunSlot({
         slotKey: workspaceKey,
         holderId,
         ttlMs: RUN_SLOT_TTL_MS,
+      })
+      .then((renewed) => {
+        if (!renewed) {
+          active.warn?.(
+            { workspaceKey, holderId },
+            'Run slot renewal failed because the slot is no longer held',
+          );
+        }
       })
       .catch((err) =>
         active.warn?.({ err, workspaceKey }, 'Failed to renew run slot'),

@@ -5,7 +5,10 @@ export { ArtifactIntegrityError };
 export interface ToolchainArtifactFile {
   /** POSIX-relative path inside the toolchain (e.g. `node_modules/left-pad/index.js`). */
   path: string;
+  kind?: 'file' | 'symlink';
   content: Uint8Array;
+  mode?: number;
+  linkTarget?: string;
 }
 
 export interface StoredToolchainArtifact {

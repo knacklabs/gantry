@@ -26,11 +26,18 @@ docker pull "$IMAGE"
 #     references resolved at boot (see fetch below); never baked into the image. ---
 ENV_FILE=/etc/gantry/worker.env
 mkdir -p /etc/gantry
+install -m 600 /dev/null "$ENV_FILE"
 
 # Resolve runtime secrets from Secrets Manager into the env file (0600). The
 # instance role grants read on exactly the referenced ARNs (secrets module).
 %{ for ref in runtime_secret_env_refs ~}
 VAL="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${ref.secret_arn}" --query SecretString --output text)"
+case "$VAL" in
+  *$'\n'*)
+    echo "Secret ${ref.env_name} contains a newline and cannot be represented in Docker env-file format" >&2
+    exit 1
+    ;;
+esac
 printf '%s=%s\n' "${ref.env_name}" "$VAL" >> "$ENV_FILE"
 %{ endfor ~}
 
@@ -44,7 +51,6 @@ GANTRY_SECURITY_POSTURE=production
 GANTRY_CONTROL_HOST=0.0.0.0
 GANTRY_CONTROL_PORT=$CONTROL_PORT
 EOF
-chmod 600 "$ENV_FILE"
 
 docker run -d \
   --name "$CONTAINER_NAME" \

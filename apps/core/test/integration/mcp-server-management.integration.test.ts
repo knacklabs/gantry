@@ -188,6 +188,11 @@ vi.mock('@core/config/index.js', () => ({
     source: 'system default',
   })),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+  getRuntimeSettingsForConfig: vi.fn(() => ({
+    agents: {
+      'agent:one': { accessPreset: 'full' },
+    },
+  })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
   configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));

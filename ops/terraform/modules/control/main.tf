@@ -25,7 +25,7 @@ resource "aws_security_group_rule" "alb_ingress_https" {
 }
 
 resource "aws_security_group_rule" "alb_ingress_http" {
-  # HTTP listener exists either as the only listener (no cert) or to redirect.
+  # HTTP listener only redirects to HTTPS; public forwarding requires TLS.
   type              = "ingress"
   from_port         = 80
   to_port           = 80
@@ -117,49 +117,19 @@ resource "aws_lb_listener_rule" "https_public_paths" {
   }
 }
 
-# --- HTTP listener. With a cert, redirect to HTTPS. Without, it is the only
-#     listener and forwards public paths directly (rehearsal posture). ---
+# --- HTTP listener redirects to HTTPS. Public path forwarding is HTTPS-only. ---
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
   protocol          = "HTTP"
 
   default_action {
-    type = var.certificate_arn != "" ? "redirect" : "fixed-response"
+    type = "redirect"
 
-    dynamic "redirect" {
-      for_each = var.certificate_arn != "" ? [1] : []
-      content {
-        port        = "443"
-        protocol    = "HTTPS"
-        status_code = "HTTP_301"
-      }
-    }
-
-    dynamic "fixed_response" {
-      for_each = var.certificate_arn == "" ? [1] : []
-      content {
-        content_type = "text/plain"
-        message_body = "Not Found"
-        status_code  = "404"
-      }
-    }
-  }
-}
-
-resource "aws_lb_listener_rule" "http_public_paths" {
-  count        = var.certificate_arn == "" ? 1 : 0
-  listener_arn = aws_lb_listener.http.arn
-  priority     = 100
-
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.workers.arn
-  }
-
-  condition {
-    path_pattern {
-      values = var.public_path_patterns
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
     }
   }
 }

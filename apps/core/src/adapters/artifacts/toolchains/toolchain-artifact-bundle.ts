@@ -17,7 +17,10 @@ export function normalizeToolchainFiles(
   return files
     .map((file) => ({
       path: normalizeToolchainPath(file.path),
+      kind: file.kind ?? 'file',
       content: new Uint8Array(file.content),
+      mode: (file.kind ?? 'file') === 'file' ? (file.mode ?? 0o600) : undefined,
+      linkTarget: file.linkTarget,
     }))
     .sort((left, right) => left.path.localeCompare(right.path));
 }
@@ -27,10 +30,38 @@ export function hashToolchainFiles(files: ToolchainArtifactFile[]): string {
   for (const file of normalizeToolchainFiles(files)) {
     hash.update(file.path);
     hash.update('\0');
+    hash.update(file.kind ?? 'file');
+    hash.update('\0');
+    hash.update(String(file.mode ?? ''));
+    hash.update('\0');
+    hash.update(file.linkTarget ?? '');
+    hash.update('\0');
     hash.update(file.content);
     hash.update('\0');
   }
   return `sha256:${hash.digest('hex')}`;
+}
+
+export function resolveToolchainSymlinkTarget(
+  root: string,
+  linkPath: string,
+  linkTarget: string,
+): string {
+  if (
+    !linkTarget ||
+    linkTarget.includes('\0') ||
+    path.posix.isAbsolute(linkTarget) ||
+    /^[A-Za-z]:\//.test(linkTarget)
+  ) {
+    throw new Error(`Invalid toolchain artifact symlink target: ${linkTarget}`);
+  }
+  const rootPath = path.resolve(root);
+  const linkAbsolutePath = resolveToolchainAssetPath(rootPath, linkPath);
+  const target = path.resolve(path.dirname(linkAbsolutePath), linkTarget);
+  if (target !== rootPath && !target.startsWith(`${rootPath}${path.sep}`)) {
+    throw new Error(`Invalid toolchain artifact symlink target: ${linkTarget}`);
+  }
+  return linkTarget;
 }
 
 export function normalizeToolchainPath(value: string): string {

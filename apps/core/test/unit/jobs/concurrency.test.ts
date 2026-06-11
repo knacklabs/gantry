@@ -4,6 +4,7 @@ import {
   acquireRunSlot,
   configureRunSlotBackend,
   resetSchedulerRunSlots,
+  tryAcquireRunSlot,
 } from '@core/jobs/concurrency.js';
 import type { RunSlotRepository } from '@core/domain/ports/worker-coordination.js';
 
@@ -82,5 +83,39 @@ describe('scheduler run slots', () => {
 
     releaseSecond();
     releaseFirst();
+  });
+
+  it('returns null without polling when a slot is unavailable', async () => {
+    const repository = makeFakeRunSlotRepository();
+    const acquireSpy = vi.spyOn(repository, 'acquireRunSlot');
+    configureRunSlotBackend({ repository, workerInstanceId: 'worker-test' });
+    const releaseFirst = await acquireRunSlot('agent-a');
+
+    const second = await tryAcquireRunSlot('agent-a');
+
+    expect(second).toBeNull();
+    expect(acquireSpy).toHaveBeenCalledTimes(2);
+    releaseFirst();
+  });
+
+  it('warns when renewal discovers a reclaimed slot', async () => {
+    vi.useFakeTimers();
+    const repository = makeFakeRunSlotRepository();
+    const warn = vi.fn();
+    configureRunSlotBackend({
+      repository,
+      workerInstanceId: 'worker-test',
+      warn,
+    });
+    const release = await acquireRunSlot('agent-a');
+    repository.held.get('agent-a')?.clear();
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceKey: 'agent-a' }),
+      'Run slot renewal failed because the slot is no longer held',
+    );
+    release();
   });
 });

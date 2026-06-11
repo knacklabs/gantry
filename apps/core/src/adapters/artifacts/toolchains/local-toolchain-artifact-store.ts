@@ -16,6 +16,7 @@ import {
   normalizeToolchainFiles,
   normalizeToolchainStorageRef,
   resolveToolchainAssetPath,
+  resolveToolchainSymlinkTarget,
   toolchainStorageRefFor,
 } from './toolchain-artifact-bundle.js';
 
@@ -46,8 +47,19 @@ export class LocalToolchainArtifactStore
     for (const file of files) {
       const filePath = resolveToolchainAssetPath(target, file.path);
       await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+      if ((file.kind ?? 'file') === 'symlink') {
+        await fs.symlink(
+          resolveToolchainSymlinkTarget(
+            target,
+            file.path,
+            file.linkTarget ?? '',
+          ),
+          filePath,
+        );
+        continue;
+      }
       const content = Buffer.from(file.content);
-      await fs.writeFile(filePath, content, { mode: 0o600 });
+      await writeToolchainFile(filePath, content, file.mode);
       sizeBytes += content.byteLength;
     }
     return {
@@ -78,8 +90,19 @@ export class LocalToolchainArtifactStore
           recursive: true,
           mode: 0o700,
         });
+        if ((file.kind ?? 'file') === 'symlink') {
+          await fs.symlink(
+            resolveToolchainSymlinkTarget(
+              tempDir,
+              file.path,
+              file.linkTarget ?? '',
+            ),
+            filePath,
+          );
+          continue;
+        }
         const content = Buffer.from(file.content);
-        await fs.writeFile(filePath, content, { mode: 0o600 });
+        await writeToolchainFile(filePath, content, file.mode);
         sizeBytes += content.byteLength;
       }
       if (actualContentHash !== input.expectedContentHash) {
@@ -137,13 +160,37 @@ async function quarantine(
   return quarantinePath;
 }
 
+async function writeToolchainFile(
+  filePath: string,
+  content: Buffer,
+  mode: number | undefined,
+): Promise<void> {
+  const fileMode = mode ?? 0o600;
+  await fs.writeFile(filePath, content, { mode: fileMode });
+  await fs.chmod(filePath, fileMode);
+}
+
 async function readToolchainFiles(
   root: string,
 ): Promise<ToolchainArtifactFile[]> {
   const rootPath = path.resolve(root);
   const files: ToolchainArtifactFile[] = [];
 
-  async function visit(directory: string): Promise<void> {
+  async function recordSymlink(
+    relative: string,
+    entryPath: string,
+  ): Promise<void> {
+    const linkTarget = await fs.readlink(entryPath);
+    resolveToolchainSymlinkTarget(rootPath, relative, linkTarget);
+    files.push({
+      path: relative,
+      kind: 'symlink',
+      linkTarget,
+      content: Buffer.alloc(0),
+    });
+  }
+
+  async function visitWithSymlinks(directory: string): Promise<void> {
     const entries = await fs.readdir(directory, { withFileTypes: true });
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       const entryPath = path.join(directory, entry.name);
@@ -152,22 +199,24 @@ async function readToolchainFiles(
         .split(path.sep)
         .join('/');
       if (entry.isSymbolicLink()) {
-        throw new Error(
-          `Toolchain artifact cannot contain symlinks: ${relative}`,
-        );
+        await recordSymlink(relative, entryPath);
+        continue;
       }
       if (entry.isDirectory()) {
-        await visit(entryPath);
+        await visitWithSymlinks(entryPath);
         continue;
       }
       if (!entry.isFile()) continue;
+      const stat = await fs.stat(entryPath);
       files.push({
         path: relative,
+        kind: 'file',
+        mode: stat.mode & 0o777,
         content: await fs.readFile(entryPath),
       });
     }
   }
 
-  await visit(rootPath);
+  await visitWithSymlinks(rootPath);
   return files;
 }

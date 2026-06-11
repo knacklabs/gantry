@@ -212,6 +212,52 @@ describe('installShutdownHandlers', () => {
     expect(exit).toHaveBeenCalledWith(0);
   });
 
+  it('still exits when queue or channel shutdown rejects', async () => {
+    const handlers = new Map<'SIGTERM' | 'SIGINT', () => void>();
+    const warn = vi.fn();
+    const exit = vi.fn(() => undefined as never);
+
+    installShutdownHandlers(
+      {
+        queue: {
+          shutdown: vi.fn(async () => {
+            throw new Error('queue boom');
+          }),
+        },
+        drainDeadlineMs: 120000,
+        disconnectChannels: vi.fn(async () => {
+          throw new Error('channel boom');
+        }),
+      },
+      {
+        onSignal: (signal, handler) => handlers.set(signal, handler),
+        markDraining: vi.fn(),
+        closeAllBrowsers: vi.fn(async () => {
+          throw new Error('browser boom');
+        }),
+        logger: { info: vi.fn(), warn },
+        exit: exit as never,
+      },
+    );
+
+    handlers.get('SIGTERM')?.();
+    await flushPromises();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Failed to shutdown runtime queue during drain',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Failed to close active browser sessions during shutdown',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      'Failed to disconnect channels during shutdown',
+    );
+    expect(exit).toHaveBeenCalledWith(0);
+  });
+
   it('drains exactly once when SIGTERM and SIGINT both fire', async () => {
     const handlers = new Map<'SIGTERM' | 'SIGINT', () => void>();
     const queueShutdown = vi.fn(async () => {});

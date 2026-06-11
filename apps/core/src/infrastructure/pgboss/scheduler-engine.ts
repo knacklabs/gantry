@@ -17,7 +17,7 @@ import {
   getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../../adapters/storage/postgres/runtime-store.js';
-import { acquireRunSlot } from '../../jobs/concurrency.js';
+import { tryAcquireRunSlot } from '../../jobs/concurrency.js';
 import {
   decideCapabilityDispatch,
   ineligibleRequeueDelayMs,
@@ -525,7 +525,11 @@ export class PgBossSchedulerEngine {
       // claim. Requeue its delivery and skip runJob so no retry budget burns.
       if (await this.requeuedIneligibleDelivery(current, payload)) continue;
       const queueJid = schedulerQueueJid(current.workspace_key, current.id);
-      const releaseSlot = await acquireRunSlot(current.workspace_key);
+      const releaseSlot = await tryAcquireRunSlot(current.workspace_key);
+      if (!releaseSlot) {
+        await this.requeueRunSlotBlockedDelivery(current, payload);
+        continue;
+      }
       try {
         await this.callbacks.runJob(current, this.deps, queueJid, payload);
       } catch (err) {
@@ -537,6 +541,34 @@ export class PgBossSchedulerEngine {
         releaseSlot?.();
       }
       this.requestSync();
+    }
+  }
+
+  private async requeueRunSlotBlockedDelivery(
+    job: Job,
+    payload: SchedulerDispatchPayload,
+  ): Promise<void> {
+    const startAfter = new Date(currentTimeMs() + runSlotRequeueDelayMs());
+    try {
+      await this.requireBoss().send(
+        SCHEDULER_QUEUE,
+        { ...payload, jobId: job.id },
+        {
+          id: randomUUID(),
+          startAfter,
+          group: { id: pgBossGroupId(job.workspace_key) },
+          retryLimit: 0,
+        },
+      );
+      logger.info(
+        { jobId: job.id, startAfter: startAfter.toISOString() },
+        'Requeued scheduler delivery while run slot capacity is full',
+      );
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to requeue scheduler delivery blocked on run slot capacity',
+      );
     }
   }
 
@@ -597,9 +629,9 @@ export class PgBossSchedulerEngine {
     } catch (err) {
       logger.warn(
         { err, jobId: job.id },
-        'Failed to requeue ineligible scheduler delivery',
+        'Failed to requeue ineligible scheduler delivery; skipping execution on this worker',
       );
-      return false;
+      return true;
     }
     logger.info(
       {
@@ -637,4 +669,8 @@ export class PgBossSchedulerEngine {
     if (!this.boss) throw new Error('pg-boss scheduler is not running');
     return this.boss;
   }
+}
+
+function runSlotRequeueDelayMs(random: () => number = Math.random): number {
+  return 1_000 + Math.floor(random() * 4_000);
 }

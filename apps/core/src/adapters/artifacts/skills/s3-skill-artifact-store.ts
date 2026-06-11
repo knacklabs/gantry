@@ -31,6 +31,7 @@ import {
  * the rebuilt bundle excludes it.
  */
 const ARTIFACT_MANIFEST_KEY = '.gantry-artifact.json';
+const S3_DELETE_OBJECTS_MAX_KEYS = 1000;
 
 interface ArtifactManifest {
   contentHash: string;
@@ -196,12 +197,24 @@ export class S3SkillArtifactStore
     const prefix = `${normalizeStorageRef(storageRef)}/`;
     const keys = await this.listPrefix(prefix);
     if (keys.length === 0) return;
-    await this.client.send(
-      new DeleteObjectsCommand({
-        Bucket: this.bucket,
-        Delete: { Objects: keys.map((Key) => ({ Key })) },
-      }),
-    );
+    for (
+      let start = 0;
+      start < keys.length;
+      start += S3_DELETE_OBJECTS_MAX_KEYS
+    ) {
+      const chunk = keys.slice(start, start + S3_DELETE_OBJECTS_MAX_KEYS);
+      const response = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: chunk.map((Key) => ({ Key })) },
+        }),
+      );
+      if (response.Errors && response.Errors.length > 0) {
+        throw new Error(
+          `Failed to delete ${response.Errors.length} S3 skill artifact object(s) under ${storageRef}`,
+        );
+      }
+    }
   }
 
   private async listPrefix(prefix: string): Promise<string[]> {

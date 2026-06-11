@@ -624,7 +624,7 @@ export async function runJob(
         terminalRunRecorded = true;
       },
     });
-    if (!terminalRunRecorded) {
+    if (!terminalRunRecorded && !deletionGuard.deletedDuringRun) {
       const finalizeRunLease = deps.opsRepository.finalizeJobRunLease;
       if (!finalizeRunLease) {
         throw new Error(

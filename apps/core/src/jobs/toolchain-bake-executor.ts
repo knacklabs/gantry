@@ -268,14 +268,29 @@ async function collectDir(
   }
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    if (entry.isSymbolicLink()) continue;
+    const relative = path.relative(root, full).split(path.sep).join('/');
+    if (entry.isSymbolicLink()) {
+      const linkTarget = await fs.readlink(full);
+      out.push({
+        path: relative,
+        kind: 'symlink',
+        linkTarget,
+        content: Buffer.alloc(0),
+      });
+      continue;
+    }
     if (entry.isDirectory()) {
       await collectDir(root, full, out);
       continue;
     }
     if (!entry.isFile()) continue;
-    const relative = path.relative(root, full).split(path.sep).join('/');
-    out.push({ path: relative, content: await fs.readFile(full) });
+    const stat = await fs.stat(full);
+    out.push({
+      path: relative,
+      kind: 'file',
+      mode: stat.mode & 0o777,
+      content: await fs.readFile(full),
+    });
   }
 }
 
