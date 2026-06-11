@@ -241,10 +241,19 @@ export function capabilityStatusText(): string {
           '- Use admin_permission_list (read-only, no grant needed) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',
           '- Treat skill commands, MCP tool names, local CLI commands, browser internals, and network hosts as review/audit metadata unless a reviewed capability grants the action.',
         ]),
-    '',
-    'Scheduler monitoring:',
-    '- Use scheduler_get_job, scheduler_list_runs, scheduler_list_events, and scheduler_wait_for_events to inspect or wait for jobs.',
-    '- Never request Bash just to sleep, wait, poll, or monitor scheduler job completion.',
+    // Scheduler guidance only when scheduler tools are actually mounted; the
+    // locked fail-closed tool set excludes them, so locked agents are never
+    // told about tools they cannot call.
+    ...(normalActionToolNames.some((toolName) =>
+      toolName.startsWith('scheduler_'),
+    )
+      ? [
+          '',
+          'Scheduler monitoring:',
+          '- Use scheduler_get_job, scheduler_list_runs, scheduler_list_events, and scheduler_wait_for_events to inspect or wait for jobs.',
+          '- Never request Bash just to sleep, wait, poll, or monitor scheduler job completion.',
+        ]
+      : []),
     ...(lockedAccessPreset
       ? []
       : [

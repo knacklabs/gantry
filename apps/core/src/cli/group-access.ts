@@ -274,6 +274,19 @@ async function runAccessPreset(
       p.log.info(
         'Locked agents cannot request skills, MCP servers, access, settings, or admin tools; they run only with pre-provisioned capabilities.',
       );
+      // Host-authored instruction blocks follow the preset automatically, but
+      // SOUL.md/AGENTS.md are operator-owned content and stay verbatim across
+      // the flip. They must be reviewed by the operator at flip time.
+      const workspaceDir = path.join(runtimeHome, 'agents', folder);
+      p.log.warn(
+        [
+          'Operator-authored profile files are kept verbatim and may still describe capability-request or approval flows written while this agent was full. Review them now:',
+          `  - ${path.join(workspaceDir, 'SOUL.md')}`,
+          `  - ${path.join(workspaceDir, 'AGENTS.md')}`,
+          'Remove any guidance about requesting capabilities, skills, MCP servers, settings, or approvals; locked agents must not know that machinery exists.',
+          `To replace AGENTS.md with a reviewed locked profile, run: gantry agent profile set ${folder} agents --file <path|->`,
+        ].join('\n'),
+      );
     }
     return 0;
   } catch (err) {

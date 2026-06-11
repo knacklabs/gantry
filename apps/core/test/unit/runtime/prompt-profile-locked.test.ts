@@ -100,7 +100,9 @@ describe('locked prompt assembly', () => {
     for (const banned of BANNED_LOCKED_STRINGS) {
       expect(locked).not.toContain(banned);
     }
-    expect(locked).toContain('scheduler_upsert_job');
+    // Scheduler tools are not mounted for locked agents, so the locked default
+    // profile must not describe them.
+    expect(locked).not.toContain('scheduler_');
     expect(locked).toContain(
       'Work only with the tools and knowledge currently available in this session.',
     );

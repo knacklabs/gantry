@@ -679,9 +679,10 @@ export function defaultAgentsPromptMarkdown(
   const howToLines =
     accessPreset === 'locked'
       ? [
+          // No scheduler line: scheduler_* tools are not mounted for locked
+          // agents, so the default profile must not describe them.
           'How you get things done:',
           '- Use send_message for progress and ask_user_question for structured choices.',
-          '- Manage recurring work with the scheduler_* tools (for example scheduler_upsert_job, scheduler_run_now, scheduler_list_jobs).',
           '- Work only with the tools and knowledge currently available in this session.',
           '',
           'When something blocks you:',

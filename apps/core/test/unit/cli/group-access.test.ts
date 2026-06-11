@@ -278,6 +278,69 @@ describe('agent access preset CLI (runAccess preset)', () => {
     expect(written.settings.agents.support_agent.accessPreset).toBe('locked');
   });
 
+  it('warns about operator-authored profile files after flipping to locked', async () => {
+    const log = {
+      error: vi.fn(),
+      info: vi.fn(),
+      success: vi.fn(),
+      warn: vi.fn(),
+    };
+    vi.doMock('@clack/prompts', () => ({ log, note: vi.fn() }));
+    vi.doMock('@core/cli/control-api.js', () => ({
+      controlApiRequest: vi.fn(),
+    }));
+    const writeDesiredRuntimeSettings = vi.fn(async () => ({
+      reconciled: true,
+    }));
+    mockSettingsWriters(lockedAgentSettings(), writeDesiredRuntimeSettings);
+    const { runAccess } = await import('@core/cli/group-access.js');
+
+    expect(
+      await runAccess('/tmp/gantry-access-test', [
+        'preset',
+        'support_agent',
+        'locked',
+      ]),
+    ).toBe(0);
+
+    const warning = String(log.warn.mock.calls[0]?.[0] ?? '');
+    expect(warning).toContain('Operator-authored profile files');
+    expect(warning).toMatch(/support_agent[/\\]SOUL\.md/);
+    expect(warning).toMatch(/support_agent[/\\]AGENTS\.md/);
+    expect(warning).toContain(
+      'gantry agent profile set support_agent agents --file <path|->',
+    );
+  });
+
+  it('does not print the profile review warning when flipping to full', async () => {
+    const log = {
+      error: vi.fn(),
+      info: vi.fn(),
+      success: vi.fn(),
+      warn: vi.fn(),
+    };
+    vi.doMock('@clack/prompts', () => ({ log, note: vi.fn() }));
+    vi.doMock('@core/cli/control-api.js', () => ({
+      controlApiRequest: vi.fn(),
+    }));
+    const writeDesiredRuntimeSettings = vi.fn(async () => ({
+      reconciled: true,
+    }));
+    const settings = lockedAgentSettings();
+    settings.agents.support_agent.accessPreset = 'locked' as never;
+    mockSettingsWriters(settings, writeDesiredRuntimeSettings);
+    const { runAccess } = await import('@core/cli/group-access.js');
+
+    expect(
+      await runAccess('/tmp/gantry-access-test', [
+        'preset',
+        'support_agent',
+        'full',
+      ]),
+    ).toBe(0);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
   it('rejects an invalid preset value without writing', async () => {
     mockClack();
     vi.doMock('@core/cli/control-api.js', () => ({

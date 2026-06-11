@@ -88,6 +88,19 @@ existing model**, not a parallel authority system.
 - Co-tenant vs isolated is an infrastructure choice (ADR-5), reversible by
   re-applying Terraform against the chosen var-file.
 
+## Operator-Authored Profile Content
+
+- Host-authored instruction blocks (runtime rules, persona, capability and
+  operating guidance, runner tool descriptions, and the seeded default
+  `AGENTS.md`) are projections of the resolved access policy and follow the
+  preset automatically.
+- `SOUL.md` and `AGENTS.md` are operator-owned content. The runtime never
+  rewrites or string-strips them; a `full` to `locked` flip keeps them
+  verbatim. The `gantry agent access preset <agent> locked` verb prints the
+  profile file paths and instructs the operator to review them for
+  capability/approval-flow guidance at flip time, with
+  `gantry agent profile set <agent> agents` as the replacement path.
+
 ## See Also
 
 - [2026-06-11 — Deployment Modes](./2026-06-11-deployment-modes.md)

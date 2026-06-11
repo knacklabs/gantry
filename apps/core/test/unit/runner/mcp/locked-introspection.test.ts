@@ -67,11 +67,15 @@ describe('capabilityStatusText access projection', () => {
     // Browser is not provisioned, so the section is omitted entirely.
     expect(text).not.toContain('Browser capability:');
 
+    // Scheduler tools are not mounted for locked agents, so their guidance
+    // block must not appear either.
+    expect(text).not.toContain('Scheduler monitoring');
+    expect(text).not.toContain('scheduler_');
+
     // Provisioned view stays intact.
     expect(text).toContain('- available: mcp__gantry__send_message');
     expect(text).toContain('- ready: skill:refunds');
     expect(text).toContain('- ready: mcp:crm');
-    expect(text).toContain('Scheduler monitoring:');
   });
 
   it('full agents keep the requestable access model and Tool Access view', async () => {
@@ -93,6 +97,7 @@ describe('capabilityStatusText access projection', () => {
     expect(text).toContain('- requestable: mcp__gantry__register_agent');
     expect(text).toContain('- available: mcp__gantry__service_restart');
     expect(text).toContain('Tool Access:');
+    expect(text).toContain('Scheduler monitoring:');
   });
 });
 
