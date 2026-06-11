@@ -25,6 +25,8 @@ export interface AgentRunnerInput {
   allowedTools?: string[];
   /** Per-agent gantry MCP tool keep-list (settings `tool_surface.gantry_mcp`). */
   gantryMcpToolSurface?: string[];
+  /** Per-agent native SDK tool keep-list (settings `tool_surface.native`). */
+  nativeToolSurface?: string[];
   toolAccessRequirements?: string[];
   attachedSkillSourceIds?: string[];
   selectedSkillDisplays?: string[];

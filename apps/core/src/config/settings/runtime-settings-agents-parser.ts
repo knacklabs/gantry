@@ -21,6 +21,7 @@ import type {
 } from './runtime-settings-types.js';
 import { isRestrictableGantryMcpToolName } from '../../shared/gantry-mcp-tool-catalog.js';
 import { isAdminMcpToolName } from '../../shared/admin-mcp-tools.js';
+import { isAvailableNativeSdkTool } from '../../shared/native-sdk-tool-names.js';
 
 function parseStringValue(
   raw: unknown,
@@ -359,38 +360,63 @@ function parseConfiguredAgentToolSurface(
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'gantry_mcp') {
+    if (key !== 'gantry_mcp' && key !== 'native') {
       throw new Error(
-        `${pathPrefix}.${key} is not supported. Configure gantry_mcp (keep-list of gantry MCP tool names).`,
+        `${pathPrefix}.${key} is not supported. Configure gantry_mcp (gantry MCP tool keep-list) and/or native (native SDK tool keep-list).`,
       );
     }
   }
-  if (map.gantry_mcp === undefined) return undefined;
-  if (!Array.isArray(map.gantry_mcp)) {
-    throw new Error(
-      `${pathPrefix}.gantry_mcp must be a list of gantry MCP tool names`,
-    );
-  }
-  const names = new Set<string>();
-  for (const [index, item] of map.gantry_mcp.entries()) {
-    const itemPath = `${pathPrefix}.gantry_mcp[${index}]`;
-    if (typeof item !== 'string' || item.trim().length === 0) {
-      throw new Error(`${itemPath} must be a non-empty string`);
-    }
-    const name = item.trim();
-    if (isAdminMcpToolName(name)) {
+  const surface: RuntimeConfiguredAgentToolSurface = {};
+  if (map.gantry_mcp !== undefined) {
+    if (!Array.isArray(map.gantry_mcp)) {
       throw new Error(
-        `${itemPath} "${name}" is a Gantry admin tool; grant it via capabilities, not tool_surface.`,
+        `${pathPrefix}.gantry_mcp must be a list of gantry MCP tool names`,
       );
     }
-    if (!isRestrictableGantryMcpToolName(name)) {
+    const names = new Set<string>();
+    for (const [index, item] of map.gantry_mcp.entries()) {
+      const itemPath = `${pathPrefix}.gantry_mcp[${index}]`;
+      if (typeof item !== 'string' || item.trim().length === 0) {
+        throw new Error(`${itemPath} must be a non-empty string`);
+      }
+      const name = item.trim();
+      if (isAdminMcpToolName(name)) {
+        throw new Error(
+          `${itemPath} "${name}" is a Gantry admin tool; grant it via capabilities, not tool_surface.`,
+        );
+      }
+      if (!isRestrictableGantryMcpToolName(name)) {
+        throw new Error(
+          `${itemPath} "${name}" is not a known gantry MCP tool name.`,
+        );
+      }
+      names.add(name);
+    }
+    surface.gantryMcp = [...names].sort();
+  }
+  if (map.native !== undefined) {
+    if (!Array.isArray(map.native)) {
       throw new Error(
-        `${itemPath} "${name}" is not a known gantry MCP tool name.`,
+        `${pathPrefix}.native must be a list of native SDK tool names`,
       );
     }
-    names.add(name);
+    const names = new Set<string>();
+    for (const [index, item] of map.native.entries()) {
+      const itemPath = `${pathPrefix}.native[${index}]`;
+      if (typeof item !== 'string' || item.trim().length === 0) {
+        throw new Error(`${itemPath} must be a non-empty string`);
+      }
+      const name = item.trim();
+      if (!isAvailableNativeSdkTool(name)) {
+        throw new Error(
+          `${itemPath} "${name}" is not a known native SDK tool name.`,
+        );
+      }
+      names.add(name);
+    }
+    surface.native = [...names].sort();
   }
-  return { gantryMcp: [...names].sort() };
+  return Object.keys(surface).length > 0 ? surface : undefined;
 }
 
 function parseConfiguredAgentThinking(

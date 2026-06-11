@@ -217,6 +217,36 @@ describe('agent capability composition', () => {
     expect(gantryServer.alwaysLoad).toBe(true);
   });
 
+  it('restricts native SDK tools to a per-agent native keep-list', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'wa:000000905',
+      groupFolder: 'boondi_support',
+      persona: 'sales',
+      gantryMcpToolSurface: ['mcp_call_tool', 'mcp_list_tools'],
+      nativeToolSurface: ['Skill', 'ToolSearch'],
+    });
+
+    // The coding/native schemas leave the prompt: only the kept ones remain.
+    expect([...profile.availableTools].sort()).toEqual(['Skill', 'ToolSearch']);
+    for (const dropped of [
+      'Bash',
+      'Edit',
+      'Write',
+      'Read',
+      'Agent',
+      'WebFetch',
+    ]) {
+      expect(profile.availableTools).not.toContain(dropped);
+    }
+    // allowedTools keeps the kept native tools + the kept gantry MCP tools.
+    expect(profile.allowedTools).toContain('Skill');
+    expect(profile.allowedTools).toContain('ToolSearch');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.allowedTools).not.toContain('Agent');
+    expect(profile.allowedTools).not.toContain('WebSearch');
+  });
+
   it('omits the tool-surface projection when no keep-list is configured', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',

@@ -103,6 +103,12 @@ export interface AgentMemoryConfig {
 export interface AgentToolSurfaceConfig {
   /** Keep-list of non-admin gantry MCP tool names exposed to this agent. */
   gantryMcp?: string[];
+  /**
+   * Keep-list of native (agent-SDK built-in) tool names exposed to this agent —
+   * e.g. a sales persona keeping only `Skill`/`ToolSearch`, dropping the coding
+   * tools (Bash/Edit/Write/…) it never uses so their schemas leave the prefix.
+   */
+  native?: string[];
 }
 
 export interface AgentConfig {

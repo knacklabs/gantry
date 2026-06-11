@@ -219,6 +219,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'gantry-mcp-tool-catalog.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/native-sdk-tool-names.ts'),
+    path.join(sharedDir, 'native-sdk-tool-names.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/agent-tool-references.ts'),
     path.join(sharedDir, 'agent-tool-references.ts'),
   );

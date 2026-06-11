@@ -523,6 +523,7 @@ export function createGroupAgentRunner(input: {
             persona: group.agentConfig?.persona,
             allowedTools: configuredToolPolicy.allowedTools,
             gantryMcpToolSurface: group.agentConfig?.toolSurface?.gantryMcp,
+            nativeToolSurface: group.agentConfig?.toolSurface?.native,
             runtimeAccess: configuredToolPolicy.runtimeAccess,
             attachedSkillSourceIds: selectedSkillContext.ids,
             selectedSkillDisplays: selectedSkillContext.displays,

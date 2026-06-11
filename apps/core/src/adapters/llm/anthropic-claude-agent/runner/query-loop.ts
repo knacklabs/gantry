@@ -245,6 +245,7 @@ export async function runQuery(
     browserProfileName: agentInput.browserProfileName,
     configuredAllowedTools: agentInput.allowedTools,
     gantryMcpToolSurface: agentInput.gantryMcpToolSurface,
+    nativeToolSurface: agentInput.nativeToolSurface,
     attachedSkillSourceIds: agentInput.attachedSkillSourceIds,
     selectedSkillDisplays: agentInput.selectedSkillDisplays,
     attachedMcpSourceIds: agentInput.attachedMcpSourceIds,

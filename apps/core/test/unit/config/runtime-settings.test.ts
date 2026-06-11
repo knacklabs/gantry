@@ -1751,8 +1751,47 @@ agents:
   boondi_support:
     name: Boondi
     tool_surface:
-      native: [Bash]
+      coding_tools: [Bash]
 `),
-    ).toThrow('agents.boondi_support.tool_surface.native is not supported');
+    ).toThrow(
+      'agents.boondi_support.tool_surface.coding_tools is not supported',
+    );
+  });
+});
+
+describe('agents tool_surface.native', () => {
+  it('parses a native keep-list and renders it back', () => {
+    const parsed = parseRuntimeSettings(`
+agents:
+  boondi_support:
+    name: Boondi
+    tool_surface:
+      gantry_mcp: [mcp_call_tool]
+      native: [Skill, ToolSearch]
+`);
+    expect(parsed.agents.boondi_support.toolSurface).toEqual({
+      gantryMcp: ['mcp_call_tool'],
+      native: ['Skill', 'ToolSearch'],
+    });
+    const rendered = renderRuntimeSettingsYaml(parsed);
+    expect(rendered).toContain('native: ["Skill","ToolSearch"]');
+    const reparsed = parseRuntimeSettings(rendered);
+    expect(reparsed.agents.boondi_support.toolSurface).toEqual(
+      parsed.agents.boondi_support.toolSurface,
+    );
+  });
+
+  it('rejects unknown native SDK tool names', () => {
+    expect(() =>
+      parseRuntimeSettings(`
+agents:
+  boondi_support:
+    name: Boondi
+    tool_surface:
+      native: [Skill, NotARealTool]
+`),
+    ).toThrow(
+      'agents.boondi_support.tool_surface.native[1] "NotARealTool" is not a known native SDK tool name.',
+    );
   });
 });

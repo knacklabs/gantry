@@ -46,6 +46,8 @@ export interface AgentCapabilityContext {
   configuredAllowedTools?: readonly string[];
   /** Per-agent gantry MCP tool keep-list (settings `tool_surface.gantry_mcp`). */
   gantryMcpToolSurface?: readonly string[];
+  /** Per-agent native SDK tool keep-list (settings `tool_surface.native`). */
+  nativeToolSurface?: readonly string[];
   attachedSkillSourceIds?: readonly string[];
   selectedSkillDisplays?: readonly string[];
   attachedMcpSourceIds?: readonly string[];
@@ -104,15 +106,20 @@ const DEFAULT_ALLOWED_TOOLS = [
   ...GANTRY_MCP_ALLOWED_TOOLS,
 ] as const;
 
-// The default allow-list, with the gantry MCP portion narrowed to the
-// per-agent tool-surface keep-list when one is configured.
+// The default allow-list, with each surface narrowed to its per-agent keep-list
+// when configured: the gantry MCP portion to `tool_surface.gantry_mcp`, the
+// native (safe) portion to `tool_surface.native`.
 function defaultAllowedToolsForSurface(
-  keepList: readonly string[] | undefined,
+  gantryKeepList: readonly string[] | undefined,
+  nativeKeep: ReadonlySet<string> | null,
 ): readonly string[] {
-  if (!keepList) return DEFAULT_ALLOWED_TOOLS;
-  const keep = new Set(keepList);
+  const safe = nativeKeep
+    ? SAFE_NATIVE_SDK_TOOLS.filter((name) => nativeKeep.has(name))
+    : SAFE_NATIVE_SDK_TOOLS;
+  if (!gantryKeepList) return [...safe, ...GANTRY_MCP_ALLOWED_TOOLS];
+  const keep = new Set(gantryKeepList);
   return [
-    ...SAFE_NATIVE_SDK_TOOLS,
+    ...safe,
     ...DEFAULT_GANTRY_MCP_TOOL_NAMES.filter((name) => keep.has(name)).map(
       gantryMcpFullToolName,
     ),
@@ -157,6 +164,14 @@ const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
   provide: (ctx) => {
     const persona = resolveAgentPersona(ctx.persona);
+    // Per-agent native keep-list (settings `tool_surface.native`): drop the
+    // native tool SCHEMAS this agent never uses (a sales persona keeps only
+    // Skill/ToolSearch), shrinking the prompt prefix. Purely subtractive.
+    const nativeKeep = ctx.nativeToolSurface
+      ? new Set(ctx.nativeToolSurface)
+      : null;
+    const filterNative = <T extends string>(tools: readonly T[]): T[] =>
+      nativeKeep ? tools.filter((tool) => nativeKeep.has(tool)) : [...tools];
     const baseAvailableTools = ctx.isScheduledJob
       ? [
           ...(persona === 'developer' ? DEVELOPER_NATIVE_SDK_TOOLS : []),
@@ -165,13 +180,17 @@ const sdkToolsProvider: AgentCapabilityProvider = {
       : AVAILABLE_NATIVE_SDK_TOOLS;
     const defaultAllowedTools = defaultAllowedToolsForSurface(
       ctx.gantryMcpToolSurface,
+      nativeKeep,
     );
     return {
       allowedTools:
         persona === 'developer'
-          ? [...DEVELOPER_NATIVE_SDK_TOOLS, ...defaultAllowedTools]
+          ? [
+              ...filterNative(DEVELOPER_NATIVE_SDK_TOOLS),
+              ...defaultAllowedTools,
+            ]
           : defaultAllowedTools,
-      availableTools: baseAvailableTools,
+      availableTools: filterNative(baseAvailableTools),
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
     };
   },

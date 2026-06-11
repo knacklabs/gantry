@@ -237,12 +237,12 @@ function renderAgentToolSurfaceYaml(
   lines: string[],
   agent: RuntimeConfiguredAgent,
 ): void {
-  const keepList = agent.toolSurface?.gantryMcp;
-  if (!keepList) return;
-  lines.push(
-    '    tool_surface:',
-    `      gantry_mcp: ${JSON.stringify(keepList)}`,
-  );
+  const gantryMcp = agent.toolSurface?.gantryMcp;
+  const native = agent.toolSurface?.native;
+  if (!gantryMcp && !native) return;
+  lines.push('    tool_surface:');
+  if (gantryMcp) lines.push(`      gantry_mcp: ${JSON.stringify(gantryMcp)}`);
+  if (native) lines.push(`      native: ${JSON.stringify(native)}`);
 }
 
 function renderMcpServersYaml(
