@@ -73,6 +73,7 @@ export type LiveTurnAdmission =
 
 export class LiveTurnAuthority {
   private readonly active = new Map<string, ActiveLiveTurnRegistration>();
+  private draining = false;
 
   constructor(
     private readonly deps: {
@@ -83,6 +84,15 @@ export class LiveTurnAuthority {
       warn?: WarnLog;
     },
   ) {}
+
+  /**
+   * Stop admitting new live turns during graceful drain. Already-active turns
+   * keep running to completion; only fresh admissions are rejected so the run
+   * is recovered by the successor live host.
+   */
+  beginDraining(): void {
+    this.draining = true;
+  }
 
   private get leaseTtlMs(): number {
     return this.deps.leaseTtlMs ?? 60_000;
@@ -119,6 +129,9 @@ export class LiveTurnAuthority {
     stopAliasJids?: string[];
     requiredContinuationUserId?: string | null;
   }): Promise<LiveTurnAdmission> {
+    // While draining, refuse new admissions; the released host lease lets a
+    // successor claim and recover the turn at a higher fencing version.
+    if (this.draining) return { outcome: 'lease_unavailable' };
     const claim = await claimLiveTurnExecution({
       deps: this.deps.leaseDeps,
       turnId: input.turnId,

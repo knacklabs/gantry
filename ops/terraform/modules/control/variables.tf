@@ -1,0 +1,65 @@
+variable "name_prefix" {
+  description = "Prefix for resource names and Name tags (e.g. \"gantry-fleet\")."
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC the ALB and target group live in."
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "Public subnet IDs for the internet-facing ALB (>=2 AZs)."
+  type        = list(string)
+}
+
+variable "control_port" {
+  description = "Container control port (GANTRY_CONTROL_PORT) the runtime listens on. The ALB target group forwards to this port."
+  type        = number
+  default     = 8080
+}
+
+variable "public_path_patterns" {
+  description = "Path patterns the PUBLIC listener forwards to workers (channel webhooks + public API). Operational endpoints (/metrics, /readyz, /healthz, and any admin paths) are deliberately excluded from the public listener — health endpoints are reachable only via the target-group health check, and /metrics stays internal."
+  type        = list(string)
+  default = [
+    "/webhooks/*",
+    "/v1/*",
+  ]
+}
+
+variable "health_check_path" {
+  description = "Target-group health check path. /readyz returns 503 while draining or before migrations/settings load, so the ALB stops routing to draining workers."
+  type        = string
+  default     = "/readyz"
+}
+
+variable "certificate_arn" {
+  description = "ACM certificate ARN for the HTTPS listener. When empty, only an HTTP:80 listener is created (acceptable for rehearsal; production should set this)."
+  type        = string
+  default     = ""
+}
+
+variable "ingress_cidrs" {
+  description = "CIDR blocks allowed to reach the public listener. Default is open (0.0.0.0/0) because channel webhooks come from provider IP ranges; tighten where the provider publishes ranges."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "deregistration_delay_seconds" {
+  description = "ALB connection draining window on target deregistration. Should be <= the worker drain deadline so the ALB stops sending new connections while the worker finishes in-flight work."
+  type        = number
+  default     = 120
+}
+
+variable "idle_timeout_seconds" {
+  description = "ALB idle timeout. Raise for long-lived SSE/streaming responses."
+  type        = number
+  default     = 300
+}
+
+variable "tags" {
+  description = "Tags applied to every resource in this module."
+  type        = map(string)
+  default     = {}
+}

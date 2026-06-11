@@ -44,12 +44,10 @@ async function loadProcessing(behavior: 'locked' | 'full' | 'throw') {
       }),
     };
   });
-  const processing = await import(
-    '@core/runtime/ipc-interaction-processing.js'
-  );
-  const durability = await import(
-    '@core/application/interactions/pending-interaction-durability.js'
-  );
+  const processing =
+    await import('@core/runtime/ipc-interaction-processing.js');
+  const durability =
+    await import('@core/application/interactions/pending-interaction-durability.js');
   const ipcAuth = await import('@core/runtime/ipc-auth.js');
   return { processing, durability, ipcAuth };
 }

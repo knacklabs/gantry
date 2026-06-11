@@ -2,11 +2,16 @@ import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { LiveTurnScope } from '../../domain/ports/live-turns.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { NewMessage } from '../../domain/types.js';
+import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import { parseThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { buildLiveTurnContinuation } from './live-turn-continuation.js';
 
 export const LIVE_TURN_HOST_LEASE_KEY = 'runtime:live-turn-host:default';
+
+/** Bounded exponential backoff for the standby acquirer loop. */
+export const LIVE_TURN_HOST_LEASE_BASE_BACKOFF_MS = 1_000;
+export const LIVE_TURN_HOST_LEASE_MAX_BACKOFF_MS = 30_000;
 
 export interface LiveTurnHostLeasePort {
   tryAcquire: (key: string) => Promise<RuntimeLease | undefined>;
@@ -20,18 +25,126 @@ interface LiveTurnRuntimeSettings {
   };
 }
 
-export async function acquireLiveTurnHostLease(input: {
+export interface LiveTurnHostLeaseManager {
+  /** Resolves with the lease once acquired, or undefined when live turns are disabled. */
+  whenAcquired: () => Promise<RuntimeLease | undefined>;
+  /** The current lease if this worker owns live turns, otherwise undefined. */
+  getLease: () => RuntimeLease | undefined;
+  /** Stop the standby acquirer and release the lease if held (drain handoff). */
+  stop: () => Promise<void>;
+}
+
+interface AcquisitionLogger {
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+}
+
+interface StartLiveTurnHostLeaseAcquisitionDeps {
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
+  random?: () => number;
+  logger?: AcquisitionLogger;
+  baseBackoffMs?: number;
+  maxBackoffMs?: number;
+}
+
+/**
+ * Acquire the singleton live-turn host lease without blocking the rest of
+ * startup. Fleet v1 runs 1 live host + N job workers, so a standby worker that
+ * loses the race for the lease must boot fine as a job-only worker and keep
+ * retrying. When the current holder drains and releases the lease, a standby
+ * acquirer takes it over. Acquisition never throws and never blocks; callers
+ * await {@link LiveTurnHostLeaseManager.whenAcquired} only where they actually
+ * need ownership.
+ */
+export function startLiveTurnHostLeaseAcquisition(input: {
   runtimeSettings: LiveTurnRuntimeSettings;
   leases: LiveTurnHostLeasePort;
-}): Promise<RuntimeLease | undefined> {
-  if (!input.runtimeSettings.runtime.liveTurns.enabled) return undefined;
-  const lease = await input.leases.tryAcquire(LIVE_TURN_HOST_LEASE_KEY);
-  if (!lease) {
-    throw new Error(
-      'Another Gantry runtime already owns live turns. Set runtime.live_turns.enabled: false on scheduler-only workers.',
-    );
+  deps?: StartLiveTurnHostLeaseAcquisitionDeps;
+}): LiveTurnHostLeaseManager {
+  const deps = input.deps ?? {};
+  const setTimeoutFn = deps.setTimeoutFn ?? setTimeout;
+  const clearTimeoutFn = deps.clearTimeoutFn ?? clearTimeout;
+  const random = deps.random ?? Math.random;
+  const log = deps.logger ?? logger;
+  const baseBackoffMs =
+    deps.baseBackoffMs ?? LIVE_TURN_HOST_LEASE_BASE_BACKOFF_MS;
+  const maxBackoffMs = deps.maxBackoffMs ?? LIVE_TURN_HOST_LEASE_MAX_BACKOFF_MS;
+
+  let lease: RuntimeLease | undefined;
+  let stopped = false;
+  let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  let resolveAcquired!: (value: RuntimeLease | undefined) => void;
+  const acquired = new Promise<RuntimeLease | undefined>((resolve) => {
+    resolveAcquired = resolve;
+  });
+
+  if (!input.runtimeSettings.runtime.liveTurns.enabled) {
+    stopped = true;
+    resolveAcquired(undefined);
+    return {
+      whenAcquired: () => acquired,
+      getLease: () => undefined,
+      stop: async () => {},
+    };
   }
-  return lease;
+
+  const backoffMs = (attempt: number): number => {
+    const exponential = Math.min(
+      maxBackoffMs,
+      baseBackoffMs * Math.pow(2, attempt),
+    );
+    // Full jitter avoids a thundering herd of standby workers retrying in lockstep.
+    return Math.floor(random() * exponential);
+  };
+
+  const attempt = async (attemptIndex: number): Promise<void> => {
+    if (stopped) return;
+    let acquiredLease: RuntimeLease | undefined;
+    try {
+      acquiredLease = await input.leases.tryAcquire(LIVE_TURN_HOST_LEASE_KEY);
+    } catch (err) {
+      log.warn(
+        { err, attempt: attemptIndex },
+        'Failed to acquire live-turn host lease; standing by as a job-only worker',
+      );
+    }
+    if (stopped) {
+      await acquiredLease?.release().catch(() => undefined);
+      return;
+    }
+    if (acquiredLease) {
+      lease = acquiredLease;
+      resolveAcquired(acquiredLease);
+      return;
+    }
+    log.info(
+      { attempt: attemptIndex },
+      'Another runtime owns live turns; standing by as a job-only worker until the lease is released',
+    );
+    pendingTimer = setTimeoutFn(() => {
+      pendingTimer = undefined;
+      void attempt(attemptIndex + 1);
+    }, backoffMs(attemptIndex));
+  };
+
+  void attempt(0);
+
+  return {
+    whenAcquired: () => acquired,
+    getLease: () => lease,
+    stop: async () => {
+      stopped = true;
+      if (pendingTimer !== undefined) {
+        clearTimeoutFn(pendingTimer);
+        pendingTimer = undefined;
+      }
+      const held = lease;
+      lease = undefined;
+      resolveAcquired(undefined);
+      await held?.release();
+    },
+  };
 }
 
 export interface LiveTurnScopeRepository {

@@ -153,6 +153,7 @@ export function getRuntimeQueueConfig() {
     maxTaskBacklog: queue.maxTaskBacklog,
     maxRetries: queue.maxRetries,
     baseRetryMs: queue.baseRetryMs,
+    drainDeadlineMs: queue.drainDeadlineMs,
   };
 }
 

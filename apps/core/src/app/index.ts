@@ -6,6 +6,7 @@ import { createChannelWiring } from './bootstrap/channel-wiring.js';
 import { getDefaultRuntimeApp } from './bootstrap/runtime-app.js';
 import {
   startRuntimeServices,
+  beginDrainingLiveTurnAdmission,
   shutdownLiveTurnAuthority,
   stopLiveTurnRecoveryLoop,
 } from './bootstrap/runtime-services.js';
@@ -23,14 +24,14 @@ import { startControlServer } from '../control/server/index.js';
 import { stopSchedulerLoop } from '../jobs/scheduler.js';
 import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
-import { GANTRY_HOME } from '../config/index.js';
+import { GANTRY_HOME, getRuntimeQueueConfig } from '../config/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
   formatRuntimePreflightFailure,
   validateRuntimePreflightWithStorage,
 } from '../config/preflight.js';
-import { acquireLiveTurnHostLease } from './bootstrap/live-turn-host.js';
+import { startLiveTurnHostLeaseAcquisition } from './bootstrap/live-turn-host.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import { defaultHostnameLookup } from '../infrastructure/network/hostname-lookup.js';
 
@@ -115,12 +116,14 @@ export async function startGantryRuntime(
   const loadApprovedCommandModule = () =>
     (approvedCommandModule ??= import(approvedCommandModulePath));
 
-  let liveTurnHostLease:
-    | Awaited<ReturnType<typeof acquireLiveTurnHostLease>>
-    | undefined;
+  const liveTurnHostLeaseManager = startLiveTurnHostLeaseAcquisition({
+    runtimeSettings,
+    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
+  });
 
   installShutdownHandlers({
     queue: app.queue,
+    drainDeadlineMs: getRuntimeQueueConfig().drainDeadlineMs,
     disconnectChannels: channelWiring.disconnectChannels,
     closeControlServer: async () => {
       await controlServerRef.current?.close();
@@ -128,25 +131,26 @@ export async function startGantryRuntime(
     closeStorage: closeRuntimeStorage,
     closeScheduler: stopSchedulerLoop,
     closeOutboundDeliveryRecovery: stopOutboundDeliveryRecoveryLoop,
+    closeLiveTurnAdmission: beginDrainingLiveTurnAdmission,
     closeLiveTurnRecovery: async () => {
       stopLiveTurnRecoveryLoop();
     },
     closeLiveTurnAuthority: shutdownLiveTurnAuthority,
     closeSettingsWatcher: settingsWatcher.close,
     closeLiveTurnHostLease: async () => {
-      await liveTurnHostLease?.release();
+      await liveTurnHostLeaseManager.stop();
     },
     closeBrowserToolBackends: async () =>
       (await loadBrowserToolModule()).closeBrowserToolBackends(),
   });
 
-  liveTurnHostLease = await acquireLiveTurnHostLease({
-    runtimeSettings,
-    leases: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
-  });
-  liveTurnHostLease?.onLost?.((err) => {
-    logger.error({ err }, 'Live-turn host lease lost; shutting down runtime');
-    process.exit(1);
+  // Standby acquirer runs in the background; a job-only worker boots fully
+  // while it waits for the live-host lease (fleet v1: 1 live host + N workers).
+  void liveTurnHostLeaseManager.whenAcquired().then((lease) => {
+    lease?.onLost?.((err) => {
+      logger.error({ err }, 'Live-turn host lease lost; shutting down runtime');
+      process.exit(1);
+    });
   });
 
   try {
@@ -222,8 +226,7 @@ export async function startGantryRuntime(
       },
     });
   } catch (err) {
-    await liveTurnHostLease?.release();
-    liveTurnHostLease = undefined;
+    await liveTurnHostLeaseManager.stop();
     throw err;
   }
 }

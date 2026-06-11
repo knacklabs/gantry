@@ -198,6 +198,9 @@ export function stopLiveTurnRecoveryLoop(): void {
   activeLiveTurnRecoveryLoop?.stop();
   activeLiveTurnRecoveryLoop = undefined;
 }
+export function beginDrainingLiveTurnAdmission(): void {
+  activeLiveTurnAuthority?.beginDraining();
+}
 export async function shutdownLiveTurnAuthority(): Promise<void> {
   const authority = activeLiveTurnAuthority;
   activeLiveTurnAuthority = undefined;

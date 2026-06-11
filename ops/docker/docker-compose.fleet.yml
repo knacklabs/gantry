@@ -1,0 +1,98 @@
+# Local fleet rehearsal — exercises the fleet topology on one machine:
+#   Postgres (same extension/role bootstrap as the root compose)
+#   + 1 live-capable worker + N job workers, all from the built runtime image,
+#   migrating via the entrypoint and health-checked on /readyz.
+#
+# This is NOT the workstation compose. The root docker-compose.yml (Postgres
+# only, for local dev) is unchanged. Run this from the repo root:
+#
+#   docker compose -f ops/docker/docker-compose.fleet.yml up --build
+#   docker compose -f ops/docker/docker-compose.fleet.yml up --build --scale job-worker=3
+#
+# See docs/deployment/aws-terraform.md (Local Fleet Rehearsal) for the walkthrough.
+
+x-worker-base: &worker-base
+  build:
+    context: ../..
+    dockerfile: ops/docker/Dockerfile
+  image: gantry-runtime:fleet-rehearsal
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: &worker-env
+    NODE_ENV: production
+    GANTRY_DEPLOYMENT_MODE: fleet
+    # Runtime DB role (runtime URL). The migration role can differ via
+    # MIGRATION_DATABASE_URL; here we use one role for rehearsal simplicity.
+    GANTRY_DATABASE_URL: >-
+      postgres://gantry_app:${GANTRY_DB_PASSWORD:-gantry_app_password}@postgres:5432/gantry
+    GANTRY_DB_SCHEMA: gantry
+    GANTRY_CONTROL_HOST: 0.0.0.0
+    GANTRY_CONTROL_PORT: '8080'
+    # Secrets are placeholders for rehearsal; production injects via Secrets
+    # Manager refs (see Terraform modules/secrets). Never commit real values.
+    GANTRY_CONTROL_API_KEYS_JSON: ${GANTRY_CONTROL_API_KEYS_JSON:-[]}
+  healthcheck:
+    # Readiness gates traffic: 503 while migrations/settings load or while draining.
+    test:
+      [
+        'CMD',
+        'node',
+        '-e',
+        "fetch('http://127.0.0.1:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+      ]
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 60s
+  # Graceful drain: give SIGTERM time to drain live turns before SIGKILL.
+  stop_grace_period: 130s
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.2-pg16-trixie@sha256:fce8fb583b92ef8af5150b373a96415d46a8cd38ba09b38efeea17c8b4c7d782
+    container_name: gantry-fleet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gantry
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      GANTRY_DB_USER: gantry_app
+      GANTRY_DB_PASSWORD: ${GANTRY_DB_PASSWORD:-gantry_app_password}
+      GANTRY_SCHEMA: gantry
+      PGBOSS_SCHEMA: pgboss
+    volumes:
+      # Reuse the root extension/role bootstrap (vector + pg_trgm + roles).
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+      # Ephemeral rehearsal data (named volume, not the developer's ~/gantry).
+      - gantry-fleet-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d gantry']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Singleton live-capable worker: holds the live-turn host lease (fleet v1
+  # topology = 1 live host + N job workers). Exposes the control port locally.
+  live-worker:
+    <<: *worker-base
+    container_name: gantry-fleet-live-worker
+    environment:
+      <<: *worker-env
+      # First booting worker migrates; others can set GANTRY_SKIP_MIGRATIONS=1.
+      GANTRY_SKIP_MIGRATIONS: '0'
+    ports:
+      - '127.0.0.1:8080:8080'
+
+  # Horizontal job workers. Scale with: --scale job-worker=N. No published
+  # port (the ALB/health checks reach them internally in real fleets); the
+  # advisory lock makes concurrent boot migrations safe.
+  job-worker:
+    <<: *worker-base
+    environment:
+      <<: *worker-env
+      GANTRY_SKIP_MIGRATIONS: '0'
+
+volumes:
+  gantry-fleet-pgdata:

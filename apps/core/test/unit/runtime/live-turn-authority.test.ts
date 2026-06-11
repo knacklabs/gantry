@@ -128,6 +128,31 @@ describe('LiveTurnAuthority', () => {
     await authority.shutdown();
   });
 
+  it('refuses new admissions once draining but lets active turns keep their lease', async () => {
+    const { authority } = makeAuthority();
+    const first = await authority.admit({
+      queueJid: QUEUE_JID,
+      scope: makeScope(),
+      turnId: 'turn-1',
+      runId: 'run-1',
+    });
+    expect(first.outcome).toBe('claimed');
+
+    authority.beginDraining();
+
+    const second = await authority.admit({
+      queueJid: 'group2@g.us',
+      scope: makeScope({ conversationId: 'group2@g.us' }),
+      turnId: 'turn-2',
+      runId: 'run-2',
+    });
+    // New admission is refused so a successor live host recovers the turn.
+    expect(second.outcome).toBe('lease_unavailable');
+    // The already-active turn is untouched and keeps running to completion.
+    expect(authority.ownsQueue(QUEUE_JID)).toBe(true);
+    await authority.shutdown();
+  });
+
   it('releases active fenced leases and slots during shutdown', async () => {
     const { authority, liveTurns, coordination } = makeAuthority();
     const admission = await authority.admit({

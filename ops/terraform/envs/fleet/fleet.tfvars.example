@@ -1,0 +1,47 @@
+# Example fleet tfvars. Copy to fleet.auto.tfvars (gitignored) or pass with
+# -var-file. Replace every REPLACE_ME. NO secret VALUES here — only ARNs.
+
+region      = "us-east-1"
+name_prefix = "gantry-fleet"
+
+# Container image (pin by digest in production).
+image_ref = "ghcr.io/REPLACE_ME_ORG/gantry@sha256:REPLACE_ME"
+
+# Amazon Linux 2023 AMI (resolve the current one for your region/arch, e.g. from
+# SSM: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64).
+worker_ami_id = "ami-REPLACE_ME"
+
+# --- Secret REFERENCES (ARNs). Create the secret values first (see runbook). ---
+db_master_password_secret_arn   = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/db-master-REPLACE"
+db_proxy_secret_arn             = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/db-proxy-REPLACE"
+runtime_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/runtime-db-url-REPLACE"
+
+# Optional: migration role distinct from runtime role.
+# migration_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/migration-db-url-REPLACE"
+
+# Optional: channel/provider credentials, control API keys, etc.
+# additional_runtime_secret_refs = [
+#   { env_name = "GANTRY_CONTROL_API_KEYS_JSON", secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/control-api-keys-REPLACE" },
+# ]
+
+# --- Database ---
+db_engine_version      = "16.8"
+db_instance_class      = "db.t4g.medium"
+db_multi_az            = true
+db_deletion_protection = true
+
+# --- Worker pools (1 live host + N job workers) ---
+live_worker_instance_type   = "t3.large"
+job_worker_instance_type    = "t3.large"
+job_worker_min_size         = 1
+job_worker_max_size         = 4
+job_worker_desired_capacity = 2
+
+# --- Ingress: set an ACM cert for HTTPS in production. ---
+# certificate_arn = "arn:aws:acm:us-east-1:REPLACE_ME:certificate/REPLACE_ME"
+
+drain_deadline_seconds = 130
+
+tags = {
+  Owner = "REPLACE_ME"
+}
