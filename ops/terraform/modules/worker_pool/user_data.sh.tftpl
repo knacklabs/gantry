@@ -38,7 +38,10 @@ printf '%s=%s\n' "${ref.env_name}" "$VAL" >> "$ENV_FILE"
 # Non-secret runtime configuration.
 cat >> "$ENV_FILE" <<EOF
 NODE_ENV=production
-GANTRY_DEPLOYMENT_MODE=fleet
+# Security posture (production|remote). Fleet topology requires production
+# posture; the workstation/fleet topology is the runtime.deployment_mode
+# settings key seeded into desired state, not an env var.
+GANTRY_SECURITY_POSTURE=production
 GANTRY_CONTROL_HOST=0.0.0.0
 GANTRY_CONTROL_PORT=$CONTROL_PORT
 GANTRY_WORKER_ROLE=$ROLE

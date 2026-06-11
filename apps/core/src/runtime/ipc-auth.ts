@@ -18,7 +18,7 @@ import { normalizeMemoryIpcActions } from '../shared/memory-ipc-actions.js';
 function resolveIpcAuthSecurityEnv(): RuntimeSecurityEnv {
   return {
     NODE_ENV: runtimeEnvValueDynamic('NODE_ENV'),
-    GANTRY_DEPLOYMENT_MODE: runtimeEnvValueDynamic('GANTRY_DEPLOYMENT_MODE'),
+    GANTRY_SECURITY_POSTURE: runtimeEnvValueDynamic('GANTRY_SECURITY_POSTURE'),
     GANTRY_RUNTIME_ENV: runtimeEnvValueDynamic('GANTRY_RUNTIME_ENV'),
     GANTRY_CONTROL_HOST: runtimeEnvValueDynamic('GANTRY_CONTROL_HOST'),
     GANTRY_CONTROL_PORT: runtimeEnvValueDynamic('GANTRY_CONTROL_PORT'),

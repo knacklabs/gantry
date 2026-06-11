@@ -901,6 +901,204 @@ describe('startRuntimeServices', () => {
     }
   });
 
+  it('fleet recovery holds capability-ineligible turns and alerts when no recoverer is eligible', async () => {
+    vi.useFakeTimers();
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const liveTurns = new FakeLiveTurns();
+    const coordination = Object.assign(new FakeCoordination(), {
+      registerWorker: vi.fn(async () => {}),
+      heartbeatWorker: vi.fn(async () => true),
+      // This worker advertises nothing; the turn's agent requires skill:sk-1.
+      getWorker: vi.fn(async () => ({ capabilities: [] })),
+      // No active worker in the fleet advertises it either.
+      listActiveWorkerCapabilities: vi.fn(async () => []),
+    });
+    liveTurns.coordination = coordination;
+    const publishRuntimeEvent = vi.fn(async () => {});
+    const oldLease = await coordination.claimRunLease({
+      runId: 'agent-run:lost',
+      workerInstanceId: 'worker-old',
+      ttlMs: 60_000,
+    });
+    if (!oldLease) throw new Error('expected old lease');
+    coordination.expireLease(oldLease.leaseToken);
+    const turn = await liveTurns.claimLiveTurn({
+      id: 'turn-lost',
+      scope: {
+        appId: 'default',
+        agentSessionId: null,
+        conversationId: 'tg:primary',
+        threadId: null,
+      },
+      workerInstanceId: 'worker-old',
+      runId: 'agent-run:lost',
+      pendingMessage: {
+        kind: 'message_cursor',
+        queueJid: 'tg:primary',
+        cursorBefore: 'cursor-before-run',
+      },
+    });
+    if (!turn) throw new Error('expected turn');
+    turn.state = 'running';
+    turn.leaseToken = oldLease.leaseToken;
+    turn.fencingVersion = oldLease.fencingVersion;
+    turn.workerInstanceId = oldLease.workerInstanceId;
+    liveTurns.recoverableIds.add(turn.id);
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getWorkerCoordinationRepository: vi.fn(() => coordination as any),
+        getLiveTurnRepository: vi.fn(() => liveTurns as any),
+        getDeploymentMode: vi.fn(() => 'fleet' as const),
+        getSkillRepository: vi.fn(
+          () =>
+            ({
+              listAgentSkillBindings: vi.fn(async () => [
+                { skillId: 'sk-1', status: 'active' },
+              ]),
+            }) as any,
+        ),
+        publishRuntimeEvent,
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(() => ({
+          stop: vi.fn(),
+          done: new Promise<void>(() => {}),
+        })) as any,
+        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      // The ineligible worker held the turn: no takeover, no resume.
+      expect(liveTurns.turns.get('turn-lost')?.state).toBe('running');
+      expect(app.queue.enqueueMessageCheck).not.toHaveBeenCalled();
+      // "Recoverable but no eligible recoverer" fired the starvation alert.
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            kind: 'capability_starvation',
+            cause: 'no_eligible_recoverer',
+            key: 'turn-lost',
+            required_capabilities: ['skill:sk-1'],
+            missing_capabilities: ['skill:sk-1'],
+          }),
+        }),
+      );
+    } finally {
+      stopLiveTurnRecoveryLoop();
+      await shutdownLiveTurnAuthority();
+      vi.useRealTimers();
+    }
+  });
+
+  it('workstation recovery is unchanged by the capability gate', async () => {
+    vi.useFakeTimers();
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const liveTurns = new FakeLiveTurns();
+    const coordination = Object.assign(new FakeCoordination(), {
+      registerWorker: vi.fn(async () => {}),
+      heartbeatWorker: vi.fn(async () => true),
+      // Would be ineligible IF the fleet gate ran: empty advertised set.
+      getWorker: vi.fn(async () => ({ capabilities: [] })),
+      listActiveWorkerCapabilities: vi.fn(async () => []),
+    });
+    liveTurns.coordination = coordination;
+    const publishRuntimeEvent = vi.fn(async () => {});
+    const oldLease = await coordination.claimRunLease({
+      runId: 'agent-run:lost',
+      workerInstanceId: 'worker-old',
+      ttlMs: 60_000,
+    });
+    if (!oldLease) throw new Error('expected old lease');
+    coordination.expireLease(oldLease.leaseToken);
+    const turn = await liveTurns.claimLiveTurn({
+      id: 'turn-lost',
+      scope: {
+        appId: 'default',
+        agentSessionId: null,
+        conversationId: 'tg:primary',
+        threadId: null,
+      },
+      workerInstanceId: 'worker-old',
+      runId: 'agent-run:lost',
+      pendingMessage: {
+        kind: 'message_cursor',
+        queueJid: 'tg:primary',
+        cursorBefore: 'cursor-before-run',
+      },
+    });
+    if (!turn) throw new Error('expected turn');
+    turn.state = 'running';
+    turn.leaseToken = oldLease.leaseToken;
+    turn.fencingVersion = oldLease.fencingVersion;
+    turn.workerInstanceId = oldLease.workerInstanceId;
+    liveTurns.recoverableIds.add(turn.id);
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getWorkerCoordinationRepository: vi.fn(() => coordination as any),
+        getLiveTurnRepository: vi.fn(() => liveTurns as any),
+        getDeploymentMode: vi.fn(() => 'workstation' as const),
+        getSkillRepository: vi.fn(
+          () =>
+            ({
+              listAgentSkillBindings: vi.fn(async () => [
+                { skillId: 'sk-1', status: 'active' },
+              ]),
+            }) as any,
+        ),
+        publishRuntimeEvent,
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(() => ({
+          stop: vi.fn(),
+          done: new Promise<void>(() => {}),
+        })) as any,
+        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      // Single-host behavior unchanged: the turn is recovered and re-enqueued.
+      expect(liveTurns.turns.get('turn-lost')?.state).toBe('recovered');
+      expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith('tg:primary');
+      // The gate never consulted capabilities and no starvation alert fired.
+      expect(coordination.getWorker).not.toHaveBeenCalled();
+      expect(publishRuntimeEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ kind: 'capability_starvation' }),
+        }),
+      );
+    } finally {
+      stopLiveTurnRecoveryLoop();
+      await shutdownLiveTurnAuthority();
+      vi.useRealTimers();
+    }
+  });
+
   it('installs durable outbound delivery before scheduler startup', async () => {
     const order: string[] = [];
     const app = makeApp();

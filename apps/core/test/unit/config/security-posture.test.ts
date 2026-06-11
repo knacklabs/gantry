@@ -41,19 +41,19 @@ describe('runtime security posture', () => {
     ).toBe(false);
     expect(
       resolveRuntimeSecurityPosture({
-        GANTRY_DEPLOYMENT_MODE: 'local',
+        GANTRY_SECURITY_POSTURE: 'local',
         GANTRY_RUNTIME_ENV: 'production',
       }).requiresProductionSecrets,
     ).toBe(true);
     expect(
       resolveRuntimeSecurityPosture({
-        GANTRY_DEPLOYMENT_MODE: 'local',
+        GANTRY_SECURITY_POSTURE: 'local',
         GANTRY_RUNTIME_ENV: 'remote',
       }).requiresProductionSecrets,
     ).toBe(true);
     expect(
       resolveRuntimeSecurityPosture({
-        GANTRY_DEPLOYMENT_MODE: 'remote',
+        GANTRY_SECURITY_POSTURE: 'remote',
       }).requiresEnforcingSandbox,
     ).toBe(true);
   });
@@ -120,7 +120,7 @@ describe('runtime security posture', () => {
   it('fails explicit remote mode without a control API key', () => {
     const failures = validateProductionSecurityGate({
       env: {
-        GANTRY_DEPLOYMENT_MODE: 'remote',
+        GANTRY_SECURITY_POSTURE: 'remote',
         SECRET_ENCRYPTION_KEY: encryptionKey,
         GANTRY_IPC_AUTH_SECRET: strongIpcSecret,
       },

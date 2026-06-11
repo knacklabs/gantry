@@ -25,9 +25,20 @@ import { startControlServer } from '../control/server/index.js';
 import { stopSchedulerLoop } from '../jobs/scheduler.js';
 import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
-import { GANTRY_HOME, getRuntimeQueueConfig } from '../config/index.js';
+import {
+  GANTRY_HOME,
+  getDeploymentMode,
+  getRuntimeQueueConfig,
+  loadRuntimeSettings,
+} from '../config/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
+import {
+  prepareFleetSettings,
+  startFleetSubsystems,
+  type FleetSubsystems,
+} from './bootstrap/fleet-boot.js';
+import type { AppId } from '../domain/app/app.js';
 import {
   formatRuntimePreflightFailure,
   validateRuntimePreflightWithStorage,
@@ -90,14 +101,34 @@ export async function startGantryRuntime(
     isControlApproverAllowed: channelWiring.isControlApproverAllowed,
   });
 
-  const { runtimeSettings } = await runStartup(app);
+  let { runtimeSettings } = await runStartup(app);
   const storage = getRuntimeStorage();
-  const settingsWatcher = startSettingsReloadWatcher({
-    runtimeHome: GANTRY_HOME,
-    app,
-    ops: storage.ops,
-    repositories: storage.repositories,
-  });
+  const isFleet = getDeploymentMode() === 'fleet';
+
+  // Fleet desired state lives in Postgres (ADR-3). Before runtime services need
+  // settings, fetch the latest revision, render it to the runtime home, and
+  // reconcile it through the shared import path. No revision yet → settings NOT
+  // loaded (red /readyz) + a log naming the seed command. The file watcher is
+  // disabled in fleet (explicit CLI import only); workstation is unchanged.
+  if (isFleet) {
+    const prepared = await prepareFleetSettings({
+      appId: 'default' as AppId,
+      runtimeHome: GANTRY_HOME,
+      app,
+    });
+    if (prepared.loaded) {
+      runtimeSettings = loadRuntimeSettings(GANTRY_HOME);
+    }
+  }
+  const settingsWatcher = isFleet
+    ? { close: () => {} }
+    : startSettingsReloadWatcher({
+        runtimeHome: GANTRY_HOME,
+        app,
+        ops: storage.ops,
+        repositories: storage.repositories,
+      });
+  let fleetSubsystems: FleetSubsystems | undefined;
   const browserToolModulePath = [
     '..',
     'adapters',
@@ -141,6 +172,9 @@ export async function startGantryRuntime(
     closeSettingsWatcher: settingsWatcher.close,
     closeLiveTurnHostLease: async () => {
       await liveTurnHostLeaseManager.stop();
+    },
+    closeFleetSubsystems: async () => {
+      await fleetSubsystems?.stop();
     },
     closeBrowserToolBackends: async () =>
       (await loadBrowserToolModule()).closeBrowserToolBackends(),
@@ -189,6 +223,8 @@ export async function startGantryRuntime(
         getWorkerCoordinationRepository: () =>
           storage.repositories.workerCoordination,
         getLiveTurnRepository: () => storage.repositories.liveTurns,
+        getRuntimeDependencyRepository: () =>
+          storage.repositories.runtimeDependencies,
         publishRuntimeEvent: async (event) => {
           await getRuntimeEventExchange().publish(event);
         },
@@ -210,6 +246,25 @@ export async function startGantryRuntime(
           (await loadBrowserToolModule()).closeBrowserToolBackends(profileName),
       },
     );
+
+    // Fleet-only worker subsystems start after runtime services register this
+    // worker instance: the toolchain bake queue, the capability reconciler, and
+    // the settings revision listener (NOTIFY + poll, applying new revisions and
+    // holding on reader-version skew). Stopped in the drain sequence.
+    if (isFleet) {
+      fleetSubsystems = await startFleetSubsystems({
+        app,
+        appId: 'default' as AppId,
+        runtimeHome: GANTRY_HOME,
+        pool: storage.service.pool,
+        sendMessage: async (conversationJid, text) => {
+          await channelWiring.sendMessage(conversationJid, text, {
+            durability: 'required',
+          });
+        },
+      });
+    }
+
     controlServerRef.current = startControlServer({
       app,
       getBrowserStatus,
@@ -225,6 +280,7 @@ export async function startGantryRuntime(
     });
   } catch (err) {
     await liveTurnHostLeaseManager.stop();
+    await fleetSubsystems?.stop();
     throw err;
   }
 }

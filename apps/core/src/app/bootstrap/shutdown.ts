@@ -32,6 +32,12 @@ export interface InstallShutdownHandlersOptions {
   closeSettingsWatcher?: () => void;
   /** Release the live-turn host lease EARLY so a successor can take over. */
   closeLiveTurnHostLease?: () => Promise<void>;
+  /**
+   * Stop fleet worker subsystems (bake queue, capability reconciler, settings
+   * revision listener) after intake stops, so their background timers/LISTEN
+   * clients are torn down before exit. No-op in workstation mode.
+   */
+  closeFleetSubsystems?: () => Promise<void>;
   closeBrowserToolBackends?: () => Promise<void>;
 }
 
@@ -87,6 +93,14 @@ export function installShutdownHandlers(
     await runStep(
       options.closeLiveTurnRecovery,
       'Failed to stop live-turn recovery during drain',
+    );
+
+    // Stop fleet worker subsystems once intake has stopped: the bake queue,
+    // capability reconciler, and settings revision listener (background timers
+    // and LISTEN clients) so nothing keeps the process alive after exit.
+    await runStep(
+      options.closeFleetSubsystems,
+      'Failed to stop fleet subsystems during drain',
     );
 
     // 3. Release the live-turn host lease EARLY so a successor live host can

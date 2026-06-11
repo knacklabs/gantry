@@ -2,18 +2,14 @@ import fs from 'fs';
 
 import { logger } from '../infrastructure/logging/logger.js';
 import type { RuntimeApp } from '../app/bootstrap/runtime-app.js';
-import {
-  loadRuntimeSettings,
-  saveRuntimeSettings,
-} from '../config/settings/runtime-settings.js';
-import { validateLoadedRuntimeSettings } from '../config/settings/runtime-settings-validation.js';
+import { loadRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { settingsFilePath } from '../config/settings/runtime-home.js';
 import {
   classifySettingsChanges,
-  SettingsDesiredStateService,
   type SettingsDesiredStateRepositories,
   type SettingsDesiredStateOps,
 } from '../config/settings/desired-state-service.js';
+import { importWorkstationSettings } from '../config/settings/settings-import-service.js';
 import { invalidateSenderAllowlistCache } from '../platform/sender-allowlist.js';
 
 export interface SettingsReloadWatcherOptions {
@@ -62,50 +58,37 @@ export function startSettingsReloadWatcher(
         return;
       }
 
-      const service = new SettingsDesiredStateService({
-        ops: options.ops,
-        repositories: options.repositories,
-      });
-      const loadedSettings = settings;
-      const normalization =
-        await service.normalizeConfiguredCapabilities(settings);
-      settings = normalization.settings;
-      if (normalization.changed) {
-        saveRuntimeSettings(options.runtimeHome, settings);
-      }
-      const validation = validateLoadedRuntimeSettings(
-        options.runtimeHome,
-        settings,
-      );
-      if (!validation.ok) {
-        logger.warn(
-          { filePath, details: validation.failure?.details ?? [] },
-          'settings.yaml reload validation failed; keeping last good settings',
+      // The watcher is the workstation auto-importer: route validation, write,
+      // and reconcile through the single shared import path used by the CLI and
+      // control API (ADR-3: one mutation path, no authority fork).
+      try {
+        await importWorkstationSettings(
+          {
+            runtimeHome: options.runtimeHome,
+            ops: options.ops,
+            repositories: options.repositories,
+            previousSettings: lastGoodSettings,
+            reloadRuntimeState: () => options.app.loadState(),
+          },
+          settings,
         );
-        return;
-      }
-      const reconcile = await service.reconcile(
-        normalization.changed ? loadedSettings : settings,
-      );
-      if (reconcile.invalidReferences.length > 0) {
+      } catch (err) {
         logger.warn(
-          { filePath, invalidReferences: reconcile.invalidReferences },
-          'settings.yaml reload contains unavailable references; keeping last good settings',
+          { err, filePath },
+          'settings.yaml reload failed validation/reconcile; keeping last good settings',
         );
         return;
       }
 
+      const reloaded = loadRuntimeSettings(options.runtimeHome);
       const classification = lastGoodSettings
-        ? classifySettingsChanges(lastGoodSettings, settings)
+        ? classifySettingsChanges(lastGoodSettings, reloaded)
         : { liveApplied: ['settings'], restartRequired: [] };
-      lastGoodSettings = settings;
+      lastGoodSettings = reloaded;
       invalidateSenderAllowlistCache(filePath);
-      await options.app.loadState();
       logger.info(
         {
           filePath,
-          applied: reconcile.applied.length,
-          skipped: reconcile.skipped.length,
           liveApplied: classification.liveApplied,
           restartRequired: classification.restartRequired,
         },

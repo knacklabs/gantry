@@ -26,12 +26,16 @@ export interface ToolchainBakeNotifier {
   }): Promise<void>;
 }
 
-export interface ToolchainBakeFailureNotice {
-  /**
-   * Send a concise failure notice to the approval conversation that requested
-   * the dependency. Reuses the scheduler/notification machinery at the call
-   * site; the executor only formats and triggers it.
-   */
+/**
+ * Outcome notices to the approval conversation that requested the dependency.
+ * Both are one concise message, best-effort at the call site (delivery reuses
+ * the channel machinery; the executor only formats and triggers them) — a
+ * notice failure never fails the bake.
+ */
+export interface ToolchainBakeOutcomeNotice {
+  /** Bake uploaded: the toolchain is rolling out to workers. */
+  sendSuccessNotice(input: { dependency: RuntimeDependency }): Promise<void>;
+  /** Bake failed: include the concise reason. */
   sendFailureNotice(input: {
     dependency: RuntimeDependency;
     reason: string;
@@ -43,7 +47,7 @@ export interface ToolchainBakeExecutorDeps {
   toolchainStore: ToolchainArtifactStore;
   commandRunner: ToolchainCommandRunner;
   notifier: ToolchainBakeNotifier;
-  failureNotice: ToolchainBakeFailureNotice;
+  outcomeNotice: ToolchainBakeOutcomeNotice;
   registry: string;
   logWarn?: (context: Record<string, unknown>, message: string) => void;
   /** Override the npm binary/argv prefix for tests. Defaults to `npm`. */
@@ -64,9 +68,10 @@ const DEFAULT_INSTALL_TIMEOUT_MS = 5 * 60_000;
  * `npm install --ignore-scripts` in a temp dir against the allowlisted
  * registry, pack node_modules + lockfile + package.json, upload via the
  * artifact store, then transition baking→uploaded with the artifact ref + hash
- * and NOTIFY. On failure the row goes →failed with a reason and a concise
- * notice is sent to the approval conversation. Idempotent: a row that is not
- * `queued` (another worker already claimed/completed it) short-circuits.
+ * and NOTIFY. Either terminal outcome sends one concise best-effort notice to
+ * the approval conversation: success ("baked and rolling out") on uploaded,
+ * the failure reason on →failed. Idempotent: a row that is not `queued`
+ * (another worker already claimed/completed it) short-circuits.
  */
 export async function executeToolchainBake(
   deps: ToolchainBakeExecutorDeps,
@@ -125,6 +130,14 @@ export async function executeToolchainBake(
       manifestHash: dependency.manifestHash,
       status: 'uploaded',
     });
+    try {
+      await deps.outcomeNotice.sendSuccessNotice({ dependency });
+    } catch (noticeErr) {
+      deps.logWarn?.(
+        { err: noticeErr, dependencyId: dependency.id },
+        'Failed to deliver toolchain bake success notice',
+      );
+    }
     return { result: 'uploaded', manifestHash: dependency.manifestHash };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'toolchain bake failed';
@@ -140,7 +153,7 @@ export async function executeToolchainBake(
       status: 'failed',
     });
     try {
-      await deps.failureNotice.sendFailureNotice({ dependency, reason });
+      await deps.outcomeNotice.sendFailureNotice({ dependency, reason });
     } catch (noticeErr) {
       deps.logWarn?.(
         { err: noticeErr, dependencyId: dependency.id },

@@ -96,10 +96,10 @@ it.
 
 - A new `runtime.deployment_mode` setting selects mode defaults for capability
   installs (ADR-2), settings authority (ADR-3), and live topology.
-- The env-var rename to `GANTRY_SECURITY_POSTURE` is a tracked Phase-3 cut; until
-  then the posture literal is `GANTRY_DEPLOYMENT_MODE` and must not be renamed
-  casually in docs/tests (AGENTS.md Docs Rules — code literals are
-  implementation names until an explicit rename task).
+- The env-var rename to `GANTRY_SECURITY_POSTURE` **landed in Phase 3**
+  (implemented) as a clean cut with no compatibility shim:
+  `GANTRY_DEPLOYMENT_MODE` no longer exists in the codebase. Topology is the
+  `runtime.deployment_mode` settings key.
 - Fleet readiness gates on production posture; mismatched posture is an operator
   error with a clear remediation, surfaced through `/readyz`.
 - Operator-facing mode behavior, the state-ownership table, and the upgrade/skew

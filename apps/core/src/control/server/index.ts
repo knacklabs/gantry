@@ -203,11 +203,11 @@ export function startControlServer(input: {
   const port = Number(getControlEnvValue('GANTRY_CONTROL_PORT') || 0);
   const host = resolveControlHost();
   const nodeEnv = getControlEnvValue('NODE_ENV');
-  const deploymentMode = getControlEnvValue('GANTRY_DEPLOYMENT_MODE');
+  const securityPosture = getControlEnvValue('GANTRY_SECURITY_POSTURE');
   const runtimeEnv = getControlEnvValue('GANTRY_RUNTIME_ENV');
   const posture = resolveRuntimeSecurityPosture({
     NODE_ENV: nodeEnv,
-    GANTRY_DEPLOYMENT_MODE: deploymentMode,
+    GANTRY_SECURITY_POSTURE: securityPosture,
     GANTRY_RUNTIME_ENV: runtimeEnv,
     GANTRY_CONTROL_HOST: host,
     GANTRY_CONTROL_PORT: String(port),
@@ -224,7 +224,7 @@ export function startControlServer(input: {
   const productionFailures = validateProductionSecurityGate({
     env: {
       NODE_ENV: nodeEnv,
-      GANTRY_DEPLOYMENT_MODE: deploymentMode,
+      GANTRY_SECURITY_POSTURE: securityPosture,
       GANTRY_RUNTIME_ENV: runtimeEnv,
       GANTRY_CONTROL_HOST: host,
       GANTRY_CONTROL_PORT: String(port),

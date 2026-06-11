@@ -211,7 +211,7 @@ export interface RuntimeArtifactStoreSettings {
 }
 
 // Deployment topology (one machine vs many). Distinct axis from security
-// posture (GANTRY_DEPLOYMENT_MODE env). `workstation` is today's single-node
+// posture (GANTRY_SECURITY_POSTURE env). `workstation` is today's single-node
 // behavior with live installs; `fleet` runs immutable workers that fetch
 // capability artifacts produced by bake jobs.
 export type RuntimeDeploymentMode = 'workstation' | 'fleet';

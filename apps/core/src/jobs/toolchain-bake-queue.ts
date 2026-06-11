@@ -9,6 +9,67 @@ import {
 const BAKE_QUEUE = 'gantry.toolchain_bake';
 const BAKE_QUEUE_DEAD_LETTER = 'gantry.toolchain_bake.dead_letter';
 
+export interface ToolchainBakeSenderOptions {
+  connectionString: string;
+  schema?: string;
+  applicationName?: string;
+}
+
+/**
+ * Send-only toolchain bake enqueue port. Opens pg-boss, sends the bake job with
+ * the manifest-hash singleton key (matching {@link ToolchainBakeQueue}), and
+ * closes — it registers NO worker. Used by `gantry artifacts quarantine rebake`,
+ * which only needs to re-queue a bake for a running fleet worker to claim.
+ */
+export class ToolchainBakeSender implements ToolchainBakeQueuePort {
+  private boss: PgBoss | null = null;
+
+  constructor(private readonly options: ToolchainBakeSenderOptions) {}
+
+  async start(): Promise<void> {
+    if (this.boss) return;
+    const boss = new PgBoss({
+      connectionString: this.options.connectionString,
+      schema: this.options.schema ?? 'pgboss',
+      createSchema: true,
+      migrate: true,
+      application_name:
+        this.options.applicationName ?? 'gantry-toolchain-bake-sender',
+    });
+    await boss.start();
+    await boss.createQueue(BAKE_QUEUE_DEAD_LETTER, {
+      policy: 'standard',
+      retentionSeconds: 14 * 24 * 60 * 60,
+    });
+    await boss.createQueue(BAKE_QUEUE, {
+      policy: 'standard',
+      retryLimit: 0,
+      deadLetter: BAKE_QUEUE_DEAD_LETTER,
+      retentionSeconds: 14 * 24 * 60 * 60,
+    });
+    this.boss = boss;
+  }
+
+  async stop(): Promise<void> {
+    const boss = this.boss;
+    this.boss = null;
+    await boss?.stop({ graceful: true, close: true, timeout: 10_000 });
+  }
+
+  async enqueueBake(input: {
+    dependencyId: string;
+    manifestHash: string;
+  }): Promise<void> {
+    const boss = this.boss;
+    if (!boss) throw new Error('Toolchain bake sender is not running');
+    await boss.send(
+      BAKE_QUEUE,
+      { dependencyId: input.dependencyId, manifestHash: input.manifestHash },
+      { singletonKey: input.manifestHash, retryLimit: 0 },
+    );
+  }
+}
+
 interface ToolchainBakePayload {
   dependencyId: string;
   manifestHash: string;

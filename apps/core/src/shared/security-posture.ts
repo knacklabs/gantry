@@ -4,7 +4,7 @@ import { isStrongProductionSecret } from './secret-strength.js';
 export interface RuntimeSecurityEnv {
   NODE_ENV?: string;
   GANTRY_RUNTIME_ENV?: string;
-  GANTRY_DEPLOYMENT_MODE?: string;
+  GANTRY_SECURITY_POSTURE?: string;
   GANTRY_CONTROL_HOST?: string;
   GANTRY_CONTROL_PORT?: string;
   GANTRY_CONTROL_API_KEYS_JSON?: string;
@@ -31,14 +31,15 @@ export function isLocalControlHost(host: string | undefined): boolean {
 export function resolveRuntimeSecurityPosture(
   env: RuntimeSecurityEnv,
 ): RuntimeSecurityPosture {
-  const deploymentMode = env.GANTRY_DEPLOYMENT_MODE?.trim().toLowerCase() || '';
+  const securityPosture =
+    env.GANTRY_SECURITY_POSTURE?.trim().toLowerCase() || '';
   const runtimeEnv = env.GANTRY_RUNTIME_ENV?.trim().toLowerCase() || '';
   const production =
     env.NODE_ENV?.trim().toLowerCase() === 'production' ||
-    deploymentMode === 'production' ||
+    securityPosture === 'production' ||
     runtimeEnv === 'production';
   const remoteDeployment =
-    deploymentMode === 'remote' || runtimeEnv === 'remote';
+    securityPosture === 'remote' || runtimeEnv === 'remote';
   const port = Number(env.GANTRY_CONTROL_PORT?.trim() || 0);
   const remoteControl =
     port > 0 && !isLocalControlHost(env.GANTRY_CONTROL_HOST);

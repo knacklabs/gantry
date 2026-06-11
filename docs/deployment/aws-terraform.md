@@ -34,14 +34,26 @@ docker compose -f ops/docker/docker-compose.fleet.yml up --build
 #    docker compose -f ops/docker/docker-compose.fleet.yml up --build --scale job-worker=3
 ```
 
+The `settings-seed` one-shot service runs first: it writes a fleet-marked
+`settings.yaml` (`runtime.deployment_mode: fleet`) into the shared
+`gantry-fleet-home` volume and appends settings **revision 1** via
+`gantry settings import --fleet`. Workers `depend_on` it completing, so they
+boot in fleet mode with desired state already seeded and `/readyz` can go green
+(a fleet worker with no revision stays red and logs the seed command).
+
 Expected sequence in the logs:
 
 ```
-gantry-fleet-postgres   | ... database system is ready to accept connections
+gantry-fleet-postgres    | ... database system is ready to accept connections
+gantry-fleet-settings-seed | ... Appended fleet settings revision 1.
 gantry-fleet-live-worker | <ts> [entrypoint] running migrations (GANTRY_DATABASE_URL)
 gantry-fleet-live-worker | <ts> [entrypoint] migrations complete
 gantry-fleet-live-worker | <ts> [entrypoint] starting runtime: node dist/index.js
+gantry-fleet-live-worker | ... Loaded fleet settings from revision
 ```
+
+To push a new desired state after boot, re-run `gantry settings import --fleet`
+(or `PUT /v1/settings/desired-state`); workers converge via NOTIFY + poll.
 
 Verify readiness (control port published on 127.0.0.1:8080):
 
@@ -213,17 +225,25 @@ aws autoscaling start-instance-refresh \
 
 ### B.6 Seed settings (locked support agents)
 
-The fleet **desired-state control API lands in Phase 3**. For now, seeding is the
-existing `gantry settings import` CLI run **once** against the fleet/support DB
-from an operator machine or bastion with network access to the RDS Proxy:
+The fleet **desired-state control API landed in Phase 3** (ADR-3). Seeding is
+either the `gantry settings import --fleet` CLI (appends a settings revision) or
+the `PUT /v1/settings/desired-state` control endpoint. Run the CLI **once**
+against the fleet/support DB from an operator machine or bastion with network
+access to the RDS Proxy:
 
 ```bash
 # From a bastion in the VPC (or via SSM port-forward), with GANTRY_DATABASE_URL
-# pointed at the proxy and GANTRY_HOME holding the settings.yaml that declares the
-# locked support agent (agents.<id>.access.preset: locked):
+# pointed at the proxy and a settings.yaml that declares runtime.deployment_mode:
+# fleet and the locked support agent (agents.<id>.access.preset: locked):
 export GANTRY_DATABASE_URL="postgres://gantry_admin:...@$PROXY:5432/gantry?sslmode=require"
-gantry settings import        # validates + projects settings.yaml into the DB
+gantry settings import --file settings.yaml --fleet   # validates + appends a revision
+# Optionally guard against a concurrent writer:
+#   gantry settings import --file settings.yaml --fleet --expected-revision <n>
 ```
+
+Workers converge on the new revision via `pg_notify` + a poll fallback; a worker
+older than a revision's `min_reader_version` holds its last-applied revision and
+alerts (the upgrade/skew matrix in deployment-profiles.md enumerates the cases).
 
 For the **support** stack this is where the locked agent (and its pre-provisioned
 skills/MCP/capabilities) is established. The locked posture itself is enforced

@@ -18,6 +18,7 @@ import { isDraining } from '../../../app/bootstrap/draining-state.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { postgresMigrationsFolder } from '../../../adapters/storage/postgres/storage-service.js';
 import { getRuntimeSettingsForConfig } from '../../../config/index.js';
+import { areSettingsLoaded } from '../../../runtime/settings-load-state.js';
 import type { AppId } from '../../../domain/app/app.js';
 
 let shippedMigrationCountCache: number | undefined;
@@ -52,6 +53,10 @@ async function runtimeQuery<T>(sql: string): Promise<T[]> {
 }
 
 function settingsLoaded(): boolean {
+  // The process-level gate is the fleet first-boot signal: a fleet worker with
+  // no applied settings revision reports not-loaded even though a bootstrap
+  // settings.yaml exists on disk.
+  if (!areSettingsLoaded()) return false;
   try {
     return Boolean(getRuntimeSettingsForConfig());
   } catch {

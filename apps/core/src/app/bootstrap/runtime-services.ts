@@ -3,8 +3,10 @@ import {
   MAX_MESSAGES_PER_PROMPT,
   TIMEZONE,
   getCredentialBrokerRuntimeConfig,
+  getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
   type AgentToolRuleSettingsRepositories,
@@ -31,10 +33,21 @@ import {
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { WorkerCoordinationRepository } from '../../domain/ports/worker-coordination.js';
+import type { RuntimeDependencyRepository } from '../../domain/ports/fleet-capability-state.js';
 import type {
+  LiveTurn,
   LiveTurnCoordinationRepository,
   LiveTurnScope,
 } from '../../domain/ports/live-turns.js';
+import {
+  isWorkerEligibleForRequiredCapabilities,
+  resolveRequiredCapabilities,
+} from '../../jobs/capability-eligibility.js';
+import {
+  CapabilityStarvationAlerter,
+  fleetMissingRequiredCapabilities,
+} from '../../jobs/capability-starvation.js';
+import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
@@ -116,6 +129,12 @@ interface Deps {
     | WorkerCoordinationRepository
     | undefined;
   getLiveTurnRepository?: () => LiveTurnCoordinationRepository | undefined;
+  /** Toolchain manifests for the live-turn recovery capability gate (fleet). */
+  getRuntimeDependencyRepository?: () =>
+    | RuntimeDependencyRepository
+    | undefined;
+  /** Injectable for tests; defaults to the settings-backed deployment mode. */
+  getDeploymentMode: typeof getDeploymentMode;
   startOutboundDeliveryRecoveryLoop: typeof startOutboundDeliveryRecoveryLoop;
   callBrowserTool: IpcDeps['callBrowserTool'];
   publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
@@ -164,6 +183,7 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     writeGroupsSnapshot,
     recoverPendingMessages,
     startMessagePollingLoop,
+    getDeploymentMode,
     logger,
     collectSessionMemory: collectRuntimeSessionMemory,
     startOutboundDeliveryRecoveryLoop,
@@ -274,6 +294,83 @@ export async function startRuntimeServices(
       'Live-turn admission is enabled, but durable live-turn repositories are unavailable; falling back to local queue admission',
     );
   }
+  // Capability-matched live-turn recovery gate. Mirrors the job dispatch gate
+  // (capability-dispatch.ts): this worker's advertised set — image inventory +
+  // activated artifacts, kept current by the reconciler in
+  // worker_instances.capabilities_json — must cover the turn's required set.
+  // Workstation mode resolves an empty required set, so the gate is a natural
+  // no-op there (always eligible, never alerts).
+  const starvationAlerter = resolved.publishRuntimeEvent
+    ? new CapabilityStarvationAlerter({
+        publishRuntimeEvent: resolved.publishRuntimeEvent,
+        warn: (context, message) => resolved.logger.warn(context, message),
+      })
+    : undefined;
+  const requiredCapabilitiesForLiveTurn = async (
+    turn: LiveTurn,
+  ): Promise<string[]> => {
+    const folder = app.getConversationRoutes()[turn.conversationId]?.folder;
+    if (!folder) return [];
+    return resolveRequiredCapabilities(
+      {
+        deploymentMode: 'fleet',
+        skills: resolved.getSkillRepository?.(),
+        runtimeDependencies: resolved.getRuntimeDependencyRepository?.(),
+      },
+      { appId: turn.appId, agentId: agentIdForFolder(folder) },
+    );
+  };
+  const isEligibleToRecoverLiveTurn = async (
+    turn: LiveTurn,
+  ): Promise<boolean> => {
+    if (resolved.getDeploymentMode() !== 'fleet') return true;
+    if (!workerCoordination || !liveTurnLeaseDeps) return true;
+    const required = await requiredCapabilitiesForLiveTurn(turn);
+    if (required.length === 0) return true;
+    const worker = await workerCoordination.getWorker(
+      liveTurnLeaseDeps.workerInstanceId,
+    );
+    // Fail open when this worker's own advertised set is unreadable, matching
+    // the job dispatch gate's skip_check choice (the turn stays lease-protected).
+    if (!worker) return true;
+    return isWorkerEligibleForRequiredCapabilities(
+      required,
+      worker.capabilities,
+    );
+  };
+  // Fires when THIS worker is ineligible for a recoverable turn; alerts only
+  // after confirming NO active worker advertises the required set
+  // ("recoverable but no eligible recoverer"), with the alerter's dedupe.
+  const alertNoEligibleLiveTurnRecoverer = async (
+    turn: LiveTurn,
+  ): Promise<void> => {
+    if (!workerCoordination || !starvationAlerter) return;
+    const required = await requiredCapabilitiesForLiveTurn(turn);
+    if (required.length === 0) return;
+    const staleBefore = new Date(
+      currentTimeMs() - WORKER_STALE_AFTER_MS,
+    ).toISOString();
+    const activeCapabilities =
+      await workerCoordination.listActiveWorkerCapabilities({ staleBefore });
+    const missing = fleetMissingRequiredCapabilities(
+      required,
+      activeCapabilities,
+    );
+    // Another active worker is eligible; it recovers the turn on its sweep.
+    if (missing.length === 0) return;
+    await starvationAlerter.alert({
+      cause: 'no_eligible_recoverer',
+      appId: turn.appId,
+      key: turn.id,
+      runId: turn.runId,
+      requiredCapabilities: required,
+      missingCapabilities: missing,
+      ageSeconds: Math.max(
+        0,
+        Math.floor((currentTimeMs() - Date.parse(turn.updatedAt)) / 1000),
+      ),
+    });
+  };
   // True only while this worker holds the live-turn host lease. Standby/job
   // workers must not admit new live turns or poll for live messages; the
   // lease decides WHICH worker hosts live turns (liveTurnsEnabled stays the
@@ -1038,6 +1135,10 @@ export async function startRuntimeServices(
             slotCapacity: app.queue.getPolicy().maxMessageRuns,
             leaseTtlMs: 60_000,
             unleasedStaleMs: 30_000,
+            isEligible: isEligibleToRecoverLiveTurn,
+            onNoEligibleRecoverer: starvationAlerter
+              ? alertNoEligibleLiveTurnRecoverer
+              : undefined,
             warn: (context, message) => resolved.logger.warn(context, message),
             resumeRecoveredTurn: async ({ turn, lease }) => {
               const queueJid = makeThreadQueueKey(

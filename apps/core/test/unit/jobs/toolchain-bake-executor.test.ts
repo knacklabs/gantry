@@ -15,8 +15,8 @@ import type {
 } from '@core/domain/ports/toolchain-artifact-store.js';
 import {
   executeToolchainBake,
-  type ToolchainBakeFailureNotice,
   type ToolchainBakeNotifier,
+  type ToolchainBakeOutcomeNotice,
 } from '@core/jobs/toolchain-bake-executor.js';
 import { enqueueToolchainBake } from '@core/jobs/toolchain-bake-enqueue.js';
 import type { ToolchainCommandRunner } from '@core/jobs/toolchain-bake-runner.js';
@@ -146,13 +146,22 @@ class RecordingNotifier implements ToolchainBakeNotifier {
   }
 }
 
-class RecordingFailureNotice implements ToolchainBakeFailureNotice {
-  notices: Array<{ id: string; reason: string }> = [];
+class RecordingOutcomeNotice implements ToolchainBakeOutcomeNotice {
+  successNotices: Array<{ id: string; packages: string[] }> = [];
+  failureNotices: Array<{ id: string; reason: string }> = [];
+  async sendSuccessNotice(input: {
+    dependency: RuntimeDependency;
+  }): Promise<void> {
+    this.successNotices.push({
+      id: input.dependency.id,
+      packages: input.dependency.requestedPackages,
+    });
+  }
   async sendFailureNotice(input: {
     dependency: RuntimeDependency;
     reason: string;
   }): Promise<void> {
-    this.notices.push({ id: input.dependency.id, reason: input.reason });
+    this.failureNotices.push({ id: input.dependency.id, reason: input.reason });
   }
 }
 
@@ -199,7 +208,7 @@ describe('executeToolchainBake', () => {
     await seedQueuedRow(repo);
     const store = new FakeToolchainStore();
     const notifier = new RecordingNotifier();
-    const failureNotice = new RecordingFailureNotice();
+    const outcomeNotice = new RecordingOutcomeNotice();
     const runner = fakeNpmRunner(async (workDir) => {
       const nm = path.join(workDir, 'node_modules', 'left-pad');
       await fs.mkdir(nm, { recursive: true });
@@ -216,7 +225,7 @@ describe('executeToolchainBake', () => {
         toolchainStore: store,
         commandRunner: runner,
         notifier,
-        failureNotice,
+        outcomeNotice,
         registry,
       },
       { dependencyId: 'dep-1' },
@@ -237,13 +246,52 @@ describe('executeToolchainBake', () => {
       { manifestHash: 'sha256:abc', status: 'baking' },
       { manifestHash: 'sha256:abc', status: 'uploaded' },
     ]);
-    expect(failureNotice.notices).toHaveLength(0);
+    // The approval conversation gets ONE success notice naming the packages.
+    expect(outcomeNotice.successNotices).toEqual([
+      { id: 'dep-1', packages: ['left-pad@1.3.0'] },
+    ]);
+    expect(outcomeNotice.failureNotices).toHaveLength(0);
+  });
+
+  it('logs and does not fail the bake when the success notice delivery throws', async () => {
+    const repo = new FakeRuntimeDependencyRepository();
+    await seedQueuedRow(repo);
+    const warnings: string[] = [];
+    const runner = fakeNpmRunner(async (workDir) => {
+      await fs.mkdir(path.join(workDir, 'node_modules'), { recursive: true });
+    });
+
+    const outcome = await executeToolchainBake(
+      {
+        runtimeDependencies: repo,
+        toolchainStore: new FakeToolchainStore(),
+        commandRunner: runner,
+        notifier: new RecordingNotifier(),
+        outcomeNotice: {
+          sendSuccessNotice: async () => {
+            throw new Error('channel unavailable');
+          },
+          sendFailureNotice: async () => {},
+        },
+        registry,
+        logWarn: (_context, message) => {
+          warnings.push(message);
+        },
+      },
+      { dependencyId: 'dep-1' },
+    );
+
+    expect(outcome).toEqual({ result: 'uploaded', manifestHash: 'sha256:abc' });
+    expect((await repo.getRuntimeDependency('dep-1'))?.status).toBe('uploaded');
+    expect(warnings).toContain(
+      'Failed to deliver toolchain bake success notice',
+    );
   });
 
   it('marks the row failed and sends a notice when npm install fails', async () => {
     const repo = new FakeRuntimeDependencyRepository();
     await seedQueuedRow(repo);
-    const failureNotice = new RecordingFailureNotice();
+    const outcomeNotice = new RecordingOutcomeNotice();
     const notifier = new RecordingNotifier();
 
     const outcome = await executeToolchainBake(
@@ -252,7 +300,7 @@ describe('executeToolchainBake', () => {
         toolchainStore: new FakeToolchainStore(),
         commandRunner: fakeNpmRunner(async () => {}, 1),
         notifier,
-        failureNotice,
+        outcomeNotice,
         registry,
       },
       { dependencyId: 'dep-1' },
@@ -262,7 +310,8 @@ describe('executeToolchainBake', () => {
     const row = await repo.getRuntimeDependency('dep-1');
     expect(row?.status).toBe('failed');
     expect(row?.failureReason).toMatch(/npm install failed/);
-    expect(failureNotice.notices).toHaveLength(1);
+    expect(outcomeNotice.failureNotices).toHaveLength(1);
+    expect(outcomeNotice.successNotices).toHaveLength(0);
     expect(notifier.notifications.map((n) => n.status)).toContain('failed');
   });
 
@@ -280,7 +329,7 @@ describe('executeToolchainBake', () => {
         toolchainStore: new FakeToolchainStore(),
         commandRunner: runner,
         notifier: new RecordingNotifier(),
-        failureNotice: new RecordingFailureNotice(),
+        outcomeNotice: new RecordingOutcomeNotice(),
         registry,
       },
       { dependencyId: 'dep-1' },

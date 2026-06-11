@@ -21,7 +21,7 @@ import {
 } from './toolchain-bake-queue.js';
 import type {
   ToolchainBakeExecutorDeps,
-  ToolchainBakeFailureNotice,
+  ToolchainBakeOutcomeNotice,
 } from './toolchain-bake-executor.js';
 import { PostgresToolchainManifestNotifier } from './toolchain-manifest-notify.js';
 
@@ -33,7 +33,7 @@ const DEFAULT_BAKE_REGISTRY = 'https://registry.npmjs.org/';
 let activeQueue: ToolchainBakeQueue | null = null;
 
 export interface ToolchainBakeBootstrapDeps {
-  failureNotice: ToolchainBakeFailureNotice;
+  outcomeNotice: ToolchainBakeOutcomeNotice;
 }
 
 /**
@@ -60,7 +60,7 @@ export async function startToolchainBakeSubsystem(
       storage.service.pool,
       (context, message) => logger.warn(context, message),
     ),
-    failureNotice: deps.failureNotice,
+    outcomeNotice: deps.outcomeNotice,
     registry: DEFAULT_BAKE_REGISTRY,
     logWarn: (context, message) => logger.warn(context, message),
   };

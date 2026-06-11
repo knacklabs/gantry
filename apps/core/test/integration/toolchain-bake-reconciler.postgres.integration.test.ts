@@ -136,7 +136,10 @@ maybeDescribe(
           toolchainStore: store,
           commandRunner: fakeNpmRunner(),
           notifier,
-          failureNotice: { sendFailureNotice: async () => {} },
+          outcomeNotice: {
+            sendSuccessNotice: async () => {},
+            sendFailureNotice: async () => {},
+          },
           registry,
         },
         { dependencyId },

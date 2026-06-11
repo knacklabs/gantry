@@ -110,12 +110,59 @@ export type RuntimeSettingsResponse = {
   };
 };
 
+export type DesiredStateResponse = {
+  revision: number;
+  minReaderVersion?: number;
+  settingsYaml: string | null;
+  createdBy?: string;
+  note?: string | null;
+  updatedAt: string | null;
+};
+
+export type DesiredStateUpdateRequest = {
+  settingsYaml: string;
+  expectedRevision?: number | null;
+  note?: string | null;
+};
+
+export type DesiredStateUpdateResponse = {
+  revision: number;
+};
+
+export type SettingsRevisionSummary = {
+  revision: number;
+  minReaderVersion: number;
+  createdBy: string;
+  note: string | null;
+  createdAt: string;
+};
+
+export type SettingsRevisionsResponse = {
+  revisions: SettingsRevisionSummary[];
+};
+
 export function createSettingsClient(transport: TransportLike) {
   return {
     get: () =>
       transport.request<RuntimeSettingsResponse>({
         method: 'GET',
         path: '/v1/settings',
+      }),
+    getDesiredState: () =>
+      transport.request<DesiredStateResponse>({
+        method: 'GET',
+        path: '/v1/settings/desired-state',
+      }),
+    updateDesiredState: (body: DesiredStateUpdateRequest) =>
+      transport.request<DesiredStateUpdateResponse>({
+        method: 'PUT',
+        path: '/v1/settings/desired-state',
+        body,
+      }),
+    listRevisions: () =>
+      transport.request<SettingsRevisionsResponse>({
+        method: 'GET',
+        path: '/v1/settings/revisions',
       }),
   };
 }
