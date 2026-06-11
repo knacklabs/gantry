@@ -58,7 +58,9 @@ export async function scanCapabilityStarvation(
     alerted: 0,
   };
 
-  const dueJobs = jobs.filter((job) => isDueOlderThan(job, nowMs, ageThresholdMs));
+  const dueJobs = jobs.filter((job) =>
+    isDueOlderThan(job, nowMs, ageThresholdMs),
+  );
   if (dueJobs.length === 0) return result;
 
   const activeCapabilities =

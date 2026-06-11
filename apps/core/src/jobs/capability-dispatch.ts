@@ -91,9 +91,7 @@ export async function decideCapabilityDispatch(
   return {
     outcome: 'ineligible',
     requiredCapabilities: required,
-    missingCapabilities: required.filter(
-      (id) => !new Set(advertised).has(id),
-    ),
+    missingCapabilities: required.filter((id) => !new Set(advertised).has(id)),
   };
 }
 

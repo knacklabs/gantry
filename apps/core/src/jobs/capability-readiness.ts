@@ -72,7 +72,10 @@ export async function evaluateFleetCapabilityReadiness(
   ).toISOString();
   const activeCapabilities =
     await deps.workerRegistry.listActiveWorkerCapabilities({ staleBefore });
-  const missing = fleetMissingRequiredCapabilities(required, activeCapabilities);
+  const missing = fleetMissingRequiredCapabilities(
+    required,
+    activeCapabilities,
+  );
   return {
     satisfiable: missing.length === 0,
     requiredCapabilities: required,

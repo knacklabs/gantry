@@ -310,9 +310,7 @@ export class PgBossSchedulerEngine {
    * worker satisfies — the case the requeue-without-retry-burn loop would
    * otherwise let starve silently. No-op in workstation mode.
    */
-  private async scanCapabilityStarvation(
-    jobs: readonly Job[],
-  ): Promise<void> {
+  private async scanCapabilityStarvation(jobs: readonly Job[]): Promise<void> {
     if (getDeploymentMode() !== 'fleet') return;
     try {
       const storage = getRuntimeStorage();

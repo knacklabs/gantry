@@ -151,7 +151,10 @@ describe('requiredCapabilitiesChanged', () => {
     expect(requiredCapabilitiesChanged(['skill:a'], [])).toBe(true);
     expect(requiredCapabilitiesChanged(['skill:a'], ['skill:a'])).toBe(false);
     expect(
-      requiredCapabilitiesChanged(['skill:b', 'skill:a'], ['skill:a', 'skill:b']),
+      requiredCapabilitiesChanged(
+        ['skill:b', 'skill:a'],
+        ['skill:a', 'skill:b'],
+      ),
     ).toBe(false);
     expect(requiredCapabilitiesChanged(null, [])).toBe(false);
   });

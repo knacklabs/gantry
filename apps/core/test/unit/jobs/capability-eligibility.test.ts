@@ -109,10 +109,9 @@ describe('isWorkerEligibleForRequiredCapabilities', () => {
 
 describe('normalizeCapabilitySet', () => {
   it('sorts, de-dupes, and trims', () => {
-    expect(normalizeCapabilitySet([' skill:b ', 'skill:a', 'skill:b'])).toEqual([
-      'skill:a',
-      'skill:b',
-    ]);
+    expect(normalizeCapabilitySet([' skill:b ', 'skill:a', 'skill:b'])).toEqual(
+      ['skill:a', 'skill:b'],
+    );
     expect(normalizeCapabilitySet(null)).toEqual([]);
   });
 });

@@ -84,8 +84,7 @@ async function fleetCapabilitySetupStateIfUnsatisfiable(input: {
     {
       deploymentMode: 'fleet',
       skills: input.deps.getSkillRepository?.(),
-      runtimeDependencies:
-        getRuntimeStorage().repositories.runtimeDependencies,
+      runtimeDependencies: getRuntimeStorage().repositories.runtimeDependencies,
       workerRegistry: getWorkerCoordinationRepository(),
     },
     { appId: input.appId, agentId: input.agentId },

@@ -85,7 +85,9 @@ export function normalizeCapabilitySet(
   capabilities: readonly string[] | null | undefined,
 ): string[] {
   if (!capabilities || capabilities.length === 0) return [];
-  return [...new Set(capabilities.map((id) => id.trim()).filter(Boolean))].sort();
+  return [
+    ...new Set(capabilities.map((id) => id.trim()).filter(Boolean)),
+  ].sort();
 }
 
 /**

@@ -58,6 +58,16 @@ FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \
     GANTRY_HOME=/var/lib/gantry
 
+# Skill-script interpreters. Skills are distributed as data artifacts in any
+# language; the image carries the interpreters their scripts need at runtime.
+# python3 covers the common non-Node skill payload. Deliberately NOT included:
+# pip usage at runtime (fleet workers never run a package manager — Python
+# package installs belong to a future bake lane, see TODOS.md) and the Go
+# toolchain (Go-built tools ship as binaries: add the binary here per tool).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root runtime user. The base image already ships a `node` user (uid 1000);
 # create a dedicated home and a writable runtime-state dir owned by it.
 RUN install -d -o node -g node "${GANTRY_HOME}"
