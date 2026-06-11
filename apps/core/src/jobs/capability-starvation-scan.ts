@@ -16,10 +16,16 @@ import { WORKER_STALE_AFTER_MS } from '../shared/worker-heartbeat.js';
  * Bounded periodic capability-starvation scan (fleet mode only).
  *
  * A fleet-wide-unsatisfiable delivery requeues forever and never reaches the
- * per-run readiness pause, so a due job can starve silently. This scan is the
- * safety net: for each active due job older than {@link STARVATION_AGE_MS} whose
- * required capability set no active worker can satisfy, it raises ONE deduped
- * starvation alert. The caller drives it from the existing scheduler-maintenance
+ * per-run readiness pause (`requeuedIneligibleDelivery` skips `runJob` on every
+ * ineligible worker, and runJob is the only path to `pauseJobForSetupIfNeeded`),
+ * so a due job can starve silently. This scan is the safety net: for each
+ * active due job older than {@link STARVATION_AGE_MS} whose required capability
+ * set no active worker can satisfy, it raises ONE deduped starvation alert AND
+ * pauses the job through the caller-supplied {@link
+ * CapabilityStarvationScanDeps.pauseStarvedJob} hook — wired to the existing
+ * readiness pause path (`pauseJobForSetupIfNeeded`), which re-checks fleet
+ * satisfiability before pausing and surfaces the one-clear-user-action setup
+ * state. The caller drives the scan from the existing scheduler-maintenance
  * sync (already stoppable), so this adds no timer of its own.
  */
 
@@ -28,6 +34,13 @@ export interface CapabilityStarvationScanDeps {
   runtimeDependencies: RuntimeDependencyRepository;
   workerRegistry: WorkerRegistryRepository;
   alerter: CapabilityStarvationAlerter;
+  /**
+   * Pause a starved job via the existing readiness pause path
+   * (`pauseJobForSetupIfNeeded`). Invoked for every starved job, even when the
+   * alert deduped — the pause re-validates readiness itself and a paused job
+   * leaves the active scan set, so this self-limits. Returns true when paused.
+   */
+  pauseStarvedJob?: (job: Job) => Promise<boolean>;
   now?: () => number;
   ageThresholdMs?: number;
   staleAfterMs?: number;
@@ -37,6 +50,7 @@ export interface CapabilityStarvationScanResult {
   scanned: number;
   starved: number;
   alerted: number;
+  paused: number;
 }
 
 /**
@@ -56,6 +70,7 @@ export async function scanCapabilityStarvation(
     scanned: 0,
     starved: 0,
     alerted: 0,
+    paused: 0,
   };
 
   const dueJobs = jobs.filter((job) =>
@@ -94,6 +109,14 @@ export async function scanCapabilityStarvation(
       ageSeconds: jobDueAgeSeconds(job, nowMs),
     });
     if (alerted) result.alerted += 1;
+    if (deps.pauseStarvedJob) {
+      try {
+        if (await deps.pauseStarvedJob(job)) result.paused += 1;
+      } catch {
+        // A pause failure must not abort the scan; the next maintenance pass
+        // retries while the requeue loop keeps the job pending (not lost).
+      }
+    }
   }
   return result;
 }

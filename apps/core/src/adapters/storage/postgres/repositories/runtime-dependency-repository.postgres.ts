@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, type SQL } from 'drizzle-orm';
 
 import type {
   RuntimeDependency,
   RuntimeDependencyArtifact,
   RuntimeDependencyRepository,
   RuntimeDependencyStatus,
+  StaleRuntimeDependencyLister,
   UpdateRuntimeDependencyStatusInput,
 } from '../../../../domain/ports/fleet-capability-state.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
@@ -43,7 +44,9 @@ function toRuntimeDependency(row: RuntimeDependencyRow): RuntimeDependency {
   };
 }
 
-export class PostgresRuntimeDependencyRepository implements RuntimeDependencyRepository {
+export class PostgresRuntimeDependencyRepository
+  implements RuntimeDependencyRepository, StaleRuntimeDependencyLister
+{
   constructor(private readonly db: CanonicalDb) {}
 
   async createRuntimeDependency(input: {
@@ -133,6 +136,27 @@ export class PostgresRuntimeDependencyRepository implements RuntimeDependencyRep
       .from(pgSchema.runtimeDependenciesPostgres)
       .where(and(...filters))
       .orderBy(desc(pgSchema.runtimeDependenciesPostgres.updatedAt));
+    return rows.map(toRuntimeDependency);
+  }
+
+  async listStaleRuntimeDependencies(input: {
+    statuses: RuntimeDependencyStatus[];
+    updatedBefore: string;
+  }): Promise<RuntimeDependency[]> {
+    if (input.statuses.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(pgSchema.runtimeDependenciesPostgres)
+      .where(
+        and(
+          inArray(pgSchema.runtimeDependenciesPostgres.status, input.statuses),
+          lt(
+            pgSchema.runtimeDependenciesPostgres.updatedAt,
+            input.updatedBefore,
+          ),
+        ),
+      )
+      .orderBy(asc(pgSchema.runtimeDependenciesPostgres.updatedAt));
     return rows.map(toRuntimeDependency);
   }
 

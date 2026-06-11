@@ -187,4 +187,93 @@ describe('scanCapabilityStarvation', () => {
     await scanCapabilityStarvation(deps, [job()]);
     expect(events).toHaveLength(1);
   });
+
+  it('pauses a starved job through the injected readiness pause hook', async () => {
+    const { alerter } = makeAlerter();
+    const pausedJobIds: string[] = [];
+    const result = await scanCapabilityStarvation(
+      {
+        skills: noSkills,
+        runtimeDependencies: depsRepo([toolchainDep('sha256:h1')]),
+        workerRegistry: workerRegistry([['browser']]),
+        alerter,
+        pauseStarvedJob: async (starved) => {
+          pausedJobIds.push(starved.id);
+          return true;
+        },
+        now: () => NOW_MS,
+      },
+      [job()],
+    );
+    expect(result.starved).toBe(1);
+    expect(result.paused).toBe(1);
+    expect(pausedJobIds).toEqual(['job-1']);
+  });
+
+  it('does not invoke the pause hook for a satisfiable job', async () => {
+    const { alerter } = makeAlerter();
+    const cap = toolchainCapabilityId('sha256:h1');
+    let pauseCalls = 0;
+    const result = await scanCapabilityStarvation(
+      {
+        skills: noSkills,
+        runtimeDependencies: depsRepo([toolchainDep('sha256:h1')]),
+        workerRegistry: workerRegistry([[cap]]),
+        alerter,
+        pauseStarvedJob: async () => {
+          pauseCalls += 1;
+          return true;
+        },
+        now: () => NOW_MS,
+      },
+      [job()],
+    );
+    expect(result.starved).toBe(0);
+    expect(result.paused).toBe(0);
+    expect(pauseCalls).toBe(0);
+  });
+
+  it('retries the pause on a later pass even when the alert deduped', async () => {
+    const { alerter } = makeAlerter();
+    let pauseCalls = 0;
+    const deps = {
+      skills: noSkills,
+      runtimeDependencies: depsRepo([toolchainDep('sha256:h1')]),
+      workerRegistry: workerRegistry([['browser']]),
+      alerter,
+      // Pause keeps failing (e.g. transient DB error inside the pause path):
+      // the job stays active and must be retried next pass.
+      pauseStarvedJob: async () => {
+        pauseCalls += 1;
+        return false;
+      },
+      now: () => NOW_MS,
+    };
+    const first = await scanCapabilityStarvation(deps, [job()]);
+    const second = await scanCapabilityStarvation(deps, [job()]);
+    expect(first.alerted).toBe(1);
+    expect(second.alerted).toBe(0);
+    expect(pauseCalls).toBe(2);
+    expect(second.paused).toBe(0);
+  });
+
+  it('survives a pause hook that throws and still reports the starved job', async () => {
+    const { alerter } = makeAlerter();
+    const result = await scanCapabilityStarvation(
+      {
+        skills: noSkills,
+        runtimeDependencies: depsRepo([toolchainDep('sha256:h1')]),
+        workerRegistry: workerRegistry([['browser']]),
+        alerter,
+        pauseStarvedJob: async () => {
+          throw new Error('pause path unavailable');
+        },
+        now: () => NOW_MS,
+      },
+      [job()],
+    );
+    expect(result.starved).toBe(1);
+    expect(result.alerted).toBe(1);
+    expect(result.paused).toBe(0);
+  });
 });

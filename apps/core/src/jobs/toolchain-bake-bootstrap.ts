@@ -23,6 +23,7 @@ import type {
   ToolchainBakeExecutorDeps,
   ToolchainBakeOutcomeNotice,
 } from './toolchain-bake-executor.js';
+import { ToolchainBakeReaper } from './toolchain-bake-reaper.js';
 import { PostgresToolchainManifestNotifier } from './toolchain-manifest-notify.js';
 
 // Default npm registry the bake pins; overridable via runtime settings when the
@@ -31,15 +32,19 @@ import { PostgresToolchainManifestNotifier } from './toolchain-manifest-notify.j
 const DEFAULT_BAKE_REGISTRY = 'https://registry.npmjs.org/';
 
 let activeQueue: ToolchainBakeQueue | null = null;
+let activeReaper: ToolchainBakeReaper | null = null;
 
 export interface ToolchainBakeBootstrapDeps {
   outcomeNotice: ToolchainBakeOutcomeNotice;
 }
 
 /**
- * Start the toolchain bake queue. Only meaningful in fleet mode — the caller
- * (and this function) no-op in workstation mode so bakes never run there. Wire
- * this from the runtime bootstrap after storage is initialized.
+ * Start the toolchain bake queue plus its reaper. Only meaningful in fleet
+ * mode — the caller (and this function) no-op in workstation mode so bakes
+ * never run there. Wire this from the runtime bootstrap after storage is
+ * initialized. The reaper recovers rows stranded at `queued`/`baking` by a
+ * worker hard-death, a rolling-deploy drain, or a dead-lettered delivery —
+ * without it an approved dependency could silently never bake.
  */
 export async function startToolchainBakeSubsystem(
   deps: ToolchainBakeBootstrapDeps,
@@ -52,14 +57,15 @@ export async function startToolchainBakeSubsystem(
     );
   }
   const storage = getRuntimeStorage();
+  const notifier = new PostgresToolchainManifestNotifier(
+    storage.service.pool,
+    (context, message) => logger.warn(context, message),
+  );
   const executorDeps: ToolchainBakeExecutorDeps = {
     runtimeDependencies: storage.repositories.runtimeDependencies,
     toolchainStore: createToolchainArtifactStore(),
     commandRunner: (await import('./toolchain-bake-runner.js')).spawnNpmRunner,
-    notifier: new PostgresToolchainManifestNotifier(
-      storage.service.pool,
-      (context, message) => logger.warn(context, message),
-    ),
+    notifier,
     outcomeNotice: deps.outcomeNotice,
     registry: DEFAULT_BAKE_REGISTRY,
     logWarn: (context, message) => logger.warn(context, message),
@@ -74,10 +80,22 @@ export async function startToolchainBakeSubsystem(
   const queue = new ToolchainBakeQueue(executorDeps, options);
   await queue.start();
   activeQueue = queue;
+  const reaper = new ToolchainBakeReaper({
+    runtimeDependencies: storage.repositories.runtimeDependencies,
+    queue,
+    notifier,
+    logInfo: (context, message) => logger.info(context, message),
+    logWarn: (context, message) => logger.warn(context, message),
+  });
+  reaper.start();
+  activeReaper = reaper;
   return queue;
 }
 
 export async function stopToolchainBakeSubsystem(): Promise<void> {
+  const reaper = activeReaper;
+  activeReaper = null;
+  await reaper?.stop();
   const queue = activeQueue;
   activeQueue = null;
   await queue?.stop();

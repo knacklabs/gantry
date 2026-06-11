@@ -99,6 +99,7 @@ import { PostgresSettingsRevisionRepository } from './settings-revision-reposito
 import type {
   RuntimeDependencyRepository,
   SettingsRevisionRepository,
+  StaleRuntimeDependencyLister,
 } from '../../../../domain/ports/fleet-capability-state.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -124,7 +125,7 @@ export interface PostgresDomainRepositoryBundle {
   outboundDeliveries: OutboundDeliveryRepository;
   workerCoordination: WorkerCoordinationRepository;
   liveTurns: LiveTurnCoordinationRepository;
-  runtimeDependencies: RuntimeDependencyRepository;
+  runtimeDependencies: RuntimeDependencyRepository & StaleRuntimeDependencyLister;
   settingsRevisions: SettingsRevisionRepository;
 }
 type JsonRecord = Record<string, unknown>;

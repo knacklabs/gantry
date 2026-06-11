@@ -132,6 +132,15 @@ export class ToolchainBakeQueue implements ToolchainBakeQueuePort {
     );
   }
 
+  /**
+   * Drain decision (deliberate): stop does NOT await an in-flight bake beyond
+   * pg-boss's short grace window. The default drain deadline (120s) is shorter
+   * than the install timeout (5 min), so waiting could never guarantee
+   * completion — a drain mid-install strands the row at `baking` and the
+   * `ToolchainBakeReaper` on a live worker CAS-resets it to `queued` and
+   * re-enqueues within the reap threshold. Accepting the strand keeps shutdown
+   * fast and bounded instead of holding the deploy hostage to npm.
+   */
   async stop(): Promise<void> {
     const boss = this.boss;
     this.boss = null;

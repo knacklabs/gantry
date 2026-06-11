@@ -78,6 +78,20 @@ export interface UpdateRuntimeDependencyStatusInput {
   now?: string;
 }
 
+/**
+ * Reaper-facing query over rows whose bake stopped making progress: a worker
+ * died mid-bake (row stuck at `baking`) or the pg-boss delivery was lost or
+ * dead-lettered (row stuck at `queued`). Every status write bumps `updatedAt`,
+ * so staleness is measured against it — no extra schema. Cross-app by design:
+ * recovery must not depend on enumerating apps.
+ */
+export interface StaleRuntimeDependencyLister {
+  listStaleRuntimeDependencies(input: {
+    statuses: RuntimeDependencyStatus[];
+    updatedBefore: string;
+  }): Promise<RuntimeDependency[]>;
+}
+
 export interface SettingsRevision {
   appId: string;
   /** Monotonic per appId, allocated transactionally on append. */
@@ -89,11 +103,31 @@ export interface SettingsRevision {
   createdAt: string;
 }
 
+export type AppendSettingsRevisionResult =
+  | { status: 'appended'; revision: SettingsRevision }
+  | {
+      /**
+       * The optimistic-concurrency guard failed: the current head revision is
+       * not `expectedRevision`. Exactly one of two concurrent conditional
+       * appends with the same `expectedRevision` wins; the loser gets this.
+       */
+      status: 'conflict';
+      expectedRevision: number;
+      actualRevision: number;
+    };
+
 export interface SettingsRevisionRepository {
   /**
-   * Append a new desired-state revision. The next revision number is allocated
+   * Append a new desired-state revision.
+   *
+   * Without `expectedRevision` the next revision number is allocated
    * transactionally; concurrent appends serialize on the (appId, revision)
    * unique key and retry against the latest.
+   *
+   * With `expectedRevision` the append is a conditional write: the row is
+   * inserted as exactly `expectedRevision + 1` with NO retry past a conflict —
+   * a stale head or a lost insert race returns `status: 'conflict'` so callers
+   * surface the contracted 409 instead of silently appending the next revision.
    */
   appendSettingsRevision(input: {
     appId: string;
@@ -101,8 +135,9 @@ export interface SettingsRevisionRepository {
     minReaderVersion: number;
     createdBy: string;
     note?: string | null;
+    expectedRevision?: number | null;
     now?: string;
-  }): Promise<SettingsRevision>;
+  }): Promise<AppendSettingsRevisionResult>;
   getLatestSettingsRevision(appId: string): Promise<SettingsRevision | null>;
   getSettingsRevision(input: {
     appId: string;

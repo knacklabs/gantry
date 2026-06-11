@@ -60,7 +60,7 @@ export type ToolchainBakeOutcome =
   | { result: 'skipped'; reason: 'not_claimable' }
   | { result: 'failed'; reason: string };
 
-const DEFAULT_INSTALL_TIMEOUT_MS = 5 * 60_000;
+export const DEFAULT_INSTALL_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Execute a single toolchain bake for a runtime_dependencies row. Lifecycle:
@@ -72,6 +72,23 @@ const DEFAULT_INSTALL_TIMEOUT_MS = 5 * 60_000;
  * the approval conversation: success ("baked and rolling out") on uploaded,
  * the failure reason on →failed. Idempotent: a row that is not `queued`
  * (another worker already claimed/completed it) short-circuits.
+ *
+ * Crash/drain recovery: a hard death (SIGKILL/OOM) or a rolling-deploy drain
+ * mid-install strands the row at `baking` — drain deliberately does NOT await
+ * the in-flight install (the default drain deadline is shorter than the install
+ * timeout, so waiting could not guarantee completion anyway; see
+ * `ToolchainBakeQueue.stop`). The `ToolchainBakeReaper` recovers it: rows whose
+ * `updated_at` is older than `bakeReapStalenessMs()` (≥ 2× the install timeout
+ * plus an upload allowance) are CAS-reset baking→queued and re-enqueued.
+ *
+ * Double-bake tolerance: a slow-but-alive baker can exceed the reap threshold,
+ * lose its row to the reaper, and race a second baker for the same manifest.
+ * Both terminal CAS writes here guard on fromStatus 'baking', and a lost CAS is
+ * a benign no-op (outcome `skipped`, no NOTIFY, no user notice) — exactly one
+ * baker's terminal write lands. The generous reap threshold makes this race
+ * rare; if the loser's S3 upload still overwrote the winner's bytes, the worker
+ * reconciler's sha256 verify quarantines the mismatch and
+ * `gantry artifacts quarantine rebake` re-bakes it.
  */
 export async function executeToolchainBake(
   deps: ToolchainBakeExecutorDeps,
@@ -141,12 +158,23 @@ export async function executeToolchainBake(
     return { result: 'uploaded', manifestHash: dependency.manifestHash };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'toolchain bake failed';
-    await deps.runtimeDependencies.updateRuntimeDependencyStatus({
-      id: dependency.id,
-      status: 'failed',
-      fromStatus: 'baking',
-      failureReason: reason,
-    });
+    const failed = await deps.runtimeDependencies.updateRuntimeDependencyStatus(
+      {
+        id: dependency.id,
+        status: 'failed',
+        fromStatus: 'baking',
+        failureReason: reason,
+      },
+    );
+    if (!failed) {
+      // Lost the lease (row reaped/superseded mid-bake): benign no-op. The
+      // current owner reports the real outcome; no NOTIFY, no user notice.
+      deps.logWarn?.(
+        { dependencyId: dependency.id, reason },
+        'Toolchain bake lost its row before the failed write; dropping outcome',
+      );
+      return { result: 'skipped', reason: 'not_claimable' };
+    }
     await deps.notifier.notifyManifestChanged({
       appId: dependency.appId,
       manifestHash: dependency.manifestHash,

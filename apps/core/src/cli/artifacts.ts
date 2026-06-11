@@ -13,10 +13,12 @@ import {
   STORAGE_POSTGRES_URL,
 } from '../config/index.js';
 import type { AppId } from '../domain/app/app.js';
-import { enqueueToolchainBake } from '../jobs/toolchain-bake-enqueue.js';
+import {
+  bakeReapStalenessMs,
+  resetToolchainBakeForRequeue,
+} from '../jobs/toolchain-bake-reaper.js';
 import { ToolchainBakeSender } from '../jobs/toolchain-bake-queue.js';
-
-const DEFAULT_BAKE_REGISTRY = 'https://registry.npmjs.org/';
+import { PostgresToolchainManifestNotifier } from '../jobs/toolchain-manifest-notify.js';
 
 function usage(): string {
   return [
@@ -100,7 +102,8 @@ async function rebake(manifestHash: string | undefined): Promise<number> {
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-rebake`,
   });
   try {
-    const repository = getRuntimeStorage().repositories.runtimeDependencies;
+    const storage = getRuntimeStorage();
+    const repository = storage.repositories.runtimeDependencies;
     const row = await repository.getRuntimeDependencyByManifestHash({
       appId: 'default' as AppId,
       manifestHash,
@@ -109,24 +112,37 @@ async function rebake(manifestHash: string | undefined): Promise<number> {
       p.log.error(`No toolchain manifest found for hash ${manifestHash}.`);
       return 1;
     }
-    // Reset a failed manifest to queued so enqueue re-baths it; an already
-    // healthy manifest is re-enqueued idempotently onto the same hash.
-    await repository.updateRuntimeDependencyStatus({
-      id: row.id,
-      status: 'queued',
-      failureReason: null,
-    });
     await queue.start();
-    const result = await enqueueToolchainBake(
+    // Single guarded reset path shared with the bake reaper: a quarantined
+    // (uploaded|activated) or failed manifest resets to queued and re-enqueues;
+    // a stale `baking` row is reclaimed; a fresh `baking` row is in flight and
+    // is never clobbered from the CLI.
+    const outcome = await resetToolchainBakeForRequeue(
       {
         runtimeDependencies: repository,
         queue,
-        registry: DEFAULT_BAKE_REGISTRY,
+        notifier: new PostgresToolchainManifestNotifier(storage.service.pool),
       },
-      { appId: 'default' as AppId, packages: row.requestedPackages },
+      {
+        dependency: row,
+        fromStatuses: ['failed', 'uploaded', 'activated', 'baking', 'queued'],
+        stalenessMs: bakeReapStalenessMs(),
+      },
     );
+    if (outcome === 'in_flight') {
+      p.log.error(
+        `Manifest ${manifestHash} is baking right now (started ${row.updatedAt}). Wait for it to finish or fail, then rebake.`,
+      );
+      return 1;
+    }
+    if (outcome === 'lost_race') {
+      p.log.error(
+        `Manifest ${manifestHash} changed concurrently; re-run the command to see its current status.`,
+      );
+      return 1;
+    }
     p.log.success(
-      `Re-queued bake for ${manifestHash} (${result.status}). A fleet worker will rebuild and re-verify it.`,
+      `Re-queued bake for ${manifestHash}. A fleet worker will rebuild and re-verify it.`,
     );
     return 0;
   } catch (err) {

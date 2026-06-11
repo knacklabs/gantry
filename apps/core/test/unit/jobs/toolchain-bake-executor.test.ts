@@ -339,6 +339,84 @@ describe('executeToolchainBake', () => {
     expect(row.status).toBe('baking');
   });
 
+  it('treats a lost uploaded-CAS after a mid-bake reap as a benign no-op', async () => {
+    const repo = new FakeRuntimeDependencyRepository();
+    await seedQueuedRow(repo);
+    const notifier = new RecordingNotifier();
+    const outcomeNotice = new RecordingOutcomeNotice();
+    // Simulate the reaper firing mid-install: the row is CAS-reset to queued
+    // exactly as resetToolchainBakeForRequeue does.
+    const runner = fakeNpmRunner(async (workDir) => {
+      await fs.writeFile(
+        path.join(workDir, 'package-lock.json'),
+        '{"lockfileVersion":3}\n',
+      );
+      const reaped = await repo.updateRuntimeDependencyStatus({
+        id: 'dep-1',
+        status: 'queued',
+        fromStatus: 'baking',
+        failureReason: null,
+      });
+      expect(reaped).toBe(true);
+    });
+
+    const outcome = await executeToolchainBake(
+      {
+        runtimeDependencies: repo,
+        toolchainStore: new FakeToolchainStore(),
+        commandRunner: runner,
+        notifier,
+        outcomeNotice,
+        registry,
+      },
+      { dependencyId: 'dep-1' },
+    );
+
+    expect(outcome).toEqual({ result: 'skipped', reason: 'not_claimable' });
+    const row = await repo.getRuntimeDependency('dep-1');
+    // The reaped row is owned by the requeued bake now; the loser's terminal
+    // write must not land.
+    expect(row?.status).toBe('queued');
+    expect(notifier.notifications.map((n) => n.status)).toEqual(['baking']);
+    expect(outcomeNotice.successNotices).toHaveLength(0);
+    expect(outcomeNotice.failureNotices).toHaveLength(0);
+  });
+
+  it('treats a lost failed-CAS after a mid-bake reap as a benign no-op (no failure notice)', async () => {
+    const repo = new FakeRuntimeDependencyRepository();
+    await seedQueuedRow(repo);
+    const notifier = new RecordingNotifier();
+    const outcomeNotice = new RecordingOutcomeNotice();
+    const runner = fakeNpmRunner(async () => {
+      const reaped = await repo.updateRuntimeDependencyStatus({
+        id: 'dep-1',
+        status: 'queued',
+        fromStatus: 'baking',
+        failureReason: null,
+      });
+      expect(reaped).toBe(true);
+    }, 1);
+
+    const outcome = await executeToolchainBake(
+      {
+        runtimeDependencies: repo,
+        toolchainStore: new FakeToolchainStore(),
+        commandRunner: runner,
+        notifier,
+        outcomeNotice,
+        registry,
+      },
+      { dependencyId: 'dep-1' },
+    );
+
+    expect(outcome).toEqual({ result: 'skipped', reason: 'not_claimable' });
+    const row = await repo.getRuntimeDependency('dep-1');
+    expect(row?.status).toBe('queued');
+    expect(row?.failureReason).toBeNull();
+    expect(notifier.notifications.map((n) => n.status)).toEqual(['baking']);
+    expect(outcomeNotice.failureNotices).toHaveLength(0);
+  });
+
   it('is idempotent: a second enqueue for the same manifest does not duplicate the row', async () => {
     const repo = new FakeRuntimeDependencyRepository();
     const enqueued: string[] = [];

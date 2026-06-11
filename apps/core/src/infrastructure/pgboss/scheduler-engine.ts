@@ -25,6 +25,10 @@ import {
 } from '../../jobs/capability-dispatch.js';
 import { CapabilityStarvationAlerter } from '../../jobs/capability-starvation.js';
 import { scanCapabilityStarvation } from '../../jobs/capability-starvation-scan.js';
+import { pauseJobForSetupIfNeeded } from '../../jobs/execution-readiness.js';
+import { resolveAppSessionForJob } from '../../jobs/app-session-resolution.js';
+import { agentIdForJobWorkspaceKey } from '../../application/jobs/job-tool-policy.js';
+import { DEFAULT_JOB_RUNTIME_APP_ID } from '../../application/jobs/job-access.js';
 import { currentWorkerInstanceId } from '../../jobs/worker-identity.js';
 import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import { validateScheduleConfig } from '../../jobs/schedule.js';
@@ -308,7 +312,9 @@ export class PgBossSchedulerEngine {
    * Fleet-only capability-starvation safety net, driven by the (stoppable)
    * maintenance sync. Alerts due jobs whose required capability set no active
    * worker satisfies — the case the requeue-without-retry-burn loop would
-   * otherwise let starve silently. No-op in workstation mode.
+   * otherwise let starve silently — and pauses them through the existing
+   * readiness pause path so they stop requeueing and surface one clear user
+   * action. No-op in workstation mode.
    */
   private async scanCapabilityStarvation(jobs: readonly Job[]): Promise<void> {
     if (getDeploymentMode() !== 'fleet') return;
@@ -327,12 +333,38 @@ export class PgBossSchedulerEngine {
           runtimeDependencies: storage.repositories.runtimeDependencies,
           workerRegistry: getWorkerCoordinationRepository(),
           alerter: this.starvationAlerter,
+          pauseStarvedJob: (job) => this.pauseStarvedJob(job),
         },
         jobs,
       );
     } catch (err) {
       logger.warn({ err }, 'Capability-starvation scan failed');
     }
+  }
+
+  /**
+   * Pause a fleet-starved job via the existing readiness pause path. The
+   * requeue loop never reaches runJob for a fleet-wide-unsatisfiable job (every
+   * worker requeues the delivery), so this is the only place such a job gets
+   * paused. `pauseJobForSetupIfNeeded` re-checks fleet satisfiability itself —
+   * if the gap closed between scan and pause it returns false and the job keeps
+   * running normally.
+   */
+  private async pauseStarvedJob(job: Job): Promise<boolean> {
+    const appSession = await resolveAppSessionForJob(
+      job,
+      getRuntimeControlRepository(),
+    );
+    return pauseJobForSetupIfNeeded({
+      currentJob: job,
+      deps: this.deps,
+      executionAgentFolder: job.workspace_key,
+      agentId: agentIdForJobWorkspaceKey(job.workspace_key),
+      runtimeAppId: DEFAULT_JOB_RUNTIME_APP_ID,
+      appSession,
+      source: 'preflight_setup',
+      publishRuntimeEvent: (event) => getRuntimeEventExchange().publish(event),
+    });
   }
 
   /**
