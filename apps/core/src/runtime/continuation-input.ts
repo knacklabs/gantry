@@ -31,6 +31,26 @@ export function getContinuationInputDir(
   );
 }
 
+export function continuationInputPath(
+  workspaceFolder: string,
+  sequence: number,
+  threadId?: string | null,
+): string {
+  const inputDir = getContinuationInputDir(workspaceFolder, threadId);
+  const filename = `${currentTimeMs()}-${String(sequence).padStart(12, '0')}.json`;
+  return path.join(inputDir, filename);
+}
+
+export function closeSignalPath(
+  workspaceFolder: string,
+  threadId?: string | null,
+): string {
+  return path.join(
+    getContinuationInputDir(workspaceFolder, threadId),
+    '_close',
+  );
+}
+
 export function writeContinuationInput(
   workspaceFolder: string,
   text: string,
@@ -39,8 +59,7 @@ export function writeContinuationInput(
 ): void {
   const inputDir = getContinuationInputDir(workspaceFolder, threadId);
   fs.mkdirSync(inputDir, { recursive: true });
-  const filename = `${currentTimeMs()}-${String(sequence).padStart(12, '0')}.json`;
-  const filepath = path.join(inputDir, filename);
+  const filepath = continuationInputPath(workspaceFolder, sequence, threadId);
   const tempPath = `${filepath}.tmp`;
   fs.writeFileSync(
     tempPath,
@@ -59,5 +78,5 @@ export function writeCloseSignal(
 ): void {
   const inputDir = getContinuationInputDir(workspaceFolder, threadId);
   fs.mkdirSync(inputDir, { recursive: true });
-  fs.writeFileSync(path.join(inputDir, '_close'), '');
+  fs.writeFileSync(closeSignalPath(workspaceFolder, threadId), '');
 }

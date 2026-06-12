@@ -392,7 +392,8 @@ export class JobManagementService {
     if (!triggerQueue.isReady()) {
       throw new ApplicationError(
         'SCHEDULER_NOT_READY',
-        'Scheduler is not ready to accept job triggers',
+        triggerQueue.notReadyReason?.() ??
+          'Scheduler is not ready to accept job triggers',
       );
     }
     if (job.status === 'paused' || job.status === 'dead_lettered') {

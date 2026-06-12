@@ -107,7 +107,8 @@ export async function runSchedulerJobNowFromMcp(
   if (!triggerQueue.isReady()) {
     throw new ApplicationError(
       'SCHEDULER_NOT_READY',
-      'Scheduler is not ready to accept job triggers',
+      triggerQueue.notReadyReason?.() ??
+        'Scheduler is not ready to accept job triggers',
     );
   }
   const trigger = await control.createJobTrigger({

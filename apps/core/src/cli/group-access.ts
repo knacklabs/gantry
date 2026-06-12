@@ -4,6 +4,9 @@ import path from 'path';
 import * as p from '@clack/prompts';
 
 import { controlApiRequest } from './control-api.js';
+import { loadRuntimeSettings } from '../config/settings/runtime-settings.js';
+import { writeDesiredRuntimeSettings } from '../config/settings/desired-settings-writer.js';
+import type { AgentAccessPreset } from '../config/settings/runtime-settings-types.js';
 
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
@@ -144,9 +147,12 @@ export async function runAccess(
   rest: string[],
 ): Promise<number> {
   const [action, selector, ...flags] = rest;
+  if (action === 'preset') {
+    return runAccessPreset(runtimeHome, selector, flags[0]);
+  }
   if (!action || !selector || (action !== 'show' && action !== 'apply')) {
     p.log.error(
-      'Usage: gantry agent access show <agent> [--json] | gantry agent access apply <agent> --file <path|->',
+      'Usage: gantry agent access show <agent> [--json] | gantry agent access apply <agent> --file <path|-> | gantry agent access preset <agent> <full|locked>',
     );
     return 1;
   }
@@ -207,6 +213,84 @@ export async function runAccess(
     return 0;
   } catch (err) {
     p.log.error(`Agent access command failed: ${errorMessage(err)}`);
+    return 1;
+  }
+}
+
+function agentFolderFromSelector(value: string): string {
+  return value.trim().replace(/^agent:/, '');
+}
+
+async function runAccessPreset(
+  runtimeHome: string,
+  selector: string | undefined,
+  preset: string | undefined,
+): Promise<number> {
+  if (!selector || !preset) {
+    p.log.error('Usage: gantry agent access preset <agent> <full|locked>');
+    return 1;
+  }
+  if (preset !== 'full' && preset !== 'locked') {
+    p.log.error('Access preset must be full or locked.');
+    return 1;
+  }
+  const folder = agentFolderFromSelector(selector);
+  try {
+    const previousSettings = loadRuntimeSettings(runtimeHome);
+    const agent = previousSettings.agents[folder];
+    if (!agent) {
+      p.log.error(
+        `No configured agent named "${folder}". Run "gantry agent list" to see configured agents.`,
+      );
+      return 1;
+    }
+    if (agent.accessPreset === preset) {
+      p.log.success(
+        `Agent "${folder}" already uses the ${preset} access preset.`,
+      );
+      return 0;
+    }
+    const settings = {
+      ...previousSettings,
+      agents: {
+        ...previousSettings.agents,
+        [folder]: {
+          ...agent,
+          accessPreset: preset as AgentAccessPreset,
+        },
+      },
+    };
+    const { reconciled } = await writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings,
+      previousSettings,
+    });
+    p.log.success(
+      `Set agent "${folder}" access preset to ${preset} in settings.yaml.${
+        reconciled ? '' : ' Restart Gantry to apply.'
+      }`,
+    );
+    if (preset === 'locked') {
+      p.log.info(
+        'Locked agents cannot request skills, MCP servers, access, settings, or admin tools; they run only with pre-provisioned capabilities.',
+      );
+      // Host-authored instruction blocks follow the preset automatically, but
+      // SOUL.md/AGENTS.md are operator-owned content and stay verbatim across
+      // the flip. They must be reviewed by the operator at flip time.
+      const workspaceDir = path.join(runtimeHome, 'agents', folder);
+      p.log.warn(
+        [
+          'Operator-authored profile files are kept verbatim and may still describe capability-request or approval flows written while this agent was full. Review them now:',
+          `  - ${path.join(workspaceDir, 'SOUL.md')}`,
+          `  - ${path.join(workspaceDir, 'AGENTS.md')}`,
+          'Remove any guidance about requesting capabilities, skills, MCP servers, settings, or approvals; locked agents must not know that machinery exists.',
+          `To replace AGENTS.md with a reviewed locked profile, run: gantry agent profile set ${folder} agents --file <path|->`,
+        ].join('\n'),
+      );
+    }
+    return 0;
+  } catch (err) {
+    p.log.error(`Agent access preset command failed: ${errorMessage(err)}`);
     return 1;
   }
 }

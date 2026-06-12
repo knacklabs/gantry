@@ -62,6 +62,39 @@ describe('GroupQueue', () => {
     expect(maxConcurrent).toBe(1);
   });
 
+  it('registers live-turn runner hooks with routing metadata', async () => {
+    const registrar = vi.fn();
+    queue.setLiveTurnRunnerRegistrar(registrar);
+    queue.setProcessMessagesFn(async (groupJid) => {
+      queue.registerProcess(
+        groupJid,
+        { killed: false } as never,
+        'run-1',
+        '/workspace',
+        ['alias-1'],
+        null,
+        { requiredContinuationUserId: 'user-1' },
+      );
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(registrar).toHaveBeenCalledWith(
+      'group1@g.us',
+      expect.objectContaining({
+        applyContinuation: expect.any(Function),
+        applyCloseStdin: expect.any(Function),
+        applyStop: expect.any(Function),
+      }),
+      {
+        stopAliasJids: ['alias-1'],
+        requiredContinuationUserId: 'user-1',
+      },
+    );
+  });
+
   // --- Message concurrency limit ---
 
   it('respects message concurrency limit', async () => {
@@ -123,6 +156,149 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(maxActive).toBe(1);
+  });
+
+  it('keeps message backlog unlimited when maxMessageBacklog is 0', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1, maxMessageBacklog: 0 });
+    const processed: string[] = [];
+    const completionCallbacks: Array<() => void> = [];
+
+    queue.setProcessMessagesFn(async (groupJid) => {
+      processed.push(groupJid);
+      await new Promise<void>((resolve) => completionCallbacks.push(resolve));
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group2@g.us');
+    queue.enqueueMessageCheck('group3@g.us');
+    queue.enqueueMessageCheck('group4@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processed).toEqual(['group1@g.us']);
+
+    completionCallbacks.shift()?.();
+    await vi.advanceTimersByTimeAsync(10);
+    completionCallbacks.shift()?.();
+    await vi.advanceTimersByTimeAsync(10);
+    completionCallbacks.shift()?.();
+    await vi.advanceTimersByTimeAsync(10);
+    completionCallbacks.shift()?.();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processed).toEqual([
+      'group1@g.us',
+      'group2@g.us',
+      'group3@g.us',
+      'group4@g.us',
+    ]);
+  });
+
+  it('defers new waiting message groups when message backlog cap is reached', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1, maxMessageBacklog: 1 });
+    const processed: string[] = [];
+    const completionCallbacks: Array<() => void> = [];
+
+    queue.setProcessMessagesFn(async (groupJid) => {
+      processed.push(groupJid);
+      await new Promise<void>((resolve) => completionCallbacks.push(resolve));
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group2@g.us');
+    queue.enqueueMessageCheck('group3@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processed).toEqual(['group1@g.us']);
+
+    completionCallbacks[0]();
+    await vi.advanceTimersByTimeAsync(10);
+    completionCallbacks[1]();
+    await vi.advanceTimersByTimeAsync(10);
+    completionCallbacks[2]();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processed).toEqual(['group1@g.us', 'group2@g.us', 'group3@g.us']);
+  });
+
+  it('retains deferred message backlog work until capacity opens', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1, maxMessageBacklog: 1 });
+    const completionCallbacks: Array<() => void> = [];
+    queue.setProcessMessagesFn(async () => {
+      await new Promise<void>((resolve) => completionCallbacks.push(resolve));
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group2@g.us');
+    queue.enqueueMessageCheck('group3@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    const groupsMap = (queue as any).groups as Map<string, unknown>;
+    expect(groupsMap.has('group3@g.us')).toBe(true);
+
+    completionCallbacks[0]();
+    await vi.advanceTimersByTimeAsync(10);
+    completionCallbacks[1]();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(groupsMap.has('group3@g.us')).toBe(true);
+  });
+
+  it('applies message backlog cap when task drains pending messages', async () => {
+    queue = new GroupQueue({
+      maxMessageRuns: 1,
+      maxJobRuns: 2,
+      maxMessageBacklog: 1,
+    });
+    const processedMessages: string[] = [];
+    const messageCompletions: Array<() => void> = [];
+    const taskCompletions: Array<() => void> = [];
+
+    queue.setProcessMessagesFn(async (groupJid) => {
+      processedMessages.push(groupJid);
+      await new Promise<void>((resolve) => messageCompletions.push(resolve));
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueTask(
+      'group2@g.us',
+      'task-2',
+      () => new Promise<void>((resolve) => taskCompletions.push(resolve)),
+    );
+    queue.enqueueTask(
+      'group3@g.us',
+      'task-3',
+      () => new Promise<void>((resolve) => taskCompletions.push(resolve)),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    queue.enqueueMessageCheck('group2@g.us');
+    queue.enqueueMessageCheck('group3@g.us');
+
+    taskCompletions[0]();
+    await vi.advanceTimersByTimeAsync(10);
+    taskCompletions[1]();
+    await vi.advanceTimersByTimeAsync(10);
+
+    const waitingMessageGroups = (queue as any)
+      .waitingMessageGroups as string[];
+    expect(waitingMessageGroups).toEqual(['group2@g.us']);
+    expect(processedMessages).toEqual(['group1@g.us']);
+
+    messageCompletions[0]();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(processedMessages).toEqual(['group1@g.us', 'group2@g.us']);
+
+    messageCompletions[1]();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(processedMessages).toEqual([
+      'group1@g.us',
+      'group2@g.us',
+      'group3@g.us',
+    ]);
   });
 
   // --- Tasks prioritized over messages ---
@@ -325,6 +501,53 @@ describe('GroupQueue', () => {
 
     // Only one execution total
     expect(taskCallCount).toBe(1);
+  });
+
+  it('rejects pending tasks when task backlog cap is reached', async () => {
+    queue = new GroupQueue({ maxJobRuns: 1, maxTaskBacklog: 1 });
+    let resolveTask: () => void;
+    const firstTask = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveTask = resolve;
+      });
+    });
+    const secondTask = vi.fn(async () => {});
+    const thirdTask = vi.fn(async () => {});
+
+    expect(queue.enqueueTask('group1@g.us', 'task-1', firstTask)).toBe(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queue.enqueueTask('group2@g.us', 'task-2', secondTask)).toBe(true);
+    expect(queue.enqueueTask('group3@g.us', 'task-3', thirdTask)).toBe(false);
+
+    resolveTask!();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(secondTask).toHaveBeenCalledTimes(1);
+    expect(thirdTask).not.toHaveBeenCalled();
+  });
+
+  it('does not retain empty groups for rejected task backlog work', async () => {
+    queue = new GroupQueue({ maxJobRuns: 1, maxTaskBacklog: 1 });
+    let resolveTask: () => void;
+    const firstTask = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveTask = resolve;
+      });
+    });
+
+    expect(queue.enqueueTask('group1@g.us', 'task-1', firstTask)).toBe(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queue.enqueueTask('group2@g.us', 'task-2', async () => {})).toBe(
+      true,
+    );
+    expect(queue.enqueueTask('group3@g.us', 'task-3', async () => {})).toBe(
+      false,
+    );
+
+    const groupsMap = (queue as any).groups as Map<string, unknown>;
+    expect(groupsMap.has('group3@g.us')).toBe(false);
+
+    resolveTask!();
   });
 
   // --- Idle preemption ---

@@ -17,6 +17,10 @@
   job reports, system maintenance results, and next-run times into readable
   product copy before delivery; never surface raw queue bookkeeping JSON,
   runner diagnostics, or ISO timestamps as the primary outcome.
+- Live scheduler notification evidence is part of terminal settlement. When a
+  live run stamps `notified_at`, pass the lease token that finalized the run and
+  fail if the repository rejects it; recovery-only timeout notification paths
+  may stamp after stale lease release because no live worker still owns the run.
 - System maintenance jobs must own their runtime budget explicitly. Include
   timeout constants in the registration signature so existing canonical jobs are
   updated, and pass the remaining deadline through maintenance queues into the
@@ -54,3 +58,22 @@
   selected skill metadata; local CLI definitions project only after pinned
   executable identity, preflight, protected paths, denied environment
   overrides, and reviewed command templates are present.
+- Locked agent preset (`agents.<id>.access.preset: locked`) is enforced
+  parent-side at two gates: `processTaskIpc` (`ipc-handler.ts`) for
+  authority-changing/request/admin/settings IPC task types, and
+  `processPermissionInteractionIpc` (`runtime/ipc-interaction-processing.ts`)
+  for the `permission-requests` ingestion path — the permission gate runs
+  before `recordPendingInteractionRequested`, so a locked agent can never
+  create a pending interaction row, render a prompt, or receive a transient or
+  persistent grant. Both gates deny with code `denied_by_profile` and a
+  `permission.denied` audit event. Lock status is tri-state
+  (`resolveAgentLockStatus`: locked | full | unknown); an unreadable settings
+  desired state fails closed on these authority-bearing paths only (audit
+  payload `accessPreset: 'unknown'`), never on ordinary non-authority task
+  types. This is the security boundary — a forged IPC file in a locked agent's
+  runner workspace is denied even though the child never mounted the tool. The
+  denied task-type set is derived in `config/profiles.ts` from
+  `AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES` (with `request_access` mapped to its
+  `request_permission` IPC type) plus `ADMIN_MCP_TOOL_NAMES`; do not hardcode a
+  parallel list. Child-side mount hardening (`GANTRY_AGENT_ACCESS_PRESET`) and
+  the `permissionMode: 'deny'` auto-deny are defense-in-depth, not the boundary.

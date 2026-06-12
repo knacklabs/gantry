@@ -71,7 +71,10 @@ import {
 import { createConversationOutboundProjection } from './conversation-outbound-projection.js';
 import { sanitizeRetryTailForCanonicalDestination } from './runtime-services-destination-hints.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 export type { ChannelWiring } from './channel-wiring-types.js';
+
+const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
 
 export function createChannelWiring(
   app: RuntimeApp,
@@ -92,6 +95,7 @@ export function createChannelWiring(
   };
 
   const connectedChannels: ChannelAdapter[] = [];
+  const connectedChannelLeases: RuntimeLease[] = [];
   let enqueueRetryTailRecovery: RetryTailRecoveryEnqueue | undefined;
   let durableOutboundAttemptFactory: DurableOutboundAttemptFactory | undefined;
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
@@ -182,8 +186,13 @@ export function createChannelWiring(
 
   async function connectEnabledChannels(
     runtimeSettings: RuntimeSettings,
+    options?: { providerInbound?: boolean },
   ): Promise<void> {
     currentRuntimeSettings = runtimeSettings;
+    // Inbound needs the live-turns flag AND a role that admits inbound.
+    const inboundEnabled =
+      runtimeSettings.runtime.liveTurns.enabled &&
+      (options?.providerInbound ?? true);
     for (const provider of resolved.providerIds) {
       if (!provider.isEnabled(runtimeSettings)) {
         resolved.logger.info(
@@ -206,8 +215,49 @@ export function createChannelWiring(
         );
         continue;
       }
-      connectedChannels.push(channel);
-      await channel.connect();
+      let providerInbound = inboundEnabled;
+      let providerInboundLease: RuntimeLease | undefined;
+      if (
+        providerInbound &&
+        runtimeSettings.runtime.deploymentMode === 'fleet'
+      ) {
+        providerInboundLease = await channelOpts.runtimeLease.tryAcquire(
+          `${PROVIDER_INBOUND_LEASE_PREFIX}:${provider.id}:default`,
+        );
+        providerInbound = providerInboundLease !== undefined;
+        if (!providerInbound) {
+          resolved.logger.info(
+            { channel: provider.id },
+            'Provider inbound lease held by another worker; connecting channel outbound-only',
+          );
+        }
+      }
+
+      try {
+        connectedChannels.push(channel);
+        await channel.connect({
+          inbound: providerInbound,
+          interactionCallbacks: providerInbound,
+        });
+      } catch (err) {
+        await providerInboundLease?.release();
+        throw err;
+      }
+      if (providerInboundLease) {
+        connectedChannelLeases.push(providerInboundLease);
+        providerInboundLease.onLost?.((err) => {
+          resolved.logger.warn(
+            { err, channel: provider.id },
+            'Provider inbound lease lost; disconnecting channel',
+          );
+          void channel.disconnect().catch((disconnectErr) => {
+            resolved.logger.warn(
+              { err: disconnectErr, channel: provider.id },
+              'Failed to disconnect channel after provider inbound lease loss',
+            );
+          });
+        });
+      }
     }
   }
 
@@ -671,7 +721,11 @@ export function createChannelWiring(
     for (const channel of connectedChannels) {
       await channel.disconnect();
     }
+    for (const lease of connectedChannelLeases) {
+      await lease.release();
+    }
     connectedChannels.length = 0;
+    connectedChannelLeases.length = 0;
     userQuestionResponder.clear();
   }
 

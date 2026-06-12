@@ -24,6 +24,31 @@ function systemJobWorkDeadlineAtMs(input: {
   return input.startedAtMs + Math.max(1, input.timeoutMs - finalizationGraceMs);
 }
 
+/**
+ * Runs a system job turn and normalizes the outcome to either a displayable
+ * result string or an error message.
+ */
+export async function runSystemJobTurn(input: {
+  currentJob: Job;
+  context: SystemJobContext;
+  startedAtMs: number;
+  timeoutMs: number;
+  logger?: SystemJobLogger;
+}): Promise<{ result: string | null; error: string | null }> {
+  try {
+    const systemResult: unknown = await runSystemJobWithDeadline(input);
+    if (typeof systemResult !== 'string') {
+      throw new Error('System job returned a non-displayable result.');
+    }
+    return { result: systemResult, error: null };
+  } catch (err) {
+    return {
+      result: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export async function runSystemJobWithDeadline(input: {
   currentJob: Job;
   context: SystemJobContext;

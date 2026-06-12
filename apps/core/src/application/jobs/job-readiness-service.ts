@@ -67,6 +67,11 @@ export interface JobReadinessDeps {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
+  // Fixed-image worker mode: capabilities baked into the executing worker image.
+  // When declared (non-empty), a selected capability that is not in this
+  // inventory fails closed as setup_required before the runner starts. An empty
+  // or omitted inventory means "no image inventory declared" and is not enforced.
+  workerImageInventory?: readonly string[];
   clock?: Clock;
 }
 export interface JobReadinessInput extends JobReadinessDeps {
@@ -189,6 +194,14 @@ export async function evaluateJobReadiness(
       effectiveAllowedTools: policy.effectiveAllowedTools,
     });
     if (blocker) blockers.push(blocker);
+  }
+  for (const capabilityId of selectedCapabilityIdsMissingFromImage({
+    imageInventory: input.workerImageInventory,
+    capabilityRequirements: jobCapabilityRequirements,
+    toolAccessRequirements: jobToolAccessRequirements,
+    localCliRequirementCapabilities,
+  })) {
+    blockers.push(imageInventoryMissingBlocker(capabilityId));
   }
   try {
     const missingToolSet = new Set(toolPreflight.missingTools);
@@ -500,6 +513,46 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
     requirementId: toolName,
     message: `Setup required: capability dependency missing: ${toolRequirementLabel(toolName)}.`,
     nextAction: toolAccessRequirementRecoveryAction(toolName),
+  };
+}
+
+function selectedCapabilityIdsMissingFromImage(input: {
+  imageInventory?: readonly string[];
+  capabilityRequirements: readonly JobCapabilityRequirement[];
+  toolAccessRequirements: readonly string[];
+  localCliRequirementCapabilities: ReadonlySet<string>;
+}): string[] {
+  if (!input.imageInventory) return [];
+  const inventory = input.imageInventory;
+  const inventorySet = new Set(inventory);
+  const selectedCapabilityIds = new Set<string>();
+  for (const requirement of input.capabilityRequirements) {
+    selectedCapabilityIds.add(requirement.capabilityId);
+  }
+  for (const toolAccessRequirement of input.toolAccessRequirements) {
+    const semanticCapabilityId = parseSemanticCapabilityRule(
+      toolAccessRequirement,
+    );
+    if (semanticCapabilityId) selectedCapabilityIds.add(semanticCapabilityId);
+  }
+  const missing: string[] = [];
+  for (const capabilityId of selectedCapabilityIds) {
+    // Local CLI capabilities are evaluated through their own reviewed-access
+    // path, not the image inventory.
+    if (input.localCliRequirementCapabilities.has(capabilityId)) continue;
+    if (!inventorySet.has(capabilityId)) missing.push(capabilityId);
+  }
+  return missing.sort();
+}
+
+function imageInventoryMissingBlocker(capabilityId: string): JobSetupBlocker {
+  return {
+    state: 'missing_capability',
+    requirementType: 'semantic_capability',
+    requirementId: capabilityId,
+    message: `Setup required: ${humanizeTechnicalIdentifier(capabilityId)} is selected for this agent but is not available in the worker image.`,
+    nextAction:
+      'Rebuild or deploy a worker image that includes this capability, or deselect it for this agent.',
   };
 }
 

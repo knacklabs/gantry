@@ -56,6 +56,12 @@ export const RuntimeSettingsConfiguredAgentCapabilitySchema = z
   })
   .strict();
 
+export const RuntimeSettingsConfiguredAgentAccessSchema = z
+  .object({
+    preset: z.enum(['full', 'locked']),
+  })
+  .strict();
+
 export const RuntimeSettingsConfiguredAgentSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -68,6 +74,7 @@ export const RuntimeSettingsConfiguredAgentSchema = z
     bindings: z.record(z.string(), RuntimeSettingsConfiguredAgentBindingSchema),
     sources: RuntimeSettingsConfiguredAgentSourcesSchema,
     capabilities: z.array(RuntimeSettingsConfiguredAgentCapabilitySchema),
+    access: RuntimeSettingsConfiguredAgentAccessSchema.optional(),
   })
   .strict();
 
@@ -161,8 +168,11 @@ export const RuntimeSettingsPublicSchema = z
           .object({
             maxMessageRuns: z.number().int().positive(),
             maxJobRuns: z.number().int().positive(),
+            maxMessageBacklog: z.number().int().nonnegative(),
+            maxTaskBacklog: z.number().int().nonnegative(),
             maxRetries: z.number().int().nonnegative(),
             baseRetryMs: z.number().int().nonnegative(),
+            drainDeadlineMs: z.number().int().positive(),
           })
           .strict(),
         sandbox: z
@@ -180,6 +190,16 @@ export const RuntimeSettingsPublicSchema = z
               .strict(),
           })
           .strict(),
+        artifactStore: z
+          .object({
+            driver: z.union([z.literal('local'), z.literal('s3')]),
+            bucket: z.string().min(1).optional(),
+            region: z.string().min(1).optional(),
+            endpoint: z.string().min(1).optional(),
+            forcePathStyle: z.boolean().optional(),
+          })
+          .strict(),
+        deploymentMode: z.union([z.literal('workstation'), z.literal('fleet')]),
       })
       .strict(),
     browser: z
@@ -223,3 +243,14 @@ export const RuntimeSettingsResponseSchema = z
 export type RuntimeSettingsResponse = z.infer<
   typeof RuntimeSettingsResponseSchema
 >;
+
+/**
+ * The typed JSON settings document carried by the desired-state control API/SDK
+ * and stored as `settings_revisions` jsonb. It is the full settings document in
+ * its native (snake_case) object form — YAML is only the human file format for
+ * the workstation file and CLI `--file` edge and never appears on the wire.
+ * Authoritative document-path-level validation runs server-side through the
+ * runtime settings parser; this contract names the wire shape for SDK consumers.
+ */
+export const SettingsDocumentSchema = z.record(z.string(), z.unknown());
+export type SettingsDocument = z.infer<typeof SettingsDocumentSchema>;

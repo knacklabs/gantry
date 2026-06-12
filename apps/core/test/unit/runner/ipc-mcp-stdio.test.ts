@@ -98,6 +98,10 @@ function createMcpFixture(): {
   );
   copyDirectory(path.resolve('apps/core/src/runner/mcp'), runnerMcpDir);
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/canonical-json.ts'),
+    path.join(sharedDir, 'canonical-json.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-catalog.ts'),
     path.join(sharedDir, 'model-catalog.ts'),
   );
@@ -324,14 +328,24 @@ async function waitForTaskRequest(ipcDir) {
 }
 
 export class McpServer {
-  tool(name, _description, _schema, handler) {
+  tool(name, ...args) {
+    const handler = args.findLast((arg) => typeof arg === 'function');
     tools.set(name, handler);
   }
 
   async connect() {
     const toolName = process.env.TEST_MCP_TOOL_NAME;
     const handler = tools.get(toolName);
-    if (!handler) throw new Error('tool not registered: ' + toolName);
+    if (!handler) {
+      throw new Error(
+        'tool not registered: ' +
+          toolName +
+          '; registered=' +
+          JSON.stringify([...tools.keys()].sort()) +
+          '; noPermission=' +
+          String(process.env.GANTRY_NO_PERMISSION_TOOLS),
+      );
+    }
     const args = JSON.parse(process.env.TEST_MCP_TOOL_ARGS || '{}');
     const ipcDir = process.env.GANTRY_IPC_DIR;
 
@@ -446,6 +460,7 @@ async function runMcpFixture(
         GANTRY_CHAT_JID: 'tg:team',
         GANTRY_WORKSPACE_KEY: 'team',
         GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
+        GANTRY_NO_PERMISSION_TOOLS: '',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
         ...envOverrides,
@@ -712,6 +727,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'request_access',
       'mcp_list_tools',
       'mcp_call_tool',
+      'service_restart',
     ]);
 
     const scheduler = await runMcpFixture(

@@ -21,6 +21,7 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { getControlEnvValue } from '@core/config/index.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
 import { preflightModelPreset } from '@core/adapters/llm/model-preset-preflight.js';
 
@@ -33,6 +34,7 @@ vi.mock('@core/adapters/llm/model-preset-preflight.js', () => ({
 }));
 
 const mockedPreflightModelPreset = vi.mocked(preflightModelPreset);
+const mockedGetControlEnvValue = vi.mocked(getControlEnvValue);
 
 vi.mock('@core/config/index.js', async () => {
   const runtimeHome = '/tmp/gantry-control-test-home';
@@ -86,6 +88,7 @@ vi.mock('@core/config/index.js', async () => {
   return {
     GANTRY_HOME: runtimeHome,
     getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+    envValueDynamic: vi.fn((key: string) => process.env[key]?.trim() || ''),
     syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
     getDefaultModelConfig: vi.fn(getDefaultModelConfig),
     getRuntimeModelDefaults: vi.fn(() =>
@@ -110,7 +113,9 @@ vi.mock('@core/config/index.js', async () => {
 
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
+  isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),
+  schedulerNotReadyReason: () => undefined,
   runtimeJobSchedulePlanner: {
     createManualJobId: () => 'job-test',
     createJobId: () => 'job-test',
@@ -459,6 +464,9 @@ function signIngressRequest(input: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedGetControlEnvValue.mockImplementation(
+    (key: string) => process.env[key]?.trim() || '',
+  );
   mockedPreflightModelPreset.mockResolvedValue({
     ok: true,
     status: 'pass',
@@ -699,6 +707,63 @@ describe('control server auth key parsing', () => {
     ).toThrow('unsupported scope memory:write');
   });
 
+  it('fails strict parsing when configured keys reuse a key id', () => {
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'duplicate',
+        token: 'token-a',
+        appId: 'app-one',
+        scopes: ['sessions:read'],
+      },
+      {
+        kid: 'duplicate',
+        token: 'token-b',
+        appId: 'app-one',
+        scopes: ['jobs:read'],
+      },
+    ]);
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.GANTRY_CONTROL_API_KEYS_JSON,
+      }),
+    ).toThrow('kid duplicates another key');
+  });
+
+  it('enforces stronger tokens and non-empty scopes when requested', () => {
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'short-token',
+        appId: 'app-one',
+        scopes: ['sessions:read'],
+      },
+    ]);
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.GANTRY_CONTROL_API_KEYS_JSON,
+        requireStrongTokens: true,
+      }),
+    ).toThrow('token must be at least 32 characters');
+
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'x'.repeat(32),
+        appId: 'app-one',
+        scopes: [],
+      },
+    ]);
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.GANTRY_CONTROL_API_KEYS_JSON,
+        requireNonEmptyScopes: true,
+      }),
+    ).toThrow('scopes must include at least one scope');
+  });
+
   it('filters out JSON keys that are not app-bound', () => {
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
       {
@@ -902,6 +967,33 @@ describe('control server auth key parsing', () => {
 });
 
 describe('control server runtime hardening', () => {
+  it('uses runtime config env for production posture before starting', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key-0123456789abcdef0123456789',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+    mockedGetControlEnvValue.mockImplementation((key: string) => {
+      if (key === 'GANTRY_RUNTIME_ENV') return 'production';
+      return process.env[key]?.trim() || '';
+    });
+
+    expect(() =>
+      startControlServer({
+        app: {
+          registerGroup: vi.fn(),
+          queue: { enqueueMessageCheck: vi.fn() },
+        } as any,
+      }),
+    ).toThrow('Production security preflight failed.');
+    expect(mockedGetControlEnvValue).toHaveBeenCalledWith('GANTRY_RUNTIME_ENV');
+  });
+
   it('serves typed runtime settings to agents admins but keeps them read-only', async () => {
     const runtimeHome = '/tmp/gantry-control-test-home';
     fs.rmSync(runtimeHome, { recursive: true, force: true });

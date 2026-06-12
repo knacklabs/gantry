@@ -1,33 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 
-export type EnvMap = Record<string, string>;
+import { type EnvMap, parseEnvContent } from '../../shared/env-file.js';
 
-function normalizeLine(line: string): string {
-  return line.replace(/\r$/, '');
-}
-
-export function parseEnvContent(content: string): EnvMap {
-  const env: EnvMap = {};
-  for (const rawLine of content.split('\n')) {
-    const line = normalizeLine(rawLine).trim();
-    if (!line || line.startsWith('#')) continue;
-    const eqIdx = line.indexOf('=');
-    if (eqIdx <= 0) continue;
-    const key = line.slice(0, eqIdx).trim();
-    if (!key) continue;
-    let value = line.slice(eqIdx + 1).trim();
-    if (
-      value.length >= 2 &&
-      ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'")))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
-  }
-  return env;
-}
+export type { EnvMap } from '../../shared/env-file.js';
+export { parseEnvContent } from '../../shared/env-file.js';
 
 export function readEnvFile(filePath: string): EnvMap {
   try {

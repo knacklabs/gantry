@@ -232,6 +232,7 @@ export async function exportCurrentDesiredState(input: {
           skillCatalogById,
         },
       ),
+      accessPreset: existing?.accessPreset ?? 'full',
     };
   }
 
@@ -422,6 +423,7 @@ export async function exportCurrentDesiredState(input: {
         skillBindings,
         skillCatalogById,
       }),
+      accessPreset: existing?.accessPreset ?? 'full',
     };
   }
 

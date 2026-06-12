@@ -1,4 +1,5 @@
 import { quoteYamlString } from './yaml.js';
+import { renderArtifactStoreYamlLines } from './runtime-settings-artifact-store-renderer.js';
 import {
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
@@ -237,10 +238,14 @@ function renderAgentAccessYaml(
     agent.sources.mcpServers.length > 0 ||
     agent.sources.tools.length > 0;
   const hasSelections = agent.capabilities.length > 0;
-  if (!hasSources && !hasSelections) {
+  const hasLockedPreset = agent.accessPreset === 'locked';
+  if (!hasSources && !hasSelections && !hasLockedPreset) {
     return;
   }
   lines.push('    access:');
+  if (hasLockedPreset) {
+    lines.push('      preset: locked');
+  }
   if (hasSources) {
     lines.push('      sources:');
     renderAgentSourceListYaml(lines, 'skills', agent.sources.skills);
@@ -495,12 +500,18 @@ function isDefaultRuntime(runtime: RuntimeSettings['runtime']): boolean {
   return (
     runtime.queue.maxMessageRuns === 3 &&
     runtime.queue.maxJobRuns === 4 &&
+    runtime.queue.maxMessageBacklog === 0 &&
+    runtime.queue.maxTaskBacklog === 0 &&
     runtime.queue.maxRetries === 5 &&
     runtime.queue.baseRetryMs === 5000 &&
+    runtime.queue.drainDeadlineMs === 120000 &&
+    runtime.liveTurns.enabled === true &&
     runtime.sandbox.provider === 'direct' &&
     runtime.sandbox.resourceLimits.cpuSeconds === 0 &&
     runtime.sandbox.resourceLimits.memoryMb === 0 &&
-    runtime.sandbox.resourceLimits.maxProcesses === 0
+    runtime.sandbox.resourceLimits.maxProcesses === 0 &&
+    runtime.artifactStore.driver === 'local' &&
+    runtime.deploymentMode === 'workstation'
   );
 }
 
@@ -580,16 +591,26 @@ function renderRuntimeProcessYaml(
     '  queue:',
     `    max_message_runs: ${runtime.queue.maxMessageRuns}`,
     `    max_job_runs: ${runtime.queue.maxJobRuns}`,
+    `    max_message_backlog: ${runtime.queue.maxMessageBacklog}`,
+    `    max_task_backlog: ${runtime.queue.maxTaskBacklog}`,
     `    max_retries: ${runtime.queue.maxRetries}`,
     `    base_retry_ms: ${runtime.queue.baseRetryMs}`,
+    `    drain_deadline_ms: ${runtime.queue.drainDeadlineMs}`,
+    '  live_turns:',
+    `    enabled: ${runtime.liveTurns.enabled ? 'true' : 'false'}`,
     '  sandbox:',
     `    provider: ${quoteYamlString(runtime.sandbox.provider)}`,
     '    resource_limits:',
     `      cpu_seconds: ${runtime.sandbox.resourceLimits.cpuSeconds}`,
     `      memory_mb: ${runtime.sandbox.resourceLimits.memoryMb}`,
     `      max_processes: ${runtime.sandbox.resourceLimits.maxProcesses}`,
-    '',
   );
+  // Default `workstation` renders nothing (the whole runtime block is omitted
+  // when everything is default); only the explicit `fleet` mode is emitted.
+  if (runtime.deploymentMode !== 'workstation') {
+    lines.push(`  deployment_mode: ${quoteYamlString(runtime.deploymentMode)}`);
+  }
+  lines.push(...renderArtifactStoreYamlLines(runtime.artifactStore), '');
 }
 
 function renderProviderConnectionsInlineYaml(

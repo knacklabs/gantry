@@ -10,6 +10,31 @@ Agents cannot choose callback URLs, API keys, webhook headers, or channel destin
 
 For contributor-level runtime internals and source-reading paths, see [runtime components](../architecture/runtime-components.md).
 
+## Locked access preset
+
+A customer-facing agent can be provisioned with
+`agents.<id>.access.preset: locked`. A locked agent works only with
+pre-provisioned capabilities and cannot escalate its own access. What this means
+for an SDK consumer:
+
+- **The parent runtime is the security boundary.** Authority tools
+  (`request_*`/`admin_*`/`settings_*`) are unmounted on the child runner, but that
+  is UX, not the trust boundary. A forged IPC request from a locked runner is
+  **denied parent-side and audited (`denied_by_profile`)** on both the task and
+  permission IPC paths, and an unreadable lock status fails closed. Permission
+  prompts are disabled (`permissionMode: deny`).
+- **Host-authored instructions are projected policy-aware.** Runtime rules,
+  capability/operating guidance, runner tool descriptions, and the seeded default
+  `AGENTS.md` follow the resolved preset automatically, so a locked agent is not
+  told about request/approval machinery it cannot use. Operator-owned `SOUL.md`
+  and `AGENTS.md` content is never rewritten or string-stripped.
+- **Introspection is provisioned-only.** `mcp_list_tools` and capability status
+  show only what is currently provisioned — no requestable-tool ladder.
+
+The preset is an operator setting, not an SDK call; the SDK contract is unchanged
+whether an agent is `full` or `locked`. See
+[Locked Preset](../decisions/2026-06-11-locked-preset.md).
+
 ## Message Flow
 
 ```mermaid

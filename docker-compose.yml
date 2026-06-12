@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: pgvector/pgvector:0.8.2-pg16-trixie@sha256:eef42748a134417905134d89e93e144873ff73910ddea2058357740e07a9b01a
+    image: pgvector/pgvector:0.8.2-pg16-trixie@sha256:fce8fb583b92ef8af5150b373a96415d46a8cd38ba09b38efeea17c8b4c7d782
     container_name: gantry-postgres
     restart: unless-stopped
     environment:

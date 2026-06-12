@@ -188,12 +188,18 @@ vi.mock('@core/config/index.js', () => ({
     source: 'system default',
   })),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+  getRuntimeSettingsForConfig: vi.fn(() => ({
+    agents: {
+      'agent:one': { accessPreset: 'full' },
+    },
+  })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
   configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
+  isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),
   runtimeJobSchedulePlanner: {
     createManualJobId: () => 'job-test',

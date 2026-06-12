@@ -34,6 +34,17 @@ export function parseSetupState(input: unknown): Job['setup_state'] {
   };
 }
 
+export function parseRequiredCapabilities(
+  input: unknown,
+): Job['required_capabilities'] {
+  if (!Array.isArray(input)) return undefined;
+  const ids = input
+    .map((item) => normalizeString(item))
+    .filter((item): item is string => Boolean(item));
+  if (ids.length === 0) return [];
+  return [...new Set(ids)].sort();
+}
+
 export function parseRecoveryIntent(input: unknown): Job['recovery_intent'] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return undefined;

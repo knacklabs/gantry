@@ -8,7 +8,6 @@ max_concurrent_threads_per_session = 8
 [features]
 hooks = true
 multi_agent = true
-multi_agent_v2 = true
 goals = true
 image_generation = true
 apply_patch_freeform = true

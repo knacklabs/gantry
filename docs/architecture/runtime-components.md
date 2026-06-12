@@ -252,6 +252,13 @@ sequenceDiagram
   Runner-->>Agent: allow once, apply returned permission update, or cancel
 ```
 
+Production and remote IPC must be treated as a signed protocol boundary, not as
+trusted worker output. Privileged envelopes bind the key ID, run or job-run ID,
+worker identity when present, request ID, nonce, timestamp, expiry, sequence,
+and action identity using deterministic encoding. State-changing actions must
+reject replayed request IDs and stale fencing tokens before mutating durable
+state, delivering provider output, writing files, or finalizing jobs.
+
 Important permission boundaries:
 
 - Sender allowlist controls whether a channel sender can interact with, trigger, or be dropped by the runtime.
@@ -261,6 +268,9 @@ Important permission boundaries:
 - Conversations can act on their own chat/session scope and need selected
   capability plus conversation approval for cross-conversation destinations.
 - Agents cannot set webhook URLs, secrets, headers, API keys, or channel destinations. Those are host-owned records and policies.
+- Providers and model harnesses render, collect, stream, or execute projected
+  work only. They do not decide permissions, approvers, durable grants,
+  settings writes, stop authority, or continuation admission.
 - `permissions.yolo_mode` is a settings-owned safety valve for the 5-minute
   all-tools timed grant only. The shipped command and path denylist is merged
   with user entries; matches skip the timed-grant bypass, emit an audit event,
@@ -310,8 +320,19 @@ The public lifecycle is:
 7. deliver matching SDK events or webhooks
 
 Jobs have no serialized execution mode. Interactive message admission stays in
-`GroupQueue`; scheduler work enters the background pg-boss lane and uses
-`runtime.queue.max_job_runs` as its worker concurrency bound.
+`GroupQueue` per process; scheduler work enters the background pg-boss lane and
+uses `runtime.queue.max_job_runs` as its worker concurrency bound.
+Live execution is horizontally distributed across processes: message polling and
+durable live-turn admission run on every live-capable process (`all`/`live-worker`
+roles with `runtime.live_turns.enabled: true`), and the durable
+one-active-turn-per-scope claim — not a host lease — serializes ownership. The
+old singleton `runtime:live-turn-host:default` lease is gone; a lease-elected
+recovery coordinator (`runtime:live-recovery-coordinator:default`) owns only
+startup pending-message recovery and the periodic recovery sweep. Process roles
+that do not run live execution (`control`, `job-worker`) initialize channels in
+outbound-only mode for scheduler/control delivery and skip inbound provider
+polling/socket leases and live message polling entirely. See
+[live-horizontal-execution.md](./live-horizontal-execution.md).
 Scheduled job prompt runs and scheduler recovery turns call the same
 `agent-spawn` runner path as live turns, so `runtime.sandbox.provider:
 sandbox_runtime` applies to jobs without a job-specific sandbox setting.

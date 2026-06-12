@@ -232,6 +232,10 @@ export function createGroupAgentRunner(input: {
         sender?: string | null;
         is_from_me?: boolean | null;
       }[];
+      existingRunId?: string;
+      existingRunLeaseToken?: string;
+      existingRunLeaseWorkerInstanceId?: string;
+      existingRunLeaseFencingVersion?: number;
     },
   ): Promise<GroupAgentRunResult> {
     const initialModelSelection = defaultModelStatusSelection(
@@ -275,11 +279,11 @@ export function createGroupAgentRunner(input: {
       memoryReviewerUserId,
     );
     const runState: { runId?: string } = {};
+    const liveRunFenced = !!options?.existingRunLeaseToken;
     let latestProviderSessionId =
       turnContext?.externalSessionId?.trim() || undefined;
-    let resumeProviderSessionId = turnContext?.providerSessionId;
-    let resumeExternalSessionId =
-      turnContext?.externalSessionId?.trim() || undefined;
+    let resumeProviderSessionId = turnContext?.providerSessionId ?? undefined;
+    let resumeExternalSessionId = turnContext?.externalSessionId ?? undefined;
     const updateRunProviderMetadata = async (input: {
       providerRunId?: string | null;
       providerSessionId?: string | null;
@@ -288,7 +292,17 @@ export function createGroupAgentRunner(input: {
       const repository = ops();
       if (!repository.updateAgentRunProviderMetadata) return;
       await repository
-        .updateAgentRunProviderMetadata({ runId: runState.runId, ...input })
+        .updateAgentRunProviderMetadata({
+          runId: runState.runId,
+          ...input,
+          ...(options?.existingRunLeaseToken
+            ? {
+                leaseToken: options.existingRunLeaseToken,
+                workerInstanceId: options.existingRunLeaseWorkerInstanceId,
+                fencingVersion: options.existingRunLeaseFencingVersion,
+              }
+            : {}),
+        })
         .catch((err) => {
           runtimeLogger.warn(
             { err, group: group.name, runId: runState.runId },
@@ -481,17 +495,19 @@ export function createGroupAgentRunner(input: {
     ]
       .filter((block): block is string => Boolean(block?.trim()))
       .join('\n\n');
-    runState.runId = turnContext?.agentSessionId
-      ? await ops().createSessionAgentRun?.({
-          agentSessionId: turnContext.agentSessionId,
-          executionProviderId,
-          providerSessionId: resumeProviderSessionId,
-          cause:
-            options?.memoryContext?.source === 'command'
-              ? 'control'
-              : 'message',
-        })
-      : undefined;
+    runState.runId = options?.existingRunId
+      ? options.existingRunId
+      : turnContext?.agentSessionId
+        ? await ops().createSessionAgentRun?.({
+            agentSessionId: turnContext.agentSessionId,
+            executionProviderId,
+            providerSessionId: resumeProviderSessionId,
+            cause:
+              options?.memoryContext?.source === 'command'
+                ? 'control'
+                : 'message',
+          })
+        : undefined;
     try {
       const credentialBroker = await deps.getCredentialBroker?.();
       const runOptions = buildRuntimeRunOptions({
@@ -562,6 +578,18 @@ export function createGroupAgentRunner(input: {
             ...(agentInput.resumeSessionId
               ? { sessionId: agentInput.resumeSessionId }
               : {}),
+            ...(options?.existingRunId && runState.runId
+              ? { runId: runState.runId }
+              : {}),
+            ...(options?.existingRunLeaseToken
+              ? { runLeaseToken: options.existingRunLeaseToken }
+              : {}),
+            ...(typeof options?.existingRunLeaseFencingVersion === 'number'
+              ? {
+                  runLeaseFencingVersion:
+                    options.existingRunLeaseFencingVersion,
+                }
+              : {}),
             [WORKSPACE_FOLDER_INPUT_KEY]: group.folder,
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) => {
@@ -611,6 +639,7 @@ export function createGroupAgentRunner(input: {
         missingProviderSession &&
         (await expireTurnProviderSession(output.error ?? 'missing session'))
       ) {
+        resumeExternalSessionId = undefined;
         output = await invokeAgent({ memoryContextBlock });
       }
       await forwardRuntimeEvents(output);
@@ -620,47 +649,55 @@ export function createGroupAgentRunner(input: {
             { group: group.name },
             'Agent runner stopped by request',
           );
-          await completeFailedRuntimeSessionRun({
-            ops: ops(),
-            runId: runState.runId,
-            errorSummary: output.error ?? 'Agent runner stopped by request',
-          });
+          if (!liveRunFenced) {
+            await completeFailedRuntimeSessionRun({
+              ops: ops(),
+              runId: runState.runId,
+              errorSummary: output.error ?? 'Agent runner stopped by request',
+            });
+          }
           return 'stopped';
         }
         runtimeLogger.error(
           { group: group.name, error: output.error },
           'Agent runner error',
         );
-        await completeFailedRuntimeSessionRun({
-          ops: ops(),
-          runId: runState.runId,
-          errorSummary: output.error ?? 'Agent runner error',
-        });
+        if (!liveRunFenced) {
+          await completeFailedRuntimeSessionRun({
+            ops: ops(),
+            runId: runState.runId,
+            errorSummary: output.error ?? 'Agent runner error',
+          });
+        }
         return 'error';
       }
-      await completeSuccessfulRuntimeSessionRun({
-        ops: ops(),
-        group,
-        chatJid,
-        threadId: sessionThreadId,
-        conversationKind: group.conversationKind,
-        memoryUserId: options?.memoryContext?.userId,
-        agentSessionId: turnContext?.agentSessionId,
-        agentSessionResetAt: turnContext?.agentSessionResetAt ?? null,
-        runId: runState.runId,
-        result:
-          output.result == null
-            ? streamedResult.snapshot()
-            : summarizeRuntimeResultForPersistence(output.result),
-      });
+      if (!liveRunFenced) {
+        await completeSuccessfulRuntimeSessionRun({
+          ops: ops(),
+          group,
+          chatJid,
+          threadId: sessionThreadId,
+          conversationKind: group.conversationKind,
+          memoryUserId: options?.memoryContext?.userId,
+          agentSessionId: turnContext?.agentSessionId,
+          agentSessionResetAt: turnContext?.agentSessionResetAt ?? null,
+          runId: runState.runId,
+          result:
+            output.result == null
+              ? streamedResult.snapshot()
+              : summarizeRuntimeResultForPersistence(output.result),
+        });
+      }
       return 'success';
     } catch (err) {
       runtimeLogger.error({ group: group.name, err }, 'Agent error');
-      await completeFailedRuntimeSessionRun({
-        ops: ops(),
-        runId: runState.runId,
-        errorSummary: err instanceof Error ? err.message : String(err),
-      });
+      if (!liveRunFenced) {
+        await completeFailedRuntimeSessionRun({
+          ops: ops(),
+          runId: runState.runId,
+          errorSummary: err instanceof Error ? err.message : String(err),
+        });
+      }
       return 'error';
     }
   };

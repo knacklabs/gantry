@@ -46,10 +46,13 @@ export interface AgentInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  hideAuthorityTools?: boolean;
   isScheduledJob?: boolean;
   jobId?: string;
   jobName?: string;
   runId?: string;
+  runLeaseToken?: string;
+  runLeaseFencingVersion?: number;
   jobModelUseKind?: 'oneTimeJob' | 'recurringJob';
   assistantName?: string;
   compiledSystemPrompt?: string;

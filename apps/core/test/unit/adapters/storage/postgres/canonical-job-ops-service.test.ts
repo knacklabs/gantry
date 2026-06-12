@@ -294,6 +294,7 @@ describe('CanonicalJobOpsService', () => {
         jobId: 'job-1',
         runId: 'run-1',
         executionProviderId: '../bad-provider' as never,
+        workerInstanceId: 'worker-test',
         scheduledFor: '2026-04-24T00:00:00.000Z',
         startedAt: '2026-04-24T00:00:00.000Z',
         retryCount: 0,

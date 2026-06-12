@@ -264,6 +264,7 @@ export class SettingsDesiredStateService {
             bindings: {},
             sources: { skills: [], mcpServers: [], tools: [] },
             capabilities: [],
+            accessPreset: 'full',
           },
           now,
         );

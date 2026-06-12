@@ -5,9 +5,9 @@ import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ConversationRoute } from '@core/domain/types.js';
+import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
+import { isPendingIpcJsonFile } from '@core/runtime/ipc-filesystem.js';
 import {
-  isPendingIpcJsonFile,
-  isTrustedRegisteredIpcFolder,
   resolveIpcFoldersFromGroups,
   resolveIpcTargetJidForSourceGroup,
 } from '@core/runtime/ipc.js';
@@ -86,7 +86,11 @@ describe('isTrustedRegisteredIpcFolder', () => {
   it('allows missing registered group roots so the runtime can create them', () => {
     const ipcRoot = tempIpcRoot();
 
-    expect(isTrustedRegisteredIpcFolder(ipcRoot, 'new_group')).toBe(true);
+    expect(
+      new FilesystemRunnerControlPort(ipcRoot).isTrustedRegisteredWorkspace(
+        'new_group',
+      ),
+    ).toBe(true);
   });
 
   it('rejects registered group roots that are symlinks before processing', () => {
@@ -95,7 +99,11 @@ describe('isTrustedRegisteredIpcFolder', () => {
     tempRoots.push(target);
     fs.symlinkSync(target, path.join(ipcRoot, 'linked_group'), 'dir');
 
-    expect(isTrustedRegisteredIpcFolder(ipcRoot, 'linked_group')).toBe(false);
+    expect(
+      new FilesystemRunnerControlPort(ipcRoot).isTrustedRegisteredWorkspace(
+        'linked_group',
+      ),
+    ).toBe(false);
   });
 });
 

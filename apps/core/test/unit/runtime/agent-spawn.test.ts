@@ -38,6 +38,7 @@ vi.mock('@core/config/index.js', () => ({
       ? { model: groupModel, source: 'conversation.agentConfig.model' }
       : { source: 'unset' },
   ),
+  getDeploymentMode: vi.fn(() => 'workstation'),
   getRuntimeSettingsForConfig: vi.fn(() => ({
     permissions: {
       yoloMode: {
@@ -85,6 +86,10 @@ vi.mock('fs', async () => {
       writeFileSync: vi.fn(),
       readFileSync: vi.fn(() => ''),
       readdirSync: vi.fn(() => []),
+      lstatSync: vi.fn(() => ({
+        isDirectory: () => true,
+        isSymbolicLink: () => false,
+      })),
       statSync: vi.fn(() => ({ isDirectory: () => false })),
       chmodSync: vi.fn(),
       copyFileSync: vi.fn(),
@@ -196,6 +201,7 @@ function createFakeProcess() {
 }
 
 let fakeProc: ReturnType<typeof createFakeProcess>;
+const previousImageInventory = process.env.GANTRY_IMAGE_CAPABILITIES_JSON;
 
 // Mock child_process.spawn
 vi.mock('child_process', async () => {
@@ -212,6 +218,7 @@ import {
   AgentOutput,
 } from '@core/runtime/agent-spawn.js';
 import {
+  getDeploymentMode,
   getEffectiveModelConfig,
   getRuntimeSettingsForConfig,
 } from '@core/config/index.js';
@@ -635,6 +642,14 @@ describe('agent-spawn timeout behavior', () => {
         },
       },
     } as any);
+    process.env.GANTRY_IMAGE_CAPABILITIES_JSON = JSON.stringify([
+      'acme.records.get',
+      'acme.invoices.read',
+      'github.issues.create',
+      'mcp.caw-ats.access',
+      'google.sheets.values.get',
+      'skill.linkedin-posting.publish',
+    ]);
     vi.mocked(getHostRuntimeCredentialEnv).mockReset();
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
       env: {
@@ -698,6 +713,11 @@ describe('agent-spawn timeout behavior', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    if (previousImageInventory === undefined) {
+      delete process.env.GANTRY_IMAGE_CAPABILITIES_JSON;
+    } else {
+      process.env.GANTRY_IMAGE_CAPABILITIES_JSON = previousImageInventory;
+    }
   });
 
   it('timeout after output resolves as success', async () => {
@@ -901,6 +921,78 @@ describe('agent-spawn timeout behavior', () => {
     expect(mockEnsureWorkspaceIpcLayout).toHaveBeenCalledWith(
       '/tmp/gantry-test-data/ipc/test-group',
     );
+  });
+
+  it('projects the locked access preset and no-permission env for a locked agent', async () => {
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      agents: {
+        'test-group': {
+          name: 'Test',
+          folder: 'test-group',
+          bindings: {},
+          sources: { skills: [], mcpServers: [], tools: [] },
+          capabilities: [],
+          accessPreset: 'locked',
+        },
+      },
+      permissions: {
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+        egress: { denylist: [] },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'direct',
+          resourceLimits: { cpuSeconds: 0, memoryMb: 0, maxProcesses: 0 },
+        },
+      },
+    } as never);
+
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_AGENT_ACCESS_PRESET).toBe('locked');
+    expect(env.GANTRY_NO_PERMISSION_TOOLS).toBe('1');
+  });
+
+  it('projects the full access preset for a default agent', async () => {
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_AGENT_ACCESS_PRESET).toBe('full');
+    expect(env.GANTRY_NO_PERMISSION_TOOLS).toBe('');
+    expect(env.GANTRY_DEPLOYMENT_MODE).toBe('workstation');
+  });
+
+  it('projects the fleet deployment mode into the runner env', async () => {
+    vi.mocked(getDeploymentMode).mockReturnValueOnce('fleet');
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
+    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_DEPLOYMENT_MODE).toBe('fleet');
   });
 
   it('projects chat scope so spawned memory IPC signatures validate with runner context', async () => {
@@ -2984,6 +3076,58 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
     expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.GANTRY_BROWSER_IPC_AUTH_TOKEN).toEqual(expect.any(String));
+  });
+
+  it('fails closed before runner start when a selected capability is missing from the worker image', async () => {
+    const previousInventory = process.env.GANTRY_IMAGE_CAPABILITIES_JSON;
+    process.env.GANTRY_IMAGE_CAPABILITIES_JSON = JSON.stringify([]);
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+        egress: {
+          denylist: [],
+        },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'direct',
+          resourceLimits: {
+            cpuSeconds: 0,
+            memoryMb: 0,
+            maxProcesses: 0,
+          },
+        },
+      },
+    } as any);
+
+    try {
+      const result = await spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          toolPolicyRules: ['capability:acme.records.append'],
+        },
+        () => {},
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        error: expect.stringContaining(
+          'not available in this worker image: acme.records.append',
+        ),
+      });
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      if (previousInventory === undefined) {
+        delete process.env.GANTRY_IMAGE_CAPABILITIES_JSON;
+      } else {
+        process.env.GANTRY_IMAGE_CAPABILITIES_JSON = previousInventory;
+      }
+    }
   });
 
   it('fails closed on stale raw browser action MCP rules during spawn', async () => {

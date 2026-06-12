@@ -220,6 +220,13 @@ function parseIngressRoute(pathname: string): {
   ingressId: string;
   action: 'get' | 'rotate' | 'invoke' | 'wait';
 } | null {
+  const webhookAliasMatch = /^\/webhooks\/([^/]+)(?:\/(wait))?$/.exec(pathname);
+  if (webhookAliasMatch) {
+    return {
+      ingressId: decodeURIComponent(webhookAliasMatch[1]!),
+      action: webhookAliasMatch[2] === 'wait' ? 'wait' : 'invoke',
+    };
+  }
   const actionMatch = /^\/v1\/ingresses\/([^/]+)\/(rotate|invoke|wait)$/.exec(
     pathname,
   );

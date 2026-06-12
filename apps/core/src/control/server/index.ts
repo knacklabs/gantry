@@ -3,6 +3,10 @@ import http from 'node:http';
 import path from 'node:path';
 
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
+import type {
+  ProcessRole,
+  ReadinessRoleRequirements,
+} from './system-health.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
 import {
   DEFAULT_JOB_RUNTIME_APP_ID,
@@ -19,6 +23,10 @@ import {
   patchRuntimeModelDefaults,
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
+import {
+  resolveRuntimeSecurityPosture,
+  validateProductionSecurityGate,
+} from '../../shared/security-posture.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
@@ -120,7 +128,10 @@ function sendControlError(
   sendError(res, status, code, message);
 }
 
-function createControlRequestHandler(ctx: ControlRouteContext) {
+function createControlRequestHandler(
+  ctx: ControlRouteContext,
+  routeProfile: 'full' | 'ops',
+) {
   return async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url || '/', 'http://localhost');
     const pathname = url.pathname;
@@ -128,6 +139,18 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
     res.on('error', (error) => logControlStreamError(error, pathname));
 
     try {
+      // Ops profile (live-worker, job-worker) serves only operational and
+      // read-only diagnostic routes; every admin/mutation route is unmounted and
+      // falls through to the 404 fallback below.
+      if (routeProfile === 'ops') {
+        if (await handleSystemRoutes(req, res, ctx, pathname)) return;
+        if (isLiveIngressRoute(pathname)) {
+          if (await handleExternalIngressRoutes(req, res, ctx, pathname))
+            return;
+        }
+        sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
+        return;
+      }
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
       if (await handleGuidedActionRoutes(req, res, ctx, pathname)) return;
@@ -181,10 +204,31 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
   };
 }
 
+function isLiveIngressRoute(pathname: string): boolean {
+  return /^\/webhooks\/[^/]+(?:\/wait)?$/.test(pathname);
+}
+
 export function startControlServer(input: {
   app: RuntimeApp;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   sendConversationIngressProjection?: ControlRouteContext['sendConversationIngressProjection'];
+  /**
+   * Which control routes to mount. `'full'` (default) mounts every route, the
+   * historical behaviour. `'ops'` mounts only operational + read-only diagnostic
+   * routes for worker roles, 404ing all admin/mutation routes.
+   */
+  routeProfile?: 'full' | 'ops';
+  /** Process role this server runs as; surfaced on /readyz, /metrics, /v1/health. */
+  processRole?: ProcessRole;
+  /** Whether this role runs live execution (live readiness + live gauges). */
+  liveExecution?: boolean;
+  /** Role-specific readiness checks that apply (derived by the runtime caller). */
+  roleReadinessRequirements?: ReadinessRoleRequirements;
+  /** Runtime accessors injected from the runtime layer (DI; no cross-layer import here). */
+  currentWorkerInstanceId?: () => string | null;
+  isSchedulerReady?: () => boolean;
+  oldestWaitingLiveAdmissionSeconds?: () => number;
+  liveCapacityLimit?: () => number;
 }): ControlServerHandle {
   configureDesiredSettingsStorageProvider(async () => {
     const storage = getRuntimeStorage();
@@ -193,14 +237,56 @@ export function startControlServer(input: {
       repositories: storage.repositories,
     };
   });
-  const keys = parseControlApiKeysStrict({
-    rawJson: getControlEnvValue('GANTRY_CONTROL_API_KEYS_JSON'),
-  });
   const socketPath =
     getControlEnvValue('GANTRY_CONTROL_SOCKET_PATH') ||
     path.join(GANTRY_HOME, 'run', 'control.sock');
   const port = Number(getControlEnvValue('GANTRY_CONTROL_PORT') || 0);
   const host = resolveControlHost();
+  const nodeEnv = getControlEnvValue('NODE_ENV');
+  const securityPosture = getControlEnvValue('GANTRY_SECURITY_POSTURE');
+  const runtimeEnv = getControlEnvValue('GANTRY_RUNTIME_ENV');
+  const posture = resolveRuntimeSecurityPosture({
+    NODE_ENV: nodeEnv,
+    GANTRY_SECURITY_POSTURE: securityPosture,
+    GANTRY_RUNTIME_ENV: runtimeEnv,
+    GANTRY_CONTROL_HOST: host,
+    GANTRY_CONTROL_PORT: String(port),
+  });
+  const rawControlKeys = getControlEnvValue('GANTRY_CONTROL_API_KEYS_JSON');
+  const keys = parseControlApiKeysStrict({
+    rawJson: rawControlKeys,
+    requireStrongTokens: posture.requiresProductionSecrets,
+    requireNonEmptyScopes: posture.requiresProductionSecrets,
+  });
+  const sandboxProvider = posture.requiresEnforcingSandbox
+    ? getRuntimeSettingsForConfig().runtime.sandbox.provider
+    : undefined;
+  const productionFailures = validateProductionSecurityGate({
+    env: {
+      NODE_ENV: nodeEnv,
+      GANTRY_SECURITY_POSTURE: securityPosture,
+      GANTRY_RUNTIME_ENV: runtimeEnv,
+      GANTRY_CONTROL_HOST: host,
+      GANTRY_CONTROL_PORT: String(port),
+      GANTRY_CONTROL_API_KEYS_JSON: rawControlKeys,
+      GANTRY_IPC_AUTH_SECRET: getControlEnvValue('GANTRY_IPC_AUTH_SECRET'),
+      REMOTE_CONTROL_AUTO_ACCEPT: getControlEnvValue(
+        'REMOTE_CONTROL_AUTO_ACCEPT',
+      ),
+      SECRET_ENCRYPTION_KEY: getControlEnvValue('SECRET_ENCRYPTION_KEY'),
+      SECRET_ENCRYPTION_KEYRING_JSON: getControlEnvValue(
+        'SECRET_ENCRYPTION_KEYRING_JSON',
+      ),
+    },
+    sandboxProvider,
+  });
+  if (productionFailures.length > 0) {
+    throw new Error(
+      ['Production security preflight failed.', ...productionFailures].join(
+        '\n- ',
+      ),
+    );
+  }
   const state: ControlServerState = {
     activeStreams: 0,
     activeWaits: 0,
@@ -211,6 +297,19 @@ export function startControlServer(input: {
     app: input.app,
     runtimeHome: GANTRY_HOME,
     keys,
+    processRole: input.processRole ?? 'all',
+    liveExecution: input.liveExecution ?? true,
+    roleReadinessRequirements: input.roleReadinessRequirements ?? {
+      // Default (workstation `all`): the historical check set, no role checks.
+      requiresApiAuthConfigured: false,
+      requiresWorkerRegistration: false,
+      requiresSchedulerClaiming: false,
+      requiresLiveCapacitySignal: false,
+    },
+    currentWorkerInstanceId: input.currentWorkerInstanceId,
+    isSchedulerReady: input.isSchedulerReady,
+    oldestWaitingLiveAdmissionSeconds: input.oldestWaitingLiveAdmissionSeconds,
+    liveCapacityLimit: input.liveCapacityLimit,
     socketPath,
     port,
     maxConcurrentStreams: 25,
@@ -265,7 +364,9 @@ export function startControlServer(input: {
       }),
   };
 
-  const server = http.createServer(createControlRequestHandler(ctx));
+  const server = http.createServer(
+    createControlRequestHandler(ctx, input.routeProfile ?? 'full'),
+  );
   server.on('clientError', (error, socket) => {
     if (isControlClientDisconnectError(error)) {
       logger.debug({ err: error }, 'Control client socket disconnected');

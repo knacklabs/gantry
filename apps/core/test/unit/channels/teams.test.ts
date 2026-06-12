@@ -221,6 +221,61 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.stop).toHaveBeenCalled();
   });
 
+  it('starts the SDK for outbound messages without processing inbound activities in outbound-only mode', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ externalMessageId: 'teams-msg-1' })),
+    };
+    const opts = makeOpts();
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      opts,
+      sdkClient,
+    );
+
+    await channel.connect({ inbound: false });
+
+    expect(channel.isConnected()).toBe(true);
+    expect(sdkClient.start).toHaveBeenCalledWith({
+      credentials: {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      onMessage: expect.any(Function),
+    });
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      id: 'ignored-activity',
+      text: 'ignored',
+      from: { id: 'user-1', name: 'Ravi' },
+    });
+    expect(opts.onMessage).not.toHaveBeenCalled();
+    await expect(
+      channel.sendMessage('teams:19:abc@thread.v2', 'scheduler done'),
+    ).resolves.toEqual(
+      expect.objectContaining({ externalMessageId: 'teams-msg-1' }),
+    );
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'scheduler done',
+    });
+
+    await channel.disconnect();
+
+    expect(channel.isConnected()).toBe(false);
+    expect(sdkClient.stop).toHaveBeenCalled();
+  });
+
   it('splits large Teams outbound text and returns delivery part metadata', async () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),

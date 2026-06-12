@@ -6,7 +6,9 @@ import {
   type AgentCapabilityProvider,
 } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
 import {
+  BASELINE_GANTRY_MCP_TOOL_NAMES,
   DEFAULT_GANTRY_MCP_TOOL_NAMES,
+  NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
@@ -18,7 +20,7 @@ const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebFetch',
   'ToolSearch',
   'Skill',
-  ...DEFAULT_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName),
+  ...BASELINE_GANTRY_MCP_TOOL_NAMES.map(gantryMcpFullToolName),
 ] as const;
 
 const DEVELOPER_ALLOWED_TOOLS = [
@@ -120,7 +122,7 @@ describe('agent capability composition', () => {
     });
 
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
-    expect(profile.availableTools).toEqual(DEFAULT_AVAILABLE_TOOLS);
+    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.disallowedTools).toEqual(
       expect.arrayContaining([
         'AskUserQuestion',
@@ -149,7 +151,7 @@ describe('agent capability composition', () => {
       'memory_review_decision',
     );
     for (const tool of UNAVAILABLE_DEFAULT_TOOLS) {
-      expect(profile.availableTools).not.toContain(tool);
+      expect(profile.allowedTools).not.toContain(tool);
     }
     expect(profile.permissionMode).toBe('default');
     expect(profile.alwaysAllowedTools).toEqual([]);
@@ -307,15 +309,19 @@ describe('agent capability composition', () => {
       configuredAllowedTools: ['Browser'],
       jobId: 'job-1',
       runId: 'run-1',
+      runLeaseToken: 'lease-1',
+      runLeaseFencingVersion: 7,
     });
 
     expect(profile.mcpServers.gantry?.env).toMatchObject({
       GANTRY_JOB_ID: 'job-1',
       GANTRY_JOB_RUN_ID: 'run-1',
+      GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
+      GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
     });
   });
 
-  it('exposes global settings and service tools from selected capabilities', () => {
+  it('projects selected global settings and service admin tools', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:main',
@@ -400,7 +406,7 @@ describe('agent capability composition', () => {
     });
 
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
-    expect(profile.availableTools).toEqual(DEFAULT_AVAILABLE_TOOLS);
+    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).toContain('Agent');
     expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
@@ -426,7 +432,9 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
     expect(profile.allowedTools).toContain('mcp__gantry__memory_save');
     expect(profile.allowedTools).toContain('mcp__gantry__procedure_save');
-    expect(profile.allowedTools).toContain('mcp__gantry__scheduler_list_jobs');
+    expect(profile.allowedTools).not.toContain(
+      'mcp__gantry__scheduler_list_jobs',
+    );
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).not.toContain('Glob');
     expect(profile.allowedTools).not.toContain('Grep');
@@ -436,7 +444,7 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('mcp__gantry__register_agent');
   });
 
-  it('exposes memory mutation tools only when explicitly selected', () => {
+  it('keeps memory mutation tools out of the user-facing runner', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
@@ -449,9 +457,9 @@ describe('agent capability composition', () => {
       ],
     });
 
-    expect(profile.allowedTools).toContain('mcp__gantry__memory_patch');
-    expect(profile.allowedTools).toContain('mcp__gantry__memory_demote');
-    expect(profile.allowedTools).toContain('mcp__gantry__procedure_patch');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__memory_patch');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__memory_demote');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__procedure_patch');
     expect(selectedMemoryIpcActions([])).not.toContain('memory_patch');
     expect(selectedMemoryIpcActions([])).not.toContain('memory_demote');
     expect(
@@ -471,7 +479,7 @@ describe('agent capability composition', () => {
     ]);
   });
 
-  it('exposes memory review tools only for control-approver reviewers', () => {
+  it('keeps memory review tools out of the user-facing runner', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
@@ -480,10 +488,10 @@ describe('agent capability composition', () => {
       memoryReviewerIsControlApprover: true,
     });
 
-    expect(profile.allowedTools).toContain(
+    expect(profile.allowedTools).not.toContain(
       'mcp__gantry__memory_review_pending',
     );
-    expect(profile.allowedTools).toContain(
+    expect(profile.allowedTools).not.toContain(
       'mcp__gantry__memory_review_decision',
     );
     expect(profile.allowedTools).not.toContain('mcp__gantry__memory_patch');
@@ -493,16 +501,11 @@ describe('agent capability composition', () => {
       GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER: '1',
     });
 
-    expect(
-      JSON.parse(
-        String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
-      ),
-    ).toEqual(
-      expect.arrayContaining([
-        'memory_review_pending',
-        'memory_review_decision',
-      ]),
-    );
+    const projectedToolNames = JSON.parse(
+      String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
+    ) as string[];
+    expect(projectedToolNames).not.toContain('memory_review_pending');
+    expect(projectedToolNames).not.toContain('memory_review_decision');
     expect(
       JSON.parse(
         String(profile.mcpServers.gantry?.env?.GANTRY_MEMORY_IPC_ACTIONS_JSON),
@@ -784,6 +787,145 @@ describe('agent capability composition', () => {
       'mcp__github__search_repositories',
     );
     expect(profile.alwaysAllowedTools).toEqual([]);
+  });
+
+  it('hides authority-changing request/admin tools but keeps safe baseline', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:user',
+      workspaceFolder: 'user_agent',
+      hideAuthorityTools: true,
+      configuredAllowedTools: [
+        'mcp__gantry__request_access',
+        'mcp__gantry__request_skill_install',
+        'mcp__gantry__request_mcp_server',
+        'mcp__gantry__request_agent_profile_update',
+        'mcp__gantry__settings_desired_state',
+        'mcp__gantry__request_settings_update',
+        'mcp__gantry__service_restart',
+        'mcp__gantry__register_agent',
+      ],
+    });
+
+    // Authority-changing, scheduler, and reviewed mutation tools are not
+    // projected as allowed tools.
+    for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
+      expect(profile.allowedTools).not.toContain(
+        gantryMcpFullToolName(toolName),
+      );
+    }
+    // Explicitly selected admin tools are registered server-side, but are not
+    // projected as SDK-allowed tools in no-permission mode.
+    expect(profile.allowedTools).not.toContain(
+      'mcp__gantry__settings_desired_state',
+    );
+    expect(profile.allowedTools).not.toContain(
+      'mcp__gantry__request_settings_update',
+    );
+    expect(profile.allowedTools).not.toContain('mcp__gantry__service_restart');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__register_agent');
+
+    // Safe baseline tools remain available.
+    expect(profile.allowedTools).toContain('mcp__gantry__send_message');
+    expect(profile.allowedTools).toContain('mcp__gantry__ask_user_question');
+    expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).toContain('mcp__gantry__continuity_summary');
+    expect(profile.allowedTools).toContain('mcp__gantry__agent_profile_read');
+
+    // Env projection: selected admin env is separate; tool list excludes authority.
+    expect(profile.mcpServers.gantry?.env?.GANTRY_ADMIN_MCP_TOOLS_JSON).toBe(
+      JSON.stringify([
+        'register_agent',
+        'request_settings_update',
+        'service_restart',
+        'settings_desired_state',
+      ]),
+    );
+    const projectedToolNames = JSON.parse(
+      String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
+    ) as string[];
+    for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
+      expect(projectedToolNames).not.toContain(toolName);
+    }
+    expect(projectedToolNames).toContain('send_message');
+    expect(projectedToolNames).toContain('agent_profile_read');
+  });
+
+  it('allows explicitly selected scheduler and reviewed Gantry tools', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'telegram_team',
+      configuredAllowedTools: [
+        'mcp__gantry__scheduler_run_now',
+        'mcp__gantry__memory_review_decision',
+      ],
+    });
+
+    expect(profile.allowedTools).toContain('mcp__gantry__scheduler_run_now');
+    expect(profile.allowedTools).toContain(
+      'mcp__gantry__memory_review_decision',
+    );
+  });
+
+  it('denies permission prompts but keeps pre-provisioned skills and MCP tools for a locked agent', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:support',
+      workspaceFolder: 'support_agent',
+      accessPreset: 'locked',
+      hideAuthorityTools: true,
+      attachedSkillSourceIds: ['skill:refunds'],
+      attachedMcpSourceIds: ['mcp:crm'],
+      externalMcpServers: {
+        crm: {
+          type: 'stdio',
+          command: 'node',
+          args: ['crm.js'],
+        },
+      },
+      externalMcpAllowedTools: ['mcp__crm__lookup_order'],
+      configuredAllowedTools: [
+        'mcp__gantry__request_access',
+        'mcp__gantry__request_skill_install',
+        'mcp__gantry__service_restart',
+      ],
+    });
+
+    // Locked agents auto-deny permission prompts.
+    expect(profile.permissionMode).toBe('deny');
+
+    // Authority/admin tools are never projected.
+    for (const toolName of NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES) {
+      expect(profile.allowedTools).not.toContain(
+        gantryMcpFullToolName(toolName),
+      );
+    }
+    expect(profile.allowedTools).not.toContain('mcp__gantry__service_restart');
+
+    // Pre-provisioned skill and MCP source projections still work.
+    expect(profile.mcpServers.crm).toBeDefined();
+    expect(profile.allowedTools).toContain('mcp__crm__lookup_order');
+    expect(profile.mcpServers.gantry?.env?.GANTRY_SELECTED_SKILLS_JSON).toBe(
+      JSON.stringify(['skill:refunds']),
+    );
+    expect(
+      profile.mcpServers.gantry?.env?.GANTRY_SELECTED_MCP_SERVERS_JSON,
+    ).toBe(JSON.stringify(['mcp:crm']));
+
+    // Baseline messaging/profile-read tools still mount.
+    expect(profile.allowedTools).toContain('mcp__gantry__send_message');
+    expect(profile.allowedTools).toContain('mcp__gantry__agent_profile_read');
+  });
+
+  it('keeps the default permission mode for a full-preset agent', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      workspaceFolder: 'telegram_team',
+      accessPreset: 'full',
+    });
+    expect(profile.permissionMode).toBe('default');
   });
 
   it('does not expose raw runtime browser MCP servers as configured MCP input', () => {

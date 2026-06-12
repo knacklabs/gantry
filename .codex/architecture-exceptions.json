@@ -91,13 +91,6 @@
     "maxViolations": 3
   },
   {
-    "file": "apps/core/src/app/bootstrap/shutdown.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/app/bootstrap/startup.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -345,9 +338,9 @@
   {
     "file": "apps/core/src/cli/status.ts",
     "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor, plus WP3 deployment-role display: `gantry status` resolves the process role and role-capability summary from the runtime roles module (resolveProcessRole/roleCapabilities). Capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 3
+    "maxViolations": 6
   },
   {
     "file": "apps/core/src/cli/telegram-connect.ts",
@@ -518,18 +511,11 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/index.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Composition-root wiring for existing runtime bootstrap plus MCP remote-host DNS lookup adapter; capped so lower layers cannot import network infrastructure.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/infrastructure/pgboss/scheduler-engine.ts",
     "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
+    "reason": "Scheduler engine composes config plus the full runtime jobs surface (concurrency, capability dispatch/starvation/readiness, session/worker identity, schedule, types) added by the process-role split; capped at exact current count until the scheduler is split behind an application job port.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 4
+    "maxViolations": 10
   },
   {
     "file": "apps/core/src/infrastructure/service/launchd.ts",
@@ -553,25 +539,11 @@
     "maxViolations": 3
   },
   {
-    "file": "apps/core/src/jobs/delivery.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/jobs/execution.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 4
-  },
-  {
-    "file": "apps/core/src/jobs/recovery.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Job recovery currently reads runtime config directly while scheduler recovery ports are being split from runtime wiring.",
-    "removeByPhase": "scheduler-recovery-config-port",
-    "maxViolations": 1
   },
   {
     "file": "apps/core/src/jobs/ipc-admin-handlers.ts",
@@ -602,13 +574,6 @@
     "maxViolations": 3
   },
   {
-    "file": "apps/core/src/jobs/ipc-scheduler-query-handlers.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/jobs/ipc-shared.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -635,6 +600,13 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/jobs/scheduler.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Non-executing-role manual trigger spins an ephemeral send-only pg-boss client directly; capped at exact count until the queue transport is behind an adapter port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/jobs/system-jobs.ts",
@@ -959,13 +931,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/browser-capability.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/runtime/browser-process.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Browser runtime inspects persisted Chrome command lines to reject non-visible or non-profile-owned session adoption; capped to this host process helper until runtime process ports are extracted.",
@@ -1008,23 +973,9 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/group-queue-stop.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/runtime/group-queue.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/group-queue.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
   },
@@ -1057,13 +1008,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/ipc-filesystem.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/runtime/ipc-interaction-handler.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1083,20 +1027,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/runtime/session-resume-runtime.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/session/session-commands.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
   },
   {
     "file": "apps/core/src/shared/message-cursor.ts",
@@ -1231,13 +1161,6 @@
   },
   {
     "file": "apps/core/src/runtime/egress-gateway.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "The runtime-owned egress gateway currently writes through the shared logger while the outbound transport adapter port is still being extracted.",
-    "removeByPhase": "egress-gateway-adapter-extraction",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/egress-gateway.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "The runtime-owned egress gateway owns temporary Node HTTP/socket plumbing until the outbound transport adapter port is extracted.",
     "removeByPhase": "egress-gateway-adapter-extraction",
@@ -1277,5 +1200,131 @@
     "reason": "Agent profile-file endpoints materialize visible profile mirrors and resolve the workspace folder; capped so additional adapter->runtime/config imports fail until the canonical boundary slice extracts a profile composition seam.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/app/bootstrap/fleet-boot.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Fleet bootstrap composes Postgres runtime-store, S3/local artifact stores, and settings/config services at the worker entrypoint; capped at exact current count until the fleet-boot composition is moved behind an application bootstrap port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 8
+  },
+  {
+    "file": "apps/core/src/app/bootstrap/fleet-boot.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Fleet bootstrap composes Postgres runtime-store, S3/local artifact stores, and settings/config services at the worker entrypoint; capped at exact current count until the fleet-boot composition is moved behind an application bootstrap port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/jobs/toolchain-bake-bootstrap.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Toolchain bake bootstrap wires config, Postgres runtime-store, and S3/local artifact stores for first-boot bake provisioning; capped at exact current count until artifact provisioning moves behind a port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 5
+  },
+  {
+    "file": "apps/core/src/jobs/toolchain-bake-queue.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Toolchain bake/manifest job uses pg/pg-boss directly for LISTEN/NOTIFY and queue plumbing; capped at exact count until the queue transport is behind an adapter port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/jobs/toolchain-manifest-listener.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Toolchain bake/manifest job uses pg/pg-boss directly for LISTEN/NOTIFY and queue plumbing; capped at exact count until the queue transport is behind an adapter port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/jobs/toolchain-manifest-notify.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Toolchain bake/manifest job uses pg/pg-boss directly for LISTEN/NOTIFY and queue plumbing; capped at exact count until the queue transport is behind an adapter port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/config/settings/settings-import-service.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Fleet settings revision import/notify uses pg directly for LISTEN/NOTIFY revision propagation; capped at exact count until the settings transport is behind an adapter port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/config/settings/settings-revision-notify.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Fleet settings revision import/notify uses pg directly for LISTEN/NOTIFY revision propagation; capped at exact count until the settings transport is behind an adapter port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/cli/artifacts.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Artifacts/bake CLI composes config plus runtime toolchain queue/reaper/notify services as a local admin adapter; capped at exact count until the toolchain command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/cli/bake.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Artifacts/bake CLI composes config plus runtime toolchain queue/reaper/notify services as a local admin adapter; capped at exact count until the toolchain command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/cli/group-access.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Group-access CLI is a local admin adapter over settings.yaml desired-state writers and runtime settings types; capped at exact count until the group-access command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/control/server/routes/system.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "System control routes read draining state, settings-load state, and config directly for /readyz, /metrics, and /v1/status; capped at exact count until readiness/draining are injected through ControlRouteContext.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/control/server/routes/settings.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Settings control routes parse and import fleet settings revisions via config services directly; capped at exact count until settings parse/import is injected through ControlRouteContext.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/runtime/settings-revision-listener.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Runtime settings revision listener composes desired-state service, settings import, and revision notify directly; capped at exact count until revision propagation is an application port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/jobs/execution-readiness.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Job execution-readiness reads config and the Postgres runtime-store directly to compute fleet readiness; capped at exact count until readiness storage access is behind a repository port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/runtime/ipc-interaction-processing.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "IPC interaction processing reads the agent access policy from config/profiles for locked-agent enforcement; capped to this single import until access policy is exposed through a runtime-owned port.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/adapters/storage/postgres/storage-service.ts",
+    "rule": "provider_specific_path",
+    "reason": "Storage service references the docker compose migrations folder path for local bootstrap; capped to this single provider-path token until the migrations source is provider-neutral.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/jobs/toolchain-bake-runner.ts",
+    "rule": "direct_risky_execution",
+    "reason": "Toolchain bake runner spawns the registry-pinned npm install child process directly for bake jobs; capped to this single call until bake execution moves through the sandbox adapter.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
   }
 ]

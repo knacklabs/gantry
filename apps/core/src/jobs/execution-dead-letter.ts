@@ -42,6 +42,21 @@ interface SchedulerDeadLetterLogger {
   warn(payload: Record<string, unknown>, message: string): void;
 }
 
+/**
+ * Resolves the job's execution context, dead-lettering the job when no
+ * conversation route can satisfy it. Returns undefined after dead-lettering.
+ */
+export async function resolveExecutionContextOrDeadLetter<Execution>(
+  input: Parameters<typeof deadLetterUnresolvedExecutionContext>[0] & {
+    resolve: () => Execution | undefined;
+  },
+): Promise<Execution | undefined> {
+  const execution = input.resolve();
+  if (execution) return execution;
+  await deadLetterUnresolvedExecutionContext(input);
+  return undefined;
+}
+
 export async function deadLetterUnresolvedExecutionContext(input: {
   currentJob: Job;
   deps: SchedulerDependencies;

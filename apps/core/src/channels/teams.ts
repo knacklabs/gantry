@@ -7,6 +7,10 @@ import type {
   PermissionApprovalRequest,
 } from '../domain/types.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
+import {
+  findDurablePermissionInteractionByRequestId,
+  resolveDurablePermissionInteractionByRequestId,
+} from '../application/interactions/pending-interaction-durability.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import {
@@ -209,6 +213,7 @@ export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
 
   private connected = false;
+  private outboundReady = false;
   private readonly pendingPermissionPrompts = new Map<
     string,
     PendingTeamsPermissionPrompt
@@ -223,22 +228,44 @@ export class TeamsChannel implements ChannelAdapter {
     private readonly sdkClient: TeamsSdkClient,
   ) {}
 
-  async connect(): Promise<void> {
-    if (this.connected) return;
+  async connect(
+    options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
+  ): Promise<void> {
+    if (this.connected || this.outboundReady) return;
+    const inboundEnabled = options.inbound !== false;
+    const interactionCallbacksEnabled =
+      options.interactionCallbacks ?? inboundEnabled;
     await this.sdkClient.start({
       credentials: this.credentials,
-      onMessage: (message) => this.ingestMessage(message),
+      onMessage: async (message) => {
+        if (inboundEnabled) {
+          await this.ingestMessage(message);
+          return;
+        }
+        if (!interactionCallbacksEnabled) return;
+        const jid = normalizeTeamsJid(message.conversationId);
+        if (!jid) return;
+        const sender = message.senderId || message.from?.id || 'unknown';
+        const senderName = message.senderName || message.from?.name || sender;
+        await this.handlePermissionDecision(message, jid, sender, senderName);
+      },
     });
     this.connected = true;
+    this.outboundReady = true;
+    if (!inboundEnabled && !interactionCallbacksEnabled) {
+      logger.info('Teams outbound delivery client initialized');
+    }
   }
 
   isConnected(): boolean {
-    return this.connected;
+    return this.connected || this.outboundReady;
   }
 
   async disconnect(): Promise<void> {
-    if (!this.connected) return;
-    await this.sdkClient.stop();
+    if (!this.connected && !this.outboundReady) return;
+    if (this.connected) {
+      await this.sdkClient.stop();
+    }
     for (const requestId of this.pendingPermissionPrompts.keys()) {
       await this.resolvePermissionPrompt(requestId, {
         approved: false,
@@ -247,6 +274,7 @@ export class TeamsChannel implements ChannelAdapter {
       });
     }
     this.connected = false;
+    this.outboundReady = false;
   }
 
   ownsJid(jid: string): boolean {
@@ -258,7 +286,7 @@ export class TeamsChannel implements ChannelAdapter {
     text: string,
     options: MessageSendOptions = {},
   ): Promise<MessageDeliveryResult | void> {
-    if (!this.connected) return;
+    if (!this.outboundReady) return;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) return;
     return sendTeamsTextMessage(this.sdkClient, conversationId, text, options);
@@ -377,7 +405,32 @@ export class TeamsChannel implements ChannelAdapter {
     const pending = this.pendingPermissionPrompts.get(
       decisionPayload.requestId,
     );
-    if (!pending || pending.settled) return true;
+    const mode = normalizePermissionAction(decisionPayload.decision);
+    if (!pending) {
+      if (mode) {
+        const durable = await findDurablePermissionInteractionByRequestId({
+          requestId: decisionPayload.requestId,
+        });
+        const authorized =
+          durable?.targetJid === jid &&
+          (await this.canDecidePermission(
+            userId,
+            durable.sourceAgentFolder,
+            durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+            jid,
+          ));
+        if (authorized) {
+          await resolveDurablePermissionInteractionByRequestId({
+            requestId: decisionPayload.requestId,
+            mode,
+            approverRef: userName,
+            reason: `resolved via Teams after channel restart`,
+          });
+        }
+      }
+      return true;
+    }
+    if (pending.settled) return true;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId || conversationId !== pending.conversationId) {
       logger.warn(
@@ -407,7 +460,6 @@ export class TeamsChannel implements ChannelAdapter {
       );
       return true;
     }
-    const mode = normalizePermissionAction(decisionPayload.decision);
     if (!mode) return true;
     if (!permissionDecisionOptions(pending.request).includes(mode)) {
       await this.sendDeniedDecisionFeedback(

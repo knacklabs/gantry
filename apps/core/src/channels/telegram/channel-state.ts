@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import { Bot } from 'grammy';
 import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
@@ -45,6 +47,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
   protected pollingLease: RuntimeLease | null = null;
   protected pollingStartInFlight = false;
+  protected interactionCallbacksEnabled = true;
   protected opts: ChannelOpts;
   protected botToken: string;
   protected pendingPermissionPrompts = new Map<
@@ -83,6 +86,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     this.opts = opts;
   }
 
+  supportsInteractionCallbacks(): boolean {
+    return this.interactionCallbacksEnabled;
+  }
+
   protected nextPermissionCallbackId(): string {
     for (let attempts = 0; attempts < 1000; attempts += 1) {
       this.permissionCallbackCounter =
@@ -91,6 +98,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       if (!this.pendingPermissionCallbackIds.has(id)) return id;
     }
     throw new Error('Unable to allocate Telegram permission callback id');
+  }
+
+  protected permissionCallbackIdForRequest(requestId: string): string {
+    return `p${createHash('sha256').update(requestId).digest('hex').slice(0, 24)}`;
   }
 
   protected redactBotToken(input: string): string {

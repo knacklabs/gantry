@@ -25,7 +25,7 @@ import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.j
 import {
   firstPersistentRule,
   PERSISTENT_RULE_APPROVAL_MAX_RULES,
-} from './permission-decision.js';
+} from '../domain/permission-decision.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 import {
   formatPermissionToolInputLines,
@@ -38,7 +38,7 @@ export {
   persistentPermissionUpdates,
   persistentRules,
   TIMED_GRANT_DURATION_MS,
-} from './permission-decision.js';
+} from '../domain/permission-decision.js';
 
 const PERMISSION_MESSAGE_BUDGET = 2800;
 const USER_FACING_TOOL_LABELS: Record<string, string> = {

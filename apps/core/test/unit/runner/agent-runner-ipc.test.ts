@@ -171,6 +171,10 @@ function createRunnerFixture(): {
     path.join(sharedTimeDir, 'datetime.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/canonical-json.ts'),
+    path.join(sharedDir, 'canonical-json.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/no-proxy.ts'),
     path.join(sharedDir, 'no-proxy.ts'),
   );

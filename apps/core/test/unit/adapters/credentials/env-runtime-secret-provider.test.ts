@@ -34,6 +34,30 @@ describe('EnvRuntimeSecretProvider', () => {
     );
   });
 
+  it('parses JSON-quoted runtime .env values the same way as preflight', () => {
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-env-'));
+    const keyring = JSON.stringify({
+      active: 'primary',
+      keys: {
+        primary: Buffer.from(
+          '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
+          'hex',
+        ).toString('base64'),
+      },
+    });
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      `SECRET_ENCRYPTION_KEYRING_JSON=${JSON.stringify(keyring)}\n`,
+      'utf8',
+    );
+    process.env.GANTRY_HOME = runtimeHome;
+    const provider = new EnvRuntimeSecretProvider();
+
+    expect(
+      provider.getOptionalSecret({ env: 'SECRET_ENCRYPTION_KEYRING_JSON' }),
+    ).toBe(keyring);
+  });
+
   it('does not fall back to runtime .env for explicit test sources', () => {
     const provider = new EnvRuntimeSecretProvider({});
 

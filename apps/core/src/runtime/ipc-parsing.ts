@@ -139,6 +139,17 @@ function sanitizeToolInputValue(value: unknown, depth: number): unknown {
   return String(value);
 }
 
+function toPositiveInteger(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value.trim())) {
+    return undefined;
+  }
+  const parsed = Number(value.trim());
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
 function sanitizeToolInput(
   value: unknown,
 ): Record<string, unknown> | undefined {
@@ -449,6 +460,38 @@ export function parsePermissionIpcRequest(
     throw new Error('permission IPC runId mismatch');
   }
   const runId = payloadRunId ?? contextRunId;
+  const payloadRunLeaseToken = toTrimmedString(raw.runLeaseToken, {
+    maxLen: 200,
+  });
+  const contextRunLeaseToken = toTrimmedString(context?.runLeaseToken, {
+    maxLen: 200,
+  });
+  if (
+    payloadRunLeaseToken &&
+    contextRunLeaseToken &&
+    payloadRunLeaseToken !== contextRunLeaseToken
+  ) {
+    throw new Error('permission IPC runLeaseToken mismatch');
+  }
+  const runLeaseToken = payloadRunLeaseToken ?? contextRunLeaseToken;
+  const payloadRunLeaseFencingVersion = toPositiveInteger(
+    raw.runLeaseFencingVersion,
+  );
+  const contextRunLeaseFencingVersion = toPositiveInteger(
+    context?.runLeaseFencingVersion,
+  );
+  if (
+    payloadRunLeaseFencingVersion &&
+    contextRunLeaseFencingVersion &&
+    payloadRunLeaseFencingVersion !== contextRunLeaseFencingVersion
+  ) {
+    throw new Error('permission IPC runLeaseFencingVersion mismatch');
+  }
+  const runLeaseFencingVersion =
+    payloadRunLeaseFencingVersion ?? contextRunLeaseFencingVersion;
+  if (jobId && runId && (!runLeaseToken || !runLeaseFencingVersion)) {
+    throw new Error('permission IPC scheduled job lease identity is required');
+  }
   const payloadTargetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
   const contextTargetJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
   if (
@@ -477,6 +520,8 @@ export function parsePermissionIpcRequest(
     ...(jobId ? { jobId } : {}),
     ...(jobName ? { jobName } : {}),
     ...(runId ? { runId } : {}),
+    ...(runLeaseToken ? { runLeaseToken } : {}),
+    ...(runLeaseFencingVersion ? { runLeaseFencingVersion } : {}),
     ...(targetJid ? { targetJid } : {}),
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
@@ -503,11 +548,12 @@ export function parseUserQuestionIpcRequest(
   sourceAgentFolder: string,
 ): UserQuestionRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid user question IPC payload');
-  const { authThreadId: threadId, responseKeyId } = validateIpcAuthRequest(
+  const binding = validateIpcAuthRequest(
     raw,
     sourceAgentFolder,
     'user question IPC',
   );
+  const { authThreadId: threadId, responseKeyId } = binding;
   if (!responseKeyId) {
     throw new Error('user question IPC responseKeyId is required');
   }
@@ -516,6 +562,65 @@ export function parseUserQuestionIpcRequest(
   if (!requestId || !USER_QUESTION_IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid user question IPC requestId');
   }
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const appId = binding.appId;
+  const agentId = binding.agentId;
+  const payloadJobId = toTrimmedString(raw.jobId, { maxLen: 200 });
+  const contextJobId = toTrimmedString(context?.jobId, { maxLen: 200 });
+  if (payloadJobId && contextJobId && payloadJobId !== contextJobId) {
+    throw new Error('user question IPC jobId mismatch');
+  }
+  const jobId = payloadJobId ?? contextJobId;
+  const payloadRunId = toTrimmedString(raw.runId, { maxLen: 200 });
+  const contextRunId = toTrimmedString(context?.runId, { maxLen: 200 });
+  if (payloadRunId && contextRunId && payloadRunId !== contextRunId) {
+    throw new Error('user question IPC runId mismatch');
+  }
+  const runId = payloadRunId ?? contextRunId;
+  const payloadRunLeaseToken = toTrimmedString(raw.runLeaseToken, {
+    maxLen: 200,
+  });
+  const contextRunLeaseToken = toTrimmedString(context?.runLeaseToken, {
+    maxLen: 200,
+  });
+  if (
+    payloadRunLeaseToken &&
+    contextRunLeaseToken &&
+    payloadRunLeaseToken !== contextRunLeaseToken
+  ) {
+    throw new Error('user question IPC runLeaseToken mismatch');
+  }
+  const runLeaseToken = payloadRunLeaseToken ?? contextRunLeaseToken;
+  const payloadRunLeaseFencingVersion = toPositiveInteger(
+    raw.runLeaseFencingVersion,
+  );
+  const contextRunLeaseFencingVersion = toPositiveInteger(
+    context?.runLeaseFencingVersion,
+  );
+  if (
+    payloadRunLeaseFencingVersion &&
+    contextRunLeaseFencingVersion &&
+    payloadRunLeaseFencingVersion !== contextRunLeaseFencingVersion
+  ) {
+    throw new Error('user question IPC runLeaseFencingVersion mismatch');
+  }
+  const runLeaseFencingVersion =
+    payloadRunLeaseFencingVersion ?? contextRunLeaseFencingVersion;
+  if (jobId && runId && (!runLeaseToken || !runLeaseFencingVersion)) {
+    throw new Error(
+      'user question IPC scheduled job lease identity is required',
+    );
+  }
+  const payloadTargetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
+  const contextTargetJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
+  if (
+    payloadTargetJid &&
+    contextTargetJid &&
+    payloadTargetJid !== contextTargetJid
+  ) {
+    throw new Error('user question IPC targetJid mismatch');
+  }
+  const targetJid = payloadTargetJid ?? contextTargetJid;
 
   if (!Array.isArray(raw.questions)) {
     throw new Error('User question IPC questions are required');
@@ -578,6 +683,13 @@ export function parseUserQuestionIpcRequest(
   return {
     requestId,
     sourceAgentFolder,
+    ...(appId ? { appId } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(jobId ? { jobId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(runLeaseToken ? { runLeaseToken } : {}),
+    ...(runLeaseFencingVersion ? { runLeaseFencingVersion } : {}),
+    ...(targetJid ? { targetJid } : {}),
     ...(threadId ? { threadId } : {}),
     ...(responseKeyId ? { responseKeyId } : {}),
     questions,

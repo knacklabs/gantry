@@ -328,6 +328,7 @@ export function ensureConfiguredConversationBinding(
     bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [],
+    accessPreset: 'full',
   };
 
   const externalId = stripProviderPrefix(input.jid, provider.id);

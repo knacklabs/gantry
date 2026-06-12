@@ -48,6 +48,11 @@ export async function finalizeSchedulerJobRun(input: {
   runId: string;
   appSession?: SchedulerEventAppSession;
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  beforeJobStateUpdate?: (state: FinalizedJobRunState) => Promise<void>;
+  updateJobState?: (
+    updates: Partial<Job>,
+    state: FinalizedJobRunState,
+  ) => Promise<void>;
 }): Promise<FinalizedJobRunState> {
   const {
     currentJob,
@@ -78,6 +83,35 @@ export async function finalizeSchedulerJobRun(input: {
   const safeErrorSummary = safePrimaryErrorSummary
     ? `${safePrimaryErrorSummary}\nDiagnostics: ${formatTerminalDiagnostics(diagnostics)}`
     : null;
+  let beforeJobStateUpdateCalled = false;
+  const beforeJobStateUpdate = async (): Promise<void> => {
+    if (beforeJobStateUpdateCalled) return;
+    beforeJobStateUpdateCalled = true;
+    await input.beforeJobStateUpdate?.({
+      runStatus,
+      nextRun,
+      retryCount,
+      pauseReason,
+      safeErrorSummary,
+      toolDenial,
+    });
+  };
+  const updateJob = async (updates: Partial<Job>): Promise<void> => {
+    const state = {
+      runStatus,
+      nextRun,
+      retryCount,
+      pauseReason,
+      safeErrorSummary,
+      toolDenial,
+    };
+    await beforeJobStateUpdate();
+    if (input.updateJobState) {
+      await input.updateJobState(updates, state);
+      return;
+    }
+    await deps.opsRepository.updateJob(currentJob.id, updates);
+  };
 
   if (input.deletedDuringRun) {
     nextRun = null;
@@ -87,7 +121,7 @@ export async function finalizeSchedulerJobRun(input: {
       nextRun = null;
       pauseReason = SETUP_REQUIRED_PAUSE_REASON;
       const setupState = input.setupStateForSetupPause;
-      await deps.opsRepository.updateJob(currentJob.id, {
+      await updateJob({
         status: 'paused',
         next_run: null,
         last_run: input.now,
@@ -123,7 +157,7 @@ export async function finalizeSchedulerJobRun(input: {
         checkedAt: input.now,
         previous: currentJob.setup_state,
       });
-      await deps.opsRepository.updateJob(currentJob.id, {
+      await updateJob({
         status: 'paused',
         next_run: null,
         last_run: input.now,
@@ -158,7 +192,7 @@ export async function finalizeSchedulerJobRun(input: {
       currentJob.schedule_type === 'manual'
     ) {
       nextRun = null;
-      await deps.opsRepository.updateJob(currentJob.id, {
+      await updateJob({
         status: 'active',
         next_run: null,
         last_run: input.now,
@@ -178,7 +212,7 @@ export async function finalizeSchedulerJobRun(input: {
         // (redacted) error lives on the run record / logs — embedding it here
         // leaked raw exception text and filesystem paths into the chat notification.
         pauseReason = `Paused after ${retryCount} failures. Fix the blocker, then resume the job.`;
-        await deps.opsRepository.updateJob(currentJob.id, {
+        await updateJob({
           status: 'dead_lettered',
           next_run: null,
           last_run: input.now,
@@ -189,7 +223,7 @@ export async function finalizeSchedulerJobRun(input: {
         });
       } else {
         nextRun = toIso(nowMs() + retryBackoffMs(currentJob, retryCount));
-        await deps.opsRepository.updateJob(currentJob.id, {
+        await updateJob({
           status: 'active',
           next_run: nextRun,
           last_run: input.now,
@@ -215,7 +249,7 @@ export async function finalizeSchedulerJobRun(input: {
       checkedAt: input.now,
       previous: currentJob.setup_state,
     });
-    await deps.opsRepository.updateJob(currentJob.id, {
+    await updateJob({
       status: 'paused',
       next_run: null,
       last_run: input.now,
@@ -236,7 +270,7 @@ export async function finalizeSchedulerJobRun(input: {
       publishRuntimeEvent: input.publishRuntimeEvent,
     });
   } else {
-    await deps.opsRepository.updateJob(currentJob.id, {
+    await updateJob({
       status:
         currentJob.schedule_type === 'manual' || nextRunOnSuccess
           ? 'active'

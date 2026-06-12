@@ -9,6 +9,7 @@ import {
   resolveModelSelectionForWorkload,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
+import { hasValidEncryptionSecret } from '../../shared/security-posture.js';
 import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
 import type {
@@ -94,11 +95,15 @@ export function validateLoadedRuntimeSettings(
     }
   }
 
-  const credentialSecret =
-    process.env.SECRET_ENCRYPTION_KEY?.trim() ||
-    env.SECRET_ENCRYPTION_KEY?.trim();
   if (settings.credentialBroker.mode === 'gantry') {
-    const secretValidation = validateCredentialEncryptionKey(credentialSecret);
+    const secretValidation = validateCredentialEncryptionSecret({
+      SECRET_ENCRYPTION_KEY:
+        process.env.SECRET_ENCRYPTION_KEY?.trim() ||
+        env.SECRET_ENCRYPTION_KEY?.trim(),
+      SECRET_ENCRYPTION_KEYRING_JSON:
+        process.env.SECRET_ENCRYPTION_KEYRING_JSON?.trim() ||
+        env.SECRET_ENCRYPTION_KEYRING_JSON?.trim(),
+    });
     if (!secretValidation.ok) details.push(secretValidation.message);
   }
 
@@ -225,25 +230,24 @@ export function validateLoadedRuntimeSettings(
   return { ok: true, settings };
 }
 
-function validateCredentialEncryptionKey(raw?: string): {
+function validateCredentialEncryptionSecret(env: {
+  SECRET_ENCRYPTION_KEY?: string;
+  SECRET_ENCRYPTION_KEYRING_JSON?: string;
+}): {
   ok: boolean;
   message: string;
 } {
-  if (!raw) {
+  if (hasValidEncryptionSecret(env)) {
     return {
-      ok: false,
+      ok: true,
       message:
-        'SECRET_ENCRYPTION_KEY is required for Gantry credential encryption.',
+        'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON is configured.',
     };
-  }
-  const decoded = Buffer.from(raw, 'base64');
-  if (decoded.length === 32) {
-    return { ok: true, message: 'SECRET_ENCRYPTION_KEY is configured.' };
   }
   return {
     ok: false,
     message:
-      'SECRET_ENCRYPTION_KEY must be a base64-encoded 32-byte secret for Gantry credential encryption.',
+      'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON must provide a strong base64-encoded 32-byte active key for Gantry credential encryption.',
   };
 }
 

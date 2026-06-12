@@ -142,6 +142,18 @@ describe('durable access policy', () => {
     });
   });
 
+  it('rejects generated runtime tool result paths as durable RunCommand authority', () => {
+    expect(
+      validateDurableAccessRule(
+        'RunCommand(tail -20 /tmp/run/.llm-runtime/claude/projects/project/run/tool-results/result.txt)',
+      ),
+    ).toEqual({
+      ok: false,
+      reason:
+        'Persistent RunCommand rules cannot reference generated runtime paths; use a reviewed stable capability or let Gantry-owned runtime scratch reads stay internal.',
+    });
+  });
+
   it('rejects Gantry MCP wildcard rules as durable access rules', () => {
     expect(validateDurableAccessRule('mcp__gantry__*')).toEqual({
       ok: false,

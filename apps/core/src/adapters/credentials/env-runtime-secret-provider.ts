@@ -7,6 +7,7 @@ import type {
   RuntimeSecretRef,
 } from '../../domain/ports/runtime-secret-provider.js';
 import { getGantryHome } from '../../shared/gantry-home.js';
+import { parseEnvContent } from '../../shared/env-file.js';
 
 let cachedRuntimeEnv:
   | {
@@ -37,16 +38,9 @@ function readRuntimeHomeEnvValues(): Map<string, string> {
       return cachedRuntimeEnv.values;
     }
     const raw = fs.readFileSync(envPath, 'utf8');
-    const values = new Map<string, string>();
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const separator = trimmed.indexOf('=');
-      if (separator <= 0) continue;
-      const key = trimmed.slice(0, separator).trim();
-      const value = trimmed.slice(separator + 1).trim();
-      values.set(key, value.replace(/^['"]|['"]$/g, ''));
-    }
+    const values = new Map<string, string>(
+      Object.entries(parseEnvContent(raw)),
+    );
     cachedRuntimeEnv = { path: envPath, mtimeMs: stat.mtimeMs, values };
     return values;
   } catch {

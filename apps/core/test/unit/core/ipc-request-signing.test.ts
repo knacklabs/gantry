@@ -26,6 +26,25 @@ describe('ipc request signing', () => {
     ).toBe(false);
   });
 
+  it('uses deterministic canonical key ordering for request signatures', () => {
+    const left = {
+      requestId: 'ipc-ordered',
+      nonce: '14580ec7-3383-4d18-bc44-47cd8c7f401d',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      nested: { b: 2, a: 1 },
+    };
+    const right = {
+      nested: { a: 1, b: 2 },
+      expiresAt: left.expiresAt,
+      nonce: left.nonce,
+      requestId: left.requestId,
+    };
+    const signature = signIpcRequestPayload('key', left);
+
+    expect(signature).toBe(signIpcRequestPayload('key', right));
+    expect(verifyIpcRequestPayload('key', right, signature)).toBe(true);
+  });
+
   it('requires nonce and bounded expiry metadata', () => {
     const now = Date.parse('2026-04-24T00:00:00.000Z');
 

@@ -34,6 +34,14 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeEventExchange: () => ({
     publish: runtimeStoreMock.publish,
   }),
+  getWorkerCoordinationRepository: () => ({
+    appendRunnerControlEvent: vi.fn(async () => 'persisted'),
+    heartbeatRunLease: vi.fn(async () => true),
+  }),
+}));
+
+vi.mock('@core/jobs/worker-identity.js', () => ({
+  requireWorkerInstanceId: () => 'worker-test',
 }));
 
 vi.mock('@core/jobs/compact-memory.js', () => ({
@@ -110,7 +118,7 @@ function makeRoute(): ConversationRoute {
 }
 
 function makeOpsRepository(job: Job) {
-  return {
+  const repo = {
     getJobById: vi.fn(async () => job),
     getJobRunById: vi.fn(async () => ({
       run_id: 'run-1',
@@ -118,14 +126,45 @@ function makeOpsRepository(job: Job) {
       short_id: 1,
       status: 'running',
     })),
-    claimDueJobRunStart: vi.fn(async () => true),
-    updateAgentRunProviderMetadata: vi.fn(async () => undefined),
+    claimDueJobRunStart: vi.fn(async () => ({
+      runId: 'run-1',
+      jobId: job.id,
+      workerInstanceId: 'worker-test',
+      leaseToken: 'lease-token-1',
+      fencingVersion: 1,
+      status: 'active' as const,
+      claimedAt: '2026-05-08T00:00:00.000Z',
+      expiresAt: '2026-05-08T01:00:00.000Z',
+      heartbeatAt: '2026-05-08T00:00:00.000Z',
+    })),
+    settleJobRunLease: vi.fn(async () => true),
+    updateAgentRunProviderMetadata: vi.fn(async () => true),
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
     completeJobRun: vi.fn(async () => undefined),
-    markJobRunNotified: vi.fn(async () => undefined),
+    finalizeJobRunLease: vi.fn(async (input) => {
+      await repo.completeJobRun(
+        input.runId,
+        input.runStatus,
+        input.resultSummary ?? null,
+        input.errorSummary ?? null,
+      );
+      return true;
+    }),
+    finalizeJobRunWithLease: vi.fn(async (input) => {
+      await repo.updateJob(input.jobId, input.jobUpdates);
+      await repo.completeJobRun(
+        input.runId,
+        input.runStatus,
+        input.resultSummary ?? null,
+        input.errorSummary ?? null,
+      );
+      return true;
+    }),
+    markJobRunNotified: vi.fn(async () => true),
     listRecentJobEvents: vi.fn(async () => []),
   };
+  return repo;
 }
 
 function makeToolRepository(toolNames: string[]) {
@@ -886,16 +925,26 @@ describe('jobs/execution', () => {
       providerSessionId: 'provider-session:resume',
       cause: 'job',
     });
-    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith({
-      runId: expect.any(String),
-      providerSessionId: 'provider-session:resume',
-      runIds: [expect.any(String)],
-    });
-    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith({
-      runId: expect.any(String),
-      runIds: [expect.any(String), 'agent-run:job-1'],
-      providerRunId: 'provider-run:scheduler-1',
-    });
+    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: expect.any(String),
+        leaseToken: 'lease-token-1',
+        workerInstanceId: 'worker-test',
+        fencingVersion: 1,
+        providerSessionId: 'provider-session:resume',
+      }),
+    );
+    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: expect.any(String),
+        leaseToken: 'lease-token-1',
+        workerInstanceId: 'worker-test',
+        fencingVersion: 1,
+        fenceRunId: expect.any(String),
+        runIds: ['agent-run:job-1'],
+        providerRunId: 'provider-run:scheduler-1',
+      }),
+    );
   });
 
   it('hydrates scheduled job memory from the bounded prompt query before running the agent', async () => {
@@ -1012,11 +1061,17 @@ describe('jobs/execution', () => {
     );
 
     expect(opsRepository.setSession).not.toHaveBeenCalled();
-    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith({
-      runId: expect.any(String),
-      runIds: [expect.any(String), 'agent-run:job-1'],
-      providerSessionId: 'provider-session:streamed',
-    });
+    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: expect.any(String),
+        leaseToken: 'lease-token-1',
+        workerInstanceId: 'worker-test',
+        fencingVersion: 1,
+        fenceRunId: expect.any(String),
+        runIds: ['agent-run:job-1'],
+        providerSessionId: 'provider-session:streamed',
+      }),
+    );
   });
 
   it('inherits Browser for jobs without projecting raw browser MCP tools', async () => {
@@ -1484,7 +1539,7 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('queues a bounded target-agent recovery turn for setup blockers', async () => {
+  it('surfaces setup blockers without queuing a target-agent recovery turn', async () => {
     let storedJob = makeJob({
       schedule_type: 'interval',
       schedule_value: '60000',
@@ -1505,11 +1560,8 @@ describe('jobs/execution', () => {
       createSessionAgentRun: vi.fn(async () => 'agent-run:recovery-1'),
       completeSessionAgentRun: vi.fn(async () => undefined),
     };
-    let recoveryTask: (() => Promise<void>) | undefined;
     const queue = {
-      enqueueTask: vi.fn((_queueKey, _taskId, fn: () => Promise<void>) => {
-        recoveryTask = fn;
-      }),
+      enqueueTask: vi.fn(),
     };
     const runAgent = vi.fn(async () => ({
       status: 'success',
@@ -1529,33 +1581,11 @@ describe('jobs/execution', () => {
       'tg:scheduler',
     );
 
-    expect(queue.enqueueTask).toHaveBeenCalledWith(
-      'tg:scheduler::thread:thread-scheduled',
-      expect.stringContaining('job-recovery:job-1:'),
-      expect.any(Function),
-    );
-    expect(storedJob.recovery_intent).toMatchObject({
-      state: 'pending',
-      kind: 'missing_capability',
-      requirement_id: 'Browser',
-    });
-
-    await recoveryTask?.();
-
-    expect(runAgent).toHaveBeenCalledTimes(1);
-    const recoveryInput = runAgent.mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
-    expect(recoveryInput.prompt).toEqual(
-      expect.stringContaining('host-generated recovery turn'),
-    );
-    expect(recoveryInput.isScheduledJob).toBeUndefined();
-    expect(recoveryInput.jobId).toBeUndefined();
-    expect(recoveryInput.sessionId).toBe('provider-session:recovery');
-    expect(storedJob.recovery_intent).toMatchObject({
-      state: 'completed',
-      attempts: 1,
+    expect(queue.enqueueTask).not.toHaveBeenCalled();
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(storedJob.recovery_intent).toBeUndefined();
+    expect(storedJob.setup_state).toMatchObject({
+      state: 'missing_capability',
     });
   });
 

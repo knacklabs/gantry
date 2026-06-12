@@ -472,8 +472,11 @@ describe('contracts package', () => {
           queue: {
             maxMessageRuns: 1,
             maxJobRuns: 1,
+            maxMessageBacklog: 0,
+            maxTaskBacklog: 0,
             maxRetries: 0,
             baseRetryMs: 0,
+            drainDeadlineMs: 120000,
           },
           sandbox: {
             provider: 'sandbox_runtime',
@@ -483,6 +486,10 @@ describe('contracts package', () => {
               maxProcesses: 24,
             },
           },
+          artifactStore: {
+            driver: 'local',
+          },
+          deploymentMode: 'workstation',
         },
         browser: {
           usage: {

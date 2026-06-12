@@ -17,6 +17,7 @@ import {
 } from './settings/model-defaults.js';
 import { settingsFilePath } from './settings/runtime-home.js';
 import { DEFAULT_AGENT_NAME } from './settings/runtime-settings-defaults.js';
+import type { RuntimeDeploymentMode } from '../shared/runtime-deployment-mode.js';
 import type { RuntimeSettings } from './settings/runtime-settings-types.js';
 import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
@@ -38,7 +39,14 @@ export type ControlEnvKey =
   | 'GANTRY_CONTROL_API_KEYS_JSON'
   | 'GANTRY_CONTROL_HOST'
   | 'GANTRY_CONTROL_PORT'
-  | 'GANTRY_CONTROL_SOCKET_PATH';
+  | 'GANTRY_CONTROL_SOCKET_PATH'
+  | 'GANTRY_IPC_AUTH_SECRET'
+  | 'GANTRY_SECURITY_POSTURE'
+  | 'GANTRY_RUNTIME_ENV'
+  | 'NODE_ENV'
+  | 'REMOTE_CONTROL_AUTO_ACCEPT'
+  | 'SECRET_ENCRYPTION_KEY'
+  | 'SECRET_ENCRYPTION_KEYRING_JSON';
 export function getControlEnvValue(key: ControlEnvKey): string {
   return envValueDynamic(key);
 }
@@ -97,6 +105,30 @@ export function getConfiguredAgentName(): string {
   }
 }
 export const ASSISTANT_NAME = getConfiguredAgentName();
+
+function getPublicConfiguredAgents(settings: RuntimeSettings) {
+  return Object.fromEntries(
+    Object.entries(settings.agents).map(([agentId, agent]) => [
+      agentId,
+      {
+        name: agent.name,
+        folder: agent.folder,
+        persona: agent.persona,
+        relationshipMode: agent.relationshipMode,
+        model: agent.model,
+        oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
+        recurringJobDefaultModel: agent.recurringJobDefaultModel,
+        bindings: agent.bindings,
+        sources: agent.sources,
+        capabilities: agent.capabilities,
+        access: {
+          preset: agent.accessPreset,
+        },
+      },
+    ]),
+  );
+}
+
 export function getPublicRuntimeSettings() {
   const settings = getRuntimeSettingsForConfig();
   return {
@@ -107,7 +139,7 @@ export function getPublicRuntimeSettings() {
       oneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
       recurringJobDefaultModel: settings.agent.recurringJobDefaultModel,
     },
-    agents: settings.agents,
+    agents: getPublicConfiguredAgents(settings),
     providers: settings.providers,
     providerConnections: settings.providerConnections,
     conversations: settings.conversations,
@@ -118,7 +150,12 @@ export function getPublicRuntimeSettings() {
         enabled: settings.memory.dreaming.enabled,
       },
     },
-    runtime: settings.runtime,
+    runtime: {
+      queue: settings.runtime.queue,
+      sandbox: settings.runtime.sandbox,
+      artifactStore: settings.runtime.artifactStore,
+      deploymentMode: settings.runtime.deploymentMode,
+    },
     browser: {
       usage: {
         enabled: settings.browser.usage.enabled,
@@ -134,13 +171,19 @@ export function getPublicRuntimeSettings() {
     },
   };
 }
+export function getDeploymentMode(): RuntimeDeploymentMode {
+  return getRuntimeSettingsForConfig().runtime.deploymentMode;
+}
 export function getRuntimeQueueConfig() {
   const queue = getRuntimeSettingsForConfig().runtime.queue;
   return {
     maxMessageRuns: queue.maxMessageRuns,
     maxJobRuns: queue.maxJobRuns,
+    maxMessageBacklog: queue.maxMessageBacklog,
+    maxTaskBacklog: queue.maxTaskBacklog,
     maxRetries: queue.maxRetries,
     baseRetryMs: queue.baseRetryMs,
+    drainDeadlineMs: queue.drainDeadlineMs,
   };
 }
 

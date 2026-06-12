@@ -15,6 +15,9 @@ import {
   type ControlPlaneMemoryStatus,
 } from '../application/control-plane/control-plane-read-model.js';
 import { buildControlPlaneReadModelFromRepositories } from '../application/control-plane/control-plane-storage-model.js';
+import { resolveProcessRole } from '../app/bootstrap/roles/role-resolver.js';
+import { roleCapabilities } from '../app/bootstrap/roles/role-capabilities.js';
+import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AppId } from '../domain/app/app.js';
 
 export interface RuntimeStatusSummary {
@@ -34,6 +37,7 @@ export interface RuntimeStatusSummary {
   memoryStatus: ControlPlaneMemoryStatus;
   settings: ReturnType<typeof ensureRuntimeSettings>;
   readModel?: ControlPlaneReadModel;
+  processRole: ProcessRole;
 }
 
 export async function collectRuntimeStatus(
@@ -92,6 +96,7 @@ export async function collectRuntimeStatus(
       memoryHealth.memoryCheck.status,
     ),
     settings,
+    processRole: resolveProcessRole(process.env),
     ...(!storageUnavailable(doctor)
       ? {
           readModel: await readControlPlaneModelFromStorage(
@@ -172,7 +177,10 @@ async function readControlPlaneModelFromStorage(
 
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   const withSandbox = (output: string) =>
-    insertSandboxStatus(output, formatSandboxStatus(summary));
+    insertRoleStatus(
+      insertSandboxStatus(output, formatSandboxStatus(summary)),
+      formatRoleStatus(summary),
+    );
   if (summary.readModel) {
     return withSandbox(
       formatControlPlaneStatus(summary.readModel, summary.service),
@@ -222,6 +230,31 @@ function insertSandboxStatus(output: string, sandboxStatus: string): string {
         ? runtimeIndex + 1
         : 1;
   lines.splice(insertAt, 0, `Sandbox: ${sandboxStatus}`);
+  return lines.join('\n');
+}
+
+/**
+ * One-line role + role-capability summary. The `all` workstation default lists
+ * "everything"; worker roles list only what they run, so the operator can tell
+ * at a glance which subsystems this process owns. Local-only (no network call).
+ */
+function formatRoleStatus(summary: RuntimeStatusSummary): string {
+  const caps = roleCapabilities(summary.processRole);
+  const enabled = [
+    caps.controlApi === 'full' ? 'control:full' : 'control:ops',
+    caps.liveExecution ? 'live' : null,
+    caps.jobExecution ? 'jobs' : null,
+    caps.providerInbound ? 'inbound' : null,
+    caps.bakeExecution ? 'bake' : null,
+  ].filter((value): value is string => value !== null);
+  return `${summary.processRole} (${enabled.join(', ')})`;
+}
+
+function insertRoleStatus(output: string, roleStatus: string): string {
+  const lines = output.split('\n');
+  const sandboxIndex = lines.findIndex((line) => line.startsWith('Sandbox:'));
+  const insertAt = sandboxIndex !== -1 ? sandboxIndex + 1 : 1;
+  lines.splice(insertAt, 0, `Role: ${roleStatus}`);
   return lines.join('\n');
 }
 

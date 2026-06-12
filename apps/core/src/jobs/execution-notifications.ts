@@ -87,6 +87,21 @@ export async function notifySchedulerRunStart(input: {
   });
 }
 
+export async function notifySchedulerRunRecovered(input: {
+  job: Job;
+  runId: string;
+  sendMessage: SchedulerSendMessage;
+}): Promise<boolean> {
+  if (input.job.silent) return false;
+  return sendJobNotification({
+    job: input.job,
+    text: 'Run recovered: previous worker lost its lease; Gantry safely retried this run.',
+    phase: 'start',
+    runId: `recovered:${input.runId}`,
+    sendMessage: input.sendMessage,
+  });
+}
+
 export async function notifySchedulerSetupRequired(input: {
   job: Job;
   setupState: JobSetupState;

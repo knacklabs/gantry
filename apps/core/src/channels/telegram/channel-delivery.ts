@@ -509,6 +509,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     jid: string,
     request: PermissionApprovalRequest,
   ): Promise<PermissionApprovalDecision> {
+    if (!this.interactionCallbacksEnabled) {
+      return {
+        approved: false,
+        reason:
+          'Telegram interaction callbacks are not available on this worker.',
+      };
+    }
     if (!this.bot) {
       return { approved: false, reason: 'Telegram bot is not connected' };
     }
@@ -523,7 +530,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       };
     }
 
-    const callbackId = this.nextPermissionCallbackId();
+    const callbackId = this.permissionCallbackIdForRequest(request.requestId);
     const timeoutMs = TELEGRAM_USER_QUESTION_TIMEOUT_MS;
     try {
       const sent = await this.sendPermissionPromptMessage({
@@ -574,6 +581,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     jid: string,
     request: UserQuestionRequest,
   ): Promise<UserQuestionResponse> {
+    if (!this.interactionCallbacksEnabled) {
+      return {
+        requestId: request.requestId,
+        answers: {},
+        answeredBy: 'system',
+      };
+    }
     if (!this.bot) {
       return { requestId: request.requestId, answers: {} };
     }

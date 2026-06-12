@@ -29,11 +29,17 @@ const runtimeStoreMock = vi.hoisted(() => ({
     },
   },
 }));
+const runtimeLeaseMock = vi.hoisted(() => ({
+  tryAcquire: vi.fn(async () => ({
+    onLost: vi.fn(),
+    release: vi.fn(async () => undefined),
+  })),
+}));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeStorage: () => ({ repositories: runtimeStoreMock.repositories }),
   getRuntimeRepositories: () => runtimeStoreMock.opsRepository,
-  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => true),
+  tryAcquireRuntimeAdvisoryLease: runtimeLeaseMock.tryAcquire,
 }));
 
 import { RuntimeSettings } from '@core/config/settings/runtime-settings.js';
@@ -86,6 +92,14 @@ function makeRuntimeSettings(enabled: {
         maxJobRuns: 4,
         maxRetries: 5,
         baseRetryMs: 5000,
+      },
+      liveTurns: {
+        enabled: true,
+        hostLeaseTtlMs: 30_000,
+        hostLeaseRenewMs: 10_000,
+        heartbeatMs: 10_000,
+        leaseTtlMs: 30_000,
+        maxRunMs: 3_600_000,
       },
     },
   };
@@ -249,6 +263,142 @@ describe('createChannelWiring', () => {
 
     expect(wiring.hasConnectedChannels()).toBe(false);
     expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it('connects channels without inbound messages or callbacks when live turns are disabled', async () => {
+    const app = makeApp();
+    const channel = makeChannel();
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+    const settings = makeRuntimeSettings({ telegram: true, slack: false });
+    settings.runtime.liveTurns.enabled = false;
+
+    await wiring.connectEnabledChannels(settings);
+
+    expect(channel.connect).toHaveBeenCalledWith({
+      inbound: false,
+      interactionCallbacks: false,
+    });
+  });
+
+  it('connects outbound-only when the process role has no provider inbound', async () => {
+    const app = makeApp();
+    const channel = makeChannel();
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+    // Live turns enabled globally, but the role (control/job-worker) forbids
+    // inbound: channels still connect, but outbound-only.
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+      { providerInbound: false },
+    );
+
+    expect(channel.connect).toHaveBeenCalledWith({
+      inbound: false,
+      interactionCallbacks: false,
+    });
+  });
+
+  it('connects with inbound when the role admits provider inbound', async () => {
+    const app = makeApp();
+    const channel = makeChannel();
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+      { providerInbound: true },
+    );
+
+    expect(channel.connect).toHaveBeenCalledWith({
+      inbound: true,
+      interactionCallbacks: true,
+    });
+  });
+
+  it('uses a singleton provider inbound lease in fleet mode', async () => {
+    runtimeLeaseMock.tryAcquire.mockClear();
+    const app = makeApp();
+    const channel = makeChannel();
+    const lease = {
+      onLost: vi.fn(),
+      release: vi.fn(async () => undefined),
+    };
+    runtimeLeaseMock.tryAcquire.mockResolvedValueOnce(lease);
+    const settings = makeRuntimeSettings({ telegram: true, slack: false });
+    settings.runtime.deploymentMode = 'fleet';
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+
+    await wiring.connectEnabledChannels(settings, { providerInbound: true });
+
+    expect(runtimeLeaseMock.tryAcquire).toHaveBeenCalledWith(
+      'runtime:provider-inbound:telegram:default',
+    );
+    expect(channel.connect).toHaveBeenCalledWith({
+      inbound: true,
+      interactionCallbacks: true,
+    });
+    expect(lease.onLost).toHaveBeenCalledOnce();
+  });
+
+  it('connects fleet channels outbound-only when another worker owns provider inbound', async () => {
+    runtimeLeaseMock.tryAcquire.mockClear();
+    runtimeLeaseMock.tryAcquire.mockResolvedValueOnce(undefined);
+    const app = makeApp();
+    const channel = makeChannel();
+    const settings = makeRuntimeSettings({ telegram: true, slack: false });
+    settings.runtime.deploymentMode = 'fleet';
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+
+    await wiring.connectEnabledChannels(settings, { providerInbound: true });
+
+    expect(channel.connect).toHaveBeenCalledWith({
+      inbound: false,
+      interactionCallbacks: false,
+    });
   });
 
   it('fails clearly when an enabled provider has only setup/discovery support', async () => {
@@ -1251,6 +1401,58 @@ describe('createChannelWiring', () => {
       approved: false,
       reason: 'Permission approval target is missing',
     });
+  });
+
+  it('keeps prompt surfaces available when inbound callbacks are disabled', async () => {
+    const app = makeApp({
+      'tg:other': { name: 'Other', folder: 'other' },
+    });
+    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const requestUserAnswer = vi.fn(async () => ({
+      requestId: 'q-outbound-only',
+      answers: { Choice: 'A' },
+    }));
+    const outboundOnlyChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:other'),
+      requestPermissionApproval,
+      requestUserAnswer,
+      supportsInteractionCallbacks: vi.fn(() => false),
+    } as Partial<ChannelAdapter> & {
+      supportsInteractionCallbacks: () => boolean;
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => outboundOnlyChannel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.requestPermissionApproval({
+        requestId: 'req-outbound-only',
+        sourceAgentFolder: 'tg:other',
+        targetJid: 'tg:other',
+        toolName: 'danger-tool',
+      }),
+    ).resolves.toEqual({ approved: true });
+    await expect(
+      wiring.requestUserAnswer({
+        requestId: 'q-outbound-only',
+        sourceAgentFolder: 'tg:other',
+        targetJid: 'tg:other',
+        questions: [],
+      }),
+    ).resolves.toEqual({
+      requestId: 'q-outbound-only',
+      answers: { Choice: 'A' },
+    });
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(requestUserAnswer).toHaveBeenCalledOnce();
   });
 
   it('routes direct DM permission approvals to the direct conversation', async () => {

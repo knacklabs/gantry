@@ -46,6 +46,12 @@ for await (const event of client.sessions.stream(sessionId)) {
 }
 ```
 
+`client.health()` returns `{ status, processRole, ... }`; `processRole` tells you
+which deployment role answered (`all` on a workstation; `control` in a fleet,
+where the SDK's `baseUrl` is the ALB / control plane — worker roles serve only
+ops routes and 404 the admin/`/v1/*` surface). See
+[deployment shapes](../../docs/sdk/overview.md#deployment-shapes).
+
 ## Surface
 
 The client exposes these resource namespaces, each backed by `/v1/*`

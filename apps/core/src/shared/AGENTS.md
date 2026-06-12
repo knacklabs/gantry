@@ -32,3 +32,6 @@
 - Provider-side cache support belongs in provider registry metadata and
   route-aware model helpers. Do not add local semantic response caches,
   decrypted credential caches, or response-family-derived cache assumptions.
+- Shared parsers used by both config and adapters belong in `shared/`, with
+  config modules re-exporting them when needed. Adapters must not import from
+  `config/` just to reuse parsing behavior.

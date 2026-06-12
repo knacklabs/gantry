@@ -90,6 +90,17 @@ import { PostgresOutboundDeliveryRepository } from './outbound-delivery-reposito
 import { PostgresCapabilitySecretRepository } from './capability-secret-repository.postgres.js';
 import { PostgresModelCredentialRepository } from './model-credential-repository.postgres.js';
 import { PostgresPendingAccessRequestsRepository } from './pending-access-request-repository.postgres.js';
+import { PostgresWorkerCoordinationRepository } from './worker-coordination-repository.postgres.js';
+import type { WorkerCoordinationRepository } from '../../../../domain/ports/worker-coordination.js';
+import { PostgresLiveTurnRepository } from './live-turn-repository.postgres.js';
+import type { LiveTurnCoordinationRepository } from '../../../../domain/ports/live-turns.js';
+import { PostgresRuntimeDependencyRepository } from './runtime-dependency-repository.postgres.js';
+import { PostgresSettingsRevisionRepository } from './settings-revision-repository.postgres.js';
+import type {
+  RuntimeDependencyRepository,
+  SettingsRevisionRepository,
+  StaleRuntimeDependencyLister,
+} from '../../../../domain/ports/fleet-capability-state.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -112,6 +123,11 @@ export interface PostgresDomainRepositoryBundle {
   pendingAccessRequests: PendingAccessRequestsRepository;
   sandboxes: SandboxRepository;
   outboundDeliveries: OutboundDeliveryRepository;
+  workerCoordination: WorkerCoordinationRepository;
+  liveTurns: LiveTurnCoordinationRepository;
+  runtimeDependencies: RuntimeDependencyRepository &
+    StaleRuntimeDependencyLister;
+  settingsRevisions: SettingsRevisionRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -141,12 +157,16 @@ function toIsoTimestamp(value: string): string {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : value;
 }
 function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    err.code === '23505'
-  );
+  // Drizzle wraps the pg error (the SQLSTATE lives on the cause chain), so
+  // walk causes like file-artifact-repository's sqlStateCode does.
+  let current: unknown = err;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!current || typeof current !== 'object') return false;
+    const code = (current as { code?: unknown }).code;
+    if (code === '23505') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 function parseJsonArray<T extends string>(value: unknown): T[] {
   const parsed = parseJson<unknown>(value, []);
@@ -1672,5 +1692,9 @@ export function createPostgresDomainRepositories(
     pendingAccessRequests: new PostgresPendingAccessRequestsRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
     outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
+    workerCoordination: new PostgresWorkerCoordinationRepository(db),
+    liveTurns: new PostgresLiveTurnRepository(db),
+    runtimeDependencies: new PostgresRuntimeDependencyRepository(db),
+    settingsRevisions: new PostgresSettingsRevisionRepository(db),
   };
 }

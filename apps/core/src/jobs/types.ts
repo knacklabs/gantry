@@ -27,8 +27,11 @@ import type { AgentExecutionAdapter } from '../application/agent-execution/agent
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 import type { BrowserSessionStatus } from '../runtime/browser-capability-types.js';
+import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 
 export interface SchedulerDependencies {
+  /** Process role; persisted on the worker_instances row at registration. */
+  processRole?: ProcessRole;
   conversationRoutes: () => Record<string, ConversationRoute>;
   queue: GroupQueue;
   onProcess: (

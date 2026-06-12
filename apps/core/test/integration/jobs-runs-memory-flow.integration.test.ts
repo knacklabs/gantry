@@ -6,6 +6,7 @@ import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgre
 import * as pgSchema from '@core/adapters/storage/postgres/schema/index.js';
 import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
+import { registerWorkerInstance } from '@core/jobs/worker-identity.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
 import { memoryAgentIdForWorkspaceFolder } from '@core/memory/app-memory-boundaries.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
@@ -85,8 +86,10 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runtime.cleanup();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     _resetSchedulerLoopForTests();
+    // runJob requires a registered worker instance for the claim protocol.
+    await registerWorkerInstance(runtime.repositories.workerCoordination);
   });
 
   it('creates a manual job, triggers the scheduler path, injects untrusted memory, and records ordered run events', async () => {
@@ -414,7 +417,9 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(run.error_summary).toContain('planned dead-letter failure');
     await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
       status: 'dead_lettered',
-      pause_reason: expect.stringContaining('planned dead-letter failure'),
+      // Pause reason is intentionally generic; the detailed (redacted) error
+      // lives on the run record. See execution-finalization.ts.
+      pause_reason: expect.stringContaining('Paused after 1 failures'),
       lease_run_id: null,
       lease_expires_at: null,
       next_run: null,

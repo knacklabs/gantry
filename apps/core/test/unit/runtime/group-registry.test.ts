@@ -153,6 +153,7 @@ describe('registerGroup', () => {
     expect(mockEnsureAgentDefaults).toHaveBeenCalledWith({
       agentFolder: 'test-group',
       agentName: 'Andy',
+      accessPreset: 'full',
     });
     expect(mockFs.writeFileSync).not.toHaveBeenCalled();
   });
@@ -169,6 +170,7 @@ describe('registerGroup', () => {
     expect(mockEnsureAgentDefaults).toHaveBeenCalledWith({
       agentFolder: 'test-group',
       agentName: 'Kai',
+      accessPreset: 'full',
     });
   });
 });

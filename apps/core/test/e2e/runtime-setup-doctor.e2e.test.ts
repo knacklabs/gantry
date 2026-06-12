@@ -3,6 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRuntimeHomeFixture } from '../harness/runtime-home-fixture.js';
 
 const fixtures: Array<{ cleanup(): void }> = [];
+const strongEncryptionKey = Buffer.from(
+  '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
+  'hex',
+).toString('base64');
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,7 +35,7 @@ function makeFixture() {
     },
     env: {
       GANTRY_DATABASE_URL: 'postgres://gantry:pass@localhost:15432/gantry',
-      SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
+      SECRET_ENCRYPTION_KEY: strongEncryptionKey,
       SLACK_APP_TOKEN: 'xapp-isolated',
       SLACK_BOT_TOKEN: 'xoxb-isolated',
     },

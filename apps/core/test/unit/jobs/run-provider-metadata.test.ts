@@ -16,6 +16,9 @@ function makeUpdater(
     } as never,
     jobId: 'job-1',
     outerRunId: 'run-outer',
+    leaseToken: 'lease-token-1',
+    workerInstanceId: 'worker-1',
+    fencingVersion: 7,
     getSessionRunId: () => overrides.sessionRunId,
     nowMs: overrides.nowMs ?? (() => 1_000),
     logger,
@@ -28,7 +31,8 @@ describe('run provider metadata updater', () => {
     const updateAgentRunProviderMetadata = vi
       .fn()
       .mockRejectedValueOnce(new Error('db unavailable'))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true);
     const { updater, logger } = makeUpdater({
       updateAgentRunProviderMetadata,
       sessionRunId: 'run-session',
@@ -39,12 +43,25 @@ describe('run provider metadata updater', () => {
 
     expect(updateAgentRunProviderMetadata).toHaveBeenNthCalledWith(1, {
       runId: 'run-outer',
-      runIds: ['run-outer', 'run-session'],
+      leaseToken: 'lease-token-1',
+      workerInstanceId: 'worker-1',
+      fencingVersion: 7,
       providerRunId: 'provider-run:1',
     });
     expect(updateAgentRunProviderMetadata).toHaveBeenNthCalledWith(2, {
       runId: 'run-outer',
-      runIds: ['run-outer', 'run-session'],
+      leaseToken: 'lease-token-1',
+      workerInstanceId: 'worker-1',
+      fencingVersion: 7,
+      providerRunId: 'provider-run:1',
+    });
+    expect(updateAgentRunProviderMetadata).toHaveBeenNthCalledWith(3, {
+      runId: 'run-outer',
+      runIds: ['run-session'],
+      fenceRunId: 'run-outer',
+      leaseToken: 'lease-token-1',
+      workerInstanceId: 'worker-1',
+      fencingVersion: 7,
       providerRunId: 'provider-run:1',
     });
     expect(logger.warn).toHaveBeenCalledTimes(1);
@@ -78,12 +95,16 @@ describe('run provider metadata updater', () => {
       calls,
       async updateAgentRunProviderMetadata(input: unknown) {
         this.calls.push(input);
+        return true;
       },
     };
     const updater = createRunProviderMetadataUpdater({
       opsRepository: opsRepository as never,
       jobId: 'job-1',
       outerRunId: 'run-outer',
+      leaseToken: 'lease-token-1',
+      workerInstanceId: 'worker-1',
+      fencingVersion: 7,
       getSessionRunId: () => undefined,
       nowMs: () => 1_000,
       logger: { warn: vi.fn() },
@@ -94,7 +115,9 @@ describe('run provider metadata updater', () => {
     expect(calls).toEqual([
       {
         runId: 'run-outer',
-        runIds: ['run-outer'],
+        leaseToken: 'lease-token-1',
+        workerInstanceId: 'worker-1',
+        fencingVersion: 7,
         providerRunId: 'provider-run:1',
       },
     ]);

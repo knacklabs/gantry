@@ -519,6 +519,41 @@
       "when": 1777252200000,
       "tag": "0074_agent_mcp_binding_tool_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1777255800000,
+      "tag": "0075_multi_worker_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1777259400000,
+      "tag": "0076_live_interactive_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1777263000000,
+      "tag": "0077_fleet_capability_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1777266600000,
+      "tag": "0078_worker_process_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1777270200000,
+      "tag": "0079_browser_profiles",
+      "breakpoints": true
     }
   ]
 }

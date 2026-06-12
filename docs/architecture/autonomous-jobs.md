@@ -112,15 +112,13 @@ re-runs shared setup readiness for those jobs. Jobs are reactivated and queued
 only after readiness passes; otherwise they stay paused with the refreshed setup
 blocker and next action visible in the approval receipt and job status.
 
-When deterministic setup or permission blockers pause a job, Gantry also writes
-one deduped `recovery_intent` on the job target metadata and queues a bounded
-target-agent recovery turn in the job's execution conversation/thread. The
-recovery turn is not raw job output and not a user-authored message; it prompts
-the target agent to use the normal request tools above, ask the user or control
-approver for one clear action, retry/resume the job after readiness is present,
-or correct an invalid job requirement. Generic job failures do not create
-recovery turns unless they include structured setup or permission recovery
-metadata.
+When deterministic setup or permission blockers pause a job, Gantry emits
+`job.setup_required`, persists the refreshed setup state, and renders the
+operator-visible next action. User-facing agents and scheduled jobs do not get
+request/setup tools and do not queue target-agent recovery turns; an admin or
+operator must update the fixed worker image inventory or selected capabilities
+before the job can pass readiness. Generic job failures do not create recovery
+turns.
 
 Job creation can declare one canonical `access_requirements` list on
 `scheduler_upsert_job` instead of embedding provider-specific shell commands in

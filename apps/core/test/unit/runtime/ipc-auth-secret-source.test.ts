@@ -105,4 +105,40 @@ describe('ipc auth secret source', () => {
 
     expect(token).toBe(expected);
   });
+
+  it('refuses ephemeral fallback when runtime .env posture requires production secrets', async () => {
+    vi.doMock('@core/config/env/index.js', () =>
+      mockConfigEnvModule({
+        GANTRY_RUNTIME_ENV: 'production',
+      }),
+    );
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      ensureRuntimeSettings: () => ({
+        agent: { defaultModel: '' },
+        credentialBroker: {
+          mode: 'none',
+          model_gateway: {
+            url: '',
+            postgres: {
+              urlEnv: 'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+              schema: 'model_gateway',
+            },
+          },
+          external: { baseUrl: '' },
+        },
+      }),
+      readRuntimeMemorySettingsSnapshot: () => ({}),
+      readRuntimeStorageSettingsSnapshot: () => ({
+        postgresUrlEnv: 'GANTRY_DATABASE_URL',
+        postgresSchema: 'gantry',
+      }),
+    }));
+    vi.doMock('@core/infrastructure/logging/logger.js', () => ({
+      logger: { warn: vi.fn() },
+    }));
+
+    await expect(import('@core/runtime/ipc-auth.js')).rejects.toThrow(
+      'GANTRY_IPC_AUTH_SECRET is required in production or remote control mode.',
+    );
+  });
 });

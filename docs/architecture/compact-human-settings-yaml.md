@@ -214,7 +214,7 @@ space allows, while artifact refs remain debug detail.
 | Postgres/runtime projection | Changed              | Keep normalized tables; add skill alias resolution before writing capability bindings.           |
 | Control API                 | Changed              | Diagnostic settings reads return compact public shape and effective-source metadata.             |
 | SDK/contracts               | Changed              | Add compact settings and skill alias shapes where public.                                        |
-| CLI                         | Changed              | `settings export-current` writes compact YAML; clear commands delete overrides.                  |
+| CLI                         | Changed              | `settings export` writes compact YAML; clear commands delete overrides.                          |
 | Gantry MCP/admin skill      | Changed              | Settings patch tools use compact fields and skill aliases.                                       |
 | Channel/provider adapters   | Unchanged by design  | Runtime adapter behavior stays the same.                                                         |
 | Docs/prompts                | Changed              | Add settings guide with inherited setting examples and reset behavior.                           |

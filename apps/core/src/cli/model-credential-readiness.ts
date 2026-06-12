@@ -114,11 +114,11 @@ export async function inspectModelCredentialReadiness(
         err instanceof Error ? err.message : String(err)
       }`,
       nextAction:
-        'Confirm Postgres is reachable, migrations have run, and SECRET_ENCRYPTION_KEY is configured.',
+        'Confirm Postgres is reachable, migrations have run, and SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON is configured.',
       action: {
         type: 'run_verification',
         label:
-          'Confirm Postgres is reachable, migrations have run, and SECRET_ENCRYPTION_KEY is configured.',
+          'Confirm Postgres is reachable, migrations have run, and SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON is configured.',
       },
     };
   } finally {

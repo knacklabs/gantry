@@ -1,0 +1,151 @@
+#!/bin/bash
+# Gantry worker bootstrap (EC2 user_data). Runs the runtime container and wires
+# the ASG lifecycle-hook drain to container SIGTERM so a terminating instance
+# drains in-flight work before it goes away.
+set -euo pipefail
+
+CONTAINER_NAME="gantry"
+IMAGE="${image_ref}"
+CONTROL_PORT="${control_port}"
+DRAIN_DEADLINE_SECONDS="${drain_deadline_seconds}"
+LIFECYCLE_HOOK_NAME="${lifecycle_hook_name}"
+ASG_NAME="${asg_name}"
+AWS_REGION="${aws_region}"
+PROCESS_ROLE="${process_role}"
+ARTIFACT_BUCKET_NAME="${artifact_bucket_name}"
+
+# --- Container runtime (Docker via Amazon Linux 2023). ---
+dnf install -y docker awscli || yum install -y docker awscli
+systemctl enable --now docker
+
+aws ecr get-login-password --region "$AWS_REGION" 2>/dev/null | docker login --username AWS --password-stdin "$(echo "$IMAGE" | cut -d/ -f1)" 2>/dev/null || true
+
+docker pull "$IMAGE"
+
+# --- Run the runtime. The entrypoint migrates (advisory-locked) then execs the
+#     runtime as PID 1; --stop-timeout gives SIGTERM the drain window before
+#     Docker escalates to SIGKILL. Secrets arrive via env from Secrets Manager
+#     references resolved at boot (see fetch below); never baked into the image. ---
+ENV_FILE=/etc/gantry/worker.env
+GANTRY_HOME=/var/lib/gantry
+mkdir -p /etc/gantry
+install -m 600 /dev/null "$ENV_FILE"
+install -d -m 700 "$GANTRY_HOME"
+
+cat > "$GANTRY_HOME/settings.yaml" <<EOF
+runtime:
+  deployment_mode: fleet
+  sandbox:
+    provider: sandbox_runtime
+  artifact_store:
+    driver: s3
+    bucket: $ARTIFACT_BUCKET_NAME
+    region: $AWS_REGION
+storage:
+  postgres:
+    url_env: GANTRY_DATABASE_URL
+    schema: gantry
+EOF
+chown -R 1000:1000 "$GANTRY_HOME"
+
+# Resolve runtime secrets from Secrets Manager into the env file (0600). The
+# instance role grants read on exactly the referenced ARNs (secrets module).
+%{ for ref in runtime_secret_env_refs ~}
+VAL="$(aws secretsmanager get-secret-value --region "$AWS_REGION" --secret-id "${ref.secret_arn}" --query SecretString --output text)"
+case "$VAL" in
+  *$'\n'*)
+    echo "Secret ${ref.env_name} contains a newline and cannot be represented in Docker env-file format" >&2
+    exit 1
+    ;;
+esac
+printf '%s=%s\n' "${ref.env_name}" "$VAL" >> "$ENV_FILE"
+%{ endfor ~}
+
+# Non-secret runtime configuration.
+cat >> "$ENV_FILE" <<EOF
+NODE_ENV=production
+# Security posture (production|remote). Fleet topology requires production
+# posture; the workstation/fleet topology is the runtime.deployment_mode
+# settings key seeded into desired state, not an env var.
+GANTRY_SECURITY_POSTURE=production
+GANTRY_CONTROL_HOST=0.0.0.0
+GANTRY_CONTROL_PORT=$CONTROL_PORT
+# Process role (deployment-owned, not settings): one image runs as differentiated
+# services. all|control|live-worker|job-worker. The runtime throws at boot on any
+# other value (fail loud on a wrong-lane deployment env).
+GANTRY_PROCESS_ROLE=$PROCESS_ROLE
+EOF
+
+docker run -d \
+  --name "$CONTAINER_NAME" \
+  --restart unless-stopped \
+  --security-opt seccomp=unconfined \
+  --env-file "$ENV_FILE" \
+  --stop-timeout "$DRAIN_DEADLINE_SECONDS" \
+  -v "$GANTRY_HOME:$GANTRY_HOME" \
+  -p "$CONTROL_PORT:$CONTROL_PORT" \
+  "$IMAGE"
+
+# --- Lifecycle-hook drain handler. On ASG terminate, stop the container with a
+#     SIGTERM and the configured grace period (graceful drain: /readyz -> 503,
+#     finish/hand off live turns), then complete the lifecycle action so the ASG
+#     proceeds. This is the SIGTERM path the delivery-vehicle ADR requires. ---
+cat > /usr/local/bin/gantry-drain.sh <<'DRAIN'
+#!/bin/bash
+set -uo pipefail
+REGION="__AWS_REGION__"
+HOOK="__LIFECYCLE_HOOK_NAME__"
+ASG="__ASG_NAME__"
+TOKEN="$(curl -sS -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')"
+INSTANCE_ID="$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)"
+
+# Graceful container drain (docker stop sends SIGTERM, waits --stop-timeout).
+docker stop "gantry" || true
+
+aws autoscaling complete-lifecycle-action \
+  --region "$REGION" \
+  --lifecycle-hook-name "$HOOK" \
+  --auto-scaling-group-name "$ASG" \
+  --instance-id "$INSTANCE_ID" \
+  --lifecycle-action-result CONTINUE || true
+DRAIN
+
+sed -i "s|__AWS_REGION__|$AWS_REGION|g; s|__LIFECYCLE_HOOK_NAME__|$LIFECYCLE_HOOK_NAME|g; s|__ASG_NAME__|$ASG_NAME|g" /usr/local/bin/gantry-drain.sh
+chmod +x /usr/local/bin/gantry-drain.sh
+
+# Poll for the terminating lifecycle state and drain when it arrives.
+cat > /etc/systemd/system/gantry-lifecycle.service <<'UNIT'
+[Unit]
+Description=Gantry ASG terminate-lifecycle drain watcher
+After=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gantry-lifecycle-watch.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /usr/local/bin/gantry-lifecycle-watch.sh <<'WATCH'
+#!/bin/bash
+set -uo pipefail
+REGION="__AWS_REGION__"
+while true; do
+  TOKEN="$(curl -sS -X PUT 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')"
+  STATE="$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/autoscaling/target-lifecycle-state 2>/dev/null || echo '')"
+  if [ "$STATE" = "Terminated" ] || [ "$STATE" = "Terminating:Wait" ]; then
+    /usr/local/bin/gantry-drain.sh
+    exit 0
+  fi
+  sleep 5
+done
+WATCH
+
+sed -i "s|__AWS_REGION__|$AWS_REGION|g" /usr/local/bin/gantry-lifecycle-watch.sh
+chmod +x /usr/local/bin/gantry-lifecycle-watch.sh
+
+systemctl daemon-reload
+systemctl enable --now gantry-lifecycle.service

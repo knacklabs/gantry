@@ -65,6 +65,25 @@ export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
 
+/** The deployment process role a Gantry runtime serves as. */
+export type ProcessRole = 'all' | 'control' | 'live-worker' | 'job-worker';
+
+/** Response shape of `GET /v1/health`. */
+export interface HealthResponse {
+  status: string;
+  /** Process role of the runtime serving this control API. */
+  processRole: ProcessRole;
+  transport:
+    | { kind: 'tcp'; port: number }
+    | { kind: 'unix'; socketPath: string };
+  features: {
+    sessions: boolean;
+    jobs: boolean;
+    events: boolean;
+    webhooks: boolean;
+  };
+}
+
 export interface GantryError extends Error {
   code: string;
   details?: Record<string, unknown> | null;
@@ -276,7 +295,7 @@ export class GantryClient {
   }
 
   health() {
-    return this.transport.request<{ status: string }>({
+    return this.transport.request<HealthResponse>({
       method: 'GET',
       path: '/v1/health',
     });

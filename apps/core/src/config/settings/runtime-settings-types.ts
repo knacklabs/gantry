@@ -2,6 +2,7 @@ import type {
   RuntimeMemorySettingsSnapshot,
   RuntimeStorageSettingsSnapshot,
 } from './memory-snapshot.js';
+import type { RuntimeDeploymentMode } from '../../shared/runtime-deployment-mode.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import type { AgentRelationshipMode } from '../../shared/agent-relationship-mode.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
@@ -144,6 +145,8 @@ export interface RuntimeConfiguredAgentCapability {
   version: string;
 }
 
+export type AgentAccessPreset = 'full' | 'locked';
+
 export interface RuntimeConfiguredAgent {
   name: string;
   folder: string;
@@ -155,6 +158,7 @@ export interface RuntimeConfiguredAgent {
   bindings: Record<string, RuntimeConfiguredAgentBinding>;
   sources: RuntimeConfiguredAgentSources;
   capabilities: RuntimeConfiguredAgentCapability[];
+  accessPreset: AgentAccessPreset;
 }
 
 export interface RuntimeDesiredStateSettings {
@@ -175,8 +179,15 @@ export type { RuntimeMemorySettingsSnapshot, RuntimeStorageSettingsSnapshot };
 export interface RuntimeQueueSettings {
   maxMessageRuns: number;
   maxJobRuns: number;
+  maxMessageBacklog: number;
+  maxTaskBacklog: number;
   maxRetries: number;
   baseRetryMs: number;
+  drainDeadlineMs: number;
+}
+
+export interface RuntimeLiveTurnsSettings {
+  enabled: boolean;
 }
 
 export type RuntimeSandboxProvider = 'direct' | 'sandbox_runtime';
@@ -190,9 +201,22 @@ export interface RuntimeSandboxSettings {
   };
 }
 
+export type RuntimeArtifactStoreDriver = 'local' | 's3';
+
+export interface RuntimeArtifactStoreSettings {
+  driver: RuntimeArtifactStoreDriver;
+  bucket?: string;
+  region?: string;
+  endpoint?: string;
+  forcePathStyle?: boolean;
+}
+
 export interface RuntimeProcessSettings {
   queue: RuntimeQueueSettings;
+  liveTurns: RuntimeLiveTurnsSettings;
   sandbox: RuntimeSandboxSettings;
+  artifactStore: RuntimeArtifactStoreSettings;
+  deploymentMode: RuntimeDeploymentMode;
 }
 
 export type RuntimeBrowserUsagePolicyMode = 'audit' | 'enforce';

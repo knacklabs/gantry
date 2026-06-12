@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const runtimeStore = vi.hoisted(() => ({
   controlRepository: {
@@ -8,6 +8,36 @@ const runtimeStore = vi.hoisted(() => ({
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => runtimeStore.controlRepository,
+  getRuntimeStorage: () => ({
+    repositories: {
+      runtimeDependencies: {
+        listRuntimeDependencies: async () => [],
+      },
+    },
+  }),
+  getWorkerCoordinationRepository: () => ({
+    markStaleWorkersUnhealthy: async () => [],
+    recoverExpiredRunLeases: async () => [],
+    getWorker: async () => ({
+      capabilities: [],
+    }),
+  }),
+}));
+
+const deploymentModeMock = vi.hoisted(() => ({
+  mode: 'workstation' as 'workstation' | 'fleet',
+}));
+
+vi.mock('@core/config/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@core/config/index.js')>();
+  return {
+    ...actual,
+    getDeploymentMode: () => deploymentModeMock.mode,
+  };
+});
+
+vi.mock('@core/jobs/worker-identity.js', () => ({
+  currentWorkerInstanceId: () => 'worker-test',
 }));
 
 import type { Job } from '@core/domain/types.js';
@@ -15,6 +45,7 @@ import {
   PgBossSchedulerEngine,
   SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS,
 } from '@core/infrastructure/pgboss/scheduler-engine.js';
+import { configureRunSlotBackend } from '@core/jobs/concurrency.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -52,6 +83,11 @@ function createJob(overrides: Partial<Job> = {}): Job {
 }
 
 describe('PgBossSchedulerEngine', () => {
+  afterEach(() => {
+    deploymentModeMock.mode = 'workstation';
+    configureRunSlotBackend(null);
+  });
+
   it('re-enqueues stale pending once jobs immediately and throttles repeated syncs', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-24T09:10:10.000Z'));
@@ -333,16 +369,17 @@ describe('PgBossSchedulerEngine', () => {
     expect(onSchedulerChanged).toHaveBeenCalledWith();
   });
 
-  it('releases interrupted running job leases during scheduler startup recovery', async () => {
+  it('startup recovery only releases expired leases, never live ones', async () => {
     const release = {
       jobId: 'job-1',
       runId: 'run-1',
       releasedAt: '2026-04-24T08:00:00.000Z',
       runTimedOut: true,
-      reason: 'runtime_restarted',
+      reason: 'lease_expired',
     };
     const opsRepository = {
-      releaseInterruptedJobLeases: vi.fn().mockResolvedValue([release]),
+      getAllJobs: vi.fn().mockResolvedValue([]),
+      releaseStaleJobLeases: vi.fn().mockResolvedValue([release]),
     };
     const onSchedulerChanged = vi.fn();
     const handleReleasedStaleLeases = vi.fn().mockResolvedValue(undefined);
@@ -362,14 +399,18 @@ describe('PgBossSchedulerEngine', () => {
         handleReleasedStaleLeases,
       },
     );
+    (engine as unknown as { boss: unknown }).boss = {
+      schedule: vi.fn(),
+      unschedule: vi.fn(),
+      send: vi.fn(),
+      deleteJob: vi.fn(),
+    };
 
     await (
-      engine as unknown as {
-        releaseInterruptedStartupLeases: () => Promise<void>;
-      }
-    ).releaseInterruptedStartupLeases();
+      engine as unknown as { syncAllJobs: () => Promise<void> }
+    ).syncAllJobs();
 
-    expect(opsRepository.releaseInterruptedJobLeases).toHaveBeenCalledTimes(1);
+    expect(opsRepository.releaseStaleJobLeases).toHaveBeenCalledTimes(1);
     expect(handleReleasedStaleLeases).toHaveBeenCalledWith(
       [release],
       expect.objectContaining({ opsRepository }),
@@ -571,6 +612,14 @@ describe('PgBossSchedulerEngine', () => {
   });
 
   it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => true),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
     const job = createJob({
       workspace_key: 'tg:team',
     });
@@ -614,5 +663,97 @@ describe('PgBossSchedulerEngine', () => {
       { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
     );
     expect(requestSync).toHaveBeenCalledWith();
+  });
+
+  it('fails the pg-boss delivery when capacity requeue cannot be persisted', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => false),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob();
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const requeueError = new Error('pg-boss send failed');
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send: vi.fn().mockRejectedValue(requeueError),
+    };
+
+    await expect(
+      (
+        engine as unknown as {
+          processBossJobs: (
+            jobs: Array<{ data: { jobId: string } }>,
+          ) => Promise<void>;
+        }
+      ).processBossJobs([{ data: { jobId: 'job-1' } }]),
+    ).rejects.toThrow('pg-boss send failed');
+  });
+
+  it('fails the pg-boss delivery when ineligible requeue cannot be persisted', async () => {
+    deploymentModeMock.mode = 'fleet';
+    const job = createJob({
+      workspace_key: 'agent:a',
+      required_capabilities: ['skill:missing'],
+    } as Partial<Job>);
+    const updateJob = vi.fn().mockResolvedValue(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+          updateJob,
+        } as never,
+        getSkillRepository: () =>
+          ({
+            listAgentSkillBindings: async () => [
+              {
+                skillId: 'missing',
+                status: 'active',
+              },
+            ],
+          }) as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const requeueError = new Error('pg-boss send failed');
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send: vi.fn().mockRejectedValue(requeueError),
+    };
+
+    await expect(
+      (
+        engine as unknown as {
+          processBossJobs: (
+            jobs: Array<{ data: { jobId: string } }>,
+          ) => Promise<void>;
+        }
+      ).processBossJobs([{ data: { jobId: 'job-1' } }]),
+    ).rejects.toThrow('pg-boss send failed');
+    expect(updateJob).not.toHaveBeenCalled();
   });
 });

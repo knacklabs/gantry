@@ -255,6 +255,7 @@ describe('job readiness service', () => {
       agentId: 'agent:agent-one',
       toolRepository: skillActionToolRepository(),
       skillRepository: selectedLinkedInSkillRepository(),
+      workerImageInventory: ['skill.linkedin-posting.publish'],
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -298,6 +299,7 @@ describe('job readiness service', () => {
       }),
       appId: 'default',
       toolRepository: toolRepository([]),
+      workerImageInventory: ['acme.records.append'],
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -326,6 +328,7 @@ describe('job readiness service', () => {
       }),
       appId: 'default',
       toolRepository: toolRepository([]),
+      workerImageInventory: ['acme.records.append'],
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -428,6 +431,7 @@ describe('job readiness service', () => {
       toolRepository: toolRepository(['capability:acme.records.append'], {
         'acme.records.append': sheetsAppendDefinition,
       }),
+      workerImageInventory: ['acme.records.append'],
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
@@ -672,6 +676,94 @@ describe('job readiness service', () => {
 
     expect(result.ready).toBe(true);
     expect(result.setupState.blockers).toEqual([]);
+  });
+
+  it('admits a job when its selected capability is in the worker image inventory', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:acme.records.append',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository(['capability:acme.records.append'], {
+        'acme.records.append': sheetsAppendDefinition,
+      }),
+      workerImageInventory: ['acme.records.append'],
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
+  });
+
+  it('fails closed when a selected capability is missing from the worker image inventory', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:acme.records.append',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository(['capability:acme.records.append'], {
+        'acme.records.append': sheetsAppendDefinition,
+      }),
+      workerImageInventory: ['some.other.capability'],
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.pauseReason).toBe('Setup required');
+    expect(result.setupState.blockers).toEqual([
+      expect.objectContaining({
+        state: 'missing_capability',
+        requirementType: 'semantic_capability',
+        requirementId: 'acme.records.append',
+        message: expect.stringContaining('not available in the worker image'),
+        nextAction: expect.stringContaining('Rebuild or deploy a worker image'),
+      }),
+    ]);
+  });
+
+  it('fails closed when the worker image inventory is empty', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        access_requirements: [
+          {
+            target: {
+              kind: 'tool_rule',
+              rule: 'capability:acme.records.append',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository(['capability:acme.records.append'], {
+        'acme.records.append': sheetsAppendDefinition,
+      }),
+      workerImageInventory: [],
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.setupState.blockers).toEqual([
+      expect.objectContaining({
+        state: 'missing_capability',
+        requirementType: 'semantic_capability',
+        requirementId: 'acme.records.append',
+        nextAction: expect.stringContaining('Rebuild or deploy a worker image'),
+      }),
+    ]);
   });
 
   it('turns runtime denied tool use into setup state', () => {

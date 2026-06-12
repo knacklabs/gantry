@@ -23,6 +23,9 @@ import {
   MESSAGES_DIR,
   threadId,
   jobId,
+  jobRunId,
+  jobRunLeaseToken,
+  jobRunLeaseFencingVersion,
 } from '../context.js';
 import { truncateText } from '../formatting.js';
 import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
@@ -201,7 +204,14 @@ export function registerMessagingTools(server: McpServer): void {
         context: {
           ...(appId ? { appId } : {}),
           ...(agentId ? { agentId } : {}),
+          ...(chatJid ? { chatJid } : {}),
           ...(threadId ? { threadId } : {}),
+          ...(jobId ? { jobId } : {}),
+          ...(jobRunId ? { runId: jobRunId } : {}),
+          ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
+          ...(jobRunLeaseFencingVersion
+            ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
+            : {}),
           ...(IPC_RESPONSE_KEY_ID
             ? { responseKeyId: IPC_RESPONSE_KEY_ID }
             : {}),

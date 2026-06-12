@@ -2,12 +2,22 @@
 
 ## Trust Model
 
-| Entity            | Trust Level   | Rationale                                                      |
-| ----------------- | ------------- | -------------------------------------------------------------- |
-| Conversations     | Policy-scoped | Sender policy and control approvers govern each conversation   |
-| Group channels    | Shared input  | Other users may be malicious                                   |
-| Runtime agents    | Host-executed | Agent processes run on host, so host controls are the boundary |
-| Incoming messages | User input    | Potential prompt injection                                     |
+| Entity            | Trust Level         | Rationale                                                                               |
+| ----------------- | ------------------- | --------------------------------------------------------------------------------------- |
+| Conversations     | Policy-scoped       | Sender policy and control approvers govern each conversation                            |
+| Group channels    | Shared input        | Other users may be malicious                                                            |
+| Runtime agents    | Host-executed       | Agent processes run on host, so host controls are the boundary                          |
+| Incoming messages | User input          | Potential prompt injection                                                              |
+| Control plane     | Trusted             | Owns policy, durable state, credentials, approval, and fencing                          |
+| Workers           | Untrusted           | Disposable executors can process work but cannot grant authority                        |
+| Providers         | Render/collect only | Channels and model providers format prompts, collect choices, and return transport data |
+| Model/harness     | Untrusted           | Model output and provider-native tool settings are evidence, not permission decisions   |
+
+The control plane is the only trusted authority boundary. Workers, provider
+SDK loops, MCP subprocesses, browser backends, model output, transcripts,
+continuation summaries, and provider-native tool names must not grant, widen,
+persist, or revoke authority. They may only send signed requests or evidence to
+Gantry-owned application services.
 
 ## Security Boundaries
 
@@ -66,6 +76,13 @@ approval policy:
 | Schedule job for others     | Selected scheduler capability plus target conversation approval             |
 | View jobs                   | Originating agent/conversation scope unless an admin capability is approved |
 | Manage conversations        | Selected admin capability plus same-conversation approver                   |
+
+Privileged runner-control and IPC messages must use deterministic signed
+envelopes. Production or remote execution requires stable runtime secrets,
+control API keys, and IPC signing material; local-only ephemeral IPC fallback
+is not a production posture. Missing signatures, stale timestamps, nonce or
+request replay, malformed scope, wrong key ID, stale fencing token, or body
+mismatch fail before side effects.
 
 ### 5. Tool And Capability Authority
 
@@ -126,6 +143,28 @@ receive `GANTRY_DATABASE_URL` or raw provider keys. Selected MCP servers and
 selected reviewed skill actions receive only their named Gantry capability
 credentials. Model gateway projection is limited to the model SDK credential
 lane.
+
+Production and remote startup fail closed when runtime secret material is
+missing. `SECRET_ENCRYPTION_KEY` or its keyring protects durable credential
+rows, `GANTRY_IPC_AUTH_SECRET` protects runner-to-host IPC request authority,
+and `GANTRY_CONTROL_API_KEYS_JSON` protects Control API access. Auto-accept
+style remote-control flags are local-development-only and must be rejected when
+production or remote control mode is active.
+
+## Authority Boundaries
+
+| Boundary      | Rule                                                                                                                                                                                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Credentials   | Runtime secrets, model credentials, and capability credentials stay in separate lanes and project only through the relevant broker or runtime secret provider.                                |
+| Tools         | Tool inventory is not authority; action authority comes from reviewed semantic capabilities, exact Gantry facades, canonical `Browser`, exact admin tools, or scoped `RunCommand(...)` rules. |
+| Skills        | Skill names are display labels. Durable skill authority uses exact catalog IDs and selected capabilities.                                                                                     |
+| MCP           | MCP server definitions and discovered tools are sources/readiness. Action authority requires selected reviewed capability projection and signed IPC.                                          |
+| Browser       | Browser persists only as canonical `Browser`; backend tool names and browser profile details are internal.                                                                                    |
+| Filesystem    | File writes and uploads pass through protected-path, sandbox, artifact, and capability policy before execution.                                                                               |
+| Network       | Model calls use the model gateway; tool egress uses Gantry's egress gateway and audited policy.                                                                                               |
+| Approvals     | Providers may render approval UX, but approver validation, choices, persistence, and audit are Gantry-owned records.                                                                          |
+| Continuations | Follow-up input enters an active run only when the queue/session/conversation policy admits it.                                                                                               |
+| Stop          | Stop/cancel invalidates stale worker output, permission responses, continuations, and finalization through run ownership and fencing.                                                         |
 
 ## Security Architecture (Host Runtime)
 

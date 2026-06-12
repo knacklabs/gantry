@@ -896,4 +896,67 @@ describe('createCanUseToolCallback', () => {
     expect(output).toContain('"terminal":false');
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
+
+  it('auto-denies un-provisioned tools for a locked agent without prompting', async () => {
+    const canUseTool = makeCallback({
+      capabilities: {
+        allowedTools: [],
+        alwaysAllowedTools: [],
+        permissionMode: 'deny',
+      } as never,
+    });
+
+    const decision = await canUseTool(
+      'Bash',
+      { command: 'npm install left-pad' },
+      makePermissionOptions() as never,
+    );
+
+    expect(decision).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        interrupt: false,
+        message: expect.stringContaining('capability not provisioned'),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(combinedConsoleOutput()).toContain(
+      'Permission auto-denied by locked access preset',
+    );
+  });
+
+  it('still allows pre-provisioned tools for a locked agent', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: undefined,
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: ['mcp__provisioned__lookup'],
+        yoloMode: {
+          enabled: false,
+          denylist: [],
+          denylistPaths: [],
+        },
+      } as never,
+      capabilities: {
+        allowedTools: [],
+        alwaysAllowedTools: [],
+        permissionMode: 'deny',
+      } as never,
+    });
+
+    const decision = await canUseTool(
+      'mcp__provisioned__lookup',
+      { query: 'order status' },
+      makePermissionOptions({ displayName: 'lookup' }) as never,
+    );
+
+    expect(decision.behavior).toBe('allow');
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
 });

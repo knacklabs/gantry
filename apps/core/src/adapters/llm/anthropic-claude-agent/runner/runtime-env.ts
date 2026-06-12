@@ -30,6 +30,10 @@ export const CHAT_JID = process.env.GANTRY_CHAT_JID?.trim() || '';
 export const JOB_ID = process.env.GANTRY_JOB_ID?.trim() || '';
 export const JOB_NAME = process.env.GANTRY_JOB_NAME?.trim() || '';
 export const JOB_RUN_ID = process.env.GANTRY_JOB_RUN_ID?.trim() || '';
+export const JOB_RUN_LEASE_TOKEN =
+  process.env.GANTRY_JOB_RUN_LEASE_TOKEN?.trim() || '';
+export const JOB_RUN_LEASE_FENCING_VERSION =
+  process.env.GANTRY_JOB_RUN_LEASE_FENCING_VERSION?.trim() || '';
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.GANTRY_IPC_RESPONSE_KEY_ID || '';

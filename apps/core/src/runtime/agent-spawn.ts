@@ -6,9 +6,11 @@ import {
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   TIMEZONE,
+  getDeploymentMode,
   getRuntimeSettingsForConfig,
   getEffectiveModelConfig,
 } from '../config/index.js';
+import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute } from '../domain/types.js';
 import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../domain/models/credentials.js';
@@ -51,6 +53,12 @@ import {
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.js';
+import {
+  fixedImageSetupRequiredMessage,
+  missingImageCapabilities,
+  readImageCapabilityInventory,
+} from '../shared/worker-image-inventory.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
 import {
@@ -92,6 +100,23 @@ export type {
   AgentInput,
   AgentOutput,
 } from './agent-spawn-types.js';
+function fixedImageCapabilityPreflightError(input: AgentInput): string | null {
+  const imageInventory = readImageCapabilityInventory();
+  if (!imageInventory) return null;
+  const selectedSemanticCapabilityIds = new Set(
+    (input.toolPolicyRules ?? [])
+      .map((rule) => parseSemanticCapabilityRule(rule))
+      .filter((id): id is string => Boolean(id)),
+  );
+  const missing = missingImageCapabilities(
+    [...selectedSemanticCapabilityIds].map((capabilityId) => ({
+      capabilityId,
+    })),
+    imageInventory,
+  );
+  return missing.length === 0 ? null : fixedImageSetupRequiredMessage(missing);
+}
+
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -158,10 +183,28 @@ export async function spawnAgent(
       error: allowedToolValidationError,
     };
   }
+  // Fixed-image worker preflight: fail closed before the runner process starts
+  // when a selected capability is not present in this worker image inventory.
+  // Scheduled jobs additionally pause earlier via job readiness; this is the
+  // admission guard for live turns and a defense-in-depth backstop for jobs.
+  const fixedImagePreflightError = fixedImageCapabilityPreflightError(input);
+  if (fixedImagePreflightError) {
+    return {
+      status: 'error',
+      result: null,
+      error: fixedImagePreflightError,
+    };
+  }
   const promptProfileService = new PromptProfileService({
     fileArtifactStore: () => getRuntimeFileArtifactStore(),
   });
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
+  // The instruction projection follows the same resolved access policy as the
+  // tool surface: locked agents get the locked prompt fragments.
+  const agentAccessPolicy = resolveAgentAccessPolicy(
+    getRuntimeSettingsForConfig().agents?.[group.folder]?.accessPreset,
+  );
+  const isLockedAgent = agentAccessPolicy.preset === 'locked';
   let compiledSystemPrompt = '';
   try {
     compiledSystemPrompt = await promptProfileService.compileSystemPrompt({
@@ -169,6 +212,7 @@ export async function spawnAgent(
       persona: input.persona ?? group.agentConfig?.persona,
       appId: input.appId || DEFAULT_RUNNER_APP_ID,
       agentId: input.agentId || promptProfileAgentIdForFolder(group.folder),
+      accessPreset: agentAccessPolicy.preset,
     });
   } catch (err) {
     logger.warn(
@@ -185,10 +229,15 @@ export async function spawnAgent(
   const browserIpcEnabled = (trustedToolPolicyRules ?? []).some(
     isCanonicalBrowserCapabilityRule,
   );
+  const hideAuthorityTools =
+    isLockedAgent ||
+    input.hideAuthorityTools === true ||
+    process.env.GANTRY_NO_PERMISSION_TOOLS === '1';
   const runnerInput: RunnerAgentInput = {
     ...input,
     allowedTools: trustedToolPolicyRules,
     browserProfileName,
+    hideAuthorityTools,
     compiledSystemPrompt,
     yoloMode: effectiveYoloModeSettings(
       getRuntimeSettingsForConfig().permissions.yoloMode,
@@ -463,6 +512,16 @@ export async function spawnAgent(
       ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
       ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),
       ...(input.runId ? { GANTRY_JOB_RUN_ID: input.runId } : {}),
+      ...(input.runLeaseToken
+        ? { GANTRY_JOB_RUN_LEASE_TOKEN: input.runLeaseToken }
+        : {}),
+      ...(typeof input.runLeaseFencingVersion === 'number'
+        ? {
+            GANTRY_JOB_RUN_LEASE_FENCING_VERSION: String(
+              input.runLeaseFencingVersion,
+            ),
+          }
+        : {}),
       ...(browserIpcEnabled
         ? {
             GANTRY_BROWSER_IPC_AUTH_TOKEN: computeBrowserIpcAuthToken(
@@ -488,6 +547,9 @@ export async function spawnAgent(
       GANTRY_MEMORY_DEFAULT_SCOPE: input.memoryDefaultScope || 'group',
       GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER:
         input.memoryReviewerIsControlApprover ? '1' : '',
+      GANTRY_NO_PERMISSION_TOOLS: hideAuthorityTools ? '1' : '',
+      GANTRY_AGENT_ACCESS_PRESET: agentAccessPolicy.preset,
+      GANTRY_DEPLOYMENT_MODE: getDeploymentMode(),
       GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(
         PERMISSION_APPROVAL_TIMEOUT_MS,
       ),

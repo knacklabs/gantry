@@ -12,7 +12,11 @@ import { invalidateSystemJobRegistrationSignature } from './system-registration-
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
-import { enqueueJobTrigger, isSchedulerReady } from './scheduler.js';
+import {
+  enqueueJobTrigger,
+  isJobTriggerQueueReady,
+  schedulerNotReadyReason,
+} from './scheduler.js';
 import {
   jobSetupBlockerFromUnknown,
   setupActionLabel,
@@ -42,8 +46,9 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     skillRepository: context.deps.getSkillRepository?.(),
     runtimeEvents: getRuntimeEventExchange(),
     triggerQueue: {
-      isReady: isSchedulerReady,
+      isReady: isJobTriggerQueueReady,
       enqueue: enqueueJobTrigger,
+      notReadyReason: schedulerNotReadyReason,
     },
     toolRepository: context.deps.getToolRepository?.(),
     mcpServerRepository: context.deps.getMcpServerRepository?.(),

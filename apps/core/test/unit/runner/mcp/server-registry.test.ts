@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const previousIpcDir = process.env.GANTRY_IPC_DIR;
 const previousAdminTools = process.env.GANTRY_ADMIN_MCP_TOOLS_JSON;
 const previousMcpTools = process.env.GANTRY_MCP_TOOL_NAMES_JSON;
+const previousNoPermissionTools = process.env.GANTRY_NO_PERMISSION_TOOLS;
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -25,6 +26,11 @@ afterEach(() => {
     delete process.env.GANTRY_MCP_TOOL_NAMES_JSON;
   } else {
     process.env.GANTRY_MCP_TOOL_NAMES_JSON = previousMcpTools;
+  }
+  if (previousNoPermissionTools === undefined) {
+    delete process.env.GANTRY_NO_PERMISSION_TOOLS;
+  } else {
+    process.env.GANTRY_NO_PERMISSION_TOOLS = previousNoPermissionTools;
   }
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -83,5 +89,53 @@ describe('MCP server registry handler parity', () => {
       await import('@core/runner/mcp/server.js');
 
     expect(() => createGantryMcpServer()).not.toThrow();
+  });
+});
+
+describe('effective enabled MCP tool projection', () => {
+  it('preserves selected admin tools in normal mode', async () => {
+    setIpcDir();
+    const { effectiveEnabledMcpToolNames } =
+      await import('@core/runner/mcp/server.js');
+
+    const enabled = effectiveEnabledMcpToolNames(
+      undefined,
+      JSON.stringify(['service_restart']),
+      undefined,
+    );
+
+    expect(enabled.has('service_restart')).toBe(true);
+  });
+
+  it('strips hidden authority tools while preserving selected admin tools', async () => {
+    setIpcDir();
+    const { effectiveEnabledMcpToolNames } =
+      await import('@core/runner/mcp/server.js');
+
+    const enabled = effectiveEnabledMcpToolNames(
+      undefined,
+      JSON.stringify(['service_restart', 'register_agent']),
+      '1',
+    );
+
+    // Selected admin tools are registered through the admin facade list.
+    expect(enabled.has('service_restart')).toBe(true);
+    expect(enabled.has('register_agent')).toBe(true);
+    expect(enabled.has('request_settings_update')).toBe(false);
+    // Authority-changing baseline request tools stripped.
+    expect(enabled.has('request_access')).toBe(false);
+    expect(enabled.has('request_skill_install')).toBe(false);
+    expect(enabled.has('request_mcp_server')).toBe(false);
+    expect(enabled.has('request_agent_profile_update')).toBe(false);
+    // Scheduler mutation/control tools are not part of the no-permission
+    // user-facing surface.
+    expect(enabled.has('scheduler_upsert_job')).toBe(false);
+    expect(enabled.has('scheduler_update_job')).toBe(false);
+    expect(enabled.has('scheduler_run_now')).toBe(false);
+    // Safe baseline preserved.
+    expect(enabled.has('send_message')).toBe(true);
+    expect(enabled.has('ask_user_question')).toBe(true);
+    expect(enabled.has('memory_search')).toBe(true);
+    expect(enabled.has('agent_profile_read')).toBe(true);
   });
 });

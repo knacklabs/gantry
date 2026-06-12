@@ -21,6 +21,7 @@ import {
   getDefaultRuntimeSandboxSettings,
 } from './runtime-settings-defaults.js';
 import type {
+  RuntimeArtifactStoreSettings,
   RuntimeCredentialBrokerSettings,
   RuntimeAgentSettings,
   RuntimeConfiguredBinding,
@@ -670,10 +671,20 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     queue: {
       maxMessageRuns: 3,
       maxJobRuns: 4,
+      maxMessageBacklog: 0,
+      maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,
+      drainDeadlineMs: 120000,
+    },
+    liveTurns: {
+      enabled: true,
     },
     sandbox: getDefaultRuntimeSandboxSettings(),
+    artifactStore: {
+      driver: 'local',
+    },
+    deploymentMode: 'workstation',
   };
   if (raw === undefined) return defaults;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -681,9 +692,15 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'queue' && key !== 'sandbox') {
+    if (
+      key !== 'queue' &&
+      key !== 'live_turns' &&
+      key !== 'sandbox' &&
+      key !== 'artifact_store' &&
+      key !== 'deployment_mode'
+    ) {
       throw new Error(
-        `runtime.${key} is not supported. Configure runtime.queue.* or runtime.sandbox.*.`,
+        `runtime.${key} is not supported. Configure runtime.queue.*, runtime.live_turns.*, runtime.sandbox.*, runtime.artifact_store.*, or runtime.deployment_mode.`,
       );
     }
   }
@@ -701,11 +718,31 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     if (
       key !== 'max_message_runs' &&
       key !== 'max_job_runs' &&
+      key !== 'max_message_backlog' &&
+      key !== 'max_task_backlog' &&
       key !== 'max_retries' &&
-      key !== 'base_retry_ms'
+      key !== 'base_retry_ms' &&
+      key !== 'drain_deadline_ms'
     ) {
       throw new Error(
-        `runtime.queue.${key} is not supported. Configure max_message_runs, max_job_runs, max_retries, or base_retry_ms.`,
+        `runtime.queue.${key} is not supported. Configure max_message_runs, max_job_runs, max_message_backlog, max_task_backlog, max_retries, base_retry_ms, or drain_deadline_ms.`,
+      );
+    }
+  }
+  const liveTurnsRaw = map.live_turns;
+  if (
+    liveTurnsRaw !== undefined &&
+    (typeof liveTurnsRaw !== 'object' ||
+      liveTurnsRaw === null ||
+      Array.isArray(liveTurnsRaw))
+  ) {
+    throw new Error('runtime.live_turns must be a mapping');
+  }
+  const liveTurns = (liveTurnsRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(liveTurns)) {
+    if (key !== 'enabled') {
+      throw new Error(
+        `runtime.live_turns.${key} is not supported. Configure enabled.`,
       );
     }
   }
@@ -756,6 +793,14 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
       'runtime.sandbox.provider must be direct or sandbox_runtime',
     );
   }
+  const artifactStore = parseRuntimeArtifactStoreSettings(map.artifact_store);
+  const deploymentMode =
+    map.deployment_mode === undefined
+      ? defaults.deploymentMode
+      : parseStringValue(map.deployment_mode, 'runtime.deployment_mode');
+  if (deploymentMode !== 'workstation' && deploymentMode !== 'fleet') {
+    throw new Error('runtime.deployment_mode must be workstation or fleet');
+  }
   return {
     queue: {
       maxMessageRuns: parsePositiveIntegerValue(
@@ -768,6 +813,16 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         'runtime.queue.max_job_runs',
         defaults.queue.maxJobRuns,
       ),
+      maxMessageBacklog: parseNonNegativeIntegerValue(
+        queue.max_message_backlog,
+        'runtime.queue.max_message_backlog',
+        defaults.queue.maxMessageBacklog,
+      ),
+      maxTaskBacklog: parseNonNegativeIntegerValue(
+        queue.max_task_backlog,
+        'runtime.queue.max_task_backlog',
+        defaults.queue.maxTaskBacklog,
+      ),
       maxRetries: parseNonNegativeIntegerValue(
         queue.max_retries,
         'runtime.queue.max_retries',
@@ -777,6 +832,18 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         queue.base_retry_ms,
         'runtime.queue.base_retry_ms',
         defaults.queue.baseRetryMs,
+      ),
+      drainDeadlineMs: parsePositiveIntegerValue(
+        queue.drain_deadline_ms,
+        'runtime.queue.drain_deadline_ms',
+        defaults.queue.drainDeadlineMs,
+      ),
+    },
+    liveTurns: {
+      enabled: parseBooleanValue(
+        liveTurns.enabled,
+        'runtime.live_turns.enabled',
+        defaults.liveTurns.enabled,
       ),
     },
     sandbox: {
@@ -799,6 +866,71 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         ),
       },
     },
+    artifactStore,
+    deploymentMode,
+  };
+}
+
+function parseRuntimeArtifactStoreSettings(
+  raw: unknown,
+): RuntimeArtifactStoreSettings {
+  if (raw === undefined) return { driver: 'local' };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('runtime.artifact_store must be a mapping');
+  }
+  const map = raw as Record<string, unknown>;
+  for (const key of Object.keys(map)) {
+    if (
+      key !== 'driver' &&
+      key !== 'bucket' &&
+      key !== 'region' &&
+      key !== 'endpoint' &&
+      key !== 'force_path_style'
+    ) {
+      throw new Error(
+        `runtime.artifact_store.${key} is not supported. Configure driver, bucket, region, endpoint, or force_path_style.`,
+      );
+    }
+  }
+  const driver =
+    map.driver === undefined
+      ? 'local'
+      : parseStringValue(map.driver, 'runtime.artifact_store.driver');
+  if (driver !== 'local' && driver !== 's3') {
+    throw new Error('runtime.artifact_store.driver must be local or s3');
+  }
+  if (driver === 'local') {
+    for (const key of ['bucket', 'region', 'endpoint', 'force_path_style']) {
+      if (map[key] !== undefined) {
+        throw new Error(
+          `runtime.artifact_store.${key} is only supported when driver is s3`,
+        );
+      }
+    }
+    return { driver: 'local' };
+  }
+  const bucket = parseStringValue(map.bucket, 'runtime.artifact_store.bucket');
+  const region =
+    map.region === undefined
+      ? undefined
+      : parseStringValue(map.region, 'runtime.artifact_store.region');
+  const endpoint =
+    map.endpoint === undefined
+      ? undefined
+      : parseStringValue(map.endpoint, 'runtime.artifact_store.endpoint');
+  const forcePathStyle =
+    map.force_path_style === undefined
+      ? undefined
+      : parseBooleanValue(
+          map.force_path_style,
+          'runtime.artifact_store.force_path_style',
+        );
+  return {
+    driver: 's3',
+    bucket,
+    ...(region !== undefined ? { region } : {}),
+    ...(endpoint !== undefined ? { endpoint } : {}),
+    ...(forcePathStyle !== undefined ? { forcePathStyle } : {}),
   };
 }
 
@@ -893,14 +1025,24 @@ function deriveAgentBindingsFromDesiredState(input: {
 
 export function parseRuntimeSettings(raw: string): RuntimeSettings {
   const parsed = parseSimpleYamlObject(raw) as unknown;
-
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('root must be a mapping');
   }
+  return parseRuntimeSettingsObject(parsed as Record<string, unknown>);
+}
 
-  const root = normalizeCompactRuntimeSettingsRoot(
-    parsed as Record<string, unknown>,
-  );
+/**
+ * Decode an already-parsed settings document object into typed runtime
+ * settings. This is the structural-validation core shared by the YAML file edge
+ * (`parseRuntimeSettings`, via `parseSimpleYamlObject`) and the typed JSON
+ * settings document carried by the control API / stored in `settings_revisions`
+ * (`settingsFromRevisionDocument`). Both surfaces therefore produce identical
+ * document-path-level error messages (one validation path, no authority fork).
+ */
+export function parseRuntimeSettingsObject(
+  document: Record<string, unknown>,
+): RuntimeSettings {
+  const root = normalizeCompactRuntimeSettingsRoot(document);
   for (const key of Object.keys(root)) {
     if (key === 'features') {
       throw new Error(

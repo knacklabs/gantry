@@ -1,14 +1,43 @@
-import { createHash, createHmac, timingSafeEqual, randomBytes } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  timingSafeEqual,
+  randomBytes,
+} from 'crypto';
 import { createIpcResponseSigningKeyPair } from '../infrastructure/ipc/response-signing.js';
 import { GANTRY_IPC_AUTH_SECRET } from '../config/index.js';
-import { logger } from '../infrastructure/logging/logger.js';
+import { runtimeEnvValueDynamic } from '../config/env/index.js';
+import {
+  resolveRuntimeSecurityPosture,
+  type RuntimeSecurityEnv,
+} from '../shared/security-posture.js';
 import { normalizeMemoryIpcActions } from '../shared/memory-ipc-actions.js';
+
+function resolveIpcAuthSecurityEnv(): RuntimeSecurityEnv {
+  return {
+    NODE_ENV: runtimeEnvValueDynamic('NODE_ENV'),
+    GANTRY_SECURITY_POSTURE: runtimeEnvValueDynamic('GANTRY_SECURITY_POSTURE'),
+    GANTRY_RUNTIME_ENV: runtimeEnvValueDynamic('GANTRY_RUNTIME_ENV'),
+    GANTRY_CONTROL_HOST: runtimeEnvValueDynamic('GANTRY_CONTROL_HOST'),
+    GANTRY_CONTROL_PORT: runtimeEnvValueDynamic('GANTRY_CONTROL_PORT'),
+  };
+}
 
 const IPC_AUTH_SECRET =
   GANTRY_IPC_AUTH_SECRET ||
   (() => {
+    if (
+      resolveRuntimeSecurityPosture(resolveIpcAuthSecurityEnv())
+        .requiresProductionSecrets
+    ) {
+      throw new Error(
+        'GANTRY_IPC_AUTH_SECRET is required in production or remote control mode.',
+      );
+    }
     const generated = randomBytes(32).toString('hex');
-    logger.warn(
+    console.warn(
       'GANTRY_IPC_AUTH_SECRET not set; using ephemeral secret (IPC tokens will not survive restarts)',
     );
     return generated;
@@ -43,6 +72,13 @@ const responseSigningKeys = new Map<
   }
 >();
 const browserIpcAuthorizations = new Map<string, number>();
+const RESPONSE_PRIVATE_KEY_SEAL_AAD = Buffer.from(
+  'gantry:ipc-response-private-key:v1',
+);
+
+function responsePrivateKeySealKey(): Buffer {
+  return createHash('sha256').update(IPC_AUTH_SECRET).digest();
+}
 
 export function responseSigningKeyId(publicKeyPem: string): string {
   return createHash('sha256').update(publicKeyPem).digest('base64url');
@@ -184,6 +220,51 @@ export function getIpcResponseSigningPrivateKey(
   if (keys.workspaceKey !== workspaceKey) return undefined;
   if (keys.threadId !== normalizedThreadId(threadId)) return undefined;
   return keys.privateKeyPem;
+}
+
+export function sealIpcResponseSigningPrivateKey(
+  privateKeyPem: string | undefined,
+): string | undefined {
+  if (!privateKeyPem) return undefined;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', responsePrivateKeySealKey(), iv);
+  cipher.setAAD(RESPONSE_PRIVATE_KEY_SEAL_AAD);
+  const ciphertext = Buffer.concat([
+    cipher.update(privateKeyPem, 'utf8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return [
+    'v1',
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    ciphertext.toString('base64url'),
+  ].join(':');
+}
+
+export function unsealIpcResponseSigningPrivateKey(
+  sealed: string | undefined,
+): string | undefined {
+  if (!sealed) return undefined;
+  const [version, ivB64, tagB64, ciphertextB64] = sealed.split(':');
+  if (version !== 'v1' || !ivB64 || !tagB64 || !ciphertextB64) {
+    return undefined;
+  }
+  try {
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      responsePrivateKeySealKey(),
+      Buffer.from(ivB64, 'base64url'),
+    );
+    decipher.setAAD(RESPONSE_PRIVATE_KEY_SEAL_AAD);
+    decipher.setAuthTag(Buffer.from(tagB64, 'base64url'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(ciphertextB64, 'base64url')),
+      decipher.final(),
+    ]).toString('utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 export function revokeIpcResponseSigningKey(

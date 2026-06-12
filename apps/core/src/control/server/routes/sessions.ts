@@ -5,7 +5,7 @@ import type { ZodIssue } from 'zod';
 import type { RuntimeEvent } from '../../../domain/events/events.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { resolveAppScopeAppId } from '../app-identity.js';
-import { isValidControlId } from '../../../application/app-scope/control-id.js';
+import { isValidControlId } from '../../../shared/control-id.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,

@@ -96,7 +96,14 @@ export interface RuntimeApp {
   ) => Promise<void>;
   processGroupMessages: (
     chatJid: string,
-    options?: { queued?: boolean },
+    options?: {
+      queued?: boolean;
+      existingRunId?: string;
+      existingRunLeaseToken?: string;
+      existingRunLeaseWorkerInstanceId?: string;
+      existingRunLeaseFencingVersion?: number;
+      onRunResult?: (result: 'success' | 'error' | 'stopped') => void;
+    },
   ) => Promise<boolean>;
   getConversationRoutes: () => Record<string, ConversationRoute>;
   getLastTimestamp: () => string;

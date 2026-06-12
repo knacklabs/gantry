@@ -28,9 +28,12 @@ export interface AgentRunnerInput {
   selectedSkillDisplays?: string[];
   attachedMcpSourceIds?: string[];
   semanticCapabilities?: SemanticCapabilityDefinition[];
+  hideAuthorityTools?: boolean;
   isScheduledJob?: boolean;
   jobId?: string;
   runId?: string;
+  runLeaseToken?: string;
+  runLeaseFencingVersion?: number;
   assistantName?: string;
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
@@ -80,6 +83,7 @@ export interface AgentRunnerToolAttemptOutput {
 export interface RunnerCapabilitiesForPermission {
   allowedTools: readonly string[];
   alwaysAllowedTools: readonly string[];
+  permissionMode: 'default' | 'deny';
 }
 
 export interface AgentRunnerRuntimeEventOutput {

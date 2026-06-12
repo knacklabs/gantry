@@ -1,8 +1,12 @@
 import {
   DEFAULT_TRIGGER,
+  MAX_MESSAGES_PER_PROMPT,
+  TIMEZONE,
   getCredentialBrokerRuntimeConfig,
+  getDeploymentMode,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
+import { agentIdForFolder } from '../../config/settings/desired-state-service-helpers.js';
 import {
   createAgentToolRuleSettingsMirror,
   type AgentToolRuleSettingsRepositories,
@@ -17,12 +21,28 @@ import type { HostnameLookup } from '../../domain/network/public-address-policy.
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
 // prettier-ignore
-import { recoverPendingMessages, startMessagePollingLoop } from '../../runtime/message-loop.js';
+import { recoverPendingMessages, startMessagePollingLoop, type MessageLoopDeps, type MessagePollingLoopHandle } from '../../runtime/message-loop.js';
 // prettier-ignore
-import { requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
+import { markRoleHasNoJobExecution, requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
+import { registerWorkerInstance } from '../../jobs/worker-identity.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
+import type { WorkerCoordinationRepository } from '../../domain/ports/worker-coordination.js';
+import type { RuntimeDependencyRepository } from '../../domain/ports/fleet-capability-state.js';
+import type {
+  LiveTurn,
+  LiveTurnCoordinationRepository,
+} from '../../domain/ports/live-turns.js';
+import {
+  isWorkerEligibleForRequiredCapabilities,
+  resolveRequiredCapabilities,
+} from '../../jobs/capability-eligibility.js';
+import {
+  CapabilityStarvationAlerter,
+  fleetMissingRequiredCapabilities,
+} from '../../jobs/capability-starvation.js';
+import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
@@ -65,6 +85,19 @@ import { splitLiveSendProfileText } from './runtime-services-live-send-segmentat
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import { nowIso, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
+import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
+import { configurePendingInteractionPermissionPersistence } from '../../application/interactions/pending-interaction-durability.js';
+import { liveTurnScopeForQueue } from './live-recovery-coordinator.js';
+import {
+  buildLiveAdmissionProcessor,
+  buildLiveTurnBrowserFinalizer,
+  startLiveExecutionServices,
+  type LiveExecutionServicesHandle,
+  type RecoveryCoordinatorPort,
+} from './live-execution.js';
+import { startWaitingStatusMonitor } from './live-execution-waiting-status.js';
+import type { ProcessRole } from './roles/process-role.js';
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 interface Deps {
   startSchedulerLoop: typeof startSchedulerLoop;
@@ -87,6 +120,16 @@ interface Deps {
   getPermissionRepository?: () => PermissionRepository;
   settingsRepositories?: AgentToolRuleSettingsRepositories;
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
+  getWorkerCoordinationRepository?: () =>
+    | WorkerCoordinationRepository
+    | undefined;
+  getLiveTurnRepository?: () => LiveTurnCoordinationRepository | undefined;
+  /** Toolchain manifests for the live-turn recovery capability gate (fleet). */
+  getRuntimeDependencyRepository?: () =>
+    | RuntimeDependencyRepository
+    | undefined;
+  /** Injectable for tests; defaults to the settings-backed deployment mode. */
+  getDeploymentMode: typeof getDeploymentMode;
   startOutboundDeliveryRecoveryLoop: typeof startOutboundDeliveryRecoveryLoop;
   callBrowserTool: IpcDeps['callBrowserTool'];
   publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
@@ -102,11 +145,27 @@ type RuntimeServicesDefaults = Omit<
   | 'opsRepository'
   | 'getToolRepository'
   | 'getPermissionRepository'
+  | 'getWorkerCoordinationRepository'
+  | 'getLiveTurnRepository'
   | 'runnerSandboxProvider'
 >;
 export type RuntimeServicesOptions = {
   app: RuntimeApp;
   channelWiring: ChannelWiring;
+  liveTurnsEnabled?: boolean;
+  /**
+   * Recovery-coordinator lease manager. When provided, recovery (startup
+   * pending-message recovery + recovery sweep) runs only while this worker holds
+   * the lease; polling/admission run regardless. When omitted (single-process
+   * embedding/tests), this process is also the coordinator immediately.
+   */
+  recoveryCoordinator?: RecoveryCoordinatorPort;
+  /** Process role; persisted on the worker_instances row at registration. */
+  processRole?: ProcessRole;
+  /** Whether this role admits/executes live turns + interaction callbacks. Default true. */
+  liveExecution?: boolean;
+  /** Whether this role claims/runs scheduler jobs (the scheduler loop). Default true. */
+  jobExecution?: boolean;
 };
 function makeDefaultDeps(): RuntimeServicesDefaults {
   return {
@@ -115,6 +174,7 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     writeGroupsSnapshot,
     recoverPendingMessages,
     startMessagePollingLoop,
+    getDeploymentMode,
     logger,
     collectSessionMemory: collectRuntimeSessionMemory,
     startOutboundDeliveryRecoveryLoop,
@@ -125,11 +185,9 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     exit: (code: number) => process.exit(code),
   };
 }
-
 function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
   let syncInFlight: Promise<void> | undefined;
   let syncDirty = false;
-
   const runSync = async () => {
     do {
       syncDirty = false;
@@ -137,7 +195,6 @@ function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
         app.getConversationRoutes(),
         await app.getAvailableGroups(),
       ];
-
       const registeredJids = new Set(Object.keys(conversationRoutes));
       await Promise.all(
         Object.values(conversationRoutes).map((group) =>
@@ -150,7 +207,6 @@ function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
       );
     } while (syncDirty);
   };
-
   return () => {
     if (syncInFlight) {
       syncDirty = true;
@@ -165,23 +221,177 @@ function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
       });
   };
 }
+let activeLiveTurnRecoveryLoop: LiveTurnRecoveryLoop | undefined;
+let activeLiveTurnAuthority: LiveTurnAuthority | undefined;
+let activeMessagePollingLoop: MessagePollingLoopHandle | undefined;
+let activeWaitingStatusMonitor:
+  | { oldestWaitingSeconds: () => number }
+  | undefined;
+let activeLiveExecutionServices: LiveExecutionServicesHandle | undefined;
+/**
+ * Oldest waiting live admission age in seconds (0 when none / this process is
+ * not the recovery coordinator). Read by `/metrics`; the monitor runs only on
+ * the coordinator, so a non-coordinator process reports 0.
+ */
+export function getOldestWaitingLiveAdmissionSeconds(): number {
+  return activeWaitingStatusMonitor?.oldestWaitingSeconds() ?? 0;
+}
+export function stopLiveTurnRecoveryLoop(): void {
+  // Graceful-drain choke point: stop the whole coordinator (recovery sweep AND
+  // the waiting-status monitor). Shared, idempotent stop path with the lease-loss
+  // `onLost` handler — the monitor interval clears and `activeWaitingStatusMonitor`
+  // resets exactly once whether teardown is lease loss OR SIGTERM drain.
+  if (activeLiveExecutionServices) {
+    activeLiveExecutionServices.stopRecovery();
+    activeLiveExecutionServices = undefined;
+    return;
+  }
+  activeLiveTurnRecoveryLoop?.stop();
+  activeLiveTurnRecoveryLoop = undefined;
+}
+export function stopMessagePollingLoop(): void {
+  activeMessagePollingLoop?.stop();
+  activeMessagePollingLoop = undefined;
+}
+export function beginDrainingLiveTurnAdmission(): void {
+  activeLiveTurnAuthority?.beginDraining();
+}
+export async function shutdownLiveTurnAuthority(): Promise<void> {
+  const authority = activeLiveTurnAuthority;
+  activeLiveTurnAuthority = undefined;
+  await authority?.shutdown();
+}
 export async function startRuntimeServices(
   options: RuntimeServicesOptions,
   deps: Partial<RuntimeServicesDefaults> &
     Pick<Deps, 'opsRepository' | 'getToolRepository'> &
-    Partial<Pick<Deps, 'getPermissionRepository'>>,
+    Partial<
+      Pick<
+        Deps,
+        | 'getPermissionRepository'
+        | 'getWorkerCoordinationRepository'
+        | 'getLiveTurnRepository'
+      >
+    >,
 ): Promise<void> {
   const { app, channelWiring } = options;
+  const liveTurnsEnabled = options.liveTurnsEnabled ?? true;
+  const liveExecution = options.liveExecution ?? true;
+  const jobExecution = options.jobExecution ?? true;
+  const processRole = options.processRole;
   const resolved: Deps = {
     ...makeDefaultDeps(),
     ...deps,
     runnerSandboxProvider: app.runnerSandboxProvider,
   };
-
+  const workerCoordination = resolved.getWorkerCoordinationRepository?.();
+  const liveTurns = resolved.getLiveTurnRepository?.();
+  const liveTurnLeaseDeps =
+    liveTurnsEnabled && liveExecution && workerCoordination && liveTurns
+      ? {
+          liveTurns,
+          coordination: workerCoordination,
+          workerInstanceId: await registerWorkerInstance(workerCoordination, {
+            warn: (context, message) => resolved.logger.warn(context, message),
+            processRole,
+          }),
+        }
+      : undefined;
+  const liveTurnAuthority = liveTurnLeaseDeps
+    ? new LiveTurnAuthority({
+        leaseDeps: liveTurnLeaseDeps,
+        slotCapacity: () => app.queue.getPolicy().maxMessageRuns,
+        warn: (context, message) => resolved.logger.warn(context, message),
+      })
+    : undefined;
+  activeLiveTurnAuthority = liveTurnAuthority;
+  if (liveTurnsEnabled && !liveTurnAuthority) {
+    resolved.logger.warn(
+      'Live-turn admission is enabled, but durable live-turn repositories are unavailable; falling back to local queue admission',
+    );
+  }
+  // Capability-matched live-turn recovery gate. Mirrors the job dispatch gate
+  // (capability-dispatch.ts): this worker's advertised set — image inventory +
+  // activated artifacts, kept current by the reconciler in
+  // worker_instances.capabilities_json — must cover the turn's required set.
+  // Workstation mode resolves an empty required set, so the gate is a natural
+  // no-op there (always eligible, never alerts).
+  const starvationAlerter = resolved.publishRuntimeEvent
+    ? new CapabilityStarvationAlerter({
+        publishRuntimeEvent: resolved.publishRuntimeEvent,
+        warn: (context, message) => resolved.logger.warn(context, message),
+      })
+    : undefined;
+  const requiredCapabilitiesForLiveTurn = async (
+    turn: LiveTurn,
+  ): Promise<string[]> => {
+    const folder = app.getConversationRoutes()[turn.conversationId]?.folder;
+    if (!folder) return [];
+    return resolveRequiredCapabilities(
+      {
+        deploymentMode: 'fleet',
+        skills: resolved.getSkillRepository?.(),
+        runtimeDependencies: resolved.getRuntimeDependencyRepository?.(),
+      },
+      { appId: turn.appId, agentId: agentIdForFolder(folder) },
+    );
+  };
+  const isEligibleToRecoverLiveTurn = async (
+    turn: LiveTurn,
+  ): Promise<boolean> => {
+    if (resolved.getDeploymentMode() !== 'fleet') return true;
+    if (!workerCoordination || !liveTurnLeaseDeps) return true;
+    const required = await requiredCapabilitiesForLiveTurn(turn);
+    if (required.length === 0) return true;
+    const worker = await workerCoordination.getWorker(
+      liveTurnLeaseDeps.workerInstanceId,
+    );
+    // Fail open when this worker's own advertised set is unreadable, matching
+    // the job dispatch gate's skip_check choice (the turn stays lease-protected).
+    if (!worker) return true;
+    return isWorkerEligibleForRequiredCapabilities(
+      required,
+      worker.capabilities,
+    );
+  };
+  // Fires when THIS worker is ineligible for a recoverable turn; alerts only
+  // after confirming NO active worker advertises the required set
+  // ("recoverable but no eligible recoverer"), with the alerter's dedupe.
+  const alertNoEligibleLiveTurnRecoverer = async (
+    turn: LiveTurn,
+  ): Promise<void> => {
+    if (!workerCoordination || !starvationAlerter) return;
+    const required = await requiredCapabilitiesForLiveTurn(turn);
+    if (required.length === 0) return;
+    const staleBefore = new Date(
+      currentTimeMs() - WORKER_STALE_AFTER_MS,
+    ).toISOString();
+    const activeCapabilities =
+      await workerCoordination.listActiveWorkerCapabilities({ staleBefore });
+    const missing = fleetMissingRequiredCapabilities(
+      required,
+      activeCapabilities,
+    );
+    // Another active worker is eligible; it recovers the turn on its sweep.
+    if (missing.length === 0) return;
+    await starvationAlerter.alert({
+      cause: 'no_eligible_recoverer',
+      appId: turn.appId,
+      key: turn.id,
+      runId: turn.runId,
+      requiredCapabilities: required,
+      missingCapabilities: missing,
+      ageSeconds: Math.max(
+        0,
+        Math.floor((currentTimeMs() - Date.parse(turn.updatedAt)) / 1000),
+      ),
+    });
+  };
   const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);
   const startScheduler = () =>
     resolved.startSchedulerLoop({
+      processRole,
       conversationRoutes: () => app.getConversationRoutes(),
       queue: app.queue,
       onProcess: (groupJid, proc, runHandle, workspaceFolder, stopAliasJids) =>
@@ -195,6 +405,7 @@ export async function startRuntimeServices(
       sendMessage: (jid, rawText, options) =>
         channelWiring.sendMessage(jid, rawText, {
           durability: 'required',
+          throwOnMissing: true,
           ...(options?.threadId
             ? { messageOptions: { threadId: options.threadId } }
             : {}),
@@ -225,7 +436,33 @@ export async function startRuntimeServices(
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });
-
+  const rejectNonLiveInteraction = (kind: 'permission' | 'question'): never => {
+    resolved.logger.warn(
+      { kind },
+      'Rejecting interaction IPC on a worker without live-turn callbacks',
+    );
+    throw new Error(
+      'This worker cannot receive provider interaction callbacks. Retry on a live-turn worker.',
+    );
+  };
+  const mirrorAgentToolRulesToSettings = createAgentToolRuleSettingsMirror({
+    opsRepository: resolved.opsRepository,
+    repositories: resolved.settingsRepositories,
+    reloadRuntimeState: () => app.loadState(),
+  });
+  configurePendingInteractionPermissionPersistence({
+    opsRepository: resolved.opsRepository,
+    getToolRepository: resolved.getToolRepository,
+    getPermissionRepository: resolved.getPermissionRepository,
+    mirrorAgentToolRulesToSettings,
+    onSchedulerChanged,
+    getSkillRepository: resolved.getSkillRepository,
+    getMcpServerRepository: resolved.getMcpServerRepository,
+    getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
+    getCredentialBroker: app.getCredentialBroker,
+    getBrowserStatus,
+    publishRuntimeEvent: resolved.publishRuntimeEvent,
+  });
   resolved.startIpcWatcher({
     sendMessage: (jid, text, options) =>
       channelWiring.sendMessage(jid, text, {
@@ -249,11 +486,7 @@ export async function startRuntimeServices(
     runApprovedCommand: resolved.runApprovedCommand,
     getPermissionRepository: resolved.getPermissionRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
-    mirrorAgentToolRulesToSettings: createAgentToolRuleSettingsMirror({
-      opsRepository: resolved.opsRepository,
-      repositories: resolved.settingsRepositories,
-      reloadRuntimeState: () => app.loadState(),
-    }),
+    mirrorAgentToolRulesToSettings,
     reloadRuntimeState: () => app.loadState(),
     getCredentialBroker: app.getCredentialBroker,
     getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
@@ -262,14 +495,114 @@ export async function startRuntimeServices(
     getBrowserStatus,
     closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
-    requestPermissionApproval: channelWiring.requestPermissionApproval,
-    requestUserAnswer: channelWiring.requestUserAnswer,
+    requestPermissionApproval: (request) =>
+      liveTurnsEnabled && liveExecution
+        ? channelWiring.requestPermissionApproval(request)
+        : Promise.reject(rejectNonLiveInteraction('permission')),
+    requestUserAnswer: (request) =>
+      liveTurnsEnabled && liveExecution
+        ? channelWiring.requestUserAnswer(request)
+        : Promise.reject(rejectNonLiveInteraction('question')),
     mcpHostnameLookup: resolved.mcpHostnameLookup,
   });
   syncGroupSnapshots();
-  app.queue.setProcessMessagesFn((chatJid) =>
-    app.processGroupMessages(chatJid, { queued: true }),
+  app.queue.setLiveTurnRunnerRegistrar(
+    liveTurnAuthority
+      ? (queueJid, hooks, routing) =>
+          liveTurnAuthority.registerLocalRunner(queueJid, hooks, routing)
+      : null,
   );
+  app.queue.setProcessMessagesFn(
+    buildLiveAdmissionProcessor({
+      liveTurnAuthority,
+      app,
+      opsRepository: resolved.opsRepository,
+      executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+      maxMessagesPerPrompt: MAX_MESSAGES_PER_PROMPT,
+      timezone: TIMEZONE,
+      warn: (context, message) => resolved.logger.warn(context, message),
+      finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
+        getConversationRoutes: () => app.getConversationRoutes(),
+        closeBrowserSession: closeBrowser,
+        closeBrowserToolBackends: resolved.closeBrowserToolBackends,
+        warn: (context, message) => resolved.logger.warn(context, message),
+      }),
+    }),
+  );
+  const liveMessageQueue = {
+    sendMessage: async (
+      queueJid: string,
+      text: string,
+      options?: {
+        threadId?: string | null;
+        senderUserIds?: readonly string[] | null;
+        idempotencyKey?: string;
+        cursorAfter?: string;
+      },
+    ): Promise<boolean> => {
+      if (!liveTurnAuthority)
+        return app.queue.sendMessage(queueJid, text, options);
+      const scope = await liveTurnScopeForQueue({
+        app,
+        opsRepository: resolved.opsRepository,
+        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        queueJid,
+      });
+      if (!scope) return false;
+      return (
+        (await liveTurnAuthority.routeMessage({
+          scope,
+          queueJid,
+          text,
+          idempotencyKey:
+            options?.idempotencyKey ?? `continuation:${randomUUID()}`,
+          senderUserIds: options?.senderUserIds,
+          cursorAfter: options?.cursorAfter,
+        })) === 'queued_to_owner'
+      );
+    },
+    enqueueMessageCheck: (queueJid: string): void => {
+      app.queue.enqueueMessageCheck(queueJid);
+    },
+    closeStdin: async (queueJid: string): Promise<void> => {
+      if (!liveTurnAuthority) {
+        app.queue.closeStdin(queueJid);
+        return;
+      }
+      const scope = await liveTurnScopeForQueue({
+        app,
+        opsRepository: resolved.opsRepository,
+        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        queueJid,
+      });
+      const routed =
+        scope &&
+        (await liveTurnAuthority.routeCloseStdin({
+          scope,
+          queueJid,
+          idempotencyKey: `close:${randomUUID()}`,
+        }));
+      if (!routed) app.queue.closeStdin(queueJid);
+    },
+    stopGroup: async (queueJid: string): Promise<boolean> => {
+      if (app.queue.stopGroup(queueJid)) return true;
+      if (!liveTurnAuthority) return false;
+      const scope = await liveTurnScopeForQueue({
+        app,
+        opsRepository: resolved.opsRepository,
+        executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+        queueJid,
+      });
+      const routed = await liveTurnAuthority.routeStop({
+        ...(scope ? { scope } : {}),
+        aliasJid: queueJid,
+        queueJid,
+        idempotencyKey: `stop:${randomUUID()}`,
+        requestedBy: 'runtime-control',
+      });
+      return routed;
+    },
+  };
   const handleActiveControlCommand = async ({
     chatJid,
     queueJid,
@@ -290,18 +623,22 @@ export async function startRuntimeServices(
     ) {
       return false;
     }
-    if (!app.queue.isGroupActive(queueJid)) {
+    if (
+      command.kind !== 'compact' &&
+      !app.queue.isGroupActive(queueJid) &&
+      !liveTurnAuthority?.ownsQueue(queueJid)
+    ) {
       return false;
     }
     const threadId =
       typeof message.thread_id === 'string' && message.thread_id.trim()
         ? message.thread_id.trim()
         : undefined;
-
     if (command.kind === 'compact') {
-      const sent = app.queue.sendMessage(queueJid, '/compact', {
+      const sent = await liveMessageQueue.sendMessage(queueJid, '/compact', {
         threadId,
         senderUserIds: message.sender ? [message.sender] : [],
+        idempotencyKey: `compact:${message.id}`,
       });
       if (!sent) return false;
       app.setAgentCursor(
@@ -315,7 +652,6 @@ export async function startRuntimeServices(
       });
       return true;
     }
-
     if (command.kind === 'new') {
       return handleActiveNewSessionCommand({
         app,
@@ -331,18 +667,15 @@ export async function startRuntimeServices(
         message,
       });
     }
-
-    const stopped = app.queue.stopGroup(queueJid);
+    const stopped = await liveMessageQueue.stopGroup(queueJid);
     if (!stopped) {
       return false;
     }
-
     app.setAgentCursor(
       makeThreadQueueKey(chatJid, threadId),
       encodeGroupMessageCursor(toGroupMessageCursor(message)),
     );
     await app.saveState();
-
     await channelWiring.sendMessage(
       chatJid,
       command.kind === 'stop'
@@ -356,32 +689,6 @@ export async function startRuntimeServices(
 
     return true;
   };
-
-  void Promise.resolve(
-    resolved.recoverPendingMessages({
-      getConversationRoutes: () => app.getConversationRoutes(),
-      getLastTimestamp: () => app.getLastTimestamp(),
-      setLastTimestamp: (timestamp) => {
-        app.setLastTimestamp(timestamp);
-      },
-      getOrRecoverCursor: app.getOrRecoverCursor,
-      setAgentCursor: (chatJid, timestamp) => {
-        app.setAgentCursor(chatJid, timestamp);
-      },
-      saveState: app.saveState,
-      hasChannel: (chatJid) => channelWiring.hasChannel(chatJid),
-      setTyping: (chatJid, isTyping) =>
-        channelWiring.setTyping(chatJid, isTyping),
-      sendProgressUpdate: (chatJid, text, options) =>
-        channelWiring.sendProgressUpdate(chatJid, text, options),
-      queue: app.queue,
-      handleActiveControlCommand,
-      opsRepository: resolved.opsRepository,
-    }),
-  ).catch((err) =>
-    resolved.logger.warn({ err }, 'Pending message recovery failed'),
-  );
-
   const outboundDeliveryRepository = resolved.getOutboundDeliveryRepository?.();
   if (outboundDeliveryRepository) {
     const liveSendProfile: OutboundDeliveryProfile = {
@@ -670,31 +977,86 @@ export async function startRuntimeServices(
       warn: (meta, message) => resolved.logger.warn(meta, message),
     });
   }
-  await startScheduler();
+  if (jobExecution) await startScheduler();
+  else {
+    markRoleHasNoJobExecution();
+    resolved.logger.info(
+      { processRole },
+      'Process role has no job execution; scheduler loop not started',
+    );
+  }
   resolved.logger.info(`Gantry running (default trigger: ${DEFAULT_TRIGGER})`);
-  resolved
-    .startMessagePollingLoop({
-      getConversationRoutes: () => app.getConversationRoutes(),
-      getLastTimestamp: () => app.getLastTimestamp(),
-      setLastTimestamp: (timestamp) => {
-        app.setLastTimestamp(timestamp);
-      },
-      getOrRecoverCursor: app.getOrRecoverCursor,
-      setAgentCursor: (chatJid, timestamp) => {
-        app.setAgentCursor(chatJid, timestamp);
-      },
-      saveState: app.saveState,
-      hasChannel: (chatJid) => channelWiring.hasChannel(chatJid),
-      setTyping: (chatJid, isTyping) =>
-        channelWiring.setTyping(chatJid, isTyping),
-      sendProgressUpdate: (chatJid, text, options) =>
-        channelWiring.sendProgressUpdate(chatJid, text, options),
-      queue: app.queue,
-      handleActiveControlCommand,
-      opsRepository: resolved.opsRepository,
-    })
-    .catch((err) => {
+  if (!liveTurnsEnabled || !liveExecution) {
+    resolved.logger.info(
+      'Live-turn execution disabled for this role; skipping live execution services (message polling, admission, recovery coordinator)',
+    );
+    return;
+  }
+
+  // WP2 live execution services: the message polling loop runs on EVERY live
+  // worker (distributed admission); only the recovery coordinator (startup
+  // pending-message recovery + recovery sweep) is lease-elected.
+  const messageLoopDeps: MessageLoopDeps = {
+    getConversationRoutes: () => app.getConversationRoutes(),
+    getLastTimestamp: () => app.getLastTimestamp(),
+    setLastTimestamp: (timestamp) => app.setLastTimestamp(timestamp),
+    getOrRecoverCursor: app.getOrRecoverCursor,
+    setAgentCursor: (chatJid, timestamp) =>
+      app.setAgentCursor(chatJid, timestamp),
+    saveState: app.saveState,
+    hasChannel: (chatJid) => channelWiring.hasChannel(chatJid),
+    setTyping: (chatJid, isTyping) =>
+      channelWiring.setTyping(chatJid, isTyping),
+    sendProgressUpdate: (chatJid, text, options) =>
+      channelWiring.sendProgressUpdate(chatJid, text, options),
+    queue: liveMessageQueue,
+    handleActiveControlCommand,
+    opsRepository: resolved.opsRepository,
+  };
+  activeLiveExecutionServices = startLiveExecutionServices({
+    app,
+    liveTurnAuthority,
+    liveTurnLeaseDeps,
+    messageLoopDeps,
+    recoveryCoordinator: options.recoveryCoordinator,
+    isEligibleToRecoverLiveTurn,
+    alertNoEligibleLiveTurnRecoverer: starvationAlerter
+      ? alertNoEligibleLiveTurnRecoverer
+      : undefined,
+    recoverPendingMessages: resolved.recoverPendingMessages,
+    startMessagePollingLoop: resolved.startMessagePollingLoop,
+    registerActivePollingLoop: (loop) => {
+      activeMessagePollingLoop = loop;
+    },
+    registerActiveRecoveryLoop: (loop) => {
+      activeLiveTurnRecoveryLoop = loop;
+    },
+    // Waiting-status monitor (coordinator singleton): detects live messages
+    // queued behind a saturated fleet and sends the visible status once per
+    // episode via the transient progress-update path. Only wired when a durable
+    // live-turn repository is available to query.
+    waitingStatus: liveTurns
+      ? {
+          start: () =>
+            startWaitingStatusMonitor({
+              liveTurns,
+              getConversationJids: () =>
+                Object.keys(app.getConversationRoutes()),
+              sendStatus: (conversationJid, text) =>
+                channelWiring.sendProgressUpdate(conversationJid, text),
+              warn: (context, message) =>
+                resolved.logger.warn(context, message),
+            }),
+          register: (monitor) => {
+            activeWaitingStatusMonitor = monitor;
+          },
+        }
+      : undefined,
+    onPollingCrash: (err) => {
       resolved.logger.fatal({ err }, 'Message loop crashed unexpectedly');
       resolved.exit(1);
-    });
+    },
+    info: (obj, msg) => resolved.logger.info(obj as never, msg as never),
+    warn: (context, message) => resolved.logger.warn(context, message),
+  });
 }

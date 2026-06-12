@@ -33,6 +33,10 @@ import {
   isSkillCapabilityPath,
   protectedCapabilityPathMatch,
 } from './tool-execution-protected-paths.js';
+import {
+  containsGeneratedRuntimePath,
+  isGeneratedRuntimeToolResultPath,
+} from './generated-runtime-paths.js';
 
 export type ToolExecutionOrigin =
   | 'sdk'
@@ -143,6 +147,32 @@ export class ToolExecutionClassifier {
   }
 }
 
+export interface AgentToolExecutionContext {
+  isScheduledJob?: boolean;
+  jobId?: string;
+  threadId?: string;
+  conversationId: string;
+}
+
+export function buildAgentToolExecutionRequest(
+  classifier: ToolExecutionClassifier,
+  toolName: string,
+  toolInput: unknown,
+  context: AgentToolExecutionContext,
+): ToolExecutionRequest {
+  return classifier.classify({
+    origin: 'sdk',
+    toolName,
+    toolInput,
+    executionMode: context.isScheduledJob ? 'autonomous' : 'interactive',
+    runContext: {
+      jobId: context.isScheduledJob ? context.jobId : undefined,
+      threadId: context.threadId,
+      conversationId: context.conversationId,
+    },
+  });
+}
+
 export class ToolExecutionPolicyService {
   evaluate(input: {
     request: ToolExecutionRequest;
@@ -153,6 +183,11 @@ export class ToolExecutionPolicyService {
     if (protectedDecision) return protectedDecision;
 
     if (input.request.executionMode === 'autonomous') {
+      const runtimeToolResultRead = evaluateGeneratedRuntimeToolResultRead(
+        input.request,
+      );
+      if (runtimeToolResultRead) return runtimeToolResultRead;
+
       const rules =
         input.autonomousAllowedToolRules ?? input.allowedToolRules ?? [];
       const toolPolicy = evaluateAutonomousToolUse({
@@ -294,6 +329,89 @@ function evaluateProtectedCapabilityRequest(
     });
   }
   return null;
+}
+
+function evaluateGeneratedRuntimeToolResultRead(
+  request: ToolExecutionRequest,
+): ToolPolicyDecision | null {
+  if (request.toolName !== 'Bash') return null;
+  const command = commandText(request.input);
+  if (!command) return null;
+  const parsed = parseBashCommand(
+    normalizeRuntimeOwnedBashCommandForMatching(command),
+  );
+  if (!parsed.ok) return null;
+  if (parsed.leaves.length === 0) return null;
+  if (!parsed.leaves.every(isSafeGeneratedRuntimeToolResultRead)) return null;
+  return decision(request, 'allow', {
+    reason:
+      'Allowed read-only inspection of Gantry-generated runtime tool result files.',
+    matchedRule: 'runtime:generated-tool-results:read',
+  });
+}
+
+function isSafeGeneratedRuntimeToolResultRead(leaf: {
+  argv: readonly string[];
+  redirects: readonly { destructive: boolean }[];
+}): boolean {
+  if (leaf.redirects.some((redirect) => redirect.destructive)) return false;
+  const executable = bashExecutableName(leaf.argv[0] ?? '');
+  const fileArgs = generatedRuntimeToolResultReadFileArgs(
+    executable,
+    leaf.argv,
+  );
+  return (
+    fileArgs.length > 0 && fileArgs.every(isGeneratedRuntimeToolResultPath)
+  );
+}
+
+function generatedRuntimeToolResultReadFileArgs(
+  executable: string,
+  argv: readonly string[],
+): string[] {
+  if (executable === 'cat') return readCommandArgsAfterOptions(argv.slice(1));
+  if (executable === 'head' || executable === 'tail') {
+    return headTailFileArgs(argv.slice(1));
+  }
+  return [];
+}
+
+function headTailFileArgs(args: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? '';
+    if (!arg) continue;
+    if (/^-\d+$/.test(arg)) continue;
+    if (
+      arg === '-n' ||
+      arg === '--lines' ||
+      arg === '-c' ||
+      arg === '--bytes'
+    ) {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('-n') || arg.startsWith('-c')) continue;
+    if (arg.startsWith('--lines=') || arg.startsWith('--bytes=')) continue;
+    if (arg.startsWith('-')) return [];
+    out.push(arg);
+  }
+  return out;
+}
+
+function readCommandArgsAfterOptions(args: readonly string[]): string[] {
+  const out: string[] = [];
+  let afterOptionTerminator = false;
+  for (const arg of args) {
+    if (!arg) continue;
+    if (!afterOptionTerminator && arg === '--') {
+      afterOptionTerminator = true;
+      continue;
+    }
+    if (!afterOptionTerminator && arg.startsWith('-')) continue;
+    out.push(arg);
+  }
+  return out;
 }
 
 function protectedFilePathKind(protectedPath: string): string | undefined {
@@ -459,9 +577,9 @@ function escapeJson(value: string): string {
 }
 
 function persistentBashRecoveryRule(command: string): string | undefined {
-  const parsed = parseBashCommand(
-    normalizeRuntimeOwnedBashCommandForMatching(command),
-  );
+  const normalized = normalizeRuntimeOwnedBashCommandForMatching(command);
+  if (containsGeneratedRuntimePath(normalized)) return undefined;
+  const parsed = parseBashCommand(normalized);
   if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
   const [leaf] = parsed.leaves;
   if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;

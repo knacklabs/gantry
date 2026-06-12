@@ -1,0 +1,100 @@
+# syntax=docker/dockerfile:1.7
+
+# Gantry runtime image — multi-stage build.
+#
+# Node 24 LTS ("Krypton") is the only supported runtime line for this repo
+# (package.json engines: ">=24 <26"; docs/architecture/current-verification-commands.md).
+# The base is pinned by manifest-list digest for reproducibility across a rolling
+# deploy. Refresh the digest deliberately (see docs/deployment/aws-terraform.md).
+#
+#   node:24-bookworm-slim @ 2026-06 (Node 24.16.0 "Krypton" LTS)
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
+
+# ---------------------------------------------------------------------------
+# Stage 1: deps — install ALL dependencies (incl. dev) for the build.
+# Workspace package manifests are copied before the lockfile install so Docker
+# can cache the npm layer when only source changes.
+# ---------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS deps
+WORKDIR /app
+
+# Copy only manifests + lockfile first for cacheable `npm ci`.
+COPY package.json package-lock.json ./
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/sdk/package.json packages/sdk/package.json
+
+# Full install (dev deps included) — needed for tsc + workspace builds.
+# `--ignore-scripts` keeps install hermetic; the prepare hook (husky) is a no-op
+# in CI/containers and we never want lifecycle scripts running unreviewed.
+RUN npm ci --ignore-scripts
+
+# ---------------------------------------------------------------------------
+# Stage 2: build — compile contracts, SDK, core, and copy migrations into dist.
+# `npm run build` runs: clean → build:contracts → build:sdk → tsc →
+# copy:migrations → chmod cli. Migrations land in dist/.../migrations so the
+# runtime image can migrate without the source tree.
+# ---------------------------------------------------------------------------
+FROM deps AS build
+WORKDIR /app
+
+COPY tsconfig.json ./
+COPY packages ./packages
+COPY apps ./apps
+
+RUN npm run build
+
+# Prune to production dependencies for the runtime stage. The workspace
+# file: links (@gantry/contracts, @gantry/sdk) resolve to packages/*/dist,
+# which the build produced above.
+RUN npm prune --omit=dev --ignore-scripts
+
+# ---------------------------------------------------------------------------
+# Stage 3: runtime — minimal, non-root, production-only.
+# Contains: production node_modules, dist/ (incl. migration SQL), the built
+# contracts/sdk workspace dist, the ops migrate runner, and the entrypoint.
+# ---------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS runtime
+
+ENV NODE_ENV=production \
+    GANTRY_HOME=/var/lib/gantry
+
+# Skill-script interpreters. Skills are distributed as data artifacts in any
+# language; the image carries the interpreters their scripts need at runtime.
+# python3 covers the common non-Node skill payload. Deliberately NOT included:
+# pip usage at runtime (fleet workers never run a package manager — Python
+# package installs belong to a future bake lane, see TODOS.md) and the Go
+# toolchain (Go-built tools ship as binaries: add the binary here per tool).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv bubblewrap \
+    && rm -rf /var/lib/apt/lists/*
+# bubblewrap backs runtime.sandbox.provider=sandbox_runtime (the whole-runner
+# OS sandbox on Linux). Creating its namespaces inside Docker additionally
+# requires a user-namespace-capable seccomp profile on `docker run`; fleet
+# rehearsal and Terraform launch configs pass that container runtime option.
+
+# Non-root runtime user. The base image already ships a `node` user (uid 1000);
+# create a dedicated home and a writable runtime-state dir owned by it.
+RUN install -d -o node -g node "${GANTRY_HOME}"
+
+WORKDIR /app
+
+# Production dependency closure + built artifacts.
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/packages/contracts/dist ./packages/contracts/dist
+COPY --from=build /app/packages/contracts/package.json ./packages/contracts/package.json
+COPY --from=build /app/packages/sdk/dist ./packages/sdk/dist
+COPY --from=build /app/packages/sdk/package.json ./packages/sdk/package.json
+
+# Ops scripts: race-safe migration runner + entrypoint.
+COPY ops/docker/migrate.mjs ./ops/docker/migrate.mjs
+COPY ops/docker/entrypoint.sh /usr/local/bin/gantry-entrypoint
+RUN chmod +x /usr/local/bin/gantry-entrypoint
+
+USER node
+
+# Control port (liveness /healthz, readiness /readyz, internal /metrics) is
+# set by the deployment via GANTRY_CONTROL_PORT; documented, not hardcoded.
+ENTRYPOINT ["/usr/local/bin/gantry-entrypoint"]
+CMD ["node", "dist/index.js"]

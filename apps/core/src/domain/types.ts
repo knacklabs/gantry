@@ -228,6 +228,13 @@ export interface Job {
   access_requirements?: JobAccessRequirement[];
   setup_state?: JobSetupState;
   recovery_intent?: JobRecoveryIntent | null;
+  /**
+   * Fleet-distributed capability ids the executing worker must advertise to run
+   * this job (`skill:<id>`, `toolchain:<manifestHash>`). Resolved at dispatch in
+   * fleet mode and stored durably for observability; always empty in workstation
+   * mode. Empty/absent ⇒ runnable on any worker.
+   */
+  required_capabilities?: string[];
 }
 
 export type JobRunStatus =
@@ -277,6 +284,8 @@ export interface PermissionApprovalRequest {
   jobId?: string;
   jobName?: string;
   runId?: string;
+  runLeaseToken?: string;
+  runLeaseFencingVersion?: number;
   targetJid?: string;
   approvalContextJid?: string;
   threadId?: string;
@@ -359,6 +368,12 @@ export interface UserQuestionItem {
 export interface UserQuestionRequest {
   requestId: string;
   sourceAgentFolder: string;
+  appId?: string;
+  agentId?: string;
+  jobId?: string;
+  runId?: string;
+  runLeaseToken?: string;
+  runLeaseFencingVersion?: number;
   targetJid?: string;
   threadId?: string;
   responseKeyId?: string;
@@ -530,7 +545,10 @@ export type OnChatMetadata = (
 
 export interface ChannelLifecyclePort {
   name: string;
-  connect(): Promise<void>;
+  connect(options?: {
+    inbound?: boolean;
+    interactionCallbacks?: boolean;
+  }): Promise<void>;
   isConnected(): boolean;
   disconnect(): Promise<void>;
 }

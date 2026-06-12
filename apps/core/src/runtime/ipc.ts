@@ -1,8 +1,6 @@
-import fs from 'fs';
 import path from 'path';
 
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
-import { ensurePrivateDirSync } from '../shared/private-fs.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { logger } from '../infrastructure/logging/logger.js';
 // prettier-ignore
@@ -15,21 +13,21 @@ import { writeTaskIpcResponse } from '../jobs/ipc-shared.js';
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
 // prettier-ignore
-import { acquireIpcRootLock, archiveIpcErrorFile, claimIpcFile, ensureWorkspaceIpcLayout, hasCompleteTrustedWorkspaceIpcLayout, isPendingIpcJsonFile, isTrustedDirectory, readIpcRootLockDetails, recoverStaleIpcRootLock } from './ipc-filesystem.js';
-// prettier-ignore
 import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import { clearConsumedIpcRequestIds } from './ipc-auth-validation.js';
 import { processBrowserRequestDirectory } from './ipc-browser-requests.js';
 import { canProcessIpcFile, clearIpcRateLimitState } from './ipc-rate-limit.js';
 import type { ConversationRoute as RuntimeGroupRecord } from '../domain/types.js';
+import { FilesystemRunnerControlPort } from './filesystem-runner-control-port.js';
+import type { RunnerControlPort } from './runner-control-port.js';
 export type { IpcDeps } from './ipc-domain-types.js';
-export { isPendingIpcJsonFile } from './ipc-filesystem.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
 let ipcWatcherRunning = false;
 let ipcWatcherTimer: ReturnType<typeof setTimeout> | undefined;
 let ipcRootLockPath: string | undefined;
+let activeRunnerControlPort: FilesystemRunnerControlPort | undefined;
 const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const inFlightInteractionIpc = new Set<string>();
 
@@ -43,6 +41,7 @@ async function processLongRunningTaskIpc(input: {
   ipcBaseDir: string;
   file: string;
   claimedPath: string;
+  runnerControlPort: RunnerControlPort;
 }): Promise<void> {
   try {
     await processTaskIpc(
@@ -51,7 +50,7 @@ async function processLongRunningTaskIpc(input: {
       input.deps,
       input.ipcBaseDir,
     );
-    fs.unlinkSync(input.claimedPath);
+    input.runnerControlPort.removeClaimedRequest(input.claimedPath);
   } catch (err) {
     writeTaskIpcResponse(
       input.sourceAgentFolder,
@@ -67,12 +66,8 @@ async function processLongRunningTaskIpc(input: {
       { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
       'Error processing long-running IPC task',
     );
-    archiveIpcErrorFile(
-      input.ipcBaseDir,
-      input.sourceAgentFolder,
-      input.file,
-      input.claimedPath,
-    );
+    // prettier-ignore
+    input.runnerControlPort.archiveFailedRequest(input.sourceAgentFolder, input.file, input.claimedPath);
   }
 }
 
@@ -109,24 +104,52 @@ export async function validatePermissionIpcJobExecutionTarget(input: {
   sourceAgentFolder: string;
   deps: IpcDeps;
 }): Promise<void> {
-  const { request, sourceAgentFolder, deps } = input;
+  await validateScheduledInteractionIpcJobExecutionTarget({
+    ...input,
+    kind: 'permission',
+  });
+}
+
+export async function validateUserQuestionIpcJobExecutionTarget(input: {
+  request: ReturnType<typeof parseUserQuestionIpcRequest>;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+}): Promise<void> {
+  await validateScheduledInteractionIpcJobExecutionTarget({
+    ...input,
+    kind: 'user question',
+  });
+}
+
+async function validateScheduledInteractionIpcJobExecutionTarget(input: {
+  request: {
+    jobId?: string;
+    runId?: string;
+    targetJid?: string;
+    threadId?: string;
+  };
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+  kind: 'permission' | 'user question';
+}): Promise<void> {
+  const { request, sourceAgentFolder, deps, kind } = input;
   if (!request.jobId) return;
 
   if (!request.targetJid) {
-    throw new Error('Scheduled job permission IPC requires targetJid');
+    throw new Error(`Scheduled job ${kind} IPC requires targetJid`);
   }
   if (!request.runId) {
-    throw new Error('Scheduled job permission IPC requires runId');
+    throw new Error(`Scheduled job ${kind} IPC requires runId`);
   }
 
   const job = await deps.opsRepository.getJobById(request.jobId);
   if (!job) {
-    throw new Error('Scheduled job permission IPC references unknown job');
+    throw new Error(`Scheduled job ${kind} IPC references unknown job`);
   }
   const execution = job.execution_context;
   if (!execution?.conversationJid) {
     throw new Error(
-      'Scheduled job permission IPC requires canonical execution_context',
+      `Scheduled job ${kind} IPC requires canonical execution_context`,
     );
   }
   const executionWorkspaceKey =
@@ -134,12 +157,12 @@ export async function validatePermissionIpcJobExecutionTarget(input: {
     normalizeNullableString(job.workspace_key);
   if (executionWorkspaceKey && executionWorkspaceKey !== sourceAgentFolder) {
     throw new Error(
-      'Scheduled job permission IPC source does not match job execution context',
+      `Scheduled job ${kind} IPC source does not match job execution context`,
     );
   }
   if (execution.conversationJid !== request.targetJid) {
     throw new Error(
-      'Scheduled job permission IPC target does not match job execution context',
+      `Scheduled job ${kind} IPC target does not match job execution context`,
     );
   }
   if (
@@ -147,35 +170,26 @@ export async function validatePermissionIpcJobExecutionTarget(input: {
     normalizeNullableString(request.threadId)
   ) {
     throw new Error(
-      'Scheduled job permission IPC thread does not match job execution context',
+      `Scheduled job ${kind} IPC thread does not match job execution context`,
     );
   }
 
   const run = await deps.opsRepository.getJobRunById(request.runId);
   if (!run || run.job_id !== request.jobId) {
-    throw new Error('Scheduled job permission IPC run does not match job');
+    throw new Error(`Scheduled job ${kind} IPC run does not match job`);
   }
-}
-
-export function isTrustedRegisteredIpcFolder(
-  ipcBaseDir: string,
-  folder: string,
-): boolean {
-  const groupDir = path.join(ipcBaseDir, folder);
-  return !fs.existsSync(groupDir) || isTrustedDirectory(groupDir);
 }
 
 function releaseIpcRootLock(): void {
   if (!ipcRootLockPath) return;
   try {
-    fs.rmSync(ipcRootLockPath, { force: true });
+    activeRunnerControlPort?.releaseRootLock(ipcRootLockPath);
   } catch (err) {
-    logger.warn(
-      { err, lockPath: ipcRootLockPath },
-      'Failed to release IPC lock',
-    );
+    // prettier-ignore
+    logger.warn({ err, lockPath: ipcRootLockPath }, 'Failed to release IPC lock');
   } finally {
     ipcRootLockPath = undefined;
+    activeRunnerControlPort = undefined;
   }
 }
 
@@ -185,10 +199,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
     return;
   }
 
-  const ipcBaseDir = path.join(DATA_DIR, 'ipc');
-  ensurePrivateDirSync(ipcBaseDir);
+  // prettier-ignore
+  const runnerControlPort = new FilesystemRunnerControlPort(path.join(DATA_DIR, 'ipc'));
+  activeRunnerControlPort = runnerControlPort;
+  const ipcBaseDir = runnerControlPort.baseDir;
+  runnerControlPort.ensureRoot();
   try {
-    ipcRootLockPath = acquireIpcRootLock(ipcBaseDir);
+    ipcRootLockPath = runnerControlPort.acquireRootLock();
   } catch (err) {
     const lockPath = path.join(ipcBaseDir, '.lock');
     const code =
@@ -196,7 +213,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
         ? String((err as { code?: string }).code)
         : '';
     if (code === 'EEXIST') {
-      const recoveredLock = recoverStaleIpcRootLock(lockPath);
+      const recoveredLock = runnerControlPort.recoverRootLock(lockPath);
       if (!recoveredLock.recovered) {
         logger.warn(
           {
@@ -219,14 +236,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
         'Recovered stale IPC watcher lock; retrying start',
       );
       try {
-        ipcRootLockPath = acquireIpcRootLock(ipcBaseDir);
+        ipcRootLockPath = runnerControlPort.acquireRootLock();
       } catch (retryErr) {
         const retryCode =
           retryErr && typeof retryErr === 'object' && 'code' in retryErr
             ? String((retryErr as { code?: string }).code)
             : '';
         if (retryCode === 'EEXIST') {
-          const retryDetails = readIpcRootLockDetails(lockPath);
+          const retryDetails = runnerControlPort.readRootLock(lockPath);
           logger.warn(
             {
               lockPath,
@@ -259,7 +276,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
     const groupRegistry = deps.conversationRoutes();
     const ipcFolders = resolveIpcFoldersFromGroups(groupRegistry).filter(
       (folder) => {
-        if (isTrustedRegisteredIpcFolder(ipcBaseDir, folder)) return true;
+        if (runnerControlPort.isTrustedRegisteredWorkspace(folder)) return true;
         initializedLayoutFolders.delete(folder);
         logger.warn(
           { sourceAgentFolder: folder },
@@ -272,13 +289,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
     for (const folder of ipcFolders) {
       if (
         initializedLayoutFolders.has(folder) &&
-        hasCompleteTrustedWorkspaceIpcLayout(ipcBaseDir, folder)
+        runnerControlPort.hasCompleteTrustedWorkspaceLayout(folder)
       ) {
         continue;
       }
       try {
-        ensureWorkspaceIpcLayout(ipcBaseDir, folder);
-        if (hasCompleteTrustedWorkspaceIpcLayout(ipcBaseDir, folder)) {
+        runnerControlPort.ensureWorkspaceLayout(folder);
+        if (runnerControlPort.hasCompleteTrustedWorkspaceLayout(folder)) {
           initializedLayoutFolders.add(folder);
         } else {
           initializedLayoutFolders.delete(folder);
@@ -303,44 +320,50 @@ export function startIpcWatcher(deps: IpcDeps): void {
     }
 
     for (const sourceAgentFolder of ipcFolders) {
-      const messagesDir = path.join(ipcBaseDir, sourceAgentFolder, 'messages');
-      const tasksDir = path.join(ipcBaseDir, sourceAgentFolder, 'tasks');
-      const memoryRequestsDir = path.join(
-        ipcBaseDir,
+      const messagesDir = runnerControlPort.requestDir(
+        sourceAgentFolder,
+        'messages',
+      );
+      const tasksDir = runnerControlPort.requestDir(sourceAgentFolder, 'tasks');
+      const memoryRequestsDir = runnerControlPort.requestDir(
         sourceAgentFolder,
         'memory-requests',
       );
-      const browserRequestsDir = path.join(
-        ipcBaseDir,
+      const browserRequestsDir = runnerControlPort.requestDir(
         sourceAgentFolder,
         'browser-requests',
       );
-      const permissionRequestsDir = path.join(
-        ipcBaseDir,
+      const permissionRequestsDir = runnerControlPort.requestDir(
         sourceAgentFolder,
         'permission-requests',
       );
-      const userQuestionRequestsDir = path.join(
-        ipcBaseDir,
+      const userQuestionRequestsDir = runnerControlPort.requestDir(
         sourceAgentFolder,
         'user-questions',
       );
 
       // Process messages from this group's IPC directory
       try {
-        if (isTrustedDirectory(messagesDir)) {
-          const messageFiles = fs
-            .readdirSync(messagesDir)
-            .filter(isPendingIpcJsonFile);
+        if (
+          runnerControlPort.isTrustedRequestDir(sourceAgentFolder, 'messages')
+        ) {
+          const messageFiles = runnerControlPort.listPendingRequests(
+            sourceAgentFolder,
+            'messages',
+          );
           for (const file of messageFiles) {
-            const filePath = path.join(messagesDir, file);
-            let claimedPath = filePath;
+            let claimedPath = path.join(messagesDir, file);
             try {
               if (!canProcessIpcFile(sourceAgentFolder, 'messages')) {
                 throw new Error('IPC message rate limit exceeded');
               }
-              claimedPath = claimIpcFile(filePath);
-              const rawData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
+              const claimed = runnerControlPort.claimRequest(
+                sourceAgentFolder,
+                'messages',
+                file,
+              );
+              claimedPath = claimed.claimedPath;
+              const rawData = claimed.raw;
               const data = parseIpcMessage(rawData, sourceAgentFolder);
               // Authorization: verify this group can send to this chatJid
               const targetGroup = groupRegistry[data.chatJid];
@@ -362,21 +385,22 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   'Unauthorized IPC message attempt blocked',
                 );
               }
-              fs.unlinkSync(claimedPath);
+              runnerControlPort.removeClaimedRequest(claimedPath);
             } catch (err) {
               logger.error(
                 { file, sourceAgentFolder, err },
                 'Error processing IPC message',
               );
-              archiveIpcErrorFile(
-                ipcBaseDir,
+              runnerControlPort.archiveFailedRequest(
                 sourceAgentFolder,
                 file,
                 claimedPath,
               );
             }
           }
-        } else if (fs.existsSync(messagesDir)) {
+        } else if (
+          runnerControlPort.requestDirExists(sourceAgentFolder, 'messages')
+        ) {
           logger.warn(
             { sourceAgentFolder, messagesDir },
             'Ignoring untrusted IPC messages directory',
@@ -391,20 +415,25 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
       // Process tasks from this group's IPC directory
       try {
-        if (isTrustedDirectory(tasksDir)) {
-          const taskFiles = fs
-            .readdirSync(tasksDir)
-            .filter(isPendingIpcJsonFile);
+        if (runnerControlPort.isTrustedRequestDir(sourceAgentFolder, 'tasks')) {
+          const taskFiles = runnerControlPort.listPendingRequests(
+            sourceAgentFolder,
+            'tasks',
+          );
           for (const file of taskFiles) {
-            const filePath = path.join(tasksDir, file);
-            let claimedPath = filePath;
+            let claimedPath = path.join(tasksDir, file);
             let rawTaskData: unknown;
             try {
               if (!canProcessIpcFile(sourceAgentFolder, 'tasks')) {
                 throw new Error('IPC task rate limit exceeded');
               }
-              claimedPath = claimIpcFile(filePath);
-              rawTaskData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
+              const claimed = runnerControlPort.claimRequest(
+                sourceAgentFolder,
+                'tasks',
+                file,
+              );
+              claimedPath = claimed.claimedPath;
+              rawTaskData = claimed.raw;
               const data = parseTaskIpcData(rawTaskData, sourceAgentFolder);
               // Pass source group identity to processTaskIpc for authorization
               if (isLongRunningTask(data.type)) {
@@ -415,25 +444,27 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   ipcBaseDir,
                   file,
                   claimedPath,
+                  runnerControlPort,
                 });
                 continue;
               }
               await processTaskIpc(data, sourceAgentFolder, deps, ipcBaseDir);
-              fs.unlinkSync(claimedPath);
+              runnerControlPort.removeClaimedRequest(claimedPath);
             } catch (err) {
               logger.error(
                 { file, sourceAgentFolder, err },
                 'Error processing IPC task',
               );
-              archiveIpcErrorFile(
-                ipcBaseDir,
+              runnerControlPort.archiveFailedRequest(
                 sourceAgentFolder,
                 file,
                 claimedPath,
               );
             }
           }
-        } else if (fs.existsSync(tasksDir)) {
+        } else if (
+          runnerControlPort.requestDirExists(sourceAgentFolder, 'tasks')
+        ) {
           logger.warn(
             { sourceAgentFolder, tasksDir },
             'Ignoring untrusted IPC tasks directory',
@@ -448,21 +479,29 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
       // Process memory request/response IPC for this group
       try {
-        if (isTrustedDirectory(memoryRequestsDir)) {
-          const memoryFiles = fs
-            .readdirSync(memoryRequestsDir)
-            .filter(isPendingIpcJsonFile);
+        if (
+          runnerControlPort.isTrustedRequestDir(
+            sourceAgentFolder,
+            'memory-requests',
+          )
+        ) {
+          const memoryFiles = runnerControlPort.listPendingRequests(
+            sourceAgentFolder,
+            'memory-requests',
+          );
           for (const file of memoryFiles) {
-            const filePath = path.join(memoryRequestsDir, file);
-            let claimedPath = filePath;
+            let claimedPath = path.join(memoryRequestsDir, file);
             try {
               if (!canProcessIpcFile(sourceAgentFolder, 'memory')) {
                 throw new Error('Memory IPC rate limit exceeded');
               }
-              claimedPath = claimIpcFile(filePath);
-              const rawRequest = JSON.parse(
-                fs.readFileSync(claimedPath, 'utf-8'),
+              const claimed = runnerControlPort.claimRequest(
+                sourceAgentFolder,
+                'memory-requests',
+                file,
               );
+              claimedPath = claimed.claimedPath;
+              const rawRequest = claimed.raw;
               const request = parseMemoryIpcRequest(
                 rawRequest,
                 sourceAgentFolder,
@@ -491,21 +530,25 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   request.responseKeyId,
                 ),
               );
-              fs.unlinkSync(claimedPath);
+              runnerControlPort.removeClaimedRequest(claimedPath);
             } catch (err) {
               logger.error(
                 { file, sourceAgentFolder, err },
                 'Error processing memory IPC request',
               );
-              archiveIpcErrorFile(
-                ipcBaseDir,
+              runnerControlPort.archiveFailedRequest(
                 sourceAgentFolder,
                 file,
                 claimedPath,
               );
             }
           }
-        } else if (fs.existsSync(memoryRequestsDir)) {
+        } else if (
+          runnerControlPort.requestDirExists(
+            sourceAgentFolder,
+            'memory-requests',
+          )
+        ) {
           logger.warn(
             { sourceAgentFolder, memoryRequestsDir },
             'Ignoring untrusted memory IPC requests directory',
@@ -523,19 +566,25 @@ export function startIpcWatcher(deps: IpcDeps): void {
         ipcBaseDir,
         sourceAgentFolder,
         browserRequestsDir,
+        runnerControlPort,
         deps,
         logger,
       });
 
       // Process permission request/response IPC for this group
       try {
-        if (isTrustedDirectory(permissionRequestsDir)) {
-          const permissionFiles = fs
-            .readdirSync(permissionRequestsDir)
-            .filter(isPendingIpcJsonFile);
+        if (
+          runnerControlPort.isTrustedRequestDir(
+            sourceAgentFolder,
+            'permission-requests',
+          )
+        ) {
+          const permissionFiles = runnerControlPort.listPendingRequests(
+            sourceAgentFolder,
+            'permission-requests',
+          );
           for (const file of permissionFiles) {
-            const filePath = path.join(permissionRequestsDir, file);
-            let claimedPath = filePath;
+            let claimedPath = path.join(permissionRequestsDir, file);
             let requestId: string | undefined;
             let requestThreadId: string | undefined;
             let responseKeyId: string | undefined;
@@ -543,10 +592,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
               if (!canProcessIpcFile(sourceAgentFolder, 'permission')) {
                 throw new Error('Permission IPC rate limit exceeded');
               }
-              claimedPath = claimIpcFile(filePath);
-              const rawRequest = JSON.parse(
-                fs.readFileSync(claimedPath, 'utf-8'),
+              const claimed = runnerControlPort.claimRequest(
+                sourceAgentFolder,
+                'permission-requests',
+                file,
               );
+              claimedPath = claimed.claimedPath;
+              const rawRequest = claimed.raw;
               const request = parsePermissionIpcRequest(
                 rawRequest,
                 sourceAgentFolder,
@@ -569,14 +621,14 @@ export function startIpcWatcher(deps: IpcDeps): void {
               requestId = request.requestId;
               requestThreadId = request.threadId;
               responseKeyId = request.responseKeyId;
-              const responsePath = path.join(
-                ipcBaseDir,
-                sourceAgentFolder,
-                'permission-responses',
-                `${request.requestId}.json`,
-              );
-              if (fs.existsSync(responsePath)) {
-                fs.unlinkSync(claimedPath);
+              if (
+                runnerControlPort.responseExists(
+                  sourceAgentFolder,
+                  'permission-responses',
+                  request.requestId,
+                )
+              ) {
+                runnerControlPort.removeClaimedRequest(claimedPath);
                 continue;
               }
               if (
@@ -618,15 +670,19 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 { file, sourceAgentFolder, err },
                 'Error processing permission IPC request',
               );
-              archiveIpcErrorFile(
-                ipcBaseDir,
+              runnerControlPort.archiveFailedRequest(
                 sourceAgentFolder,
                 file,
                 claimedPath,
               );
             }
           }
-        } else if (fs.existsSync(permissionRequestsDir)) {
+        } else if (
+          runnerControlPort.requestDirExists(
+            sourceAgentFolder,
+            'permission-requests',
+          )
+        ) {
           logger.warn(
             { sourceAgentFolder, permissionRequestsDir },
             'Ignoring untrusted permission IPC requests directory',
@@ -641,13 +697,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
       // Process AskUserQuestion request/response IPC for this group
       try {
-        if (isTrustedDirectory(userQuestionRequestsDir)) {
-          const questionFiles = fs
-            .readdirSync(userQuestionRequestsDir)
-            .filter(isPendingIpcJsonFile);
+        if (
+          runnerControlPort.isTrustedRequestDir(
+            sourceAgentFolder,
+            'user-questions',
+          )
+        ) {
+          const questionFiles = runnerControlPort.listPendingRequests(
+            sourceAgentFolder,
+            'user-questions',
+          );
           for (const file of questionFiles) {
-            const filePath = path.join(userQuestionRequestsDir, file);
-            let claimedPath = filePath;
+            let claimedPath = path.join(userQuestionRequestsDir, file);
             let requestId: string | undefined;
             let requestThreadId: string | undefined;
             let responseKeyId: string | undefined;
@@ -655,14 +716,30 @@ export function startIpcWatcher(deps: IpcDeps): void {
               if (!canProcessIpcFile(sourceAgentFolder, 'user-question')) {
                 throw new Error('User question IPC rate limit exceeded');
               }
-              claimedPath = claimIpcFile(filePath);
-              const rawRequest = JSON.parse(
-                fs.readFileSync(claimedPath, 'utf-8'),
+              const claimed = runnerControlPort.claimRequest(
+                sourceAgentFolder,
+                'user-questions',
+                file,
               );
+              claimedPath = claimed.claimedPath;
+              const rawRequest = claimed.raw;
               const request = parseUserQuestionIpcRequest(
                 rawRequest,
                 sourceAgentFolder,
               );
+              if (
+                request.targetJid &&
+                !folderTargetJids.get(sourceAgentFolder)?.has(request.targetJid)
+              ) {
+                throw new Error(
+                  'User question IPC target does not belong to the requesting agent folder',
+                );
+              }
+              await validateUserQuestionIpcJobExecutionTarget({
+                request,
+                sourceAgentFolder,
+                deps,
+              });
               request.targetJid =
                 request.targetJid || folderTargetJid.get(sourceAgentFolder);
               requestId = request.requestId;
@@ -709,15 +786,19 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 { file, sourceAgentFolder, err },
                 'Error processing user question IPC request',
               );
-              archiveIpcErrorFile(
-                ipcBaseDir,
+              runnerControlPort.archiveFailedRequest(
                 sourceAgentFolder,
                 file,
                 claimedPath,
               );
             }
           }
-        } else if (fs.existsSync(userQuestionRequestsDir)) {
+        } else if (
+          runnerControlPort.requestDirExists(
+            sourceAgentFolder,
+            'user-questions',
+          )
+        ) {
           logger.warn(
             { sourceAgentFolder, userQuestionRequestsDir },
             'Ignoring untrusted user question IPC requests directory',
@@ -746,7 +827,7 @@ export function stopIpcWatcher(): void {
   ipcWatcherRunning = false;
   clearIpcRateLimitState();
   inFlightInteractionIpc.clear();
-  clearConsumedIpcRequestIds();
+  clearConsumedIpcRequestIds({ durable: false });
   releaseIpcRootLock();
   logger.info('IPC watcher stopped');
 }

@@ -21,8 +21,6 @@ import type { SchedulerSendMessage } from './delivery.js';
 
 const STALE_LEASE_TIMEOUT_SUMMARY =
   'Scheduler run lease expired before completion.';
-const RESTART_INTERRUPTED_RUN_SUMMARY =
-  'Gantry restarted while this job was running.';
 
 interface RuntimeControlSessionReader {
   getAppSessionById(
@@ -188,9 +186,6 @@ function summaryForReleasedLease(
   release: ReleasedStaleJobLease,
   run: JobRun | undefined,
 ): string {
-  if (release.reason === 'runtime_restarted') {
-    return RESTART_INTERRUPTED_RUN_SUMMARY;
-  }
   return run?.error_summary || STALE_LEASE_TIMEOUT_SUMMARY;
 }
 

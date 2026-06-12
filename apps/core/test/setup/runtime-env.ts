@@ -11,7 +11,7 @@ const runtimeHome = path.join(
 );
 const settingsPath = path.join(runtimeHome, 'settings.yaml');
 
-const settingsYaml = [
+const settingsFileContents = [
   'providers:',
   '  telegram:',
   '    enabled: false',
@@ -42,7 +42,7 @@ fs.mkdirSync(path.join(runtimeHome, 'store'), { recursive: true });
 fs.mkdirSync(path.join(runtimeHome, 'data'), { recursive: true });
 fs.mkdirSync(path.join(runtimeHome, 'agents'), { recursive: true });
 fs.mkdirSync(path.join(runtimeHome, 'memory'), { recursive: true });
-fs.writeFileSync(settingsPath, settingsYaml, 'utf-8');
+fs.writeFileSync(settingsPath, settingsFileContents, 'utf-8');
 
 process.env.GANTRY_HOME = runtimeHome;
 

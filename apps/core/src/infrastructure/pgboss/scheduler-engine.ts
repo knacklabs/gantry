@@ -1,17 +1,36 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PgBoss, type Job as PgBossJob } from 'pg-boss';
 
 import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
   TIMEZONE,
+  getDeploymentMode,
   getRuntimeQueueConfig,
 } from '../../config/index.js';
 import { logger } from '../logging/logger.js';
 import type { Job } from '../../domain/types.js';
 import type { ReleasedStaleJobLease } from '../../domain/repositories/ops-repo.js';
-import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
-import { acquireRunSlot } from '../../jobs/concurrency.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+  getRuntimeStorage,
+  getWorkerCoordinationRepository,
+} from '../../adapters/storage/postgres/runtime-store.js';
+import { tryAcquireRunSlot } from '../../jobs/concurrency.js';
+import {
+  decideCapabilityDispatch,
+  ineligibleRequeueDelayMs,
+  requiredCapabilitiesChanged,
+} from '../../jobs/capability-dispatch.js';
+import { CapabilityStarvationAlerter } from '../../jobs/capability-starvation.js';
+import { scanCapabilityStarvation } from '../../jobs/capability-starvation-scan.js';
+import { pauseJobForSetupIfNeeded } from '../../jobs/execution-readiness.js';
+import { resolveAppSessionForJob } from '../../jobs/app-session-resolution.js';
+import { agentIdForJobWorkspaceKey } from '../../application/jobs/job-tool-policy.js';
+import { DEFAULT_JOB_RUNTIME_APP_ID } from '../../application/jobs/job-access.js';
+import { currentWorkerInstanceId } from '../../jobs/worker-identity.js';
+import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import { validateScheduleConfig } from '../../jobs/schedule.js';
 import type {
   SchedulerDependencies,
@@ -109,6 +128,7 @@ export class PgBossSchedulerEngine {
   private readonly pendingJobSyncs = new Set<string>();
   private readonly scheduleSignatures = new Map<string, string>();
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+  private starvationAlerter: CapabilityStarvationAlerter | null = null;
 
   constructor(
     private readonly deps: SchedulerDependencies,
@@ -134,7 +154,6 @@ export class PgBossSchedulerEngine {
     this.boss = boss;
     await this.ensureQueues();
     const queuePolicy = getRuntimeQueueConfig();
-    await this.releaseInterruptedStartupLeases();
     await boss.work<SchedulerDispatchPayload>(
       SCHEDULER_QUEUE,
       {
@@ -204,41 +223,17 @@ export class PgBossSchedulerEngine {
     triggerId: string,
     options?: { runId?: string },
   ): Promise<void> {
-    const boss = this.requireBoss();
-    const [job, trigger] = await Promise.all([
-      this.deps.opsRepository.getJobById(jobId),
-      getRuntimeControlRepository().getTriggerById(triggerId),
-    ]);
-    if (!job) throw new Error(`Job not found: ${jobId}`);
-    if (!trigger) throw new Error(`Trigger not found: ${triggerId}`);
-    await boss.send(
-      SCHEDULER_QUEUE,
-      {
-        jobId,
-        runId: options?.runId,
-        triggerId,
-        scheduledFor: trigger.requestedAt,
-      },
-      {
-        id: pgBossSendId(jobId, `trigger:${triggerId}`),
-        group: { id: pgBossGroupId(job.workspace_key) },
-        retryLimit: 0,
-      },
-    );
+    await enqueueSchedulerTriggerDelivery({
+      boss: this.requireBoss(),
+      opsRepository: this.deps.opsRepository,
+      jobId,
+      triggerId,
+      runId: options?.runId,
+    });
   }
 
   private async ensureQueues(): Promise<void> {
-    const boss = this.requireBoss();
-    await boss.createQueue(SCHEDULER_QUEUE_DEAD_LETTER, {
-      policy: 'standard',
-      retentionSeconds: 14 * 24 * 60 * 60,
-    });
-    await boss.createQueue(SCHEDULER_QUEUE, {
-      policy: 'standard',
-      retryLimit: 0,
-      deadLetter: SCHEDULER_QUEUE_DEAD_LETTER,
-      retentionSeconds: 14 * 24 * 60 * 60,
-    });
+    await ensureSchedulerQueues(this.requireBoss());
   }
 
   private async drainSyncRequests(): Promise<void> {
@@ -260,6 +255,7 @@ export class PgBossSchedulerEngine {
   private async syncAllJobs(): Promise<void> {
     const boss = this.requireBoss();
     await this.callbacks.registerSystemJobs(this.deps);
+    await this.recoverExpiredWorkerLeases();
     const released = await this.deps.opsRepository.releaseStaleJobLeases();
     if (released.length > 0) {
       logger.warn(
@@ -282,32 +278,107 @@ export class PgBossSchedulerEngine {
     } catch (err) {
       logger.warn({ err }, 'Failed to rehydrate scheduler recovery turns');
     }
+    await this.scanCapabilityStarvation(jobs);
     for (const jobId of this.scheduleSignatures.keys()) {
       if (!liveJobIds.has(jobId)) await this.clearDeletedJob(boss, jobId);
     }
   }
 
-  private async releaseInterruptedStartupLeases(): Promise<void> {
-    const releaseInterrupted =
-      this.deps.opsRepository.releaseInterruptedJobLeases;
-    if (!releaseInterrupted) return;
-    const released = await releaseInterrupted.call(this.deps.opsRepository);
-    if (released.length === 0) return;
-    logger.warn(
-      {
-        count: released.length,
-        releases: released.map((release) => ({
-          jobId: release.jobId,
-          runId: release.runId,
-          runTimedOut: release.runTimedOut,
-          reason: release.reason,
-        })),
-      },
-      'Released interrupted scheduler leases after runtime startup',
+  /**
+   * Fleet-only capability-starvation safety net, driven by the (stoppable)
+   * maintenance sync. Alerts due jobs whose required capability set no active
+   * worker satisfies — the case the requeue-without-retry-burn loop would
+   * otherwise let starve silently — and pauses them through the existing
+   * readiness pause path so they stop requeueing and surface one clear user
+   * action. No-op in workstation mode.
+   */
+  private async scanCapabilityStarvation(jobs: readonly Job[]): Promise<void> {
+    if (getDeploymentMode() !== 'fleet') return;
+    try {
+      const storage = getRuntimeStorage();
+      if (!this.starvationAlerter) {
+        this.starvationAlerter = new CapabilityStarvationAlerter({
+          publishRuntimeEvent: (event) =>
+            getRuntimeEventExchange().publish(event),
+          warn: (context, message) => logger.warn(context, message),
+        });
+      }
+      await scanCapabilityStarvation(
+        {
+          skills: this.deps.getSkillRepository?.(),
+          runtimeDependencies: storage.repositories.runtimeDependencies,
+          workerRegistry: getWorkerCoordinationRepository(),
+          alerter: this.starvationAlerter,
+          pauseStarvedJob: (job) => this.pauseStarvedJob(job),
+        },
+        jobs,
+      );
+    } catch (err) {
+      logger.warn({ err }, 'Capability-starvation scan failed');
+    }
+  }
+
+  /**
+   * Pause a fleet-starved job via the existing readiness pause path. The
+   * requeue loop never reaches runJob for a fleet-wide-unsatisfiable job (every
+   * worker requeues the delivery), so this is the only place such a job gets
+   * paused. `pauseJobForSetupIfNeeded` re-checks fleet satisfiability itself —
+   * if the gap closed between scan and pause it returns false and the job keeps
+   * running normally.
+   */
+  private async pauseStarvedJob(job: Job): Promise<boolean> {
+    const appSession = await resolveAppSessionForJob(
+      job,
+      getRuntimeControlRepository(),
     );
-    await this.callbacks.handleReleasedStaleLeases?.(released, this.deps);
-    this.scheduleSignatures.clear();
-    this.deps.onSchedulerChanged?.();
+    return pauseJobForSetupIfNeeded({
+      currentJob: job,
+      deps: this.deps,
+      executionAgentFolder: job.workspace_key,
+      agentId: agentIdForJobWorkspaceKey(job.workspace_key),
+      runtimeAppId: DEFAULT_JOB_RUNTIME_APP_ID,
+      appSession,
+      source: 'preflight_setup',
+      publishRuntimeEvent: (event) => getRuntimeEventExchange().publish(event),
+    });
+  }
+
+  /**
+   * Stale recovery only: marks heartbeat-lapsed workers unhealthy and expires
+   * run leases whose lease window has lapsed. Live leases held by healthy
+   * workers — including a previous incarnation of this process — are never
+   * released here.
+   */
+  private async recoverExpiredWorkerLeases(): Promise<void> {
+    try {
+      const coordination = getWorkerCoordinationRepository();
+      const unhealthy = await coordination.markStaleWorkersUnhealthy({
+        staleBefore: toIso(currentTimeMs() - WORKER_STALE_AFTER_MS),
+      });
+      if (unhealthy.length > 0) {
+        logger.warn(
+          { workerInstanceIds: unhealthy },
+          'Marked heartbeat-lapsed worker instances unhealthy',
+        );
+      }
+      const recovered = await coordination.recoverExpiredRunLeases({});
+      if (recovered.length > 0) {
+        logger.warn(
+          {
+            count: recovered.length,
+            leases: recovered.map((lease) => ({
+              runId: lease.runId,
+              jobId: lease.jobId,
+              workerInstanceId: lease.workerInstanceId,
+              fencingVersion: lease.fencingVersion,
+            })),
+          },
+          'Expired lapsed run leases; runs are retryable with a higher fencing version',
+        );
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to recover expired worker run leases');
+    }
   }
 
   private async syncOneJob(jobId: string): Promise<void> {
@@ -426,8 +497,15 @@ export class PgBossSchedulerEngine {
       if (!payload?.jobId) continue;
       const current = await this.deps.opsRepository.getJobById(payload.jobId);
       if (!current) continue;
+      // Capability-matched dispatch (fleet only): an ineligible worker must not
+      // claim. Requeue its delivery and skip runJob so no retry budget burns.
+      if (await this.requeuedIneligibleDelivery(current, payload)) continue;
       const queueJid = schedulerQueueJid(current.workspace_key, current.id);
-      const releaseSlot = await acquireRunSlot(current.workspace_key);
+      const releaseSlot = await tryAcquireRunSlot(current.workspace_key);
+      if (!releaseSlot) {
+        await this.requeueRunSlotBlockedDelivery(current, payload);
+        continue;
+      }
       try {
         await this.callbacks.runJob(current, this.deps, queueJid, payload);
       } catch (err) {
@@ -442,8 +520,176 @@ export class PgBossSchedulerEngine {
     }
   }
 
+  private async requeueRunSlotBlockedDelivery(
+    job: Job,
+    payload: SchedulerDispatchPayload,
+  ): Promise<void> {
+    const startAfter = new Date(currentTimeMs() + runSlotRequeueDelayMs());
+    try {
+      await this.requireBoss().send(
+        SCHEDULER_QUEUE,
+        { ...payload, jobId: job.id },
+        {
+          id: randomUUID(),
+          startAfter,
+          group: { id: pgBossGroupId(job.workspace_key) },
+          retryLimit: 0,
+        },
+      );
+      logger.info(
+        { jobId: job.id, startAfter: startAfter.toISOString() },
+        'Requeued scheduler delivery while run slot capacity is full',
+      );
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to requeue scheduler delivery blocked on run slot capacity',
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Capability eligibility gate. Returns true when the delivery was requeued
+   * because THIS worker is ineligible for the job's required capability set —
+   * the caller then skips runJob entirely.
+   *
+   * Requeue-without-retry-burn mechanism: instead of failing the run (which would
+   * increment the job's `consecutive_failures` retry budget), this re-sends a
+   * fresh delivery for the same job with `startAfter = now + delay + jitter` and
+   * `retryLimit: 0`, then returns true so the CURRENT delivery completes normally
+   * (pg-boss marks it completed, not failed/retried). The run is never claimed,
+   * so no lease is taken, no terminal write occurs, and the retry budget is
+   * untouched. An eligible worker claims the requeued delivery later; if no
+   * worker is eligible, the periodic starvation scan pauses + alerts the job.
+   *
+   * No-op in workstation mode (single host is always locally eligible).
+   */
+  private async requeuedIneligibleDelivery(
+    job: Job,
+    payload: SchedulerDispatchPayload,
+  ): Promise<boolean> {
+    if (getDeploymentMode() !== 'fleet') return false;
+    const decision = await decideCapabilityDispatch(
+      {
+        deploymentMode: 'fleet',
+        skills: this.deps.getSkillRepository?.(),
+        runtimeDependencies:
+          getRuntimeStorage().repositories.runtimeDependencies,
+        workerAdvertisedCapabilities: async () => {
+          const workerInstanceId = currentWorkerInstanceId();
+          if (!workerInstanceId) return null;
+          const worker =
+            await getWorkerCoordinationRepository().getWorker(workerInstanceId);
+          return worker?.capabilities ?? null;
+        },
+        warn: (context, message) => logger.warn(context, message),
+      },
+      job,
+    );
+    // Persist the resolved required set durably for observability/readiness.
+    await this.persistRequiredCapabilities(job, decision.requiredCapabilities);
+    if (decision.outcome !== 'ineligible') return false;
+
+    const startAfter = new Date(currentTimeMs() + ineligibleRequeueDelayMs());
+    try {
+      await this.requireBoss().send(
+        SCHEDULER_QUEUE,
+        { ...payload, jobId: job.id },
+        {
+          id: randomUUID(),
+          startAfter,
+          group: { id: pgBossGroupId(job.workspace_key) },
+          retryLimit: 0,
+        },
+      );
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to requeue ineligible scheduler delivery',
+      );
+      throw err;
+    }
+    logger.info(
+      {
+        jobId: job.id,
+        requiredCapabilities: decision.requiredCapabilities,
+        missingCapabilities: decision.missingCapabilities,
+        startAfter: startAfter.toISOString(),
+      },
+      'Requeued ineligible scheduler delivery without consuming retry budget',
+    );
+    return true;
+  }
+
+  /** Persist the resolved required set onto the job when it changed. */
+  private async persistRequiredCapabilities(
+    job: Job,
+    resolved: readonly string[],
+  ): Promise<void> {
+    if (!requiredCapabilitiesChanged(job.required_capabilities, resolved)) {
+      return;
+    }
+    try {
+      await this.deps.opsRepository.updateJob(job.id, {
+        required_capabilities: [...resolved],
+      });
+    } catch (err) {
+      logger.warn(
+        { err, jobId: job.id },
+        'Failed to persist resolved required capabilities',
+      );
+    }
+  }
+
   private requireBoss(): PgBoss {
     if (!this.boss) throw new Error('pg-boss scheduler is not running');
     return this.boss;
   }
+}
+
+export async function ensureSchedulerQueues(boss: PgBoss): Promise<void> {
+  await boss.createQueue(SCHEDULER_QUEUE_DEAD_LETTER, {
+    policy: 'standard',
+    retentionSeconds: 14 * 24 * 60 * 60,
+  });
+  await boss.createQueue(SCHEDULER_QUEUE, {
+    policy: 'standard',
+    retryLimit: 0,
+    deadLetter: SCHEDULER_QUEUE_DEAD_LETTER,
+    retentionSeconds: 14 * 24 * 60 * 60,
+  });
+}
+
+export async function enqueueSchedulerTriggerDelivery(input: {
+  boss: PgBoss;
+  opsRepository: SchedulerDependencies['opsRepository'];
+  jobId: string;
+  triggerId: string;
+  runId?: string;
+}): Promise<void> {
+  const [job, trigger] = await Promise.all([
+    input.opsRepository.getJobById(input.jobId),
+    getRuntimeControlRepository().getTriggerById(input.triggerId),
+  ]);
+  if (!job) throw new Error(`Job not found: ${input.jobId}`);
+  if (!trigger) throw new Error(`Trigger not found: ${input.triggerId}`);
+  await input.boss.send(
+    SCHEDULER_QUEUE,
+    {
+      jobId: input.jobId,
+      runId: input.runId,
+      triggerId: input.triggerId,
+      scheduledFor: trigger.requestedAt,
+    },
+    {
+      id: pgBossSendId(input.jobId, `trigger:${input.triggerId}`),
+      group: { id: pgBossGroupId(job.workspace_key) },
+      retryLimit: 0,
+    },
+  );
+}
+
+function runSlotRequeueDelayMs(random: () => number = Math.random): number {
+  return 1_000 + Math.floor(random() * 4_000);
 }

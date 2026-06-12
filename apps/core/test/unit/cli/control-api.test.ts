@@ -87,6 +87,41 @@ describe('control API CLI client auth', () => {
     );
   });
 
+  it('reads JSON-quoted GANTRY_CONTROL_API_KEYS_JSON values from runtime .env', async () => {
+    const runtimeHome = makeTempDir();
+    const controlKeysJson = JSON.stringify([
+      {
+        kid: 'k1',
+        token: 'json-token',
+        appId: 'app-one',
+        scopes: ['sessions:read'],
+      },
+    ]);
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      `GANTRY_CONTROL_API_KEYS_JSON=${JSON.stringify(controlKeysJson)}\n`,
+    );
+
+    await withControlServer(
+      (req, res) => {
+        expect(req.headers.authorization).toBe('Bearer json-token');
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      },
+      async (baseUrl) => {
+        process.env.GANTRY_CONTROL_BASE_URL = baseUrl;
+        const { controlApiRequest } = await import('@core/cli/control-api.js');
+
+        await expect(
+          controlApiRequest(runtimeHome, {
+            method: 'GET',
+            path: '/v1/sessions',
+          }),
+        ).resolves.toEqual({ ok: true });
+      },
+    );
+  });
+
   it('ignores GANTRY_CONTROL_API_KEY when JSON tokens are present', async () => {
     process.env.GANTRY_CONTROL_API_KEY = 'legacy-token';
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([

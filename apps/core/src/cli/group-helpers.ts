@@ -40,6 +40,7 @@ export function usage(): string {
     `  gantry agent policy-show [--channel ${channels}]`,
     '  gantry agent access show <jid|folder>',
     '  gantry agent access apply <jid|folder> --file <path|->',
+    '  gantry agent access preset <folder> <full|locked>',
     '  gantry agent profile list <jid|folder>',
     '  gantry agent profile read <jid|folder> <soul|agents>',
     '  gantry agent profile set <jid|folder> <soul|agents> --file <path|-> [--expect-version N]',

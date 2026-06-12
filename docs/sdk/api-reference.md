@@ -43,12 +43,58 @@ the same spec with:
 curl --unix-socket ~/gantry/run/control.sock http://localhost/openapi.json
 ```
 
+## Operational endpoints
+
+Three unversioned operational endpoints exist for liveness, readiness, and
+metrics. They are **unauthenticated by design** and carry no `/v1` prefix:
+
+| Endpoint | Returns |
+|---|---|
+| `GET /healthz` | `200 {"status":"ok"}` — process is up. |
+| `GET /readyz` | `200` when DB-migrated, settings loaded, and not draining; `503` with `{ status, checks, failing }` while starting or draining. Carries a top-level `role` and role-specific checks (below). |
+| `GET /metrics` | Prometheus text exposition (`text/plain; version=0.0.4`). |
+
+They are internal-only and **must not be exposed on the public ALB listener**.
+In the fleet shape the ALB routes `/v1/*` to the control pool and `/webhooks/*`
+to the live pool; verify health from inside the VPC against a member's control
+port (the ASG health check and the on-instance drain hook consume `/readyz`). See
+the [AWS Terraform runbook](../deployment/aws-terraform.md) health-verification
+step.
+
+These ops endpoints are the only routes worker roles (`live-worker`,
+`job-worker`) serve besides the read-only `GET /v1/status`, `GET /v1/health`, and
+`GET /v1/doctor`; every admin/mutation `/v1/*` route 404s on a worker role. SDK
+admin/session calls go to the control role.
+
+**Role-aware `/readyz`.** On top of the shared `database`/`migrations`/`settings`/
+`draining` checks, `/readyz` carries a top-level `role`
+(`all|control|live-worker|job-worker`) and role-specific checks:
+
+- `control` adds `api_auth` (control API keys configured).
+- `live-worker` adds `worker_registered` and `live_capacity`
+  (`"available"|"saturated"`). Saturation is **reported, never failed** — a busy
+  live worker stays ready.
+- `job-worker` adds `worker_registered` and `scheduler` (the scheduler loop is
+  claiming).
+- `all` carries only the shared checks.
+
+**Role/live gauges on `/metrics`** (alongside the existing `gantry_*` gauges):
+`gantry_process_role{role}`, `gantry_live_turns_active`,
+`gantry_live_slots_used_cluster`, `gantry_live_turns_recoverable`, and
+`gantry_live_oldest_waiting_seconds` (the horizontal-live-pool scale signal).
+
+The authenticated `GET /v1/health` and `GET /v1/doctor` (`sessions:read`) — which
+the SDK exposes as `client.health()` and `client.doctor()` — are served by every
+role (read-only). `GET /v1/health` carries `processRole` so a client can confirm
+which role answered.
+
 ## Settings
 
-The typed settings API is diagnostic/read-only for local personal mode. It
-exposes the public non-secret desired-state view but does not accept runtime
-configuration mutations. Human operators may use CLI commands or edit
-`settings.yaml` directly; agents must use selected Gantry admin tools such as
+`GET /v1/settings` is the typed, read-only effective-settings view
+(`agents:admin`). It exposes the public non-secret runtime settings but does not
+accept mutations: `PATCH /v1/settings` returns `409 SETTINGS_READ_ONLY`. Human
+operators change settings through CLI commands or by editing `settings.yaml`
+directly; agents must use selected Gantry admin tools such as
 `settings_desired_state` and `request_settings_update` so changes are reviewed,
 validated, synced, and audited.
 
@@ -56,7 +102,75 @@ validated, synced, and audited.
 client.settings.get();
 ```
 
-`PATCH /v1/settings` returns `409 SETTINGS_READ_ONLY`.
+To mutate desired state programmatically (the fleet surface), use the
+desired-state endpoints below.
+
+## Desired state
+
+Fleet deployments distribute configuration as a versioned, typed JSON settings
+document through the control API instead of a file each worker watches
+([Settings Authority](../decisions/2026-06-11-settings-authority.md)). Both
+surfaces — the workstation `settings.yaml` auto-importer and this API — run the
+same schema validation and produce the same document-path-level errors.
+
+The document is the **full snake_case settings document** — the same shape
+`settings_revisions` stores as jsonb. YAML never appears on the API wire; it is
+only the workstation file and the CLI `--file` edge.
+
+```ts
+client.settings.getDesiredState();
+client.settings.updateDesiredState({ settings, expectedRevision?, note? });
+client.settings.listRevisions();
+```
+
+Both endpoints require `agents:admin`.
+
+`GET /v1/settings/desired-state` returns the current revision and document:
+
+```json
+{
+  "revision": 7,
+  "minReaderVersion": 3,
+  "settings": { "runtime": { "deployment_mode": "fleet" } },
+  "createdBy": "control-api:fleet-admin",
+  "note": "raise live concurrency",
+  "updatedAt": "2026-06-11T00:00:00.000Z"
+}
+```
+
+Before the first revision is seeded the response is
+`{ "revision": 0, "settings": null, "updatedAt": null }`.
+
+`PUT /v1/settings/desired-state` (also accepts `POST`) takes
+`{ settings, expectedRevision?, note? }` and appends a revision:
+
+- `400 INVALID_REQUEST` — `settings` missing or not a document object, or
+  `expectedRevision` not an integer.
+- `400 INVALID_SETTINGS` — the document failed to decode or failed validation;
+  validation failures carry document-path-level `errors` in the response
+  `details`.
+- `409 REVISION_CONFLICT` — `expectedRevision` did not match the current
+  revision (optimistic concurrency); the response carries `expectedRevision` and
+  `actualRevision`.
+- `200` — `{ "revision": <new revision> }`.
+
+Optimistic concurrency: read the current revision, mutate the document, and pass
+it back as `expectedRevision`. A concurrent writer that landed first makes the
+write fail with `409` rather than clobbering their change.
+
+```ts
+const current = await client.settings.getDesiredState();
+const next = applyChange(current.settings ?? {});
+await client.settings.updateDesiredState({
+  settings: next,
+  expectedRevision: current.revision,
+  note: 'raise live concurrency',
+});
+```
+
+`client.settings.listRevisions()` returns recent revision summaries
+(`revision`, `minReaderVersion`, `createdBy`, `note`, `createdAt`) for audit and
+skew inspection.
 
 ## Capability Requests
 
@@ -837,21 +951,10 @@ client.memory.patch(memoryId, { appId?, agentId?, expectedVersion?, key?, value?
 client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })
 client.memory.dreaming.status({ appId?, agentId? })
-
-client.memory.sources.add({ sourceType: "text", text, title?, appId?, agentId?, userId?, groupId?, channelId?, ingest? })
-client.memory.sources.list({ appId?, agentId?, userId?, groupId?, channelId?, limit? })
-client.memory.sources.status(sourceId, { appId?, agentId?, userId?, groupId?, channelId? })
-client.memory.sources.search({ query, appId?, agentId?, userId?, groupId?, channelId?, limit? })
-client.memory.sources.delete(sourceId, { appId?, agentId? })
-client.memory.sources.ingest(sourceId, { appId?, agentId? })
 ```
 
 `reference` memory is reserved for procedure/knowledge-source flows instead of
 direct `memory_save` payloads.
-Blogs, articles, docs, posts, tweets/X content, pasted text, and files should
-be added through `client.memory.sources.*`; source ingestion stores
-provenance/chunks and stages reviewable candidates, but it does not directly
-create active `memory_items`.
 
 ## Webhooks
 

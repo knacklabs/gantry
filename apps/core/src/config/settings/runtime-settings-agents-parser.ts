@@ -2,6 +2,7 @@ import { resolveModelSelectionForWorkload } from '../../shared/model-catalog.js'
 import { parseAgentPersona } from '../../shared/agent-persona.js';
 import { parseAgentRelationshipMode } from '../../shared/agent-relationship-mode.js';
 import type {
+  AgentAccessPreset,
   RuntimeConfiguredAgent,
   RuntimeConfiguredAgentBinding,
   RuntimeConfiguredAgentCapability,
@@ -191,11 +192,13 @@ function parseConfiguredAgentAccess(
 ): {
   sources: RuntimeConfiguredAgentSources;
   capabilities: RuntimeConfiguredAgentCapability[];
+  accessPreset: AgentAccessPreset;
 } {
   if (raw === undefined) {
     return {
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
+      accessPreset: 'full',
     };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -203,9 +206,9 @@ function parseConfiguredAgentAccess(
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'sources' && key !== 'selections') {
+    if (key !== 'sources' && key !== 'selections' && key !== 'preset') {
       throw new Error(
-        `${pathPrefix}.${key} is not supported. Configure sources or selections.`,
+        `${pathPrefix}.${key} is not supported. Configure sources, selections, or preset.`,
       );
     }
   }
@@ -215,7 +218,20 @@ function parseConfiguredAgentAccess(
       map.selections,
       `${pathPrefix}.selections`,
     ),
+    accessPreset: parseAgentAccessPreset(map.preset, `${pathPrefix}.preset`),
   };
+}
+
+function parseAgentAccessPreset(
+  raw: unknown,
+  pathPrefix: string,
+): AgentAccessPreset {
+  if (raw === undefined) return 'full';
+  const value = parseStringValue(raw, pathPrefix);
+  if (value !== 'full' && value !== 'locked') {
+    throw new Error(`${pathPrefix} must be full or locked`);
+  }
+  return value;
 }
 
 function parseConfiguredAgentSelections(

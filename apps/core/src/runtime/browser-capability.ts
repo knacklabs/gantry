@@ -30,6 +30,10 @@ import {
   isPidOwnedByBrowserProfile,
   isPidOwnedVisibleBrowserProfile,
 } from './browser-process.js';
+import {
+  browserProfileNeedsRestore,
+  restoreBrowserProfileBeforeLaunch,
+} from './browser-profile-sync.js';
 
 export const DEFAULT_BROWSER_PROFILE_NAME = 'gantry';
 export type {
@@ -190,6 +194,20 @@ async function closeUnhealthySession(
       'Failed to close unhealthy browser session',
     );
   });
+}
+
+async function closePersistedSessionBeforeRestore(
+  profileName: string,
+  profile: { dir: string; userDataDir: string },
+): Promise<void> {
+  const record = readBrowserSessionRecord(profile);
+  if (!record) return;
+  const processState = browserProcessProfileState(record.pid, profile);
+  if (isPidAlive(record.pid) && processState.owned) {
+    await terminatePid(record.pid);
+  }
+  clearBrowserSessionRecord(profile);
+  updateProfileMetadata(profileName, { cdp_port: undefined });
 }
 
 function touchSession(session: BrowserSession): void {
@@ -359,29 +377,50 @@ async function launchBrowserInner(
   keepAliveMs: number,
   opts: LaunchBrowserOptions,
 ): Promise<BrowserSessionStatus> {
-  const existing = sessions.get(profileName);
+  const profile = createProfile(profileName);
+  let existing = sessions.get(profileName);
   if (existing && (await isSessionHealthy(existing))) {
-    existing.keepAliveMs = keepAliveMs;
-    touchSession(existing);
-    return toRunningStatus(existing);
+    if (await browserProfileNeedsRestore(profileName, profile.dir)) {
+      logger.info(
+        { profileName, pid: existing.pid, port: existing.port },
+        'Closing browser session before restoring newer shared profile snapshot',
+      );
+      await closeBrowser(profileName);
+      existing = undefined;
+    } else {
+      existing.keepAliveMs = keepAliveMs;
+      touchSession(existing);
+      return toRunningStatus(existing);
+    }
   }
 
   if (existing) {
     await closeUnhealthySession(profileName, existing);
   }
 
-  const profile = createProfile(profileName);
   const lock = await acquireProfileLock(profileName);
   let chromeProcess: ChildProcess | undefined;
 
   try {
-    const recovered = await recoverPersistedBrowserSession({
+    const needsRestore = await browserProfileNeedsRestore(
       profileName,
-      profile,
-      lock,
-      keepAliveMs,
-    });
-    if (recovered) return toRunningStatus(recovered);
+      profile.dir,
+    );
+    if (needsRestore) {
+      await closePersistedSessionBeforeRestore(profileName, profile);
+    } else {
+      const recovered = await recoverPersistedBrowserSession({
+        profileName,
+        profile,
+        lock,
+        keepAliveMs,
+      });
+      if (recovered) return toRunningStatus(recovered);
+    }
+
+    // No owned Chrome is running (adoption above returned null): restore a newer
+    // cross-worker snapshot before launch. No-op off-fleet.
+    await restoreBrowserProfileBeforeLaunch(profileName, profile);
 
     cleanupChromeSingletonArtifacts(profile.userDataDir);
     const debuggingPort = await reserveLoopbackPort();

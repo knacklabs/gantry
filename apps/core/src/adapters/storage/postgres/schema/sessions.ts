@@ -14,7 +14,6 @@ import {
   conversationsPostgres,
   conversationThreadsPostgres,
 } from './conversations.js';
-import { browserProfilesPostgres } from './browser.js';
 import {
   sandboxProfilesPostgres,
   workspaceSnapshotsPostgres,
@@ -80,9 +79,6 @@ export const providerSessionsPostgres = pgTable(
     sandboxId: text('sandbox_id').references(() => sandboxProfilesPostgres.id),
     workspaceSnapshotId: text('workspace_snapshot_id').references(
       () => workspaceSnapshotsPostgres.id,
-    ),
-    browserProfileId: text('browser_profile_id').references(
-      () => browserProfilesPostgres.id,
     ),
     providerRefJson: jsonb('provider_ref_json')
       .notNull()

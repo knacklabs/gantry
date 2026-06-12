@@ -34,6 +34,7 @@ import { openRuntimeGroupDb } from './runtime-group-db.js';
 import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 import type { GuidedActionRef } from '../application/guided-actions/guided-action-model.js';
 import { inspectRunnerSandbox } from './doctor-runner-sandbox.js';
+import { hasValidEncryptionSecret } from '../shared/security-posture.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -288,24 +289,32 @@ export function runDoctor(
       });
     }
     const credentialMode = settings.credentialBroker.mode;
-    const modelCredentialSecret =
-      env.SECRET_ENCRYPTION_KEY?.trim() ||
-      process.env.SECRET_ENCRYPTION_KEY?.trim() ||
-      '';
+    const modelCredentialSecretValid = hasValidEncryptionSecret({
+      SECRET_ENCRYPTION_KEY: resolveRuntimeEnvValue(
+        env,
+        'SECRET_ENCRYPTION_KEY',
+      ),
+      SECRET_ENCRYPTION_KEYRING_JSON: resolveRuntimeEnvValue(
+        env,
+        'SECRET_ENCRYPTION_KEYRING_JSON',
+      ),
+    });
     const modelCredentialNextAction =
-      credentialMode === 'gantry' && !modelCredentialSecret
-        ? 'Generate a base64-encoded 32-byte SECRET_ENCRYPTION_KEY, then restart Gantry.'
+      credentialMode === 'gantry' && !modelCredentialSecretValid
+        ? 'Configure a strong base64-encoded 32-byte SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON, then restart Gantry.'
         : undefined;
     add(checks, {
       id: 'model-credential-encryption',
       title: 'Model Credential Encryption',
       status:
-        credentialMode === 'gantry' && !modelCredentialSecret ? 'fail' : 'pass',
+        credentialMode === 'gantry' && !modelCredentialSecretValid
+          ? 'fail'
+          : 'pass',
       message:
         credentialMode === 'gantry'
-          ? modelCredentialSecret
-            ? 'SECRET_ENCRYPTION_KEY is configured for Gantry credential encryption.'
-            : 'SECRET_ENCRYPTION_KEY is missing for Gantry credential encryption.'
+          ? modelCredentialSecretValid
+            ? 'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON is configured for Gantry credential encryption.'
+            : 'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON is missing or invalid for Gantry credential encryption.'
           : 'Model credential encryption is not required when model_access is disabled.',
       nextAction: modelCredentialNextAction,
       action: modelCredentialNextAction

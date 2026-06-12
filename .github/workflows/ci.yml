@@ -27,11 +27,35 @@ jobs:
           cache: npm
       - run: npm ci
 
+      - name: Supply-chain audit
+        run: npm run security:audit
+
+      - name: Generate runtime SBOM
+        run: npm run --silent security:sbom > gantry-runtime-sbom.cdx.json
+
+      - name: Upload runtime SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: gantry-runtime-sbom
+          path: gantry-runtime-sbom.cdx.json
+
+      - name: Build runtime image
+        run: docker compose -f ops/docker/docker-compose.fleet.yml build --pull
+
+      - name: Check runtime images
+        run: npm run security:images -- --inspect-compose-images --require-content-inspection
+
       - name: Format check
         run: npm run format:check
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Check package contents
+        run: npm run security:package
 
       - name: Tests
         id: tests

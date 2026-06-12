@@ -1,0 +1,71 @@
+# Example fleet tfvars. Copy to fleet.auto.tfvars (gitignored) or pass with
+# -var-file. Replace every REPLACE_ME. NO secret VALUES here — only ARNs.
+
+region      = "us-east-1"
+name_prefix = "gantry-fleet"
+
+# Container image (pin by digest in production).
+image_ref = "ghcr.io/REPLACE_ME_ORG/gantry@sha256:REPLACE_ME"
+
+# Amazon Linux 2023 AMI (resolve the current one for your region/arch, e.g. from
+# SSM: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64).
+worker_ami_id = "ami-REPLACE_ME"
+
+# --- Secret REFERENCES (ARNs). Create the secret values first (see runbook). ---
+runtime_database_url_secret_arn            = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/runtime-db-url-REPLACE"
+db_proxy_secret_arn                        = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/db-proxy-runtime-role-REPLACE"
+secret_encryption_key_secret_arn           = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/secret-encryption-key-REPLACE"
+gantry_ipc_auth_secret_arn                 = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/ipc-auth-secret-REPLACE"
+gantry_control_api_keys_json_secret_arn    = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/control-api-keys-json-REPLACE"
+
+# Optional: migration role distinct from runtime role.
+# migration_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/migration-db-url-REPLACE"
+
+# Optional: channel/provider credentials.
+# additional_runtime_secret_refs = [
+#   { env_name = "WHATSAPP_ACCESS_TOKEN", secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/whatsapp-token-REPLACE" },
+# ]
+
+# --- Database ---
+db_engine_version      = "16.8"
+db_instance_class      = "db.t4g.medium"
+db_multi_az            = true
+db_deletion_protection = true
+
+# --- Worker pools (role-differentiated: one image, GANTRY_PROCESS_ROLE per
+#     pool). Control serves /v1/*; live-workers serve /webhooks/* and run
+#     distributed live execution; job-workers run the scheduler + bakes. ---
+
+# Control plane (admin/settings API; no execution). Usually one box.
+control_instance_type       = "t3.medium"
+control_min_size            = 1
+control_max_size            = 2
+control_desired_capacity    = 1
+control_autoscaling_enabled = false
+
+# Live workers (distributed live admission/execution). Scale this out for more
+# concurrent chat capacity (per-worker max_message_runs). min >= 2 keeps a warm
+# pool + recovery-coordinator failover (RTO ~= lease TTL, ~30s).
+live_worker_instance_type       = "t3.large"
+live_worker_min_size            = 2
+live_worker_max_size            = 6
+live_worker_desired_capacity    = 2
+live_worker_autoscaling_enabled = true
+live_worker_cpu_target          = 60
+
+# Job workers (scheduler + bakes; no ALB traffic). Scale on job/bake load.
+job_worker_instance_type       = "t3.large"
+job_worker_min_size            = 1
+job_worker_max_size            = 4
+job_worker_desired_capacity    = 1
+job_worker_autoscaling_enabled = true
+job_worker_cpu_target          = 60
+
+# --- Ingress: set an ACM cert for HTTPS in production. ---
+# certificate_arn = "arn:aws:acm:us-east-1:REPLACE_ME:certificate/REPLACE_ME"
+
+drain_deadline_seconds = 130
+
+tags = {
+  Owner = "REPLACE_ME"
+}

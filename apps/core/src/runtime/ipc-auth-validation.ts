@@ -1,3 +1,8 @@
+import { createHash } from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+import { DATA_DIR } from '../config/index.js';
 import {
   IPC_REQUEST_MAX_AGE_MS,
   validateIpcRequestFreshness,
@@ -9,6 +14,7 @@ import {
   normalizeMemoryIpcActions,
   type GantryMemoryIpcAction,
 } from '../shared/memory-ipc-actions.js';
+import { ensurePrivateDirSync } from '../shared/private-fs.js';
 import {
   computeBrowserIpcAuthToken,
   computeIpcAuthToken,
@@ -36,6 +42,15 @@ interface IpcMemoryBinding extends IpcThreadBinding {
 }
 
 const consumedIpcRequestIds = new Map<string, number>();
+
+function replayStoreDir(): string {
+  return path.join(DATA_DIR, 'ipc-replay');
+}
+
+function replayMarkerPath(key: string): string {
+  const digest = createHash('sha256').update(key).digest('hex');
+  return path.join(replayStoreDir(), `${digest}.json`);
+}
 
 function readThreadIdField(value: unknown, label: string): string | undefined {
   const parsed = toTrimmedString(value, { maxLen: 255, allowEmpty: true });
@@ -159,10 +174,88 @@ function pruneConsumedIpcRequestIds(): void {
       consumedIpcRequestIds.delete(key);
     }
   }
+  const dir = replayStoreDir();
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir)) {
+    if (!file.endsWith('.json')) continue;
+    const markerPath = path.join(dir, file);
+    try {
+      const parsed = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as {
+        expiresAtMs?: unknown;
+      };
+      const expiresAtMs =
+        typeof parsed.expiresAtMs === 'number' ? parsed.expiresAtMs : 0;
+      if (expiresAtMs <= now) fs.rmSync(markerPath, { force: true });
+    } catch {
+      fs.rmSync(markerPath, { force: true });
+    }
+  }
 }
 
-export function clearConsumedIpcRequestIds(): void {
+function reserveIpcReplayMarker(key: string, expiresAtMs: number): boolean {
+  if (consumedIpcRequestIds.has(key)) return false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      ensurePrivateDirSync(replayStoreDir());
+      fs.writeFileSync(replayMarkerPath(key), JSON.stringify({ expiresAtMs }), {
+        flag: 'wx',
+        mode: 0o600,
+      });
+      consumedIpcRequestIds.set(key, expiresAtMs);
+      return true;
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code?: unknown }).code === 'EEXIST'
+      ) {
+        consumedIpcRequestIds.set(key, expiresAtMs);
+        return false;
+      }
+      if (
+        attempt === 0 &&
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        (err as { code?: unknown }).code === 'ENOENT'
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  return false;
+}
+
+export function clearConsumedIpcRequestIds(input?: {
+  durable?: boolean | 'consumed';
+}): void {
+  const consumedKeys = [...consumedIpcRequestIds.keys()];
   consumedIpcRequestIds.clear();
+  if (input?.durable !== true && input?.durable !== 'consumed') return;
+  const dir = replayStoreDir();
+  if (!fs.existsSync(dir)) return;
+  if (input.durable === 'consumed') {
+    for (const key of consumedKeys) {
+      fs.rmSync(replayMarkerPath(key), { force: true });
+    }
+    return;
+  }
+  for (const file of fs.readdirSync(dir)) {
+    fs.rmSync(path.join(dir, file), { force: true });
+  }
+}
+
+function reserveFreshIpcRequestId(
+  replayKey: string,
+  expiresAtMs: number,
+  label: string,
+): void {
+  pruneConsumedIpcRequestIds();
+  if (!reserveIpcReplayMarker(replayKey, expiresAtMs)) {
+    throw new Error(`Invalid ${label} replay`);
+  }
 }
 
 export function validateIpcAuthRequest(
@@ -189,12 +282,12 @@ export function validateIpcAuthRequest(
   }
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
-    pruneConsumedIpcRequestIds();
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${requestId}`;
-    if (consumedIpcRequestIds.has(replayKey)) {
-      throw new Error(`Invalid ${label} replay`);
-    }
-    consumedIpcRequestIds.set(replayKey, nowMs() + IPC_REQUEST_MAX_AGE_MS);
+    reserveFreshIpcRequestId(
+      replayKey,
+      nowMs() + IPC_REQUEST_MAX_AGE_MS,
+      label,
+    );
   }
   return binding;
 }
@@ -228,12 +321,12 @@ export function validateBrowserIpcAuthRequest(
   }
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
-    pruneConsumedIpcRequestIds();
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${chatJid}:${requestId}`;
-    if (consumedIpcRequestIds.has(replayKey)) {
-      throw new Error(`Invalid ${label} replay`);
-    }
-    consumedIpcRequestIds.set(replayKey, nowMs() + IPC_REQUEST_MAX_AGE_MS);
+    reserveFreshIpcRequestId(
+      replayKey,
+      nowMs() + IPC_REQUEST_MAX_AGE_MS,
+      label,
+    );
   }
   return { ...binding, chatJid };
 }
@@ -283,12 +376,12 @@ export function validateMemoryIpcAuthRequest(
   }
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
-    pruneConsumedIpcRequestIds();
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:memory:${userId || ''}:${defaultScope || 'group'}:${requestId}`;
-    if (consumedIpcRequestIds.has(replayKey)) {
-      throw new Error(`Invalid ${label} replay`);
-    }
-    consumedIpcRequestIds.set(replayKey, nowMs() + IPC_REQUEST_MAX_AGE_MS);
+    reserveFreshIpcRequestId(
+      replayKey,
+      nowMs() + IPC_REQUEST_MAX_AGE_MS,
+      label,
+    );
   }
   return {
     ...binding,

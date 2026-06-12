@@ -28,18 +28,26 @@ vi.mock('@core/config/index.js', () => ({
   GANTRY_HOME: '/tmp/gantry-skills-integration-home',
   GANTRY_IPC_AUTH_SECRET: 'test-ipc-secret',
   getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+  getDeploymentMode: vi.fn(() => 'workstation'),
   syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
   getDefaultModelConfig: vi.fn(() => ({
     model: 'opus',
     source: 'system default',
   })),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+  getRuntimeSettingsForConfig: vi.fn(() => ({
+    agents: {
+      'agent:one': { accessPreset: 'full' },
+      'agent:other': { accessPreset: 'full' },
+    },
+  })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
   configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
+  isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),
   runtimeJobSchedulePlanner: {
     createManualJobId: () => 'job-test',

@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { createHmac, generateKeyPairSync, sign as cryptoSign } from 'crypto';
 
+import { canonicalJson } from '@core/shared/canonical-json.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const tempRoots: string[] = [];
@@ -50,7 +51,7 @@ function signPayloadWithAuthToken(
   payload: Record<string, unknown>,
 ): string {
   return createHmac('sha256', authToken)
-    .update(Buffer.from(JSON.stringify(payload)))
+    .update(canonicalJson(payload))
     .digest('hex');
 }
 

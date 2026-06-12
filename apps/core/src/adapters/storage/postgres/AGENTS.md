@@ -15,7 +15,8 @@
 - Do not reintroduce the legacy domain `memory`, `jobs`, or `browserProfiles`
   properties on `PostgresDomainRepositoryBundle`; runtime memory and jobs use
   app-memory services and canonical job/session repositories, while browser
-  runtime state remains outside this obsolete repository bundle.
+  runtime state remains outside this obsolete repository bundle. Expose browser
+  profile snapshots through narrow runtime storage fields/accessors instead.
 - Repository adapters returning domain `IsoTimestamp` fields must normalize
   Postgres timestamp strings to ISO strings before crossing the adapter
   boundary.

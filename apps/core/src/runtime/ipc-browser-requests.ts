@@ -1,13 +1,6 @@
-import fs from 'fs';
 import path from 'path';
 
 import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
-import {
-  archiveIpcErrorFile,
-  claimIpcFile,
-  isPendingIpcJsonFile,
-  isTrustedDirectory,
-} from './ipc-filesystem.js';
 import {
   getIpcResponseSigningPrivateKey,
   isBrowserIpcAuthorized,
@@ -19,6 +12,7 @@ import {
 } from './ipc-browser-handler.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import { canProcessIpcFile } from './ipc-rate-limit.js';
+import type { RunnerControlPort } from './runner-control-port.js';
 
 interface IpcBrowserRequestLogger {
   warn: (obj: Record<string, unknown>, message: string) => void;
@@ -32,27 +26,43 @@ export function processBrowserRequestDirectory(input: {
   ipcBaseDir: string;
   sourceAgentFolder: string;
   browserRequestsDir: string;
+  runnerControlPort: RunnerControlPort;
   deps: IpcDeps;
   logger: IpcBrowserRequestLogger;
 }): void {
-  const { ipcBaseDir, sourceAgentFolder, browserRequestsDir, deps, logger } =
-    input;
+  const {
+    ipcBaseDir,
+    sourceAgentFolder,
+    browserRequestsDir,
+    runnerControlPort,
+    deps,
+    logger,
+  } = input;
   try {
-    if (isTrustedDirectory(browserRequestsDir)) {
-      const browserFiles = fs
-        .readdirSync(browserRequestsDir)
-        .filter(isPendingIpcJsonFile);
+    if (
+      runnerControlPort.isTrustedRequestDir(
+        sourceAgentFolder,
+        'browser-requests',
+      )
+    ) {
+      const browserFiles = runnerControlPort.listPendingRequests(
+        sourceAgentFolder,
+        'browser-requests',
+      );
       for (const file of browserFiles) {
         processOneBrowserRequest({
           ipcBaseDir,
           sourceAgentFolder,
           browserRequestsDir,
+          runnerControlPort,
           file,
           deps,
           logger,
         });
       }
-    } else if (fs.existsSync(browserRequestsDir)) {
+    } else if (
+      runnerControlPort.requestDirExists(sourceAgentFolder, 'browser-requests')
+    ) {
       logger.warn(
         { sourceAgentFolder, browserRequestsDir },
         'Ignoring untrusted browser IPC requests directory',
@@ -70,6 +80,7 @@ function processOneBrowserRequest(input: {
   ipcBaseDir: string;
   sourceAgentFolder: string;
   browserRequestsDir: string;
+  runnerControlPort: RunnerControlPort;
   file: string;
   deps: IpcDeps;
   logger: IpcBrowserRequestLogger;
@@ -78,6 +89,7 @@ function processOneBrowserRequest(input: {
     ipcBaseDir,
     sourceAgentFolder,
     browserRequestsDir,
+    runnerControlPort,
     file,
     deps,
     logger,
@@ -88,8 +100,13 @@ function processOneBrowserRequest(input: {
   let authThreadId: string | undefined;
   let responseKeyId: string | undefined;
   try {
-    claimedPath = claimIpcFile(filePath);
-    const rawRequest = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
+    const claimed = runnerControlPort.claimRequest(
+      sourceAgentFolder,
+      'browser-requests',
+      file,
+    );
+    claimedPath = claimed.claimedPath;
+    const rawRequest = claimed.raw;
     const request = parseBrowserIpcRequest(rawRequest, sourceAgentFolder);
     requestId = request.requestId;
     authThreadId = request.threadId;
@@ -140,7 +157,7 @@ function processOneBrowserRequest(input: {
             request.responseKeyId,
           ),
         );
-        fs.unlinkSync(claimedPath);
+        runnerControlPort.removeClaimedRequest(claimedPath);
       })
       .catch((err) => {
         logger.error(
@@ -168,7 +185,11 @@ function processOneBrowserRequest(input: {
             'Failed to write browser IPC error fallback',
           );
         }
-        archiveIpcErrorFile(ipcBaseDir, sourceAgentFolder, file, claimedPath);
+        runnerControlPort.archiveFailedRequest(
+          sourceAgentFolder,
+          file,
+          claimedPath,
+        );
       })
       .finally(() => {
         inFlightBrowserIpc -= 1;
@@ -188,7 +209,11 @@ function processOneBrowserRequest(input: {
       { file, sourceAgentFolder, err },
       'Error processing browser IPC request',
     );
-    archiveIpcErrorFile(ipcBaseDir, sourceAgentFolder, file, claimedPath);
+    runnerControlPort.archiveFailedRequest(
+      sourceAgentFolder,
+      file,
+      claimedPath,
+    );
   }
 }
 

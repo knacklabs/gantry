@@ -95,6 +95,13 @@ export interface JobTriggerQueuePort {
     triggerId: string,
     options?: { runId?: string },
   ): Promise<void>;
+  /**
+   * Plain-language reason the queue is not ready when the cause is the process
+   * role (this process does not claim scheduled jobs), or undefined when the
+   * cause is transient (the role runs jobs but the engine is still starting).
+   * Lets trigger errors explain a role mismatch instead of a generic message.
+   */
+  notReadyReason?(): string | undefined;
 }
 
 export interface JobSchedulePlan {

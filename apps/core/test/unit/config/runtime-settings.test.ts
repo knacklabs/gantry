@@ -133,26 +133,67 @@ describe('runtime settings', () => {
     expect(settings.runtime.queue).toEqual({
       maxMessageRuns: 3,
       maxJobRuns: 4,
+      maxMessageBacklog: 0,
+      maxTaskBacklog: 0,
       maxRetries: 5,
       baseRetryMs: 5000,
+      drainDeadlineMs: 120000,
     });
 
     settings.runtime.queue = {
       maxMessageRuns: 6,
       maxJobRuns: 2,
+      maxMessageBacklog: 7,
+      maxTaskBacklog: 9,
       maxRetries: 1,
       baseRetryMs: 250,
+      drainDeadlineMs: 45000,
     };
 
     const yaml = renderRuntimeSettingsYaml(settings);
     expect(yaml).toContain('runtime:');
     expect(yaml).toContain('max_message_runs: 6');
     expect(yaml).toContain('max_job_runs: 2');
+    expect(yaml).toContain('max_message_backlog: 7');
+    expect(yaml).toContain('max_task_backlog: 9');
     expect(yaml).toContain('max_retries: 1');
     expect(yaml).toContain('base_retry_ms: 250');
+    expect(yaml).toContain('drain_deadline_ms: 45000');
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.runtime.queue).toEqual(settings.runtime.queue);
+  });
+
+  it('keeps harness/provider internals out of the rendered settings.yaml', () => {
+    const settings = createDefaultRuntimeSettings();
+    const yaml = renderRuntimeSettingsYaml(settings);
+    for (const token of [
+      'permissionMode',
+      'executionProviderId',
+      'mcpServers',
+      'disallowedTools',
+      'LocalShellBackend',
+      'interrupt_on',
+      'harness:',
+    ]) {
+      expect(yaml, `settings.yaml must not render ${token}`).not.toContain(
+        token,
+      );
+    }
+  });
+
+  it('defaults, renders, and parses live-turn host policy', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.runtime.liveTurns).toEqual({ enabled: true });
+
+    settings.runtime.liveTurns = { enabled: false };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('live_turns:');
+    expect(yaml).toContain('enabled: false');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.runtime.liveTurns).toEqual(settings.runtime.liveTurns);
   });
 
   it('defaults, renders, and parses runner sandbox policy', () => {
@@ -342,6 +383,33 @@ describe('runtime settings', () => {
     ).toThrow('runtime.queue.max_jobb_runs is not supported');
   });
 
+  it('rejects unsupported live-turn host keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  live_turns:
+    horizontal: true
+`),
+    ).toThrow('runtime.live_turns.horizontal is not supported');
+  });
+
+  it('rejects negative runtime queue backlog caps', () => {
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  queue:
+    max_message_backlog: -1
+`),
+    ).toThrow(
+      'runtime.queue.max_message_backlog must be a non-negative integer',
+    );
+
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  queue:
+    max_task_backlog: -1
+`),
+    ).toThrow('runtime.queue.max_task_backlog must be a non-negative integer');
+  });
+
   it('rejects unsupported runtime sandbox keys', () => {
     expect(() =>
       parseRuntimeSettings(`runtime:
@@ -387,6 +455,57 @@ agent:
         1,
       );
     } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts credential encryption keyring without direct encryption key', () => {
+    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
+    const originalSecretEncryptionKeyring =
+      process.env.SECRET_ENCRYPTION_KEYRING_JSON;
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-keyring-'),
+    );
+    try {
+      process.env.GANTRY_DATABASE_URL =
+        'postgres://gantry:gantry@localhost:5432/gantry_test';
+      delete process.env.SECRET_ENCRYPTION_KEY;
+      process.env.SECRET_ENCRYPTION_KEYRING_JSON = JSON.stringify({
+        active: 'primary',
+        keys: {
+          primary: Buffer.from(
+            '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
+            'hex',
+          ).toString('base64'),
+        },
+      });
+
+      const settings = createDefaultRuntimeSettings();
+      saveRuntimeSettings(runtimeHome, settings);
+
+      expect(
+        validateLoadedRuntimeSettings(runtimeHome, settings),
+      ).toMatchObject({
+        ok: true,
+      });
+    } finally {
+      if (originalDatabaseUrl === undefined) {
+        delete process.env.GANTRY_DATABASE_URL;
+      } else {
+        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
+      }
+      if (originalSecretEncryptionKey === undefined) {
+        delete process.env.SECRET_ENCRYPTION_KEY;
+      } else {
+        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
+      }
+      if (originalSecretEncryptionKeyring === undefined) {
+        delete process.env.SECRET_ENCRYPTION_KEYRING_JSON;
+      } else {
+        process.env.SECRET_ENCRYPTION_KEYRING_JSON =
+          originalSecretEncryptionKeyring;
+      }
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
   });

@@ -17,6 +17,10 @@ import {
 } from '../../../config/index.js';
 import { LocalFileArtifactBytes } from '../../artifacts/files/local-file-artifact-bytes.js';
 import { LocalSkillArtifactStore } from '../../artifacts/skills/local-skill-artifact-store.js';
+import { S3SkillArtifactStore } from '../../artifacts/skills/s3-skill-artifact-store.js';
+import { createS3ArtifactClient } from '../../artifacts/skills/s3-artifact-client.js';
+import { LocalBrowserProfileArtifactStore } from '../../artifacts/browser-profiles/local-browser-profile-artifact-store.js';
+import { S3BrowserProfileArtifactStore } from '../../artifacts/browser-profiles/s3-browser-profile-artifact-store.js';
 import type {
   RuntimeAgentSessionRepository,
   RuntimeChatMetadataRepository,
@@ -27,9 +31,15 @@ import type {
 } from '../../../domain/repositories/ops-repo.js';
 import type { FileArtifactStore } from '../../../domain/ports/file-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
+import type {
+  BrowserProfileArtifactStore,
+  BrowserProfileArtifactMaterializer,
+} from '../../../domain/ports/browser-profile-artifact-store.js';
+import type { BrowserProfileSnapshotRepository } from '../../../domain/ports/browser-profile-snapshot.js';
 import { PostgresRuntimeRepositoryBundle } from './schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import { PostgresFileArtifactStore } from './repositories/file-artifact-repository.postgres.js';
+import { PostgresBrowserProfileSnapshotRepository } from './repositories/browser-profile-snapshot-repository.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
@@ -53,6 +63,7 @@ export interface StorageRuntime {
   runtimeEventNotifier: PostgresRuntimeEventNotifier;
   fileArtifacts: FileArtifactStore;
   skillArtifacts: SkillArtifactStore;
+  browserProfileSnapshots: BrowserProfileSnapshotRepository;
 }
 
 export interface StorageRuntimeOptions {
@@ -113,7 +124,10 @@ export function createStorageRuntime(
       path.join(ARTIFACTS_DIR, FILE_ARTIFACTS_DIR_NAME),
     ),
   );
-  const skillArtifacts = new LocalSkillArtifactStore(ARTIFACTS_DIR);
+  const skillArtifacts = createSkillArtifactStore();
+  const browserProfileSnapshots = new PostgresBrowserProfileSnapshotRepository(
+    service.db,
+  );
   return {
     service,
     ops,
@@ -123,5 +137,35 @@ export function createStorageRuntime(
     runtimeEventNotifier,
     fileArtifacts,
     skillArtifacts,
+    browserProfileSnapshots,
   };
+}
+
+function createSkillArtifactStore(): SkillArtifactStore {
+  const artifactStore = getRuntimeSettingsForConfig().runtime.artifactStore;
+  if (artifactStore.driver === 's3') {
+    const { client, bucket } = createS3ArtifactClient({
+      bucket: artifactStore.bucket ?? '',
+      region: artifactStore.region,
+      endpoint: artifactStore.endpoint,
+      forcePathStyle: artifactStore.forcePathStyle,
+    });
+    return new S3SkillArtifactStore(client, bucket);
+  }
+  return new LocalSkillArtifactStore(ARTIFACTS_DIR);
+}
+
+export function createRuntimeBrowserProfileArtifactStore(): BrowserProfileArtifactStore &
+  BrowserProfileArtifactMaterializer {
+  const artifactStore = getRuntimeSettingsForConfig().runtime.artifactStore;
+  if (artifactStore.driver === 's3') {
+    const { client, bucket } = createS3ArtifactClient({
+      bucket: artifactStore.bucket ?? '',
+      region: artifactStore.region,
+      endpoint: artifactStore.endpoint,
+      forcePathStyle: artifactStore.forcePathStyle,
+    });
+    return new S3BrowserProfileArtifactStore(client, bucket);
+  }
+  return new LocalBrowserProfileArtifactStore(ARTIFACTS_DIR);
 }

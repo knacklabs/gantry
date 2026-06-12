@@ -2,6 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { RuntimeSettingsResponse } from '@gantry/contracts';
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
+import type {
+  ProcessRole,
+  ReadinessRoleRequirements,
+} from './system-health.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
 import type { ControlPlaneStorageSettings } from '../../application/control-plane/control-plane-storage-model.js';
 import type { AppId } from '../../domain/app/app.js';
@@ -60,6 +64,21 @@ export type ControlRouteContext = {
   app: RuntimeApp;
   runtimeHome: string;
   keys: ApiKeyRecord[];
+  /** Process role this server runs as; drives role-aware readiness + metrics. */
+  processRole: ProcessRole;
+  /** Whether this process role runs live execution (live readiness + gauges). */
+  liveExecution: boolean;
+  /** Role-specific readiness checks that apply (derived from the role). */
+  roleReadinessRequirements: ReadinessRoleRequirements;
+  /**
+   * Runtime accessors injected from the runtime layer so the control adapter
+   * stays free of jobs/app cross-layer imports (existing DI pattern, like
+   * getBrowserStatus). All optional with safe defaults for tests.
+   */
+  currentWorkerInstanceId?: () => string | null;
+  isSchedulerReady?: () => boolean;
+  oldestWaitingLiveAdmissionSeconds?: () => number;
+  liveCapacityLimit?: () => number;
   socketPath: string;
   port: number;
   maxConcurrentStreams: number;

@@ -8,6 +8,9 @@ export function createRunProviderMetadataUpdater(input: {
   opsRepository: SchedulerDependencies['opsRepository'];
   jobId: string;
   outerRunId: string;
+  leaseToken?: string;
+  workerInstanceId?: string;
+  fencingVersion?: number;
   getSessionRunId: () => string | undefined;
   nowMs: () => number;
   logger: LoggerLike;
@@ -70,11 +73,40 @@ export function createRunProviderMetadataUpdater(input: {
         : {}),
     };
     const sessionRunId = input.getSessionRunId();
-    const runIds = sessionRunId
-      ? [input.outerRunId, sessionRunId]
-      : [input.outerRunId];
+    const runIds =
+      sessionRunId && sessionRunId !== input.outerRunId
+        ? [input.outerRunId, sessionRunId]
+        : [input.outerRunId];
     try {
-      await updateMetadata({ runId: input.outerRunId, runIds, ...update });
+      const updateInput = {
+        runId: input.outerRunId,
+        ...(input.leaseToken
+          ? {
+              leaseToken: input.leaseToken,
+              workerInstanceId: input.workerInstanceId,
+              fencingVersion: input.fencingVersion,
+            }
+          : {}),
+        ...update,
+      };
+      const updated = await updateMetadata(updateInput);
+      if (input.leaseToken && !updated) {
+        throw new Error(
+          'Scheduler run lease is no longer active during provider metadata persistence.',
+        );
+      }
+      if (sessionRunId && sessionRunId !== input.outerRunId) {
+        const sessionUpdated = await updateMetadata({
+          ...updateInput,
+          runIds: [sessionRunId],
+          fenceRunId: input.leaseToken ? input.outerRunId : undefined,
+        });
+        if (input.leaseToken && !sessionUpdated) {
+          throw new Error(
+            'Scheduler run lease is no longer active during session run provider metadata persistence.',
+          );
+        }
+      }
       if (pendingProviderRunId !== undefined) {
         persistedProviderRunId = pendingProviderRunId;
         pendingProviderRunId = undefined;

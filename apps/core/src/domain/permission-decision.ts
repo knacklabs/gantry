@@ -4,7 +4,7 @@ import type {
   PermissionApprovalRequest,
   PermissionApprovalRuleValue,
   PermissionApprovalUpdate,
-} from '../domain/types.js';
+} from './types.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { nowMs } from '../shared/time/datetime.js';
 import { validateDurableAccessRule } from '../shared/durable-access-policy.js';

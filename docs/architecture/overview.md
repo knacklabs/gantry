@@ -685,7 +685,7 @@ CLI surface (the `usage()` block at `apps/core/src/cli/index.ts`):
 | Agent administration        | `gantry agent list`, `gantry agent info`, `gantry agent add`, `gantry agent remove`, `gantry agent trigger`                | Owner / admin |
 | Browser profiles            | `gantry browser profiles`, `gantry browser status`                                                                         | Owner / admin |
 | Model catalog               | `gantry model status`, `gantry model list`, `gantry model set`, `gantry model reset`, `gantry model why`                   | Owner / admin |
-| Settings drift / export     | `gantry settings export-current`, `gantry settings drift`                                                                  | Owner / admin |
+| Settings drift / export     | `gantry settings export`, `gantry settings drift`                                                                          | Owner / admin |
 | Skill administration        | `gantry skill install`, `gantry skill list`, `gantry skill doctor`, `gantry skill remove`                                  | Owner / admin |
 | MCP administration          | `gantry mcp connect`, `gantry mcp list`, `gantry mcp show`, `gantry mcp doctor`, `gantry mcp remove`, `gantry mcp disable` | Owner / admin |
 

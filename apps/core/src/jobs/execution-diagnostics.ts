@@ -47,6 +47,55 @@ export interface JobRunDiagnostics {
   };
 }
 
+export function toolDenialEventPayload(
+  toolDenial: NonNullable<JobRunDiagnostics['terminalToolDenial']>,
+  safeErrorSummary: string | null,
+): Record<string, unknown> {
+  return {
+    error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
+    denied_tool: toolDenial.toolName,
+    recovery_action: toolDenial.recoveryAction ?? null,
+    recovery_kind: toolDenial.recoveryAction?.startsWith('request_access')
+      ? 'persistent_capability'
+      : 'job_policy',
+  };
+}
+
+export interface StreamingEventFlusher {
+  append(chars: number): void;
+  flush(force?: boolean): void;
+}
+
+/** Throttled JOB_STREAMING progress events (at most one per second). */
+export function createStreamingEventFlusher(input: {
+  nowMs: () => number;
+  emit: (payload: {
+    buffered_chars: number;
+    total_chars: number;
+  }) => Promise<unknown> | unknown;
+}): StreamingEventFlusher {
+  let bufferedChars = 0;
+  let totalChars = 0;
+  let lastEventMs = 0;
+  return {
+    append(chars: number): void {
+      bufferedChars += chars;
+      totalChars += chars;
+    },
+    flush(force = false): void {
+      if (bufferedChars <= 0) return;
+      const timestampMs = input.nowMs();
+      if (!force && timestampMs - lastEventMs < 1000) return;
+      void input.emit({
+        buffered_chars: bufferedChars,
+        total_chars: totalChars,
+      });
+      bufferedChars = 0;
+      lastEventMs = timestampMs;
+    },
+  };
+}
+
 export function createJobRunDiagnostics(): JobRunDiagnostics {
   return {
     pendingPermissionRequests: 0,

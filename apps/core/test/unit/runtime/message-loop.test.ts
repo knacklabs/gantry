@@ -361,6 +361,8 @@ describe('thread queue routing', () => {
       {
         threadId: undefined,
         senderUserIds: ['sl:UADMIN', 'sl:UOTHER'],
+        idempotencyKey: 'continuation:group@g.us:1,2',
+        cursorAfter: expect.any(String),
       },
     );
   });
@@ -414,10 +416,10 @@ describe('thread queue routing', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'group@g.us::thread:thread-a',
       'formatted messages',
-      {
+      expect.objectContaining({
         threadId: 'thread-a',
         senderUserIds: ['user@s.whatsapp.net'],
-      },
+      }),
     );
   });
 
@@ -1041,5 +1043,31 @@ describe('startMessagePollingLoop', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(deps.sentTo).toHaveLength(0);
+  });
+
+  it('stop() exits the loop promptly: no further polling ticks after stop', async () => {
+    mockGetNewMessages.mockReturnValue({
+      messages: [],
+      newTimestamp: '',
+    });
+
+    // Count ticks through a deps-scoped spy: getLastTimestamp runs once per
+    // tick, and unlike the shared module mocks it is not touched by polling
+    // loops leaked from earlier tests in this file.
+    const getLastTimestamp = vi.fn(() => '');
+    const deps = makeDeps({ getLastTimestamp });
+    const { startMessagePollingLoop } =
+      await import('@core/runtime/message-loop.js');
+
+    const loop = startMessagePollingLoop(deps);
+    // Let the first tick complete, then stop during the poll delay.
+    await new Promise((r) => setTimeout(r, 20));
+    loop.stop();
+    await loop.done;
+
+    const ticksAtStop = getLastTimestamp.mock.calls.length;
+    expect(ticksAtStop).toBeGreaterThanOrEqual(1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getLastTimestamp.mock.calls.length).toBe(ticksAtStop);
   });
 });

@@ -49,22 +49,32 @@ import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
+  private interactionCallbacksEnabled = true;
+
   protected async sendSnippetFallback(
     _input: SlackSnippetFallbackInput,
   ): Promise<SlackSnippetFallbackResult | null> {
     return null;
   }
-  async connect(): Promise<void> {
+  async connect(
+    options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
+  ): Promise<void> {
+    const inboundEnabled = options.inbound !== false;
+    const interactionCallbacksEnabled =
+      options.interactionCallbacks ?? inboundEnabled;
+    this.interactionCallbacksEnabled = interactionCallbacksEnabled;
     this.app = new App({
       token: this.botToken,
       appToken: this.appToken,
       socketMode: true,
     });
-    this.registerBoltHandlers();
-    this.app.error(async (error: Error) =>
-      logger.error({ err: error }, 'Slack app error'),
-    );
-    await this.app.start();
+    if (inboundEnabled || interactionCallbacksEnabled) {
+      this.registerBoltHandlers({ inbound: inboundEnabled });
+      this.app.error(async (error: Error) =>
+        logger.error({ err: error }, 'Slack app error'),
+      );
+      await this.app.start();
+    }
     try {
       const auth = (await this.app.client.auth.test()) as {
         ok?: boolean;
@@ -74,12 +84,22 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       };
       this.botUserId = auth.user_id || auth.user || null;
       logger.info(
-        { team: auth.team, botUserId: this.botUserId },
-        'Slack Socket Mode connected',
+        {
+          team: auth.team,
+          botUserId: this.botUserId,
+          inbound: inboundEnabled,
+          interactionCallbacks: interactionCallbacksEnabled,
+        },
+        !inboundEnabled
+          ? 'Slack outbound delivery client initialized'
+          : 'Slack Socket Mode connected',
       );
     } catch (err) {
       logger.warn({ err }, 'Slack auth.test failed after Socket Mode start');
     }
+  }
+  supportsInteractionCallbacks(): boolean {
+    return this.interactionCallbacksEnabled;
   }
   async sendMessage(
     jid: string,
@@ -429,6 +449,12 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     request: PermissionApprovalRequest,
   ): Promise<PermissionApprovalDecision> {
+    if (!this.interactionCallbacksEnabled) {
+      return {
+        approved: false,
+        reason: 'Slack interaction callbacks are not available on this worker.',
+      };
+    }
     if (!this.app) {
       return { approved: false, reason: 'Slack app is not connected' };
     }
@@ -548,10 +574,16 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     request: UserQuestionRequest,
   ): Promise<UserQuestionResponse> {
+    if (!this.interactionCallbacksEnabled) {
+      return {
+        requestId: request.requestId,
+        answers: {},
+        answeredBy: 'system',
+      };
+    }
     if (!this.app) {
       return { requestId: request.requestId, answers: {} };
     }
-
     const parsed = this.parseJid(jid);
     if (!parsed) {
       return { requestId: request.requestId, answers: {} };

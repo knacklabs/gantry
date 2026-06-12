@@ -35,6 +35,7 @@ import {
 } from './browser-usage-active-site.js';
 import { type IpcDomainContext } from './ipc-domain-types.js';
 import { resolveBrowserFileAttachPayload } from './browser-file-attach-source.js';
+import { markBrowserProfileActivity } from './browser-profile-sync.js';
 
 interface BrowserRequest {
   requestId: string;
@@ -268,6 +269,7 @@ async function handleBrowserToolActionInner(
   request: BrowserRequest,
   context: BrowserContext,
   profileName: string,
+  markProfileTouched?: () => void,
 ): Promise<BrowserResponse> {
   const deadline = createBrowserIpcDeadline(
     context.timeoutMs,
@@ -302,6 +304,7 @@ async function handleBrowserToolActionInner(
         deadlineAtMs: deadline.deadlineAtMs,
       };
       const status = await ensureBrowserReady(launchOptions);
+      markProfileTouched?.();
       return {
         ok: true,
         data: sanitizeBrowserStatus(status),
@@ -330,6 +333,7 @@ async function handleBrowserToolActionInner(
         await ensureBrowserTarget(session.port);
       }
     }
+    markProfileTouched?.();
     await callBrowserResizeBackend({
       context,
       session,
@@ -385,6 +389,7 @@ async function handleBrowserToolActionInner(
     sourceAgentFolder: context.sourceAgentFolder,
     getFileArtifactStore: context.getFileArtifactStore,
   });
+  markProfileTouched?.();
   const result = await context.callBrowserTool({
     toolName: request.action,
     arguments: backendPayload,
@@ -436,6 +441,7 @@ async function handleBrowserToolAction(
   });
   const startedAt = nowMs();
   let response: BrowserResponse | undefined;
+  let profileTouched = false;
   try {
     if (!usageDecision.allowed) {
       response = {
@@ -449,6 +455,9 @@ async function handleBrowserToolAction(
       request,
       context,
       profileName,
+      () => {
+        profileTouched = true;
+      },
     );
     rememberBrowserUsageSite({
       action: request.action,
@@ -461,6 +470,13 @@ async function handleBrowserToolAction(
     return response;
   } finally {
     finishBrowserUsage(usageDecision);
+    // Cross-worker snapshot signal: a real (non-status) browser action means the
+    // profile state may have changed this turn. The live finalize trigger
+    // read-and-clears this flag to decide whether to snapshot. The job path uses
+    // its own browserActivityCount diagnostic instead.
+    if (request.action !== 'status' && profileTouched) {
+      markBrowserProfileActivity(profileName);
+    }
     console.info('Browser tool action audit', {
       sourceAgentFolder: context.sourceAgentFolder,
       jobId: request.jobId,

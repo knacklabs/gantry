@@ -29,7 +29,10 @@ export function formatMcpApprovalResponse(
   ].join('\n');
 }
 
-export function formatMcpListToolsResponse(data: unknown): string {
+export function formatMcpListToolsResponse(
+  data: unknown,
+  options: { includeReviewGuidance?: boolean } = {},
+): string {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return 'No MCP tools were returned.';
   }
@@ -37,11 +40,16 @@ export function formatMcpListToolsResponse(data: unknown): string {
     ? ((data as Record<string, unknown>).servers as unknown[])
     : [];
   if (servers.length === 0) return 'No MCP tools are available.';
-  const lines = [
-    'MCP source inventory:',
-    SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
-    UNREVIEWED_DISCOVERY_GUIDANCE,
-  ];
+  // Locked agents get the provisioned tool listing without review/authority
+  // machinery guidance.
+  const lines =
+    options.includeReviewGuidance === false
+      ? ['Tools available from connected MCP servers:']
+      : [
+          'MCP source inventory:',
+          SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
+          UNREVIEWED_DISCOVERY_GUIDANCE,
+        ];
   for (const server of servers) {
     if (!server || typeof server !== 'object' || Array.isArray(server)) {
       continue;
@@ -105,6 +113,7 @@ function parseConnectedMcpContext(data: unknown): {
 export function formatSkillProposalResponse(
   data: unknown,
   message: string,
+  options: { deploymentMode?: 'workstation' | 'fleet' } = {},
 ): string {
   const context = parseInstalledSkillContext(data);
   if (!context) return message;
@@ -126,7 +135,11 @@ export function formatSkillProposalResponse(
     '- Allowed Capabilities: unchanged until a reviewed capability is granted.',
     '- Needs Review: any gantry.skill.json actions that are not reviewed yet.',
     '',
-    'Use this skill now by following its SKILL.md. Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs.',
+    // In fleet mode the install is not local: the skill activates on a worker
+    // only after it propagates to eligible workers.
+    options.deploymentMode === 'fleet'
+      ? 'Use this skill now by following its SKILL.md. Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs after it propagates to eligible workers.'
+      : 'Use this skill now by following its SKILL.md. Risky actions still require a reviewed capability grant. Gantry will load the skill automatically for later runs.',
     '',
     'Installed skill files:',
   ].filter((line): line is string => line !== undefined);

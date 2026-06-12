@@ -6,6 +6,12 @@ import {
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import {
+  findDurablePermissionInteractionByRequestId,
+  findDurableQuestionInteractionByRequestId,
+  resolveDurablePermissionInteractionByRequestId,
+  resolveDurableQuestionInteractionByRequestId,
+} from '../../application/interactions/pending-interaction-durability.js';
+import {
   decisionForMode,
   formatPermissionPromptText as formatSharedPermissionPromptText,
   formatPermissionReceiptText,
@@ -19,8 +25,6 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
-import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
-import { slackThreadTsFromThreadId } from './thread-ts.js';
 const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
 const SLACK_RETRY_DELAY_MAX_MS = 5000;
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
@@ -109,8 +113,6 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     if (!content) return;
     const sender = event.user || 'unknown';
     const senderName = await this.resolveUserName(event.user);
-    const threadId =
-      event.thread_ts || (isGroupConversation ? event.ts : undefined);
     await this.opts.onMessage(jid, {
       id: event.ts,
       chat_jid: jid,
@@ -121,7 +123,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
       is_from_me: this.botUserId ? sender === this.botUserId : false,
       external_message_id: event.ts,
-      thread_id: threadId,
+      thread_id: event.thread_ts || undefined,
       attachments: enriched.attachments,
       reply_to_message_id:
         event.thread_ts && event.thread_ts !== event.ts
@@ -135,11 +137,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     text: string,
   ): Promise<string | undefined> {
     if (!this.app) return undefined;
-    const threadTs = slackThreadTsFromThreadId(threadId);
     try {
       const result = (await this.app.client.apiCall('chat.startStream', {
         channel: channelId,
-        ...(threadTs ? { thread_ts: threadTs } : {}),
+        ...(threadId ? { thread_ts: threadId } : {}),
         markdown_text: text,
       })) as { ok?: boolean; ts?: string; stream_ts?: string };
       if (!result.ok) return undefined;
@@ -305,100 +306,102 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       );
     }
   }
-  protected registerBoltHandlers(): void {
+  protected registerBoltHandlers(options: { inbound?: boolean } = {}): void {
     if (!this.app) return;
-    this.app.event('message', async (args: any) => {
-      await this.ingestSlackMessage(args.event as SlackMessageLike);
-    });
-    this.app.event('app_mention', async (args: any) => {
-      await this.ingestSlackMessage(args.event as SlackMessageLike);
-    });
-    this.app.event('app_home_opened', async (args: any) => {
-      const event = args.event as { user?: string };
-      if (!event.user) return;
-      const blocks: Array<Record<string, unknown>> = [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Gantry Slack Channel*\\nUse threaded replies for the best agent UX.',
-          },
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: 'Use `gantry agent add sl:<channel-id>` to bind additional Slack chats.',
-          },
-        },
-      ];
-      try {
-        await this.app?.client.views.publish({
-          user_id: event.user,
-          view: {
-            type: 'home',
-            blocks: blocks as any,
-          },
-        });
-      } catch (err) {
-        logger.debug({ err }, 'Failed to publish Slack App Home');
-      }
-    });
-    this.app.shortcut('gantry_open_home', async (args: any) => {
-      await args.ack();
-      const triggerId = args.shortcut?.trigger_id as string | undefined;
-      if (!triggerId) return;
-      try {
-        await this.app?.client.views.open({
-          trigger_id: triggerId,
-          view: {
-            type: 'modal',
-            title: {
-              type: 'plain_text',
-              text: 'Gantry',
+    if (options.inbound !== false) {
+      this.app.event('message', async (args: any) => {
+        await this.ingestSlackMessage(args.event as SlackMessageLike);
+      });
+      this.app.event('app_mention', async (args: any) => {
+        await this.ingestSlackMessage(args.event as SlackMessageLike);
+      });
+      this.app.event('app_home_opened', async (args: any) => {
+        const event = args.event as { user?: string };
+        if (!event.user) return;
+        const blocks: Array<Record<string, unknown>> = [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Gantry Slack Channel*\\nUse threaded replies for the best agent UX.',
             },
-            close: {
-              type: 'plain_text',
-              text: 'Close',
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: 'Use `gantry agent add sl:<channel-id>` to bind additional Slack chats.',
             },
-            blocks: [
-              {
-                type: 'section',
-                text: {
-                  type: 'mrkdwn',
-                  text: 'Use `gantry agent add sl:<channel-id>` to bind new Slack chats.',
-                },
+          },
+        ];
+        try {
+          await this.app?.client.views.publish({
+            user_id: event.user,
+            view: {
+              type: 'home',
+              blocks: blocks as any,
+            },
+          });
+        } catch (err) {
+          logger.debug({ err }, 'Failed to publish Slack App Home');
+        }
+      });
+      this.app.shortcut('gantry_open_home', async (args: any) => {
+        await args.ack();
+        const triggerId = args.shortcut?.trigger_id as string | undefined;
+        if (!triggerId) return;
+        try {
+          await this.app?.client.views.open({
+            trigger_id: triggerId,
+            view: {
+              type: 'modal',
+              title: {
+                type: 'plain_text',
+                text: 'Gantry',
               },
-            ],
-          },
-        });
-      } catch (err) {
-        logger.debug({ err }, 'Failed to open Slack shortcut modal');
-      }
-    });
-    this.app.shortcut('gantry_reply_with_context', async (args: any) => {
-      await args.ack();
-      const shortcut = args.shortcut as {
-        channel?: { id?: string };
-        message?: { thread_ts?: string; ts?: string };
-        user?: { id?: string };
-      };
-      const channelId = shortcut.channel?.id;
-      const userId = shortcut.user?.id;
-      if (!channelId || !userId) return;
-      try {
-        await this.app?.client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: shortcut.message?.thread_ts
-            ? 'Reply in this thread to continue with Gantry context.'
-            : 'Start a thread first, then reply to keep context grouped.',
-        });
-      } catch (err) {
-        logger.debug({ err }, 'Failed to respond to Slack message shortcut');
-      }
-    });
-    const handlePermissionDecision = async (args: any) => {
+              close: {
+                type: 'plain_text',
+                text: 'Close',
+              },
+              blocks: [
+                {
+                  type: 'section',
+                  text: {
+                    type: 'mrkdwn',
+                    text: 'Use `gantry agent add sl:<channel-id>` to bind new Slack chats.',
+                  },
+                },
+              ],
+            },
+          });
+        } catch (err) {
+          logger.debug({ err }, 'Failed to open Slack shortcut modal');
+        }
+      });
+      this.app.shortcut('gantry_reply_with_context', async (args: any) => {
+        await args.ack();
+        const shortcut = args.shortcut as {
+          channel?: { id?: string };
+          message?: { thread_ts?: string; ts?: string };
+          user?: { id?: string };
+        };
+        const channelId = shortcut.channel?.id;
+        const userId = shortcut.user?.id;
+        if (!channelId || !userId) return;
+        try {
+          await this.app?.client.chat.postEphemeral({
+            channel: channelId,
+            user: userId,
+            text: shortcut.message?.thread_ts
+              ? 'Reply in this thread to continue with Gantry context.'
+              : 'Start a thread first, then reply to keep context grouped.',
+          });
+        } catch (err) {
+          logger.debug({ err }, 'Failed to respond to Slack message shortcut');
+        }
+      });
+    }
+    this.app.action('gantry_perm_decision', async (args: any) => {
       await args.ack();
       const body = args.body as {
         channel?: { id?: string };
@@ -427,7 +430,44 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       const mode = normalizePermissionAction(payload.decision);
       if (!mode) return;
       const pending = this.pendingPermissionPrompts.get(payload.requestId);
-      if (!pending) return;
+      const decidedBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      if (!pending) {
+        const durable = await findDurablePermissionInteractionByRequestId({
+          requestId: payload.requestId,
+        });
+        const callbackChannelId =
+          body.channel?.id ||
+          body.container?.channel_id ||
+          body.message?.channel ||
+          '';
+        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
+        const allowed = await this.canDecidePermission(
+          userId,
+          durable.sourceAgentFolder,
+          durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+          durable.targetJid,
+        );
+        if (!allowed) return;
+        const resolved = await resolveDurablePermissionInteractionByRequestId({
+          requestId: payload.requestId,
+          mode,
+          approverRef: decidedBy,
+          reason: `resolved via Slack after channel restart`,
+        });
+        if (!resolved) {
+          try {
+            await this.app?.client.chat.postEphemeral({
+              channel: callbackChannelId,
+              user: userId,
+              text: 'This approval request is no longer active. Retry the request.',
+            });
+          } catch {
+            // ignore
+          }
+        }
+        return;
+      }
       if (!permissionDecisionOptions(pending.request).includes(mode)) {
         return;
       }
@@ -470,16 +510,11 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         }
         return;
       }
-      const decidedBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
       const decision = decisionForMode(pending.request, mode, decidedBy);
       await this.resolvePermissionPrompt(payload.requestId, {
         ...decision,
       });
-    };
-    for (const actionId of SLACK_PERMISSION_DECISION_ACTION_IDS) {
-      this.app.action(actionId, handlePermissionDecision);
-    }
+    });
     this.app.action('gantry_userq_select', async (args: any) => {
       await args.ack();
       const action = args.action as { value?: string };
@@ -494,11 +529,34 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         parsed.questionIndex,
       );
       const pending = this.pendingUserQuestions.get(key);
-      if (!pending || pending.settled) return;
       const callbackChannelId = body.channel?.id || '';
-      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       const userId = body.user?.id || '';
       if (!userId) return;
+      const answeredBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      if (!pending) {
+        const durable = await findDurableQuestionInteractionByRequestId({
+          requestId: parsed.requestId,
+        });
+        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
+        const allowed = await this.canDecidePermission(
+          userId,
+          durable.sourceAgentFolder,
+          undefined,
+          durable.targetJid,
+        );
+        if (!allowed) return;
+        await resolveDurableQuestionInteractionByRequestId({
+          requestId: parsed.requestId,
+          questionIndex: parsed.questionIndex,
+          optionIndex: parsed.optionIndex,
+          finalize: false,
+          answeredBy,
+        });
+        return;
+      }
+      if (pending.settled) return;
+      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       if (
         !(await this.canDecidePermission(
           userId,
@@ -524,8 +582,6 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       ) {
         return;
       }
-      const answeredBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
       if (!pending.question.multiSelect) {
         const label =
           pending.question.options[parsed.optionIndex]?.label?.trim() || '';
@@ -553,11 +609,33 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         parsed.questionIndex,
       );
       const pending = this.pendingUserQuestions.get(key);
-      if (!pending || pending.settled || !pending.question.multiSelect) return;
       const callbackChannelId = body.channel?.id || '';
-      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       const userId = body.user?.id || '';
       if (!userId) return;
+      const answeredBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      if (!pending) {
+        const durable = await findDurableQuestionInteractionByRequestId({
+          requestId: parsed.requestId,
+        });
+        if (!durable || durable.targetJid !== `sl:${callbackChannelId}`) return;
+        const allowed = await this.canDecidePermission(
+          userId,
+          durable.sourceAgentFolder,
+          undefined,
+          durable.targetJid,
+        );
+        if (!allowed) return;
+        await resolveDurableQuestionInteractionByRequestId({
+          requestId: parsed.requestId,
+          questionIndex: parsed.questionIndex,
+          finalize: true,
+          answeredBy,
+        });
+        return;
+      }
+      if (pending.settled || !pending.question.multiSelect) return;
+      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       if (
         !(await this.canDecidePermission(
           userId,
@@ -583,8 +661,6 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         .map((label) => label.trim())
         .filter((label) => label.length > 0)
         .slice(0, pending.question.options.length);
-      const answeredBy =
-        body.user?.name || body.user?.username || body.user?.id || 'unknown';
       await this.finalizeUserQuestionPrompt(
         pending,
         selectedLabels,

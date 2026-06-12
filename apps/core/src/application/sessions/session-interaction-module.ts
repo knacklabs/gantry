@@ -19,7 +19,7 @@ import type {
 } from '../../domain/ports/repositories.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import { ApplicationError } from '../common/application-error.js';
-import { isValidControlId } from '../app-scope/control-id.js';
+import { isValidControlId } from '../../shared/control-id.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
 type ControlResponseMode = Exclude<RuntimeResponseMode, 'sse'> | 'sse';

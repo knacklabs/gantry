@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION,
+  GANTRY_FACADE_EXACT_TOOL_NAMES,
   projectGantryToolRuleForHarness,
   providerNativeToolRejectionReason,
   SDK_SANDBOX_NETWORK_ACCESS_REJECTION_REASON,
@@ -135,5 +137,24 @@ describe('agent tool references', () => {
         exactTools: {},
       }),
     ).toEqual([]);
+  });
+
+  it('renders every Gantry facade under the default harness projection', () => {
+    // Authority invariant: a facade that exists as durable authority must
+    // project to at least one harness-native tool, otherwise selecting it
+    // would silently grant nothing. Guards against adding a facade without
+    // wiring it into the renderer projection.
+    for (const facade of GANTRY_FACADE_EXACT_TOOL_NAMES) {
+      expect(
+        projectGantryToolRuleForHarness(
+          facade,
+          DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION,
+        ),
+        facade,
+      ).not.toHaveLength(0);
+    }
+    expect(
+      DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION.runCommandToolName,
+    ).toBeTruthy();
   });
 });

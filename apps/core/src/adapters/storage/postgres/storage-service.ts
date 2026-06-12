@@ -19,6 +19,12 @@ export const postgresMigrationsFolder = path.join(
 );
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
+// Cross-instance "run gantry migrations" lock. One identity serializes EVERY
+// migrator — the container entrypoint (ops/docker/migrate.mjs) and the
+// runtime's boot-time migrate() — so concurrent boots cannot race the drizzle
+// migrator even when GANTRY_SKIP_MIGRATIONS=1 bypassed the entrypoint pass.
+export const RUNTIME_MIGRATION_LOCK_NAMESPACE = 1_340_193_180;
+export const RUNTIME_MIGRATION_LOCK_KEY = 2;
 
 export interface StorageCapabilities {
   lexicalSearch: boolean;
@@ -102,12 +108,39 @@ export class PostgresStorageService implements StorageService {
       `CREATE SCHEMA IF NOT EXISTS ${quotePostgresIdentifier(this.schemaName)}`,
     );
     await this.ensurePgcryptoExtension();
-    await migratePostgres(this.db, {
-      migrationsFolder: postgresMigrationsFolder,
-      migrationsSchema: this.schemaName,
-    });
+    await this.runSchemaMigrationsUnderLock();
     await seedDefaultRuntimeData(this.db);
     await this.migratePgBoss();
+  }
+
+  /**
+   * Run the drizzle migrator under the shared cross-instance advisory lock so
+   * concurrent migrators (entrypoint passes and runtime boots, in any mix)
+   * serialize: the lock holder migrates, the rest block then find nothing
+   * pending. The lock is session-scoped — it is released automatically if the
+   * holder crashes mid-migration.
+   */
+  private async runSchemaMigrationsUnderLock(): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('SELECT pg_advisory_lock($1, $2)', [
+        RUNTIME_MIGRATION_LOCK_NAMESPACE,
+        RUNTIME_MIGRATION_LOCK_KEY,
+      ]);
+      await migratePostgres(this.db, {
+        migrationsFolder: postgresMigrationsFolder,
+        migrationsSchema: this.schemaName,
+      });
+    } finally {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1, $2)', [
+          RUNTIME_MIGRATION_LOCK_NAMESPACE,
+          RUNTIME_MIGRATION_LOCK_KEY,
+        ]);
+      } finally {
+        client.release();
+      }
+    }
   }
 
   private async ensurePgcryptoExtension(): Promise<void> {

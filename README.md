@@ -544,6 +544,15 @@ External systems that should not hold a control API key use signed external ingr
 Gantry currently supports a single runtime mode: host execution.
 Use `npm run dev` for local development and `npm start` for production start.
 
+Gantry deploys three ways from one image — **workstation** (single machine),
+**fleet** (role-differentiated pools behind an ALB), and the **locked support
+stack**. In a fleet, the deployment-owned env `GANTRY_PROCESS_ROLE` selects what a
+process runs: `control` (admin/settings API), `live-worker` (distributed live
+chat execution), or `job-worker` (scheduler + bakes); `all` (the workstation
+default) does everything. See
+[deployment profiles](docs/architecture/deployment-profiles.md) and the
+[AWS Terraform runbook](docs/deployment/aws-terraform.md).
+
 ## Client Deployment Model
 
 Gantry is published as an obfuscated and minified npm package on CAW's GitHub Package Registry.

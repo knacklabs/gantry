@@ -16,6 +16,7 @@ import {
   validateReadableAgentToolRule,
 } from './agent-tool-references.js';
 import {
+  containsGeneratedRuntimePath,
   containsGeneratedRuntimeSkillPath,
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from './generated-runtime-paths.js';
@@ -80,6 +81,13 @@ export function validateDurableAccessRule(
       return {
         ok: false,
         reason: GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
+      };
+    }
+    if (containsGeneratedRuntimePath(scoped.scope)) {
+      return {
+        ok: false,
+        reason:
+          'Persistent RunCommand rules cannot reference generated runtime paths; use a reviewed stable capability or let Gantry-owned runtime scratch reads stay internal.',
       };
     }
   }

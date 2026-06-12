@@ -38,12 +38,16 @@ function parseJson<T>(value: unknown, fallback: T): T {
 }
 
 export function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    err.code === '23505'
-  );
+  // Drizzle wraps the pg error (the SQLSTATE lives on the cause chain), so
+  // walk causes like file-artifact-repository's sqlStateCode does.
+  let current: unknown = err;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!current || typeof current !== 'object') return false;
+    const code = (current as { code?: unknown }).code;
+    if (code === '23505') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 export function mapDelivery(row: DeliveryRow): OutboundDelivery {

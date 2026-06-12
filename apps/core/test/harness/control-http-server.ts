@@ -25,6 +25,9 @@ export async function startTestControlServer(input: {
   appId: string;
   scopes: string[];
   runtimeApp?: unknown;
+  routeProfile?: 'full' | 'ops';
+  processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
+  liveExecution?: boolean;
 }) {
   const port = await reserveControlPort();
   process.env.GANTRY_CONTROL_PORT = String(port);
@@ -40,6 +43,11 @@ export async function startTestControlServer(input: {
     app:
       input.runtimeApp ??
       ({ queue: { enqueueMessageCheck: async () => undefined } } as never),
+    routeProfile: input.routeProfile,
+    ...(input.processRole ? { processRole: input.processRole } : {}),
+    ...(input.liveExecution !== undefined
+      ? { liveExecution: input.liveExecution }
+      : {}),
   });
   await waitForControlPort(port);
   return {

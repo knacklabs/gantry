@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, verify as cryptoVerify } from 'crypto';
 import { IPC_RESPONSE_VERIFY_KEY } from './runtime-env.js';
 import { nowMs as currentTimeMs } from '../../../../shared/time/datetime.js';
+import { canonicalJson } from '../../../../shared/canonical-json.js';
 
 export function hasValidIpcResponseSignature(
   raw: Record<string, unknown>,
@@ -35,9 +36,7 @@ function signIpcRequestPayload(
 ): string | undefined {
   const key = requestSigningKey?.trim();
   if (!key) return undefined;
-  return createHmac('sha256', key)
-    .update(JSON.stringify(payload))
-    .digest('hex');
+  return createHmac('sha256', key).update(canonicalJson(payload)).digest('hex');
 }
 
 function verifyIpcResponsePayload(

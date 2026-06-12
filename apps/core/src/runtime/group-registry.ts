@@ -15,6 +15,7 @@ import {
 } from '../platform/profile-file-mirror.js';
 import { AvailableGroup } from './agent-spawn.js';
 import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
+import { resolveAgentLockStatus } from '../config/profiles.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 
 interface ChatRow {
@@ -86,6 +87,11 @@ export async function registerGroup(
     agentFolder: group.folder,
     agentName: assistantName,
     relationshipMode: group.agentConfig?.relationshipMode,
+    // Locked agents get a default AGENTS.md without capability-request
+    // machinery; content seeding is not an authority boundary, so an
+    // indeterminate lock status keeps today's full default.
+    accessPreset:
+      resolveAgentLockStatus(group.folder) === 'locked' ? 'locked' : 'full',
   });
 
   conversationRoutes[jid] = group;

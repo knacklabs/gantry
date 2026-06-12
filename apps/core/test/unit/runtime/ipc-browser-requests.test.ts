@@ -12,6 +12,7 @@ import {
   registerBrowserIpcAuthorization,
   revokeBrowserIpcAuthorization,
 } from '@core/runtime/ipc-auth.js';
+import { FilesystemRunnerControlPort } from '@core/runtime/filesystem-runner-control-port.js';
 import { processBrowserRequestDirectory } from '@core/runtime/ipc-browser-requests.js';
 import { clearIpcRateLimitState } from '@core/runtime/ipc-rate-limit.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
@@ -81,7 +82,12 @@ describe('processBrowserRequestDirectory', () => {
     const root = tempRoot();
     const sourceAgentFolder = 'team';
     const chatJid = 'tg:team';
-    const browserRequestsDir = path.join(root, 'browser-requests');
+    const browserRequestsDir = path.join(
+      root,
+      sourceAgentFolder,
+      'browser-requests',
+    );
+    const runnerControlPort = new FilesystemRunnerControlPort(root);
     const responsesDir = path.join(
       root,
       sourceAgentFolder,
@@ -104,6 +110,7 @@ describe('processBrowserRequestDirectory', () => {
       ipcBaseDir: root,
       sourceAgentFolder,
       browserRequestsDir,
+      runnerControlPort,
       deps: deps(),
       logger,
     });
@@ -134,6 +141,7 @@ describe('processBrowserRequestDirectory', () => {
         ipcBaseDir: root,
         sourceAgentFolder,
         browserRequestsDir,
+        runnerControlPort,
         deps: deps(),
         logger,
       });

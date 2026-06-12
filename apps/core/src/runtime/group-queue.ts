@@ -1,49 +1,24 @@
-import { ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
 
 import { logger } from '../infrastructure/logging/logger.js';
-import {
-  writeCloseSignal,
-  writeContinuationInput,
-} from './continuation-input.js';
 import { stopActiveGroupRun } from './group-queue-stop.js';
 import { normalizeThreadQueueId } from '../shared/thread-queue-key.js';
-
-type QueueKind = 'message' | 'task';
-type ContinuationOptions = {
-  threadId?: string | null;
-  senderUserIds?: readonly string[] | null;
-};
-type RegisterProcessOptions = {
-  requiredContinuationUserId?: string | null;
-};
-type ContinuationHandler = () => void;
-
-interface QueuedTask {
-  id: string;
-  kind: QueueKind;
-  groupJid: string;
-  fn: () => Promise<void>;
-}
-
-const MAX_RETRIES = 5;
-const BASE_RETRY_MS = 5000;
-const MAX_MESSAGE_RUNS = 3;
-const MAX_JOB_RUNS = 4;
-
-export interface GroupQueuePolicy {
-  maxRetries: number;
-  baseRetryMs: number;
-  maxMessageRuns: number;
-  maxJobRuns: number;
-}
-
-export interface GroupQueueOptions {
-  maxRetries?: number;
-  baseRetryMs?: number;
-  maxMessageRuns?: number;
-  maxJobRuns?: number;
-  setTimeoutFn?: typeof setTimeout;
-}
+import {
+  continuationSenderMatchesRequiredUser,
+  createGroupQueuePolicy,
+  UNLIMITED_QUEUE_BACKLOG,
+  type GroupQueuePolicy,
+} from './group-queue-policy.js';
+import {
+  localContinuationRunnerControlPort,
+  type ContinuationHandler,
+  type ContinuationOptions,
+  type ContinuationRunnerControlPort,
+  type GroupQueueOptions,
+  type QueueKind,
+  type QueuedTask,
+} from './group-queue-types.js';
+import type { LiveTurnLocalRunnerHooks } from './live-turn-authority.js';
 
 interface GroupState {
   active: boolean;
@@ -64,6 +39,7 @@ interface GroupState {
 export class GroupQueue {
   private readonly policy: GroupQueuePolicy;
   private readonly setTimeoutFn: typeof setTimeout;
+  private readonly runnerControlPort: ContinuationRunnerControlPort;
   private groups = new Map<string, GroupState>();
   private stopAliases = new Map<string, Set<string>>();
   private activeMessageCount = 0;
@@ -73,23 +49,24 @@ export class GroupQueue {
   private continuationSequence = 0;
   private processMessagesFn: ((groupJid: string) => Promise<boolean>) | null =
     null;
+  private liveTurnRunnerRegistrar:
+    | ((
+        queueJid: string,
+        hooks: LiveTurnLocalRunnerHooks,
+        routing: {
+          stopAliasJids?: string[];
+          requiredContinuationUserId?: string | null;
+        },
+      ) => Promise<void> | void)
+    | null = null;
   private shuttingDown = false;
   private activeRuns = new Set<Promise<void>>();
 
   constructor(options: GroupQueueOptions = {}) {
-    this.policy = {
-      maxRetries: normalizeNonNegativeInteger(options.maxRetries, MAX_RETRIES),
-      baseRetryMs: normalizeNonNegativeInteger(
-        options.baseRetryMs,
-        BASE_RETRY_MS,
-      ),
-      maxMessageRuns: normalizePositiveInteger(
-        options.maxMessageRuns,
-        MAX_MESSAGE_RUNS,
-      ),
-      maxJobRuns: normalizePositiveInteger(options.maxJobRuns, MAX_JOB_RUNS),
-    };
+    this.policy = createGroupQueuePolicy(options);
     this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+    this.runnerControlPort =
+      options.runnerControlPort ?? localContinuationRunnerControlPort;
   }
 
   getPolicy(): GroupQueuePolicy {
@@ -123,16 +100,30 @@ export class GroupQueue {
     return state;
   }
 
+  private deleteGroupIfIdle(groupJid: string, state: GroupState): boolean {
+    if (state.active || state.pendingMessages || state.pendingTasks.length > 0)
+      return false;
+    if (state.runningTaskId || state.process || state.idleWaiting) return false;
+    return this.groups.delete(groupJid);
+  }
+
   setProcessMessagesFn(fn: (groupJid: string) => Promise<boolean>): void {
     this.processMessagesFn = fn;
   }
 
-  private canStartMessageRun(): boolean {
-    return this.activeMessageCount < this.policy.maxMessageRuns;
-  }
-
-  private canStartTaskRun(): boolean {
-    return this.activeTaskCount < this.policy.maxJobRuns;
+  setLiveTurnRunnerRegistrar(
+    registrar:
+      | ((
+          queueJid: string,
+          hooks: LiveTurnLocalRunnerHooks,
+          routing: {
+            stopAliasJids?: string[];
+            requiredContinuationUserId?: string | null;
+          },
+        ) => Promise<void> | void)
+      | null,
+  ): void {
+    this.liveTurnRunnerRegistrar = registrar;
   }
 
   private addStopAlias(aliasJid: string, queueJid: string): void {
@@ -152,20 +143,12 @@ export class GroupQueue {
     }
   }
 
-  private isEphemeralSchedulerGroup(groupJid: string): boolean {
-    return groupJid.startsWith('__scheduler__:');
-  }
-
   private cleanupEphemeralGroupIfIdle(
     groupJid: string,
     state: GroupState,
   ): void {
-    if (!this.isEphemeralSchedulerGroup(groupJid)) return;
-    if (state.active) return;
-    if (state.pendingMessages || state.pendingTasks.length > 0) return;
-    if (state.runningTaskId || state.process || state.idleWaiting) return;
-
-    this.groups.delete(groupJid);
+    if (!groupJid.startsWith('__scheduler__:')) return;
+    if (!this.deleteGroupIfIdle(groupJid, state)) return;
     this.removeStopAliasForQueueJid(groupJid);
     this.waitingMessageGroups = this.waitingMessageGroups.filter(
       (jid) => jid !== groupJid,
@@ -178,9 +161,55 @@ export class GroupQueue {
   private enqueueWaitingGroup(kind: QueueKind, groupJid: string): void {
     const queue =
       kind === 'message' ? this.waitingMessageGroups : this.waitingTaskGroups;
-    if (!queue.includes(groupJid)) {
-      queue.push(groupJid);
+    if (!queue.includes(groupJid)) queue.push(groupJid);
+  }
+
+  private canAcceptWaitingMessageGroup(groupJid: string): boolean {
+    if (this.policy.maxMessageBacklog === UNLIMITED_QUEUE_BACKLOG) return true;
+    if (this.waitingMessageGroups.includes(groupJid)) return true;
+    return this.waitingMessageGroups.length < this.policy.maxMessageBacklog;
+  }
+
+  private refillWaitingMessageBacklog(): void {
+    if (this.policy.maxMessageBacklog === UNLIMITED_QUEUE_BACKLOG) return;
+    for (const [groupJid, state] of this.groups.entries()) {
+      if (!state.pendingMessages || state.active) continue;
+      if (this.waitingMessageGroups.includes(groupJid)) continue;
+      if (!this.canAcceptWaitingMessageGroup(groupJid)) return;
+      this.enqueueWaitingGroup('message', groupJid);
     }
+  }
+
+  private pendingTaskCount(): number {
+    let count = 0;
+    for (const state of this.groups.values())
+      count += state.pendingTasks.length;
+    return count;
+  }
+
+  private canAcceptPendingTask(): boolean {
+    return (
+      this.policy.maxTaskBacklog === UNLIMITED_QUEUE_BACKLOG ||
+      this.pendingTaskCount() < this.policy.maxTaskBacklog
+    );
+  }
+
+  private rejectTaskBacklog(
+    groupJid: string,
+    taskId: string,
+    state: GroupState,
+  ): false {
+    logger.warn(
+      {
+        groupJid,
+        taskId,
+        maxTaskBacklog: this.policy.maxTaskBacklog,
+        pendingTaskCount: this.pendingTaskCount(),
+      },
+      'Task queue backlog cap reached, rejecting task',
+    );
+    this.deleteGroupIfIdle(groupJid, state);
+    return false;
   }
 
   private dequeueWaitingGroup(kind: QueueKind): string | null {
@@ -220,7 +249,19 @@ export class GroupQueue {
       return;
     }
 
-    if (!this.canStartMessageRun()) {
+    if (this.activeMessageCount >= this.policy.maxMessageRuns) {
+      if (!this.canAcceptWaitingMessageGroup(groupJid)) {
+        logger.warn(
+          {
+            groupJid,
+            maxMessageBacklog: this.policy.maxMessageBacklog,
+            waitingMessageGroups: this.waitingMessageGroups.length,
+          },
+          'Message queue backlog cap reached, deferring enqueue signal',
+        );
+        state.pendingMessages = true;
+        return;
+      }
       state.pendingMessages = true;
       this.enqueueWaitingGroup('message', groupJid);
       logger.debug(
@@ -256,6 +297,9 @@ export class GroupQueue {
     }
 
     if (state.active) {
+      if (!this.canAcceptPendingTask()) {
+        return this.rejectTaskBacklog(groupJid, taskId, state);
+      }
       state.pendingTasks.push({ id: taskId, kind: 'task', groupJid, fn });
       if (state.idleWaiting) {
         this.closeStdin(groupJid);
@@ -264,7 +308,10 @@ export class GroupQueue {
       return true;
     }
 
-    if (!this.canStartTaskRun()) {
+    if (this.activeTaskCount >= this.policy.maxJobRuns) {
+      if (!this.canAcceptPendingTask()) {
+        return this.rejectTaskBacklog(groupJid, taskId, state);
+      }
       state.pendingTasks.push({ id: taskId, kind: 'task', groupJid, fn });
       this.enqueueWaitingGroup('task', groupJid);
       logger.debug(
@@ -294,9 +341,7 @@ export class GroupQueue {
   }
 
   private waitForActiveRuns(timeoutMs: number): Promise<void> {
-    if (this.activeRuns.size === 0 || timeoutMs <= 0) {
-      return Promise.resolve();
-    }
+    if (this.activeRuns.size === 0 || timeoutMs <= 0) return Promise.resolve();
     return Promise.race([
       Promise.allSettled([...this.activeRuns]).then(() => undefined),
       new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
@@ -320,7 +365,7 @@ export class GroupQueue {
     workspaceFolder?: string,
     stopAliasJids?: string | string[],
     threadId?: string | null,
-    options: RegisterProcessOptions = {},
+    options: { requiredContinuationUserId?: string | null } = {},
   ): void {
     const state = this.getGroup(groupJid);
     state.process = proc;
@@ -335,12 +380,22 @@ export class GroupQueue {
         ? [stopAliasJids]
         : [];
     for (const alias of aliases) this.addStopAlias(alias, groupJid);
+    if (!state.isTaskRun) {
+      const hooks = this.createLiveTurnLocalRunnerHooks(groupJid, state);
+      void Promise.resolve(
+        this.liveTurnRunnerRegistrar?.(groupJid, hooks, {
+          stopAliasJids: aliases,
+          requiredContinuationUserId: state.requiredContinuationUserId,
+        }),
+      ).catch((err) =>
+        logger.warn(
+          { groupJid, err },
+          'Failed to register live-turn local runner hooks',
+        ),
+      );
+    }
   }
 
-  /**
-   * Mark the agent run as idle-waiting (finished work, waiting for IPC input).
-   * If tasks are pending, preempt the idle agent run immediately.
-   */
   notifyIdle(groupJid: string): void {
     const state = this.getGroup(groupJid);
     state.idleWaiting = true;
@@ -384,12 +439,12 @@ export class GroupQueue {
     }
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
     try {
-      writeContinuationInput(
-        state.workspaceFolder,
+      this.runnerControlPort.writeContinuationInput({
+        workspaceFolder: state.workspaceFolder,
         text,
-        this.continuationSequence++,
-        incomingThreadId,
-      );
+        sequence: this.continuationSequence++,
+        threadId: incomingThreadId,
+      });
       state.continuationHandler?.();
       return true;
     } catch {
@@ -401,7 +456,10 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.workspaceFolder) return;
     try {
-      writeCloseSignal(state.workspaceFolder, state.threadId);
+      this.runnerControlPort.writeCloseSignal({
+        workspaceFolder: state.workspaceFolder,
+        threadId: state.threadId,
+      });
     } catch {
       // ignore
     }
@@ -441,6 +499,33 @@ export class GroupQueue {
       }
     }
     return false;
+  }
+
+  private createLiveTurnLocalRunnerHooks(
+    groupJid: string,
+    state: GroupState,
+  ): LiveTurnLocalRunnerHooks {
+    return {
+      applyContinuation: ({ text, sequence, threadId }) => {
+        if (!state.active || !state.workspaceFolder || state.isTaskRun) return;
+        const incomingThreadId = normalizeThreadQueueId(threadId) || null;
+        if (state.threadId !== incomingThreadId) return;
+        state.idleWaiting = false;
+        this.runnerControlPort.writeContinuationInput({
+          workspaceFolder: state.workspaceFolder,
+          text,
+          sequence,
+          threadId: incomingThreadId,
+        });
+        state.continuationHandler?.();
+      },
+      applyCloseStdin: () => {
+        this.closeStdin(groupJid);
+      },
+      applyStop: () => {
+        this.stopGroup(groupJid);
+      },
+    };
   }
 
   private async runForGroup(
@@ -557,7 +642,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
 
     if (state.pendingTasks.length > 0) {
-      if (!this.canStartTaskRun()) {
+      if (this.activeTaskCount >= this.policy.maxJobRuns) {
         this.enqueueWaitingGroup('task', groupJid);
         this.drainWaiting();
         return;
@@ -575,7 +660,19 @@ export class GroupQueue {
     }
 
     if (state.pendingMessages) {
-      if (!this.canStartMessageRun()) {
+      if (this.activeMessageCount >= this.policy.maxMessageRuns) {
+        if (!this.canAcceptWaitingMessageGroup(groupJid)) {
+          logger.warn(
+            {
+              groupJid,
+              maxMessageBacklog: this.policy.maxMessageBacklog,
+              waitingMessageGroups: this.waitingMessageGroups.length,
+            },
+            'Message queue backlog cap reached, deferring enqueue signal',
+          );
+          this.drainWaiting();
+          return;
+        }
         this.enqueueWaitingGroup('message', groupJid);
         this.drainWaiting();
         return;
@@ -599,9 +696,10 @@ export class GroupQueue {
   private drainWaiting(): void {
     let started = true;
     while (!this.shuttingDown && started) {
+      this.refillWaitingMessageBacklog();
       started = false;
 
-      if (this.canStartMessageRun()) {
+      if (this.activeMessageCount < this.policy.maxMessageRuns) {
         const nextMessageJid = this.dequeueWaitingGroup('message');
         if (nextMessageJid) {
           this.trackRun(
@@ -617,7 +715,7 @@ export class GroupQueue {
         }
       }
 
-      if (this.canStartTaskRun()) {
+      if (this.activeTaskCount < this.policy.maxJobRuns) {
         const nextTaskJid = this.dequeueWaitingGroup('task');
         if (nextTaskJid) {
           const state = this.getGroup(nextTaskJid);
@@ -660,36 +758,4 @@ export class GroupQueue {
     );
     await this.waitForActiveRuns(gracePeriodMs);
   }
-}
-
-function normalizePositiveInteger(
-  value: number | undefined,
-  fallback: number,
-): number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0
-    ? value
-    : fallback;
-}
-
-function normalizeNonNegativeInteger(
-  value: number | undefined,
-  fallback: number,
-): number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
-    ? value
-    : fallback;
-}
-
-function continuationSenderMatchesRequiredUser(
-  senderUserIds: readonly string[] | null | undefined,
-  requiredUserId: string,
-): boolean {
-  const normalizedSenderIds = new Set<string>();
-  for (const senderUserId of senderUserIds ?? []) {
-    const normalized = senderUserId.trim();
-    if (normalized) normalizedSenderIds.add(normalized);
-  }
-  return (
-    normalizedSenderIds.size === 1 && normalizedSenderIds.has(requiredUserId)
-  );
 }

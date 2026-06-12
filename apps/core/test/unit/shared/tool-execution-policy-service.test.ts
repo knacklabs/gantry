@@ -394,6 +394,74 @@ describe('ToolExecutionPolicyService', () => {
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
   });
 
+  it('allows autonomous read-only inspection of generated runtime tool results without durable grants', () => {
+    const resultPath =
+      '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/projects/-Users-example-gantry-agents-main-agent/run-1/tool-results/result.txt';
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: `tail -20 ${resultPath}` },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-generated-results' },
+    });
+
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toMatchObject({
+      status: 'allow',
+      matchedRule: 'runtime:generated-tool-results:read',
+      reason: expect.stringContaining('read-only inspection'),
+    });
+  });
+
+  it('does not allow autonomous mutation or broader generated runtime access through tool-result read allowance', () => {
+    const resultPath =
+      '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/projects/-Users-example-gantry-agents-main-agent/run-1/tool-results/result.txt';
+    const settingsPath =
+      '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/settings.json';
+
+    for (const command of [
+      `tail -20 ${settingsPath}`,
+      `rm ${resultPath}`,
+      `cat ${resultPath} > /tmp/copied-result.txt`,
+    ]) {
+      const request = classifier.classify({
+        origin: 'sdk',
+        toolName: 'Bash',
+        toolInput: { command },
+        executionMode: 'autonomous',
+        runContext: { jobId: 'job-generated-results' },
+      });
+
+      expect(
+        policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+        command,
+      ).toMatchObject({
+        status: 'deny',
+      });
+    }
+  });
+
+  it('does not suggest durable approval for generated runtime paths', () => {
+    const resultPath =
+      '/Users/example/gantry/agents/main_agent/.llm-runtime/claude/projects/-Users-example-gantry-agents-main-agent/run-1/tool-results/result.txt';
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: `rm ${resultPath}` },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-generated-results' },
+    });
+
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toMatchObject({
+      status: 'deny',
+      recoveryAction:
+        'Update the autonomous run to use a reviewed semantic capability or invoke a scoped RunCommand(...) command directly. This command cannot be durably approved for autonomous runs.',
+    });
+  });
+
   it('does not suggest durable approval for autonomous host-owned script calls', () => {
     const request = classifier.classify({
       origin: 'sdk',

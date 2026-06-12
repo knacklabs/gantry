@@ -82,3 +82,9 @@
   unpaired UTF-16 surrogate code units in snapshots, evaluate results, tab
   metadata, errors, and any nested text returned by the browser adapter while
   preserving valid surrogate pairs such as emoji.
+- Profile bytes are snapshot-managed cross-worker. The `user-data/` tree (minus
+  caches/host-local junk) is snapshotted to the `browser-profiles/` artifact
+  prefix when a browser-using turn finalizes and restored before launch on any
+  worker (atomic, sha256-verified, monotonic last-writer-wins by lease fence).
+  The driver still owns only the live CDP session; durable profile state lives in
+  the runtime browser-profile-sync coordinator + the snapshot store, not here.

@@ -14,6 +14,7 @@ import type {
   ExecutionProviderId,
 } from '../../../../domain/sessions/sessions.js';
 import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
+import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import type {
   JobEventListFilters,
   JobListFilters,
@@ -215,25 +216,29 @@ export class PostgresRuntimeRepositoryBundle
     executionProviderId: ExecutionProviderId;
     workerId?: string | null;
     leaseOwner?: string | null;
+    workerInstanceId: string;
     scheduledFor: string;
     startedAt: string;
     retryCount: number;
     leaseExpiresAt: string;
     requireNextRun?: boolean;
-  }): Promise<boolean> {
+  }): Promise<RunLease | null> {
     return this.jobs.claimDueJobRunStart(input);
+  }
+
+  async settleJobRunLease(input: {
+    runId: string;
+    leaseToken: string;
+    outcome: 'completed' | 'failed' | 'released';
+    allowAlreadySettled?: boolean;
+  }): Promise<boolean> {
+    return this.jobs.settleJobRunLease(input);
   }
 
   async releaseStaleJobLeases(
     nowIso?: string,
   ): Promise<ReleasedStaleJobLease[]> {
     return this.jobs.releaseStaleJobLeases(nowIso);
-  }
-
-  async releaseInterruptedJobLeases(
-    nowIso?: string,
-  ): Promise<ReleasedStaleJobLease[]> {
-    return this.jobs.releaseInterruptedJobLeases(nowIso);
   }
 
   async createJobRun(run: JobRun): Promise<boolean> {
@@ -249,8 +254,55 @@ export class PostgresRuntimeRepositoryBundle
     await this.jobs.completeJobRun(runId, status, resultSummary, errorSummary);
   }
 
-  async markJobRunNotified(runId: string): Promise<void> {
-    await this.jobs.markJobRunNotified(runId);
+  async completeJobRunWithLease(input: {
+    runId: string;
+    leaseToken: string;
+    workerInstanceId: string;
+    fencingVersion: number;
+    status: JobRun['status'];
+    resultSummary?: string | null;
+    errorSummary?: string | null;
+  }): Promise<boolean> {
+    return this.jobs.completeJobRunWithLease(input);
+  }
+
+  async finalizeJobRunLease(input: {
+    runId: string;
+    leaseToken: string;
+    workerInstanceId: string;
+    fencingVersion: number;
+    leaseOutcome: 'completed' | 'failed' | 'released';
+    runStatus: JobRun['status'];
+    resultSummary?: string | null;
+    errorSummary?: string | null;
+  }): Promise<boolean> {
+    return this.jobs.finalizeJobRunLease(input);
+  }
+
+  async finalizeJobRunWithLease(input: {
+    jobId: string;
+    runId: string;
+    leaseToken: string;
+    workerInstanceId: string;
+    fencingVersion: number;
+    leaseOutcome: 'completed' | 'failed' | 'released';
+    runStatus: JobRun['status'];
+    resultSummary?: string | null;
+    errorSummary?: string | null;
+    jobUpdates: Partial<Job>;
+  }): Promise<boolean> {
+    return this.jobs.finalizeJobRunWithLease(input);
+  }
+
+  async markJobRunNotified(
+    runId: string,
+    lease?: {
+      leaseToken: string;
+      workerInstanceId: string;
+      fencingVersion: number;
+    },
+  ): Promise<boolean> {
+    return this.jobs.markJobRunNotified(runId, lease);
   }
 
   async getJobRunById(runId: string): Promise<JobRun | undefined> {
@@ -399,10 +451,14 @@ export class PostgresRuntimeRepositoryBundle
   async updateAgentRunProviderMetadata(input: {
     runId: string;
     runIds?: string[];
+    fenceRunId?: string;
+    leaseToken?: string;
+    workerInstanceId?: string;
+    fencingVersion?: number;
     providerRunId?: string | null;
     providerSessionId?: string | null;
-  }): Promise<void> {
-    await this.jobs.updateAgentRunProviderMetadata(input);
+  }): Promise<boolean> {
+    return this.jobs.updateAgentRunProviderMetadata(input);
   }
 
   async completeSessionAgentRun(input: {

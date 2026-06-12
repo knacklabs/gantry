@@ -5,6 +5,12 @@ import { autoRetry } from '@grammyjs/auto-retry';
 import { stream, streamApi } from '@grammyjs/stream';
 
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../../config/index.js';
+import {
+  findDurablePermissionInteractionByRequestId,
+  findDurableQuestionInteractionByRequestId,
+  resolveDurablePermissionInteractionByRequestId,
+  resolveDurableQuestionInteractionByRequestId,
+} from '../../application/interactions/pending-interaction-durability.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   decisionForMode,
@@ -24,8 +30,12 @@ import {
 const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
 
 export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
-  async connect(): Promise<void> {
+  async connect(
+    options: { inbound?: boolean; interactionCallbacks?: boolean } = {},
+  ): Promise<void> {
     this.isStopping = false;
+    this.interactionCallbacksEnabled =
+      options.interactionCallbacks ?? options.inbound !== false;
     this.clearPollingRetryTimer();
     this.bot = new Bot<TelegramContext>(this.botToken, {
       client: {
@@ -73,9 +83,38 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         const key = this.pendingUserQuestionKey(requestId, questionIndex);
         const pending = this.pendingUserQuestions.get(key);
         if (!pending) {
+          const callbackChatId = ctx.chat?.id?.toString() || '';
+          const userId = ctx.from?.id?.toString() || '';
+          const durable = await findDurableQuestionInteractionByRequestId({
+            requestId,
+          });
+          const authorized =
+            durable?.targetJid === `tg:${callbackChatId}` &&
+            userId &&
+            (await this.isTelegramApproverAuthorized(
+              callbackChatId,
+              userId,
+              durable.sourceAgentFolder,
+            ));
+          const answeredBy =
+            ctx.from?.first_name || ctx.from?.username || userId || 'unknown';
+          const resolved =
+            authorized &&
+            (action === 'done' ||
+              (optionIndex !== undefined && Number.isInteger(optionIndex)))
+              ? await resolveDurableQuestionInteractionByRequestId({
+                  requestId,
+                  questionIndex,
+                  optionIndex,
+                  finalize: action === 'done',
+                  answeredBy,
+                })
+              : false;
           await ctx.answerCallbackQuery({
-            text: 'Question is no longer active.',
-            show_alert: true,
+            text: resolved
+              ? 'Answer recorded. Details will update in chat.'
+              : 'Question is no longer active.',
+            show_alert: !resolved,
           });
           return;
         }
@@ -191,9 +230,53 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         this.pendingPermissionCallbackIds.get(callbackId) || callbackId;
       const pending = this.pendingPermissionPrompts.get(requestId);
       if (!pending) {
+        const callbackQuery = ctx.callbackQuery as
+          | {
+              from?: {
+                id?: number | string;
+                first_name?: string;
+                username?: string;
+              };
+            }
+          | undefined;
+        const decidedBy =
+          callbackQuery?.from?.first_name ||
+          callbackQuery?.from?.username ||
+          ctx.from?.first_name ||
+          ctx.from?.username ||
+          ctx.from?.id?.toString() ||
+          'unknown';
+        const durable = await findDurablePermissionInteractionByRequestId({
+          requestId,
+        });
+        const callbackChatId =
+          ctx.callbackQuery?.message?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        const userId =
+          callbackQuery?.from?.id?.toString() || ctx.from?.id?.toString() || '';
+        const authorized =
+          durable?.targetJid === `tg:${callbackChatId}` &&
+          userId &&
+          (await this.isTelegramApproverAuthorized(
+            callbackChatId,
+            userId,
+            durable.sourceAgentFolder,
+            durable.decisionPolicy as never,
+          ));
+        const resolved = authorized
+          ? await resolveDurablePermissionInteractionByRequestId({
+              requestId,
+              mode,
+              approverRef: decidedBy,
+              reason: `resolved via Telegram after channel restart`,
+            })
+          : false;
         await ctx.answerCallbackQuery({
-          text: 'Permission request is no longer active.',
-          show_alert: true,
+          text: resolved
+            ? 'Decision recorded. Details will update in chat.'
+            : 'Permission request is no longer active.',
+          show_alert: !resolved,
         });
         return;
       }
@@ -298,6 +381,11 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
                 : 'Canceled.',
       });
     });
+
+    if (options.inbound === false) {
+      logger.info('Telegram outbound delivery client initialized');
+      return;
+    }
 
     // Telegram bot commands handled above — skip them in the general handler
     // so they don't also get stored as messages. All other /commands flow through.

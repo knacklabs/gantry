@@ -1,0 +1,40 @@
+# Example locked-support tfvars. Minimal isolated stack: one worker, locked
+# agents (seeded via `gantry settings import` post-apply). Replace every
+# REPLACE_ME. NO secret VALUES here — only ARNs.
+#
+#   terraform apply -var-file=support.tfvars
+
+region      = "us-east-1"
+name_prefix = "gantry-support"
+
+image_ref     = "ghcr.io/REPLACE_ME_ORG/gantry@sha256:REPLACE_ME"
+worker_ami_id = "ami-REPLACE_ME"
+
+# --- Secret REFERENCES (ARNs). Create the secret values first (see runbook). ---
+runtime_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/runtime-db-url-REPLACE"
+db_proxy_secret_arn             = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/db-proxy-runtime-role-REPLACE"
+
+secret_encryption_key_secret_arn        = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/secret-encryption-key-REPLACE"
+gantry_ipc_auth_secret_arn              = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/ipc-auth-secret-REPLACE"
+gantry_control_api_keys_json_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/control-api-keys-REPLACE"
+
+# Optional migration-role URL.
+# migration_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/migration-db-url-REPLACE"
+
+# Optional extra runtime secrets.
+# additional_runtime_secret_refs = [
+#   { env_name = "TELEGRAM_BOT_TOKEN", secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/support/telegram-bot-token-REPLACE" },
+# ]
+
+# --- Minimal sizing ---
+db_engine_version    = "16.8"
+db_instance_class    = "db.t4g.small"
+worker_instance_type = "t3.medium"
+
+# certificate_arn = "arn:aws:acm:us-east-1:REPLACE_ME:certificate/REPLACE_ME"
+
+drain_deadline_seconds = 130
+
+tags = {
+  Owner = "REPLACE_ME"
+}

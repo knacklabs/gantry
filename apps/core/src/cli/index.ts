@@ -84,7 +84,10 @@ function usage(): string {
     '  gantry jobs list|show|resume|trigger|set-route|events [--full|--json]',
     '  gantry model status|list|set|reset|why|use-preset|doctor',
     '  gantry credentials model|capability|browser ...',
-    '  gantry settings validate|export-current|drift',
+    '  gantry settings validate|import|export|drift|revisions list',
+    '  gantry workers list',
+    '  gantry bake status',
+    '  gantry artifacts quarantine list|purge|rebake',
     '  gantry service install|start|stop|restart',
     '  gantry skill install <skill.zip> --agent <agentId> [--created-by <id>]',
     '  gantry skill list|doctor|remove',
@@ -503,6 +506,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'settings') {
     const { runSettingsCommand } = await import('./settings.js');
     return runSettingsCommand(runtimeHome, rest);
+  }
+
+  if (command === 'workers') {
+    const { runWorkersCommand } = await import('./workers.js');
+    return runWorkersCommand(rest);
+  }
+
+  if (command === 'bake') {
+    const { runBakeCommand } = await import('./bake.js');
+    return runBakeCommand(rest);
+  }
+
+  if (command === 'artifacts') {
+    const { runArtifactsCommand } = await import('./artifacts.js');
+    return runArtifactsCommand(rest);
   }
 
   if (command === 'credentials') {

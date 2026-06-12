@@ -43,11 +43,16 @@ vi.mock('@core/adapters/storage/postgres/factory.js', () => ({
 }));
 
 const runtimeHomes: string[] = [];
+const strongEncryptionKey = Buffer.from(
+  '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
+  'hex',
+).toString('base64');
 
 function makeRuntimeHome(options?: {
   embeddingsEnabled?: boolean;
   dreamingEmbeddingsEnabled?: boolean;
   sandboxProvider?: 'direct' | 'sandbox_runtime';
+  keyringOnly?: boolean;
 }): string {
   const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-doctor-'));
   runtimeHomes.push(runtimeHome);
@@ -55,7 +60,14 @@ function makeRuntimeHome(options?: {
     path.join(runtimeHome, '.env'),
     [
       'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:15432/gantry',
-      `SECRET_ENCRYPTION_KEY=${Buffer.alloc(32).toString('base64')}`,
+      ...(options?.keyringOnly
+        ? [
+            `SECRET_ENCRYPTION_KEYRING_JSON=${JSON.stringify({
+              active: 'primary',
+              keys: { primary: strongEncryptionKey },
+            })}`,
+          ]
+        : [`SECRET_ENCRYPTION_KEY=${strongEncryptionKey}`]),
       'TELEGRAM_BOT_TOKEN=123456:test-token',
       '',
     ].join('\n'),
@@ -156,6 +168,24 @@ describe('doctor model credential readiness', () => {
         id: 'model-access-credentials',
         status: 'pass',
         message: expect.stringContaining('anthropic'),
+      }),
+    );
+  });
+
+  it('accepts keyring-only model credential encryption in doctor output', async () => {
+    mockListModelCredentials.mockResolvedValue([]);
+    const runtimeHome = makeRuntimeHome({ keyringOnly: true });
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'model-credential-encryption',
+        status: 'pass',
+        message: expect.stringContaining('SECRET_ENCRYPTION_KEYRING_JSON'),
       }),
     );
   });

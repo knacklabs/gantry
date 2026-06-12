@@ -17,6 +17,8 @@ import {
   JOB_ID,
   JOB_NAME,
   JOB_RUN_ID,
+  JOB_RUN_LEASE_FENCING_VERSION,
+  JOB_RUN_LEASE_TOKEN,
   IPC_RESPONSE_KEY_ID,
   PERMISSION_REQUEST_TIMEOUT_MS,
   resolveWorkspaceIpcDir,
@@ -205,6 +207,10 @@ async function requestPermissionApprovalInner(options: {
       ...(JOB_ID ? { jobId: JOB_ID } : {}),
       ...(JOB_NAME ? { jobName: JOB_NAME } : {}),
       ...(JOB_RUN_ID ? { runId: JOB_RUN_ID } : {}),
+      ...(JOB_RUN_LEASE_TOKEN ? { runLeaseToken: JOB_RUN_LEASE_TOKEN } : {}),
+      ...(JOB_RUN_LEASE_FENCING_VERSION
+        ? { runLeaseFencingVersion: Number(JOB_RUN_LEASE_FENCING_VERSION) }
+        : {}),
       toolName: options.toolName,
       ...(options.title ? { title: options.title } : {}),
       ...(options.displayName ? { displayName: options.displayName } : {}),
@@ -237,6 +243,10 @@ async function requestPermissionApprovalInner(options: {
         ...(JOB_ID ? { jobId: JOB_ID } : {}),
         ...(JOB_NAME ? { jobName: JOB_NAME } : {}),
         ...(JOB_RUN_ID ? { runId: JOB_RUN_ID } : {}),
+        ...(JOB_RUN_LEASE_TOKEN ? { runLeaseToken: JOB_RUN_LEASE_TOKEN } : {}),
+        ...(JOB_RUN_LEASE_FENCING_VERSION
+          ? { runLeaseFencingVersion: Number(JOB_RUN_LEASE_FENCING_VERSION) }
+          : {}),
         ...(options.threadId ? { threadId: options.threadId } : {}),
         ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       },

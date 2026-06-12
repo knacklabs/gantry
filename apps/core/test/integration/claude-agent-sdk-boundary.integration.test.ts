@@ -267,6 +267,7 @@ function prepareRuntimeEnv(): {
   vi.stubEnv('GANTRY_IPC_INPUT_DIR', inputDir);
   vi.stubEnv('GANTRY_IPC_AUTH_TOKEN', 'runner-ipc-token');
   vi.stubEnv('GANTRY_IPC_RESPONSE_VERIFY_KEY', 'runner-response-verify-key');
+  vi.stubEnv('GANTRY_NO_PERMISSION_TOOLS', '');
   vi.stubEnv('ANTHROPIC_API_KEY', 'raw-provider-key');
   vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'raw-oauth-token');
   vi.stubEnv('CLAUDE_CONFIG_DIR', path.join(root, 'claude-config'));
@@ -562,13 +563,7 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(
       sdkState.calls[0]?.options.mcpServers.gantry?.env
         ?.GANTRY_MCP_TOOL_NAMES_JSON,
-    ).toBe(
-      JSON.stringify(
-        selectedGantryMcpToolNames([], {
-          memoryReviewerIsControlApprover: true,
-        }),
-      ),
-    );
+    ).toBe(JSON.stringify(selectedGantryMcpToolNames([])));
     expect(
       sdkState.calls[0]?.options.mcpServers.gantry?.env
         ?.GANTRY_MEMORY_IPC_ACTIONS_JSON,
@@ -579,11 +574,58 @@ describe('Claude Agent SDK boundary integration', () => {
         }),
       ),
     );
-    expect(sdkState.calls[0]?.options.allowedTools).toEqual(
+    expect(sdkState.calls[0]?.options.allowedTools).not.toEqual(
       expect.arrayContaining([
         'mcp__gantry__memory_review_pending',
         'mcp__gantry__memory_review_decision',
       ]),
+    );
+  });
+
+  it('passes no-permission authority hiding into the SDK capability projection', async () => {
+    const env = prepareRuntimeEnv();
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello',
+      env.mcpServerPath,
+      runnerInput({
+        hideAuthorityTools: true,
+        allowedTools: [
+          'mcp__gantry__send_message',
+          'mcp__gantry__request_access',
+          'mcp__gantry__settings_desired_state',
+        ],
+      }),
+      {},
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect(sdkState.calls[0]?.options.allowedTools).toContain(
+      'mcp__gantry__send_message',
+    );
+    expect(sdkState.calls[0]?.options.allowedTools).not.toEqual(
+      expect.arrayContaining(['mcp__gantry__request_access']),
+    );
+    expect(sdkState.calls[0]?.options.allowedTools).not.toContain(
+      'mcp__gantry__settings_desired_state',
+    );
+    expect(
+      sdkState.calls[0]?.options.mcpServers.gantry?.env
+        ?.GANTRY_MCP_TOOL_NAMES_JSON,
+    ).toBe(
+      JSON.stringify(
+        selectedGantryMcpToolNames(
+          [
+            'mcp__gantry__send_message',
+            'mcp__gantry__request_access',
+            'mcp__gantry__settings_desired_state',
+          ],
+          { excludeAuthorityTools: true },
+        ),
+      ),
     );
   });
 

@@ -34,6 +34,7 @@ vi.mock('@core/config/index.js', () => ({
 
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
+  isJobTriggerQueueReady: vi.fn(() => true),
   isSchedulerReady: vi.fn(() => true),
   runtimeJobSchedulePlanner: {
     createManualJobId: () => 'job-test',

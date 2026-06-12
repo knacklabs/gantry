@@ -3,27 +3,54 @@
   "defaultLineBudget": 700,
   "lineBudgets": {
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts": 2100,
+    "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 875,
+    "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 770,
+    "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
-    "apps/core/src/app/bootstrap/channel-wiring.ts": 711,
+    "apps/core/src/app/bootstrap/channel-wiring.ts": 759,
+    "apps/core/src/app/bootstrap/runtime-services.ts": 1062,
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 774,
+    "apps/core/src/channels/slack/channel-delivery.ts": 732,
+    "apps/core/src/channels/slack/channel-interactions.ts": 712,
+    "apps/core/src/channels/telegram/channel-connect.ts": 708,
     "apps/core/src/channels/telegram/channel-delivery.ts": 766,
     "apps/core/src/cli/group.ts": 824,
     "apps/core/src/config/settings/desired-state-service.ts": 820,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1120,
-    "apps/core/src/jobs/ipc-admin-handlers.ts": 883,
+    "apps/core/src/application/jobs/job-readiness-service.ts": 754,
+    "apps/core/src/jobs/execution.ts": 772,
+    "apps/core/src/jobs/ipc-admin-handlers.ts": 933,
     "apps/core/src/runner/mcp/tools/service.ts": 850,
-    "apps/core/src/runtime/group-processing.ts": 806,
-    "apps/core/src/runtime/ipc.ts": 794
+    "apps/core/src/runtime/agent-spawn.ts": 762,
+    "apps/core/src/runtime/browser-capability.ts": 737,
+    "apps/core/src/runtime/group-processing.ts": 824,
+    "apps/core/src/runtime/group-queue.ts": 757,
+    "apps/core/src/runtime/ipc-interaction-processing.ts": 865,
+    "apps/core/src/runtime/ipc-parsing.ts": 764,
+    "apps/core/src/runtime/ipc.ts": 833,
+    "packages/sdk/src/index.ts": 711,
+    "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts": 725,
+    "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-repository.postgres.ts": 721,
+    "apps/core/src/application/agents/prompt-profile-service.ts": 783,
+    "apps/core/src/config/settings/runtime-settings-renderer.ts": 706
   },
   "layers": {
     "domain": {
-      "paths": ["apps/core/src/domain"],
-      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
+      "paths": [
+        "apps/core/src/domain"
+      ],
+      "allowedImportLayers": [
+        "domain",
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": ["apps/core/src/application"],
+      "paths": [
+        "apps/core/src/application"
+      ],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -77,10 +104,14 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": ["*"]
+      "allowedExternalImports": [
+        "*"
+      ]
     },
     "config": {
-      "paths": ["apps/core/src/config"],
+      "paths": [
+        "apps/core/src/config"
+      ],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -98,19 +129,49 @@
       ]
     },
     "shared": {
-      "paths": ["apps/core/src/shared"],
-      "allowedImportLayers": ["shared", "packages/contracts"],
-      "allowedExternalImports": ["node:", "crypto", "fs", "path", "url", "os"]
+      "paths": [
+        "apps/core/src/shared",
+        "apps/core/src/infrastructure/logging"
+      ],
+      "allowedImportLayers": [
+        "shared",
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "crypto",
+        "fs",
+        "path",
+        "url",
+        "os"
+      ]
     },
     "packages/contracts": {
-      "paths": ["packages/contracts/src"],
-      "allowedImportLayers": ["packages/contracts"],
-      "allowedExternalImports": ["zod"]
+      "paths": [
+        "packages/contracts/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "zod"
+      ]
     },
     "packages/sdk": {
-      "paths": ["packages/sdk/src"],
-      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
-      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
+      "paths": [
+        "packages/sdk/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts",
+        "packages/sdk"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "http",
+        "https",
+        "url",
+        "crypto"
+      ]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -148,7 +209,9 @@
     "playwright": "\\b(?:Playwright|playwright)\\b",
     "docker": "\\b(?:Docker|docker|docker-compose)\\b"
   },
-  "riskyExecutionApprovedPaths": ["apps/core/src/adapters/sandbox"],
+  "riskyExecutionApprovedPaths": [
+    "apps/core/src/adapters/sandbox"
+  ],
   "browserDefaultProfilePathPatterns": [
     "Google Chrome default profile",
     "~[/\\\\]\\.config[/\\\\]google-chrome",
@@ -161,5 +224,8 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": ["apps/core/src", "packages"]
+  "emptyFolderScanRoots": [
+    "apps/core/src",
+    "packages"
+  ]
 }

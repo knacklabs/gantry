@@ -8,6 +8,9 @@ const SCAN_ROOTS = ['apps/core/src/adapters/storage/postgres'];
 
 const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/file-artifact-repository.postgres.ts',
+  // pg_advisory_xact_lock guards run-slot capacity checks against concurrent
+  // acquisition; same operational primitive as the file-artifact path lock.
+  'apps/core/src/adapters/storage/postgres/repositories/worker-coordination-lease.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-store.ts',
   'apps/core/src/adapters/storage/postgres/storage-service.ts',

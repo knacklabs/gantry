@@ -54,11 +54,13 @@ export interface MessageLoopDeps {
       options?: {
         threadId?: string | null;
         senderUserIds?: readonly string[] | null;
+        idempotencyKey?: string;
+        cursorAfter?: string;
       },
-    ) => boolean;
+    ) => boolean | Promise<boolean>;
     enqueueMessageCheck: (chatJid: string) => void;
-    closeStdin: (chatJid: string) => void;
-    stopGroup?: (chatJid: string) => boolean;
+    closeStdin: (chatJid: string) => void | Promise<void>;
+    stopGroup?: (chatJid: string) => boolean | Promise<boolean>;
   };
   handleActiveControlCommand?: (args: {
     chatJid: string;
@@ -167,9 +169,9 @@ export async function runMessagePollingTick(
               }
             }
             if (loopCommand?.kind === 'stop') {
-              deps.queue.stopGroup?.(queueJid);
+              await deps.queue.stopGroup?.(queueJid);
             } else {
-              deps.queue.closeStdin(queueJid);
+              await deps.queue.closeStdin(queueJid);
             }
           }
           deps.queue.enqueueMessageCheck(queueJid);
@@ -215,10 +217,16 @@ export async function runMessagePollingTick(
           const senderUserIds = resolveNonSelfSenderIds(messagesToSend);
 
           if (
-            !deps.queue.sendMessage(queueJid, formatted, {
+            !(await deps.queue.sendMessage(queueJid, formatted, {
               threadId,
               senderUserIds,
-            })
+              idempotencyKey: `continuation:${queueJid}:${messagesToSend
+                .map((message) => message.id)
+                .join(',')}`,
+              cursorAfter: encodeGroupMessageCursor(
+                toGroupMessageCursor(messagesToSend[messagesToSend.length - 1]),
+              ),
+            }))
           ) {
             shouldEnqueueMessageCheck = true;
             break;
@@ -267,13 +275,52 @@ export async function runMessagePollingTick(
   }
 }
 
-export async function startMessagePollingLoop(
+export interface MessagePollingLoopHandle {
+  /** Stop the loop after the in-flight tick; cancels the pending poll delay. */
+  stop: () => void;
+  /** Settles when the loop exits (only rejects on an unexpected crash). */
+  done: Promise<void>;
+}
+
+/**
+ * Start the live message polling loop. The loop runs on EVERY live-capable
+ * worker (distributed admission); it is not gated by any lease. Duplicate run
+ * admission across the fleet is prevented downstream by the durable
+ * per-scope claim (`uq_live_turns_active_scope`) plus idempotent continuation
+ * commands — the losing poller routes its message to the durable owner instead
+ * of starting a second run. Role gating happens in the bootstrap caller
+ * (runtime-services gates this loop on `liveExecution`). The returned handle
+ * stops the loop for graceful drain.
+ */
+export function startMessagePollingLoop(
   deps: MessageLoopDeps,
-): Promise<never> {
-  while (true) {
-    await runMessagePollingTick(deps);
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-  }
+): MessagePollingLoopHandle {
+  let stopped = false;
+  let cancelDelay: (() => void) | undefined;
+  const done = (async () => {
+    while (!stopped) {
+      await runMessagePollingTick(deps);
+      if (stopped) break;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          cancelDelay = undefined;
+          resolve();
+        }, POLL_INTERVAL);
+        cancelDelay = () => {
+          cancelDelay = undefined;
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    }
+  })();
+  return {
+    stop: () => {
+      stopped = true;
+      cancelDelay?.();
+    },
+    done,
+  };
 }
 
 export async function recoverPendingMessages(

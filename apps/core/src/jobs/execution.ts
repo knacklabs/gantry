@@ -6,6 +6,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
+  getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 import { splitAccessRequirements } from '../application/jobs/job-access-requirements.js';
@@ -42,8 +43,12 @@ import {
   notifySchedulerRunStart,
   notifySchedulerTerminalRunState,
 } from './execution-notifications.js';
-import { deadLetterUnresolvedExecutionContext } from './execution-dead-letter.js';
-import { runSystemJobWithDeadline } from './execution-system-job.js';
+import {
+  claimSchedulerRunLease,
+  startSchedulerRunLeaseHeartbeat,
+} from './execution-lease.js';
+import { resolveExecutionContextOrDeadLetter } from './execution-dead-letter.js';
+import { runSystemJobTurn } from './execution-system-job.js';
 import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import {
@@ -56,10 +61,12 @@ import {
 } from './model-resolution.js';
 import {
   createJobRunDiagnostics,
+  createStreamingEventFlusher,
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
   runnerRuntimeEventKey,
   terminalDiagnosticsPayload,
+  toolDenialEventPayload,
 } from './execution-diagnostics.js';
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
@@ -95,29 +102,27 @@ export async function runJob(
   const startedAt = toIso(startedAtMs);
   const runtimeAppId = DEFAULT_JOB_RUNTIME_APP_ID;
   const runtimeEventExchange = getRuntimeEventExchange();
-  const publishRuntimeEvent = async (
+  const publishRuntimeEvent = (
     event: Parameters<typeof runtimeEventExchange.publish>[0],
-  ): Promise<void> => {
-    await runtimeEventExchange.publish(event);
-  };
+  ): Promise<void> => runtimeEventExchange.publish(event).then(() => undefined);
+  const warn = (context: Record<string, unknown>, message: string): void =>
+    logger.warn(context, message);
   const groups = deps.conversationRoutes();
-  const execution = resolveExecutionContext(currentJob, groups);
-  if (!execution) {
-    await deadLetterUnresolvedExecutionContext({
-      currentJob,
-      deps,
-      runId,
-      scheduledFor,
-      startedAt,
-      startedAtMs,
-      dispatch,
-      runtimeAppId,
-      control: getRuntimeControlRepository(),
-      publishRuntimeEvent,
-      logger,
-    });
-    return;
-  }
+  const execution = await resolveExecutionContextOrDeadLetter({
+    resolve: () => resolveExecutionContext(currentJob, groups),
+    currentJob,
+    deps,
+    runId,
+    scheduledFor,
+    startedAt,
+    startedAtMs,
+    dispatch,
+    runtimeAppId,
+    control: getRuntimeControlRepository(),
+    publishRuntimeEvent,
+    logger,
+  });
+  if (!execution) return;
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
@@ -147,20 +152,29 @@ export async function runJob(
     executionAdapters: deps.executionAdapters,
     fallbackForInjectedRunner: Boolean(deps.runAgent),
   });
-  const claimed = await deps.opsRepository.claimDueJobRunStart({
-    jobId: currentJob.id,
+  const leaseContext = await claimSchedulerRunLease({
+    deps,
+    currentJob,
     runId,
     executionProviderId,
     workerId: execution.group.folder,
     leaseOwner: execution.executionJid,
     scheduledFor,
     startedAt,
-    retryCount: currentJob.consecutive_failures,
     leaseExpiresAt,
     requireNextRun:
       currentJob.schedule_type !== 'manual' && !dispatch?.triggerId,
+    getCoordinationRepository: getWorkerCoordinationRepository,
+    warn,
   });
-  if (!claimed) return;
+  if (!leaseContext) return;
+  const leaseHeartbeat = startSchedulerRunLeaseHeartbeat({
+    runId,
+    leaseContext,
+    ttlMs: timeoutMs + 30_000,
+    getCoordinationRepository: getWorkerCoordinationRepository,
+    warn,
+  });
   let terminalRunRecorded = false;
   let deletedDuringRun = false;
   try {
@@ -238,53 +252,41 @@ export async function runJob(
       deletionGuard.resetDeliveryDeletionCheck();
     }
     if (!error && currentJob.prompt.startsWith('__system:')) {
-      try {
-        const systemResult: unknown = await runSystemJobWithDeadline({
-          currentJob,
-          startedAtMs,
-          timeoutMs,
-          logger,
-          context: {
-            folder: execution.group.folder,
-            conversationId: execution.executionJid,
-            conversationKind: execution.group.conversationKind,
-            userId: memoryUserId,
-            threadId: execution.threadId,
-          },
-        });
-        if (typeof systemResult !== 'string') {
-          throw new Error('System job returned a non-displayable result.');
-        }
-        appendResultSummary(systemResult);
-      } catch (err) {
-        error = err instanceof Error ? err.message : String(err);
-      }
+      const systemOutcome = await runSystemJobTurn({
+        currentJob,
+        startedAtMs,
+        timeoutMs,
+        logger,
+        context: {
+          folder: execution.group.folder,
+          conversationId: execution.executionJid,
+          conversationKind: execution.group.conversationKind,
+          userId: memoryUserId,
+          threadId: execution.threadId,
+        },
+      });
+      appendResultSummary(systemOutcome.result);
+      error = systemOutcome.error;
     } else {
       if (!error) {
-        let bufferedStreamingChars = 0;
-        let totalStreamingChars = 0;
-        let lastStreamingEventMs = 0;
         let turnContext: JobTurnContext | undefined;
         let agentRunId: string | undefined;
         const updateRunProviderMetadata = createRunProviderMetadataUpdater({
           opsRepository: deps.opsRepository,
           jobId: currentJob.id,
           outerRunId: runId,
+          leaseToken: leaseContext.lease.leaseToken,
+          workerInstanceId: leaseContext.lease.workerInstanceId,
+          fencingVersion: leaseContext.lease.fencingVersion,
           getSessionRunId: () => agentRunId,
           nowMs,
           logger,
         });
-        const flushStreamingEvent = (force = false): void => {
-          if (bufferedStreamingChars <= 0) return;
-          const timestampMs = nowMs();
-          if (!force && timestampMs - lastStreamingEventMs < 1000) return;
-          void emitJobEvent(RUNTIME_EVENT_TYPES.JOB_STREAMING, {
-            buffered_chars: bufferedStreamingChars,
-            total_chars: totalStreamingChars,
-          });
-          bufferedStreamingChars = 0;
-          lastStreamingEventMs = timestampMs;
-        };
+        const streamingFlusher = createStreamingEventFlusher({
+          nowMs,
+          emit: (payload) =>
+            emitJobEvent(RUNTIME_EVENT_TYPES.JOB_STREAMING, payload),
+        });
         try {
           turnContext = await deps.opsRepository.getAgentTurnContext?.(
             buildExecutionTurnContextInput({
@@ -428,6 +430,8 @@ export async function runJob(
                 jobId: currentJob.id,
                 jobName: currentJob.name,
                 runId,
+                runLeaseToken: leaseContext.lease.leaseToken,
+                runLeaseFencingVersion: leaseContext.lease.fencingVersion,
                 jobModelUseKind,
                 assistantName: ASSISTANT_NAME,
                 memoryContextBlock: turnContext?.memoryContextBlock,
@@ -482,9 +486,8 @@ export async function runJob(
                   const chunkChars = streamedOutput.result.length;
                   diagnostics.latestStreamedOutputChars = chunkChars;
                   diagnostics.totalStreamedOutputChars += chunkChars;
-                  bufferedStreamingChars += chunkChars;
-                  totalStreamingChars += chunkChars;
-                  flushStreamingEvent();
+                  streamingFlusher.append(chunkChars);
+                  streamingFlusher.flush();
                 }
                 if (streamedOutput.status === 'error') {
                   error = streamedOutput.error || 'Unknown error';
@@ -492,7 +495,7 @@ export async function runJob(
               },
               runOptions,
             );
-            flushStreamingEvent(true);
+            streamingFlusher.flush(true);
             await forwardRunnerRuntimeEvents({
               events: output.runtimeEvents?.filter((event) => {
                 const eventKey = runnerRuntimeEventKey(event);
@@ -565,6 +568,9 @@ export async function runJob(
       result = null;
       error = null;
     }
+    const safeResultSummary = deletionGuard.deletedDuringRun
+      ? null
+      : result || resultSummaryAccumulator.snapshot() || null;
     const {
       runStatus,
       nextRun,
@@ -586,18 +592,70 @@ export async function runJob(
       runId,
       appSession: eventState.eventAppSession ?? preflightAppSession,
       publishRuntimeEvent,
+      updateJobState: async (jobUpdates, state) => {
+        if (deletionGuard.deletedDuringRun) return;
+        const finalizeWithLease = deps.opsRepository.finalizeJobRunWithLease;
+        if (!finalizeWithLease) {
+          throw new Error(
+            'Scheduler run lease finalization is unavailable for terminal job write.',
+          );
+        }
+        const finalized = await finalizeWithLease.call(deps.opsRepository, {
+          jobId: currentJob.id,
+          runId,
+          leaseToken: leaseContext.lease.leaseToken,
+          workerInstanceId: leaseContext.lease.workerInstanceId,
+          fencingVersion: leaseContext.lease.fencingVersion,
+          leaseOutcome: error ? 'failed' : 'completed',
+          runStatus: state.runStatus,
+          resultSummary: safeResultSummary
+            ? safeResultSummary.slice(0, 500)
+            : null,
+          errorSummary: state.safeErrorSummary
+            ? state.safeErrorSummary.slice(0, 500)
+            : null,
+          jobUpdates,
+        });
+        if (!finalized) {
+          throw new Error(
+            'Scheduler run lease is no longer active during terminal finalization.',
+          );
+        }
+        terminalRunRecorded = true;
+      },
     });
-    const resultSummary = deletionGuard.deletedDuringRun
-      ? null
-      : result || resultSummaryAccumulator.snapshot();
-    const safeResultSummary = resultSummary ? resultSummary : null;
-    await deps.opsRepository.completeJobRun(
-      runId,
-      runStatus,
-      safeResultSummary ? safeResultSummary.slice(0, 500) : null,
-      safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
-    );
-    terminalRunRecorded = true;
+    if (!terminalRunRecorded && !deletionGuard.deletedDuringRun) {
+      const finalizeRunLease = deps.opsRepository.finalizeJobRunLease;
+      if (!finalizeRunLease) {
+        throw new Error(
+          'Scheduler run lease finalization is unavailable for terminal run write.',
+        );
+      }
+      const finalized = await finalizeRunLease.call(deps.opsRepository, {
+        runId,
+        leaseToken: leaseContext.lease.leaseToken,
+        workerInstanceId: leaseContext.lease.workerInstanceId,
+        fencingVersion: leaseContext.lease.fencingVersion,
+        leaseOutcome: error ? 'failed' : 'completed',
+        runStatus,
+        resultSummary: safeResultSummary
+          ? safeResultSummary.slice(0, 500)
+          : null,
+        errorSummary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
+      });
+      if (!finalized) {
+        throw new Error(
+          'Scheduler run lease is no longer active during terminal finalization.',
+        );
+      }
+      terminalRunRecorded = true;
+    }
+    if (!deletionGuard.deletedDuringRun) {
+      await leaseContext.recordRunnerControlEvent('terminal_state', {
+        outcome: error ? 'failed' : 'completed',
+        fencingVersion: leaseContext.lease.fencingVersion,
+      });
+    }
     await emitJobEvent(runtimeEventTypeForRunStatus(runStatus), {
       next_run: nextRun,
       retry_count: retryCount,
@@ -610,18 +668,16 @@ export async function runJob(
       executionJid: execution?.executionJid,
       diagnostics,
       deps,
+      snapshotRunId: runId,
+      snapshotFencingVersion: leaseContext.lease.fencingVersion,
       emitJobEvent,
       logger,
     });
     if (toolDenial)
-      await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED, {
-        error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
-        denied_tool: toolDenial.toolName,
-        recovery_action: toolDenial.recoveryAction ?? null,
-        recovery_kind: toolDenial.recoveryAction?.startsWith('request_access')
-          ? 'persistent_capability'
-          : 'job_policy',
-      });
+      await emitJobEvent(
+        RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+        toolDenialEventPayload(toolDenial, safeErrorSummary),
+      );
     const summary = safeErrorSummary
       ? safeErrorSummary.slice(0, 1_200)
       : safeResultSummary
@@ -643,7 +699,19 @@ export async function runJob(
         sendMessage: deps.sendMessage,
       }));
     if (notified) {
-      await deps.opsRepository.markJobRunNotified(runId);
+      const markedNotified = await deps.opsRepository.markJobRunNotified(
+        runId,
+        {
+          leaseToken: leaseContext.lease.leaseToken,
+          workerInstanceId: leaseContext.lease.workerInstanceId,
+          fencingVersion: leaseContext.lease.fencingVersion,
+        },
+      );
+      if (!markedNotified) {
+        throw new Error(
+          'Scheduler run lease is no longer valid during notification finalization.',
+        );
+      }
     }
     await emitJobEvent(
       runStatus === 'completed'
@@ -687,11 +755,16 @@ export async function runJob(
       deps.onSchedulerChanged?.(currentJob.id);
     }
   } finally {
+    leaseHeartbeat.stop();
     if (!terminalRunRecorded && !deletedDuringRun) {
       await completeFailedRunFailsafe({
         opsRepository: deps.opsRepository,
         jobId: currentJob.id,
         runId,
+        leaseToken: leaseContext.lease.leaseToken,
+        workerInstanceId: leaseContext.lease.workerInstanceId,
+        fencingVersion: leaseContext.lease.fencingVersion,
+        recordRunnerControlEvent: leaseContext.recordRunnerControlEvent,
         logger,
       });
     }

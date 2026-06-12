@@ -14,11 +14,19 @@ npm install
 npm run typecheck
 npm run lint
 npm run format:check
+npm run security:audit
+npm run security:sbom
+npm run security:package
+npm run security:images
 npm run test:unit
 npm run test:integration
 npm run test:integration:postgres
 npm run test:e2e
 ```
+
+`security:audit` is scoped to production dependencies. The current Drizzle Kit
+development-only advisory requires a breaking/downgrade package-manager change
+to silence and is not part of the production runtime dependency gate.
 
 Durable session resume changes should additionally run the focused unit checks:
 

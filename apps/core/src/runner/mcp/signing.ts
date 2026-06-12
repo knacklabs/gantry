@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, verify as cryptoVerify } from 'crypto';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { canonicalJson } from '../../shared/canonical-json.js';
 
 export function signIpcRequestPayload(
   requestSigningKey: string | undefined,
@@ -7,9 +8,7 @@ export function signIpcRequestPayload(
 ): string | undefined {
   const key = requestSigningKey?.trim();
   if (!key) return undefined;
-  return createHmac('sha256', key)
-    .update(JSON.stringify(payload))
-    .digest('hex');
+  return createHmac('sha256', key).update(canonicalJson(payload)).digest('hex');
 }
 
 export function createSignedIpcRequestEnvelope(

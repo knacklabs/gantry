@@ -1,15 +1,24 @@
 import {
   createStorageRuntime,
+  createRuntimeBrowserProfileArtifactStore,
   type StorageRuntimeOptions,
   type RuntimeOpsRepositories,
   type StorageRuntime,
 } from './factory.js';
 import type { FileArtifactStore } from '../../../domain/ports/file-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
+import type {
+  BrowserProfileArtifactStore,
+  BrowserProfileArtifactMaterializer,
+} from '../../../domain/ports/browser-profile-artifact-store.js';
+import type { BrowserProfileSnapshotRepository } from '../../../domain/ports/browser-profile-snapshot.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
+import type { WorkerCoordinationRepository } from '../../../domain/ports/worker-coordination.js';
+import { configurePendingInteractionDurability } from '../../../application/interactions/pending-interaction-durability.js';
+import { logger } from '../../../infrastructure/logging/logger.js';
 
 let runtime: StorageRuntime | null = null;
 
@@ -56,6 +65,11 @@ export async function initializeRuntimeStorage(
       throw new Error([failure.summary, ...failure.details].join('\n'));
     }
     runtime = nextRuntime;
+    configurePendingInteractionDurability({
+      repository: nextRuntime.repositories.workerCoordination,
+      liveTurns: nextRuntime.repositories.liveTurns,
+      warn: (context, message) => logger.warn(context, message),
+    });
     return nextRuntime;
   } catch (err) {
     await nextRuntime.service.close();
@@ -80,6 +94,10 @@ export function getRuntimeControlRepository(): PostgresControlPlaneRepository {
 
 export function getRuntimeEventExchange(): RuntimeEventExchange {
   return getRuntimeStorage().runtimeEvents;
+}
+
+export function getWorkerCoordinationRepository(): WorkerCoordinationRepository {
+  return getRuntimeStorage().repositories.workerCoordination;
 }
 
 export async function tryAcquireRuntimeAdvisoryLease(
@@ -148,9 +166,20 @@ export function getRuntimeSkillArtifactStore(): SkillArtifactStore {
   return getRuntimeStorage().skillArtifacts;
 }
 
+export function getRuntimeBrowserProfileArtifactStore(): BrowserProfileArtifactStore &
+  BrowserProfileArtifactMaterializer {
+  getRuntimeStorage();
+  return createRuntimeBrowserProfileArtifactStore();
+}
+
+export function getRuntimeBrowserProfileSnapshotRepository(): BrowserProfileSnapshotRepository {
+  return getRuntimeStorage().browserProfileSnapshots;
+}
+
 export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
   runtime = null;
+  configurePendingInteractionDurability(null);
   await existing?.runtimeEventNotifier.close();
   await existing?.service.close();
 }
@@ -158,6 +187,15 @@ export async function closeRuntimeStorage(): Promise<void> {
 /** @internal test hook */
 export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
   runtime = nextRuntime;
+  const workerCoordination = nextRuntime.repositories?.workerCoordination;
+  configurePendingInteractionDurability(
+    workerCoordination
+      ? {
+          repository: workerCoordination,
+          liveTurns: nextRuntime.repositories?.liveTurns ?? null,
+        }
+      : null,
+  );
 }
 
 /** @internal test hook */
@@ -184,5 +222,6 @@ export function _setRuntimeRepositoriesForTest(
     } as StorageRuntime['runtimeEventNotifier'],
     fileArtifacts: {} as StorageRuntime['fileArtifacts'],
     skillArtifacts: {} as StorageRuntime['skillArtifacts'],
+    browserProfileSnapshots: {} as StorageRuntime['browserProfileSnapshots'],
   };
 }

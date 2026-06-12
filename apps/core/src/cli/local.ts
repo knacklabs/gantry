@@ -4,6 +4,7 @@ import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
+import { hasValidEncryptionSecret } from '../shared/security-posture.js';
 
 function composeGuidance(): string {
   return [
@@ -28,7 +29,14 @@ function localEnvSummary(runtimeHome: string): string {
   }
   return [
     `GANTRY_DATABASE_URL: ${env.GANTRY_DATABASE_URL ? 'configured' : 'missing'}`,
-    `SECRET_ENCRYPTION_KEY: ${env.SECRET_ENCRYPTION_KEY ? 'configured' : 'missing'}`,
+    `Credential encryption: ${
+      hasValidEncryptionSecret({
+        SECRET_ENCRYPTION_KEY: env.SECRET_ENCRYPTION_KEY,
+        SECRET_ENCRYPTION_KEYRING_JSON: env.SECRET_ENCRYPTION_KEYRING_JSON,
+      })
+        ? 'configured'
+        : 'missing or invalid'
+    }`,
     `Gantry schema: ${gantrySchema}`,
   ].join('\n');
 }

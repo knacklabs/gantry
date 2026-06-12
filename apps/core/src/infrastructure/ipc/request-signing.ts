@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { canonicalJson } from '../../shared/canonical-json.js';
 
 export const IPC_REQUEST_MAX_AGE_MS = 5 * 60_000;
 
@@ -9,9 +10,7 @@ export function signIpcRequestPayload(
 ): string | undefined {
   const key = requestSigningKey?.trim();
   if (!key) return undefined;
-  return createHmac('sha256', key)
-    .update(JSON.stringify(payload))
-    .digest('hex');
+  return createHmac('sha256', key).update(canonicalJson(payload)).digest('hex');
 }
 
 export function verifyIpcRequestPayload(

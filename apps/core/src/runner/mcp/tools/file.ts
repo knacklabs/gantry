@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import type { FileArtifactDescriptor } from '../../../domain/file-artifacts/file-artifact.js';
-import { chatJid, TASKS_DIR } from '../context.js';
+import { chatJid, lockedAccessPreset, TASKS_DIR } from '../context.js';
 import { makeIpcId } from '../ipc-ids.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 
@@ -55,7 +55,9 @@ const fileToolSchema = {
     .boolean()
     .optional()
     .describe(
-      'Honored only for protected config writes (settings.yaml, .mcp.json, SKILL.md) when this MCP process has admin context. Profile files (SOUL.md, AGENTS.md) cannot be written here — use request_agent_profile_update.',
+      lockedAccessPreset
+        ? 'Honored only for protected config writes when this MCP process has admin context. Profile files (SOUL.md, AGENTS.md) cannot be written here.'
+        : 'Honored only for protected config writes (settings.yaml, .mcp.json, SKILL.md) when this MCP process has admin context. Profile files (SOUL.md, AGENTS.md) cannot be written here — use request_agent_profile_update.',
     ),
   limit: z.number().int().positive().max(100).optional(),
 };

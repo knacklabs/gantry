@@ -95,7 +95,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
   const runAgent = createGroupAgentRunner({ deps, ops });
   async function processGroupMessages(
     queueJid: string,
-    options: { queued?: boolean } = {},
+    options: {
+      queued?: boolean;
+      existingRunId?: string;
+      existingRunLeaseToken?: string;
+      existingRunLeaseWorkerInstanceId?: string;
+      existingRunLeaseFencingVersion?: number;
+      onRunResult?: (result: 'success' | 'error' | 'stopped') => void;
+    } = {},
   ): Promise<boolean> {
     const { chatJid, threadId: queueThreadId } = parseThreadQueueKey(queueJid);
     const group = deps.getGroup(chatJid);
@@ -186,15 +193,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         sendMessage: (text, options) =>
           sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
         setTyping: (typing) => deps.channelRuntime.setTyping(chatJid, typing),
-        runAgent: (prompt, onOutput, options) =>
+        runAgent: (prompt, onOutput, commandOptions) =>
           runAgent(group, prompt, chatJid, queueJid, onOutput, {
-            ...options,
+            ...commandOptions,
             memoryContext: {
               source: 'command',
               userId: memoryUserId,
               threadId: activeThreadId,
             },
             turnMessages: missedMessages,
+            existingRunId: options.existingRunId,
+            existingRunLeaseToken: options.existingRunLeaseToken,
+            existingRunLeaseWorkerInstanceId:
+              options.existingRunLeaseWorkerInstanceId,
+            existingRunLeaseFencingVersion:
+              options.existingRunLeaseFencingVersion,
           }),
         closeStdin: () => deps.queue.closeStdin(queueJid),
         advanceCursor: createAdvanceCursorHandler({
@@ -723,6 +736,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             recallQuery,
           },
           turnMessages: missedMessages,
+          existingRunId: options.existingRunId,
+          existingRunLeaseToken: options.existingRunLeaseToken,
+          existingRunLeaseWorkerInstanceId:
+            options.existingRunLeaseWorkerInstanceId,
+          existingRunLeaseFencingVersion:
+            options.existingRunLeaseFencingVersion,
         },
       );
     } finally {
@@ -820,6 +839,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendDoneProgress(finalProgressState);
     }
     await setTypingState(false);
+    options?.onRunResult?.(output);
     return resultOk;
   }
 

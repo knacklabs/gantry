@@ -113,7 +113,10 @@ export interface ChannelWiring {
     internal: boolean;
     runtimeAppId: AppId;
   };
-  connectEnabledChannels: (runtimeSettings: RuntimeSettings) => Promise<void>;
+  connectEnabledChannels: (
+    runtimeSettings: RuntimeSettings,
+    options?: { providerInbound?: boolean },
+  ) => Promise<void>;
   hasConnectedChannels: () => boolean;
   hasChannel: (jid: string) => boolean;
   supportsStreaming: (jid: string) => boolean;

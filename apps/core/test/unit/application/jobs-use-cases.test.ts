@@ -1751,6 +1751,82 @@ describe('job application use cases', () => {
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });
 
+  it('uses the role-specific reason when the process does not claim jobs', async () => {
+    const control = {
+      getAppSessionById: vi.fn(async () => ({
+        sessionId: 'session-1',
+        appId: 'app-one',
+        conversationJid: 'app:app-one:conv-1',
+        workspaceKey: 'team',
+        defaultResponseMode: 'sse',
+        defaultWebhookId: null,
+      })),
+      getAppSessionByChatJid: vi.fn(),
+      createJobTrigger: vi.fn(),
+    };
+    const roleReason =
+      'This process role cannot enqueue job triggers without a configured ' +
+      'Postgres URL; the job will still run on its schedule once storage is set.';
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({ session_id: 'session-1', status: 'active' }),
+      ) as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents: { publish: vi.fn() },
+      triggerQueue: {
+        isReady: () => false,
+        enqueue: vi.fn(),
+        notReadyReason: () => roleReason,
+      },
+    });
+
+    await expect(
+      service.triggerJob({ appId: 'app-one', jobId: 'job-1' }),
+    ).rejects.toMatchObject({
+      code: 'SCHEDULER_NOT_READY',
+      message: roleReason,
+    });
+    expect(control.createJobTrigger).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the generic reason when the cause is transient', async () => {
+    const control = {
+      getAppSessionById: vi.fn(async () => ({
+        sessionId: 'session-1',
+        appId: 'app-one',
+        conversationJid: 'app:app-one:conv-1',
+        workspaceKey: 'team',
+        defaultResponseMode: 'sse',
+        defaultWebhookId: null,
+      })),
+      getAppSessionByChatJid: vi.fn(),
+      createJobTrigger: vi.fn(),
+    };
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({ session_id: 'session-1', status: 'active' }),
+      ) as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents: { publish: vi.fn() },
+      triggerQueue: {
+        isReady: () => false,
+        enqueue: vi.fn(),
+        notReadyReason: () => undefined,
+      },
+    });
+
+    await expect(
+      service.triggerJob({ appId: 'app-one', jobId: 'job-1' }),
+    ).rejects.toMatchObject({
+      code: 'SCHEDULER_NOT_READY',
+      message: 'Scheduler is not ready to accept job triggers',
+    });
+  });
+
   it('rate-limits trigger requests before creating trigger rows', async () => {
     const control = {
       getAppSessionById: vi.fn(async () => ({

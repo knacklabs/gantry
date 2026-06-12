@@ -16,6 +16,38 @@ describe('package hygiene', () => {
     });
   }
 
+  it('keeps unsafe local state out of Docker build contexts', () => {
+    const dockerIgnore = fs.readFileSync('.dockerignore', 'utf-8');
+    const patterns = new Set(
+      dockerIgnore
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#')),
+    );
+
+    expect([...patterns]).toEqual(
+      expect.arrayContaining([
+        '.git',
+        '.claude',
+        '.factory',
+        '.env',
+        '.env.*',
+        'node_modules',
+        'dist',
+        'coverage',
+        '__MACOSX',
+        '*.pem',
+        '*.key',
+        'id_rsa',
+        'id_ed25519',
+        '*.db',
+        '*.sqlite',
+        '*.sqlite3',
+        '*.duckdb',
+      ]),
+    );
+  });
+
   it('keeps tests, factory artifacts, coverage, pycache, and validation reports out of npm pack output', () => {
     const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
       encoding: 'utf-8',

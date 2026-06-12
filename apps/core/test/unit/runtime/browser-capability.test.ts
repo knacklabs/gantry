@@ -358,12 +358,20 @@ describe('browser-capability', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const manager = await import('@core/runtime/browser-capability.js');
+    // The shared cold launch still proceeds (and succeeds) underneath; an
+    // already-exhausted deadline rejects only the waiting caller, it does not
+    // poison the launch. Queue a healthy CDP sequence so the detached inner
+    // launch can finish cleanly without killing the process or releasing the
+    // lock.
+    queueHealthyContentTarget('target-1');
 
-    await expect(manager.launchBrowser({ deadlineAtMs: 999 })).rejects.toThrow(
-      'Browser launch deadline exceeded',
-    );
+    const launch = manager.launchBrowser({ deadlineAtMs: 999 });
+    await expect(launch).rejects.toThrow('Browser launch deadline exceeded');
 
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    // The inner launch runs detached: wait for it to reach spawn (it has to
+    // walk several async hops first). The deadline must not have spawned twice,
+    // terminated the process, or released the lock.
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
     expect(killSpy).not.toHaveBeenCalledWith(expect.any(Number), 'SIGTERM');
     expect(mocks.release).not.toHaveBeenCalled();
   });

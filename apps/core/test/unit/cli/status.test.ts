@@ -61,6 +61,7 @@ describe('status command formatting', () => {
       modelCredentialReady: true,
       memoryStatus: 'Ready',
       settings,
+      processRole: 'all',
     } satisfies RuntimeStatusSummary);
 
     expect(output).toMatchInlineSnapshot(`
@@ -69,6 +70,7 @@ describe('status command formatting', () => {
       Runtime: Ready
       Service (background): running(pid:12345)
       Sandbox: direct (compatibility, no OS sandbox)
+      Role: all (control:full, live, jobs, inbound, bake)
       Workspace: default
       Agents: 1/1
       Conversations: 1/1
@@ -124,6 +126,7 @@ describe('status command formatting', () => {
       modelCredentialReady: true,
       memoryStatus: 'Ready',
       settings,
+      processRole: 'all',
     } satisfies RuntimeStatusSummary);
 
     expect(output).toContain('Providers: 1/0/0');
@@ -150,6 +153,7 @@ describe('status command formatting', () => {
       modelCredentialReady: true,
       memoryStatus: 'Ready',
       settings,
+      processRole: 'all',
       readModel: {
         title: 'Gantry',
         runtime: 'Ready',
@@ -197,10 +201,29 @@ describe('status command formatting', () => {
       modelCredentialReady: true,
       memoryStatus: 'Ready',
       settings,
+      processRole: 'all',
     } satisfies RuntimeStatusSummary);
 
     expect(output).toContain(
       'Sandbox: sandbox_runtime (unavailable: sandbox_runtime needs sandbox-exec on macOS.)',
     );
+  });
+
+  it('renders a role line scoped to the resolved process role', () => {
+    const settings = createDefaultRuntimeSettings();
+    const output = formatRuntimeStatus({
+      doctor: { ok: true, warnings: 0, blockingFailures: 0, checks: [] },
+      service: { kind: 'background', status: 'running(pid:12345)' },
+      channels: [],
+      accessNeedsApprovalCount: 0,
+      modelCredentialReady: true,
+      memoryStatus: 'Ready',
+      settings,
+      processRole: 'live-worker',
+    } satisfies RuntimeStatusSummary);
+
+    // live-worker runs live execution + inbound, ops-only control, no jobs/bake.
+    expect(output).toContain('Role: live-worker (control:ops, live, inbound)');
+    expect(output).not.toContain('jobs');
   });
 });

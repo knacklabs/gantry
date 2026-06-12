@@ -14,6 +14,68 @@ import {
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { adaptJobControl } from './ipc-job-control.js';
+import {
+  isLockedDeniedIpcTaskType,
+  resolveAgentLockStatus,
+  type AgentLockStatus,
+} from '../config/profiles.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+
+const DENIED_BY_PROFILE_REASON = 'denied_by_profile';
+
+async function denyLockedIpcTask(
+  data: TaskIpcData,
+  sourceAgentFolder: string,
+  deps: IpcDeps,
+  lockStatus: Exclude<AgentLockStatus, 'full'>,
+): Promise<void> {
+  logger.warn(
+    {
+      type: data.type,
+      sourceAgentFolder,
+      reason: DENIED_BY_PROFILE_REASON,
+      accessPreset: lockStatus,
+    },
+    'Denied locked-agent IPC task at parent boundary',
+  );
+  await deps
+    .publishRuntimeEvent?.({
+      appId: (data.appId ?? 'default') as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
+      conversationId: data.chatJid as never,
+      threadId: data.authThreadId as never,
+      eventType: RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
+      actor: `agent:${sourceAgentFolder}`,
+      payload: {
+        taskType: data.type,
+        reasonCode: DENIED_BY_PROFILE_REASON,
+        // 'unknown' marks a fail-closed denial: the settings desired state
+        // could not be read at decision time.
+        accessPreset: lockStatus,
+      },
+    })
+    .catch((err) => {
+      logger.error(
+        { err, type: data.type, sourceAgentFolder },
+        'Failed to publish denied_by_profile audit event',
+      );
+    });
+  writeTaskIpcResponse(
+    sourceAgentFolder,
+    data.taskId,
+    {
+      ok: false,
+      code: DENIED_BY_PROFILE_REASON,
+      error:
+        lockStatus === 'locked'
+          ? 'This agent runs with a locked access preset. Skill install, MCP server, access, settings, and admin requests are disabled; provision capabilities before the run.'
+          : 'Agent access preset could not be verified; authority-changing requests fail closed. Retry after the runtime settings are readable.',
+    },
+    data.authThreadId,
+    data.responseKeyId,
+  );
+}
 
 const taskHandlers: Record<string, TaskHandler> = {
   ...schedulerCreateTaskHandlers,
@@ -55,6 +117,19 @@ export async function processTaskIpc(
       data.responseKeyId,
     );
     return;
+  }
+
+  // Parent-side security boundary: locked agents can never invoke
+  // authority-changing/request/admin/settings IPC tasks. A forged IPC file in a
+  // locked agent's runner workspace is denied here even though the child never
+  // mounted the tool. An unreadable lock status ('unknown') fails closed on
+  // these authority-bearing task types only.
+  if (isLockedDeniedIpcTaskType(data.type)) {
+    const lockStatus = resolveAgentLockStatus(sourceAgentFolder);
+    if (lockStatus !== 'full') {
+      await denyLockedIpcTask(data, sourceAgentFolder, deps, lockStatus);
+      return;
+    }
   }
 
   const resolvedDeps = {
