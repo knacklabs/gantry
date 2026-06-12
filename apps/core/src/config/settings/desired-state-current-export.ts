@@ -214,6 +214,10 @@ export async function exportCurrentDesiredState(input: {
       folder,
       persona: existing?.persona ?? 'developer',
       relationshipMode: existing?.relationshipMode ?? 'personal',
+      // Engine lives only in settings.yaml (not a stored agent field), so the
+      // round-trip must preserve the durable per-agent override or the next
+      // projection sync would silently drop it (restart-owned sync invariant).
+      ...(existing?.agentEngine ? { agentEngine: existing.agentEngine } : {}),
       model: existing?.model,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
@@ -399,6 +403,15 @@ export async function exportCurrentDesiredState(input: {
         existing?.relationshipMode ??
         group.agentConfig?.relationshipMode ??
         'personal',
+      // Preserve the durable per-agent engine: the configured value wins, else
+      // the engine the route was reconciled with. The system default stays
+      // implicit so settings.yaml only carries non-default selections.
+      ...((existing?.agentEngine ?? group.agentConfig?.agentEngine)
+        ? {
+            agentEngine:
+              existing?.agentEngine ?? group.agentConfig?.agentEngine,
+          }
+        : {}),
       model: existing?.model ?? group.agentConfig?.model,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,

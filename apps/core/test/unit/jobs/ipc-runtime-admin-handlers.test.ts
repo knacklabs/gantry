@@ -10,6 +10,7 @@ import {
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
+import { DEEPAGENTS_ENGINE } from '@core/shared/agent-engine.js';
 
 const runtimeHomes: string[] = [];
 
@@ -476,5 +477,146 @@ describe('runtime admin IPC handlers', () => {
       }),
     );
     expect(reloadRuntimeState).toHaveBeenCalled();
+  });
+
+  it('validates and reconciles a per-agent engine change via request_settings_update', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    vi.stubEnv(
+      'GANTRY_DATABASE_URL',
+      'postgres://gantry_app:pass@localhost/gantry',
+    );
+    vi.stubEnv(
+      'GANTRY_MODEL_GATEWAY_DATABASE_URL',
+      'postgres://model_gateway_app:pass@localhost/gantry?schema=model_gateway',
+    );
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      '123456789abcdefghijklmnopqrstuvwxyzABCDEFGH',
+    );
+    const initial = createDefaultRuntimeSettings();
+    saveRuntimeSettings(runtimeHome, initial);
+    const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
+    const replacement = createDefaultRuntimeSettings();
+    replacement.desiredState.authoritative = true;
+    replacement.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      // opus is Anthropic-routed, so it pairs with DeepAgents (deepagents:langchain).
+      model: 'opus',
+      agentEngine: DEEPAGENTS_ENGINE,
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+    } as never;
+    const replacementYaml = renderRuntimeSettingsYaml(replacement);
+    // Round-trip proof: the rendered YAML carries the per-agent engine key.
+    expect(replacementYaml).toContain(`agent_engine: ${DEEPAGENTS_ENGINE}`);
+    const reloadRuntimeState = vi.fn(async () => undefined);
+    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      getRuntimeStorage: () => ({
+        ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+        repositories: {
+          agents: {
+            saveAgent: vi.fn(async () => undefined),
+            listAgents: vi.fn(async () => []),
+            replaceAgentCapabilityBindings: vi.fn(async () => undefined),
+          },
+          tools: {
+            getTool: vi.fn(async () => null),
+            listTools: vi.fn(async () => []),
+            saveTool: vi.fn(async () => undefined),
+          },
+          skills: {
+            getSkill: vi.fn(async () => null),
+            listSkills: vi.fn(async () => []),
+          },
+          mcpServers: { getServer: vi.fn(async () => null) },
+        },
+      }),
+    }));
+    const { requestSettingsUpdateHandler, taskData } =
+      await loadHandlers(runtimeHome);
+
+    await requestSettingsUpdateHandler({
+      data: taskData('settings-update', {
+        chatJid: 'tg:100',
+        payload: {
+          replacementYaml,
+          expectedRevision,
+          reason: 'set per-agent engine',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          decidedBy: 'tg:admin',
+        })),
+        sendMessage: vi.fn(async () => undefined),
+        reloadRuntimeState,
+      } as any,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['tg:100'],
+    });
+
+    await expect(
+      waitForResponse(runtimeHome, 'settings-update'),
+    ).resolves.toMatchObject({ ok: true, code: 'settings_updated' });
+    expect(reloadRuntimeState).toHaveBeenCalled();
+  });
+
+  it('rejects an incompatible model/engine pair with the locked copy', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const initial = createDefaultRuntimeSettings();
+    saveRuntimeSettings(runtimeHome, initial);
+    const expectedRevision = getRuntimeSettingsRevision(runtimeHome);
+    const replacement = createDefaultRuntimeSettings();
+    replacement.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      // gpt is OpenAI-routed; the default Anthropic SDK engine cannot run it.
+      model: 'gpt',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+    } as never;
+    const replacementYaml = renderRuntimeSettingsYaml(replacement);
+    const { requestSettingsUpdateHandler, taskData } =
+      await loadHandlers(runtimeHome);
+
+    await requestSettingsUpdateHandler({
+      data: taskData('settings-update', {
+        chatJid: 'tg:100',
+        payload: {
+          replacementYaml,
+          expectedRevision,
+          reason: 'try incompatible engine pair',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        ...depsWithAdminTools(['mcp__gantry__request_settings_update']),
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          decidedBy: 'tg:admin',
+        })),
+        sendMessage: vi.fn(async () => undefined),
+      } as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['tg:100'],
+    });
+
+    const response = readResponse(runtimeHome, 'settings-update');
+    expect(response).toMatchObject({ ok: false, code: 'invalid_settings' });
+    expect(JSON.stringify(response)).toContain(
+      'uses the OpenAI endpoint, which is not supported by Anthropic SDK',
+    );
   });
 });

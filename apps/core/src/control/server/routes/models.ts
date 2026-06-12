@@ -15,6 +15,7 @@ import {
 } from '../../../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
 import { getModelProviderDefinition } from '../../../shared/model-provider-registry.js';
+import { agentModelPreview } from './model-agent-preview.js';
 import { createJobManagementService } from './jobs.js';
 import {
   authorizeControlRequest,
@@ -525,11 +526,14 @@ async function previewResponse(
       },
     };
   }
+  if (target === 'agent') {
+    return agentModelPreview(ctx, body);
+  }
   return {
     ok: false,
     status: 400,
     code: 'INVALID_REQUEST',
-    message: 'target must be chat, jobs, job, or memory.',
+    message: 'target must be chat, jobs, job, agent, or memory.',
   };
 }
 

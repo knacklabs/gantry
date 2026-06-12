@@ -172,6 +172,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       },
       applied: true,
       brokerProfile: 'gantry',
+      brokerAuthMode: credential.authMode,
     };
   }
 
@@ -576,7 +577,9 @@ function assertProviderPathAllowed(
   );
   const allowed =
     provider.id === 'openai'
-      ? providerPath === '/v1/embeddings'
+      ? providerPath === '/v1/embeddings' ||
+        providerPath === '/v1/chat/completions' ||
+        providerPath === '/v1/responses'
       : providerPath === '/v1/messages' ||
         providerPath === '/v1/messages/count_tokens';
   if (!allowed) {

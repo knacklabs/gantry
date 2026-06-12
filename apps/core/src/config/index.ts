@@ -31,6 +31,7 @@ export { SettingsDesiredStateService } from './settings/desired-state-service.js
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
   applyRuntimeSettingsDesiredState,
+  setRuntimeAgentEngine,
   syncRuntimeSettingsFromProjection,
 } from './settings/restart-sync.js';
 export {

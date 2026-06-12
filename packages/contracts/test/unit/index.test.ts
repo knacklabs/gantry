@@ -6,7 +6,9 @@ import type {
 
 import {
   AgentCapabilitiesResponseSchema,
+  AgentEngineSchema,
   AgentResponseSchema,
+  UpdateAgentRequestSchema,
   AgentConversationBindingRequestSchema,
   AgentConversationBindingListResponseSchema,
   AgentConversationBindingResponseSchema,
@@ -563,18 +565,44 @@ describe('contracts package', () => {
         appId: 'app-1',
         name: 'Operator',
         status: 'active',
+        agentEngine: 'deepagents',
         createdAt: iso,
         updatedAt: iso,
       }),
-    ).toMatchObject({ id: 'agent-1', appId: 'app-1' });
+    ).toMatchObject({ id: 'agent-1', appId: 'app-1', agentEngine: 'deepagents' });
+    // agentEngine is a required effective field on the response and is enum-bound.
+    expectInvalid(AgentResponseSchema, {
+      id: 'agent-1',
+      appId: 'app-1',
+      name: 'Operator',
+      status: 'active',
+      createdAt: iso,
+      updatedAt: iso,
+    });
+    expectInvalid(AgentResponseSchema, {
+      id: 'agent-1',
+      appId: 'app-1',
+      name: 'Operator',
+      status: 'active',
+      agentEngine: 'langchain',
+      createdAt: iso,
+      updatedAt: iso,
+    });
     expectInvalid(AgentResponseSchema, {
       id: 'agent-1',
       appId: 'app-1',
       name: 'Operator',
       status: 'bad',
+      agentEngine: 'deepagents',
       createdAt: iso,
       updatedAt: iso,
     });
+    expect(AgentEngineSchema.options).toHaveLength(2);
+    expect(AgentEngineSchema.options).toContain('deepagents');
+    expect(
+      UpdateAgentRequestSchema.parse({ agentEngine: 'deepagents' }),
+    ).toEqual({ agentEngine: 'deepagents' });
+    expectInvalid(UpdateAgentRequestSchema, { agentEngine: 'langchain' });
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
     expect(
       ProviderSessionResponseSchema.parse({
@@ -1231,6 +1259,7 @@ describe('contracts package', () => {
             appId: 'app-1',
             name: 'Operator',
             status: 'active',
+            agentEngine: 'deepagents',
             createdAt: iso,
             updatedAt: iso,
           },

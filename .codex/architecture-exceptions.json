@@ -1279,6 +1279,20 @@
     "maxViolations": 3
   },
   {
+    "file": "apps/core/src/cli/group-engine.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Group-engine CLI verb is a local admin adapter over settings.yaml desired-state writers and runtime settings types (mirrors group-access); capped at exact count until the agent-command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/cli/group-list.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Group-list CLI verb reads runtime settings to render each agent's effective engine; capped at exact count until the agent-command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/control/server/routes/system.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "System control routes read draining state, settings-load state, and config directly for /readyz, /metrics, and /v1/status; capped at exact count until readiness/draining are injected through ControlRouteContext.",

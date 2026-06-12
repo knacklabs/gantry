@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import type { Scope } from '@core/control/server/auth.js';
 import type { Agent } from '@core/domain/agent/agent.js';
+import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 
 const agents = vi.hoisted(() => new Map<string, Agent>());
 const fileArtifacts = vi.hoisted(() => ({
@@ -183,5 +184,7 @@ function mockContext(scopes: Scope[] = ['agents:admin']): ControlRouteContext {
     countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
+    getEffectiveAgentEngine: () => DEFAULT_AGENT_ENGINE,
+    setAgentEngine: async () => undefined,
   };
 }

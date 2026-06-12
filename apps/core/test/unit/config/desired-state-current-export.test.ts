@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { exportCurrentDesiredState } from '@core/config/settings/desired-state-current-export.js';
+import {
+  DEEPAGENTS_ENGINE,
+  DEFAULT_AGENT_ENGINE,
+} from '@core/shared/agent-engine.js';
 
 describe('exportCurrentDesiredState', () => {
   it('does not export internal app/control approval routes to settings', async () => {
@@ -97,5 +101,69 @@ describe('exportCurrentDesiredState', () => {
         externalId: 'C123',
       }),
     ]);
+  });
+
+  it('preserves a per-agent engine override across projection round-trips', async () => {
+    const settings = {
+      agent: { defaultAgentEngine: DEFAULT_AGENT_ENGINE },
+      providers: {},
+      providerConnections: {},
+      conversations: {},
+      bindings: {},
+      agents: {
+        main_agent: {
+          name: 'Main',
+          folder: 'main_agent',
+          agentEngine: DEEPAGENTS_ENGINE,
+          bindings: {},
+          sources: { skills: [], mcpServers: [], tools: [] },
+          capabilities: [],
+          accessPreset: 'full',
+        },
+      },
+    };
+    const deps = {
+      ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
+      repositories: {
+        agents: {
+          listAgents: vi.fn(async () => [
+            {
+              id: 'agent:main_agent',
+              appId: 'app-one',
+              name: 'Main',
+              status: 'active',
+              createdAt: '2026-06-03T00:00:00.000Z',
+              updatedAt: '2026-06-03T00:00:00.000Z',
+            },
+          ]),
+        },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerConnections: {
+          listProviderConnections: vi.fn(async () => []),
+          listAgentConversationBindings: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: deps as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(exported.agents.main_agent.agentEngine).toBe(DEEPAGENTS_ENGINE);
   });
 });

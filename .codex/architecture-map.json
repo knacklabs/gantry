@@ -185,7 +185,8 @@
     "apps/core/src/runner/mcp"
   ],
   "approvedProviderBoundaryPaths": [
-    "apps/core/src/adapters/llm/anthropic-claude-agent"
+    "apps/core/src/adapters/llm/anthropic-claude-agent",
+    "apps/core/src/adapters/llm/deepagents-langchain"
   ],
   "providerImportSpecifiers": [
     "@anthropic-ai/sdk",

@@ -482,13 +482,15 @@ export const ModelRecordSchema = z.object({
       'memory_consolidation',
     ]),
   ),
-  contextWindowTokens: z.number().int().nonnegative(),
-  maxOutputTokens: z.number().int().nonnegative(),
+  // Optional: deepagents-lane entries omit static limits/capability flags;
+  // those are reported at runtime from the engine's model profile.
+  contextWindowTokens: z.number().int().nonnegative().optional(),
+  maxOutputTokens: z.number().int().nonnegative().optional(),
   cacheMode: z.string(),
   cacheTokenFields: z.array(z.string()),
   cacheSupport: ModelCacheSupportSchema,
-  supportsThinking: z.boolean(),
-  supportsTools: z.boolean(),
+  supportsThinking: z.boolean().optional(),
+  supportsTools: z.boolean().optional(),
   source: z.object({
     label: z.string(),
     url: z.string(),

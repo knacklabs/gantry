@@ -13,6 +13,7 @@ import {
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
 import type { RuntimeSettings } from './runtime-settings-types.js';
+import type { AgentEngine } from '../../shared/agent-engine.js';
 
 export async function applyRuntimeSettingsDesiredState(input: {
   runtimeHome: string;
@@ -63,6 +64,43 @@ export async function applyRuntimeSettingsDesiredState(input: {
     await rollback();
     throw err;
   }
+}
+
+// Write a per-agent engine override into settings.yaml and reconcile in the
+// same operation. Engine is durable only in settings (not a stored agent
+// field), so this is the restart-owned write path shared by the CLI engine verb
+// and the Control API PATCH. `applyRuntimeSettingsDesiredState` validates the
+// document first, so an incompatible model/engine pairing throws the locked
+// plan copy and no settings.yaml or reconcile write lands.
+export async function setRuntimeAgentEngine(input: {
+  runtimeHome: string;
+  agentFolder: string;
+  agentEngine: AgentEngine;
+  ops: SettingsDesiredStateOps;
+  repositories: SettingsDesiredStateRepositories;
+  appId?: AppId;
+  reloadRuntimeState?: () => Promise<void>;
+}): Promise<void> {
+  const previousSettings = loadRuntimeSettings(input.runtimeHome);
+  const agent = previousSettings.agents[input.agentFolder];
+  if (!agent) {
+    throw new Error(
+      `No configured agent named "${input.agentFolder}". Configure the agent before setting its engine.`,
+    );
+  }
+  if (agent.agentEngine === input.agentEngine) return;
+  const nextSettings = structuredClone(previousSettings);
+  const nextAgent = nextSettings.agents[input.agentFolder];
+  if (nextAgent) nextAgent.agentEngine = input.agentEngine;
+  await applyRuntimeSettingsDesiredState({
+    runtimeHome: input.runtimeHome,
+    settings: nextSettings,
+    previousSettings,
+    ops: input.ops,
+    repositories: input.repositories,
+    appId: input.appId,
+    reloadRuntimeState: input.reloadRuntimeState,
+  });
 }
 
 export async function syncRuntimeSettingsFromProjection(input: {

@@ -43,6 +43,7 @@ vi.mock('@core/config/index.js', async () => {
   const modelDefaultsModule =
     await import('@core/config/settings/model-defaults.js');
   const yoloPolicy = await import('@core/shared/yolo-mode-policy.js');
+  const agentEngineModule = await import('@core/shared/agent-engine.js');
   const toPublic = () => {
     const settings = settingsModule.loadRuntimeSettings(runtimeHome);
     return {
@@ -106,6 +107,16 @@ vi.mock('@core/config/index.js', async () => {
     getRuntimeSettingsForConfig: vi.fn(() =>
       settingsModule.loadRuntimeSettings(runtimeHome),
     ),
+    getEffectiveAgentEngine: vi.fn((agentFolder?: string) => {
+      const settings = settingsModule.loadRuntimeSettings(runtimeHome);
+      const perAgent = agentFolder
+        ? settings.agents?.[agentFolder]?.agentEngine
+        : undefined;
+      return agentEngineModule.resolveAgentEngine(
+        perAgent ?? settings.agent.defaultAgentEngine,
+      );
+    }),
+    setRuntimeAgentEngine: vi.fn(async () => undefined),
     getPublicRuntimeSettings: toPublic,
     configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
   };

@@ -817,6 +817,73 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('proxies OpenAI chat-completions traffic for the DeepAgents lane', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openai', 'sk-openai-chat-upstream');
+    const upstreamFetch = vi.fn(async () => new Response('{"choices":[]}'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelCredentialProviderId: 'openai',
+        },
+      });
+
+      expect(injection.env.OPENAI_BASE_URL).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/openai$/,
+      );
+      expect(injection.env.OPENAI_API_KEY).toMatch(/^gtw_/);
+
+      const response = await gatewayRequest({
+        url: `${injection.env.OPENAI_BASE_URL}/v1/chat/completions`,
+        token: injection.env.OPENAI_API_KEY!,
+      });
+
+      expect(response.status).toBe(200);
+      expect(upstreamFetch).toHaveBeenCalledWith(
+        new URL('https://api.openai.com/v1/chat/completions'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            authorization: 'Bearer sk-openai-chat-upstream',
+          }),
+        }),
+      );
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('rejects disallowed OpenAI paths before the upstream fetch', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openai', 'sk-openai-upstream');
+    const upstreamFetch = vi.fn(async () => new Response('should not call'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelCredentialProviderId: 'openai',
+        },
+      });
+
+      const disallowed = await gatewayRequest({
+        url: `${injection.env.OPENAI_BASE_URL}/v1/files`,
+        token: injection.env.OPENAI_API_KEY!,
+      });
+      expect(disallowed.status).toBe(400);
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('proxies OpenAI embedding traffic through the same gateway boundary', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('openai', 'sk-openai-upstream');

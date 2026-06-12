@@ -47,8 +47,10 @@ export function resolveAgentEngine(value: unknown): AgentEngine {
 }
 
 // Strict parsing for settings/config edges: an unknown value throws with the
-// locked plan copy.
-export function parseAgentEngine(value: unknown, path: string): AgentEngine {
+// locked plan copy. When `path` is provided the message is prefixed with it for
+// settings/document errors; CLI/API edges pass no path to surface the bare
+// locked copy.
+export function parseAgentEngine(value: unknown, path?: string): AgentEngine {
   if (value === undefined) return DEFAULT_AGENT_ENGINE;
   if (typeof value !== 'string') {
     throw new Error(unsupportedAgentEngineMessage(value, path));
@@ -60,7 +62,13 @@ export function parseAgentEngine(value: unknown, path: string): AgentEngine {
   return normalized;
 }
 
-function unsupportedAgentEngineMessage(value: unknown, path: string): string {
+// Locked plan copy for an unsupported engine value. The provider literals live
+// only in this module, so every surface that needs this copy imports it here.
+export function unsupportedAgentEngineMessage(
+  value: unknown,
+  path?: string,
+): string {
   const display = typeof value === 'string' ? value : String(value);
-  return `${path}: Unsupported agent engine: ${display}. Choose ${DEFAULT_AGENT_ENGINE} or ${DEEPAGENTS_ENGINE}.`;
+  const message = `Unsupported agent engine: ${display}. Choose ${DEFAULT_AGENT_ENGINE} or ${DEEPAGENTS_ENGINE}.`;
+  return path ? `${path}: ${message}` : message;
 }

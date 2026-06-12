@@ -17,10 +17,12 @@ import {
   configureDesiredSettingsStorageProvider,
   getControlEnvValue,
   getDefaultModelConfig,
+  getEffectiveAgentEngine,
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
   patchRuntimeModelDefaults,
+  setRuntimeAgentEngine,
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
 import {
@@ -357,6 +359,18 @@ export function startControlServer(input: {
     syncSettingsFromProjection: (appId: AppId) =>
       syncRuntimeSettingsFromProjection({
         runtimeHome: GANTRY_HOME,
+        ops: getRuntimeRepositories(),
+        repositories: getRuntimeStorage().repositories,
+        appId,
+        reloadRuntimeState: () => input.app.loadState(),
+      }),
+    getEffectiveAgentEngine: (agentFolder?: string) =>
+      getEffectiveAgentEngine(agentFolder),
+    setAgentEngine: ({ appId, folder, agentEngine }) =>
+      setRuntimeAgentEngine({
+        runtimeHome: GANTRY_HOME,
+        agentFolder: folder,
+        agentEngine,
         ops: getRuntimeRepositories(),
         repositories: getRuntimeStorage().repositories,
         appId,

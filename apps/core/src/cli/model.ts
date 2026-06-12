@@ -24,6 +24,7 @@ import {
 } from '../config/settings/runtime-settings.js';
 import { controlApiRequest } from './control-api.js';
 import type { ModelPreviewResponse } from './model-preview-types.js';
+import { formatPreviewWhy, parseAgentFlag } from './model-preview-format.js';
 type ModelCommandSettings = ReturnType<typeof ensureRuntimeSettings>;
 interface ModelCommandOptions {
   preflightPreset?: (
@@ -46,6 +47,7 @@ function usage(): string {
   gantry model reset chat|jobs|memory
   gantry model why chat [group-scope|conversation-id]
   gantry model why jobs|memory|job <id>
+  gantry model why <alias> --agent <id>
   gantry model use-preset ${presets}
   gantry model doctor`;
 }
@@ -361,40 +363,6 @@ function formatWhy(
   return undefined;
 }
 
-function formatPreviewWhy(preview: ModelPreviewResponse): string {
-  const selection = preview.selection;
-  const modelLabel = selection?.model?.displayName
-    ? `${selection.effectiveAlias ?? '(none)'} (${selection.model.displayName})`
-    : (selection?.effectiveAlias ?? '(none)');
-  const target = preview.jobId
-    ? `job ${preview.jobId}`
-    : preview.scope
-      ? `${preview.target ?? 'model'} ${preview.scope}`
-      : (preview.target ?? 'model');
-  const lines = [
-    `Why ${target} uses this model`,
-    `model: ${modelLabel}`,
-    `source: ${selection?.source ?? 'unknown'}`,
-    `mode: ${selection?.inherited ? 'inherited' : 'explicit'}`,
-  ];
-  if (selection?.model?.responseFamily)
-    lines.push(`response family: ${selection.model.responseFamily}`);
-  if (selection?.model?.modelRoute?.label)
-    lines.push(`route: ${selection.model.modelRoute.label}`);
-  if (selection?.model?.modelRoute?.metadata?.providerModelId) {
-    lines.push(
-      `provider model id: ${selection.model.modelRoute.metadata.providerModelId}`,
-    );
-  }
-  if (selection?.model?.cacheSupport?.statusLabel) {
-    lines.push(`cache: ${selection.model.cacheSupport.statusLabel}`);
-  }
-  if (preview.why?.length) {
-    lines.push(...preview.why.map((reason) => `reason: ${reason}`));
-  }
-  return lines.join('\n');
-}
-
 function parsePresetFlag(args: string[]): ModelPresetId | undefined {
   const value = args.find((arg) => arg.startsWith('--preset='));
   const preset = value
@@ -588,6 +556,29 @@ export async function runModelCommand(
   }
 
   if (action === 'why') {
+    // `gantry model why <alias> --agent <id>` resolves a model alias against an
+    // agent's effective engine and shows the endpoint family, credential
+    // profile, agent engine, and diagnostic executionProviderId for the
+    // resolved route. Incompatibility surfaces the locked copy, not a stack.
+    const agentId = parseAgentFlag(args);
+    if (agentId !== undefined) {
+      if (!target || !agentId) {
+        console.error(usage());
+        return 1;
+      }
+      try {
+        const preview = (await controlApiRequest(runtimeHome, {
+          method: 'POST',
+          path: '/v1/models/preview',
+          body: { target: 'agent', agentId, modelAlias: target },
+        })) as ModelPreviewResponse;
+        console.log(formatPreviewWhy(preview));
+        return 0;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
     if (target === 'chat' && alias) {
       try {
         const preview = (await controlApiRequest(runtimeHome, {

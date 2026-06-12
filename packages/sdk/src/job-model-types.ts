@@ -203,7 +203,12 @@ export interface ModelRecord {
   aliases: string[];
   recommendedAlias: string;
   responseFamily: string;
-  executionProviderId: string;
+  // Read-only diagnostic: execution adapter per agent engine. Resolution is
+  // modelAlias + agentEngine -> executionRoute.
+  executionRoutes: Array<{
+    engine: string;
+    executionProviderId: string;
+  }>;
   credentialProfileRef: string;
   modelRoute: {
     id: string;
@@ -225,8 +230,10 @@ export interface ModelRecord {
     structuredOutput: boolean;
   };
   supportedWorkloads: ModelWorkload[];
-  contextWindowTokens: number;
-  maxOutputTokens: number;
+  // Optional: deepagents-lane entries omit static limits; reported at runtime
+  // from the engine's model profile.
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   cacheMode: string;
   cacheTokenFields: string[];
   cacheSupport: {
@@ -258,8 +265,8 @@ export interface ModelRecord {
     };
     tokenFields: string[];
   };
-  supportsThinking: boolean;
-  supportsTools: boolean;
+  supportsThinking?: boolean;
+  supportsTools?: boolean;
   source: {
     label: string;
     url: string;
@@ -321,11 +328,14 @@ export interface ModelDefaultsPatchRequest {
   memory?: 'reset' | 'preset-managed' | null;
 }
 
-export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'memory';
+export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'agent' | 'memory';
 
 export interface ModelPreviewRequest {
   target: ModelPreviewTarget;
   jobId?: string;
+  // For target 'agent': resolve a model alias against the agent's engine.
+  agentId?: string;
+  modelAlias?: string;
   conversationJid?: string;
   workspaceKey?: string;
   kind?: 'one-time' | 'recurring';
@@ -335,9 +345,19 @@ export interface ModelPreviewRequest {
 export interface ModelPreviewResponse {
   target: ModelPreviewTarget;
   jobId?: string;
+  agentId?: string;
   scope?: string;
   kind?: 'one-time' | 'recurring';
   task?: 'extractor' | 'dreaming' | 'consolidation';
+  // Resolved-route diagnostics for target 'agent'. `agentEngine` is the public
+  // engine value; `executionProviderId` is the internal read-only diagnostic;
+  // `incompatible` carries the locked plan copy when the model/engine pairing is
+  // unsupported.
+  agentEngine?: string;
+  agentEngineLabel?: string;
+  credentialProfile?: string;
+  executionProviderId?: string;
+  incompatible?: string;
   selection: ModelDefaultSlot;
   why: string[];
 }

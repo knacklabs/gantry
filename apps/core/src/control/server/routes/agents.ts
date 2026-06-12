@@ -123,7 +123,9 @@ export async function handleAgentRoutes(
     const agents = await getRuntimeStorage().repositories.agents.listAgents(
       auth.appId as AppId,
     );
-    sendJson(res, 200, { agents: agents.map(agentToResponse) });
+    sendJson(res, 200, {
+      agents: agents.map((agent) => agentToResponse(ctx, agent)),
+    });
     return true;
   }
 
@@ -150,7 +152,7 @@ export async function handleAgentRoutes(
     };
     await getRuntimeStorage().repositories.agents.saveAgent(agent);
     await ctx.syncSettingsFromProjection(auth.appId as AppId);
-    sendJson(res, 201, agentToResponse(agent));
+    sendJson(res, 201, agentToResponse(ctx, agent));
     return true;
   }
 
@@ -189,7 +191,7 @@ export async function handleAgentRoutes(
         ? (({ summary: _summary, ...rest }) => rest)(capabilitiesView)
         : undefined;
       sendJson(res, 200, {
-        agent: agentToResponse(agent),
+        agent: agentToResponse(ctx, agent),
         capabilities,
         boundConversations,
       });
@@ -329,7 +331,7 @@ export async function handleAgentRoutes(
       sendError(res, 404, 'NOT_FOUND', 'Agent not found');
       return true;
     }
-    sendJson(res, 200, agentToResponse(agent));
+    sendJson(res, 200, agentToResponse(ctx, agent));
     return true;
   }
 
@@ -358,7 +360,38 @@ export async function handleAgentRoutes(
     };
     await repository.saveAgent(updated);
     await ctx.syncSettingsFromProjection(auth.appId as AppId);
-    sendJson(res, 200, agentToResponse(updated));
+    // Engine is durable in settings.yaml (not a stored agent field), so a change
+    // rewrites settings and reconciles in the same operation per the
+    // restart-owned sync rule. An incompatible model/engine pair is rejected by
+    // settings validation with the locked plan copy before any write lands.
+    if (parsed.data.agentEngine !== undefined) {
+      const folder = folderForAgentId(updated.id);
+      if (!folder) {
+        sendError(
+          res,
+          400,
+          'INVALID_REQUEST',
+          'Agent does not have a workspace folder; engine cannot be set.',
+        );
+        return true;
+      }
+      try {
+        await ctx.setAgentEngine({
+          appId: auth.appId as AppId,
+          folder,
+          agentEngine: parsed.data.agentEngine,
+        });
+      } catch (err) {
+        sendError(
+          res,
+          400,
+          'INVALID_REQUEST',
+          err instanceof Error ? err.message : 'Engine update failed.',
+        );
+        return true;
+      }
+    }
+    sendJson(res, 200, agentToResponse(ctx, updated));
     return true;
   }
 
@@ -388,12 +421,20 @@ async function resolveProfileAgentFolder(
   return folder;
 }
 
-function agentToResponse(agent: Agent) {
+// The effective engine is the per-agent override else the configured default;
+// it is always resolvable from settings.yaml, so the response carries it as a
+// required field. The raw executionProviderId stays internal/diagnostic. The
+// engine read is injected via the route context so this adapter stays free of
+// direct config-layer imports.
+function agentToResponse(ctx: ControlRouteContext, agent: Agent) {
   return {
     id: agent.id,
     appId: agent.appId,
     name: agent.name,
     status: agent.status,
+    agentEngine: ctx.getEffectiveAgentEngine(
+      folderForAgentId(agent.id) ?? undefined,
+    ),
     currentConfigVersionId: agent.currentConfigVersionId,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,

@@ -251,9 +251,15 @@ PROVIDER_BOUNDARY_TOKENS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
     ("default('anthropic')", re.compile(r"\.default\(\s*['\"]anthropic['\"]\s*\)")),
     ("anthropic_sdk", re.compile(r"\banthropic_sdk\b")),
+    # DeepAgents/LangChain import-form sentinels (the bare token `deepagents` is
+    # the public engine value and appears legitimately in shared/config, so only
+    # the import specifier forms are gated to keep this boundary leak-tight).
+    ("from 'deepagents'", re.compile(r"from\s+['\"]deepagents['\"]")),
+    ("@langchain/", re.compile(r"@langchain/")),
 )
 PROVIDER_BOUNDARY_DEFAULT_APPROVED_PATHS = (
     "apps/core/src/adapters/llm/anthropic-claude-agent",
+    "apps/core/src/adapters/llm/deepagents-langchain",
 )
 PROVIDER_BOUNDARY_ALLOWED_APPROVED_PATHS = set(PROVIDER_BOUNDARY_DEFAULT_APPROVED_PATHS)
 PROVIDER_BOUNDARY_DISALLOWED_BROAD_PATHS = (

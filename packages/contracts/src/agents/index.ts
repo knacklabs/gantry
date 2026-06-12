@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  AgentEngineSchema,
   ContractMetadataSchema,
   IsoDateTimeSchema,
   LlmProfileRefSchema,
@@ -99,6 +100,10 @@ export const UpdateAgentRequestSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   status: AgentStatusSchema.optional(),
+  // Durable per-agent engine override. Jobs and conversations inherit it; there
+  // is no job- or conversation-level engine selector. A change rewrites
+  // settings.yaml and reconciles in the same operation (restart-owned sync).
+  agentEngine: AgentEngineSchema.optional(),
   promptProfileRef: z.string().optional(),
   llmProfileId: z.string().optional(),
   toolIds: z.array(z.string()).optional(),
@@ -117,6 +122,9 @@ export const AgentResponseSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional(),
   status: AgentStatusSchema,
+  // Effective engine (per-agent override else the configured default). The raw
+  // executionProviderId stays internal/diagnostic and never appears here.
+  agentEngine: AgentEngineSchema,
   currentConfigVersionId: z.string().nullable().optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,

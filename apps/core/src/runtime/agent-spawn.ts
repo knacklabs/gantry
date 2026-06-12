@@ -296,6 +296,9 @@ export async function spawnAgent(
         credentialProviders: hostCredentials.credentialProviders,
         brokerProfile: hostCredentials.brokerProfile,
         brokerApplied: hostCredentials.brokerApplied,
+        ...(hostCredentials.brokerAuthMode
+          ? { brokerAuthMode: hostCredentials.brokerAuthMode }
+          : {}),
         proxy: hostCredentials.proxy,
       },
       browserIpcEnabled,

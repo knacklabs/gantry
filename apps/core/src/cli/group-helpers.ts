@@ -20,6 +20,9 @@ import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
+import { AGENT_ENGINES } from '../shared/agent-engine.js';
+
+export { formatAgentEngineLine, runEngine } from './group-engine.js';
 
 export function usage(): string {
   const channels = getProviderIds().join('|');
@@ -41,6 +44,7 @@ export function usage(): string {
     '  gantry agent access show <jid|folder>',
     '  gantry agent access apply <jid|folder> --file <path|->',
     '  gantry agent access preset <folder> <full|locked>',
+    `  gantry agent engine <jid|folder> <${AGENT_ENGINES.join('|')}>`,
     '  gantry agent profile list <jid|folder>',
     '  gantry agent profile read <jid|folder> <soul|agents>',
     '  gantry agent profile set <jid|folder> <soul|agents> --file <path|-> [--expect-version N]',

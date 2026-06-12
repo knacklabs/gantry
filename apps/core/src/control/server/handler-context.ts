@@ -14,6 +14,7 @@ import type {
   ModelPresetId,
   ModelWorkload,
 } from '../../shared/model-catalog.js';
+import type { AgentEngine } from '../../shared/agent-engine.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
@@ -116,6 +117,22 @@ export type ControlRouteContext = {
   }) => Promise<void>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   syncSettingsFromProjection: (appId: AppId) => Promise<void>;
+  /**
+   * Effective engine for an agent folder (per-agent override else the configured
+   * default). Injected from the runtime/config layer so the control adapter
+   * exposes the diagnostic without importing config directly.
+   */
+  getEffectiveAgentEngine: (agentFolder?: string) => AgentEngine;
+  /**
+   * Write a per-agent engine into settings.yaml and reconcile in the same
+   * operation (restart-owned sync). Throws with the locked plan copy when the
+   * resulting model/engine pairing is incompatible.
+   */
+  setAgentEngine: (input: {
+    appId: AppId;
+    folder: string;
+    agentEngine: AgentEngine;
+  }) => Promise<void>;
 };
 
 export function authorizeControlRequest(
