@@ -46,6 +46,7 @@ interface RunnerRecord {
     persistSession?: boolean;
     resume?: unknown;
     resumeSessionAt?: unknown;
+    systemPromptExcludeDynamicSections?: boolean;
   }>;
 }
 
@@ -399,6 +400,8 @@ export async function* query({ prompt, options }) {
     resume: options?.resume,
     resumeSessionAt: options?.resumeSessionAt,
     systemPromptAppend: options?.systemPrompt?.append,
+    systemPromptExcludeDynamicSections:
+      options?.systemPrompt?.excludeDynamicSections,
     closeExistsAtQueryStart: fs.existsSync(
       path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'),
     ),
@@ -1772,6 +1775,8 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.persistSession).toBe(false);
       expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
+      expect(call?.systemPromptAppend).toContain('compiled system profile');
+      expect(call?.systemPromptExcludeDynamicSections).toBe(true);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

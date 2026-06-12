@@ -184,6 +184,28 @@ vi.mock('@core/runtime/egress-gateway.js', () => ({
   ensureEgressGateway: (...args: unknown[]) => mockEnsureEgressGateway(...args),
 }));
 
+// DeepAgents shell/filesystem pre-spawn guard. By default the combined guard
+// uses the REAL implementation (tier-1 shell-execution-disabled fires first and
+// unconditionally), so the rest of the suite is unaffected. The
+// `liftV1ShellGuard` seam lets a single test simulate the future enablement path
+// where the v1 shell guard is lifted, making the tier-2 enforcing-sandbox copy
+// reachable through spawnAgent.
+let liftV1ShellGuard = false;
+vi.mock('@core/runtime/deepagents-shell-filesystem-guard.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('@core/runtime/deepagents-shell-filesystem-guard.js')
+  >('@core/runtime/deepagents-shell-filesystem-guard.js');
+  return {
+    ...actual,
+    deepAgentsShellFilesystemGuard: (
+      input: Parameters<typeof actual.deepAgentsShellFilesystemGuard>[0],
+    ) =>
+      liftV1ShellGuard
+        ? actual.deepAgentsEnforcingSandboxGuard(input)
+        : actual.deepAgentsShellFilesystemGuard(input),
+  };
+});
+
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
   const proc = new EventEmitter() as EventEmitter & {
@@ -225,6 +247,10 @@ import {
   getRuntimeSettingsForConfig,
 } from '@core/config/index.js';
 import { DirectRunnerSandboxProvider } from '@core/adapters/sandbox/runner-sandbox-provider.js';
+import {
+  DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE,
+  DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
+} from '@core/runtime/deepagents-shell-filesystem-guard.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -713,6 +739,7 @@ describe('agent-spawn timeout behavior', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    liftV1ShellGuard = false;
     if (previousImageInventory === undefined) {
       delete process.env.GANTRY_IMAGE_CAPABILITIES_JSON;
     } else {
@@ -3227,6 +3254,66 @@ describe('agent-spawn timeout behavior', () => {
         'deepagents prepare not implemented in packet A',
       ),
     });
+  });
+
+  it('A9: blocks a deepagents shell run before spawn with the tier-1 shell-execution copy', async () => {
+    vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('deepagents');
+    const result = await spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        model: 'gpt',
+        toolPolicyRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+      },
+      () => {},
+      undefined,
+      {
+        executionAdapter: {
+          id: 'deepagents:langchain',
+          prepare: vi.fn(async () => {
+            throw new Error('should not prepare: guard must fire first');
+          }),
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE,
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('A9: blocks a deepagents shell run with the tier-2 enforcing-sandbox copy once the v1 guard is lifted', async () => {
+    // Simulate the future enablement path: the v1 shell guard is lifted, so the
+    // enforcing-sandbox guard governs. The mocked runtime sandbox provider is
+    // 'direct' (non-enforcing), so the tier-2 copy fires.
+    liftV1ShellGuard = true;
+    vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('deepagents');
+    const result = await spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        model: 'gpt',
+        toolPolicyRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+      },
+      () => {},
+      undefined,
+      {
+        executionAdapter: {
+          id: 'deepagents:langchain',
+          prepare: vi.fn(async () => {
+            throw new Error('should not prepare: guard must fire first');
+          }),
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
+    });
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it('returns error when execution adapter prepare rejects', async () => {

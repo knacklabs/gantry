@@ -48,6 +48,11 @@ interface ModelProfileLike {
 export interface DeepAgentTurnResult {
   text: string;
   messages: PersistedTurnMessage[];
+  // Terminal-frame payload for the single per-turn terminal marker the caller
+  // (runner index) emits; it folds in the continuation/stop decision (R2/R3).
+  terminalResult: string | null;
+  terminalUsage: RunnerOutputFrame['usage'];
+  terminalContextUsage: RunnerOutputFrame['contextUsage'];
 }
 
 export async function runDeepAgentTurn(input: {
@@ -80,6 +85,7 @@ export async function runDeepAgentTurn(input: {
         jobId: input.agentInput.jobId,
         threadId: input.agentInput.threadId,
         conversationId: input.agentInput.chatJid,
+        yoloMode: input.agentInput.yoloMode,
       },
       permissionEnv,
       lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
@@ -106,13 +112,14 @@ export async function runDeepAgentTurn(input: {
       { messages: turnMessages },
       { version: 'v2', ...(input.signal ? { signal: input.signal } : {}) },
     );
-    const { text } = await normalizeDeepAgentStream({
+    const normalized = await normalizeDeepAgentStream({
       events,
       newSessionId: input.newSessionId,
       modelId: resolved.modelId,
       modelProfile: { maxInputTokens: profile.maxInputTokens },
       emit: input.emit,
     });
+    const text = normalized.text;
 
     const userText = composeUserTurnText(input.agentInput);
     const messages: PersistedTurnMessage[] = [
@@ -120,7 +127,13 @@ export async function runDeepAgentTurn(input: {
       { role: 'human', text: userText },
       { role: 'ai', text },
     ];
-    return { text, messages };
+    return {
+      text,
+      messages,
+      terminalResult: normalized.terminalResult,
+      terminalUsage: normalized.terminalUsage,
+      terminalContextUsage: normalized.terminalContextUsage,
+    };
   } finally {
     await connected.close().catch(() => {});
   }

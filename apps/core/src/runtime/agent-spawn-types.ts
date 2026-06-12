@@ -67,6 +67,11 @@ export interface AgentOutput {
   result: string | null;
   providerSession?: AgentOutputProviderSession;
   newSessionId?: string;
+  // Standalone up-front session-id frame (lane-neutral). Excluded from
+  // isAgentTurnCompleteMarker so an early session-persistence frame is not
+  // mistaken for turn completion. The session id still persists via
+  // providerSessionExternalSessionId (reads newSessionId).
+  sessionInit?: boolean;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;

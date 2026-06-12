@@ -5,6 +5,11 @@ import {
   evaluateProtectedCapabilityToolUse,
   type ToolPolicyDecision,
 } from '../shared/tool-execution-policy-service.js';
+import {
+  evaluateYoloModeDenylist,
+  yoloModeDenylistDenyReason,
+  type YoloModeSettings,
+} from '../shared/yolo-mode-policy.js';
 import { denyMemoryBoundaryToolUse } from './memory-boundary.js';
 
 // Provider-neutral runner-side tool gate decision core. Holds the order-sensitive
@@ -37,19 +42,33 @@ export interface NeutralToolGateContext {
   jobId?: string;
   threadId?: string;
   conversationId: string;
+  // Auto-approve (yolo) settings inherited from the host (settings.permissions
+  // .yolo_mode). Threaded so the neutral gate carries the same denylist backstop
+  // the SDK gate applies on its timed-grant/always-allow paths. The lane has no
+  // auto-approve surface today, but the denylist must exist before one ships.
+  yoloMode?: YoloModeSettings;
 }
 
 export interface NeutralPreCheckInput {
   toolName: string;
   toolInput: unknown;
   memoryBlock: string;
+  // True when the tool came from a configured (third-party) MCP server. These
+  // tools reach the gate with bare names (no `mcp__` prefix), so the
+  // memory-boundary guard needs this signal to scan them as mcp-equivalent.
+  isThirdPartyMcpTool?: boolean;
+  // Host-inherited auto-approve settings; when present and enabled, a denylist
+  // match is a hard deny in the same ordered position the SDK gate checks it
+  // (after protected-capability and memory-boundary, before policy eval /
+  // permission prompt).
+  yoloMode?: YoloModeSettings;
 }
 
 // Runs the ordered authority pre-checks that may hard-deny before any
 // policy evaluation or permission prompt. Returns the deny reason (already
 // user-facing) or null to continue.
 export function evaluateNeutralToolPreChecks(input: NeutralPreCheckInput): {
-  decision: 'protected_capability' | 'memory_boundary';
+  decision: 'protected_capability' | 'memory_boundary' | 'yolo_denylist';
   reason: string;
 } | null {
   const protectedDenial = denyProtectedCapabilityToolUse(
@@ -64,9 +83,21 @@ export function evaluateNeutralToolPreChecks(input: NeutralPreCheckInput): {
     input.toolInput,
     {},
     input.memoryBlock,
+    input.isThirdPartyMcpTool === true,
   );
   if (memoryDenial) {
     return { decision: 'memory_boundary', reason: memoryDenial };
+  }
+  const yoloMatch = evaluateYoloModeDenylist({
+    settings: input.yoloMode,
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+  });
+  if (yoloMatch) {
+    return {
+      decision: 'yolo_denylist',
+      reason: yoloModeDenylistDenyReason(yoloMatch),
+    };
   }
   return null;
 }

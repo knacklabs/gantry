@@ -43,6 +43,7 @@ import type {
   AgentRunnerToolAttemptOutput,
 } from './types.js';
 import { normalizeModelUsage } from '../../../../shared/model-usage.js';
+import { nowMs as currentTimeMs } from '../../../../shared/time/datetime.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
 import {
   assertRequiredMcpServerReady,
@@ -137,6 +138,8 @@ export async function runQuery(
 }> {
   const enableIpcFollowups = options.enableIpcFollowups ?? true;
   const persistSdkSession = options.persistSdkSession ?? true;
+  const queryStartMs = currentTimeMs();
+  const elapsedMs = () => Math.max(0, currentTimeMs() - queryStartMs);
   const stream = new MessageStream();
   const queryRunId = randomUUID();
   const memoryBlock = readMemoryContextBlock(agentInput);
@@ -268,6 +271,10 @@ export async function runQuery(
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
     isScheduledJob: agentInput.isScheduledJob,
   });
+  log(
+    `SDK query prepared in ${elapsedMs()}ms ` +
+      `(tools=${capabilities.availableTools.length} mcpServers=${Object.keys(capabilities.mcpServers ?? {}).length})`,
+  );
   const sdkQuery = query({
     prompt: stream,
     options: {
@@ -336,7 +343,10 @@ export async function runQuery(
       includePartialMessages: true,
     },
   });
+  log(`SDK query iterator created in ${elapsedMs()}ms`);
   try {
+    let firstSdkMessageLogged = false;
+    let firstTextDeltaLogged = false;
     for await (const message of sdkQuery) {
       messageCount++;
       heartbeat.markActivity();
@@ -345,13 +355,19 @@ export async function runQuery(
           ? `system/${(message as { subtype?: string }).subtype}`
           : message.type;
       log(`[msg #${messageCount}] type=${msgType}`);
+      if (!firstSdkMessageLogged) {
+        firstSdkMessageLogged = true;
+        log(`First SDK message after ${elapsedMs()}ms`);
+      }
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
       }
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         assertRequiredMcpServerReady(message);
-        log('Session initialized: provider resume handle received');
+        log(
+          `Session initialized after ${elapsedMs()}ms: provider resume handle received`,
+        );
         writeOutput({
           status: 'success',
           result: null,
@@ -414,6 +430,10 @@ export async function runQuery(
         if (event?.type === 'content_block_delta') {
           const delta = event.delta;
           if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
+            if (!firstTextDeltaLogged) {
+              firstTextDeltaLogged = true;
+              log(`First SDK text delta after ${elapsedMs()}ms`);
+            }
             sawPartialTextSinceLastResult = true;
             writeOutput({
               status: 'success',
@@ -425,6 +445,9 @@ export async function runQuery(
       }
       if (message.type === 'result') {
         resultCount++;
+        if (resultCount === 1) {
+          log(`First SDK result after ${elapsedMs()}ms`);
+        }
         const textResult =
           'result' in message ? (message as { result?: string }).result : null;
         const resultFailure = sdkResultFailureMessage(message);

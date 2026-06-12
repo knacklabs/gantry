@@ -34,6 +34,23 @@ import type {
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+import type { AgentEngine } from '../../shared/agent-engine.js';
+
+// Decide whether an agent should carry an explicit agent_engine override on
+// export. An explicit settings.yaml value always wins. The route-projected
+// engine (the EFFECTIVE engine reconcile stored, which is the override else the
+// defaults block) only becomes an override when it differs from
+// defaults.agent_engine, so an agent that merely inherits the default is never
+// pinned. undefined means "no override; the default stays implicit".
+function resolveAgentEngineOverride(
+  explicit: AgentEngine | undefined,
+  routeProjected: AgentEngine | undefined,
+  defaultEngine: AgentEngine,
+): AgentEngine | undefined {
+  if (explicit) return explicit;
+  if (routeProjected && routeProjected !== defaultEngine) return routeProjected;
+  return undefined;
+}
 
 export async function exportCurrentDesiredState(input: {
   deps: SettingsDesiredStateServiceDeps;
@@ -403,13 +420,25 @@ export async function exportCurrentDesiredState(input: {
         existing?.relationshipMode ??
         group.agentConfig?.relationshipMode ??
         'personal',
-      // Preserve the durable per-agent engine: the configured value wins, else
-      // the engine the route was reconciled with. The system default stays
-      // implicit so settings.yaml only carries non-default selections.
-      ...((existing?.agentEngine ?? group.agentConfig?.agentEngine)
+      // Preserve the durable per-agent engine override only. An explicit
+      // settings.yaml value (existing.agentEngine) always wins. Otherwise the
+      // route carries the EFFECTIVE engine reconcile projected (per-agent
+      // override else the defaults block), so it must only become an override
+      // here when it differs from defaults.agent_engine — mirror the
+      // stored-agent loop, which never materializes inherited defaults. Treating
+      // it unconditionally would pin every agent that merely inherits
+      // defaults.agent_engine as an explicit override on each export.
+      ...(resolveAgentEngineOverride(
+        existing?.agentEngine,
+        group.agentConfig?.agentEngine,
+        settings.agent.defaultAgentEngine,
+      )
         ? {
-            agentEngine:
-              existing?.agentEngine ?? group.agentConfig?.agentEngine,
+            agentEngine: resolveAgentEngineOverride(
+              existing?.agentEngine,
+              group.agentConfig?.agentEngine,
+              settings.agent.defaultAgentEngine,
+            ),
           }
         : {}),
       model: existing?.model ?? group.agentConfig?.model,

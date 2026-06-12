@@ -97,9 +97,12 @@ describe('OpenAI memory LLM client', () => {
     // cacheStatic is a no-op for OpenAI automatic prefix caching.
     expect(JSON.stringify(body)).not.toContain('cache_control');
 
+    // OpenAI cached_tokens is a subset of prompt_tokens (120); the canonical
+    // usage treats input and cache-read as disjoint, so input_tokens excludes
+    // the cached portion: 120 - 80 = 40.
     expect(usageSeen).toEqual([
       {
-        input_tokens: 120,
+        input_tokens: 40,
         output_tokens: 34,
         cache_read_input_tokens: 80,
       },

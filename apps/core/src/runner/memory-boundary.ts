@@ -41,6 +41,13 @@ export function denyMemoryBoundaryToolUse(
   input: unknown,
   permissionOpts: MemoryBoundaryPermissionOpts,
   memoryBlock: string,
+  // DeepAgents third-party MCP tools reach this guard with BARE names (no
+  // `mcp__<server>__` prefix, because the neutral lane sets
+  // prefixToolNameWithServerName:false so tool names stay model-visible and
+  // policy-rule-addressable). The SDK lane passes prefixed names that match the
+  // `mcp__` branch below; pass this flag so a bare-named third-party MCP tool is
+  // scanned identically and the two lanes keep parity.
+  isThirdPartyMcpTool = false,
 ): string | null {
   if (!memoryBlock.includes('[suppressed: instruction-like memory content]')) {
     return null;
@@ -53,7 +60,11 @@ export function denyMemoryBoundaryToolUse(
     'MultiEdit',
     'NotebookEdit',
   ]);
-  if (!guardedTools.has(toolName) && !toolName.startsWith('mcp__')) {
+  if (
+    !guardedTools.has(toolName) &&
+    !toolName.startsWith('mcp__') &&
+    !isThirdPartyMcpTool
+  ) {
     return null;
   }
 

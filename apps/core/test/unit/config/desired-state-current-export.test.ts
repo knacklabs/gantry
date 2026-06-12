@@ -166,4 +166,87 @@ describe('exportCurrentDesiredState', () => {
 
     expect(exported.agents.main_agent.agentEngine).toBe(DEEPAGENTS_ENGINE);
   });
+
+  function groupLoopDeps(routeEngine: typeof DEEPAGENTS_ENGINE) {
+    return {
+      ops: {
+        getAllConversationRoutes: vi.fn(async () => ({
+          'tg:group_main': {
+            name: 'Main',
+            folder: 'main_agent',
+            trigger: '@bot',
+            added_at: '2026-06-03T00:00:00.000Z',
+            requiresTrigger: true,
+            // The route carries the EFFECTIVE engine reconcile projected
+            // (here equal to defaults.agent_engine), NOT an explicit override.
+            agentConfig: { agentEngine: routeEngine },
+          },
+        })),
+      },
+      repositories: {
+        agents: { listAgents: vi.fn(async () => []) },
+        tools: {
+          listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSourcesForAgents: vi.fn(async () => []),
+          listTools: vi.fn(async () => []),
+        },
+        skills: {
+          listAgentSkillBindingsForAgents: vi.fn(async () => []),
+          listSkills: vi.fn(async () => []),
+        },
+        mcpServers: { listAgentBindingsForAgents: vi.fn(async () => []) },
+        providerConnections: {
+          listProviderConnections: vi.fn(async () => []),
+          listAgentConversationBindings: vi.fn(async () => []),
+        },
+        conversations: {
+          listConversations: vi.fn(async () => []),
+          listConversationApproversForConversations: vi.fn(async () => []),
+        },
+      },
+    };
+  }
+
+  it('A5: does not pin an agent that merely inherits defaults.agent_engine as an override', async () => {
+    // defaults.agent_engine = deepagents; the route carries the effective
+    // deepagents engine, but the agent has no explicit settings.yaml override.
+    const settings = {
+      agent: { defaultAgentEngine: DEEPAGENTS_ENGINE },
+      providers: {},
+      providerConnections: {},
+      conversations: {},
+      bindings: {},
+      agents: {},
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: groupLoopDeps(DEEPAGENTS_ENGINE) as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    // No explicit agent_engine override materialized; the default stays implicit.
+    expect(exported.agents.main_agent.agentEngine).toBeUndefined();
+  });
+
+  it('A5: still exports an engine that differs from the (flipped) default as an override', async () => {
+    // After flipping the default back to the system default, a route still
+    // carrying deepagents is a genuine override and must be exported.
+    const settings = {
+      agent: { defaultAgentEngine: DEFAULT_AGENT_ENGINE },
+      providers: {},
+      providerConnections: {},
+      conversations: {},
+      bindings: {},
+      agents: {},
+    };
+
+    const exported = await exportCurrentDesiredState({
+      deps: groupLoopDeps(DEEPAGENTS_ENGINE) as any,
+      appId: 'app-one' as never,
+      settings: settings as any,
+    });
+
+    expect(exported.agents.main_agent.agentEngine).toBe(DEEPAGENTS_ENGINE);
+  });
 });

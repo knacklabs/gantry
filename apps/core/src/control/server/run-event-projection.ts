@@ -62,6 +62,15 @@ function enrichRunEventPayload(
   const shortId = numberOrString(source.short_id ?? source.shortId);
   const startedAt = stringValue(source.started_at ?? source.startedAt);
   const durationMs = numberValue(source.duration_ms ?? source.durationMs);
+  // Read-only run diagnostics: the JOB_STARTED payload carries the inherited
+  // agent engine and the diagnostic executionProviderId. Surface both into a
+  // stable snake_case shape so the run detail/events view always exposes them
+  // (the raw spread alone leaves the key shape upstream-dependent). No input is
+  // accepted; these are projection-only diagnostics.
+  const agentEngine = stringValue(source.agent_engine ?? source.agentEngine);
+  const executionProviderId = stringValue(
+    source.execution_provider_id ?? source.executionProviderId,
+  );
   return {
     ...source,
     runId: stringValue(source.runId) ?? runId,
@@ -77,6 +86,8 @@ function enrichRunEventPayload(
     duration_ms: durationMs ?? undefined,
     duration_text:
       durationMs === undefined ? undefined : formatDuration(durationMs),
+    agent_engine: agentEngine ?? undefined,
+    execution_provider_id: executionProviderId ?? undefined,
   };
 }
 

@@ -574,11 +574,12 @@ function parseGatewayBindHost(raw: unknown): string {
     'model_access.gateway.bind_host',
     DEFAULT_MODEL_GATEWAY_BIND_HOST,
   ).toLowerCase();
-  if (value === '127.0.0.1' || value === 'localhost' || value === '::1') {
+  // Numeric loopback only: the gateway broker crashes at startup otherwise.
+  if (value === '127.0.0.1' || value === '::1') {
     return value;
   }
   throw new Error(
-    'model_access.gateway.bind_host must be a loopback host: 127.0.0.1, ::1, or localhost',
+    'model_access.gateway.bind_host must be a numeric loopback host: 127.0.0.1 or ::1.',
   );
 }
 

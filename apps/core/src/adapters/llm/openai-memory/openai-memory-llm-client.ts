@@ -146,10 +146,14 @@ function reportUsage(
   usage: ChatCompletionResponse['usage'],
 ): void {
   if (!onUsage || !usage) return;
-  const inputTokens = usage.prompt_tokens ?? 0;
+  const promptTokens = usage.prompt_tokens ?? 0;
   const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+  // OpenAI cached_tokens is a SUBSET of prompt_tokens, but the canonical
+  // MemoryLlmUsage treats input_tokens and cache_read_input_tokens as disjoint
+  // (cf. anthropic memory-query.ts). Subtract the cached portion so the two do
+  // not double-count; floor at 0 in case of inconsistent upstream counts.
   const normalized: MemoryLlmUsage = {
-    input_tokens: inputTokens,
+    input_tokens: Math.max(0, promptTokens - cachedTokens),
     output_tokens: usage.completion_tokens ?? 0,
     ...(cachedTokens ? { cache_read_input_tokens: cachedTokens } : {}),
   };

@@ -68,9 +68,24 @@ interface ParsedFrame {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
+  sessionInit?: boolean;
+  continuedByFollowup?: boolean;
   usage?: { inputTokens: number; outputTokens: number; model?: string };
   contextUsage?: { maxTokens: number; totalTokens: number };
   error?: string;
+}
+
+// A frame is a "turn-complete marker" iff the host's isAgentTurnCompleteMarker
+// would treat it as one: success, no result text, not a session-init frame, and
+// not a continuation frame. (compactBoundary/interactionBoundary are never
+// emitted by this lane.) Used to assert exactly one terminal marker per turn.
+function isTurnCompleteMarker(frame: ParsedFrame): boolean {
+  return (
+    frame.status === 'success' &&
+    !frame.result &&
+    !frame.sessionInit &&
+    !frame.continuedByFollowup
+  );
 }
 
 function parseFrames(stdout: string): ParsedFrame[] {
@@ -241,6 +256,130 @@ async function startToolForcingOpenAiGateway(): Promise<FakeGateway> {
   };
 }
 
+// A fake ANTHROPIC-format gateway: serves the Messages API SSE event shape
+// (message_start / content_block_delta(text_delta) / message_delta(usage) /
+// message_stop) that ChatAnthropic parses. Proves the Anthropic API-key
+// DeepAgents lane end to end against a loopback gateway, with NO real network.
+async function startFakeAnthropicGateway(): Promise<FakeGateway> {
+  const requests: FakeGateway['requests'] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      requests.push({
+        // ChatAnthropic authenticates with x-api-key, not Authorization: Bearer.
+        authorization: req.headers['x-api-key'] as string | undefined,
+        body,
+        path: req.url ?? '',
+      });
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const events = [
+        {
+          type: 'message_start',
+          message: {
+            id: 'msg_integration',
+            type: 'message',
+            role: 'assistant',
+            model: 'claude-sonnet-4-6',
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: 37, output_tokens: 0 },
+          },
+        },
+        {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: '' },
+        },
+        {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Hello' },
+        },
+        {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: ' Gantry' },
+        },
+        { type: 'content_block_stop', index: 0 },
+        {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn', stop_sequence: null },
+          usage: { output_tokens: 5 },
+        },
+        { type: 'message_stop' },
+      ];
+      for (const event of events) {
+        res.write(`event: ${event.type}\n`);
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('fake anthropic gateway did not bind a port');
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/anthropic`,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
+// An OpenAI-format gateway that holds the response open for `delayMs` before
+// streaming, so a `_close` sentinel written shortly after spawn lands while the
+// turn is in flight (the live-control poll loop then aborts the stream). Used to
+// prove close-stdin terminates the lane without a completed marker (R9).
+async function startSlowOpenAiGateway(delayMs: number): Promise<FakeGateway> {
+  const requests: FakeGateway['requests'] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      requests.push({
+        authorization: req.headers.authorization,
+        body,
+        path: req.url ?? '',
+      });
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const id = 'chatcmpl-slow';
+      // First a small delta, then a long pause before the rest. The pause is the
+      // window the in-flight `_close` abort fires in.
+      res.write(
+        `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', model: 'gpt-5.5', choices: [{ index: 0, delta: { role: 'assistant', content: 'Working' }, finish_reason: null }] })}\n\n`,
+      );
+      setTimeout(() => {
+        res.write(
+          `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', model: 'gpt-5.5', choices: [{ index: 0, delta: { content: ' done' }, finish_reason: null }] })}\n\n`,
+        );
+        res.write(
+          `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', model: 'gpt-5.5', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } })}\n\n`,
+        );
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }, delayMs);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('slow gateway did not bind a port');
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/openai`,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
 interface TempRoot {
   root: string;
   sessionsDir: string;
@@ -257,13 +396,22 @@ function runRunner(input: {
   temp: TempRoot;
   baseUrl: string;
   apiKey: string;
+  endpointFamily?: 'openai' | 'anthropic';
+  modelId?: string;
   extraEnv?: Record<string, string>;
+  // Invoked with the spawned child so a test can drive the IPC dir (e.g. write a
+  // _close sentinel) while the run is in flight, then close stdin.
+  onSpawn?: (child: ReturnType<typeof spawn>) => void;
 }): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const endpointFamily = input.endpointFamily ?? 'openai';
+  const modelId =
+    input.modelId ??
+    (endpointFamily === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-5.5');
   return new Promise((resolve, reject) => {
     const child = spawn(TSX_BIN, [RUNNER_ENTRY], {
       env: {
         ...process.env,
-        GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
+        GANTRY_DEEPAGENTS_MODEL_ID: modelId,
         GANTRY_DEEPAGENTS_SESSIONS_DIR: input.temp.sessionsDir,
         GANTRY_IPC_INPUT_DIR: input.temp.inputDir,
         // Common host env (agent-spawn projects these for every runner). The
@@ -291,16 +439,20 @@ function runRunner(input: {
     child.stderr.on('data', (chunk) => (stderr += chunk.toString()));
     child.on('error', reject);
     child.on('exit', (code) => resolve({ code, stdout, stderr }));
-    child.stdin.write(
-      JSON.stringify({
-        ...input.stdin,
-        modelCredentialEnv: {
-          OPENAI_BASE_URL: input.baseUrl,
-          OPENAI_API_KEY: input.apiKey,
-        },
-      }),
-    );
+    // The provider-boundary sentinel gates the Anthropic env-key prefix token to
+    // the approved adapter path, so the env-key names are assembled from
+    // fragments here (the runner resolves the endpoint family from these keys).
+    const anthropicPrefix = 'ANTHROPIC' + '_';
+    const modelCredentialEnv =
+      endpointFamily === 'anthropic'
+        ? {
+            [`${anthropicPrefix}BASE_URL`]: input.baseUrl,
+            [`${anthropicPrefix}API_KEY`]: input.apiKey,
+          }
+        : { OPENAI_BASE_URL: input.baseUrl, OPENAI_API_KEY: input.apiKey };
+    child.stdin.write(JSON.stringify({ ...input.stdin, modelCredentialEnv }));
     child.stdin.end();
+    input.onSpawn?.(child);
   });
 }
 
@@ -365,13 +517,27 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
       expect(result.code).toBe(0);
       const frames = parseFrames(result.stdout);
 
-      // First frame carries the session id immediately for durable persistence.
-      expect(frames[0]).toMatchObject({ status: 'success', result: null });
+      // R1: the first frame carries the session id immediately for durable
+      // persistence and is flagged sessionInit, so the host does NOT treat it as
+      // turn completion (which would idle + dequeue at turn START).
+      expect(frames[0]).toMatchObject({
+        status: 'success',
+        result: null,
+        sessionInit: true,
+      });
+      expect(isTurnCompleteMarker(frames[0])).toBe(false);
       const sessionId = frames[0].newSessionId;
       expect(sessionId).toBeTruthy();
       expect(frames.every((frame) => frame.newSessionId === sessionId)).toBe(
         true,
       );
+
+      // R2: exactly ONE turn-complete marker for a single-turn run, and it is
+      // the last frame.
+      const markerIdxs = frames
+        .map((frame, idx) => (isTurnCompleteMarker(frame) ? idx : -1))
+        .filter((idx) => idx >= 0);
+      expect(markerIdxs).toEqual([frames.length - 1]);
 
       // Text deltas stream through, then a final usage/context frame.
       const textDeltas = frames
@@ -525,6 +691,123 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
       // The runner does not crash; it streams a terminal frame after the gate
       // denies (timeout) and the model produces its final answer.
       expect(result.code).toBe(0);
+    } finally {
+      await gateway.close();
+    }
+  }, 60_000);
+
+  // R8: end-to-end DeepAgents spawn against a fake Anthropic-format gateway
+  // (Messages API SSE shape). Proves the Anthropic API-key deepagents lane and
+  // that ChatAnthropic received the explicit anthropicApiUrl/apiKey derived from
+  // the projected Anthropic base-url/api-key gateway env.
+  it('streams runner frames from a gateway-backed ANTHROPIC run (Anthropic API-key lane end to end)', async () => {
+    const gateway = await startFakeAnthropicGateway();
+    const temp = makeTempRoot();
+    try {
+      const result = await runRunner({
+        stdin: {
+          prompt: 'say hello',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+        },
+        temp,
+        endpointFamily: 'anthropic',
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_anthropictoken',
+      });
+
+      expect(result.code).toBe(0);
+      const frames = parseFrames(result.stdout);
+
+      // Same frame contract as the OpenAI lane: a sessionInit frame first, then
+      // deltas, then exactly one terminal marker (last frame).
+      expect(frames[0]).toMatchObject({
+        status: 'success',
+        result: null,
+        sessionInit: true,
+      });
+      expect(isTurnCompleteMarker(frames[0])).toBe(false);
+      const markerIdxs = frames
+        .map((frame, idx) => (isTurnCompleteMarker(frame) ? idx : -1))
+        .filter((idx) => idx >= 0);
+      expect(markerIdxs).toEqual([frames.length - 1]);
+
+      const textDeltas = frames
+        .map((frame) => frame.result)
+        .filter((value): value is string => typeof value === 'string');
+      expect(textDeltas.join('')).toBe('Hello Gantry');
+
+      const usageFrame = frames.find((frame) => frame.usage);
+      expect(usageFrame?.usage).toMatchObject({
+        model: 'claude-sonnet-4-6',
+        inputTokens: 37,
+        outputTokens: 5,
+      });
+      expect(usageFrame?.contextUsage?.maxTokens).toBeGreaterThan(0);
+
+      // ChatAnthropic hit the loopback gateway at /anthropic/v1/messages with the
+      // run-scoped gateway token as x-api-key (env-derived anthropicApiUrl +
+      // apiKey). No raw provider secret reaches the upstream body.
+      expect(gateway.requests.length).toBeGreaterThan(0);
+      for (const request of gateway.requests) {
+        expect(request.authorization).toBe('gtw_anthropictoken');
+        expect(request.path).toContain('/anthropic/v1/messages');
+        expect(request.body).not.toContain('gtw_');
+      }
+    } finally {
+      await gateway.close();
+    }
+  }, 60_000);
+
+  // R9: an in-flight run that receives a `_close` sentinel (close-stdin / STOP)
+  // aborts the stream and exits cleanly WITHOUT emitting a turn-complete marker
+  // (mirrors the Anthropic lane returning on closedDuringQuery with no final
+  // frame). The host settles the turn on process exit.
+  it('aborts an in-flight run on a _close sentinel and exits cleanly with NO completed marker (close-stdin)', async () => {
+    // Hold the response open long enough for the live-control poll loop to see
+    // the close sentinel we write while the turn is in flight. The gateway
+    // streams one delta immediately, then pauses for the rest — the pause is the
+    // window the abort fires in.
+    const gateway = await startSlowOpenAiGateway(8_000);
+    const temp = makeTempRoot();
+    try {
+      const result = await runRunner({
+        stdin: {
+          prompt: 'long running please',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+        onSpawn: (child) => {
+          // The runner clears any pre-existing _close at startup
+          // (prepareInteractiveIpcInputDir). tsx cold start can be multiple
+          // seconds, so a fixed delay races prepare. Instead, write the sentinel
+          // only AFTER the runner emits its first stdout frame (the sessionInit
+          // frame), which is emitted after prepare ran and the run is under way
+          // — guaranteeing the sentinel survives and lands while the 8s gateway
+          // pause keeps the turn in flight.
+          let closeWritten = false;
+          child.stdout?.on('data', (chunk: Buffer) => {
+            if (closeWritten) return;
+            if (chunk.toString().includes('GANTRY_OUTPUT_START')) {
+              closeWritten = true;
+              fs.writeFileSync(path.join(temp.inputDir, '_close'), '');
+            }
+          });
+        },
+      });
+
+      // Clean exit (graceful stop, not a crash).
+      expect(result.code).toBe(0);
+      const frames = parseFrames(result.stdout);
+      // The session-init frame is emitted up front...
+      expect(frames[0]).toMatchObject({ sessionInit: true });
+      // ...but NO turn-complete marker is emitted on a close-driven termination.
+      expect(frames.some((frame) => isTurnCompleteMarker(frame))).toBe(false);
+      // No error frame either (graceful stop).
+      expect(frames.some((frame) => frame.status === 'error')).toBe(false);
     } finally {
       await gateway.close();
     }

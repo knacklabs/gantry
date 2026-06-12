@@ -8,7 +8,7 @@ import type {
 } from '../domain/ports/repositories.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
-import { logger } from '../infrastructure/logging/logger.js';
+import { logger, redactString } from '../infrastructure/logging/logger.js';
 import type { RunAgentOptions } from './agent-spawn-types.js';
 import type {
   MemoryBoundaryDefaultScope,
@@ -453,7 +453,13 @@ export async function completeFailedRuntimeSessionRun(input: {
     await input.ops.completeSessionAgentRun?.({
       runId: input.runId,
       status: 'failed',
-      errorSummary: summarizeRuntimeResultForPersistence(input.errorSummary),
+      // Error summaries can carry secrets (gateway tokens, API keys, URLs with
+      // credentials) lifted from upstream error bodies; run the full secret
+      // redaction before the provider-session redaction + truncation so nothing
+      // sensitive is persisted on the failed-run record.
+      errorSummary: summarizeRuntimeResultForPersistence(
+        redactString(input.errorSummary),
+      ),
     });
   } catch (err) {
     logger.warn(

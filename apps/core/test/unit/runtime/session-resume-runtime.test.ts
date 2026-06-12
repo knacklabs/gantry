@@ -119,6 +119,27 @@ describe('session-resume-runtime', () => {
     expect(summary).not.toContain('claude-session-failed');
   });
 
+  it('runs errorSummary through full secret redaction before storing failed runs', async () => {
+    const completeSessionAgentRun = vi.fn().mockResolvedValue(undefined);
+    const ops = {
+      completeSessionAgentRun,
+    } as unknown as RuntimeAgentSessionRepository;
+
+    await completeFailedRuntimeSessionRun({
+      ops,
+      runId: 'run-failed-secrets',
+      errorSummary:
+        'gateway rejected token gtw_secret_abc123 and sk-ant-secret-xyz upstream',
+    });
+
+    expect(completeSessionAgentRun).toHaveBeenCalledTimes(1);
+    const completion = completeSessionAgentRun.mock.calls[0][0];
+    const summary = completion.errorSummary as string;
+    expect(summary).toContain('[REDACTED]');
+    expect(summary).not.toContain('gtw_secret_abc123');
+    expect(summary).not.toContain('sk-ant-secret-xyz');
+  });
+
   it('does not throw when failed run bookkeeping cannot be persisted', async () => {
     const completeSessionAgentRun = vi
       .fn()

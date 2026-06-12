@@ -893,6 +893,9 @@ describe('executeRunnerProcess', () => {
         expect.objectContaining({
           group: 'Test Group',
           providerSessionCreated: true,
+          startupTiming: expect.objectContaining({
+            providerSessionMs: expect.any(Number),
+          }),
         }),
         'test-runner completed (streaming mode)',
       );
@@ -1153,6 +1156,7 @@ describe('executeRunnerProcess', () => {
         const resultP = executeRunnerProcess(spec);
 
         const output = JSON.stringify({ status: 'success', result: 'done' });
+        await vi.advanceTimersByTimeAsync(25);
         fakeProc.stdout.push(output + '\n');
         fakeProc.emit('close', 0);
         await vi.advanceTimersByTimeAsync(10);
@@ -1163,6 +1167,9 @@ describe('executeRunnerProcess', () => {
         const [, logContent] = mockWriteFileSync.mock.calls[0];
         expect(logContent).toContain('=== Input Summary ===');
         expect(logContent).toContain('Prompt length:');
+        expect(logContent).toContain('=== Startup Timing ===');
+        expect(logContent).toContain('Host Pre-Spawn:');
+        expect(logContent).toContain('First Stdout: 25ms');
         // Should NOT contain full input dump
         expect(logContent).not.toContain('=== Input ===');
         // Should NOT contain stdout/stderr sections on successful non-verbose

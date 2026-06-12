@@ -177,6 +177,14 @@ describe('logger', () => {
     expect(redacted).toContain('token=[REDACTED]');
   });
 
+  it('redacts run-scoped gateway tokens (gtw_)', () => {
+    const input =
+      'projected OPENAI_API_KEY using token gtw_abc123.DEF-456_xyz for the run';
+    const redacted = redactString(input);
+    expect(redacted).not.toContain('gtw_abc123.DEF-456_xyz');
+    expect(redacted).toContain('[REDACTED]');
+  });
+
   it('filters entries below configured level', () => {
     const records: LogRecord[] = [];
     const l = createLogger({

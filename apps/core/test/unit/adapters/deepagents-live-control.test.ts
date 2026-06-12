@@ -85,6 +85,38 @@ describe('startDeepAgentLiveControl (STOP / close-stdin)', () => {
     expect(control.signal.aborted).toBe(false);
     expect(control.closed()).toBe(false);
   });
+
+  it('drainNow() folds a follow-up written after the last poll into the buffer (R4)', () => {
+    // A very long poll interval so the timer never ticks during the test: the
+    // only drain is the synchronous drainNow() the loop runs before deciding to
+    // break. A follow-up landing in that window must not be orphaned.
+    const control = startDeepAgentLiveControl({ pollMs: 1_000_000 });
+    writeMessage('late follow-up', 1);
+    // Without a poll tick the buffer is empty...
+    expect(control.takeBufferedFollowups()).toEqual([]);
+    // ...until the synchronous final drain folds it in.
+    control.drainNow();
+    expect(control.takeBufferedFollowups()).toEqual(['late follow-up']);
+    control.stop();
+  });
+
+  it('drainNow() observes a _close that landed after the last poll (R5)', () => {
+    const control = startDeepAgentLiveControl({ pollMs: 1_000_000 });
+    writeCloseSentinel();
+    expect(control.closed()).toBe(false);
+    control.drainNow();
+    expect(control.closed()).toBe(true);
+    expect(control.signal.aborted).toBe(true);
+    control.stop();
+  });
+
+  it('drainNow() is safe to call after stop() and does not reschedule', () => {
+    const control = startDeepAgentLiveControl({ pollMs: 10 });
+    control.stop();
+    writeMessage('after stop', 1);
+    control.drainNow();
+    expect(control.takeBufferedFollowups()).toEqual(['after stop']);
+  });
 });
 
 describe('isAbortError', () => {

@@ -305,6 +305,40 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('A9: rejects a forged run token on the OAuth lane without reaching the Bearer upstream', async () => {
+    // Behavioral backstop for the claude_code_oauth lane: the gateway must
+    // authenticate the run-scoped token before swapping in the upstream Bearer
+    // credential. A forged token is rejected and never reaches upstream.
+    const repo = new MutableModelCredentialRepository();
+    repo.setWithMode('anthropic', 'claude_code_oauth', {
+      oauthToken: 'sk-ant-oat-upstream',
+    });
+    const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: 'gtw_forged_not_issued_by_broker',
+      });
+
+      expect(response.status).toBeGreaterThanOrEqual(401);
+      expect(response.status).toBeLessThan(404);
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('honors numeric loopback bind hosts only', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-upstream');

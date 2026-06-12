@@ -23,6 +23,14 @@ export interface DeepAgentLiveControl {
   closed(): boolean;
   /** Follow-up messages buffered mid-stream, in arrival order; drains on read. */
   takeBufferedFollowups(): string[];
+  /**
+   * Force one synchronous disk drain right now, folding any follow-up that
+   * landed after the last poll tick into the buffer (and observing a `_close`
+   * that landed in the same window). Called immediately before the loop decides
+   * to break so a follow-up written between stream-end and the break decision is
+   * never orphaned (R4). Safe to call after stop() — it does not reschedule.
+   */
+  drainNow(): void;
   /** Stops the polling loop. Idempotent. */
   stop(): void;
 }
@@ -40,8 +48,10 @@ export function startDeepAgentLiveControl(options?: {
   let closedFlag = false;
   let stopped = false;
 
-  const poll = () => {
-    if (stopped) return;
+  // One drain+close-check pass over the IPC-input dir. Returns true if a close
+  // sentinel was observed (so the caller stops scheduling). Shared by the poll
+  // loop and the synchronous drainNow() so the disk-drain semantics never drift.
+  const drainOnce = (): boolean => {
     try {
       // Drain follow-ups first so a message queued just before a close sentinel
       // is not lost; mirrors the Anthropic loop ordering (boundaries/messages
@@ -54,13 +64,19 @@ export function startDeepAgentLiveControl(options?: {
         log?.('Close sentinel detected during turn; aborting LangGraph stream');
         controller.abort();
         stopped = true;
-        return;
+        return true;
       }
     } catch (err) {
       log?.(
         `live-control poll error: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    return false;
+  };
+
+  const poll = () => {
+    if (stopped) return;
+    if (drainOnce()) return;
     schedule();
   };
 
@@ -77,6 +93,12 @@ export function startDeepAgentLiveControl(options?: {
     signal: controller.signal,
     closed: () => closedFlag,
     takeBufferedFollowups: () => buffered.splice(0, buffered.length),
+    // A final synchronous drain run by the loop before it decides to break, even
+    // if the poll loop already stopped (e.g. after a close). It never
+    // reschedules, so it is safe to call post-stop.
+    drainNow: () => {
+      drainOnce();
+    },
     stop: () => {
       stopped = true;
       for (const timer of timers) clearTimeout(timer);

@@ -75,12 +75,24 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
     writeRunnerFrame(frame);
   };
   try {
-    await runDeepAgentTurn({
+    const turn = await runDeepAgentTurn({
       agentInput,
       modelId: resolveModelId(agentInput),
       priorMessages: [],
       newSessionId: diagnosticSessionId,
       emit,
+    });
+    // The single terminal frame (usage/contextUsage) is emitted by the caller so
+    // there is exactly one terminal marker per turn (the normalizer streams
+    // deltas only).
+    emit({
+      status: 'success',
+      result: turn.terminalResult,
+      newSessionId: diagnosticSessionId,
+      ...(turn.terminalUsage ? { usage: turn.terminalUsage } : {}),
+      ...(turn.terminalContextUsage
+        ? { contextUsage: turn.terminalContextUsage }
+        : {}),
     });
     heartbeat.stop();
   } catch (err) {
@@ -115,11 +127,16 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
 
     // Emit the session id as soon as the resume is validated so the host
     // persists the provider session before the run completes (launchd restarts
-    // can kill an active run mid-stream).
+    // can kill an active run mid-stream). This is a standalone session-init
+    // frame (`sessionInit: true`), NOT a turn-complete marker: the host's
+    // isAgentTurnCompleteMarker excludes it, so the turn is not reported done at
+    // its very start (R1). The host still persists the id (it reads newSessionId
+    // via providerSessionExternalSessionId).
     writeRunnerFrame({
       status: 'success',
       result: null,
       newSessionId: sessionId,
+      sessionInit: true,
     });
 
     // Follow-ups already queued before the turn started are appended to the
@@ -127,10 +144,12 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
     // buffered by the live-control loop and drive additional turns below.
     let pendingFollowups = drainIpcInput(log);
 
-    // Run one or more turns: each turn streams until completion or until STOP
-    // aborts it. When follow-ups arrive mid-stream and the turn was not stopped,
-    // the prior terminal frame carries `continuedByFollowup` and the buffered
-    // text drives the next turn — mirroring the Anthropic steering gate.
+    // Run one or more turns: each turn streams deltas until completion or until
+    // STOP aborts it. Exactly ONE terminal marker frame is emitted per
+    // user-visible turn — the normalizer streams deltas only and returns the
+    // terminal payload; this loop emits the single terminal frame, folding in
+    // the continuation/stop decision (R2/R3), mirroring the Anthropic
+    // query-loop's per-result frame.
     for (;;) {
       const turnInput =
         pendingFollowups.length > 0
@@ -142,8 +161,9 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
       pendingFollowups = [];
 
       let stoppedThisTurn = false;
+      let turn: Awaited<ReturnType<typeof runDeepAgentTurn>> | undefined;
       try {
-        const result = await runDeepAgentTurn({
+        turn = await runDeepAgentTurn({
           agentInput: turnInput,
           modelId: resolveModelId(agentInput),
           priorMessages,
@@ -151,11 +171,9 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           emit: writeRunnerFrame,
           signal: liveControl.signal,
         });
-        priorMessages = result.messages;
+        priorMessages = turn.messages;
       } catch (err) {
-        // A close-driven abort is a graceful stop, not a failure: persist what
-        // we have and emit a terminal success frame consistent with the
-        // Anthropic stop semantics (turn ends cleanly on close).
+        // A close-driven abort is a graceful stop, not a failure.
         if (liveControl.closed() && isAbortError(err)) {
           stoppedThisTurn = true;
         } else {
@@ -164,32 +182,56 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
       }
       store.save(sessionId, priorMessages);
 
+      // R4: force a final synchronous disk drain right now so a follow-up that
+      // landed after the last poll tick but before this break decision is folded
+      // into the buffer (the poll timers may not have ticked again). R5: this
+      // also observes a `_close` that landed in the same window, so a late close
+      // takes the close-path below instead of being lost.
+      liveControl.drainNow();
+
+      // R3/R5: a close-driven termination (STOP or close-stdin) ends the turn
+      // WITHOUT emitting a completion marker, mirroring the Anthropic lane which
+      // returns on closedDuringQuery with no final frame. The host settles the
+      // turn on process exit (stopRequested -> error frame, or streamed-success
+      // on a plain close-stdin). Re-checking closed() here folds a late close
+      // (drained just above) into the same no-marker path.
+      if (stoppedThisTurn || liveControl.closed()) {
+        liveControl.stop();
+        return;
+      }
+
       const moreFollowups = liveControl.takeBufferedFollowups();
-      if (
-        !stoppedThisTurn &&
-        !liveControl.closed() &&
-        moreFollowups.length > 0
-      ) {
-        // Continue with the buffered follow-up(s) as a fresh turn; flag the
-        // terminal frame so the host knows the run is being continued.
+      if (moreFollowups.length > 0) {
+        // Continue with the buffered follow-up(s) as a fresh turn. The terminal
+        // frame for THIS turn carries `continuedByFollowup` (single marker) so
+        // the host continues the run instead of completing+dequeuing it.
         pendingFollowups = moreFollowups;
         writeRunnerFrame({
           status: 'success',
-          result: null,
+          result: turn?.terminalResult ?? null,
           newSessionId: sessionId,
           continuedByFollowup: true,
+          ...(turn?.terminalUsage ? { usage: turn.terminalUsage } : {}),
+          ...(turn?.terminalContextUsage
+            ? { contextUsage: turn.terminalContextUsage }
+            : {}),
         });
         continue;
       }
+
+      // Single terminal marker for the final turn: the run is complete.
+      liveControl.stop();
+      writeRunnerFrame({
+        status: 'success',
+        result: turn?.terminalResult ?? null,
+        newSessionId: sessionId,
+        ...(turn?.terminalUsage ? { usage: turn.terminalUsage } : {}),
+        ...(turn?.terminalContextUsage
+          ? { contextUsage: turn.terminalContextUsage }
+          : {}),
+      });
       break;
     }
-
-    liveControl.stop();
-    writeRunnerFrame({
-      status: 'success',
-      result: null,
-      newSessionId: sessionId,
-    });
   } catch (err) {
     liveControl.stop();
     writeRunnerFrame({

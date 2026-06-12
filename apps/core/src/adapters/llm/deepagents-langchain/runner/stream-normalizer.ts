@@ -6,15 +6,18 @@ import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 
 // Pure normalizer: turns an async iterable of LangGraph `streamEvents` (v2)
-// events into the provider-neutral runner output frame contract. Kept free of
-// any network/SDK construction so it is unit-testable against a mocked stream.
+// events into provider-neutral runner output frames. Kept free of any
+// network/SDK construction so it is unit-testable against a mocked stream.
 //
 // Behavior mirrors the Anthropic runner streaming contract:
 //   - text token deltas are emitted as intermediate frames
 //     { status:'success', result:<delta>, newSessionId } so channels stream;
-//   - the final frame carries the accumulated assistant text (only when no
-//     partial text was streamed, to avoid double-rendering), usage, and
-//     contextUsage.
+//   - the SINGLE per-turn terminal frame is NOT emitted here. The normalizer
+//     returns the terminal payload (result text, usage, contextUsage) so the
+//     caller (runner index) emits exactly one terminal marker per user-visible
+//     turn, folding in the continuation/stop decision (R2). This mirrors the
+//     Anthropic query-loop, which emits one `result` frame per inner turn that
+//     carries usage, contextUsage, and `continuedByFollowup` together.
 // usage_metadata (input_tokens/output_tokens) is accumulated across
 // AIMessageChunks. Context-window figures come from the runtime model profile,
 // never hardcoded.
@@ -45,9 +48,20 @@ interface UsageAccumulator {
   outputTokens: number;
 }
 
+// Terminal payload the caller folds into the single per-turn terminal frame.
+export interface NormalizedTurnResult {
+  text: string;
+  usage: UsageAccumulator;
+  // `result` to put on the terminal frame: the accumulated assistant text only
+  // when no partial text was streamed (avoids double-rendering), else null.
+  terminalResult: string | null;
+  terminalUsage: NormalizedModelUsage;
+  terminalContextUsage: RuntimeContextUsageSnapshot;
+}
+
 export async function normalizeDeepAgentStream(
   input: StreamNormalizerInput,
-): Promise<{ text: string; usage: UsageAccumulator }> {
+): Promise<NormalizedTurnResult> {
   const usage: UsageAccumulator = { inputTokens: 0, outputTokens: 0 };
   let accumulatedText = '';
   let sawPartialText = false;
@@ -73,19 +87,20 @@ export async function normalizeDeepAgentStream(
     }
   }
 
-  input.emit({
-    status: 'success',
-    result: sawPartialText ? null : accumulatedText || null,
-    newSessionId: input.newSessionId,
-    usage: normalizedUsage(usage, input.modelId),
-    contextUsage: contextUsageSnapshot(
+  // The terminal frame is emitted by the caller (runner index) so there is
+  // exactly one terminal marker per user-visible turn and it can carry the
+  // continuation/stop decision. The normalizer only streams deltas.
+  return {
+    text: accumulatedText,
+    usage,
+    terminalResult: sawPartialText ? null : accumulatedText || null,
+    terminalUsage: normalizedUsage(usage, input.modelId),
+    terminalContextUsage: contextUsageSnapshot(
       usage,
       input.modelId,
       input.modelProfile,
     ),
-  });
-
-  return { text: accumulatedText, usage };
+  };
 }
 
 function textFromChunk(chunk: unknown): string {

@@ -32,7 +32,7 @@ function streamEvent(text: string, usage?: { input: number; output: number }) {
 }
 
 describe('normalizeDeepAgentStream', () => {
-  it('streams token deltas then a final frame with usage and context usage', async () => {
+  it('emits ONLY token-delta frames and returns the terminal payload (no final frame here)', async () => {
     const frames: RunnerOutputFrame[] = [];
     const result = await normalizeDeepAgentStream({
       events: asStream([
@@ -46,24 +46,23 @@ describe('normalizeDeepAgentStream', () => {
     });
 
     expect(result.text).toBe('Hello world');
-    expect(frames.map((frame) => frame.result)).toEqual([
-      'Hello ',
-      'world',
-      null,
-    ]);
-    expect(
-      frames.slice(0, 2).every((f) => f.newSessionId === 'session-1'),
-    ).toBe(true);
+    // R2: the normalizer no longer emits a terminal frame; the caller owns the
+    // single per-turn terminal marker. So only the two delta frames appear, and
+    // none of them is a usage/terminal frame.
+    expect(frames.map((frame) => frame.result)).toEqual(['Hello ', 'world']);
+    expect(frames.every((f) => f.usage === undefined)).toBe(true);
+    expect(frames.every((f) => f.newSessionId === 'session-1')).toBe(true);
 
-    const finalFrame = frames[frames.length - 1];
-    expect(finalFrame.usage).toMatchObject({
+    // The terminal payload is returned for the caller to emit.
+    expect(result.terminalResult).toBeNull(); // partial text streamed
+    expect(result.terminalUsage).toMatchObject({
       model: 'gpt-5.5',
       inputTokens: 120,
       outputTokens: 8,
       totalBillableInputTokens: 120,
       cacheProvider: 'none',
     });
-    expect(finalFrame.contextUsage).toMatchObject({
+    expect(result.terminalContextUsage).toMatchObject({
       maxTokens: 400_000,
       totalTokens: 128,
       model: 'gpt-5.5',
@@ -77,38 +76,34 @@ describe('normalizeDeepAgentStream', () => {
   });
 
   it('reports zero max tokens when the model profile omits a context window', async () => {
-    const frames: RunnerOutputFrame[] = [];
-    await normalizeDeepAgentStream({
+    const result = await normalizeDeepAgentStream({
       events: asStream([streamEvent('hi', { input: 10, output: 2 })]),
       newSessionId: 'session-2',
       modelId: 'gpt-5.5',
       modelProfile: {},
-      emit: (frame) => frames.push(frame),
+      emit: () => {},
     });
-    const finalFrame = frames[frames.length - 1];
-    expect(finalFrame.contextUsage?.maxTokens).toBe(0);
-    expect(finalFrame.contextUsage?.percentage).toBe(0);
+    expect(result.terminalContextUsage.maxTokens).toBe(0);
+    expect(result.terminalContextUsage.percentage).toBe(0);
   });
 
   it('keeps the cumulative (largest) usage across multiple chunks', async () => {
-    const frames: RunnerOutputFrame[] = [];
-    await normalizeDeepAgentStream({
+    const result = await normalizeDeepAgentStream({
       events: asStream([
         streamEvent('a', { input: 50, output: 1 }),
         streamEvent('b', { input: 50, output: 4 }),
       ]),
       newSessionId: 'session-3',
       modelProfile: { maxInputTokens: 1000 },
-      emit: (frame) => frames.push(frame),
+      emit: () => {},
     });
-    const finalFrame = frames[frames.length - 1];
-    expect(finalFrame.usage?.inputTokens).toBe(50);
-    expect(finalFrame.usage?.outputTokens).toBe(4);
+    expect(result.terminalUsage.inputTokens).toBe(50);
+    expect(result.terminalUsage.outputTokens).toBe(4);
   });
 
-  it('emits the assistant text on the final frame when no partial text streamed', async () => {
+  it('returns the assistant text as the terminal result when no partial text streamed', async () => {
     const frames: RunnerOutputFrame[] = [];
-    await normalizeDeepAgentStream({
+    const result = await normalizeDeepAgentStream({
       events: asStream([
         {
           event: 'on_chat_model_end',
@@ -121,8 +116,9 @@ describe('normalizeDeepAgentStream', () => {
       modelProfile: { maxInputTokens: 1000 },
       emit: (frame) => frames.push(frame),
     });
-    expect(frames).toHaveLength(1);
-    expect(frames[0].result).toBeNull();
-    expect(frames[0].usage?.outputTokens).toBe(3);
+    // No delta frames emitted (no streamed text).
+    expect(frames).toHaveLength(0);
+    expect(result.terminalResult).toBeNull();
+    expect(result.terminalUsage.outputTokens).toBe(3);
   });
 });

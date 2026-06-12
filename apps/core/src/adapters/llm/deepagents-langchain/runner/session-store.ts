@@ -76,11 +76,18 @@ export class DeepAgentSessionStore {
 
   save(sessionId: string, messages: PersistedTurnMessage[]): void {
     fs.mkdirSync(this.sessionsDir, { recursive: true, mode: 0o700 });
+    const finalPath = this.sessionPath(sessionId);
+    // Atomic write: a bare writeFileSync truncated by a kill mid-write leaves a
+    // partial file, and load() then throws -> the host stale-session retry
+    // discards the conversation. Write a sibling .tmp then rename (same-fs
+    // atomic) so load() only ever sees a complete file or the prior good one.
+    const tmpPath = `${finalPath}.tmp`;
     fs.writeFileSync(
-      this.sessionPath(sessionId),
+      tmpPath,
       JSON.stringify({ version: 1, messages } satisfies PersistedSession),
       { mode: 0o600 },
     );
+    fs.renameSync(tmpPath, finalPath);
   }
 }
 

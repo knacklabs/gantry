@@ -1,4 +1,5 @@
 import type { AgentPersona } from '../../../../shared/agent-persona.js';
+import type { YoloModeSettings } from '../../../../shared/yolo-mode-policy.js';
 
 // Subset of the host AgentInput JSON that the DeepAgents (LangChain) runner
 // consumes. The runner projects Gantry-owned authority (facade tools, selected
@@ -27,4 +28,7 @@ export interface DeepAgentRunnerInput {
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
   modelCredentialEnv?: Record<string, string>;
+  // Auto-approve safety valve settings; the neutral gate's denylist backstop
+  // runs even though the deepagents lane has no auto-approve surface in v1.
+  yoloMode?: YoloModeSettings;
 }

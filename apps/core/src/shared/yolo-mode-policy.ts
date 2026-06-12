@@ -12,6 +12,14 @@ export interface YoloModeMatch {
   toolName: string;
 }
 
+// Provider-neutral deny copy for a yolo-mode denylist hit. The SDK lane routes a
+// match back to an explicit prompt (tool-permission-events.ts); the neutral lane
+// has no auto-approve surface yet, so a match is a hard deny to the model. Both
+// reference the matched pattern so the operator/model can see why.
+export function yoloModeDenylistDenyReason(match: YoloModeMatch): string {
+  return `Denied by Gantry auto-approve denylist: a YOLO-mode denylist rule matched "${match.pattern}", so this tool cannot be auto-approved. Ask the operator to approve it explicitly.`;
+}
+
 export const DEFAULT_YOLO_MODE_DENYLIST = [
   'sudo *',
   'rm -rf /',

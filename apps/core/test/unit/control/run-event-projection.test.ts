@@ -53,4 +53,34 @@ describe('run event projection', () => {
       duration_text: '2m 12s',
     });
   });
+
+  it('A8: surfaces agent_engine and execution_provider_id diagnostics from JOB_STARTED', () => {
+    const projected = projectRuntimeEventToRunEvent({
+      ...event(RUNTIME_EVENT_TYPES.JOB_STARTED),
+      payload: {
+        agent_engine: 'deepagents',
+        execution_provider_id: 'deepagents:langchain',
+      },
+    });
+
+    expect(projected.payload).toMatchObject({
+      agent_engine: 'deepagents',
+      execution_provider_id: 'deepagents:langchain',
+    });
+  });
+
+  it('A8: normalizes camelCase engine diagnostics into the snake_case view shape', () => {
+    const projected = projectRuntimeEventToRunEvent({
+      ...event(RUNTIME_EVENT_TYPES.JOB_STARTED),
+      payload: {
+        agentEngine: 'deepagents',
+        executionProviderId: 'deepagents:langchain',
+      },
+    });
+
+    expect(projected.payload).toMatchObject({
+      agent_engine: 'deepagents',
+      execution_provider_id: 'deepagents:langchain',
+    });
+  });
 });

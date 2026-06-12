@@ -611,8 +611,10 @@ Sessions enable conversation continuity from Gantry-owned Postgres state.
    `AgentSession` in Postgres.
 2. Runtime hydrates only scoped durable memory for a fresh runner or scheduled
    job.
-3. Claude Agent SDK runs are ephemeral with `persistSession: false`; Gantry does
-   not pass SDK `resume`, `resumeSessionAt`, or `continue` handles.
+3. Live chat runs persist and resume provider SDK sessions as adapter metadata
+   when a trusted provider handle exists; scheduled/autonomous jobs remain
+   ephemeral with `persistSession: false` and no SDK `resume`,
+   `resumeSessionAt`, or `continue` handles.
 4. Active chat follow-ups are streamed into the same live SDK query. Provider
    transcript exports may exist for debugging, but they are not runtime state.
 
@@ -654,7 +656,8 @@ Sessions enable conversation continuity from Gantry-owned Postgres state.
 8. Agent spawn starts the child runner:
    ├── cwd: agents/{group-name}/
    ├── prompt: conversation history + current message
-   ├── persistSession: false
+   ├── persistSession: true for live chat; false for scheduled/autonomous jobs
+   ├── resume: trusted provider session ID when available for live chat
    └── mcpServers: gantry (runtime tools over IPC)
    │
    ▼

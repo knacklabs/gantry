@@ -30,6 +30,11 @@ export interface RunnerOutputFrame {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
+  // Marks the standalone up-front frame a runner may emit to persist the session
+  // id BEFORE any content streams (launchd-restart safety). It is NOT a
+  // turn-complete marker: the host's isAgentTurnCompleteMarker excludes it so an
+  // interactive turn is not reported completed at its very start.
+  sessionInit?: boolean;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;

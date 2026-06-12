@@ -62,6 +62,11 @@ function wrapOne(
       toolName,
       toolInput: input,
       memoryBlock: config.memoryBlock,
+      // Third-party MCP tools arrive with bare names; flag so the memory-boundary
+      // guard scans them as mcp-equivalent (parity with the anthropic lane's
+      // mcp__-prefixed names).
+      isThirdPartyMcpTool: true,
+      yoloMode: config.gateContext.yoloMode,
     });
     if (preChecks) {
       return denyMessage(preChecks.reason);

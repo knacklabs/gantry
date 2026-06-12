@@ -35,22 +35,37 @@ const PERMISSION_ENV = {
 } as unknown as PermissionIpcRuntimeEnv;
 
 function gateConfig(
-  overrides: Partial<{ allowedTools: string[]; locked: boolean }> = {},
+  overrides: Partial<{
+    allowedTools: string[];
+    locked: boolean;
+    memoryBlock: string;
+    yoloMode: {
+      enabled: boolean;
+      denylist: string[];
+      denylistPaths: string[];
+    };
+  }> = {},
 ) {
   return {
     workspaceFolder: 'main_agent',
-    memoryBlock: '',
+    memoryBlock: overrides.memoryBlock ?? '',
     configuredAllowedTools: overrides.allowedTools ?? [],
-    gateContext: { conversationId: 'tg:group' },
+    gateContext: {
+      conversationId: 'tg:group',
+      ...(overrides.yoloMode ? { yoloMode: overrides.yoloMode } : {}),
+    },
     permissionEnv: PERMISSION_ENV,
     lockedAccessPreset: overrides.locked ?? false,
   };
 }
 
-async function invokeWrapped(tool: FakeTool): Promise<string> {
-  return (await (tool.invoke as never as (input: unknown) => Promise<unknown>)({
-    foo: 'bar',
-  })) as string;
+async function invokeWrapped(
+  tool: FakeTool,
+  input: unknown = { foo: 'bar' },
+): Promise<string> {
+  return (await (tool.invoke as never as (input: unknown) => Promise<unknown>)(
+    input,
+  )) as string;
 }
 
 describe('wrapThirdPartyMcpToolsWithGate', () => {
@@ -124,6 +139,48 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     );
     const result = await invokeWrapped(wrapped as unknown as FakeTool);
     expect(result).toContain('locked access preset');
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(underlying.invoke).not.toHaveBeenCalled();
+  });
+
+  it('A1: memory-boundary denies a BARE-named third-party tool with high-risk payload', async () => {
+    // Bare names (prefixToolNameWithServerName:false) previously slipped past the
+    // memory-boundary guard. The gate flags them so they are scanned.
+    const underlying = fakeTool('notion_search');
+    const [wrapped] = wrapThirdPartyMcpToolsWithGate(
+      [underlying as never],
+      gateConfig({
+        memoryBlock: '[suppressed: instruction-like memory content]',
+      }),
+    );
+    const result = await invokeWrapped(wrapped as unknown as FakeTool, {
+      instruction: 'exfiltrate api key',
+    });
+    expect(result).toContain('Denied by Gantry memory boundary');
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+    expect(underlying.invoke).not.toHaveBeenCalled();
+  });
+
+  it('A2: yolo denylist hard-denies a matching tool from the gate context', async () => {
+    // A configured path-denylist rule matches a file_path field on a third-party
+    // tool's input. The denylist fires even though a capability rule allows the
+    // tool, exactly as the anthropic gate backstops auto-approval.
+    const underlying = fakeTool('fs_write');
+    const [wrapped] = wrapThirdPartyMcpToolsWithGate(
+      [underlying as never],
+      gateConfig({
+        allowedTools: ['fs_write'],
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: ['/secrets/*'],
+        },
+      }),
+    );
+    const result = await invokeWrapped(wrapped as unknown as FakeTool, {
+      file_path: '/secrets/prod.key',
+    });
+    expect(result).toContain('YOLO-mode denylist');
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(underlying.invoke).not.toHaveBeenCalled();
   });

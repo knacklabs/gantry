@@ -103,17 +103,51 @@ v1 lane does not need) and delegates its protected-capability guard to
 - Context-window figures are reported at runtime from `model.profile`
   (`maxInputTokens`); never hardcode them (catalog deepagents entries omit them).
 - Frames must match the host parser (`runner/runner-frame.ts`, mirrors
-  `AgentOutput` in `agent-spawn-types.ts`): live turns emit `newSessionId` first,
-  stream text deltas, then a final usage/contextUsage frame. Scheduled jobs are
-  ephemeral (no session persistence).
+  `AgentOutput` in `agent-spawn-types.ts`). Live turns emit, in order:
+  1. a standalone **session-init** frame `{status:'success', result:null,
+newSessionId, sessionInit:true}` so the host persists the provider session
+     before any content (launchd-restart safety). `sessionInit:true` is a
+     lane-neutral optional field: the host's `isAgentTurnCompleteMarker` excludes
+     it, so this up-front frame is NOT mistaken for turn completion (which would
+     idle + dequeue the next message at turn START). The session id still
+     persists because the host reads `newSessionId` via
+     `providerSessionExternalSessionId`.
+  2. text-delta frames (the `stream-normalizer.ts` streams deltas ONLY; it no
+     longer emits the terminal frame — it returns the terminal payload).
+  3. exactly **one** terminal marker frame per user-visible turn (carrying
+     `usage`/`contextUsage`), emitted by the runner index, NOT the normalizer.
+     This mirrors the Anthropic query-loop's single per-`result` frame and
+     guarantees the host completes/dequeues the turn exactly once. Scheduled jobs
+     are ephemeral (no session persistence) and emit one terminal frame per turn
+     the same way.
 - Live-turn control parity (`runner/live-control.ts`): a poll loop watches the
   neutral IPC-input dir while a turn is in flight. A `_close` sentinel (host
   `/stop` or close-stdin, both written by `continuation-input.ts`) aborts the
-  in-flight LangGraph stream via an `AbortSignal` threaded into `streamEvents`,
-  and the runner emits a terminal success frame (graceful stop, mirroring the
-  Anthropic lane). Mid-stream follow-ups are buffered and drive an additional
-  turn, with the prior terminal frame carrying `continuedByFollowup`. The host
-  delivery is engine-neutral, so no host code branches on engine.
+  in-flight LangGraph stream via an `AbortSignal` threaded into `streamEvents`.
+  On a close-driven termination the runner returns WITHOUT emitting a completion
+  marker (mirroring the Anthropic lane, which returns on `closedDuringQuery` with
+  no final frame); the host settles the turn on process exit (`stopRequested` →
+  error frame, or streamed-success on a plain close-stdin). Before the loop
+  decides to break it runs one final synchronous `drainNow()` so a follow-up that
+  lands between stream-end and the break decision is not orphaned, and a late
+  `_close` in that same window folds into the no-marker close path. Mid-stream
+  follow-ups are buffered and drive an additional turn; the terminal frame for
+  the just-finished turn carries `continuedByFollowup` (the SINGLE marker for
+  that turn — there is no separate continuation-only frame). The host delivery is
+  engine-neutral, so no host code branches on engine.
+- Session-store durability (`runner/session-store.ts`): live session files are
+  written atomically (`<path>.tmp` then `renameSync`, same-fs atomic) so a kill
+  mid-write never truncates the live file and forces a stale-session retry that
+  would discard the conversation.
+- Raw-authority denial (`runner/builtin-tool-exclusion.ts` +
+  `runner/deep-agent-runner.ts`): the model-visible tool surface excludes the
+  DeepAgents built-ins `task`, `write_todos`, and the six filesystem tools
+  (`ls`/`read_file`/`write_file`/`edit_file`/`glob`/`grep`). The deny-all
+  `permissions` block (`DENY_ALL_FILESYSTEM`) stays as a defense-in-depth
+  backstop. `deepagents-raw-authority-denial.test.ts` asserts this against the
+  ACTUAL `createDeepAgent` model surface (a fake model's `bindTools` captures the
+  post-middleware tool list), with a negative control proving the baked-in tools
+  appear without the exclusion middleware.
 - Scheduled-job heartbeat parity (`runner/job-heartbeat.ts`): scheduled runs
   emit a `JOB_HEARTBEAT` runtime-event frame every 15s (same shape as the
   Anthropic `job-heartbeat.ts`) so the host idle-stall detection

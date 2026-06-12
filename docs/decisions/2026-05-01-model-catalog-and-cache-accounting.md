@@ -118,12 +118,20 @@ plus the selected catalog route, not from `responseFamily` alone. Job lifecycle
 events include the resolved catalog entry ID, alias, model source, cache policy,
 and token usage when the provider reports it.
 
+Memory LLM clients also normalize usage into the same input/output/cache
+read/cache write fields through `MemoryLlmQueryOpts.onUsage`;
+extraction/dreaming logs consume that callback.
+
 Provider cache behavior is intentionally provider-defined:
 
-- Anthropic prompt caching is explicit request shaping through
-  `cache_control` blocks. The Anthropic adapter lane owns those controls and
-  the normalized usage fields are `cache_creation_input_tokens` and
-  `cache_read_input_tokens`.
+- Anthropic prompt caching is explicit request shaping through Agent SDK
+  prompt-shaping options and, for lower-level content blocks such as memory LLM
+  user blocks, Anthropic `cache_control` blocks. The Anthropic adapter lane owns
+  those controls and the normalized usage fields are
+  `cache_creation_input_tokens` and `cache_read_input_tokens`.
+  Anthropic memory LLM queries keep extraction instructions in a cacheable SDK
+  system-prompt prefix and mark only static user prompt blocks with
+  `cache_control`; dynamic conversation evidence remains uncached user content.
 - OpenRouter prompt caching for Anthropic-compatible routes also uses
   Anthropic-style `cache_control` blocks. Normalized prompt-cache usage comes
   from `prompt_tokens_details.cached_tokens` and

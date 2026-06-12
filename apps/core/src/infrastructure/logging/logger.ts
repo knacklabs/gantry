@@ -71,6 +71,7 @@ const PROVIDER_SESSION_TEXT_PATTERNS: RegExp[] = [
 const SECRET_VALUE_PATTERNS: RegExp[] = [
   /\bclaude-session-[A-Za-z0-9._:-]+\b/g,
   /\bprovider-session:[A-Za-z0-9._:-]+\b/g,
+  /\bgtw_[A-Za-z0-9._-]+\b/g,
   /\bsk-ant-[A-Za-z0-9._-]+\b/g,
   /\bsk-[A-Za-z0-9]{20,}\b/g,
   /\bxox[baprs]-[A-Za-z0-9-]+\b/g,

@@ -27,21 +27,32 @@ export function validateDeepAgentCredentialProjection(input: {
     (route) => route.executionProviderId === 'deepagents:langchain',
   )?.supportedCredentialModes;
 
+  const setupRequiredMessage = `Setup required: configure ${provider?.label ?? entry.modelRoute.id} Model Access before using ${entry.recommendedAlias} with ${agentEngineLabel(DEEPAGENTS_ENGINE)}.`;
+
   if (projection.brokerProfile !== 'gantry') {
-    throw new Error(
-      `Setup required: configure ${provider?.label ?? entry.modelRoute.id} Model Access before using ${entry.recommendedAlias} with ${agentEngineLabel(DEEPAGENTS_ENGINE)}.`,
-    );
+    throw new Error(setupRequiredMessage);
+  }
+
+  // Fail closed: the deepagents route definition and its supported credential
+  // modes must be resolvable. Absence is a genuine setup/config gap, not a
+  // pass-through — use the setup-required copy.
+  if (!provider || !supportedModes) {
+    throw new Error(setupRequiredMessage);
+  }
+
+  // Fail closed: a resolved gantry-brokered run must carry a known auth mode.
+  // The Gantry credential broker always sets brokerAuthMode; absence means the
+  // projection is malformed, so reject rather than skipping the mode checks.
+  if (!projection.brokerAuthMode) {
+    throw new Error(setupRequiredMessage);
   }
 
   // Claude OAuth/subscription is rejected for DeepAgents with the locked copy.
   if (projection.brokerAuthMode === 'claude_code_oauth') {
     throw new Error(DEEPAGENTS_OAUTH_CREDENTIAL_MESSAGE);
   }
-  if (
-    supportedModes &&
-    projection.brokerAuthMode &&
-    !supportedModes.includes(projection.brokerAuthMode)
-  ) {
+  // Affirmative allowlist: the bound mode must be in the route's supported set.
+  if (!supportedModes.includes(projection.brokerAuthMode)) {
     throw new Error(DEEPAGENTS_OAUTH_CREDENTIAL_MESSAGE);
   }
 

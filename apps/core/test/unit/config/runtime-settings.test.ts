@@ -34,6 +34,25 @@ describe('runtime settings', () => {
     expect(parsed.agent.name).toBe('Kai');
   });
 
+  it('A7: parses numeric loopback gateway bind hosts', () => {
+    for (const host of ['127.0.0.1', '::1']) {
+      const parsed = parseRuntimeSettings(
+        `model_access:\n  gateway:\n    bind_host: '${host}'\n`,
+      );
+      expect(parsed.credentialBroker.gateway.bindHost).toBe(host);
+    }
+  });
+
+  it('A7: rejects a non-numeric gateway bind host (parity with the broker)', () => {
+    // The gateway broker only binds numeric loopback and crashes at startup
+    // otherwise; reject 'localhost' at config time with a clear error.
+    expect(() =>
+      parseRuntimeSettings(
+        `model_access:\n  gateway:\n    bind_host: localhost\n`,
+      ),
+    ).toThrow('must be a numeric loopback host: 127.0.0.1 or ::1');
+  });
+
   it('defaults, renders, and parses job model defaults', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agent.defaultModel = 'sonnet';
