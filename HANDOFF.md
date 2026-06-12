@@ -56,6 +56,32 @@
 > ChatAnthropic DeepAgents lane over its Anthropic-compatible projection in v1;
 > OpenAI/gpt catalog entries are chat-only; no job- or conversation-level engine
 > override.
+>
+> **Post-gates review round (same session):**
+>
+> - `8c08abf1` — three-lens adversarial Opus review (correctness/concurrency,
+>   security/authority, completeness) over the full branch diff; all confirmed
+>   findings fixed: single terminal marker per turn + `sessionInit` frame flag
+>   (host no longer misreads the early session frame as turn-complete), stops
+>   return without a completed marker, final IPC drain before turn exit, atomic
+>   session writes, FS built-ins stripped from the model-visible surface,
+>   memory-boundary guard now covers bare-named third-party MCP tools, yolo
+>   denylist backstop in the neutral gate, fail-closed credential-mode checks,
+>   `gtw_` log redaction, export no longer pins inherited default engines,
+>   OpenAI memory cached-token accounting, anthropic-endpoint runner spawn +
+>   close-stdin integration tests. Post-fix: unit 3893/3893, deepagents
+>   boundary integration 6/6, architecture exit 0.
+> - `69b1e2ff` — memory dreaming full-chain integration (evidence → dreaming
+>   promotion/review → `memory_search` → fresh-run hydration, DM + channel
+>   scopes, 7 tests on disposable pgvector) + a latent `memory_search` fix:
+>   the recall-event UPDATE's integer `ELSE 0` arm coerced fractional score
+>   params to integer (22P02) and broke every `memory_search` IPC call at the
+>   recall-recording step. Note: `jobs-runs-memory-flow` integration is GREEN
+>   on this branch against a disposable pgvector container (the pre-existing
+>   red was config-specific to the credential branch).
+> - OpenAI-family memory lane is implemented but config-unreachable by design
+>   (gpt entries chat-only); enabling it is a one-line `supportedWorkloads`
+>   catalog decision when wanted.
 
 ---
 
