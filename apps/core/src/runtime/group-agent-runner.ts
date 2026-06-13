@@ -200,6 +200,12 @@ export function createGroupAgentRunner(input: {
         is_from_me?: boolean | null;
       }[];
       guardrailSystemPromptAppend?: string;
+      /**
+       * Best-effort: receives the spawn run handle (and resolved appId) once the
+       * child process is registered. Used to drain that run's MCP-call trace
+       * records at persist time (the same handle the IPC proxy keys records by).
+       */
+      onRunStart?: (info: { runHandle: string; appId?: string }) => void;
     },
   ): Promise<'success' | 'error'> {
     const initialModelSelection = defaultModelStatusSelection(
@@ -546,6 +552,13 @@ export function createGroupAgentRunner(input: {
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) => {
             void updateRunProviderMetadata({ providerRunId: runHandle });
+            // Surface the run handle for best-effort latency-trace drain. The
+            // IPC proxy keys MCP-call records by this same handle.
+            try {
+              options?.onRunStart?.({ runHandle, appId: turnContext?.appId });
+            } catch {
+              // never let trace bookkeeping affect the run
+            }
             const registerOptions =
               memoryReviewerIsControlApprover && memoryReviewerUserId
                 ? { requiredContinuationUserId: memoryReviewerUserId }

@@ -4,6 +4,7 @@ import {
 } from '../infrastructure/logging/logger.js';
 import { createChannelWiring } from './bootstrap/channel-wiring.js';
 import { getDefaultRuntimeApp } from './bootstrap/runtime-app.js';
+import { createReplyTraceWiring } from './bootstrap/reply-trace-wiring.js';
 import { startRuntimeServices } from './bootstrap/runtime-services.js';
 import { installShutdownHandlers } from './bootstrap/shutdown.js';
 import { runStartup } from './bootstrap/startup.js';
@@ -56,6 +57,10 @@ export async function startGantryRuntime(
     // tree exists); settable from .env so dev runs don't need a rebuild per
     // runner-side edit.
     'GANTRY_CHILD_RUNNER_FROM_SOURCE',
+    // Dev-only: when '1', the per-reply latency trace also persists full
+    // request/response + LLM input/output payloads (payloads_json). Timings are
+    // always captured; only payload capture is gated. Off in production.
+    'GANTRY_TRACE_PAYLOADS',
   ]);
   if (!options.skipPreflight) {
     const validation = await validateRuntimePreflightWithStorage(GANTRY_HOME);
@@ -64,11 +69,15 @@ export async function startGantryRuntime(
     }
   }
 
+  // One process-wide reply-trace wiring: a shared RunTraceCollector (MCP
+  // capture ↔ persist-time drain) plus a best-effort trace repository.
+  const replyTraceWiring = createReplyTraceWiring();
   const app = getDefaultRuntimeApp({
     mcpHostnameLookup: () => mcpHostnameLookup,
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
     },
+    replyTrace: replyTraceWiring.port,
   });
   const channelWiring = createChannelWiring(app, {
     publishRuntimeEvent: async (event) => {
@@ -184,6 +193,7 @@ export async function startGantryRuntime(
       },
       closeBrowserToolBackends: async (profileName) =>
         (await loadBrowserToolModule()).closeBrowserToolBackends(profileName),
+      recordReplyToolCall: replyTraceWiring.recordReplyToolCall,
     },
   );
   controlServerRef.current = startControlServer({

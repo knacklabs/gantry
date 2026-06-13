@@ -17,6 +17,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
 import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
+import { tracePayloadsEnabled } from '../runtime/reply-trace.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import {
@@ -345,16 +346,32 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
       );
       throw err;
     }
+    const durationMs = Date.now() - startedAt;
     logger.info(
       {
         serverName,
         toolName,
         arguments: args,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         response: result,
       },
       'MCP tool call response',
     );
+    // Best-effort: record this call into the per-reply latency trace, keyed by
+    // the run handle so the persist site (group-processing) can drain it.
+    // Server/tool are DATA from the payload — apps/core names neither.
+    recordReplyToolCallBestEffort(deps, data.runHandle, {
+      server: serverName,
+      tool: toolName,
+      ms: durationMs,
+      ok: !isMcpToolResultError(result),
+      startedAt,
+      requestBytes: byteLength(args),
+      responseBytes: byteLength(result),
+      ...(tracePayloadsEnabled()
+        ? { request: args, response: result }
+        : {}),
+    });
     acceptData(`MCP tool ${serverName}.${toolName} completed.`, result);
   } catch (err) {
     reject(
@@ -363,6 +380,41 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
     );
   }
 };
+
+/** Approximate byte size of a value for the trace (best-effort; 0 on failure). */
+function byteLength(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8');
+  } catch {
+    return 0;
+  }
+}
+
+/** True when an MCP tool result carries an `isError` flag. */
+function isMcpToolResultError(result: unknown): boolean {
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    (result as { isError?: unknown }).isError === true
+  );
+}
+
+/**
+ * Record one MCP-call trace record without ever throwing into the reply path.
+ * No-ops when no collector is wired or no run handle is present.
+ */
+function recordReplyToolCallBestEffort(
+  deps: TaskContext['deps'],
+  runHandle: string | undefined,
+  record: import('../runtime/reply-trace.js').ToolCallRecord,
+): void {
+  if (!deps.recordReplyToolCall || !runHandle) return;
+  try {
+    deps.recordReplyToolCall(runHandle, record);
+  } catch (err) {
+    logger.warn({ err }, 'Failed to record MCP call trace (ignored)');
+  }
+}
 
 // prettier-ignore
 type RequestOnlyCapabilityToolName = 'request_skill_dependency_install' | 'request_permission';

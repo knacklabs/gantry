@@ -20,6 +20,7 @@ import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { timingMark } from './timing-probe.js';
+import { LlmTurnAccumulator } from './llm-turn-accumulator.js';
 import {
   buildSdkFilesystemSandbox,
   normalizeFilesystemSandboxPaths,
@@ -217,6 +218,11 @@ export async function runQuery(
   let sawPartialTextSinceLastResult = false;
   let pendingPartialText = '';
   const primeToolAttempts: AgentRunnerToolAttemptOutput[] = [];
+  // Per-turn LLM latency + token capture for the reply trace (best-effort).
+  // Payloads (input/output text) only when GANTRY_TRACE_PAYLOADS=1.
+  const llmTurns = new LlmTurnAccumulator({
+    capturePayloads: process.env['GANTRY_TRACE_PAYLOADS']?.trim() === '1',
+  });
   const heartbeat = startJobHeartbeat({
     agentInput,
     writeOutput,
@@ -361,6 +367,13 @@ export async function runQuery(
       log(`[msg #${messageCount}] type=${msgType}`);
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
+        // Per-turn latency/usage capture (best-effort). Wall-clock Date.now()
+        // is comparable with the core MCP-call timestamps on this single host,
+        // so stages merge by start time across the child/core boundary.
+        llmTurns.onAssistant(
+          message as Parameters<typeof llmTurns.onAssistant>[0],
+          Date.now(),
+        );
         if (messageContainsToolUse(message)) {
           pendingPartialText = '';
         }
@@ -495,10 +508,14 @@ export async function runQuery(
           `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
         );
         logUsage(message);
+        // The result marks a turn boundary — close the open LLM turn so its
+        // duration is measured to here. Best-effort; never affects the reply.
+        llmTurns.closeOpenTurn(Date.now());
         const usage = normalizeModelUsage({
           message,
           fallbackModel: configuredModel,
         });
+        const turns = llmTurns.turns();
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         if (pendingPartialText) {
           writeOutput({
@@ -514,6 +531,7 @@ export async function runQuery(
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
+          ...(turns.length > 0 ? { turns } : {}),
           ...(usage
             ? {
                 usage,

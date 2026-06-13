@@ -20,13 +20,30 @@ import { isFlowLogEnabled } from '../shared/flow-log.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
 import { loadGuardrailContext } from './guardrail-context.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
+import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+
+/**
+ * Timed guardrail stage for the per-reply latency trace. Additive — carried
+ * alongside the existing decision fields, never replacing them.
+ */
+export interface GuardrailStageTrace {
+  ms: number;
+  startedAt: number;
+  detail: {
+    mode: string;
+    decision: string;
+    reason?: string;
+    inlineAttached: boolean;
+  };
+}
 
 export type PreAgentGuardrailResult =
-  | { handled: true }
+  | { handled: true; guardrailTrace?: GuardrailStageTrace }
   | {
       handled: false;
       systemPromptAppend?: string;
       guardrailReason?: string;
+      guardrailTrace?: GuardrailStageTrace;
     };
 
 export async function handlePreAgentGuardrail(input: {
@@ -62,6 +79,7 @@ export async function handlePreAgentGuardrail(input: {
     guardrail.file,
   );
 
+  const guardrailStartedAt = currentTimeMs();
   const decision = await evaluateAgentGuardrail({
     config: guardrail,
     messages: input.messages.map((message) => message.content),
@@ -70,6 +88,20 @@ export async function handlePreAgentGuardrail(input: {
     context: input.recentContext,
     allowInlineSystemPromptAppend: input.allowInlineSystemPromptAppend,
   });
+  // Per-reply latency trace (additive; never alters the decision). Records the
+  // stage duration and a generic summary of the decision.
+  const inlineAttached =
+    decision.action === 'allow' && Boolean(decision.systemPromptAppend);
+  const guardrailTrace: GuardrailStageTrace = {
+    ms: currentTimeMs() - guardrailStartedAt,
+    startedAt: guardrailStartedAt,
+    detail: {
+      mode: guardrail.mode ?? 'both',
+      decision: decision.action,
+      ...(decision.reason ? { reason: decision.reason } : {}),
+      inlineAttached,
+    },
+  };
   // Flow trace: include the text the guardrail judged so the decision is
   // explainable in the test harness (opt-in; off in production).
   const flowFields = isFlowLogEnabled()
@@ -105,7 +137,7 @@ export async function handlePreAgentGuardrail(input: {
       },
       'Guardrail handled message before agent spawn',
     );
-    return { handled: true };
+    return { handled: true, guardrailTrace };
   }
 
   input.info(
@@ -125,6 +157,7 @@ export async function handlePreAgentGuardrail(input: {
       ? { systemPromptAppend: decision.systemPromptAppend }
       : {}),
     guardrailReason: decision.reason,
+    guardrailTrace,
   };
 }
 

@@ -89,6 +89,7 @@ interface Deps {
   publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
   publishBrowserJobActivity: IpcDeps['publishBrowserJobActivity'];
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
+  recordReplyToolCall?: IpcDeps['recordReplyToolCall'];
   executionAdapter?: RuntimeApp['executionAdapter'];
   executionAdapters?: RuntimeApp['executionAdapters'];
   exit: (code: number) => never;
@@ -115,6 +116,7 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     publishRuntimeEvent: undefined,
     publishBrowserJobActivity: undefined,
     closeBrowserToolBackends: undefined,
+    recordReplyToolCall: undefined,
     exit: (code: number) => process.exit(code),
   };
 }
@@ -255,6 +257,7 @@ export async function startRuntimeServices(
     requestPermissionApproval: channelWiring.requestPermissionApproval,
     requestUserAnswer: channelWiring.requestUserAnswer,
     mcpHostnameLookup: resolved.mcpHostnameLookup,
+    recordReplyToolCall: resolved.recordReplyToolCall,
   });
   syncGroupSnapshots();
   app.queue.setProcessMessagesFn((chatJid) =>

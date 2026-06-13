@@ -11,6 +11,7 @@ export * from './file-artifacts.js';
 export * from './jobs.js';
 export * from './memory.js';
 export * from './messages.js';
+export * from './message-traces.js';
 export * from './model-credentials.js';
 export * from './mcp-servers.js';
 export * from './outbound-delivery.js';

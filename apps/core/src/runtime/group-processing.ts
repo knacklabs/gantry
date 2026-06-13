@@ -28,7 +28,10 @@ import {
   formatOutboundForChannel,
 } from '../messaging/router.js';
 import type { AgentOutput } from './agent-spawn.js';
-import { handleSessionCommand } from '../session/session-commands.js';
+import {
+  extractSessionCommand,
+  handleSessionCommand,
+} from '../session/session-commands.js';
 import { loadAgentCommand } from '../application/commands/command-registry.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
@@ -68,6 +71,7 @@ import {
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import { createGroupAgentRunner } from './group-agent-runner.js';
 import { screenBatchPreAgent } from './group-guardrail.js';
+import { persistReplyTrace } from './reply-trace-persist.js';
 import { createThreadOptionBuilders } from './group-thread-options.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
@@ -163,6 +167,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       group,
       triggerPattern: getTriggerPattern(group.trigger),
     });
+    const commandStartedAt = currentTimeMs();
     const cmdResult = await handleSessionCommand({
       missedMessages,
       groupName: group.name,
@@ -262,7 +267,44 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         }),
       },
     });
-    if (cmdResult.handled) return cmdResult.success;
+    if (cmdResult.handled) {
+      // Command-reply latency trace (best-effort): a single `command` stage on
+      // the command reply message. Runs after the reply was sent.
+      if (deps.replyTrace) {
+        const commandMs = currentTimeMs() - commandStartedAt;
+        const commandName =
+          extractSessionCommand(
+            (missedMessages.find(
+              (m) =>
+                extractSessionCommand(
+                  m.content,
+                  getTriggerPattern(group.trigger),
+                  group.agentConfig?.plugins?.commands ?? [],
+                ) !== null,
+            )?.content ?? ''),
+            getTriggerPattern(group.trigger),
+            group.agentConfig?.plugins?.commands ?? [],
+          )?.raw ?? 'command';
+        const cursor = await ops()
+          .getLastBotMessageCursor(chatJid)
+          .catch(() => undefined);
+        if (cursor) {
+          await persistReplyTrace({
+            replyTrace: deps.replyTrace,
+            kind: 'command',
+            chatJid,
+            appId: 'default',
+            outboundMessageId: cursor.id,
+            command: {
+              name: commandName,
+              ms: commandMs,
+              startedAt: commandStartedAt,
+            },
+          });
+        }
+      }
+      return cmdResult.success;
+    }
 
     if (
       !groupTurnHasRequiredTrigger({
@@ -289,7 +331,30 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       saveState: deps.saveState,
       info: (metadata, message) => logger.info(metadata, message),
     });
+    const guardrailTrace = guardrailResult.guardrailTrace;
+    // Per-reply latency trace state (best-effort). runHandle/appId are captured
+    // when the agent spawns; turns arrive cumulatively from the child envelope.
+    let traceRunHandle: string | undefined;
+    let traceAppId: string | undefined;
+    let traceTurns: NonNullable<AgentOutput['turns']> = [];
     if (guardrailResult.handled) {
+      // direct_response (guardrail-canned) reply: it never spawns the agent, so
+      // its trace is just the guardrail stage, keyed to the canned outbound msg.
+      if (deps.replyTrace && guardrailTrace) {
+        const cursor = await ops()
+          .getLastBotMessageCursor(chatJid)
+          .catch(() => undefined);
+        if (cursor) {
+          await persistReplyTrace({
+            replyTrace: deps.replyTrace,
+            kind: 'reply',
+            chatJid,
+            appId: 'default',
+            outboundMessageId: cursor.id,
+            guardrail: guardrailTrace,
+          });
+        }
+      }
       return true;
     }
 
@@ -600,6 +665,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let output: 'success' | 'error' = 'error';
     const handleAgentOutput = async (result: AgentOutput) => {
       lastAgentProgressAt = currentTimeMs();
+      // The child emits the cumulative turn list on each result envelope; keep
+      // the latest non-empty snapshot for the latency trace (best-effort).
+      if (result.turns && result.turns.length > 0) {
+        traceTurns = result.turns;
+      }
       if (awaitingResponseReceipt && !result.interactionBoundary) {
         awaitingResponseReceipt = false;
         await resumeActiveElapsed();
@@ -719,6 +789,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                 guardrailSystemPromptAppend: guardrailResult.systemPromptAppend,
               }
             : {}),
+          onRunStart: ({ runHandle, appId }) => {
+            traceRunHandle = runHandle;
+            if (appId) traceAppId = appId;
+          },
         },
       );
     } finally {
@@ -818,6 +892,32 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendDoneProgress(finalProgressState);
     }
     await setTypingState(false);
+
+    // Best-effort per-reply latency trace, keyed to the outbound reply message.
+    // Runs AFTER the reply was sent/finalized; any failure is swallowed inside
+    // persistReplyTrace and can never affect the already-delivered reply.
+    if (deps.replyTrace && (guardrailTrace || traceTurns.length > 0)) {
+      const cursor = await ops()
+        .getLastBotMessageCursor(chatJid)
+        .catch(() => undefined);
+      if (cursor) {
+        await persistReplyTrace({
+          replyTrace: deps.replyTrace,
+          kind: 'reply',
+          chatJid,
+          appId: traceAppId ?? 'default',
+          outboundMessageId: cursor.id,
+          runHandle: traceRunHandle,
+          ...(guardrailTrace ? { guardrail: guardrailTrace } : {}),
+          ...(traceTurns.length > 0 ? { llmTurns: traceTurns } : {}),
+        });
+      } else if (traceRunHandle) {
+        // No outbound message to attach to — still drain so the collector never
+        // leaks records for a completed run.
+        deps.replyTrace.drain(traceRunHandle);
+      }
+    }
+
     return resultOk;
   }
 

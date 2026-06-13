@@ -60,6 +60,23 @@ export interface AgentInput {
   runtimeAccess?: CapabilityRuntimeAccess[];
 }
 
+/**
+ * One main-LLM assistant turn, surfaced from the child runner's stdout envelope
+ * for the per-reply latency trace. Mirrors the runner-side `AgentRunnerLlmTurn`
+ * (linked only by the JSON envelope) and the runtime `LlmTurnRecord` shape.
+ */
+export interface AgentOutputLlmTurn {
+  ms: number;
+  startedAt: number;
+  detail: {
+    model?: string;
+    stopReason?: string;
+    tokens?: { in: number; out: number; cacheRead: number; cacheWrite: number };
+  };
+  input?: unknown;
+  output?: string;
+}
+
 export interface AgentOutput {
   status: 'success' | 'error';
   result: string | null;
@@ -72,6 +89,8 @@ export interface AgentOutput {
   contextUsage?: RuntimeContextUsageSnapshot;
   error?: string;
   runtimeEvents?: AgentOutputRuntimeEvent[];
+  /** Per-turn LLM timing + usage for the latency trace (best-effort). */
+  turns?: AgentOutputLlmTurn[];
 }
 
 export interface AgentOutputRuntimeEvent {

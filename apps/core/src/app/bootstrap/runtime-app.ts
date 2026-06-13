@@ -141,6 +141,8 @@ export interface RuntimeAppOptions {
   executionAdapter?: AgentExecutionAdapter;
   executionAdapters?: AgentExecutionAdapterRegistry;
   opsRepository?: RuntimeAppRepository;
+  /** Per-reply latency trace (best-effort). Injected at boot; absent in tests. */
+  replyTrace?: GroupProcessingDeps['replyTrace'];
 }
 
 export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
@@ -535,6 +537,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
     opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
+    replyTrace: options.replyTrace,
     queue: {
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
       notifyIdle: (chatJid) => queue.notifyIdle(chatJid),

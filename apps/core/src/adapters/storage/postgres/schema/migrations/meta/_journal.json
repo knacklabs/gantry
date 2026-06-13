@@ -512,6 +512,13 @@
       "when": 1777248600000,
       "tag": "0073_skill_catalog_tool_refs_column",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1781381261679,
+      "tag": "0074_message_traces",
+      "breakpoints": true
     }
   ]
 }

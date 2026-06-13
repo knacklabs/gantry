@@ -50,6 +50,27 @@ export interface AgentRunnerInput {
   };
 }
 
+/**
+ * One main-LLM assistant turn, captured per `assistant` SDK message. Carried in
+ * the stdout output envelope to core, where it becomes an `llm` latency stage.
+ * Structurally mirrors the runtime-side `LlmTurnRecord` (the only link between
+ * them is the JSON envelope; no compile-time coupling across the layer).
+ */
+export interface AgentRunnerLlmTurn {
+  ms: number;
+  /** Wall-clock start (ms epoch) of the turn (first assistant byte). */
+  startedAt: number;
+  detail: {
+    model?: string;
+    stopReason?: string;
+    tokens?: { in: number; out: number; cacheRead: number; cacheWrite: number };
+  };
+  /** Full assembled input — only when payload capture is enabled. */
+  input?: unknown;
+  /** Full output text — only when payload capture is enabled. */
+  output?: string;
+}
+
 export interface AgentRunnerOutput {
   status: 'success' | 'error';
   result: string | null;
@@ -63,6 +84,8 @@ export interface AgentRunnerOutput {
   error?: string;
   runtimeEvents?: AgentRunnerRuntimeEventOutput[];
   primeToolAttempts?: AgentRunnerToolAttemptOutput[];
+  /** Per-turn LLM timing + usage for the latency trace (best-effort). */
+  turns?: AgentRunnerLlmTurn[];
 }
 
 export interface AgentRunnerToolAttemptOutput {

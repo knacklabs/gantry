@@ -27,9 +27,25 @@ import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { GuardrailClassifier } from '../application/guardrails/types.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
+import type { ToolCallRecord } from './reply-trace.js';
+import type { MessageTraceRow } from '../adapters/storage/postgres/repositories/message-trace-repository.postgres.js';
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
+
+/**
+ * Per-reply latency-trace port (generic, best-effort). Drains the MCP-call
+ * records collected for a run and persists the assembled trace. Every method
+ * must be safe to call without ever throwing into the reply path.
+ */
+export interface ReplyTracePort {
+  /** Drain collected MCP-call records for a run handle (empty if none). */
+  drain: (runHandle: string) => ToolCallRecord[];
+  /** Persist an assembled trace row (swallows its own errors). */
+  saveTrace: (row: MessageTraceRow) => Promise<void>;
+  /** Whether full payloads should be captured (GANTRY_TRACE_PAYLOADS=1). */
+  payloadsEnabled: () => boolean;
+}
 
 export interface GroupProcessor {
   processGroupMessages: (
@@ -126,4 +142,6 @@ export interface GroupProcessingDeps {
   executionAdapters?: AgentExecutionAdapterRegistry;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
+  /** Per-reply latency trace (best-effort; absent in tests that don't trace). */
+  replyTrace?: ReplyTracePort;
 }

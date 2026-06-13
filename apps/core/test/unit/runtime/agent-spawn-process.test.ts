@@ -469,6 +469,42 @@ describe('executeRunnerProcess', () => {
       expect(onOutput).toHaveBeenCalled();
     });
 
+    it('surfaces per-turn LLM records from the stdout envelope to onOutput', async () => {
+      const onOutput = vi.fn(async () => {});
+      const spec = makeSpec({ onOutput, options: { timeoutMs: 500 } });
+      const resultP = executeRunnerProcess(spec);
+
+      const turns = [
+        {
+          ms: 300,
+          startedAt: 1000,
+          detail: {
+            model: 'sonnet',
+            stopReason: 'tool_use',
+            tokens: { in: 100, out: 20, cacheRead: 80, cacheWrite: 0 },
+          },
+        },
+      ];
+      const json = JSON.stringify({
+        status: 'success',
+        result: 'ok',
+        newSessionId: 'sess-turns',
+        turns,
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      await resultP;
+
+      const parsed = onOutput.mock.calls.find(
+        (call) => (call[0] as { turns?: unknown }).turns !== undefined,
+      )?.[0] as { turns?: typeof turns } | undefined;
+      expect(parsed?.turns).toEqual(turns);
+    });
+
     it('does not reset explicit timeout on streaming output chunks', async () => {
       const onOutput = vi.fn(async () => {});
       const spec = makeSpec({ onOutput, options: { timeoutMs: 300 } });
