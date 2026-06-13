@@ -9,7 +9,10 @@ import {
   resolveRunnerModel,
 } from '@core/shared/model-catalog.js';
 import { resolveModelCacheSupport } from '@core/shared/model-cache-support.js';
-import { formatModelCatalog } from '@core/shared/model-catalog-format.js';
+import {
+  formatContextWindow,
+  formatModelCatalog,
+} from '@core/shared/model-catalog-format.js';
 import { normalizeModelUsage } from '@core/shared/model-usage.js';
 
 describe('model catalog resolution', () => {
@@ -170,6 +173,56 @@ describe('model catalog resolution', () => {
     );
     expect(output).toContain('gpt-oss | GPT-OSS 120B | groq-oss > cerebras');
     expect(output).toContain('llama-70b | Llama 3.3 70B | groq > together');
+  });
+
+  it('declares curated context windows for empty-profile deepagents models', () => {
+    // These ids have no built-in LangChain profile, so the catalog is the source
+    // of truth for the compaction window + context-usage reporting.
+    const curated: Array<[string, number]> = [
+      ['gemini-2.5-pro', 1_048_576],
+      ['gemini-2.5-flash', 1_048_576],
+      ['gemini-3.5-flash', 1_048_576],
+      ['llama-3.3-70b-versatile', 131_072],
+      ['llama-3.1-8b-instant', 131_072],
+      ['openai/gpt-oss-120b', 131_072],
+      ['deepseek-v4-pro', 131_072],
+      ['grok-4.3', 256_000],
+      ['grok-build-0.1', 256_000],
+      ['Qwen/Qwen3-235B-A22B-fp8-tput', 262_144],
+      ['accounts/fireworks/models/deepseek-v3p1', 163_840],
+      ['gpt-oss-120b', 131_072],
+      ['zai-glm-4.7', 131_072],
+      ['sonar-pro', 200_000],
+      ['sonar', 127_072],
+      ['gpt-5.4-mini', 400_000],
+      ['moonshotai/kimi-k2.6', 262_142],
+    ];
+    for (const [runnerModel, window] of curated) {
+      const entry = findModelByRunnerModel(runnerModel);
+      expect(entry, runnerModel).toBeDefined();
+      expect(entry?.contextWindowTokens, runnerModel).toBe(window);
+    }
+  });
+
+  it('omits contextWindowTokens for ids with a real library profile', () => {
+    // gpt-5.5/gpt-5.4 have a real LangChain profile, so the factory must use it
+    // (no curated override). The catalog must NOT declare a window for them.
+    expect(
+      findModelByRunnerModel('gpt-5.5')?.contextWindowTokens,
+    ).toBeUndefined();
+    expect(
+      findModelByRunnerModel('gpt-5.4')?.contextWindowTokens,
+    ).toBeUndefined();
+  });
+
+  it('renders a context-window column in the model catalog table', () => {
+    const output = formatModelCatalog({ chat: 'opus' });
+    // Header carries the new column and Gemini Pro shows the 1M window.
+    expect(output).toContain(
+      'Alias | Model | Response family | Route | Context | Cache | Status',
+    );
+    expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);
+    expect(output).toMatch(/groq \| Groq Llama 3\.3 70B[^\n]*\| 131K \|/);
   });
 
   it('derives cache support from provider metadata and model route', () => {
@@ -465,5 +518,16 @@ describe('model usage normalization', () => {
         (resolveModelSelection(alias) as { runnerModel: string }).runnerModel,
     );
     expect(new Set(runnerModels).size).toBe(headline.length);
+  });
+});
+
+describe('formatContextWindow', () => {
+  it('renders compact labels and a dash for unknown windows', () => {
+    expect(formatContextWindow(1_048_576)).toBe('1.0M');
+    expect(formatContextWindow(256_000)).toBe('256K');
+    expect(formatContextWindow(131_072)).toBe('131K');
+    expect(formatContextWindow(127_072)).toBe('127K');
+    expect(formatContextWindow(undefined)).toBe('—');
+    expect(formatContextWindow(0)).toBe('—');
   });
 });

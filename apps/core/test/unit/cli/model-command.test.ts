@@ -36,10 +36,17 @@ describe('model CLI command', () => {
 
     const output = logSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Available model aliases');
-    expect(output).toContain('Alias | Model | Response family | Route');
+    // The Context column sits between Route and Cache.
+    expect(output).toContain(
+      'Alias | Model | Response family | Route | Context | Cache | Status',
+    );
     expect(output).toContain('opus-4.8 | Opus 4.8');
     expect(output).toContain('Opus 4.8');
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
+    // Curated windows render in the new Context column (Gemini Pro = 1.0M,
+    // Groq Llama = 131K).
+    expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);
+    expect(output).toMatch(/groq \| Groq Llama 3\.3 70B[^\n]*\| 131K \|/);
     expect(output).toContain(
       'Model families (provider auto-selected by configured key)',
     );

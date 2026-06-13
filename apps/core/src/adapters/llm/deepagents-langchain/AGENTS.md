@@ -227,3 +227,21 @@ newSessionId, sessionInit:true}` so the host persists the provider session
   Anthropic `job-heartbeat.ts`) so the host idle-stall detection
   (`agent-spawn-scheduled-idle.ts`) and lease activity tracking behave
   identically. Each streamed frame marks activity. Interactive runs emit none.
+- Window-aware compaction (`runner/model-factory.ts` +
+  `runner/gantry-chat-openrouter.ts` + host `execution-adapter.ts`): DeepAgents
+  summarization reads `model.profile.maxInputTokens` and triggers at 85% of the
+  window; with an EMPTY profile it falls back to a fixed 170k/6-message trigger
+  (not the real window) and `stream-normalizer.ts` reports 0% context usage. For
+  ids LangChain has no built-in profile for, the catalog declares a curated
+  `contextWindowTokens` (source of truth); the host projects it as env
+  `GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS`, the runner threads it through
+  `buildRunnerModel`, and the factory installs it as the model profile's
+  `maxInputTokens`. openai lane: `initChatModel(spec, { profile: { maxInputTokens } })`
+  (its `.profile` getter returns `_profile` first). openrouter lane:
+  `GantryChatOpenRouter` overrides `get profile()` to prefer a `profileOverride`
+  (base `ChatOpenRouter`'s getter is a hardcoded `PROFILES[model] ?? {}` with no
+  override field). When NO window is projected (gpt-5.5/gpt-5.4 have a real
+  library profile) the factory omits the override so the library profile is used
+  unchanged — never clobber it. The same resolved model instance reaches both
+  `createDeepAgent` and `readModelProfile` -> the normalizer, so the curated
+  window drives compaction AND context-usage %.

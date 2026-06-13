@@ -65,6 +65,10 @@ export async function runDeepAgentTurn(input: {
   agentInput: DeepAgentRunnerInput;
   provider: string;
   modelId: string;
+  // Curated context window (host-projected) for empty-profile models; threaded
+  // to the model profile's `maxInputTokens` for window-aware compaction +
+  // context-usage. Undefined for ids with a real library profile.
+  maxInputTokens?: number;
   priorMessages: PersistedTurnMessage[];
   newSessionId: string;
   emit: (frame: RunnerOutputFrame) => void;
@@ -91,6 +95,9 @@ export async function runDeepAgentTurn(input: {
     gatewayBaseUrl: gateway.baseUrl,
     gatewayToken: gateway.token,
     sessionId: stickySessionId,
+    ...(input.maxInputTokens !== undefined
+      ? { maxInputTokens: input.maxInputTokens }
+      : {}),
   });
   logElapsed('Model built');
   const systemPrompt = composeDeepAgentSystemPrompt(input.agentInput);

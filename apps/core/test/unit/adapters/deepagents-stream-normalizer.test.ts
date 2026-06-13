@@ -77,6 +77,13 @@ describe('normalizeDeepAgentStream', () => {
         cache_read_input_tokens: 0,
       },
     });
+    // A curated window yields a real (non-zero) usage percentage instead of the
+    // empty-profile 0% — 128 / 400_000 * 100.
+    expect(result.terminalContextUsage.percentage).toBeGreaterThan(0);
+    expect(result.terminalContextUsage.percentage).toBeCloseTo(
+      (128 / 400_000) * 100,
+      6,
+    );
   });
 
   it('accounts OpenRouter-shaped cache reads/writes off the final raw usage', async () => {

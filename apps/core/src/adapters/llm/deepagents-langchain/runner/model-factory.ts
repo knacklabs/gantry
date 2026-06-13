@@ -1,6 +1,6 @@
 import { initChatModel } from 'langchain/chat_models/universal';
-import { ChatOpenRouter } from '@langchain/openrouter';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 
 // Builds the LangChain chat-model instance the DeepAgents graph runs on. Model
 // construction is PROVIDER-DRIVEN, not env-sniffing: the host projects the
@@ -56,15 +56,25 @@ export async function buildRunnerModel(input: {
   // Durable session id for OpenRouter sticky cache routing (see below). OpenAI
   // has no session_id concept, so this is applied to the openrouter lane only.
   sessionId?: string;
+  // Curated context window (host-projected GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS)
+  // for ids the LangChain library has no built-in profile for. When present it
+  // becomes the model profile's `maxInputTokens` so DeepAgents summarizes at 85%
+  // of the real window and context-usage reports correctly. When ABSENT (e.g.
+  // gpt-5.5/gpt-5.4), the library's real profile is used unchanged.
+  maxInputTokens?: number;
 }): Promise<ResolvedRunnerModel> {
   const provider = input.provider.trim().toLowerCase();
   const baseURL = input.gatewayBaseUrl;
   assertLoopbackGatewayUrl(baseURL, 'gateway base URL');
   const apiKey = requireGatewayToken(input.gatewayToken, 'gateway token');
+  const maxInputTokens = resolveMaxInputTokens(input.maxInputTokens);
 
   if (provider === 'openrouter') {
     const sessionId = input.sessionId?.trim();
-    const model = new ChatOpenRouter({
+    // GantryChatOpenRouter overrides `get profile()` to prefer the curated
+    // profile; without an override it falls through to the library profile, so
+    // we only attach `profileOverride` when the host projected a window.
+    const model = new GantryChatOpenRouter({
       model: input.modelId,
       apiKey,
       // ChatOpenRouter.buildUrl() appends `/chat/completions` to baseURL; the
@@ -72,6 +82,9 @@ export async function buildRunnerModel(input: {
       // openrouter.ai/api/v1/chat/completions.
       baseURL: `${trimTrailingSlash(baseURL)}/v1`,
       streamUsage: true,
+      ...(maxInputTokens !== undefined
+        ? { profileOverride: { maxInputTokens } }
+        : {}),
       // Sticky routing: a stable session_id (request body) makes OpenRouter
       // route follow-up turns of the same conversation to the same upstream
       // provider so prompt-cache hits persist across turns. Derived from the
@@ -91,6 +104,11 @@ export async function buildRunnerModel(input: {
       apiKey,
       configuration: { baseURL },
       streamUsage: true,
+      // initChatModel stores `profile` on the ConfigurableModel wrapper and its
+      // `.profile` getter returns it first, so the curated window reaches both
+      // DeepAgents summarization and the stream-normalizer. Omit it when no
+      // window was projected (gpt-5.5/gpt-5.4) so the library profile is used.
+      ...(maxInputTokens !== undefined ? { profile: { maxInputTokens } } : {}),
     });
     return {
       model: model as unknown as BaseChatModel,
@@ -104,6 +122,15 @@ export async function buildRunnerModel(input: {
       'Claude runs on the Anthropic SDK lane; only OpenAI-compatible providers ' +
       'run on the DeepAgents lane.',
   );
+}
+
+// Normalizes the optional curated window to a positive finite number or
+// undefined (so the profile override is attached only when meaningful).
+function resolveMaxInputTokens(value: number | undefined): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return undefined;
 }
 
 function requireGatewayToken(value: string | undefined, label: string): string {

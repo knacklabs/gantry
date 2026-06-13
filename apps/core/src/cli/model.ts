@@ -15,6 +15,7 @@ import {
   type ModelWorkload,
 } from '../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
+import { formatContextWindow } from '../shared/model-catalog-format.js';
 import { listModelFamilies } from '../shared/model-families.js';
 import {
   applyModelPreset,
@@ -148,15 +149,15 @@ function formatModelList(
   const defaults = defaultsFor(settings);
   const rows = [
     'Available model aliases',
-    'Alias | Model | Response family | Route | Cache | Status',
-    '--- | --- | --- | --- | --- | ---',
+    'Alias | Model | Response family | Route | Context | Cache | Status',
+    '--- | --- | --- | --- | --- | --- | ---',
   ];
   for (const entry of listModelCatalogEntries()) {
     if (preset && entry.modelRoute.id !== preset) continue;
     const cacheSupport = resolveModelCacheSupport(entry);
     for (const alias of entry.aliases) {
       rows.push(
-        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${cacheSupport.statusLabel} | ${aliasStatus(alias, entry, defaults)}`,
+        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${formatContextWindow(entry.contextWindowTokens)} | ${cacheSupport.statusLabel} | ${aliasStatus(alias, entry, defaults)}`,
       );
     }
   }

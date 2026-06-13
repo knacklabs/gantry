@@ -16,6 +16,23 @@ export function formatTokenCount(tokens: number): string {
   return String(tokens);
 }
 
+// Compact context-window label for catalog/CLI rows: "1.0M" / "131K" / "—" when
+// the entry declares no window (SDK-lane entries also carry a window, so "—" is
+// rare). Distinct from formatTokenCount (lowercase k, used for usage figures) to
+// keep the column tidy.
+export function formatContextWindow(tokens: number | undefined): string {
+  if (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens <= 0) {
+    return '—';
+  }
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}K`;
+  }
+  return String(tokens);
+}
+
 export function formatModelDisplay(entry: ModelCatalogEntry): string {
   const experimental = entry.experimental ? ' experimental' : '';
   return `${entry.displayName} (${entry.modelRoute.label}${experimental})`;
@@ -24,11 +41,12 @@ export function formatModelDisplay(entry: ModelCatalogEntry): string {
 export function formatModelCatalog(defaults: ModelDefaultAliases = {}): string {
   const lines = [
     'Supported model aliases',
-    'Alias | Model | Response family | Route | Cache | Status',
-    '--- | --- | --- | --- | --- | ---',
+    'Alias | Model | Response family | Route | Context | Cache | Status',
+    '--- | --- | --- | --- | --- | --- | ---',
   ];
   for (const entry of MODEL_CATALOG) {
     const cacheSupport = resolveModelCacheSupport(entry);
+    const contextWindow = formatContextWindow(entry.contextWindowTokens);
     for (const alias of entry.aliases) {
       const badges: string[] = [];
       if (alias === entry.recommendedAlias) badges.push('recommended');
@@ -42,7 +60,7 @@ export function formatModelCatalog(defaults: ModelDefaultAliases = {}): string {
         badges.push('memory consolidation');
       }
       lines.push(
-        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${cacheSupport.statusLabel} | ${badges.join(', ')}`,
+        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${contextWindow} | ${cacheSupport.statusLabel} | ${badges.join(', ')}`,
       );
     }
   }

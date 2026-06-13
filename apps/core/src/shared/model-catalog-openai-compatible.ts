@@ -11,12 +11,23 @@ import type {
 // import back into model-catalog.ts (which would create an import cycle —
 // model-catalog.ts already imports this builder).
 //
-// These run on the deepagents (LangChain) lane, so context-window/max-output
-// limits and the thinking/tool capability flags are reported at runtime from the
-// LangChain model profile and are intentionally NOT hardcoded here. Pricing is
-// likewise omitted (LangChain/model-profile data carries no cost information).
-// cacheMode/cacheTokenFields stay declared because prompt caching and its usage
-// accounting are a provider response-shape contract, not model-profile data.
+// These run on the deepagents (LangChain) lane. LangChain reports an EMPTY
+// profile ({}) for every id below (none are in LangChain's built-in PROFILES
+// table), so a curated `contextWindowTokens` is REQUIRED here: it is the source
+// of truth the host projects into the runner model profile's `maxInputTokens`,
+// which DeepAgents summarization reads (window-fraction trigger at 85% instead
+// of the fixed 170k/6-message fallback) and the stream-normalizer reads for
+// context-usage %. The thinking/tool capability flags are still reported at
+// runtime from the profile. Pricing is still omitted (LangChain/model-profile
+// data carries no cost information). cacheMode/cacheTokenFields stay declared
+// because prompt caching and its usage accounting are a provider response-shape
+// contract, not model-profile data.
+//
+// The window values are CURATED FALLBACKS tied to each model family's real
+// context window (the 1M and 128K families were spot-checked against provider
+// listings; the rest use the family's documented window). They are not
+// authoritative for these forward-dated ids; the library profile is preferred
+// whenever LangChain ships one (it does not for any id here).
 //
 // cacheMode 'openai-automatic-prompt' resolves (via model-cache-support.ts) to
 // the 'openai' normalized cache provider, matching each provider's
@@ -37,6 +48,7 @@ type ExecutableModelEntryFn = (input: {
   aliases: readonly string[];
   recommendedAlias: string;
   source: ModelCatalogEntry['source'];
+  contextWindowTokens?: number;
   cacheMode: ModelCatalogEntry['cacheMode'];
   cacheTokenFields: readonly string[];
   supportedWorkloads: readonly ModelWorkload[];
@@ -94,6 +106,18 @@ const GEMINI_SOURCE = {
 
 const NESTED_OPENAI_CACHE_FIELDS = ['prompt_tokens_details.cached_tokens'];
 
+// Curated context windows (input-token limits) for the empty-profile DeepAgents
+// ids above. 131_072 (128K) is the Llama/GPT-OSS/GLM family window; 1_048_576
+// (1M) is the 2.5/3.5 multimodal family window; Grok = 256K; DeepSeek v4 = 131K;
+// Qwen3-235B = 262_144 (curated fallback; the fp8-tput variant's window is
+// release-dependent); Perplexity Sonar Pro = 200K, Sonar = 127_072.
+const WINDOW_128K = 131_072;
+const WINDOW_1M = 1_048_576;
+const WINDOW_GROK = 256_000;
+const WINDOW_QWEN3_235B = 262_144;
+const WINDOW_PERPLEXITY_PRO = 200_000;
+const WINDOW_PERPLEXITY_SONAR = 127_072;
+
 export function buildOpenAiCompatibleCatalog(deps: {
   executableModelEntry: ExecutableModelEntryFn;
   providerRoute: ProviderRouteFn;
@@ -109,6 +133,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['groq', 'groq-llama-3.3-70b'],
       recommendedAlias: 'groq',
       source: GROQ_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -122,6 +147,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['groq-fast', 'groq-llama-3.1-8b'],
       recommendedAlias: 'groq-fast',
       source: GROQ_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -135,6 +161,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['groq-oss', 'groq-gpt-oss-120b'],
       recommendedAlias: 'groq-oss',
       source: GROQ_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -149,6 +176,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['deepseek', 'deepseek-v4-pro'],
       recommendedAlias: 'deepseek',
       source: DEEPSEEK_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['prompt_cache_hit_tokens'],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -162,6 +190,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['deepseek-fast', 'deepseek-v4-flash'],
       recommendedAlias: 'deepseek-fast',
       source: DEEPSEEK_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['prompt_cache_hit_tokens'],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -176,6 +205,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['grok', 'grok-4.3'],
       recommendedAlias: 'grok',
       source: XAI_SOURCE,
+      contextWindowTokens: WINDOW_GROK,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -189,6 +219,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['grok-fast', 'grok-build-0.1'],
       recommendedAlias: 'grok-fast',
       source: XAI_SOURCE,
+      contextWindowTokens: WINDOW_GROK,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -206,6 +237,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['together', 'together-llama-3.3-70b'],
       recommendedAlias: 'together',
       source: TOGETHER_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['cached_tokens'],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -219,6 +251,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['together-qwen', 'together-qwen3-235b'],
       recommendedAlias: 'together-qwen',
       source: TOGETHER_SOURCE,
+      contextWindowTokens: WINDOW_QWEN3_235B,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['cached_tokens'],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -236,6 +269,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['fireworks', 'fireworks-deepseek-v3p1'],
       recommendedAlias: 'fireworks',
       source: FIREWORKS_SOURCE,
+      contextWindowTokens: 163_840,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -252,6 +286,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['fireworks-fast', 'fireworks-llama-v3p1-8b'],
       recommendedAlias: 'fireworks-fast',
       source: FIREWORKS_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -266,6 +301,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['cerebras', 'cerebras-gpt-oss-120b'],
       recommendedAlias: 'cerebras',
       source: CEREBRAS_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -279,6 +315,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['cerebras-glm', 'cerebras-zai-glm-4.7'],
       recommendedAlias: 'cerebras-glm',
       source: CEREBRAS_SOURCE,
+      contextWindowTokens: WINDOW_128K,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -293,6 +330,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['perplexity', 'perplexity-sonar-pro'],
       recommendedAlias: 'perplexity',
       source: PERPLEXITY_SOURCE,
+      contextWindowTokens: WINDOW_PERPLEXITY_PRO,
       cacheMode: 'none',
       cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -306,6 +344,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['perplexity-sonar'],
       recommendedAlias: 'perplexity-sonar',
       source: PERPLEXITY_SOURCE,
+      contextWindowTokens: WINDOW_PERPLEXITY_SONAR,
       cacheMode: 'none',
       cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -320,6 +359,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['gemini', 'gemini-2.5-pro'],
       recommendedAlias: 'gemini',
       source: GEMINI_SOURCE,
+      contextWindowTokens: WINDOW_1M,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       // Best-effort: Gemini's cached-token field via the OpenAI-compat layer is
       // UNVERIFIED; accounting is best-effort and must not block.
@@ -335,6 +375,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['gemini-flash', 'gemini-2.5-flash'],
       recommendedAlias: 'gemini-flash',
       source: GEMINI_SOURCE,
+      contextWindowTokens: WINDOW_1M,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
@@ -348,6 +389,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       aliases: ['gemini-3-flash', 'gemini-3.5-flash'],
       recommendedAlias: 'gemini-3-flash',
       source: GEMINI_SOURCE,
+      contextWindowTokens: WINDOW_1M,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,

@@ -42,6 +42,17 @@
 - Provider-side cache support belongs in provider registry metadata and
   route-aware model helpers. Do not add local semantic response caches,
   decrypted credential caches, or response-family-derived cache assumptions.
+- Curated context windows: deepagents-lane ids that LangChain has no built-in
+  profile for declare an OPTIONAL `contextWindowTokens` in `model-catalog.ts` /
+  `model-catalog-openai-compatible.ts` — the catalog is the source of truth for
+  window-aware compaction + context-usage reporting on those models (host
+  projects it to the runner profile's `maxInputTokens`). The library profile is
+  preferred when present (gpt-5.5/gpt-5.4 OMIT the field). Pricing stays omitted
+  (no cost data in model profiles). `formatContextWindow` (`model-catalog-format.ts`)
+  renders the `/models` + `gantry model list` Context column ("1.0M"/"131K"/"—").
+  Keep provider PROPER NOUNS (Gemini/Llama/OpenAI/Anthropic) OUT of comments in
+  these two catalog files: the provider-specific-path checker counts those bare
+  words and both files sit at their exact `maxViolations` cap.
 - Shared parsers used by both config and adapters belong in `shared/`, with
   config modules re-exporting them when needed. Adapters must not import from
   `config/` just to reuse parsing behavior.

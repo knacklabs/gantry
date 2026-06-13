@@ -64,6 +64,16 @@ function resolveModelProvider(): string {
   );
 }
 
+// Optional curated context window for empty-profile models. The host projects it
+// only when the catalog declares one; absent -> the runner uses the library's
+// real model profile (gpt-5.5/gpt-5.4). A non-numeric/<=0 value is ignored.
+function resolveMaxInputTokens(): number | undefined {
+  const raw = process.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS?.trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   // Scheduled jobs are ephemeral: no session persistence (mirrors the Anthropic
   // runner's isScheduledJob path). A diagnostic session id is still emitted.
@@ -83,10 +93,12 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
     writeRunnerFrame(frame);
   };
   try {
+    const maxInputTokens = resolveMaxInputTokens();
     const turn = await runDeepAgentTurn({
       agentInput,
       provider: resolveModelProvider(),
       modelId: resolveModelId(agentInput),
+      ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       priorMessages: [],
       newSessionId: diagnosticSessionId,
       emit,
@@ -173,10 +185,12 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
       let stoppedThisTurn = false;
       let turn: Awaited<ReturnType<typeof runDeepAgentTurn>> | undefined;
       try {
+        const maxInputTokens = resolveMaxInputTokens();
         turn = await runDeepAgentTurn({
           agentInput: turnInput,
           provider: resolveModelProvider(),
           modelId: resolveModelId(agentInput),
+          ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
           priorMessages,
           newSessionId: sessionId,
           emit: writeRunnerFrame,

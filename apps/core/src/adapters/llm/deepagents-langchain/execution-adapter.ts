@@ -17,6 +17,13 @@ const GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV = 'GANTRY_DEEPAGENTS_MODEL_PROVIDER';
 const GANTRY_DEEPAGENTS_SESSIONS_DIR_ENV = 'GANTRY_DEEPAGENTS_SESSIONS_DIR';
 const GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL_ENV =
   'GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL';
+// Curated context window for empty-profile models (see model-catalog.ts). The
+// runner passes it as the LangChain model profile's `maxInputTokens` so
+// DeepAgents summarizes at 85% of the real window and context-usage reports a
+// correct %. Omitted for ids with a real library profile (gpt-5.5/gpt-5.4) so
+// the runner leaves that profile untouched.
+const GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS_ENV =
+  'GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS';
 
 // Maps the resolved model's prompt-cache request control (catalog descriptor) to
 // the runner's gated cache_control mode. 'provider_automatic_prefix' (OpenAI
@@ -110,6 +117,17 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
         resolveModelCacheSupport(input.effectiveModelEntry).prompt
           .requestControl,
       );
+      // Project the curated window only when the catalog declares one; absent ->
+      // the runner uses the library's real profile (gpt-5.5/gpt-5.4).
+      const contextWindowTokens = input.effectiveModelEntry.contextWindowTokens;
+      if (
+        typeof contextWindowTokens === 'number' &&
+        Number.isFinite(contextWindowTokens) &&
+        contextWindowTokens > 0
+      ) {
+        env[GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS_ENV] =
+          String(contextWindowTokens);
+      }
     }
 
     const runnerInputPatch: PreparedAgentExecution['runnerInputPatch'] = {};

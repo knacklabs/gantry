@@ -93,7 +93,9 @@ describe('deepagents model factory', () => {
       gatewayToken,
     });
     expect(resolved.endpointFamily).toBe('openrouter');
-    expect(resolved.model.constructor.name).toBe('ChatOpenRouter');
+    // GantryChatOpenRouter extends ChatOpenRouter (adds only a profile-override
+    // getter); the OpenRouter wire behavior below is unchanged.
+    expect(resolved.model.constructor.name).toBe('GantryChatOpenRouter');
     const model = resolved.model as unknown as {
       baseURL: string;
       model: string;
@@ -173,5 +175,67 @@ describe('deepagents model factory', () => {
         gatewayToken: 'sk-raw-secret',
       }),
     ).rejects.toThrow('run-scoped Gantry');
+  });
+
+  it('projects the curated window onto the openai-lane model profile', async () => {
+    // A curated-window model (e.g. groq llama) must carry maxInputTokens on the
+    // resolved model profile so DeepAgents summarization triggers on the real
+    // window (85%) and context-usage reports a correct %.
+    const resolved = await buildRunnerModel({
+      provider: 'groq',
+      modelId: 'llama-3.3-70b-versatile',
+      gatewayBaseUrl: 'http://127.0.0.1:4567/groq',
+      gatewayToken,
+      maxInputTokens: 131_072,
+    });
+    const profile = (resolved.model as unknown as { profile?: unknown })
+      .profile;
+    expect(profile).toMatchObject({ maxInputTokens: 131_072 });
+  });
+
+  it('omits the profile override for the openai lane when no window is given', async () => {
+    // gpt-5.5 has a real LangChain profile; without a curated window the factory
+    // must leave that library profile in place (NOT inject an empty override).
+    const resolved = await buildRunnerModel({
+      provider: 'openai',
+      modelId: 'gpt-5.5',
+      gatewayBaseUrl: loopbackBaseUrl,
+      gatewayToken,
+    });
+    // ConfigurableModel._profile is unset, so .profile falls through to the
+    // inner library profile (gpt-5.5 has a real ~1.05M window).
+    const profile = (resolved.model as unknown as { profile?: unknown })
+      .profile as { maxInputTokens?: number } | undefined;
+    // The override was not applied; whatever window appears comes from the
+    // library (a real number > 400k), never the curated value.
+    expect(profile?.maxInputTokens).not.toBe(131_072);
+  });
+
+  it('projects the curated window onto the GantryChatOpenRouter profile', async () => {
+    const resolved = await buildRunnerModel({
+      provider: 'openrouter',
+      modelId: 'moonshotai/kimi-k2.6',
+      gatewayBaseUrl: openrouterBaseUrl,
+      gatewayToken,
+      maxInputTokens: 262_142,
+    });
+    expect(resolved.model.constructor.name).toBe('GantryChatOpenRouter');
+    const profile = (resolved.model as unknown as { profile?: unknown })
+      .profile;
+    expect(profile).toMatchObject({ maxInputTokens: 262_142 });
+  });
+
+  it('falls back to the library profile for openrouter without a curated window', async () => {
+    const resolved = await buildRunnerModel({
+      provider: 'openrouter',
+      modelId: 'moonshotai/kimi-k2.6',
+      gatewayBaseUrl: openrouterBaseUrl,
+      gatewayToken,
+    });
+    // No override -> GantryChatOpenRouter.profile returns super.profile, which is
+    // PROFILES[model] ?? {} (empty for this id), so no curated value leaks.
+    const profile = (resolved.model as unknown as { profile?: unknown })
+      .profile as { maxInputTokens?: number };
+    expect(profile.maxInputTokens).toBeUndefined();
   });
 });

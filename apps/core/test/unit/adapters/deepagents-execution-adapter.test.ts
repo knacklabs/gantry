@@ -103,6 +103,21 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_SESSIONS_DIR).toBe(
       '/tmp/gantry/agents/test-agent/.llm-runtime/deepagents/sessions',
     );
+    // gpt-5.5 has a real library profile, so the catalog declares no curated
+    // window and the host must NOT project the max-input-tokens env.
+    expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBeUndefined();
+  });
+
+  it('projects the curated context window for an empty-profile openai-lane model', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+    const prepared = await adapter.prepare(
+      prepareInput({
+        effectiveModel: 'gpt-5.4-mini',
+        effectiveModelEntry: catalogEntry('gpt-mini'),
+      }),
+    );
+    // gpt-5.4-mini has no library profile -> curated 400_000 window projected.
+    expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe('400000');
   });
 
   it('projects the automatic cache-control mode for the OpenRouter (Kimi) lane', async () => {
@@ -128,6 +143,8 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL).toBe(
       'automatic',
     );
+    // Kimi declares a curated 262_142 window (no library profile on this lane).
+    expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe('262142');
   });
 
   it('allows Gantry gateway projections for DeepAgents-routed API-key models', async () => {

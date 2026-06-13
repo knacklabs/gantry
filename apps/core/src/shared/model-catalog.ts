@@ -471,15 +471,18 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     ],
     experimental: true,
   }),
-  // These chat models run on the deepagents (LangChain) lane. Context-window
-  // and max-output limits plus the thinking/tool capability flags are reported
-  // at runtime from the LangChain model profile (`model.profile.maxInputTokens`,
-  // `maxOutputTokens`, `reasoningOutput`, `toolCalling`) — the deepagents
-  // package itself reads `profile.maxInputTokens` for summarization — so they
-  // are intentionally not hardcoded here. Pricing is intentionally not declared
-  // because LangChain/model-profile data carries no cost information. cacheMode
-  // and cacheTokenFields stay declared: prompt caching and its usage accounting
-  // are a provider response-shape contract, not model-profile data.
+  // These chat models run on the deepagents (LangChain) lane. REVERSAL of the
+  // earlier "limits intentionally omitted" stance: for ids the library does NOT
+  // recognize it reports an EMPTY profile ({}), so DeepAgents summarization falls
+  // back to a fixed 170k/6-message trigger (not the real window) and context-
+  // usage reads 0%. A curated `contextWindowTokens` is therefore REQUIRED on
+  // those ids; the host projects it into the runner profile's `maxInputTokens`
+  // (window-fraction compaction at 85% + correct context-usage %). The library
+  // profile is still PREFERRED when present: gpt-5.5/gpt-5.4 have a real profile
+  // (~1.05M) so they OMIT contextWindowTokens; gpt-5.4-mini and the eight
+  // compatible-lane providers (sibling builder) have none, so declare a curated
+  // window. Thinking/tool flags stay profile-reported; pricing stays omitted (no
+  // cost data in profiles); cacheMode/cacheTokenFields stay declared.
   executableModelEntry({
     id: 'openai:gpt-5.5',
     route: openAiRoute('gpt-5.5'),
@@ -524,6 +527,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     aliases: ['gpt-mini', 'gpt-5.4-mini'],
     recommendedAlias: 'gpt-mini',
     source: OPENAI_MODELS_SOURCE,
+    contextWindowTokens: 400_000, // no library profile; curated (see note above)
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportedWorkloads: [
