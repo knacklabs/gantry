@@ -56,6 +56,10 @@ export async function startGantryRuntime(
     // tree exists); settable from .env so dev runs don't need a rebuild per
     // runner-side edit.
     'GANTRY_CHILD_RUNNER_FROM_SOURCE',
+    // Dev-only: when '1', the per-reply latency trace also persists full
+    // request/response + LLM input/output payloads (payloads_json). Timings are
+    // always captured; only payload capture is gated. Off in production.
+    'GANTRY_TRACE_PAYLOADS',
   ]);
   if (!options.skipPreflight) {
     const validation = await validateRuntimePreflightWithStorage(GANTRY_HOME);
