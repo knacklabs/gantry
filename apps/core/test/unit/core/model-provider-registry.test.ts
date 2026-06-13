@@ -46,12 +46,25 @@ describe('model provider registry', () => {
       executionProviderId: 'anthropic:claude-agent-sdk',
       supportedCredentialModes: ['api_key', 'claude_code_oauth'],
     });
-    // OpenRouter is now the DeepAgents lane (was anthropic_sdk).
+    // OpenRouter is now the DeepAgents lane (was anthropic_sdk) and projects the
+    // OpenAI-family gateway env so ChatOpenRouter reads the loopback base-url +
+    // gtw_ token.
     expect(getModelProviderDefinition('openrouter')?.executionRoute).toEqual({
       engine: 'deepagents',
       executionProviderId: 'deepagents:langchain',
       supportedCredentialModes: ['api_key'],
     });
+    expect(
+      getModelProviderDefinition('openrouter')?.gateway.sdkProjection,
+    ).toMatchObject({
+      baseUrlEnv: 'OPENAI_BASE_URL',
+      tokenEnv: 'OPENAI_API_KEY',
+      credentialProvider: 'openrouter',
+    });
+    expect(
+      getModelProviderDefinition('openrouter')?.gateway.sdkProjection
+        .additionalTokenEnv,
+    ).toBeUndefined();
     expect(getModelProviderDefinition('openai')?.executionRoute).toEqual({
       engine: 'deepagents',
       executionProviderId: 'deepagents:langchain',
@@ -93,9 +106,15 @@ describe('model provider registry', () => {
       getModelProviderDefinition('openrouter')?.cacheSupport,
     ).toMatchObject({
       prompt: {
-        mode: 'openrouter_anthropic_cache_control',
-        automatic: false,
-        requestControl: 'cache_control_blocks',
+        // OpenRouter speaks chat/completions on the DeepAgents lane; Kimi caches
+        // automatically on the prefix (OpenAI-shaped usage).
+        mode: 'openrouter_automatic_prefix',
+        automatic: true,
+        requestControl: 'provider_automatic_prefix',
+        usageFields: {
+          readTokens: 'prompt_tokens_details.cached_tokens',
+          writeTokens: 'prompt_tokens_details.cache_write_tokens',
+        },
       },
       response: {
         mode: 'openrouter_response_cache',

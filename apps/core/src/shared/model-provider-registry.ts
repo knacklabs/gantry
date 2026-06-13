@@ -62,7 +62,7 @@ export type ModelProviderPromptCacheMode =
   | 'none'
   | 'anthropic_cache_control'
   | 'openai_automatic_prefix'
-  | 'openrouter_anthropic_cache_control';
+  | 'openrouter_automatic_prefix';
 
 export type ModelProviderResponseCacheMode =
   | 'none'
@@ -263,19 +263,25 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       pathSegment: 'openrouter',
       upstreamOrigin: 'https://openrouter.ai',
       upstreamPathPrefix: '/api',
+      // OpenRouter is the DeepAgents lane: it speaks chat/completions and
+      // projects the same loopback base-url + gtw_ token under the deepagents
+      // env names so ChatOpenRouter reads them. The upstream credential is still
+      // a bearer OpenRouter key.
       sdkProjection: {
-        baseUrlEnv: 'ANTHROPIC_BASE_URL',
-        tokenEnv: 'ANTHROPIC_API_KEY',
-        additionalTokenEnv: 'ANTHROPIC_AUTH_TOKEN',
-        credentialProviderEnvKey: 'ANTHROPIC_AUTH_TOKEN',
+        baseUrlEnv: 'OPENAI_BASE_URL',
+        tokenEnv: 'OPENAI_API_KEY',
+        credentialProviderEnvKey: 'OPENAI_API_KEY',
         credentialProvider: 'openrouter',
       },
     },
     cacheSupport: {
       prompt: {
-        mode: 'openrouter_anthropic_cache_control',
-        automatic: false,
-        requestControl: 'cache_control_blocks',
+        // Via chat/completions the usage is prefix-shaped; Kimi/Moonshot caches
+        // AUTOMATICALLY on the request prefix (no explicit cache_control
+        // breakpoints), read/written off prompt_tokens_details.*.
+        mode: 'openrouter_automatic_prefix',
+        automatic: true,
+        requestControl: 'provider_automatic_prefix',
         ttlOptions: ['5m', '1h'],
         minimumTokenThresholds: [
           { modelFamily: 'anthropic-compatible', tokens: 2048 },
@@ -302,9 +308,9 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'zero_usage_on_hit',
       },
     },
-    // OpenRouter is the DeepAgents lane (was anthropic_sdk). The gateway
-    // sdkProjection + cacheSupport above still describe the Anthropic-compatible
-    // projection; Packets 4-5 swap that to the OpenAI-compatible projection.
+    // OpenRouter is the DeepAgents lane (was anthropic_sdk): the gateway
+    // sdkProjection + cacheSupport above are the deepagents-lane projection so
+    // ChatOpenRouter speaks chat/completions through the loopback gateway.
     executionRoute: {
       engine: DEEPAGENTS_ENGINE,
       executionProviderId: 'deepagents:langchain',

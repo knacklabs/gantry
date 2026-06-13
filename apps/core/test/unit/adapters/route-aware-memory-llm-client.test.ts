@@ -64,6 +64,27 @@ describe('route-aware memory LLM client (family-derived)', () => {
     expect(anthropic.query).not.toHaveBeenCalled();
   });
 
+  it('OpenRouter provider -> OpenAI-compatible client despite anthropic family', async () => {
+    const { router, anthropic, openai } = buildRouter();
+    const result = await router.query({
+      appId: 'default' as never,
+      model: 'moonshotai/kimi-k2.6',
+      modelProfile: profile({
+        // OpenRouter/Kimi carries the default response family but speaks the
+        // OpenAI chat/completions API on the DeepAgents lane, so it must route
+        // to the OpenAI-compatible client by provider, not family.
+        responseFamily: DEFAULT_FAMILY,
+        modelRoute: 'openrouter',
+        runnerModel: 'moonshotai/kimi-k2.6',
+        alias: 'kimi',
+      }),
+      prompt: 'hi',
+    });
+    expect(result).toBe('openai-direct');
+    expect(openai.query).toHaveBeenCalledTimes(1);
+    expect(anthropic.query).not.toHaveBeenCalled();
+  });
+
   it('fails loud on an unknown response family', async () => {
     const { router } = buildRouter();
     await expect(

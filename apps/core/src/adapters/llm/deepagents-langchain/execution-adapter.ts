@@ -12,6 +12,7 @@ import { validateDeepAgentCredentialProjection } from './credential-validation.j
 import { isMissingDeepAgentSessionError } from './runner/session-store.js';
 
 const GANTRY_DEEPAGENTS_MODEL_ID_ENV = 'GANTRY_DEEPAGENTS_MODEL_ID';
+const GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV = 'GANTRY_DEEPAGENTS_MODEL_PROVIDER';
 const GANTRY_DEEPAGENTS_SESSIONS_DIR_ENV = 'GANTRY_DEEPAGENTS_SESSIONS_DIR';
 
 export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapter {
@@ -74,6 +75,13 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
     };
     if (input.effectiveModel) {
       env[GANTRY_DEEPAGENTS_MODEL_ID_ENV] = input.effectiveModel;
+    }
+    // The runner builds the LangChain model from the resolved entry's provider,
+    // not by sniffing which credential env var is set. Project the provider id
+    // (modelRoute.id) so the runner selects the correct LangChain class.
+    if (input.effectiveModelEntry) {
+      env[GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV] =
+        input.effectiveModelEntry.modelRoute.id;
     }
 
     const runnerInputPatch: PreparedAgentExecution['runnerInputPatch'] = {};

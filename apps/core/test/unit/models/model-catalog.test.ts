@@ -188,9 +188,10 @@ describe('model catalog resolution', () => {
       providerId: 'openrouter',
       cacheProvider: 'openrouter-provider',
       statusLabel:
-        'prompt cache supported/accounted; response cache available but disabled',
+        'automatic provider cache; response cache available but disabled',
       prompt: {
-        mode: 'openrouter_anthropic_cache_control',
+        mode: 'openrouter_automatic_prefix',
+        automatic: true,
         supported: true,
         accounted: true,
       },

@@ -39,8 +39,7 @@ export function resolveModelCacheProvider(
         ? 'openai'
         : 'none';
     case 'openrouter-provider-prompt':
-      return provider.cacheSupport.prompt.mode ===
-        'openrouter_anthropic_cache_control'
+      return provider.cacheSupport.prompt.mode === 'openrouter_automatic_prefix'
         ? 'openrouter-provider'
         : 'none';
     case 'openrouter-response-disabled':

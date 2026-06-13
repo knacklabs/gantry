@@ -26,6 +26,7 @@ import {
   type ModelCredentialPayload,
   type ModelProviderDefinition,
 } from '../../../shared/model-provider-registry.js';
+import { DEEPAGENTS_ENGINE } from '../../../shared/agent-engine.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import {
   ALLOWED_GATEWAY_METHODS,
@@ -575,18 +576,27 @@ function assertProviderPathAllowed(
     upstreamPathname,
     provider.gateway.upstreamPathPrefix,
   );
-  const allowed =
-    provider.id === 'openai'
-      ? providerPath === '/v1/embeddings' ||
-        providerPath === '/v1/chat/completions' ||
-        providerPath === '/v1/responses'
-      : providerPath === '/v1/messages' ||
-        providerPath === '/v1/messages/count_tokens';
+  const allowed = allowedGatewayPaths(provider).has(providerPath);
   if (!allowed) {
     throw new GatewayBadRequestError(
       `Model gateway path is not allowed for ${provider.id}.`,
     );
   }
+}
+
+// Allowed upstream paths are scoped per provider. The OpenAI-compatible
+// DeepAgents lane (engine `deepagents`) speaks chat/completions; OpenAI also
+// serves embeddings + responses. The Anthropic SDK lane speaks /v1/messages.
+function allowedGatewayPaths(provider: ModelProviderDefinition): Set<string> {
+  if (provider.id === 'openai') {
+    return new Set(['/v1/embeddings', '/v1/chat/completions', '/v1/responses']);
+  }
+  if (provider.executionRoute.engine === DEEPAGENTS_ENGINE) {
+    // OpenRouter (and any future OpenAI-compatible provider on the DeepAgents
+    // lane): chat/completions only.
+    return new Set(['/v1/chat/completions']);
+  }
+  return new Set(['/v1/messages', '/v1/messages/count_tokens']);
 }
 
 function stripUpstreamPathPrefix(pathname: string, prefix: string): string {

@@ -84,6 +84,7 @@
     "@langchain/core": "1.1.48",
     "@langchain/mcp-adapters": "1.1.3",
     "@langchain/openai": "1.4.7",
+    "@langchain/openrouter": "0.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/bolt": "^4.7.0",
     "cron-parser": "5.5.0",

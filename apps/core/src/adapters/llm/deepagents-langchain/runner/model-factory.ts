@@ -1,22 +1,28 @@
-import { ChatOpenAI } from '@langchain/openai';
-import { ChatAnthropic } from '@langchain/anthropic';
+import { initChatModel } from 'langchain/chat_models/universal';
+import { ChatOpenRouter } from '@langchain/openrouter';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 
 // Builds the LangChain chat-model instance the DeepAgents graph runs on. Model
-// credentials reach the runner only through Gantry's loopback model gateway env
-// (gateway-projected OPENAI_BASE_URL/OPENAI_API_KEY or
-// ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY). LOAD-BEARING: ChatAnthropic does NOT
-// read ANTHROPIC_BASE_URL from env, so anthropicApiUrl must be passed
-// explicitly; ChatOpenAI must receive configuration.baseURL + apiKey explicitly.
+// construction is PROVIDER-DRIVEN, not env-sniffing: the host projects the
+// resolved model's provider string (GANTRY_DEEPAGENTS_MODEL_PROVIDER) plus the
+// model id, and the single loopback gateway base-URL + run-scoped `gtw_` token
+// reach the runner through the gateway-projected OPENAI_BASE_URL/OPENAI_API_KEY
+// modelCredentialEnv. There is now ONE gateway base-url+token per run; the
+// provider string selects the LangChain class, not which env var is set.
+//
+// - `openai` (and any other initChatModel provider): `initChatModel` resolves
+//   the provider class and forwards `apiKey` + `configuration.baseURL` to the
+//   constructor.
+// - `openrouter`: first-party `@langchain/openrouter` `ChatOpenRouter` (talks
+//   OpenRouter REST/chat-completions via fetch). `initChatModel` does NOT know
+//   `openrouter`, so it is constructed directly. Its `buildUrl()` appends
+//   `/chat/completions` to `baseURL`, so we pass the gateway base-url + `/v1`
+//   (-> loopback `/openrouter/v1/chat/completions` -> openrouter.ai/api/v1/...).
+// - `anthropic` is NOT a deepagents provider (Claude is SDK-only); it throws.
 
-export type ModelEndpointFamily = 'openai' | 'anthropic';
+export type ModelEndpointFamily = 'openai' | 'openrouter';
 
-export interface ModelFactoryEnv {
-  OPENAI_BASE_URL?: string;
-  OPENAI_API_KEY?: string;
-  ANTHROPIC_BASE_URL?: string;
-  ANTHROPIC_API_KEY?: string;
-}
+const INIT_CHAT_MODEL_PROVIDERS = new Set<string>(['openai']);
 
 export interface ResolvedRunnerModel {
   model: BaseChatModel;
@@ -24,71 +30,67 @@ export interface ResolvedRunnerModel {
   modelId: string;
 }
 
-export function resolveModelEndpointFamily(
-  env: ModelFactoryEnv,
-): ModelEndpointFamily {
-  if (env.OPENAI_BASE_URL && env.OPENAI_API_KEY) return 'openai';
-  if (env.ANTHROPIC_BASE_URL && env.ANTHROPIC_API_KEY) return 'anthropic';
-  throw new Error(
-    'DeepAgents runner is missing gateway model credentials. Expected loopback ' +
-      'OPENAI_BASE_URL/OPENAI_API_KEY or ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY.',
-  );
-}
-
-export function buildRunnerModel(input: {
+export async function buildRunnerModel(input: {
+  provider: string;
   modelId: string;
-  env: ModelFactoryEnv;
-}): ResolvedRunnerModel {
-  const endpointFamily = resolveModelEndpointFamily(input.env);
-  if (endpointFamily === 'openai') {
-    const baseURL = input.env.OPENAI_BASE_URL!;
-    assertLoopbackGatewayUrl(baseURL, 'OPENAI_BASE_URL');
-    const apiKey = requireGatewayToken(
-      input.env.OPENAI_API_KEY,
-      'OPENAI_API_KEY',
-    );
-    const model = new ChatOpenAI({
+  gatewayBaseUrl: string;
+  gatewayToken: string;
+}): Promise<ResolvedRunnerModel> {
+  const provider = input.provider.trim().toLowerCase();
+  const baseURL = input.gatewayBaseUrl;
+  assertLoopbackGatewayUrl(baseURL, 'gateway base URL');
+  const apiKey = requireGatewayToken(input.gatewayToken, 'gateway token');
+
+  if (provider === 'openrouter') {
+    const model = new ChatOpenRouter({
       model: input.modelId,
+      apiKey,
+      // ChatOpenRouter.buildUrl() appends `/chat/completions` to baseURL; the
+      // loopback gateway expects the `/v1` path segment so it proxies to
+      // openrouter.ai/api/v1/chat/completions.
+      baseURL: `${trimTrailingSlash(baseURL)}/v1`,
+      streamUsage: true,
+    });
+    return { model, endpointFamily: 'openrouter', modelId: input.modelId };
+  }
+
+  if (INIT_CHAT_MODEL_PROVIDERS.has(provider)) {
+    const model = await initChatModel(`${provider}:${input.modelId}`, {
       apiKey,
       configuration: { baseURL },
       streamUsage: true,
     });
-    return { model, endpointFamily, modelId: input.modelId };
+    return {
+      model: model as unknown as BaseChatModel,
+      endpointFamily: 'openai',
+      modelId: input.modelId,
+    };
   }
-  const anthropicApiUrl = input.env.ANTHROPIC_BASE_URL!;
-  assertLoopbackGatewayUrl(anthropicApiUrl, 'ANTHROPIC_BASE_URL');
-  const apiKey = requireGatewayToken(
-    input.env.ANTHROPIC_API_KEY,
-    'ANTHROPIC_API_KEY',
+
+  throw new Error(
+    `DeepAgents runner does not support model provider "${input.provider}". ` +
+      'Claude runs on the Anthropic SDK lane; only OpenAI-compatible providers ' +
+      'run on the DeepAgents lane.',
   );
-  const model = new ChatAnthropic({
-    model: input.modelId,
-    apiKey,
-    anthropicApiUrl,
-    streamUsage: true,
-  });
-  return { model, endpointFamily, modelId: input.modelId };
 }
 
-function requireGatewayToken(value: string | undefined, key: string): string {
+function requireGatewayToken(value: string | undefined, label: string): string {
   const token = value?.trim();
   if (!token) {
-    throw new Error(`DeepAgents runner is missing gateway token env ${key}.`);
+    throw new Error(`DeepAgents runner is missing the ${label}.`);
   }
   if (!token.startsWith('gtw_')) {
-    throw new Error(
-      `DeepAgents runner requires a run-scoped Gantry gateway token in ${key}.`,
-    );
+    throw new Error(`DeepAgents runner requires a run-scoped Gantry ${label}.`);
   }
   return token;
 }
 
-function assertLoopbackGatewayUrl(value: string, key: string): void {
+function assertLoopbackGatewayUrl(value: string, label: string): void {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error(`DeepAgents runner ${key} is not a valid URL.`);
+    throw new Error(`DeepAgents runner ${label} is not a valid URL.`);
   }
   const hostname = url.hostname.toLowerCase();
   const loopback =
@@ -99,7 +101,11 @@ function assertLoopbackGatewayUrl(value: string, key: string): void {
       hostname === '[::1]');
   if (!loopback) {
     throw new Error(
-      `DeepAgents runner ${key} must be a loopback Gantry gateway URL.`,
+      `DeepAgents runner ${label} must be a loopback Gantry gateway URL.`,
     );
   }
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
 }

@@ -58,6 +58,7 @@ export interface DeepAgentTurnResult {
 
 export async function runDeepAgentTurn(input: {
   agentInput: DeepAgentRunnerInput;
+  provider: string;
   modelId: string;
   priorMessages: PersistedTurnMessage[];
   newSessionId: string;
@@ -71,9 +72,14 @@ export async function runDeepAgentTurn(input: {
   const logElapsed = (message: string) => {
     input.log?.(`${message} after ${Math.max(0, nowMs() - startedAt)}ms`);
   };
-  const resolved = buildRunnerModel({
+  const gateway = resolveGatewayCredentialEnv(
+    input.agentInput.modelCredentialEnv ?? {},
+  );
+  const resolved = await buildRunnerModel({
+    provider: input.provider,
     modelId: input.modelId,
-    env: input.agentInput.modelCredentialEnv ?? {},
+    gatewayBaseUrl: gateway.baseUrl,
+    gatewayToken: gateway.token,
   });
   logElapsed('Model built');
   const systemPrompt = composeDeepAgentSystemPrompt(input.agentInput);
@@ -181,6 +187,26 @@ export function buildTurnMessages(
 
 function composeUserTurnText(agentInput: DeepAgentRunnerInput): string {
   return agentInput.prompt;
+}
+
+// The DeepAgents lane has a single gateway base-url + run-scoped token per run,
+// projected under the OpenAI-family env names by the model gateway (both the
+// OpenAI and OpenRouter providers project these keys). The provider string,
+// projected separately as GANTRY_DEEPAGENTS_MODEL_PROVIDER, selects which
+// LangChain class consumes them.
+function resolveGatewayCredentialEnv(env: Record<string, string>): {
+  baseUrl: string;
+  token: string;
+} {
+  const baseUrl = env.OPENAI_BASE_URL?.trim();
+  const token = env.OPENAI_API_KEY?.trim();
+  if (!baseUrl || !token) {
+    throw new Error(
+      'DeepAgents runner is missing gateway model credentials. Expected ' +
+        'loopback OPENAI_BASE_URL/OPENAI_API_KEY from the model gateway.',
+    );
+  }
+  return { baseUrl, token };
 }
 
 function readModelProfile(model: unknown): ModelProfileLike {

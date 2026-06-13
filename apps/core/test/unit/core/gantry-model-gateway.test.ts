@@ -696,26 +696,77 @@ describe('GantryModelGatewayBroker', () => {
         },
       });
 
+      // OpenRouter now projects the OpenAI-family gateway env (DeepAgents lane).
       const wrongMethod = await gatewayRequest({
-        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
-        token: injection.env[anthropicApiKeyKey]!,
+        url: `${injection.env.OPENAI_BASE_URL}/v1/chat/completions`,
+        token: injection.env.OPENAI_API_KEY!,
         method: 'GET',
       });
       expect(wrongMethod.status).toBe(405);
 
       const traversal = await gatewayRawPathRequest({
-        baseUrl: injection.env[anthropicBaseUrlKey]!,
-        path: '/api/%2e%2e/v1/messages',
-        token: injection.env[anthropicApiKeyKey]!,
+        baseUrl: injection.env.OPENAI_BASE_URL!,
+        path: '/api/%2e%2e/v1/chat/completions',
+        token: injection.env.OPENAI_API_KEY!,
       });
       expect(traversal.status).toBe(400);
 
+      // /v1/messages is the Anthropic SDK lane; it is no longer allowed for the
+      // OpenAI-compatible OpenRouter route.
+      const disallowedMessages = await gatewayRequest({
+        url: `${injection.env.OPENAI_BASE_URL}/v1/messages`,
+        token: injection.env.OPENAI_API_KEY!,
+      });
+      expect(disallowedMessages.status).toBe(400);
+
       const disallowedPath = await gatewayRequest({
-        url: `${injection.env[anthropicBaseUrlKey]}/v1/anything`,
-        token: injection.env[anthropicApiKeyKey]!,
+        url: `${injection.env.OPENAI_BASE_URL}/v1/anything`,
+        token: injection.env.OPENAI_API_KEY!,
       });
       expect(disallowedPath.status).toBe(400);
       expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('proxies OpenRouter chat-completions traffic upstream with bearer auth', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openrouter', 'sk-or-chat-upstream');
+    const upstreamFetch = vi.fn(async () => new Response('{"choices":[]}'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: 'run:openrouter-chat' as never,
+          modelRouteId: 'openrouter',
+        },
+      });
+
+      expect(injection.env.OPENAI_BASE_URL).toMatch(
+        /^http:\/\/127\.0\.0\.1:\d+\/openrouter$/,
+      );
+      expect(injection.env.OPENAI_API_KEY).toMatch(/^gtw_/);
+      expect(injection.env.OPENAI_API_KEY).not.toContain('sk-or');
+
+      const response = await gatewayRequest({
+        url: `${injection.env.OPENAI_BASE_URL}/v1/chat/completions`,
+        token: injection.env.OPENAI_API_KEY!,
+      });
+
+      expect(response.status).toBe(200);
+      expect(upstreamFetch).toHaveBeenCalledWith(
+        new URL('https://openrouter.ai/api/v1/chat/completions'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            authorization: 'Bearer sk-or-chat-upstream',
+          }),
+        }),
+      );
     } finally {
       await broker.close();
     }

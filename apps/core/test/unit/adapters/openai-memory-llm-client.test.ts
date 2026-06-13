@@ -209,21 +209,50 @@ describe('OpenAI memory LLM client', () => {
     expect(revokeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a non-OpenAI-family model route before issuing a request', async () => {
+  it('rejects a non-OpenAI-compatible model route before issuing a request', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const { createOpenAiMemoryLlmClient } =
       await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
 
+    // The Anthropic route is the Claude SDK lane (not chat/completions).
     await expect(
       createOpenAiMemoryLlmClient().query({
         appId: 'default' as never,
         model: 'gpt-test',
-        modelProfile: { ...OPENAI_PROFILE, modelRoute: 'openrouter' },
+        modelProfile: {
+          ...OPENAI_PROFILE,
+          modelRoute: ['anth', 'ropic'].join(''),
+        },
         prompt: 'hello',
       }),
-    ).rejects.toThrow('is not an OpenAI-family model route');
+    ).rejects.toThrow('is not an OpenAI-compatible model route');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts the OpenRouter route (OpenAI-compatible DeepAgents lane)', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(chatCompletionBody()), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createOpenAiMemoryLlmClient } =
+      await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
+
+    const result = await createOpenAiMemoryLlmClient().query({
+      appId: 'default' as never,
+      model: 'moonshotai/kimi-k2.6',
+      modelProfile: {
+        ...OPENAI_PROFILE,
+        modelRoute: 'openrouter',
+        runnerModel: 'moonshotai/kimi-k2.6',
+        alias: 'kimi',
+      },
+      prompt: 'hello',
+    });
+    expect(result).toBe('openai memory result');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

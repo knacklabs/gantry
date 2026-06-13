@@ -15,6 +15,7 @@ import {
   getModelProviderDefinition,
   type ModelProviderDefinition,
 } from '../../../shared/model-provider-registry.js';
+import { DEEPAGENTS_ENGINE } from '../../../shared/agent-engine.js';
 import {
   hasGatewayMemoryAccess,
   resolveGatewayMemoryInjection,
@@ -70,7 +71,7 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
     (opts.modelProfile?.modelRoute as ModelRouteId | undefined) ??
     modelEntry?.modelRoute.id ??
     'openai';
-  const provider = requireOpenAiFamilyProvider(routeId);
+  const provider = requireOpenAiCompatibleProvider(routeId);
   const runId = `memory-query:${randomUUID()}` as AgentRunId;
   const gateway = await resolveGatewayMemoryInjection({
     appId: opts.appId,
@@ -160,13 +161,22 @@ function reportUsage(
   onUsage(normalized);
 }
 
-function requireOpenAiFamilyProvider(
+// Accepts any provider that speaks the OpenAI chat/completions API: the native
+// OpenAI family, plus OpenAI-compatible DeepAgents-lane providers such as
+// OpenRouter (nominal family 'anthropic', OpenAI-shaped transport). The shared
+// trait is the deepagents execution engine or the openai response family; both
+// project the OpenAI-family gateway env this client reads.
+function requireOpenAiCompatibleProvider(
   routeId: ModelRouteId,
 ): ModelProviderDefinition {
   const provider = getModelProviderDefinition(routeId);
-  if (!provider || provider.responseFamily !== 'openai') {
+  const compatible =
+    provider &&
+    (provider.responseFamily === 'openai' ||
+      provider.executionRoute.engine === DEEPAGENTS_ENGINE);
+  if (!provider || !compatible) {
     throw new Error(
-      `Memory model route ${routeId} is not an OpenAI-family model route.`,
+      `Memory model route ${routeId} is not an OpenAI-compatible model route.`,
     );
   }
   return provider;

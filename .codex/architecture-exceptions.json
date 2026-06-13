@@ -1111,7 +1111,7 @@
     "rule": "provider_specific_path",
     "reason": "The model provider registry is the intentional source of truth for provider definitions, credential modes, gateway behavior, and cache metadata until the architecture checker has first-class provider-registry ownership.",
     "removeByPhase": "provider-registry-boundary-rule",
-    "maxViolations": 39
+    "maxViolations": 38
   },
   {
     "file": "apps/core/src/platform/index.ts",

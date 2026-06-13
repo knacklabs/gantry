@@ -56,6 +56,14 @@ function resolveModelId(agentInput: DeepAgentRunnerInput): string {
   );
 }
 
+function resolveModelProvider(): string {
+  const fromEnv = process.env.GANTRY_DEEPAGENTS_MODEL_PROVIDER?.trim();
+  if (fromEnv) return fromEnv;
+  throw new Error(
+    'DeepAgents runner is missing GANTRY_DEEPAGENTS_MODEL_PROVIDER for the resolved model route.',
+  );
+}
+
 async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   // Scheduled jobs are ephemeral: no session persistence (mirrors the Anthropic
   // runner's isScheduledJob path). A diagnostic session id is still emitted.
@@ -77,6 +85,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
   try {
     const turn = await runDeepAgentTurn({
       agentInput,
+      provider: resolveModelProvider(),
       modelId: resolveModelId(agentInput),
       priorMessages: [],
       newSessionId: diagnosticSessionId,
@@ -166,6 +175,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
       try {
         turn = await runDeepAgentTurn({
           agentInput: turnInput,
+          provider: resolveModelProvider(),
           modelId: resolveModelId(agentInput),
           priorMessages,
           newSessionId: sessionId,

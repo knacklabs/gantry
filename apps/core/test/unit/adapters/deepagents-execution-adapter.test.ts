@@ -93,6 +93,8 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
       [openAiApiKeyKey()]: 'gtw_test',
     });
     expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_ID).toBe('gpt-5.5');
+    // The runner builds the LangChain model from the projected provider string.
+    expect(prepared.env.GANTRY_DEEPAGENTS_MODEL_PROVIDER).toBe('openai');
     expect(prepared.env.GANTRY_DEEPAGENTS_SESSIONS_DIR).toBe(
       '/tmp/gantry/agents/test-agent/.llm-runtime/deepagents/sessions',
     );
