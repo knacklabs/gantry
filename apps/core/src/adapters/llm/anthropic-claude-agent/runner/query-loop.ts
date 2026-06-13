@@ -170,6 +170,7 @@ export async function runQuery(
   }
   let ipcPolling = true;
   let closedDuringQuery = false;
+  let newSessionId: string | undefined;
   const steeringGate = new SteeringDeliveryGate((text) => {
     log(`Piping IPC message at turn boundary (${text.length} chars)`);
     stream.pushContent(text);
@@ -210,7 +211,6 @@ export async function runQuery(
     setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
   };
   setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
-  let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;

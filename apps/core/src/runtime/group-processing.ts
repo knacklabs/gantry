@@ -274,23 +274,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     )
       return true;
 
-    if (
-      await screenBatchPreAgent({
-        repository: ops(),
-        group,
-        chatJid,
-        queueJid,
-        threadId: activeThreadId ?? null,
-        messages: missedMessages,
-        guardrailClassifier: deps.guardrailClassifier,
-        sendMessage: sendMessageToChannel,
-        buildMessageOptions,
-        setCursor: deps.setCursor,
-        saveState: deps.saveState,
-        info: (metadata, message) => logger.info(metadata, message),
-      })
-    )
+    const guardrailResult = await screenBatchPreAgent({
+      repository: ops(),
+      group,
+      chatJid,
+      queueJid,
+      threadId: activeThreadId ?? null,
+      messages: missedMessages,
+      guardrailClassifier: deps.guardrailClassifier,
+      allowInlineSystemPromptAppend: true,
+      sendMessage: sendMessageToChannel,
+      buildMessageOptions,
+      setCursor: deps.setCursor,
+      saveState: deps.saveState,
+      info: (metadata, message) => logger.info(metadata, message),
+    });
+    if (guardrailResult.handled) {
       return true;
+    }
 
     const prompt = formatMessages(missedMessages, TIMEZONE);
     const recallQuery = buildMemoryRecallQueryFromMessages(missedMessages);
@@ -713,6 +714,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             recallQuery,
           },
           turnMessages: missedMessages,
+          ...(guardrailResult.systemPromptAppend
+            ? {
+                guardrailSystemPromptAppend: guardrailResult.systemPromptAppend,
+              }
+            : {}),
         },
       );
     } finally {

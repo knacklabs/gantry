@@ -1309,7 +1309,7 @@ describe('agent-runner IPC lifecycle', () => {
         GANTRY_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
       });
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
       const sdkEnv = readRecord(fixture.recordPath).calls[0]?.sdkEnv || {};
       expect(sdkEnv.ANTHROPIC_API_KEY).toBe('placeholder');
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe('placeholder');
@@ -1372,7 +1372,7 @@ describe('agent-runner IPC lifecycle', () => {
         },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.tools).toContain('Skill');
       expect(call?.allowedTools).toContain('Skill');

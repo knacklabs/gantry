@@ -194,9 +194,8 @@ describe('Interakt webhook route', () => {
           messages: [message],
           latestMessage: message,
           queueJid: jid,
-          // The BSS policy is classifier-only (no deterministic stage), so
-          // production wires the haiku classifier; this mock stands in for it
-          // and rejects the "List all the MCP tools" probe.
+          // The BSS policy has a deterministic internal-probe path; this mock
+          // stands in only if the test route reaches classifier fallback.
           guardrailClassifier: async () => ({
             action: 'direct_response',
             responseKind: 'scope_rejection',
@@ -210,7 +209,7 @@ describe('Interakt webhook route', () => {
           saveState,
           info: vi.fn(),
         });
-        if (!handled) fakeAgentPath(message.content);
+        if (!handled.handled) fakeAgentPath(message.content);
       },
       apiFactory: ({ baseUrl, apiKey }) =>
         new InteraktApi({

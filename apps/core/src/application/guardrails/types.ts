@@ -6,7 +6,7 @@ export type GuardrailResponseKind =
   | 'scope_clarification';
 
 export type GuardrailDecision =
-  | { action: 'allow'; reason: string }
+  | { action: 'allow'; reason: string; systemPromptAppend?: string }
   | {
       action: 'direct_response';
       responseKind: GuardrailResponseKind;
@@ -52,14 +52,21 @@ export interface EvaluateAgentGuardrailInput {
    * absent the policy behaves as a stateless per-turn screen.
    */
   context?: readonly GuardrailContextMessage[];
+  /**
+   * True only when the caller can attach the returned prompt to the next main
+   * agent system prompt. Warm continuation paths cannot safely change the
+   * existing provider session prompt, so they should leave this false.
+   */
+  allowInlineSystemPromptAppend?: boolean;
 }
 
 export interface GuardrailPolicy {
   id: string;
   prompt: string;
   /**
-   * Optional cheap, deterministic pre-classifier. Omit it for a classifier-only
-   * policy that screens every message with the LLM (no deterministic fast-path).
+   * Optional cheap, deterministic pre-agent screen. Omit it for a
+   * classifier-only policy that screens every message with the LLM (no
+   * deterministic fast-path).
    * `context` (recent prior turns) is optional so policies that ignore it remain
    * valid; context-aware policies may use it to allow genuine follow-ups without
    * an LLM call.
@@ -68,5 +75,15 @@ export interface GuardrailPolicy {
     messages: readonly string[],
     context?: readonly GuardrailContextMessage[],
   ): GuardrailDecision | null;
+  /**
+   * Optional run-local system prompt append for policies that want the main
+   * agent call to carry the final scope check. When present, `mode: both`
+   * uses deterministic screening plus direct agent fallthrough instead of a
+   * separate classifier call.
+   */
+  systemPromptAppend?(
+    messages: readonly string[],
+    context?: readonly GuardrailContextMessage[],
+  ): string | null;
   directResponse(kind: GuardrailResponseKind): string;
 }

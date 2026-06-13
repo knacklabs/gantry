@@ -6,7 +6,7 @@
     "crm": "When a customer talks orders/gifting, the conversation produces the right queries & leads. The runner sends /digest-session and /extract-leads-queries through the signed webhook path, then polls boondi_business_records after the digest watcher path runs. Each scenario is its own persona conversation."
   },
   "operatorCommandLifecycle": "CRM scenarios intentionally mimic a human/admin operator message in WhatsApp/Interakt: after relevant customer turns, send /digest-session and /extract-leads-queries, then assert CRM rows. Do not replace this with a local replay script.",
-  "expectKeys": "Every scenario requires testIntent, unique fake phone, and object turns with text; expect is optional and only present for behavior-specific checks. noBanned, noLeak, noNarration, and replyRequired are runner defaults for every evaluated customer-visible reply; do not repeat them in scenarios unless intentionally overriding a default. Optional expect keys: greeting(welcomed, not rejected/blocked) · guardrail(scope_rejection|scope_clarification) · mcp · allow · deny · noGuardrailBlock · replyLang(english|hindi|hinglish) · replyMustMatch[] · replyMustNotMatch[] · (crm) expectRecord{status,intentCategory,buyerType,locationScope,customisation,scored,minScore,source,absent} · expectRecords[] for multi-opportunity",
+  "expectKeys": "Every scenario requires testIntent, unique fake phone, and object turns with text; expect is optional and only present for behavior-specific checks. noBanned, noLeak, noNarration, and replyRequired are runner defaults for every evaluated customer-visible reply; do not repeat them in scenarios unless intentionally overriding a default. Optional expect keys: greeting(welcomed, not rejected/blocked) · guardrail(scope_rejection|scope_clarification) · mcp · mcpMustCall[{serverName,toolName}] · mcpMustNotCall[{serverName,toolName}] · mcpMaxCallCount[{serverName,toolName,max}] · allow · deny · noGuardrailBlock · replyLang(english|hindi|hinglish) · replyMustMatch[] · replyMustNotMatch[] · (crm) expectRecord{status,intentCategory,buyerType,locationScope,customisation,scored,minScore,source,absent} · expectRecords[] for multi-opportunity",
   "scenarios": [
     {
       "group": "conversation",
@@ -160,9 +160,7 @@
           "expect": {
             "allow": true,
             "noGuardrailBlock": true,
-            "replyMustMatch": [
-              "\\b(?:AI|bot|automated)\\b"
-            ],
+            "replyMustMatch": ["\\b(?:AI|bot|automated)\\b"],
             "replyMustNotMatch": [
               "(i.{0,2}m (?:a )?(?:real )?(?:human|person)\\b|i.{0,2}m human|not a (?:bot|robot|machine)|yes,? (?:a )?real person|speaking (?:to|with) a (?:real )?person)"
             ]
@@ -172,9 +170,7 @@
       "expect": {
         "allow": true,
         "noGuardrailBlock": true,
-        "replyMustMatch": [
-          "\\b(?:AI|bot|automated)\\b"
-        ],
+        "replyMustMatch": ["\\b(?:AI|bot|automated)\\b"],
         "replyMustNotMatch": [
           "(i.{0,2}m (?:a )?(?:real )?(?:human|person)\\b|i.{0,2}m human|not a (?:bot|robot|machine)|yes,? (?:a )?real person|speaking (?:to|with) a (?:real )?person)"
         ]
@@ -599,9 +595,7 @@
           "text": "What discount code did I use on that order?",
           "expect": {
             "allow": true,
-            "replyMustMatch": [
-              "BSS200"
-            ]
+            "replyMustMatch": ["BSS200"]
           }
         }
       ],
@@ -877,20 +871,54 @@
     },
     {
       "group": "shopify",
-      "name": "multi-turn-shopping-flow",
+      "name": "qualified-gifting-product-options",
+      "expect": {
+        "mcp": true,
+        "mcpMustCall": [
+          {
+            "serverName": "shopify-api",
+            "toolName": "get_gifting_context"
+          }
+        ],
+        "mcpMustNotCall": [
+          {
+            "serverName": "boondi-crm",
+            "toolName": "get_open_records"
+          },
+          {
+            "serverName": "shopify-api",
+            "toolName": "get_recent_orders_with_details"
+          },
+          {
+            "serverName": "shopify-api",
+            "toolName": "search_products"
+          }
+        ],
+        "mcpMaxCallCount": [
+          {
+            "serverName": "shopify-api",
+            "toolName": "get_gifting_context",
+            "max": 1
+          },
+          {
+            "serverName": "shopify-api",
+            "toolName": "search_products",
+            "max": 1
+          }
+        ],
+        "replyMustMatch": [
+          "latest order|most recent order|Order:",
+          "#109260",
+          "gifting team|corporate team|corporate gifting"
+        ]
+      },
       "turns": [
         {
-          "text": "Hi! I'm looking for a Diwali gift box"
-        },
-        {
-          "text": "Do you have anything with kaju katli in it?"
-        },
-        {
-          "text": "Got it. And what was my last order again?"
+          "text": "Hi Boondi, I need around 80 premium Diwali gift boxes for clients in Mumbai and Delhi, budget about ₹1,200 per box. Also check my latest order and suggest available sweets or hampers that fit this gifting plan."
         }
       ],
       "phone": "000000043",
-      "testIntent": "Customer moves from Diwali gift discovery to kaju-katli product interest and then their last order; Boondi must keep a natural shopping thread while switching safely into customer-data lookup."
+      "testIntent": "Customer gives a qualified corporate gifting brief and explicitly asks for product options plus latest-order context; Boondi must route the gifting brief, use live Shopify data, and avoid broad repeated product-search fanout."
     },
     {
       "group": "crm",

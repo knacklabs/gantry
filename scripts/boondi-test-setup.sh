@@ -6,6 +6,7 @@
 #                     (replies persist, sends go only to listed test numbers),
 #                     GANTRY_TEST_OPERATOR_PHONE=<all test phones>,
 #                     GANTRY_TEST_CALLER_IDENTITY_PHONE=918097288633 (Shopify "self"),
+#                     IDLE_TIMEOUT=<BOONDI_TEST_IDLE_TIMEOUT_MS, default 2500>
 #                     stdout tee'd to $GANTRY_DEV_LOG (default /tmp/gantry-dev.log).
 #   boondi-crm :8082  short digest-watcher poll so the crm group is fast.
 #   shopify    :8081  must already be up (this script only warns if it isn't).
@@ -15,6 +16,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEV_LOG=${GANTRY_DEV_LOG:-/tmp/gantry-dev.log}
 CRM_LOG=${CRM_DEV_LOG:-/tmp/mcp-crm-dev.log}
+IDLE_TIMEOUT_MS=${BOONDI_TEST_IDLE_TIMEOUT_MS:-2500}
 STRIP="-u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CODE_OAUTH_TOKEN"
 
 OPERATOR=$(node -e "import('$ROOT/scripts/lib/phones.mjs').then(m=>process.stdout.write(m.OPERATOR_LIST))") || {
@@ -37,6 +39,7 @@ echo "starting boondi-crm (:8082, 10s watcher poll) → $CRM_LOG"
 echo "starting core (:4710, flow-log + dry-run + test operators) → $DEV_LOG"
 ( cd "$ROOT" && env $STRIP GANTRY_FLOW_LOG=1 GANTRY_OUTBOUND_DRYRUN=1 \
     GANTRY_TEST_OPERATOR_PHONE="$OPERATOR" GANTRY_TEST_CALLER_IDENTITY_PHONE=918097288633 \
+    IDLE_TIMEOUT="$IDLE_TIMEOUT_MS" \
     node --enable-source-maps --import tsx "$ROOT/apps/core/src/index.ts" > "$DEV_LOG" 2>&1 & )
 
 echo "waiting for health…"

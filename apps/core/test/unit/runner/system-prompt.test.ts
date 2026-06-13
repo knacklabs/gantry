@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildRunnerSystemPrompt } from '@core/adapters/llm/anthropic-claude-agent/runner/system-prompt.js';
 import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
+import bssCustomerSupportPolicy from '../../../../../agents/boondi_support/guardrails/guardrail.ts';
 
 function baseInput(
   overrides: Partial<AgentRunnerInput> = {},
@@ -40,5 +41,30 @@ describe('buildRunnerSystemPrompt', () => {
     });
 
     expect(prompt?.append).not.toContain('Approved MCP Services');
+    expect(prompt?.append).not.toContain('Boondi Scope Check For This Turn');
+  });
+
+  it('adds a run-local guardrail section without changing the compiled profile prompt', () => {
+    const guardrailSystemPromptAppend =
+      bssCustomerSupportPolicy.systemPromptAppend?.([
+        'Can you help me with this?',
+      ]);
+
+    const prompt = buildRunnerSystemPrompt(
+      baseInput({
+        guardrailSystemPromptAppend,
+      } as never),
+      '',
+      {},
+    );
+
+    expect(prompt?.append).toContain('Base prompt.');
+    expect(prompt?.append).toContain('Boondi Scope Check For This Turn');
+    expect(prompt?.append).toContain(
+      'Before answering, silently decide whether the latest customer request is allowed',
+    );
+    expect(prompt?.append).toContain(
+      'Then stop. Do not answer older BSS context',
+    );
   });
 });

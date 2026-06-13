@@ -30,7 +30,12 @@ const regressionRunnerPath = path.join(
   process.cwd(),
   'scripts/boondi-regression.mjs',
 );
+const testSetupPath = path.join(process.cwd(), 'scripts/boondi-test-setup.sh');
 const phonesModulePath = path.join(process.cwd(), 'scripts/lib/phones.mjs');
+const boondiPromptPath = path.join(
+  process.cwd(),
+  'agents/boondi_support/CLAUDE.md',
+);
 
 function loadScenarios(): BoondiScenario[] {
   const cfg = JSON.parse(fs.readFileSync(scenariosPath, 'utf-8')) as {
@@ -232,6 +237,85 @@ describe('Boondi regression scenarios', () => {
     expect(runner).not.toContain('if (!turn.expect) return;');
   });
 
+  it('guards substantive shopping flows against returning-greeting CRM lookups', () => {
+    const scenarios = loadScenarios();
+    const runner = fs.readFileSync(regressionRunnerPath, 'utf-8');
+    const shoppingFlow = scenarios.find(
+      (scenario) => scenario.name === 'qualified-gifting-product-options',
+    );
+
+    expect(shoppingFlow?.expect?.mcpMustNotCall).toEqual(
+      expect.arrayContaining([
+        {
+          serverName: 'boondi-crm',
+          toolName: 'get_open_records',
+        },
+      ]),
+    );
+    expect(runner).toContain('if (exp.mcpMustNotCall)');
+    expect(runner).toContain('forbidden MCP call observed');
+  });
+
+  it('keeps open CRM lookup reserved to bare returning greetings in Boondi guidance', () => {
+    const prompt = fs.readFileSync(boondiPromptPath, 'utf-8');
+
+    expect(prompt).toContain(
+      'Use `get_open_records` only for a bare returning greeting',
+    );
+    expect(prompt).toContain(
+      'Do not call `get_open_records` for substantive order, product, or gifting turns',
+    );
+  });
+
+  it('guards qualified gifting recommendation flows against product-search fanout', () => {
+    const scenarios = loadScenarios();
+    const runner = fs.readFileSync(regressionRunnerPath, 'utf-8');
+    const giftingFlow = scenarios.find(
+      (scenario) => scenario.name === 'qualified-gifting-product-options',
+    );
+
+    expect(giftingFlow?.expect?.mcpMaxCallCount).toEqual(
+      expect.arrayContaining([
+        {
+          serverName: 'shopify-api',
+          toolName: 'search_products',
+          max: 1,
+        },
+      ]),
+    );
+    expect(runner).toContain('if (exp.mcpMaxCallCount)');
+    expect(runner).toContain('expected at most');
+  });
+
+  it('routes qualified gifting recommendation flows through the aggregate Shopify tool', () => {
+    const scenarios = loadScenarios();
+    const runner = fs.readFileSync(regressionRunnerPath, 'utf-8');
+    const giftingFlow = scenarios.find(
+      (scenario) => scenario.name === 'qualified-gifting-product-options',
+    );
+
+    expect(giftingFlow?.expect?.mcpMustCall).toEqual([
+      {
+        serverName: 'shopify-api',
+        toolName: 'get_gifting_context',
+      },
+    ]);
+    expect(giftingFlow?.expect?.mcpMustNotCall).toEqual(
+      expect.arrayContaining([
+        {
+          serverName: 'shopify-api',
+          toolName: 'get_recent_orders_with_details',
+        },
+        {
+          serverName: 'shopify-api',
+          toolName: 'search_products',
+        },
+      ]),
+    );
+    expect(runner).toContain('if (exp.mcpMustCall)');
+    expect(runner).toContain('expected MCP call');
+  });
+
   it('preserves admin-visible scenario transcripts by default', () => {
     const runner = fs.readFileSync(regressionRunnerPath, 'utf-8');
 
@@ -248,6 +332,15 @@ describe('Boondi regression scenarios', () => {
     expect(runner).not.toContain(
       'Non-CRM groups reset only to free the warm session.',
     );
+  });
+
+  it('keeps Boondi regression idle timeout configurable for warm-retention checks', () => {
+    const setupScript = fs.readFileSync(testSetupPath, 'utf-8');
+
+    expect(setupScript).toContain(
+      'IDLE_TIMEOUT_MS=${BOONDI_TEST_IDLE_TIMEOUT_MS:-2500}',
+    );
+    expect(setupScript).toContain('IDLE_TIMEOUT="$IDLE_TIMEOUT_MS"');
   });
 
   it('requires visible replies and bounds live-flow concurrency by default', () => {

@@ -68,7 +68,10 @@ export function registerValidateDiscountCode(
             args.code.toLowerCase(),
         );
         if (!match) {
-          return jsonContent({ exists: false, active: false });
+          return jsonContent({
+            exists: false,
+            active: false,
+          });
         }
         const discount = match.node.codeDiscount;
         const status = discount.status ?? 'ACTIVE';

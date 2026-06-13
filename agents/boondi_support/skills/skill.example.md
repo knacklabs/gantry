@@ -124,6 +124,9 @@ agents:
 
 `plugins.guardrail` activates one exact agent-owned guardrail file. `mode` may
 be `both`, `deterministic`, or `classifier`; omitted mode defaults to `both`.
+For Boondi-style policies that export an inline system prompt block, `both`
+means deterministic screening followed by the main agent run, not a separate
+classifier guardrail.
 `plugins.skills` is a plain **list of folder ids** — there is no place in yaml
 for `description`, `disclosure`, `user_invocable`, or any per-skill metadata.
 All of that lives in the skill's frontmatter (above). yaml only switches skills

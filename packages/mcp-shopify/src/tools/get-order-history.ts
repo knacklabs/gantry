@@ -46,6 +46,10 @@ const inputSchema = {
     .string()
     .optional()
     .describe('Exclusive ISO end date. Defaults to now.'),
+  oldestFirst: z
+    .boolean()
+    .optional()
+    .describe('Sort oldest order first instead of newest first.'),
 };
 
 interface OrderEdgesResponse {
@@ -116,11 +120,14 @@ export function registerGetOrderHistory(
         const query = `customer_id:${customerToken} created_at:>=${sinceIso} created_at:<${untilIso}`;
         const data = await client.graphql<OrderEdgesResponse>(
           LIST_ORDERS_FOR_CUSTOMER,
-          { query, first: 25 },
+          { query, first: 25, reverse: !(args.oldestFirst ?? false) },
         );
         const orders = (data.orders?.edges ?? [])
           .map((edge) => summarizeOrder(mapOrderResponse(edge.node)))
-          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+          .sort((a, b) => {
+            const createdAtOrder = a.createdAt.localeCompare(b.createdAt);
+            return args.oldestFirst ? createdAtOrder : -createdAtOrder;
+          });
         return jsonContent({
           orders,
           ...(ownership && identity

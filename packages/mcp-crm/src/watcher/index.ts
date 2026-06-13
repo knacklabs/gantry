@@ -87,6 +87,69 @@ function summarizeOpportunity(
   };
 }
 
+type TranscriptTurn = { role: 'customer' | 'assistant'; text: string };
+
+const SOFT_BROWSING_RE =
+  /\b(?:checking you out|friend mentioned|heard (?:your|the) sweets|new to bss|new here|browsing BSS|recommend(?:ation|ed)?|something (?:really )?(?:good|sweet)|lovely picks?|favourites? right now|favorites? right now)\b/i;
+
+const SEPARATE_ORDER_RE =
+  /\b(?:separate|different|another)\s+(?:order|occasion|brief)\b/i;
+
+function inferSoftBrowsingQuery(
+  transcript: readonly TranscriptTurn[],
+): ExtractedOpportunity | null {
+  const customerLine = transcript.find(
+    (turn) => turn.role === 'customer' && SOFT_BROWSING_RE.test(turn.text),
+  );
+  if (!customerLine) return null;
+  return {
+    match: null,
+    isLead: false,
+    intentCategory: 'shopping',
+    summaryBrief: 'Soft browsing query about Bombay Sweet Shop sweets',
+    evidenceQuote: customerLine.text,
+    confidence: 0.82,
+  };
+}
+
+function sameCategory(
+  extracted: ExtractedOpportunity,
+  existing: BusinessRecord,
+): boolean {
+  return (
+    !extracted.intentCategory ||
+    !existing.intentCategory ||
+    extracted.intentCategory === existing.intentCategory
+  );
+}
+
+function coerceSingleOpenOpportunityMatches(
+  opportunities: readonly ExtractedOpportunity[],
+  open: readonly BusinessRecord[],
+  transcript: readonly TranscriptTurn[],
+): ExtractedOpportunity[] {
+  if (transcript.some((turn) => SEPARATE_ORDER_RE.test(turn.text))) {
+    return [...opportunities];
+  }
+  return opportunities.map((opportunity) => {
+    if (opportunity.match) {
+      return opportunity;
+    }
+    const compatible = open
+      .filter((record) => sameCategory(opportunity, record))
+      .sort((a, b) => {
+        const aTime = Date.parse(a.createdAt);
+        const bTime = Date.parse(b.createdAt);
+        const aRank = Number.isFinite(aTime) ? aTime : Number.MAX_SAFE_INTEGER;
+        const bRank = Number.isFinite(bTime) ? bTime : Number.MAX_SAFE_INTEGER;
+        return aRank - bRank;
+      });
+    const existing = compatible[0];
+    if (!existing) return opportunity;
+    return { ...opportunity, match: existing.id };
+  });
+}
+
 export async function runDigestCycleOnce(
   deps: WatcherDeps,
   options: DigestCycleOptions = {},
@@ -308,11 +371,20 @@ export async function runManualConversationExtraction(
     );
     return stats;
   }
-  stats.extracted = result.opportunities.length;
+  let opportunities = coerceSingleOpenOpportunityMatches(
+    result.opportunities,
+    open,
+    transcript,
+  );
+  if (opportunities.length === 0) {
+    const inferred = inferSoftBrowsingQuery(transcript);
+    if (inferred) opportunities = [inferred];
+  }
+  stats.extracted = opportunities.length;
   const applied = await applyExtraction(deps.repo, {
     phone,
     conversationId,
-    opportunities: result.opportunities,
+    opportunities,
   });
   stats.created = applied.created;
   stats.updated = applied.updated;

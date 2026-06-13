@@ -21,6 +21,14 @@ import type { GroupProcessingDeps } from './group-processing-types.js';
 import { loadGuardrailContext } from './guardrail-context.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
 
+export type PreAgentGuardrailResult =
+  | { handled: true }
+  | {
+      handled: false;
+      systemPromptAppend?: string;
+      guardrailReason?: string;
+    };
+
 export async function handlePreAgentGuardrail(input: {
   group: ConversationRoute;
   messages: readonly NewMessage[];
@@ -34,14 +42,15 @@ export async function handlePreAgentGuardrail(input: {
    */
   recentContext?: readonly GuardrailContextMessage[];
   guardrailClassifier?: GuardrailClassifier;
+  allowInlineSystemPromptAppend?: boolean;
   sendMessage: (text: string, options?: MessageSendOptions) => Promise<void>;
   buildMessageOptions: (threadId?: string) => MessageSendOptions | undefined;
   setCursor: GroupProcessingDeps['setCursor'];
   saveState: GroupProcessingDeps['saveState'];
   info: (metadata: Record<string, unknown>, message: string) => void;
-}): Promise<boolean> {
+}): Promise<PreAgentGuardrailResult> {
   const guardrail = input.group.agentConfig?.plugins?.guardrail;
-  if (!guardrail) return false;
+  if (!guardrail) return { handled: false };
 
   // Resolve the agent's guardrail plugin by its declared file name
   // (`plugins.guardrail.file`) from the runtime folder, or the generic
@@ -59,6 +68,7 @@ export async function handlePreAgentGuardrail(input: {
     classifier: input.guardrailClassifier,
     policy,
     context: input.recentContext,
+    allowInlineSystemPromptAppend: input.allowInlineSystemPromptAppend,
   });
   // Flow trace: include the text the guardrail judged so the decision is
   // explainable in the test harness (opt-in; off in production).
@@ -95,7 +105,7 @@ export async function handlePreAgentGuardrail(input: {
       },
       'Guardrail handled message before agent spawn',
     );
-    return true;
+    return { handled: true };
   }
 
   input.info(
@@ -109,7 +119,13 @@ export async function handlePreAgentGuardrail(input: {
     },
     'Guardrail allowed message for agent processing',
   );
-  return false;
+  return {
+    handled: false,
+    ...(decision.systemPromptAppend
+      ? { systemPromptAppend: decision.systemPromptAppend }
+      : {}),
+    guardrailReason: decision.reason,
+  };
 }
 
 /**
@@ -125,13 +141,14 @@ export async function screenBatchPreAgent(input: {
   threadId?: string | null;
   messages: readonly NewMessage[];
   guardrailClassifier?: GuardrailClassifier;
+  allowInlineSystemPromptAppend?: boolean;
   sendMessage: (text: string, options?: MessageSendOptions) => Promise<void>;
   buildMessageOptions: (threadId?: string) => MessageSendOptions | undefined;
   setCursor: GroupProcessingDeps['setCursor'];
   saveState: GroupProcessingDeps['saveState'];
   info: (metadata: Record<string, unknown>, message: string) => void;
-}): Promise<boolean> {
-  if (input.messages.length === 0) return false;
+}): Promise<PreAgentGuardrailResult> {
+  if (input.messages.length === 0) return { handled: false };
   const latestMessage = input.messages[input.messages.length - 1];
   const recentContext = await loadGuardrailContext({
     repository: input.repository,
@@ -147,6 +164,7 @@ export async function screenBatchPreAgent(input: {
     queueJid: input.queueJid,
     recentContext,
     guardrailClassifier: input.guardrailClassifier,
+    allowInlineSystemPromptAppend: input.allowInlineSystemPromptAppend,
     sendMessage: input.sendMessage,
     buildMessageOptions: input.buildMessageOptions,
     setCursor: input.setCursor,

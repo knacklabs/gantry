@@ -47,8 +47,8 @@ POST /v1/channels/interakt/webhook            core :4710
    │  HMAC signature gate (INTERAKT_WEBHOOK_SECRET)
    ▼
 Guardrail (pre-agent, in core)                agents/boondi_support/guardrails/guardrail.ts
-   │  deterministic regex stage → haiku classifier stage
-   │  → allow | direct_response (canned reply, no agent)
+   │  deterministic regex stage → allow | direct_response (canned reply, no agent)
+   │  unresolved allowed turns fall through to Boondi with inline scope guardrail
    ▼
 Agent run (Claude Agent SDK)                  prompts: SOUL.md + CLAUDE.md (synced at BOOT)
    │  mcp_call_tool → file-IPC → host proxy (X-Caller-Identity HMAC)
@@ -199,6 +199,10 @@ Gotchas (will bite if ignored):
   short `IDLE_TIMEOUT=2500` (default is 30 min —
   `apps/core/src/config/index.ts:411` — and warm LLM runs fill the active-run
   slots, making later fake-phone chats appear unanswered).
+  For warm-follow-up latency measurements, use a bounded realistic window such
+  as `BOONDI_TEST_IDLE_TIMEOUT_MS=20000 scripts/boondi-test-setup.sh`, otherwise
+  the short regression-suite timeout forces SDK-session resume instead of
+  measuring the in-process `MessageStream` path.
   `scripts/boondi-test-setup.sh` exists to set up exactly that shape for
   harness runs; it is not the normal way to start the stack.
 
@@ -340,13 +344,14 @@ agents:
     plugins:
       guardrail:
         file: guardrails/guardrail.ts # exact file under the agent folder; alternates switchable here
-        model: haiku # classifier-stage model
+        model: haiku # used only by explicit classifier-mode fallback
         mode: both # both | deterministic | classifier
 ```
 
 `mode: both` = free deterministic regex stage first
-(`evaluateDeterministic()`), and only when it returns null does the haiku
-**classifier** (LLM inference) decide. Decision shape:
+(`evaluateDeterministic()`). Boondi's policy supplies an inline scope block, so
+unresolved allowed turns go directly to the main Boondi LLM call with the
+inline scope block attached. Decision shape:
 `{action:'allow'}` or
 `{action:'direct_response', responseKind: greeting|scope_rejection|scope_clarification}`.
 
@@ -505,7 +510,10 @@ running core**: `.env` may point `GANTRY_DEV_LOG` elsewhere (it pointed at
 terminal tees nowhere — `lsof -p <core-pid> | awk '$4=="1u"'` shows where
 stdout goes. Prereq env for harness runs is exactly what
 `scripts/boondi-test-setup.sh` sets (flow log, dry-run, operator phones,
-caller-identity override, short CRM poll) plus `IDLE_TIMEOUT=2500`.
+caller-identity override, short CRM poll) plus `IDLE_TIMEOUT=2500` by default.
+For warm-retention latency runs, start the same script with
+`BOONDI_TEST_IDLE_TIMEOUT_MS=20000` so a realistic follow-up can reach the live
+runner before stdin closes.
 
 ---
 

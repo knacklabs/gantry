@@ -189,6 +189,46 @@ describe('get_order_history', () => {
     harness.tokenManager.stop();
   });
 
+  it('returns oldest orders first when oldestFirst is true', async () => {
+    const mock = buildMockFetch({
+      graphqlResponses: [
+        graphqlOk(customersEdges([BUSY_CUSTOMER])),
+        graphqlOk(
+          ordersEdges([
+            {
+              name: 'BSS-1001',
+              customer: BUSY_CUSTOMER,
+              createdAt: '2025-01-16T08:00:00Z',
+            },
+            {
+              name: 'BSS-3002',
+              customer: BUSY_CUSTOMER,
+              createdAt: '2026-05-17T08:00:00Z',
+            },
+          ]),
+        ),
+      ],
+    });
+    const harness = buildToolHarness(mock.fetch, {
+      requireVerifiedIdentity: true,
+    });
+    const result = await runWithIdentity(VERIFIED_BUSY_CUSTOMER, () =>
+      harness.call<{ orders: Array<{ name: string }> }>('get_order_history', {
+        customerId: BUSY_CUSTOMER.id,
+        callerPhone: BUSY_CUSTOMER.phone,
+        since: '2020-01-01T00:00:00Z',
+        oldestFirst: true,
+      }),
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.data?.orders.map((order) => order.name)).toEqual([
+      '#BSS-1001',
+      '#BSS-3002',
+    ]);
+    harness.tokenManager.stop();
+  });
+
   it('returns SCOPE_MISSING when GraphQL reports access denied for old orders', async () => {
     const mock = buildMockFetch({
       graphqlResponses: [

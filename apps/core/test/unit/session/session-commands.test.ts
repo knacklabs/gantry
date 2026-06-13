@@ -626,6 +626,27 @@ describe('handleSessionCommand', () => {
     );
   });
 
+  it('keeps /digest-session operator flow moving when memory fact extraction times out', async () => {
+    const collectCurrentSessionMemory = vi
+      .fn()
+      .mockRejectedValue(new Error('memory boundary extraction deadline exceeded after 45000ms'));
+    const deps = makeDeps({ collectCurrentSessionMemory });
+    const result = await handleSessionCommand({
+      missedMessages: [
+        makeMsg('/digest-session', { id: 'msg-command', timestamp: '100' }),
+      ],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Digest processed. New digest: unknown. Memory facts saved: 0. Memory extraction timed out; continue with /extract-leads-queries.',
+    );
+  });
+
   it('reports unavailable manual command dependencies clearly', async () => {
     const deps = makeDeps();
     const result = await handleSessionCommand({

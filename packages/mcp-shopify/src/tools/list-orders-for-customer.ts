@@ -112,7 +112,7 @@ export function registerListOrdersForCustomer(
         const query = `customer_id:${customerToken} ${statusQuery(filter)}`;
         const data = await client.graphql<OrderEdgesResponse>(
           LIST_ORDERS_FOR_CUSTOMER,
-          { query, first: limit },
+          { query, first: limit, reverse: true },
         );
         const orders = (data.orders?.edges ?? [])
           .map((edge) => summarizeOrder(mapOrderResponse(edge.node)))

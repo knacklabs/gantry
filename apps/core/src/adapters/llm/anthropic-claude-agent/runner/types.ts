@@ -37,6 +37,7 @@ export interface AgentRunnerInput {
   runId?: string;
   assistantName?: string;
   compiledSystemPrompt?: string;
+  guardrailSystemPromptAppend?: string;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
   modelCredentialEnv?: Record<string, string>;

@@ -20,16 +20,45 @@ export async function evaluateAgentGuardrail(
   const mode = input.config.mode ?? 'both';
   if (mode === 'both' || mode === 'deterministic') {
     // Classifier-only policies omit evaluateDeterministic; treat an absent
-    // deterministic stage as "no decision" so screening defers to the
-    // classifier below.
+    // deterministic stage as "no decision" so screening can defer to the
+    // policy's inline guardrail block or, for legacy policies, the classifier.
     const deterministic =
       policy.evaluateDeterministic?.(input.messages, input.context) ?? null;
-    if (deterministic) return deterministic;
+    if (deterministic) {
+      if (
+        deterministic.action === 'allow' &&
+        input.allowInlineSystemPromptAppend !== false
+      ) {
+        const systemPromptAppend = policy
+          .systemPromptAppend?.(input.messages, input.context)
+          ?.trim();
+        if (systemPromptAppend) {
+          return { ...deterministic, systemPromptAppend };
+        }
+      }
+      return deterministic;
+    }
     if (mode === 'deterministic') {
       return {
         action: 'direct_response',
         responseKind: 'scope_clarification',
         reason: 'ambiguous_without_classifier',
+      };
+    }
+    const systemPromptAppend = policy
+      .systemPromptAppend?.(input.messages, input.context)
+      ?.trim();
+    if (systemPromptAppend) {
+      if (input.allowInlineSystemPromptAppend !== false) {
+        return {
+          action: 'allow',
+          reason: 'inconclusive_inline_guardrail',
+          systemPromptAppend,
+        };
+      }
+      return {
+        action: 'allow',
+        reason: 'inconclusive_inline_guardrail_unattached',
       };
     }
   }

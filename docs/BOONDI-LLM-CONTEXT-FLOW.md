@@ -5,8 +5,10 @@ what context can be cut for latency.
 
 The important split:
 
-- **Guardrail LLM** decides whether a customer turn should reach Boondi. Many
-  turns do not call this LLM because deterministic rules allow/block first.
+- **Pre-agent guardrail** runs deterministic checks only.
+  In Boondi's default `mode: both` path there is no separate guardrail LLM:
+  unresolved turns fall through to the main Boondi run with an inline scope
+  block.
 - **Main chat LLM** is the customer-facing Boondi Claude run.
 - **Memory LLMs** power `/digest-session`, `/dream`, and `/new` background
   archive extraction.
@@ -17,10 +19,10 @@ Large static prompts are referenced by file instead of pasted here.
 
 ## At A Glance
 
-| Surface                  | First Call Contains                                                           | Later Call Contains                                                      | Tools                           |
-| ------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------- |
-| Guardrail classifier     | Guardrail prompt + latest customer message                                    | Guardrail prompt + recent conversation context + latest customer message | `[]`                            |
-| Main chat                | Memory context block + current formatted message + large Boondi system prompt | Same current-turn blocks + SDK resume handle                             | Gantry MCP facade tools         |
+| Surface                  | First Call Contains                                                                             | Later Call Contains                                                  | Tools                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------ |
+| Pre-agent guardrail      | Deterministic policy + latest customer message + recent context for continuation detection       | Same deterministic policy + latest customer message + recent context | None                           |
+| Main chat                | Memory context block + current formatted message + large Boondi system prompt + inline scope block | Same current-turn blocks + SDK resume handle                         | Gantry MCP facade tools        |
 | `/digest-session`        | Extraction prompt + few-shots + session arc                                   | Same, with optional earlier context/retrieved memory                     | `tools` unset                   |
 | `/dream`                 | Dreaming/consolidation prompt + memory evidence/candidates/items              | Same per maintenance pass                                                | `tools` unset                   |
 | `/extract-leads-queries` | CRM extractor prompt + existing CRM rows + full transcript                    | Same; digest blank for manual command, populated for watcher             | `[]`                            |
@@ -28,12 +30,10 @@ Large static prompts are referenced by file instead of pasted here.
 
 ## Guardrails
 
-### When There Is No LLM Call
-
-Obvious BSS messages are handled by the deterministic policy in
+Boondi's active guardrail policy is
 `agents/boondi_support/guardrails/guardrail.ts`.
 
-Examples that bypass the guardrail LLM:
+Examples handled without a separate guardrail LLM:
 
 - `I need around 80 premium Diwali gift boxes...`
 - `Please recheck my latest order...`
@@ -56,9 +56,7 @@ Code path:
 - `apps/core/src/application/guardrails/guardrail-service.ts`
 - `agents/boondi_support/guardrails/guardrail.ts`
 
-### First Guardrail LLM Call
-
-This happens only when deterministic rules cannot decide.
+### Ambiguous Turns
 
 Example first customer message:
 
@@ -66,99 +64,37 @@ Example first customer message:
 Can you help me plan something premium for my team next week?
 ```
 
-Actual SDK input shape from Gantry:
-
-```ts
-query({
-  prompt:
-    'System:\n' +
-    BSS_GUARDRAIL_PROMPT +
-    '\n\n' +
-    JSON.stringify(
-      {
-        policy: 'bss_customer_support',
-        messages: [
-          'Can you help me plan something premium for my team next week?',
-        ],
-      },
-      null,
-      2,
-    ),
-  options: {
-    model: 'claude-haiku-4-5-20251001',
-    maxTurns: 1,
-    tools: [],
-    settings: {
-      autoMemoryEnabled: false,
-      skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
-    },
-    skills: [],
-    settingSources: [],
-    env: sdkEnv,
-  },
-});
-```
+If deterministic screening cannot decide, Boondi does not call a guardrail
+classifier. Gantry allows the turn into the main Boondi LLM call and attaches
+the policy's inline scope block when starting the run. The inline block tells
+Boondi to silently reject off-topic/internal-probe requests, answer only the
+BSS part of mixed requests, and otherwise use the normal Boondi instructions.
 
 Payload composition:
 
-| Block                  | Source                                                              | Notes                                                                             |
-| ---------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `BSS_GUARDRAIL_PROMPT` | `agents/boondi_support/guardrails/guardrail.ts`                     | Full Boondi safety-gate prompt. Includes allow/reject/clarify rules.              |
-| `policy`               | `apps/core/src/application/guardrails/guardrail-classifier.ts`      | Literal policy id: `bss_customer_support`.                                        |
-| `messages`             | Current inbound batch                                               | Latest customer text to judge.                                                    |
-| `conversation`         | Omitted on cold first turn                                          | Only added when recent prior turns exist.                                         |
-| SDK flattening         | `apps/core/src/adapters/llm/anthropic-claude-agent/memory-query.ts` | Converts `systemPrompt` + JSON prompt into one string beginning with `System:\n`. |
-
-The full guardrail prompt is not repeated here. It is the
-`BSS_GUARDRAIL_PROMPT` constant in
-`agents/boondi_support/guardrails/guardrail.ts`.
+| Block                         | Source                                          | Notes                                                         |
+| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
+| `BSS_INLINE_GUARDRAIL_PROMPT` | `agents/boondi_support/guardrails/guardrail.ts` | Main-run scope block. It is not a separate classifier prompt. |
+| `messages`                    | Current inbound batch                           | Latest customer text is still the main chat input.            |
+| `conversation`                | Runtime transcript/session state                | Boondi's main run handles the customer-specific response.     |
 
 Observed result:
 
 ```json
 {
   "action": "allow",
-  "reason": "The message is vague but plausibly a BSS request about corporate gifting or bulk orders..."
+  "reason": "inconclusive_inline_guardrail"
 }
 ```
 
-### Subsequent Guardrail LLM Call
-
-If the latest message is ambiguous but there is prior conversation context, the
-same classifier runs with `conversation`.
-
-Example follow-up:
-
-```text
-The premium one sounds right.
-```
-
-Actual payload difference:
+When Gantry is piping into an already-running provider session, it cannot attach
+a new system prompt append to that existing session. In that case the pre-agent
+result is still direct fallthrough:
 
 ```json
 {
-  "policy": "bss_customer_support",
-  "conversation": [
-    {
-      "role": "customer",
-      "text": "Can you help me plan something premium for my team next week?"
-    },
-    {
-      "role": "assistant",
-      "text": "Absolutely -- team gifting is something we love getting right! ..."
-    }
-  ],
-  "messages": ["The premium one sounds right."]
-}
-```
-
-The SDK options are still:
-
-```json
-{
-  "model": "claude-haiku-4-5-20251001",
-  "maxTurns": 1,
-  "tools": []
+  "action": "allow",
+  "reason": "inconclusive_inline_guardrail_unattached"
 }
 ```
 
@@ -871,8 +807,8 @@ Implementation refs:
 
 High-signal facts:
 
-- Obvious BSS turns usually avoid the guardrail LLM entirely.
-- Guardrail classifier calls are small and tool-free.
+- Boondi does not use a separate guardrail LLM in the default `mode: both`
+  path; deterministic checks either handle the turn or allow the main chat run.
 - Main chat carries a large static system prompt append.
 - Main chat always carried a memory context block in the run, even when all
   memory sections were empty.

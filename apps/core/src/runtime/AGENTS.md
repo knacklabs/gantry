@@ -15,8 +15,10 @@ session ID`, expire that provider session and retry the same turn once without
   answer when a fresh session can handle the turn.
 - Pre-agent guardrails run after slash commands and trigger checks but before
   typing, prompt formatting, agent spawn, or tool materialization. Runtime code
-  must stay policy-agnostic: inject a classifier and route by response kind;
-  keep business-specific copy/rules in application guardrail policies.
+  must stay policy-agnostic: route by response kind, pass through policy-owned
+  inline system prompt appends, and inject a classifier only for policies that
+  still take a classifier path. Keep business-specific copy/rules in
+  application guardrail policies.
 - The Claude CLI remote-control path was removed. Do not reintroduce direct
   provider-specific remote-control spawning in runtime; any future equivalent
   must be a provider-neutral application capability with explicit permission
@@ -44,3 +46,9 @@ session ID`, expire that provider session and retry the same turn once without
 - Generated `.llm-runtime` access failures are adapter-state failures. Surface
   actionable `.llm-runtime` guidance instead of returning raw `EACCES` as a
   generic runner-exited error.
+- `IDLE_TIMEOUT` controls how long a live runner keeps stdin open for
+  in-process continuations after output. A short value such as `2500` is useful
+  for broad local regression suites because it frees active-run slots quickly,
+  but it is not evidence about realistic warm follow-up retention. Use a bounded
+  longer value such as `20000` for warm-retention latency checks, and keep the
+  30-minute default in mind when reasoning about production resource tradeoffs.

@@ -370,7 +370,7 @@ export async function startRuntimeServices(
           ...(options?.threadId
             ? { messageOptions: { threadId: options.threadId } }
             : {}),
-        }),
+      }),
       guardrailClassifier: app.guardrailClassifier,
       queue: app.queue,
       handleActiveControlCommand,
@@ -701,7 +701,7 @@ export async function startRuntimeServices(
           ...(options?.threadId
             ? { messageOptions: { threadId: options.threadId } }
             : {}),
-        }),
+      }),
       guardrailClassifier: app.guardrailClassifier,
       queue: app.queue,
       handleActiveControlCommand,

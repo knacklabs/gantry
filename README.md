@@ -619,7 +619,9 @@ For client deployments, agent prompt folders live in the `apps/` directory of th
 Reusable guided workflows can be uploaded as skill zips with `SKILL.md`, then approved and bound to agents.
 
 Agent-owned guardrails are opt-in per agent. The `mode` field controls which
-guardrail stages run; omit it to keep the default `both` behavior.
+guardrail stages run; omit it to keep the default `both` behavior. Policies
+that provide an inline system prompt block use deterministic screening plus
+direct agent fallthrough in `both` mode instead of a separate classifier call.
 
 ```yaml
 agents:

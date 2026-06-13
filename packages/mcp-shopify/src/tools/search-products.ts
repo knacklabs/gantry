@@ -19,12 +19,12 @@ interface ProductEdgesResponse {
   };
 }
 
-type ProductSearchSummary = Pick<
+export type ProductSearchSummary = Pick<
   ReturnType<typeof mapProductResponse>,
   'id' | 'handle' | 'title' | 'priceRange' | 'available'
 >;
 
-function buildProductQuery(args: {
+export function buildProductQuery(args: {
   query?: string;
   tag?: string;
   status?: 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
@@ -40,6 +40,18 @@ function buildProductQuery(args: {
   if (typeof args.priceMax === 'number')
     tokens.push(`variants.price:<=${args.priceMax}`);
   return tokens.join(' ').trim();
+}
+
+export function compactProductSearchSummary(
+  product: ReturnType<typeof mapProductResponse>,
+): ProductSearchSummary {
+  return {
+    id: product.id,
+    handle: product.handle,
+    title: product.title,
+    priceRange: product.priceRange,
+    available: product.available,
+  };
 }
 
 export function registerSearchProducts(
@@ -64,24 +76,19 @@ export function registerSearchProducts(
         let filtered = products;
         if (typeof args.priceMin === 'number') {
           filtered = filtered.filter(
-            (p) => Number.parseFloat(p.priceRange.minVariantPrice) >= args.priceMin!,
+            (p) =>
+              Number.parseFloat(p.priceRange.minVariantPrice) >= args.priceMin!,
           );
         }
         if (typeof args.priceMax === 'number') {
           filtered = filtered.filter(
-            (p) => Number.parseFloat(p.priceRange.maxVariantPrice) <= args.priceMax!,
+            (p) =>
+              Number.parseFloat(p.priceRange.maxVariantPrice) <= args.priceMax!,
           );
         }
+        const summaries = filtered.map(compactProductSearchSummary);
         return jsonContent({
-          products: filtered.map(
-            (product): ProductSearchSummary => ({
-              id: product.id,
-              handle: product.handle,
-              title: product.title,
-              priceRange: product.priceRange,
-              available: product.available,
-            }),
-          ),
+          products: summaries,
         });
       } catch (err) {
         return toolErrorContent(err);

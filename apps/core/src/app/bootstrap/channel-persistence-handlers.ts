@@ -204,7 +204,7 @@ export function createChannelPersistenceHandlers({
     return { canRoute: Boolean(existingGroup), autoRegistered: false };
   };
 
-  const enqueueFirstAutoRegisteredMessage =
+  const enqueuePersistedInboundMessageCheck =
     enqueueMessageCheck ?? app.queue?.enqueueMessageCheck?.bind(app.queue);
 
   return {
@@ -254,18 +254,21 @@ export function createChannelPersistenceHandlers({
         ),
       );
       if (
-        route.autoRegistered &&
         !msg.is_from_me &&
         !msg.is_bot_message &&
-        enqueueFirstAutoRegisteredMessage
+        enqueuePersistedInboundMessageCheck
       ) {
-        if (autoRegisteredMessageCheckDelayMs <= 0) {
-          enqueueFirstAutoRegisteredMessage(chatJid);
+        if (route.autoRegistered) {
+          if (autoRegisteredMessageCheckDelayMs <= 0) {
+            enqueuePersistedInboundMessageCheck(chatJid);
+          } else {
+            setTimeout(
+              () => enqueuePersistedInboundMessageCheck(chatJid),
+              autoRegisteredMessageCheckDelayMs,
+            );
+          }
         } else {
-          setTimeout(
-            () => enqueueFirstAutoRegisteredMessage(chatJid),
-            autoRegisteredMessageCheckDelayMs,
-          );
+          enqueuePersistedInboundMessageCheck(chatJid);
         }
       }
     },

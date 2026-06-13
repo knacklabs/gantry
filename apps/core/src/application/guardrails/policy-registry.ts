@@ -26,8 +26,9 @@ function guardrailPluginBaseName(file: string): string {
  * Generic, domain-free guardrail used when an agent has a guardrail configured
  * but ships no plugin. It still actively SCREENS (never skips, never
  * hard-blocks): a universal prompt-injection/probe deterministic rule, then the
- * LLM classifier via {@link genericClassifierPrompt}. Contains no agent/domain
- * wording.
+ * LLM classifier via {@link genericClassifierPrompt}. Agent policies that
+ * provide a systemPromptAppend can instead let the main agent run perform the
+ * final scope check. Contains no agent/domain wording.
  */
 const GENERIC_INJECTION_PROBE_PATTERN =
   /\bignore\s+(?:all\s+|the\s+|your\s+|previous\s+|prior\s+)+instructions\b|\b(?:system|developer)\s+prompt\b|\byour\s+(?:system\s+)?(?:prompt|instructions|rules)\b|\bprompt\s+injection\b|\bjailbreak\b/i;
@@ -84,6 +85,8 @@ function isGuardrailPolicy(value: unknown): value is GuardrailPolicy {
     // a present value must be a function — a malformed one still fails closed.
     (candidate.evaluateDeterministic === undefined ||
       typeof candidate.evaluateDeterministic === 'function') &&
+    (candidate.systemPromptAppend === undefined ||
+      typeof candidate.systemPromptAppend === 'function') &&
     typeof candidate.directResponse === 'function'
   );
 }

@@ -3,6 +3,12 @@ import type { SessionCommandDeps } from './session-commands.js';
 
 type ManualCommandKind = 'digest_session';
 
+function isMemoryExtractionTimeout(message: string): boolean {
+  return /memory boundary extraction.*(?:deadline exceeded|timed out|aborted)/i.test(
+    message,
+  );
+}
+
 export async function handleManualExtractionCommand(input: {
   kind: ManualCommandKind;
   deps: SessionCommandDeps;
@@ -25,6 +31,12 @@ export async function handleManualExtractionCommand(input: {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (isMemoryExtractionTimeout(message)) {
+      await deps.sendMessage(
+        'Digest processed. New digest: unknown. Memory facts saved: 0. Memory extraction timed out; continue with /extract-leads-queries.',
+      );
+      return { handled: true, success: true };
+    }
     await deps.sendMessage(
       `/digest-session failed: ${sanitizeErrorText(message)}`,
     );

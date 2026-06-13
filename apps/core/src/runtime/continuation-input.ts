@@ -9,7 +9,7 @@ const THREAD_INPUT_PREFIX = 'thread-';
 const CONVERSATION_INPUT_PREFIX = 'conv-';
 
 // The continuation-input mailbox is isolated PER CONVERSATION (chatJid), not per
-// agent. One agent (e.g. boondi_support) serves many concurrent customers;
+// agent. One agent can serve many concurrent customers;
 // keying only by the agent folder (+ a null threadId for DMs) made them share a
 // single `…/<agent>/input/` directory, so concurrent customers' follow-up
 // messages bled into each other's running sessions. The conversation jid is the

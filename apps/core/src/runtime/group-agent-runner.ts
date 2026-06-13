@@ -199,6 +199,7 @@ export function createGroupAgentRunner(input: {
         sender?: string | null;
         is_from_me?: boolean | null;
       }[];
+      guardrailSystemPromptAppend?: string;
     },
   ): Promise<'success' | 'error'> {
     const initialModelSelection = defaultModelStatusSelection(
@@ -532,6 +533,12 @@ export function createGroupAgentRunner(input: {
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: agentInput.memoryContextBlock,
+            ...(options?.guardrailSystemPromptAppend
+              ? {
+                  guardrailSystemPromptAppend:
+                    options.guardrailSystemPromptAppend,
+                }
+              : {}),
             ...(agentInput.resumeSessionId
               ? { sessionId: agentInput.resumeSessionId }
               : {}),

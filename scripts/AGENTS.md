@@ -15,3 +15,18 @@
   runtime with a short `IDLE_TIMEOUT` such as `2500`. The production default
   keeps warm LLM sessions open for 30 minutes and can fill the message queue's
   active-run slots, making later fake-phone chats appear unanswered.
+- For live-flow tool-routing regressions, use `mcpMustNotCall` in
+  `scripts/boondi-scenarios.json` to forbid a specific MCP `serverName` /
+  `toolName` pair. The regression runner enforces it from `flow:mcp.request`
+  events.
+- Use `mcpMustCall` to require a specific MCP `serverName` / `toolName` pair
+  when a scenario must prove routing to a newly introduced aggregate tool.
+- Use `mcpMaxCallCount` when a regression needs to cap a repeated tool call,
+  such as keeping `shopify-api.search_products` fanout to one targeted call for
+  qualified gifting flows.
+- Keep `scripts/boondi-test-setup.sh` defaulted to a short
+  `BOONDI_TEST_IDLE_TIMEOUT_MS=2500` for broad scenario suites, but raise it
+  explicitly, for example to `20000`, when measuring warm-follow-up retention.
+  The short suite default intentionally frees active-run slots and will force
+  delayed follow-ups onto SDK-session resume instead of the live `MessageStream`
+  path.

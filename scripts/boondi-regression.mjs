@@ -99,10 +99,7 @@ const COMMAND_REPLY = {
   '/digest-session': /Digest processed\./i,
   '/extract-leads-queries': /Lead\/query extraction processed\./i,
 };
-const CRM_EXTRACTION_COMMANDS = [
-  '/digest-session',
-  '/extract-leads-queries',
-];
+const CRM_EXTRACTION_COMMANDS = ['/digest-session', '/extract-leads-queries'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const truncate = (s, n) =>
   typeof s === 'string' && s.length > n ? `${s.slice(0, n)}…` : s;
@@ -323,6 +320,110 @@ function evaluate(events, expect, cfg) {
   }
   if (exp.mcp && mcpReq.length === 0)
     failures.push('expected an MCP call, none seen');
+  if (exp.mcpMustCall) {
+    for (const requiredCall of [].concat(exp.mcpMustCall)) {
+      const serverName =
+        requiredCall &&
+        typeof requiredCall === 'object' &&
+        typeof requiredCall.serverName === 'string'
+          ? requiredCall.serverName
+          : undefined;
+      const toolName =
+        requiredCall &&
+        typeof requiredCall === 'object' &&
+        typeof requiredCall.toolName === 'string'
+          ? requiredCall.toolName
+          : undefined;
+      if (!serverName && !toolName) {
+        failures.push(
+          `invalid mcpMustCall expectation: ${JSON.stringify(requiredCall)}`,
+        );
+        continue;
+      }
+      const found = mcpReq.some(
+        (req) =>
+          (!serverName || req.serverName === serverName) &&
+          (!toolName || req.toolName === toolName),
+      );
+      if (!found) {
+        failures.push(
+          `expected MCP call ${serverName ?? '*'}:${toolName ?? '*'}, none observed`,
+        );
+      }
+    }
+  }
+  if (exp.mcpMustNotCall) {
+    for (const forbiddenCall of [].concat(exp.mcpMustNotCall)) {
+      const serverName =
+        forbiddenCall &&
+        typeof forbiddenCall === 'object' &&
+        typeof forbiddenCall.serverName === 'string'
+          ? forbiddenCall.serverName
+          : undefined;
+      const toolName =
+        forbiddenCall &&
+        typeof forbiddenCall === 'object' &&
+        typeof forbiddenCall.toolName === 'string'
+          ? forbiddenCall.toolName
+          : undefined;
+      if (!serverName && !toolName) {
+        failures.push(
+          `invalid mcpMustNotCall expectation: ${JSON.stringify(forbiddenCall)}`,
+        );
+        continue;
+      }
+      const matches = mcpReq.filter(
+        (req) =>
+          (!serverName || req.serverName === serverName) &&
+          (!toolName || req.toolName === toolName),
+      );
+      if (matches.length > 0) {
+        failures.push(
+          `forbidden MCP call observed: ${serverName ?? '*'}:${toolName ?? '*'} (${matches.length})`,
+        );
+      }
+    }
+  }
+  if (exp.mcpMaxCallCount) {
+    for (const callLimit of [].concat(exp.mcpMaxCallCount)) {
+      const serverName =
+        callLimit &&
+        typeof callLimit === 'object' &&
+        typeof callLimit.serverName === 'string'
+          ? callLimit.serverName
+          : undefined;
+      const toolName =
+        callLimit &&
+        typeof callLimit === 'object' &&
+        typeof callLimit.toolName === 'string'
+          ? callLimit.toolName
+          : undefined;
+      const max =
+        callLimit &&
+        typeof callLimit === 'object' &&
+        typeof callLimit.max === 'number' &&
+        Number.isInteger(callLimit.max) &&
+        callLimit.max >= 0
+          ? callLimit.max
+          : undefined;
+      if ((!serverName && !toolName) || max === undefined) {
+        failures.push(
+          `invalid mcpMaxCallCount expectation: ${JSON.stringify(callLimit)}`,
+        );
+        continue;
+      }
+      const count = mcpReq.filter(
+        (req) =>
+          (!serverName || req.serverName === serverName) &&
+          (!toolName || req.toolName === toolName),
+      ).length;
+      if (count > max) {
+        failures.push(
+          `expected at most ${max} MCP calls for ${serverName ?? '*'}:${toolName ?? '*'}, got ${count}`,
+        );
+      }
+    }
+  }
   if (exp.allow && mcpErr.length > 0) {
     failures.push(
       `expected ALLOW but MCP errored: ${mcpErr.map((e) => e.error).join('; ')}`,

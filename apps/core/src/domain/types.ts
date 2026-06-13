@@ -36,11 +36,12 @@ export interface GuardrailConfig {
    * — the loader resolves `.ts` (dev) then `.js` (prod) from the base name.
    */
   file: string;
-  /** Model alias for the guardrail's LLM-classifier stage. */
+  /** Model alias used only when the guardrail policy takes a classifier path. */
   model: string;
   /**
    * Which guardrail stages to run. Omit for the current default: deterministic
-   * policy checks first, then the classifier for unresolved ambiguous input.
+   * policy checks first, then either the policy's inline main-agent guardrail
+   * block or the classifier for unresolved ambiguous input.
    */
   mode?: GuardrailMode;
 }
@@ -58,8 +59,8 @@ export interface GuardrailConfig {
 export interface AgentPluginsConfig {
   /**
    * The guardrail plugin: the exact guardrail file to activate plus the model
-   * its classifier stage uses. Omit to run no guardrail (messages reach the
-   * agent directly).
+   * used if that policy takes a classifier path. Omit to run no guardrail
+   * (messages reach the agent directly).
    */
   guardrail?: GuardrailConfig;
   /**

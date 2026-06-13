@@ -53,6 +53,7 @@ export interface AgentInput {
   jobModelUseKind?: 'oneTimeJob' | 'recurringJob';
   assistantName?: string;
   compiledSystemPrompt?: string;
+  guardrailSystemPromptAppend?: string;
   thinking?: ThinkingOverride;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;

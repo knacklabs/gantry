@@ -270,6 +270,7 @@ export async function runMessagePollingTick(
         if (initialBatch.length === 0) continue;
 
         let pipedAny = false;
+        let handledWithoutAgent = false;
         let shouldEnqueueMessageCheck = false;
         let nextBatch: NewMessage[] | null = initialBatch;
 
@@ -295,7 +296,7 @@ export async function runMessagePollingTick(
           // here AND defer to spawn: twice, never unscreened.)
           if (deps.sendChannelMessage && deps.queue.isGroupActive(queueJid)) {
             const sendChannelMessage = deps.sendChannelMessage;
-            const guardrailBlocked = await screenBatchPreAgent({
+            const guardrailResult = await screenBatchPreAgent({
               repository: opsRepository,
               group,
               chatJid,
@@ -303,6 +304,7 @@ export async function runMessagePollingTick(
               threadId: threadId ?? null,
               messages: messagesToSend,
               guardrailClassifier: deps.guardrailClassifier,
+              allowInlineSystemPromptAppend: false,
               sendMessage: (text: string, options?: MessageSendOptions) =>
                 sendChannelMessage(chatJid, text, options),
               buildMessageOptions: (tid?: string) =>
@@ -311,11 +313,15 @@ export async function runMessagePollingTick(
               saveState: deps.saveState,
               info: (metadata, message) => logger.info(metadata, message),
             });
-            if (guardrailBlocked) {
+            if (guardrailResult.handled) {
               // Canned reply sent and cursor advanced past this batch inside the
-              // guardrail. Do not pipe it to the agent. Any later messages stay
-              // after the cursor and are picked up by the enqueue below.
-              shouldEnqueueMessageCheck = true;
+              // guardrail. Do not pipe it to the agent. Only re-enqueue when
+              // this batch hit the read limit; shorter batches prove there is
+              // no known tail to drain, and re-enqueueing can replay stale
+              // direct guardrail replies into a later customer turn.
+              handledWithoutAgent = true;
+              shouldEnqueueMessageCheck =
+                messagesToSend.length >= MAX_MESSAGES_PER_PROMPT;
               break;
             }
           }
@@ -364,7 +370,7 @@ export async function runMessagePollingTick(
             );
         }
 
-        if (!pipedAny || shouldEnqueueMessageCheck) {
+        if ((!pipedAny && !handledWithoutAgent) || shouldEnqueueMessageCheck) {
           deps.queue.enqueueMessageCheck(queueJid);
         }
       }

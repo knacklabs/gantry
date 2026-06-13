@@ -63,7 +63,7 @@ function statusQuery(filter: 'OPEN' | 'CLOSED' | 'ANY'): string {
 // say what was ordered and where it is, and nothing else (the caller is
 // already verified, so no customer block; no GIDs or SKUs — `name` is the
 // handle a follow-up get_order accepts).
-function detailedOrder(order: ShopifyOrder) {
+export function detailedOrder(order: ShopifyOrder) {
   return {
     name: order.name,
     createdAt: order.createdAt,
@@ -134,7 +134,7 @@ export function registerGetRecentOrdersWithDetails(
         const query = `customer_id:${customerToken} ${statusQuery(filter)}`;
         const data = await client.graphql<OrderEdgesResponse>(
           LIST_ORDERS_FOR_CUSTOMER,
-          { query, first: limit },
+          { query, first: limit, reverse: true },
         );
         const orders = (data.orders?.edges ?? [])
           .map((edge) => detailedOrder(mapOrderResponse(edge.node)))

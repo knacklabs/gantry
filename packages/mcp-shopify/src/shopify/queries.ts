@@ -52,8 +52,8 @@ query FindOrderByName($query: String!) {
 }`;
 
 export const LIST_ORDERS_FOR_CUSTOMER = `
-query ListOrdersForCustomer($query: String!, $first: Int!) {
-  orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: true) {
+query ListOrdersForCustomer($query: String!, $first: Int!, $reverse: Boolean = true) {
+  orders(first: $first, query: $query, sortKey: CREATED_AT, reverse: $reverse) {
     edges { node { ${ORDER_FIELDS} } }
   }
 }`;

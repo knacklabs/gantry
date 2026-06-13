@@ -46,7 +46,8 @@ describe('search_products', () => {
             {
               handle: 'kaju-katli',
               title: 'Kaju Katli Box',
-              description: 'A long product story that belongs on detail lookup.',
+              description:
+                'A long product story that belongs on detail lookup.',
               tags: ['show-search', 'active', 'contains-nuts'],
               totalInventory: 12,
               minPrice: '515.00',
@@ -84,9 +85,24 @@ describe('search_products', () => {
       graphqlResponses: [
         graphqlOk(
           productsEdges([
-            { handle: 'cheap-box', title: 'Cheap', minPrice: '300.00', maxPrice: '300.00' },
-            { handle: 'in-band', title: 'In band', minPrice: '600.00', maxPrice: '700.00' },
-            { handle: 'too-expensive', title: 'Too expensive', minPrice: '900.00', maxPrice: '900.00' },
+            {
+              handle: 'cheap-box',
+              title: 'Cheap',
+              minPrice: '300.00',
+              maxPrice: '300.00',
+            },
+            {
+              handle: 'in-band',
+              title: 'In band',
+              minPrice: '600.00',
+              maxPrice: '700.00',
+            },
+            {
+              handle: 'too-expensive',
+              title: 'Too expensive',
+              minPrice: '900.00',
+              maxPrice: '900.00',
+            },
           ]),
         ),
       ],
@@ -98,6 +114,7 @@ describe('search_products', () => {
     expect(result.data?.products.map((p) => p.handle)).toEqual(['in-band']);
     harness.tokenManager.stop();
   });
+
 });
 
 describe('get_product', () => {
@@ -188,10 +205,13 @@ describe('check_inventory', () => {
       ],
     });
     const harness = buildToolHarness(mock.fetch);
-    const result = await harness.call<{ sufficient?: boolean; totalQuantity: number }>(
-      'check_inventory',
-      { productHandle: 'low-stock', requestedQuantity: 20 },
-    );
+    const result = await harness.call<{
+      sufficient?: boolean;
+      totalQuantity: number;
+    }>('check_inventory', {
+      productHandle: 'low-stock',
+      requestedQuantity: 20,
+    });
     expect(result.data?.totalQuantity).toBe(5);
     expect(result.data?.sufficient).toBe(false);
     harness.tokenManager.stop();
@@ -225,9 +245,7 @@ describe('validate_discount_code', () => {
 
   it('returns meetsMinimum=true when cartTotal is passed and discount has no minimum', async () => {
     const mock = buildMockFetch({
-      graphqlResponses: [
-        graphqlOk(discountNodes([{ title: 'NOMIN' }])),
-      ],
+      graphqlResponses: [graphqlOk(discountNodes([{ title: 'NOMIN' }]))],
     });
     const harness = buildToolHarness(mock.fetch);
     const result = await harness.call<{
@@ -246,9 +264,7 @@ describe('validate_discount_code', () => {
   it('returns active=false with reason for expired code', async () => {
     const mock = buildMockFetch({
       graphqlResponses: [
-        graphqlOk(
-          discountNodes([{ title: 'OLDCODE', status: 'EXPIRED' }]),
-        ),
+        graphqlOk(discountNodes([{ title: 'OLDCODE', status: 'EXPIRED' }])),
       ],
     });
     const harness = buildToolHarness(mock.fetch);
@@ -275,4 +291,5 @@ describe('validate_discount_code', () => {
     expect(result.data?.exists).toBe(false);
     harness.tokenManager.stop();
   });
+
 });

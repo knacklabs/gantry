@@ -692,6 +692,67 @@ describe('createChannelWiring', () => {
     );
   });
 
+  it('wakes an existing Interakt direct conversation after persisting an inbound message', async () => {
+    const routes: Record<string, any> = {
+      'wa:918097570001': {
+        name: 'Boondi',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+      },
+    };
+    const app = makeApp(routes);
+    const storeMessage = vi.fn(async () => {});
+    const enqueueMessageCheck = vi.fn();
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+      enqueueMessageCheck,
+    });
+
+    const msg = {
+      id: 'wa-existing-route',
+      chat_jid: 'wa:918097570001',
+      provider: 'interakt',
+      sender: '918097570001',
+      sender_name: 'Existing Customer',
+      content: 'Can you check my latest order?',
+      timestamp: '2026-05-22T11:46:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:918097570001', msg);
+
+    expect(storeMessage).toHaveBeenCalledWith(msg);
+    expect(enqueueMessageCheck).toHaveBeenCalledWith('wa:918097570001');
+    expect(storeMessage.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueMessageCheck.mock.invocationCallOrder[0],
+    );
+  });
+
   it('does NOT use a non-wa:* isTemplate route for Interakt inbound (cross-channel guard)', async () => {
     // A template:true conversation in another channel space (e.g. tg:*)
     // must not get cloned for Interakt inbound — its folder/agentConfig

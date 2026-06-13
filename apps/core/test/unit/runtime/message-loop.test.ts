@@ -46,6 +46,16 @@ vi.mock('@core/application/guardrails/guardrail-service.js', () => ({
   customerVisibleGuardrailResponse: (...args: unknown[]) =>
     mockCustomerVisibleGuardrailResponse(...args),
 }));
+vi.mock('@core/application/guardrails/policy-registry.js', () => ({
+  resolveGuardrailPolicy: vi.fn(async () => ({
+    source: 'test',
+    policy: {
+      id: 'test_policy',
+      prompt: 'test prompt',
+      directResponse: vi.fn(() => 'not used'),
+    },
+  })),
+}));
 
 import {
   MessageLoopDeps,
@@ -1084,6 +1094,38 @@ describe('continuation-path guardrail', () => {
 
     expect(sendChannelMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      'group@g.us',
+      'formatted messages',
+      {
+        threadId: undefined,
+        senderUserIds: ['user@s.whatsapp.net'],
+      },
+    );
+  });
+
+  it('pipes deterministic-allowed continuation messages to the running agent', async () => {
+    const gratitudeMessage = {
+      ...inboundMsg,
+      content: "Perfect, thank you so much — that's all I needed!",
+    };
+    mockGetNewMessages.mockReturnValueOnce({
+      messages: [gratitudeMessage],
+      newTimestamp: '2024-01-01T00:00:01.000Z',
+    });
+    mockGetMessagesSince.mockReturnValue([gratitudeMessage]);
+    mockEvaluateAgentGuardrail.mockResolvedValue({
+      action: 'allow',
+      reason: 'gratitude_closing',
+    });
+
+    const { deps, sendChannelMessage, sendMessage } = makeContinuationDeps();
+    const { runMessagePollingTick } =
+      await import('@core/runtime/message-loop.js');
+
+    await runMessagePollingTick(deps);
+
+    expect(sendChannelMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith(
       'group@g.us',
       'formatted messages',

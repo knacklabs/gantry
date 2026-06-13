@@ -51,7 +51,11 @@ export function buildRunnerSystemPrompt(
 ): ReturnType<typeof buildSystemPrompt> {
   return buildSystemPrompt(
     composeSystemPromptAppend(
-      [agentInput.compiledSystemPrompt, approvedMcpServicesPrompt(context)]
+      [
+        agentInput.compiledSystemPrompt,
+        agentInput.guardrailSystemPromptAppend,
+        approvedMcpServicesPrompt(context),
+      ]
         .filter(Boolean)
         .join('\n\n'),
       Boolean(memoryBlock),

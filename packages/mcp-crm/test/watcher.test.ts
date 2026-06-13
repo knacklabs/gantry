@@ -340,4 +340,183 @@ describe('runManualConversationExtraction', () => {
     expect(prompt).toContain('customer: make it 50 boxes');
     expect(prompt).toContain('SESSION DIGEST (short-term memory):\n\n');
   });
+
+  it('captures a soft browsing query when the extractor returns no opportunities', async () => {
+    const complete = vi.fn(async () => '{"opportunities":[]}');
+    const { pool } = makeFakePool((sql) => {
+      if (sql.includes('message_parts')) {
+        return {
+          rows: [
+            {
+              direction: 'inbound',
+              text: 'Just checking you out — a friend mentioned your sweets are amazing.',
+            },
+            {
+              direction: 'outbound',
+              text: "That's lovely to hear. If you're browsing BSS, I can help with favourites like Kaju Katli.",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repo = makeFakeRepo();
+
+    const stats = await runManualConversationExtraction(
+      { env, logger, pool, repo, llm: { complete } },
+      'conversation:wa:919654405340',
+    );
+
+    expect(stats).toEqual({ extracted: 1, created: 1, updated: 0, skipped: 0 });
+    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        match: null,
+        targetLead: false,
+        input: expect.objectContaining({
+          intentCategory: 'shopping',
+          summaryBrief: expect.stringMatching(/browsing/i),
+        }),
+      }),
+    );
+  });
+
+  it('captures recommendation shopping turns when the extractor misses them', async () => {
+    const complete = vi.fn(async () => '{"opportunities":[]}');
+    const { pool } = makeFakePool((sql) => {
+      if (sql.includes('message_parts')) {
+        return {
+          rows: [
+            {
+              direction: 'inbound',
+              text: "Hi! What's something really good and sweet you'd recommend?",
+            },
+            {
+              direction: 'outbound',
+              text: "A couple of lovely picks right now: Bombay's 3-Layer Chocolate Fudge and Indie Bar.",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repo = makeFakeRepo();
+
+    const stats = await runManualConversationExtraction(
+      { env, logger, pool, repo, llm: { complete } },
+      'conversation:wa:919654405340',
+    );
+
+    expect(stats).toEqual({ extracted: 1, created: 1, updated: 0, skipped: 0 });
+    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetLead: false,
+        input: expect.objectContaining({ intentCategory: 'shopping' }),
+      }),
+    );
+  });
+
+  it('matches the lone open personal gifting query when later extraction omits the id', async () => {
+    const complete = vi.fn(
+      async () =>
+        '{"opportunities":[{"match":null,"isLead":true,"intentCategory":"gifting_personal","occasion":"family get-together","quantity":12,"budgetPerGiftInr":300,"timeline":"tomorrow","summaryBrief":"10-12 boxes for a family party tomorrow","evidenceQuote":"It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.","confidence":0.86}]}',
+    );
+    const { pool } = makeFakePool((sql) => {
+      if (sql.includes('message_parts')) {
+        return {
+          rows: [
+            {
+              direction: 'inbound',
+              text: 'I am looking to gift something for a family get-together.',
+            },
+            {
+              direction: 'inbound',
+              text: 'It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.',
+            },
+            {
+              direction: 'inbound',
+              text: 'Yes please have the team help with this.',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repo = makeFakeRepo({
+      getOpenOpportunitiesByPhone: vi.fn(async () => [
+        {
+          id: 'bcr_1',
+          status: 'qualifying',
+          intentCategory: 'gifting_personal',
+          occasion: 'family get-together',
+          quantity: 12,
+        },
+      ]),
+    });
+
+    const stats = await runManualConversationExtraction(
+      { env, logger, pool, repo, llm: { complete } },
+      'conversation:wa:919654405340',
+    );
+
+    expect(stats).toEqual({ extracted: 1, created: 0, updated: 1, skipped: 0 });
+    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        match: 'bcr_1',
+        targetLead: true,
+      }),
+    );
+  });
+
+  it('matches the oldest compatible open row when a background digest created a duplicate', async () => {
+    const complete = vi.fn(
+      async () =>
+        '{"opportunities":[{"match":null,"isLead":true,"intentCategory":"gifting_personal","quantity":12,"summaryBrief":"10-12 boxes for a family party tomorrow","evidenceQuote":"It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.","confidence":0.86}]}',
+    );
+    const { pool } = makeFakePool((sql) => {
+      if (sql.includes('message_parts')) {
+        return {
+          rows: [
+            {
+              direction: 'inbound',
+              text: 'I am looking to gift something for a family get-together.',
+            },
+            {
+              direction: 'inbound',
+              text: 'It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.',
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const repo = makeFakeRepo({
+      getOpenOpportunitiesByPhone: vi.fn(async () => [
+        {
+          id: 'bcr_duplicate',
+          status: 'qualifying',
+          intentCategory: 'gifting_personal',
+          createdAt: '2026-06-13T06:02:41.000Z',
+        },
+        {
+          id: 'bcr_checkpoint',
+          status: 'qualifying',
+          intentCategory: 'gifting_personal',
+          createdAt: '2026-06-13T06:02:34.000Z',
+        },
+      ]),
+    });
+
+    const stats = await runManualConversationExtraction(
+      { env, logger, pool, repo, llm: { complete } },
+      'conversation:wa:919654405340',
+    );
+
+    expect(stats).toEqual({ extracted: 1, created: 0, updated: 1, skipped: 0 });
+    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        match: 'bcr_checkpoint',
+        targetLead: true,
+      }),
+    );
+  });
 });
