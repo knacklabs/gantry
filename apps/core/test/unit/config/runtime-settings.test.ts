@@ -890,152 +890,48 @@ conversations:
     });
   });
 
-  it('defaults, renders, parses, and round-trips the default agent engine', () => {
+  it('does not render an engine selector and rejects the retired agent_engine key', () => {
     const settings = createDefaultRuntimeSettings();
-    expect(settings.agent.defaultAgentEngine).toBe('anthropic_sdk');
-
-    // System default stays implicit in rendered YAML.
+    // Engine is derived, never written to settings.yaml.
     expect(renderRuntimeSettingsYaml(settings)).not.toContain('agent_engine');
 
-    settings.agent.defaultAgentEngine = 'deepagents';
-    const yaml = renderRuntimeSettingsYaml(settings);
-    expect(yaml).toContain('  agent_engine: deepagents');
-    expect(parseRuntimeSettings(yaml).agent.defaultAgentEngine).toBe(
-      'deepagents',
-    );
-  });
-
-  it('parses, renders, and round-trips a per-agent engine override', () => {
-    const parsed = parseRuntimeSettings(`defaults:
-  model: opus
-
-agents:
-  main_agent:
-    name: Default Agent
-    agent_engine: deepagents
-    model: gpt
-`);
-    expect(parsed.agents.main_agent.agentEngine).toBe('deepagents');
-    expect(renderRuntimeSettingsYaml(parsed)).toContain(
-      '    agent_engine: deepagents',
-    );
-  });
-
-  it('rejects an unsupported engine value with the locked copy', () => {
     expect(() =>
       parseRuntimeSettings(`defaults:
   model: opus
-  agent_engine: langchain
+  agent_engine: deepagents
 `),
-    ).toThrow(
-      'defaults.agent_engine: Unsupported agent engine: langchain. Choose anthropic_sdk or deepagents.',
-    );
+    ).toThrow('defaults.agent_engine is not supported');
     expect(() =>
       parseRuntimeSettings(`agents:
   kai:
     name: Kai
-    agent_engine: claude
-`),
-    ).toThrow(
-      'agents.kai.agent_engine: Unsupported agent engine: claude. Choose anthropic_sdk or deepagents.',
-    );
-  });
-
-  it('rejects an incompatible per-agent engine/model pair at parse time', () => {
-    expect(() =>
-      parseRuntimeSettings(`agents:
-  kai:
-    name: Kai
-    agent_engine: anthropic_sdk
+    agent_engine: deepagents
     model: gpt
 `),
-    ).toThrow(
-      'agents.kai.model is invalid: Model gpt uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.',
-    );
+    ).toThrow('agents.kai.agent_engine is not supported');
   });
 
-  it('fails settings validation when the effective engine/model pair is incompatible', () => {
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-settings-engine-'),
-    );
-    try {
-      const settings = createDefaultRuntimeSettings();
-      settings.agent.defaultModel = 'opus';
-      settings.agents.kai = {
-        name: 'Kai',
-        folder: 'kai',
-        agentEngine: 'anthropic_sdk',
-        model: 'gpt',
-        bindings: {},
-        sources: emptySources(),
-        capabilities: [],
-      } as never;
-      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
-      expect(result.ok).toBe(false);
-      expect(result.failure?.details).toContain(
-        'agents.kai.model is invalid: Model gpt uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.',
-      );
-    } finally {
-      fs.rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it('defaults, renders, parses, and round-trips the memory engine', () => {
-    const defaultEngine = ['anthropic', 'sdk'].join('_');
-    const settings = createDefaultRuntimeSettings();
-    expect(settings.memory.engine).toBe(defaultEngine);
-
-    // System default stays implicit in rendered YAML.
-    const defaultYaml = renderRuntimeSettingsYaml(settings);
-    expect(defaultYaml).not.toContain('engine:');
-
-    settings.memory.engine = 'deepagents';
-    const yaml = renderRuntimeSettingsYaml(settings);
-    expect(yaml).toContain('  engine: deepagents');
-    expect(parseRuntimeSettings(yaml).memory.engine).toBe('deepagents');
-  });
-
-  it('rejects an unsupported memory engine value with the locked copy', () => {
+  it('rejects the retired memory.engine key', () => {
     expect(() =>
       parseRuntimeSettings(`memory:
   enabled: true
-  engine: langchain
+  engine: deepagents
   embeddings:
     enabled: false
     provider: disabled
 `),
-    ).toThrow('memory.engine: Unsupported agent engine: langchain.');
+    ).toThrow('memory.engine is not supported');
   });
 
-  it('fails settings validation when memory engine/model family is incompatible', () => {
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-settings-memory-engine-'),
-    );
-    try {
-      const settings = createDefaultRuntimeSettings();
-      // The default SDK memory engine cannot run an OpenAI-family memory model.
-      settings.memory.engine = ['anthropic', 'sdk'].join('_') as never;
-      settings.memory.llm.models.extractor = 'gpt';
-      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
-      expect(result.ok).toBe(false);
-      expect(result.failure?.details).toContain(
-        'memory.llm.models.extractor is invalid: Model gpt uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.',
-      );
-    } finally {
-      fs.rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it('accepts an OpenAI-family memory model under the deepagents memory engine', () => {
+  it('validates memory model validity (no engine/family pairing rule)', () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-settings-memory-engine-ok-'),
     );
     try {
       const settings = createDefaultRuntimeSettings();
-      settings.memory.engine = 'deepagents';
+      // An OpenAI-family memory model is valid; the engine derives from it.
       settings.memory.llm.models.extractor = 'gpt';
       const result = validateLoadedRuntimeSettings(runtimeHome, settings);
-      // No engine/family detail should be present for the compatible pairing.
       const details = result.failure?.details ?? [];
       expect(
         details.some((d) => d.startsWith('memory.llm.models.extractor')),

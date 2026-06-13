@@ -34,6 +34,12 @@
   `providerSession` output. Provider-native names such as Claude SDK
   `allowedTools` and stale provider-session error strings belong behind the
   execution adapter boundary.
+- Startup timing must distinguish diagnostics from first reply latency:
+  `firstStructuredOutput` and provider-session init may be session/control
+  frames, while first-visible output is the first content-bearing `result`.
+  Do not add a generic cache provider, Redis seam, or provider/session prewarm
+  for startup latency until measured phase timings prove a specific repeated
+  deterministic hotspot.
 - Runtime queue backlog caps live under `runtime.queue`; a cap of `0` means
   unlimited/current behavior. Keep backlog caps separate from concurrency limits
   and apply them only at new waiting-work admission.

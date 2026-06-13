@@ -15,7 +15,6 @@ import {
   type ModelWorkload,
 } from '../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
-import { memoryEngineLabel } from '../shared/memory-engine-matrix.js';
 import {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
@@ -204,7 +203,6 @@ function formatStatus(settings: ModelCommandSettings): string {
         : resolveSlot(effectiveJobAlias(settings, 'recurring'), 'recurring_job')
     }`,
     'memory: preset-managed',
-    `Memory engine: ${memoryEngineLabel(settings.memory.engine)}`,
     `memory extractor: ${resolveSlot(settings.memory.llm.models.extractor, 'memory_extractor')}`,
     `memory dreaming: ${resolveSlot(settings.memory.llm.models.dreaming, 'memory_dreaming')}`,
     `memory consolidation: ${resolveSlot(settings.memory.llm.models.consolidation, 'memory_consolidation')}`,
@@ -321,7 +319,6 @@ function formatTarget(
     return [
       'Memory models',
       'mode: preset-managed',
-      `Memory engine: ${memoryEngineLabel(settings.memory.engine)}`,
       `extractor: ${resolveSlot(settings.memory.llm.models.extractor, 'memory_extractor')}`,
       `dreaming: ${resolveSlot(settings.memory.llm.models.dreaming, 'memory_dreaming')}`,
       `consolidation: ${resolveSlot(settings.memory.llm.models.consolidation, 'memory_consolidation')}`,

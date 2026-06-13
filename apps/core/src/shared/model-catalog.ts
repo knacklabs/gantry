@@ -278,7 +278,7 @@ function executableModelEntry(input: {
   experimental?: boolean;
 }): ModelCatalogEntry {
   const provider = getModelProviderDefinition(input.route.id);
-  if (!provider?.modelRoute || provider.executionRoutes.length === 0) {
+  if (!provider?.modelRoute) {
     throw new Error(
       `Model catalog route ${input.route.id} is not executable in the provider registry.`,
     );
@@ -559,11 +559,6 @@ function validateModelCatalogProviderSupport(
     if (!provider?.modelRoute) {
       throw new Error(
         `Model catalog entry ${entry.id} references unsupported provider route ${entry.modelRoute.id}.`,
-      );
-    }
-    if (provider.executionRoutes.length === 0) {
-      throw new Error(
-        `Model catalog entry ${entry.id} references provider ${provider.id}, which declares no execution routes.`,
       );
     }
     if (

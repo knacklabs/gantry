@@ -43,7 +43,9 @@ vi.mock('@core/config/index.js', async () => {
   const modelDefaultsModule =
     await import('@core/config/settings/model-defaults.js');
   const yoloPolicy = await import('@core/shared/yolo-mode-policy.js');
-  const agentEngineModule = await import('@core/shared/agent-engine.js');
+  const modelCatalogModule = await import('@core/shared/model-catalog.js');
+  const executionRouteModule =
+    await import('@core/shared/model-execution-route.js');
   const toPublic = () => {
     const settings = settingsModule.loadRuntimeSettings(runtimeHome);
     return {
@@ -109,17 +111,18 @@ vi.mock('@core/config/index.js', async () => {
     ),
     getEffectiveAgentEngine: vi.fn((agentFolder?: string) => {
       const settings = settingsModule.loadRuntimeSettings(runtimeHome);
-      const perAgent = agentFolder
-        ? settings.agents?.[agentFolder]?.agentEngine
-        : undefined;
-      return agentEngineModule.resolveAgentEngine(
-        perAgent ?? settings.agent.defaultAgentEngine,
+      const effectiveModel = (
+        (agentFolder ? settings.agents?.[agentFolder]?.model : undefined) ||
+        settings.agent.defaultModel ||
+        'opus'
+      ).trim();
+      const resolved = modelCatalogModule.resolveModelSelectionForWorkload(
+        effectiveModel,
+        'chat',
       );
-    }),
-    setRuntimeAgentEngine: vi.fn(async () => undefined),
-    getMemoryEngine: vi.fn(() => {
-      const settings = settingsModule.loadRuntimeSettings(runtimeHome);
-      return agentEngineModule.resolveAgentEngine(settings.memory.engine);
+      return executionRouteModule.deriveAgentEngineForProvider(
+        resolved.ok ? resolved.entry.modelRoute.id : '',
+      );
     }),
     getPublicRuntimeSettings: toPublic,
     configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
@@ -1132,8 +1135,8 @@ describe('control server runtime hardening', () => {
             responseFamily: 'anthropic',
             executionRoutes: [
               {
-                engine: 'anthropic_sdk',
-                executionProviderId: 'anthropic:claude-agent-sdk',
+                engine: 'deepagents',
+                executionProviderId: 'deepagents:langchain',
               },
             ],
             credentialProfileRef: 'gantry-model-access',

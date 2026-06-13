@@ -57,13 +57,12 @@ export const modelPreviewSchemas: Record<string, JsonSchema> = {
         type: 'string',
         enum: ['extractor', 'dreaming', 'consolidation'],
       },
+      // agentEngine is the derived (read-only) engine diagnostic that follows the
+      // resolved model's provider; executionProviderId is the internal diagnostic.
       agentEngine: { type: 'string', enum: agentEngineEnum },
       agentEngineLabel: { type: 'string' },
       credentialProfile: { type: 'string' },
-      // executionProviderId is the internal diagnostic; incompatible carries the
-      // locked plan copy when the model/engine pairing is unsupported.
       executionProviderId: { type: 'string' },
-      incompatible: { type: 'string' },
       selection: { $ref: '#/components/schemas/ModelDefaultSlot' },
       why: stringArray,
     },

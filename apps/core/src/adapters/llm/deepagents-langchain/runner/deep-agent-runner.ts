@@ -19,6 +19,7 @@ import { buildPermissionIpcRuntimeEnv } from './runtime-env.js';
 import type { DeepAgentRunnerInput } from './types.js';
 import type { PersistedTurnMessage } from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
+import { nowMs } from '../../../../shared/time/datetime.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default in-memory
 // StateBackend has no `execute` tool, and these deny-all rules block every
@@ -61,19 +62,27 @@ export async function runDeepAgentTurn(input: {
   priorMessages: PersistedTurnMessage[];
   newSessionId: string;
   emit: (frame: RunnerOutputFrame) => void;
+  log?: (message: string) => void;
   // STOP delivered via the close sentinel aborts the in-flight LangGraph stream
   // through this signal so the run terminates promptly (live-turn parity).
   signal?: AbortSignal;
 }): Promise<DeepAgentTurnResult> {
+  const startedAt = nowMs();
+  const logElapsed = (message: string) => {
+    input.log?.(`${message} after ${Math.max(0, nowMs() - startedAt)}ms`);
+  };
   const resolved = buildRunnerModel({
     modelId: input.modelId,
     env: input.agentInput.modelCredentialEnv ?? {},
   });
+  logElapsed('Model built');
   const systemPrompt = composeDeepAgentSystemPrompt(input.agentInput);
+  logElapsed('System prompt composed');
 
   const configuredAllowedTools = input.agentInput.allowedTools ?? [];
   const memoryBlock = readMemoryContextBlock(input.agentInput);
   const permissionEnv = buildPermissionIpcRuntimeEnv();
+  logElapsed('Permission env prepared');
   const connected = await connectGantryAndThirdPartyMcpTools({
     configuredAllowedTools,
     hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
@@ -91,6 +100,7 @@ export async function runDeepAgentTurn(input: {
       lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
     },
   });
+  logElapsed(`MCP tools connected (tools=${connected.tools.length})`);
 
   try {
     const agent = createDeepAgent({
@@ -101,24 +111,31 @@ export async function runDeepAgentTurn(input: {
       middleware: [createBuiltinToolExclusionMiddleware()] as never,
       ...(systemPrompt ? { systemPrompt } : {}),
     }) as unknown as DeepAgentGraph;
+    logElapsed('DeepAgent graph created');
 
     const turnMessages = buildTurnMessages(
       input.agentInput,
       input.priorMessages,
     );
+    logElapsed(`Turn messages built (messages=${turnMessages.length})`);
     const profile = readModelProfile(resolved.model);
 
     const events = agent.streamEvents(
       { messages: turnMessages },
       { version: 'v2', ...(input.signal ? { signal: input.signal } : {}) },
     );
+    logElapsed('LangGraph stream iterator created');
     const normalized = await normalizeDeepAgentStream({
       events,
       newSessionId: input.newSessionId,
       modelId: resolved.modelId,
       modelProfile: { maxInputTokens: profile.maxInputTokens },
       emit: input.emit,
+      onFirstEvent: (eventName) =>
+        logElapsed(`First LangGraph event (${eventName})`),
+      onFirstVisibleText: () => logElapsed('First visible text delta'),
     });
+    logElapsed('Stream normalized');
     const text = normalized.text;
 
     const userText = composeUserTurnText(input.agentInput);

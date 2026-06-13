@@ -34,8 +34,6 @@ export const RUNTIME_EVENT_TYPES = {
   CREDENTIAL_MODEL_USED: 'credential.model.used',
   PROFILE_FILE_READ: 'profile.file.read',
   PROFILE_FILE_UPDATED: 'profile.file.updated',
-  AGENT_ENGINE_CHANGED: 'agent.engine.changed',
-  MEMORY_ENGINE_CHANGED: 'memory.engine.changed',
   EGRESS_CONNECT: 'egress.connect',
   SANDBOX_BLOCKED: 'sandbox.blocked',
   RUN_STARTED: 'run.started',

@@ -18,12 +18,10 @@ import {
   getControlEnvValue,
   getDefaultModelConfig,
   getEffectiveAgentEngine,
-  getMemoryEngine,
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
   patchRuntimeModelDefaults,
-  setRuntimeAgentEngine,
   syncRuntimeSettingsFromProjection,
 } from '../../config/index.js';
 import {
@@ -37,10 +35,6 @@ import {
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { preflightModelPreset } from '../../adapters/llm/model-preset-preflight.js';
-import {
-  buildAgentEngineChangeAuditContext,
-  buildMemoryEngineChangeAuditContext,
-} from '../../adapters/storage/postgres/agent-engine-change-audit-publisher.js';
 import type { AppId } from '../../domain/app/app.js';
 import { canAccessApp, makeAppGroup } from './app-identity.js';
 import {
@@ -242,14 +236,6 @@ export function startControlServer(input: {
     return {
       ops: getRuntimeRepositories(),
       repositories: storage.repositories,
-      engineChangeAudit: buildAgentEngineChangeAuditContext({
-        actor: 'settings-desired-state',
-        source: 'settings_import',
-      }),
-      memoryEngineChangeAudit: buildMemoryEngineChangeAuditContext({
-        actor: 'settings-desired-state',
-        source: 'settings_import',
-      }),
     };
   });
   const socketPath =
@@ -336,7 +322,6 @@ export function startControlServer(input: {
     getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,
-    getMemoryEngine,
     patchModelDefaults: patchRuntimeModelDefaults,
     preflightModelPreset: (preset, appId) =>
       preflightModelPreset({
@@ -380,21 +365,6 @@ export function startControlServer(input: {
       }),
     getEffectiveAgentEngine: (agentFolder?: string) =>
       getEffectiveAgentEngine(agentFolder),
-    setAgentEngine: ({ appId, folder, agentEngine }) =>
-      setRuntimeAgentEngine({
-        runtimeHome: GANTRY_HOME,
-        agentFolder: folder,
-        agentEngine,
-        ops: getRuntimeRepositories(),
-        repositories: getRuntimeStorage().repositories,
-        appId,
-        reloadRuntimeState: () => input.app.loadState(),
-        engineChangeAudit: buildAgentEngineChangeAuditContext({
-          appId,
-          actor: 'control-api',
-          source: 'control_api',
-        }),
-      }),
   };
 
   const server = http.createServer(

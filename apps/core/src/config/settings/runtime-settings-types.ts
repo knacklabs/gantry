@@ -5,7 +5,6 @@ import type {
 import type { RuntimeDeploymentMode } from '../../shared/runtime-deployment-mode.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import type { AgentRelationshipMode } from '../../shared/agent-relationship-mode.js';
-import type { AgentEngine } from '../../shared/agent-engine.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import type { EgressSettings } from '../../shared/egress-policy.js';
 
@@ -58,12 +57,6 @@ export interface RuntimeMemoryBackfillSettings {
 
 export interface RuntimeMemorySettings {
   enabled: boolean;
-  // The harness (engine) that runs all three memory LLM workloads (extraction,
-  // dreaming, consolidation). The default SDK engine keeps the native SDK memory
-  // client; the DeepAgents engine uses the direct gateway memory clients. The
-  // route-aware memory client picks the transport from (engine, model family).
-  // One engine governs all memory workloads by design (simplicity).
-  engine: AgentEngine;
   embeddings: {
     enabled: boolean;
     provider: EmbeddingProviderName;
@@ -102,7 +95,6 @@ export interface RuntimeStorageSettings {
 export interface RuntimeAgentSettings {
   name: string;
   defaultModel: string;
-  defaultAgentEngine: AgentEngine;
   oneTimeJobDefaultModel: string;
   recurringJobDefaultModel: string;
   sessions: {
@@ -160,7 +152,6 @@ export interface RuntimeConfiguredAgent {
   folder: string;
   persona?: AgentPersona;
   relationshipMode?: AgentRelationshipMode;
-  agentEngine?: AgentEngine;
   model?: string;
   oneTimeJobDefaultModel?: string;
   recurringJobDefaultModel?: string;

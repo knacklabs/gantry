@@ -10,8 +10,6 @@ import {
   resolveModelSelectionForWorkload,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
-import { resolveExecutionRoute } from '../../shared/model-execution-route.js';
-import { resolveMemoryEngineRouting } from '../../shared/memory-engine-matrix.js';
 import { hasValidEncryptionSecret } from '../../shared/security-posture.js';
 import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
@@ -80,40 +78,6 @@ export function validateLoadedRuntimeSettings(
     const resolved = resolveModelSelectionForWorkload(trimmed, workload);
     if (!resolved.ok) {
       details.push(`${field} is invalid: ${resolved.message}`);
-    }
-  }
-  // Memory engine x model response-family matrix: one engine (memory.engine)
-  // governs all three memory workloads, so each configured memory model must be
-  // runnable on that engine. An incompatible engine/family pairing, or an
-  // unknown response family, fails loudly with the locked copy from the matrix.
-  for (const [field, value, workload] of [
-    [
-      'memory.llm.models.extractor',
-      settings.memory.llm.models.extractor,
-      'memory_extractor',
-    ],
-    [
-      'memory.llm.models.dreaming',
-      settings.memory.llm.models.dreaming,
-      'memory_dreaming',
-    ],
-    [
-      'memory.llm.models.consolidation',
-      settings.memory.llm.models.consolidation,
-      'memory_consolidation',
-    ],
-  ] as const satisfies readonly (readonly [string, string, ModelWorkload])[]) {
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    const resolved = resolveModelSelectionForWorkload(trimmed, workload);
-    if (!resolved.ok) continue;
-    const routing = resolveMemoryEngineRouting({
-      engine: settings.memory.engine,
-      responseFamily: resolved.entry.responseFamily,
-      alias: resolved.alias,
-    });
-    if (!routing.ok) {
-      details.push(`${field} is invalid: ${routing.message}`);
     }
   }
   const postgresUrlEnv = settings.storage.postgres.urlEnv;
@@ -214,8 +178,6 @@ export function validateLoadedRuntimeSettings(
   }
 
   for (const [agentId, agent] of Object.entries(settings.agents)) {
-    const effectiveEngine =
-      agent.agentEngine ?? settings.agent.defaultAgentEngine;
     const effectiveModel = (
       agent.model ||
       settings.agent.defaultModel ||
@@ -225,14 +187,10 @@ export function validateLoadedRuntimeSettings(
       effectiveModel,
       'chat',
     );
-    if (modelResolution.ok) {
-      const route = resolveExecutionRoute({
-        entry: modelResolution.entry,
-        agentEngine: effectiveEngine,
-      });
-      if (!route.ok) {
-        details.push(`agents.${agentId}.model is invalid: ${route.message}`);
-      }
+    if (!modelResolution.ok) {
+      details.push(
+        `agents.${agentId}.model is invalid: ${modelResolution.message}`,
+      );
     }
     for (const capability of agent.capabilities) {
       const toolRule =

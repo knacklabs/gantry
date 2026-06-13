@@ -4,10 +4,6 @@ import {
   normalizeProviderId,
 } from '../../channels/provider-registry.js';
 import { resolveModelSelectionForWorkload } from '../../shared/model-catalog.js';
-import {
-  DEFAULT_AGENT_ENGINE,
-  parseAgentEngine,
-} from '../../shared/agent-engine.js';
 import { parseSenderAllowlistConfig } from './sender-allowlist.js';
 import { parseSimpleYamlObject } from './yaml.js';
 import { normalizeCompactRuntimeSettingsRoot } from './runtime-settings-compact.js';
@@ -588,7 +584,6 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     return {
       name: DEFAULT_AGENT_NAME,
       defaultModel: '',
-      defaultAgentEngine: DEFAULT_AGENT_ENGINE,
       oneTimeJobDefaultModel: '',
       recurringJobDefaultModel: '',
       sessions: {
@@ -605,13 +600,12 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     if (
       key !== 'name' &&
       key !== 'default_model' &&
-      key !== 'agent_engine' &&
       key !== 'one_time_job_default_model' &&
       key !== 'recurring_job_default_model' &&
       key !== 'sessions'
     ) {
       throw new Error(
-        `agent.${key} is not supported. Configure agent.name, agent.default_model, agent.agent_engine, agent.one_time_job_default_model, agent.recurring_job_default_model, or agent.sessions.*.`,
+        `agent.${key} is not supported. Configure agent.name, agent.default_model, agent.one_time_job_default_model, agent.recurring_job_default_model, or agent.sessions.*.`,
       );
     }
   }
@@ -640,10 +634,6 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
         : typeof map.default_model === 'string'
           ? map.default_model.trim()
           : parseStringValue(map.default_model, 'agent.default_model'),
-    defaultAgentEngine: parseAgentEngine(
-      map.agent_engine,
-      'defaults.agent_engine',
-    ),
     oneTimeJobDefaultModel:
       map.one_time_job_default_model === undefined
         ? ''

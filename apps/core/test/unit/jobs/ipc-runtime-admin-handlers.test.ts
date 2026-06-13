@@ -10,7 +10,6 @@ import {
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
-import { DEEPAGENTS_ENGINE } from '@core/shared/agent-engine.js';
 
 const runtimeHomes: string[] = [];
 
@@ -479,7 +478,7 @@ describe('runtime admin IPC handlers', () => {
     expect(reloadRuntimeState).toHaveBeenCalled();
   });
 
-  it('validates and reconciles a per-agent engine change via request_settings_update', async () => {
+  it('validates and reconciles a per-agent model change via request_settings_update', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-settings-ipc-'),
     );
@@ -504,16 +503,15 @@ describe('runtime admin IPC handlers', () => {
     replacement.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
-      // opus is Anthropic-routed, so it pairs with DeepAgents (deepagents:langchain).
+      // The engine is derived from the model provider; only the model is set.
       model: 'opus',
-      agentEngine: DEEPAGENTS_ENGINE,
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
     } as never;
     const replacementYaml = renderRuntimeSettingsYaml(replacement);
-    // Round-trip proof: the rendered YAML carries the per-agent engine key.
-    expect(replacementYaml).toContain(`agent_engine: ${DEEPAGENTS_ENGINE}`);
+    // Round-trip proof: no engine key is rendered (engine is derived).
+    expect(replacementYaml).not.toContain('agent_engine');
     const reloadRuntimeState = vi.fn(async () => undefined);
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       getRuntimeStorage: () => ({
@@ -569,7 +567,7 @@ describe('runtime admin IPC handlers', () => {
     expect(reloadRuntimeState).toHaveBeenCalled();
   });
 
-  it('rejects an incompatible model/engine pair with the locked copy', async () => {
+  it('rejects an invalid model alias with a settings validation error', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-settings-ipc-'),
     );
@@ -581,8 +579,8 @@ describe('runtime admin IPC handlers', () => {
     replacement.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',
-      // gpt is OpenAI-routed; the default Anthropic SDK engine cannot run it.
-      model: 'gpt',
+      // An unregistered alias is rejected by settings validation.
+      model: 'not-a-real-model',
       bindings: {},
       sources: { skills: [], mcpServers: [], tools: [] },
       capabilities: [],
@@ -615,8 +613,6 @@ describe('runtime admin IPC handlers', () => {
 
     const response = readResponse(runtimeHome, 'settings-update');
     expect(response).toMatchObject({ ok: false, code: 'invalid_settings' });
-    expect(JSON.stringify(response)).toContain(
-      'uses the OpenAI endpoint, which is not supported by Anthropic SDK',
-    );
+    expect(JSON.stringify(response)).toContain('not-a-real-model');
   });
 });

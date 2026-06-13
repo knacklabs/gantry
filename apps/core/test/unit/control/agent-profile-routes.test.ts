@@ -185,6 +185,5 @@ function mockContext(scopes: Scope[] = ['agents:admin']): ControlRouteContext {
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
     getEffectiveAgentEngine: () => DEFAULT_AGENT_ENGINE,
-    setAgentEngine: async () => undefined,
   };
 }

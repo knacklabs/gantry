@@ -1,5 +1,4 @@
 import { quoteYamlString } from './yaml.js';
-import { DEFAULT_AGENT_ENGINE } from '../../shared/agent-engine.js';
 import { renderArtifactStoreYamlLines } from './runtime-settings-artifact-store-renderer.js';
 import {
   DEFAULT_AGENT_NAME,
@@ -63,9 +62,6 @@ function renderDefaultsYaml(
   lines.push(
     `  model: ${quoteYamlString(agent.defaultModel || SYSTEM_DEFAULT_MODEL_ALIAS)}`,
   );
-  if (agent.defaultAgentEngine !== DEFAULT_AGENT_ENGINE) {
-    lines.push(`  agent_engine: ${quoteYamlString(agent.defaultAgentEngine)}`);
-  }
   if (agent.oneTimeJobDefaultModel || agent.recurringJobDefaultModel) {
     lines.push('  jobs:');
     if (agent.oneTimeJobDefaultModel) {
@@ -119,11 +115,6 @@ function renderMemorySettingsYaml(
   memory: RuntimeMemorySettings,
 ): void {
   lines.push('memory:', `  enabled: ${memory.enabled ? 'true' : 'false'}`);
-  // The system default engine stays implicit in rendered YAML; only a non-default
-  // memory engine is written, mirroring how `defaults.agent_engine` renders.
-  if (memory.engine !== DEFAULT_AGENT_ENGINE) {
-    lines.push(`  engine: ${quoteYamlString(memory.engine)}`);
-  }
   lines.push(
     '  embeddings:',
     `    enabled: ${memory.embeddings.enabled ? 'true' : 'false'}`,
@@ -218,9 +209,6 @@ function renderConfiguredAgentsYaml(
       lines.push(
         `    relationship_mode: ${quoteYamlString(agent.relationshipMode)}`,
       );
-    }
-    if (agent.agentEngine) {
-      lines.push(`    agent_engine: ${quoteYamlString(agent.agentEngine)}`);
     }
     if (agent.model) {
       lines.push(`    model: ${quoteYamlString(agent.model)}`);
@@ -479,7 +467,6 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
   const models = getPresetManagedMemoryDefaults();
   return (
     memory.enabled === true &&
-    memory.engine === DEFAULT_AGENT_ENGINE &&
     memory.embeddings.enabled === false &&
     memory.embeddings.provider === 'disabled' &&
     memory.embeddings.model === DEFAULT_EMBED_MODEL &&

@@ -51,7 +51,6 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     properties: {
       name: { type: 'string', minLength: 1 },
       status: { type: 'string', enum: ['active', 'disabled'] },
-      agentEngine: agentEngineProp,
     },
   },
   AgentAdminSummaryResponse: {

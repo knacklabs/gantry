@@ -12,10 +12,12 @@ import {
 import {
   DEEPAGENTS_ENGINE,
   DEFAULT_AGENT_ENGINE,
-  type AgentEngine,
 } from '@core/shared/agent-engine.js';
 
-function slotFor(alias: string, workload: ModelWorkload): ControlModelDefaultSlot {
+function slotFor(
+  alias: string,
+  workload: ModelWorkload,
+): ControlModelDefaultSlot {
   const resolved = resolveModelSelectionForWorkload(alias, workload);
   if (!resolved.ok) throw new Error(`fixture alias not resolvable: ${alias}`);
   return {
@@ -27,10 +29,9 @@ function slotFor(alias: string, workload: ModelWorkload): ControlModelDefaultSlo
   };
 }
 
-function ctxWith(engine: AgentEngine, extractorAlias: string): ControlRouteContext {
+function ctxWith(extractorAlias: string): ControlRouteContext {
   const extractor = slotFor(extractorAlias, 'memory_extractor');
   return {
-    getMemoryEngine: () => engine,
     getModelDefaults: () => ({
       defaults: {
         chat: extractor,
@@ -45,8 +46,8 @@ function ctxWith(engine: AgentEngine, extractorAlias: string): ControlRouteConte
 }
 
 describe('memoryModelPreview', () => {
-  it('shows the engine, family, and native_sdk lane for the default engine + anthropic model', () => {
-    const result = memoryModelPreview(ctxWith(DEFAULT_AGENT_ENGINE, 'haiku'), {});
+  it('derives the SDK engine + native_sdk lane from an anthropic model', () => {
+    const result = memoryModelPreview(ctxWith('haiku'), {});
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.body).toMatchObject({
@@ -57,11 +58,10 @@ describe('memoryModelPreview', () => {
       responseFamily: 'anthropic',
       diagnosticLane: 'native_sdk',
     });
-    expect(result.body.incompatibility).toBeUndefined();
   });
 
-  it('shows the openai_direct lane for deepagents + openai model', () => {
-    const result = memoryModelPreview(ctxWith(DEEPAGENTS_ENGINE, 'gpt'), {});
+  it('derives the deepagents engine + openai_direct lane from an openai model', () => {
+    const result = memoryModelPreview(ctxWith('gpt'), {});
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.body).toMatchObject({
@@ -70,15 +70,5 @@ describe('memoryModelPreview', () => {
       responseFamily: 'openai',
       diagnosticLane: 'openai_direct',
     });
-  });
-
-  it('surfaces the locked rejection copy for the default engine + openai model', () => {
-    const result = memoryModelPreview(ctxWith(DEFAULT_AGENT_ENGINE, 'gpt'), {});
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.body.diagnosticLane).toBeNull();
-    expect(result.body.incompatibility).toBe(
-      'Model gpt uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.',
-    );
   });
 });

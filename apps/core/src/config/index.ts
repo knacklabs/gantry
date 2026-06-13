@@ -1,10 +1,12 @@
 import path from 'path';
 import fs from 'fs';
-import { resolveModelAlias } from '../shared/model-catalog.js';
 import {
-  resolveAgentEngine,
-  type AgentEngine,
-} from '../shared/agent-engine.js';
+  resolveModelAlias,
+  resolveModelSelectionForWorkload,
+  DEFAULT_SETUP_MODEL_ALIAS,
+} from '../shared/model-catalog.js';
+import { deriveAgentEngineForProvider } from '../shared/model-execution-route.js';
+import type { AgentEngine } from '../shared/agent-engine.js';
 import {
   envConfig,
   envValue,
@@ -31,7 +33,6 @@ export { SettingsDesiredStateService } from './settings/desired-state-service.js
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
 export {
   applyRuntimeSettingsDesiredState,
-  setRuntimeAgentEngine,
   syncRuntimeSettingsFromProjection,
 } from './settings/restart-sync.js';
 export {
@@ -405,16 +406,21 @@ export function getEffectiveModelConfig(
   return getDefaultModelConfig(kind, agentFolder);
 }
 
-// Durable agent engine: per-agent override else the defaults block else the
-// system default. Jobs and conversations inherit this; there is no job- or
-// conversation-level engine selector.
+// Derived (read-only) agent engine: the engine follows the agent's effective
+// model provider. There is no per-agent engine selector; this resolves the
+// agent's effective model and derives the engine from its provider so control
+// read responses and diagnostics can surface it.
 export function getEffectiveAgentEngine(agentFolder?: string): AgentEngine {
-  const settings = getRuntimeSettingsForConfig();
-  const perAgent = agentFolder
-    ? settings.agents?.[agentFolder]?.agentEngine
-    : undefined;
-  return resolveAgentEngine(perAgent ?? settings.agent.defaultAgentEngine);
+  const effectiveModel = (
+    getDefaultModelConfig('interactive', agentFolder).model ||
+    DEFAULT_SETUP_MODEL_ALIAS
+  ).trim();
+  const resolved = resolveModelSelectionForWorkload(effectiveModel, 'chat');
+  return deriveAgentEngineForProvider(
+    resolved.ok ? resolved.entry.modelRoute.id : '',
+  );
 }
+
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
   1,
   parseInt(process.env.MAX_MESSAGES_PER_PROMPT || '10', 10) || 10,

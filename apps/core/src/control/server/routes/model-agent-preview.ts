@@ -3,8 +3,10 @@ import {
   resolveModelSelectionForWorkload,
 } from '../../../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
-import { getModelProviderDefinition } from '../../../shared/model-provider-registry.js';
-import { resolveExecutionRoute } from '../../../shared/model-execution-route.js';
+import {
+  executionRoutesForEntry,
+  resolveExecutionRoute,
+} from '../../../shared/model-execution-route.js';
 import { agentEngineLabel } from '../../../shared/agent-engine.js';
 import type { ControlRouteContext } from '../handler-context.js';
 
@@ -21,12 +23,7 @@ function modelRecord(
     aliases: entry.aliases,
     recommendedAlias: entry.recommendedAlias,
     responseFamily: entry.responseFamily,
-    executionRoutes: (
-      getModelProviderDefinition(entry.modelRoute.id)?.executionRoutes ?? []
-    ).map((route) => ({
-      engine: route.engine,
-      executionProviderId: route.executionProviderId,
-    })),
+    executionRoutes: executionRoutesForEntry(entry),
     credentialProfileRef: entry.credentialProfileRef,
     modelRoute: {
       id: entry.modelRoute.id,
@@ -48,13 +45,12 @@ function modelRecord(
 }
 
 // `gantry model why <alias> --agent <id>` preview. Resolves the model alias and
-// the agent's effective engine into an execution route, surfacing the endpoint
-// family, credential profile, agent engine, and diagnostic executionProviderId.
-// An incompatible model/engine pairing returns the locked plan copy in
-// `incompatible` (HTTP 200) instead of a stack trace, so the CLI prints guidance
-// rather than failing.
+// derives its execution route from the model's provider, surfacing the endpoint
+// family, credential profile, derived agent engine, and diagnostic
+// executionProviderId. The engine is read-only: it follows the provider, so an
+// agent's engine for a given model is fully determined by the model.
 export function agentModelPreview(
-  ctx: ControlRouteContext,
+  _ctx: ControlRouteContext,
   body: Record<string, unknown>,
 ): AgentModelPreviewResult {
   const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
@@ -69,7 +65,6 @@ export function agentModelPreview(
     };
   }
   const agentFolder = agentId.replace(/^agent:/, '');
-  const agentEngine = ctx.getEffectiveAgentEngine(agentFolder);
   const resolution = resolveModelSelectionForWorkload(modelAlias, 'chat');
   if (!resolution.ok) {
     return {
@@ -80,7 +75,16 @@ export function agentModelPreview(
     };
   }
   const entry = resolution.entry;
-  const route = resolveExecutionRoute({ entry, agentEngine });
+  const route = resolveExecutionRoute({ entry });
+  if (!route.ok) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'INVALID_REQUEST',
+      message: route.message,
+    };
+  }
+  const agentEngine = route.value.engine;
   return {
     ok: true,
     body: {
@@ -97,14 +101,10 @@ export function agentModelPreview(
         workload: 'chat',
         model: modelRecord(entry),
       },
-      ...(route.ok
-        ? { executionProviderId: route.value.executionProviderId }
-        : { incompatible: route.message }),
-      why: route.ok
-        ? [
-            `agent ${agentFolder} runs ${agentEngineLabel(agentEngine)} on the ${entry.responseFamily} endpoint`,
-          ]
-        : [route.message],
+      executionProviderId: route.value.executionProviderId,
+      why: [
+        `agent ${agentFolder} runs ${agentEngineLabel(agentEngine)} on the ${entry.responseFamily} endpoint`,
+      ],
     },
   };
 }

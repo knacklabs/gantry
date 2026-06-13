@@ -22,8 +22,6 @@ vi.mock('fs', async () => {
 
 const openAiBaseUrlKey = () => 'OPENAI' + '_BASE_URL';
 const openAiApiKeyKey = () => 'OPENAI' + '_API_KEY';
-const anthropicBaseUrlKey = () => 'ANTHROPIC' + '_BASE_URL';
-const anthropicApiKeyKey = () => 'ANTHROPIC' + '_API_KEY';
 const claudeCodeOAuthTokenKey = () =>
   ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
 
@@ -100,17 +98,17 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     );
   });
 
-  it('allows Gantry gateway projections for Anthropic API-key models', async () => {
+  it('allows Gantry gateway projections for DeepAgents-routed API-key models', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     await expect(
       adapter.prepare(
         prepareInput({
-          effectiveModel: 'claude-sonnet-4-6',
-          effectiveModelEntry: catalogEntry('sonnet'),
+          effectiveModel: 'gpt-5.5',
+          effectiveModelEntry: catalogEntry('gpt'),
           modelCredentialProjection: {
             env: Object.fromEntries([
-              [anthropicBaseUrlKey(), 'http://127.0.0.1:4567/anthropic'],
-              [anthropicApiKeyKey(), 'gtw_test'],
+              [openAiBaseUrlKey(), 'http://127.0.0.1:4567/openai'],
+              [openAiApiKeyKey(), 'gtw_test'],
             ]),
             credentialProviders: {},
             brokerProfile: 'gantry',
@@ -122,17 +120,17 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     ).resolves.toBeDefined();
   });
 
-  it('rejects Claude OAuth credentials for the DeepAgents engine', async () => {
+  it('rejects Claude OAuth credentials for the DeepAgents engine (defense in depth)', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     await expect(
       adapter.prepare(
         prepareInput({
-          effectiveModel: 'claude-sonnet-4-6',
-          effectiveModelEntry: catalogEntry('sonnet'),
+          effectiveModel: 'gpt-5.5',
+          effectiveModelEntry: catalogEntry('gpt'),
           modelCredentialProjection: {
             env: Object.fromEntries([
-              [anthropicBaseUrlKey(), 'http://127.0.0.1:4567/anthropic'],
-              [anthropicApiKeyKey(), 'gtw_test'],
+              [openAiBaseUrlKey(), 'http://127.0.0.1:4567/openai'],
+              [openAiApiKeyKey(), 'gtw_test'],
             ]),
             credentialProviders: {},
             brokerProfile: 'gantry',

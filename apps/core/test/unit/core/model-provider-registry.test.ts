@@ -36,37 +36,27 @@ describe('model provider registry', () => {
         true,
       );
       expect(provider?.modelRoute, entry.id).toBe(true);
-      expect(provider?.executionRoutes.length ?? 0, entry.id).toBeGreaterThan(
-        0,
-      );
+      expect(provider?.executionRoute, entry.id).toBeDefined();
     }
   });
 
-  it('declares engine-keyed execution routes with credential mode constraints', () => {
-    expect(getModelProviderDefinition('anthropic')?.executionRoutes).toEqual([
-      {
-        engine: 'anthropic_sdk',
-        executionProviderId: 'anthropic:claude-agent-sdk',
-        supportedCredentialModes: ['api_key', 'claude_code_oauth'],
-      },
-      {
-        engine: 'deepagents',
-        executionProviderId: 'deepagents:langchain',
-        supportedCredentialModes: ['api_key'],
-      },
-    ]);
-    expect(
-      getModelProviderDefinition('openrouter')?.executionRoutes.map(
-        (route) => route.engine,
-      ),
-    ).toEqual(['anthropic_sdk']);
-    expect(getModelProviderDefinition('openai')?.executionRoutes).toEqual([
-      {
-        engine: 'deepagents',
-        executionProviderId: 'deepagents:langchain',
-        supportedCredentialModes: ['api_key'],
-      },
-    ]);
+  it('declares a single provider-derived execution route with credential mode constraints', () => {
+    expect(getModelProviderDefinition('anthropic')?.executionRoute).toEqual({
+      engine: 'anthropic_sdk',
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      supportedCredentialModes: ['api_key', 'claude_code_oauth'],
+    });
+    // OpenRouter is now the DeepAgents lane (was anthropic_sdk).
+    expect(getModelProviderDefinition('openrouter')?.executionRoute).toEqual({
+      engine: 'deepagents',
+      executionProviderId: 'deepagents:langchain',
+      supportedCredentialModes: ['api_key'],
+    });
+    expect(getModelProviderDefinition('openai')?.executionRoute).toEqual({
+      engine: 'deepagents',
+      executionProviderId: 'deepagents:langchain',
+      supportedCredentialModes: ['api_key'],
+    });
   });
 
   it('makes OpenAI an executable chat and memory model route', () => {
@@ -284,7 +274,11 @@ describe('model provider registry', () => {
           usageBehavior: 'normal_usage',
         },
       },
-      executionRoutes: [],
+      executionRoute: {
+        engine: 'deepagents',
+        executionProviderId: 'deepagents:langchain',
+        supportedCredentialModes: ['api_key'],
+      },
     } satisfies ModelProviderDefinition;
 
     expect(

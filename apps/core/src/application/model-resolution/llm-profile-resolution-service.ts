@@ -8,10 +8,7 @@ import {
   type ModelRouteId,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
-import {
-  DEFAULT_AGENT_ENGINE,
-  type AgentEngine,
-} from '../../shared/agent-engine.js';
+import type { AgentEngine } from '../../shared/agent-engine.js';
 import { resolveExecutionRoute } from '../../shared/model-execution-route.js';
 
 export interface ResolvedLlmProfile {
@@ -27,8 +24,8 @@ export interface ResolvedLlmProfile {
       providerModelId: string;
     };
   };
-  // Read-only diagnostic: the internal execution adapter the resolved
-  // engine+route pairing runs on.
+  // Read-only diagnostics derived from the resolved model's provider: the engine
+  // its models run on and the internal execution adapter for that engine.
   executionProviderId: ModelExecutionProviderId;
   agentEngine: AgentEngine;
   supportedCredentialModes: readonly string[];
@@ -45,7 +42,7 @@ export type LlmProfileResolution =
         | 'unknown'
         | 'raw-provider-id'
         | 'unsupported-workload'
-        | 'incompatible-engine';
+        | 'unknown-provider';
       message: string;
     };
 
@@ -66,18 +63,17 @@ export class LlmProfileResolutionService {
         message: resolved.message,
       };
     }
-    const agentEngine = input.profile.agentEngine ?? DEFAULT_AGENT_ENGINE;
     const executionRoute = resolveExecutionRoute({
       entry: resolved.entry,
-      agentEngine,
     });
     if (!executionRoute.ok) {
       return {
         ok: false,
-        reason: 'incompatible-engine',
+        reason: 'unknown-provider',
         message: executionRoute.message,
       };
     }
+    const agentEngine = executionRoute.value.engine;
     const credentialProfileRef =
       input.profile.credentialProfileRef ?? resolved.entry.credentialProfileRef;
     return {

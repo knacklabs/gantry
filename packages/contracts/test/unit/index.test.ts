@@ -233,8 +233,8 @@ describe('contracts package', () => {
               responseFamily: 'anthropic',
               executionRoutes: [
                 {
-                  engine: 'anthropic_sdk',
-                  executionProviderId: 'anthropic:claude-agent-sdk',
+                  engine: 'deepagents',
+                  executionProviderId: 'deepagents:langchain',
                 },
               ],
               credentialProfileRef: 'gantry-model-access',
@@ -599,10 +599,11 @@ describe('contracts package', () => {
     });
     expect(AgentEngineSchema.options).toHaveLength(2);
     expect(AgentEngineSchema.options).toContain('deepagents');
-    expect(
-      UpdateAgentRequestSchema.parse({ agentEngine: 'deepagents' }),
-    ).toEqual({ agentEngine: 'deepagents' });
-    expectInvalid(UpdateAgentRequestSchema, { agentEngine: 'langchain' });
+    // The engine is derived from the model provider, so the update request no
+    // longer carries it; an unknown engine key is simply ignored, not rejected.
+    expect(UpdateAgentRequestSchema.parse({ status: 'active' })).toEqual({
+      status: 'active',
+    });
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
     expect(
       ProviderSessionResponseSchema.parse({

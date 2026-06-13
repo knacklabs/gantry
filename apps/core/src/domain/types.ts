@@ -30,7 +30,6 @@ export interface AgentConfig {
   additionalMounts?: AdditionalMount[];
   persona?: import('../shared/agent-persona.js').AgentPersona;
   relationshipMode?: import('../shared/agent-relationship-mode.js').AgentRelationshipMode;
-  agentEngine?: import('../shared/agent-engine.js').AgentEngine;
   model?: string; // Optional model alias/full name for this group
   thinking?: ThinkingOverride; // Optional thinking override for this group
   timeout?: number; // Default: 300000 (5 minutes)

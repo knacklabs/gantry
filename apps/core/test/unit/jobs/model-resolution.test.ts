@@ -7,7 +7,6 @@ import {
   resolveJobExecutionProviderId,
   resolveJobModel,
 } from '@core/jobs/model-resolution.js';
-import { engineForExecutionProviderId } from '@core/shared/model-execution-route.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 
 describe('job model resolution', () => {
@@ -67,11 +66,10 @@ describe('job model resolution', () => {
     });
   });
 
-  it('carries resolved-run diagnostics (engine, family, provider id, credential modes) in the start payload', () => {
+  it('derives resolved-run diagnostics (engine, family, provider id, credential modes) from the model provider', () => {
     const anthropic = resolveJobModel(
       { model: 'opus', schedule_type: 'manual' } as never,
       { model: 'opus', source: 'system default' },
-      DEFAULT_AGENT_ENGINE,
     );
     expect(jobStartedModelPayload(anthropic)).toMatchObject({
       agent_engine: DEFAULT_AGENT_ENGINE,
@@ -85,18 +83,19 @@ describe('job model resolution', () => {
     expect(startPayload.supported_credential_modes.length).toBeGreaterThan(0);
   });
 
-  it('inherits the bound agent engine when resolving the job execution provider', () => {
+  it('derives the job execution provider from the resolved model provider', () => {
     const anthropicSdk = resolveJobModel(
       { model: 'opus', schedule_type: 'manual' } as never,
       { model: 'opus', source: 'system default' },
-      'anthropic_sdk',
     );
+    // OpenRouter (kimi) supports jobs and is now the DeepAgents lane.
     const deepagents = resolveJobModel(
-      { model: 'opus', schedule_type: 'manual' } as never,
-      { model: 'opus', source: 'system default' },
-      'deepagents',
+      { model: 'kimi', schedule_type: 'manual' } as never,
+      { model: 'kimi', source: 'system default' },
     );
 
+    expect(anthropicSdk.agentEngine).toBe('anthropic_sdk');
+    expect(deepagents.agentEngine).toBe('deepagents');
     expect(resolveJobExecutionProviderId({ resolvedModel: anthropicSdk })).toBe(
       'anthropic:claude-agent-sdk',
     );

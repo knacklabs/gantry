@@ -120,6 +120,9 @@ newSessionId, sessionInit:true}` so the host persists the provider session
      guarantees the host completes/dequeues the turn exactly once. Scheduled jobs
      are ephemeral (no session persistence) and emit one terminal frame per turn
      the same way.
+- Startup timing logs must keep `sessionInit` separate from first visible
+  content: the first LangGraph event is diagnostic, and first visible reply
+  timing begins only when the normalizer emits a non-empty text delta.
 - Live-turn control parity (`runner/live-control.ts`): a poll loop watches the
   neutral IPC-input dir while a turn is in flight. A `_close` sentinel (host
   `/stop` or close-stdin, both written by `continuation-input.ts`) aborts the

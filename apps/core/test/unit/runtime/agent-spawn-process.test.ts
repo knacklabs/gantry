@@ -904,6 +904,84 @@ describe('executeRunnerProcess', () => {
       );
     });
 
+    it('distinguishes session init from first visible output in startup timing', async () => {
+      const onOutput = vi.fn(async () => {});
+      const spec = makeSpec({
+        onOutput,
+        startupHostPhases: {
+          adapterPrepareMs: 7,
+          mcpProjectionMs: 11,
+        },
+      });
+      const resultP = executeRunnerProcess(spec);
+
+      await vi.advanceTimersByTimeAsync(25);
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${JSON.stringify({
+          status: 'success',
+          result: null,
+          newSessionId: 'sess-visible',
+          sessionInit: true,
+        })}\n${OUTPUT_END_MARKER}\n`,
+      );
+
+      await vi.advanceTimersByTimeAsync(55);
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${JSON.stringify({
+          status: 'success',
+          result: 'first text',
+          newSessionId: 'sess-visible',
+        })}\n${OUTPUT_END_MARKER}\n`,
+      );
+
+      await vi.advanceTimersByTimeAsync(10);
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+
+      const result = await resultP;
+      expect(result).toMatchObject({
+        status: 'success',
+        result: null,
+        providerSession: { externalSessionId: 'sess-visible' },
+        newSessionId: 'sess-visible',
+      });
+      expect(onOutput).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          result: null,
+          sessionInit: true,
+          newSessionId: 'sess-visible',
+        }),
+      );
+      expect(onOutput).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          result: 'first text',
+          newSessionId: 'sess-visible',
+        }),
+      );
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startupTiming: expect.objectContaining({
+            firstStructuredOutputMs: 25,
+            providerSessionMs: 25,
+            firstVisibleOutputMs: 80,
+            hostPhases: expect.objectContaining({
+              adapterPrepareMs: 7,
+              mcpProjectionMs: 11,
+            }),
+          }),
+        }),
+        'test-runner completed (streaming mode)',
+      );
+      const [, logContent] = mockWriteFileSync.mock.calls[0];
+      expect(logContent).toContain('First Structured Output: 25ms');
+      expect(logContent).toContain('Provider Session Init: 25ms');
+      expect(logContent).toContain('First Visible Output: 80ms');
+      expect(logContent).toContain('Host Phase - Adapter Prepare: 7ms');
+      expect(logContent).toContain('Host Phase - MCP Projection: 11ms');
+    });
+
     it('treats SIGTERM after streamed output as closed, not failed', async () => {
       const onOutput = vi.fn(async () => {});
       const spec = makeSpec({ onOutput });

@@ -61,15 +61,12 @@ describe('memory route scope isolation', () => {
 
   it('keeps subject resolution independent of which family the router dispatches to', async () => {
     const openai = recordingClient('openai');
-    const defaultLane = recordingClient(['anth', 'ropic'].join(''));
-    const sdkLane = recordingClient('sdk-unused');
-    // Under the deepagents memory engine both families dispatch to distinct
-    // direct lanes (openai_direct / anthropic_direct); the SDK lane is unused.
+    const anthropicLane = recordingClient(['anth', 'ropic'].join(''));
+    // The router dispatches purely on the model family: anthropic -> Claude SDK
+    // lane, openai -> OpenAI direct lane. There is no engine input.
     const router = createRouteAwareMemoryLlmClient({
-      anthropic: sdkLane.client,
+      anthropic: anthropicLane.client,
       openai: openai.client,
-      anthropicDirect: defaultLane.client,
-      getEngine: () => 'deepagents' as never,
     });
 
     const context = { chatJid: 'tg:-100123', userId: 'tg:42' };
@@ -93,7 +90,7 @@ describe('memory route scope isolation', () => {
 
     // Both families were exercised, but subject resolution is unchanged.
     expect(openai.seen).toHaveLength(1);
-    expect(defaultLane.seen).toHaveLength(1);
+    expect(anthropicLane.seen).toHaveLength(1);
 
     const subjectAfter = resolveTrustedMemorySubject('dm-folder', context);
     expect(subjectAfter).toEqual(subjectBefore);

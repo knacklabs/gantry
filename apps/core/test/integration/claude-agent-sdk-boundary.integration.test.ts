@@ -386,9 +386,25 @@ describe('Claude Agent SDK boundary integration', () => {
     const outputs = logSpy.mock.calls
       .map((call) => String(call[0] ?? ''))
       .filter((line) => line.startsWith('{'))
-      .map((line) => JSON.parse(line) as { result: string | null });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            newSessionId?: string;
+            sessionInit?: boolean;
+          },
+      );
     logSpy.mockRestore();
 
+    expect(outputs[0]).toMatchObject({
+      result: null,
+      newSessionId: 'claude-session-boundary',
+    });
+    expect(outputs[0].sessionInit).toBeUndefined();
+    const firstVisibleIdx = outputs.findIndex(
+      (output) => typeof output.result === 'string' && output.result.length > 0,
+    );
+    expect(firstVisibleIdx).toBe(1);
     expect(outputs.map((output) => output.result)).toEqual([
       null,
       'Hello ',

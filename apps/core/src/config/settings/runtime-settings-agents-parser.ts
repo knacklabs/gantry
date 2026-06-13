@@ -1,8 +1,6 @@
 import { resolveModelSelectionForWorkload } from '../../shared/model-catalog.js';
 import { parseAgentPersona } from '../../shared/agent-persona.js';
 import { parseAgentRelationshipMode } from '../../shared/agent-relationship-mode.js';
-import { parseAgentEngine } from '../../shared/agent-engine.js';
-import { resolveExecutionRoute } from '../../shared/model-execution-route.js';
 import type {
   AgentAccessPreset,
   RuntimeConfiguredAgent,
@@ -404,7 +402,6 @@ export function parseConfiguredAgents(
         key !== 'name' &&
         key !== 'persona' &&
         key !== 'relationship_mode' &&
-        key !== 'agent_engine' &&
         key !== 'jid' &&
         key !== 'trigger' &&
         key !== 'added_at' &&
@@ -416,14 +413,10 @@ export function parseConfiguredAgents(
         key !== 'access'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, agent_engine, model, job model defaults, bindings, or access.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, model, job model defaults, bindings, or access.`,
         );
       }
     }
-    const agentEngine =
-      map.agent_engine === undefined
-        ? undefined
-        : parseAgentEngine(map.agent_engine, `${pathPrefix}.agent_engine`);
     const model =
       map.model === undefined
         ? undefined
@@ -434,15 +427,6 @@ export function parseConfiguredAgents(
       const resolved = resolveModelSelectionForWorkload(model, 'chat');
       if (!resolved.ok) {
         throw new Error(`${pathPrefix}.model is invalid: ${resolved.message}`);
-      }
-      if (agentEngine) {
-        const route = resolveExecutionRoute({
-          entry: resolved.entry,
-          agentEngine,
-        });
-        if (!route.ok) {
-          throw new Error(`${pathPrefix}.model is invalid: ${route.message}`);
-        }
       }
     }
     const oneTimeJobDefaultModel =
@@ -489,7 +473,6 @@ export function parseConfiguredAgents(
         map.relationship_mode,
         `${pathPrefix}.relationship_mode`,
       ),
-      agentEngine,
       model,
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,

@@ -2,21 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { agentModelPreview } from '@core/control/server/routes/model-agent-preview.js';
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
-import {
-  DEEPAGENTS_ENGINE,
-  DEFAULT_AGENT_ENGINE,
-  type AgentEngine,
-} from '@core/shared/agent-engine.js';
+import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 
-function ctxWith(engine: AgentEngine): ControlRouteContext {
-  return {
-    getEffectiveAgentEngine: () => engine,
-  } as unknown as ControlRouteContext;
-}
+const ctx = {} as unknown as ControlRouteContext;
 
 describe('agentModelPreview', () => {
-  it('returns engine, credential profile, and executionProviderId for a compatible pair', () => {
-    const result = agentModelPreview(ctxWith(DEEPAGENTS_ENGINE), {
+  it('derives the SDK engine + executionProviderId from an anthropic model', () => {
+    const result = agentModelPreview(ctx, {
       agentId: 'agent:main_agent',
       modelAlias: 'opus',
     });
@@ -25,29 +17,29 @@ describe('agentModelPreview', () => {
     expect(result.body).toMatchObject({
       target: 'agent',
       agentId: 'main_agent',
-      agentEngine: DEEPAGENTS_ENGINE,
-      agentEngineLabel: 'DeepAgents',
-      executionProviderId: 'deepagents:langchain',
+      agentEngine: DEFAULT_AGENT_ENGINE,
+      agentEngineLabel: 'Anthropic SDK',
+      executionProviderId: 'anthropic:claude-agent-sdk',
     });
     expect(result.body.credentialProfile).toBeTruthy();
-    expect(result.body.incompatible).toBeUndefined();
   });
 
-  it('surfaces the locked OpenAI/Anthropic-SDK copy in `incompatible` (HTTP 200)', () => {
-    const result = agentModelPreview(ctxWith(DEFAULT_AGENT_ENGINE), {
+  it('derives the deepagents engine + executionProviderId from an openai model', () => {
+    const result = agentModelPreview(ctx, {
       agentId: 'main_agent',
       modelAlias: 'gpt',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.body.executionProviderId).toBeUndefined();
-    expect(result.body.incompatible).toBe(
-      'Model gpt uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.',
-    );
+    expect(result.body).toMatchObject({
+      agentEngine: 'deepagents',
+      agentEngineLabel: 'DeepAgents',
+      executionProviderId: 'deepagents:langchain',
+    });
   });
 
   it('rejects a missing modelAlias with a 400', () => {
-    const result = agentModelPreview(ctxWith(DEFAULT_AGENT_ENGINE), {
+    const result = agentModelPreview(ctx, {
       agentId: 'main_agent',
     });
     expect(result.ok).toBe(false);
@@ -56,7 +48,7 @@ describe('agentModelPreview', () => {
   });
 
   it('rejects an unknown model alias with a 400', () => {
-    const result = agentModelPreview(ctxWith(DEFAULT_AGENT_ENGINE), {
+    const result = agentModelPreview(ctx, {
       agentId: 'main_agent',
       modelAlias: 'not-a-real-model',
     });

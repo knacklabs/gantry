@@ -39,7 +39,6 @@ import {
   findConversationIdForAgent,
   formatAgentEngineLine,
   isInteractiveTerminal,
-  runEngine,
   listGroupsWithJid,
   loadDatabase,
   normalizeGroupAddSelector,
@@ -759,8 +758,6 @@ export async function runAgentCommand(
       return runPolicyShow(runtimeHome, rest);
     case 'access':
       return runAccess(runtimeHome, rest);
-    case 'engine':
-      return runEngine(runtimeHome, rest);
     case 'profile':
       return runProfile(runtimeHome, rest);
     default:

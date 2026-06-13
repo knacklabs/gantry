@@ -66,9 +66,10 @@ describe('model catalog resolution', () => {
       'memory_dreaming',
       'memory_consolidation',
     ] as const) {
-      expect(
-        resolveModelSelectionForWorkload('gpt', workload),
-      ).toMatchObject({ ok: true, alias: 'gpt' });
+      expect(resolveModelSelectionForWorkload('gpt', workload)).toMatchObject({
+        ok: true,
+        alias: 'gpt',
+      });
       expect(
         resolveModelSelectionForWorkload('gpt-mini', workload),
       ).toMatchObject({ ok: true, alias: 'gpt-mini' });

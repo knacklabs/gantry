@@ -15,10 +15,6 @@ import {
   type ModelWorkload,
 } from '../shared/model-catalog.js';
 import type { MemoryLlmModelProfile } from '../domain/ports/memory-llm-client.js';
-import {
-  resolveAgentEngine,
-  type AgentEngine,
-} from '../shared/agent-engine.js';
 
 export {
   RUNTIME_MEMORY_DREAMING_ENABLED,
@@ -134,15 +130,6 @@ function resolveMemoryLlmModelSlot(
 
 function readCurrentMemoryModelSettings(): RuntimeMemorySettingsSnapshot {
   return readRuntimeMemorySettingsSnapshot(MEMORY_CONFIG_HOME);
-}
-
-// The configured memory engine (`memory.engine`), read fresh from the settings
-// snapshot so a reviewed settings reload applies without restart — the same
-// fresh-read pattern as the per-workload memory model slots. Lenient resolution:
-// an absent or unknown value falls back to the system default engine; strict
-// parsing already rejected bad values at settings validation.
-export function getMemoryEngine(): AgentEngine {
-  return resolveAgentEngine(readCurrentMemoryModelSettings().engine);
 }
 
 export function getMemoryModelConfig(fallbackModel: string | undefined): {

@@ -41,6 +41,8 @@ export interface StreamNormalizerInput {
   modelId?: string;
   modelProfile: ModelProfileSnapshot;
   emit: (frame: RunnerOutputFrame) => void;
+  onFirstEvent?: (eventName: string) => void;
+  onFirstVisibleText?: () => void;
 }
 
 interface UsageAccumulator {
@@ -65,13 +67,23 @@ export async function normalizeDeepAgentStream(
   const usage: UsageAccumulator = { inputTokens: 0, outputTokens: 0 };
   let accumulatedText = '';
   let sawPartialText = false;
+  let sawFirstEvent = false;
+  let sawFirstVisibleText = false;
 
   for await (const event of input.events) {
+    if (!sawFirstEvent) {
+      sawFirstEvent = true;
+      input.onFirstEvent?.(event.event);
+    }
     if (event.event === 'on_chat_model_stream') {
       const chunk = event.data?.chunk;
       accumulateUsageFromChunk(chunk, usage);
       const delta = textFromChunk(chunk);
       if (delta) {
+        if (!sawFirstVisibleText) {
+          sawFirstVisibleText = true;
+          input.onFirstVisibleText?.();
+        }
         accumulatedText += delta;
         sawPartialText = true;
         input.emit({

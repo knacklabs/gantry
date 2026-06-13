@@ -1,6 +1,5 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import { DEFAULT_AGENT_ENGINE } from '../../shared/agent-engine.js';
 import type { ConversationRepository } from '../../domain/ports/repositories.js';
 import type {
   Conversation,
@@ -158,15 +157,6 @@ export class SettingsDesiredStateService {
       });
       applied.push(`agent:${folder}`);
 
-      // Project the resolved effective engine (per-agent override else the
-      // defaults block) onto the route so the runtime read path is
-      // self-describing and never needs to re-read settings. The system default
-      // stays implicit so the route only carries non-default selections.
-      const effectiveEngine =
-        agent.agentEngine ?? settings.agent.defaultAgentEngine;
-      const agentEngine =
-        effectiveEngine === DEFAULT_AGENT_ENGINE ? undefined : effectiveEngine;
-
       for (const binding of bindingsByAgent.get(folder) ?? []) {
         const conversation = binding.conversation;
         configuredJids.add(binding.jid);
@@ -181,15 +171,11 @@ export class SettingsDesiredStateService {
               ? 'dm'
               : 'channel',
           agentConfig:
-            binding.model ||
-            agent.persona ||
-            agent.relationshipMode ||
-            agentEngine
+            binding.model || agent.persona || agent.relationshipMode
               ? {
                   model: binding.model,
                   persona: agent.persona,
                   relationshipMode: agent.relationshipMode,
-                  agentEngine,
                 }
               : undefined,
         });

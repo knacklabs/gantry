@@ -147,7 +147,8 @@
     {
       "file": "apps/core/src/shared/model-provider-registry.ts",
       "matches": {
-        "ANTHROPIC_": 7
+        "ANTHROPIC_": 7,
+        "anthropic_sdk": 1
       },
       "reason": "The provider registry is the intentional source of truth for SDK projection env names while model runners still use the Anthropic-compatible execution adapter.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
@@ -182,7 +183,7 @@
       "matches": {
         "ANTHROPIC_": 47,
         "CLAUDE_CONFIG_DIR": 6,
-        "anthropic_sdk": 2
+        "anthropic_sdk": 1
       },
       "reason": "Runtime spawn tests assert the Anthropic-compatible SDK projection uses only loopback Gantry gateway URLs and gtw_ run tokens; this gate is count-exact so new provider credential leakage fails.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
@@ -206,23 +207,7 @@
     {
       "file": "apps/core/test/unit/shared/agent-engine.test.ts",
       "matches": {
-        "anthropic_sdk": 9
-      },
-      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
-      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
-    },
-    {
-      "file": "apps/core/test/unit/shared/model-execution-route.test.ts",
-      "matches": {
-        "anthropic_sdk": 7
-      },
-      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
-      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
-    },
-    {
-      "file": "apps/core/test/unit/config/runtime-settings.test.ts",
-      "matches": {
-        "anthropic_sdk": 5
+        "anthropic_sdk": 3
       },
       "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
@@ -237,22 +222,6 @@
     },
     {
       "file": "apps/core/test/unit/jobs/model-resolution.test.ts",
-      "matches": {
-        "anthropic_sdk": 1
-      },
-      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
-      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
-    },
-    {
-      "file": "apps/core/test/unit/control/server-auth.test.ts",
-      "matches": {
-        "anthropic_sdk": 1
-      },
-      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
-      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
-    },
-    {
-      "file": "packages/contracts/test/unit/index.test.ts",
       "matches": {
         "anthropic_sdk": 1
       },

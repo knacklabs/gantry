@@ -203,8 +203,9 @@ export interface ModelRecord {
   aliases: string[];
   recommendedAlias: string;
   responseFamily: string;
-  // Read-only diagnostic: execution adapter per agent engine. Resolution is
-  // modelAlias + agentEngine -> executionRoute.
+  // Read-only diagnostic: the derived execution route (engine + adapter) for
+  // this model's provider, as a one-element array. The engine follows the
+  // provider; it is not selectable.
   executionRoutes: Array<{
     engine: string;
     executionProviderId: string;

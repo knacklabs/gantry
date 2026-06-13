@@ -81,6 +81,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
       priorMessages: [],
       newSessionId: diagnosticSessionId,
       emit,
+      log,
     });
     // The single terminal frame (usage/contextUsage) is emitted by the caller so
     // there is exactly one terminal marker per turn (the normalizer streams
@@ -169,6 +170,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           priorMessages,
           newSessionId: sessionId,
           emit: writeRunnerFrame,
+          log,
           signal: liveControl.signal,
         });
         priorMessages = turn.messages;

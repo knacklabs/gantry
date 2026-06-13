@@ -14,11 +14,15 @@ import {
   type ModelWorkload,
 } from '../../../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
-import { getModelProviderDefinition } from '../../../shared/model-provider-registry.js';
 import {
-  memoryEngineLabel,
-  resolveMemoryEngineRouting,
-} from '../../../shared/memory-engine-matrix.js';
+  deriveAgentEngineForProvider,
+  executionRoutesForEntry,
+  memoryTransportLaneForResponseFamily,
+} from '../../../shared/model-execution-route.js';
+import {
+  agentEngineLabel,
+  DEFAULT_AGENT_ENGINE,
+} from '../../../shared/agent-engine.js';
 import { agentModelPreview } from './model-agent-preview.js';
 import { createJobManagementService } from './jobs.js';
 import {
@@ -37,15 +41,10 @@ function modelToResponse(
     aliases: entry.aliases,
     recommendedAlias: entry.recommendedAlias,
     responseFamily: entry.responseFamily,
-    // `executionProviderId` is now route-dependent (modelAlias + agentEngine).
-    // Surface the per-engine routes as the read-only diagnostic; the resolved
-    // single id is exposed by engine-aware preview surfaces.
-    executionRoutes: (
-      getModelProviderDefinition(entry.modelRoute.id)?.executionRoutes ?? []
-    ).map((route) => ({
-      engine: route.engine,
-      executionProviderId: route.executionProviderId,
-    })),
+    // The engine + executionProviderId are derived from the provider. Surface
+    // the single derived route as a read-only diagnostic (one-element array for
+    // the stable response shape).
+    executionRoutes: executionRoutesForEntry(entry),
     credentialProfileRef: entry.credentialProfileRef,
     modelRoute: {
       id: entry.modelRoute.id,
@@ -353,9 +352,9 @@ function authorizeModelPreviewRequest(
   return null;
 }
 
-// Memory preview: configured memory engine, resolved model family, and the
-// diagnostic transport lane the (engine, family) pair maps to; an incompatible
-// pairing reports the locked matrix copy in `incompatibility` (HTTP 200).
+// Memory preview: the memory engine and transport lane derived from the memory
+// model's provider/response family. The engine is no longer configured — it is
+// read-only and follows the model's provider.
 export function memoryModelPreview(
   ctx: ControlRouteContext,
   body: Record<string, unknown>,
@@ -371,15 +370,11 @@ export function memoryModelPreview(
       : task === 'consolidation'
         ? modelDefaultSlotToResponse(defaults.memoryConsolidation)
         : modelDefaultSlotToResponse(defaults.memoryExtractor);
-  const engine = ctx.getMemoryEngine();
   const responseFamily = slot.model?.responseFamily ?? null;
-  const routing = responseFamily
-    ? resolveMemoryEngineRouting({
-        engine,
-        responseFamily,
-        alias: slot.effectiveAlias ?? slot.configuredAlias ?? '',
-      })
-    : undefined;
+  const engine = slot.model
+    ? deriveAgentEngineForProvider(slot.model.modelRoute.id)
+    : DEFAULT_AGENT_ENGINE;
+  const diagnosticLane = memoryTransportLaneForResponseFamily(responseFamily);
   return {
     ok: true,
     body: {
@@ -387,13 +382,12 @@ export function memoryModelPreview(
       task,
       selection: slot,
       engine,
-      engineLabel: memoryEngineLabel(engine),
+      engineLabel: agentEngineLabel(engine),
       responseFamily,
-      diagnosticLane: routing?.ok ? routing.lane : null,
-      ...(routing && !routing.ok ? { incompatibility: routing.message } : {}),
+      diagnosticLane,
       why: [
         `memory ${task} uses preset-managed settings from ${slot.source}`,
-        `memory engine: ${memoryEngineLabel(engine)}`,
+        `memory engine: ${agentEngineLabel(engine)}`,
       ],
     },
   };

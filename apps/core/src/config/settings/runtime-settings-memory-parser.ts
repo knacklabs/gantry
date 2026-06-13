@@ -22,7 +22,6 @@ import type {
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
 } from './runtime-settings-types.js';
-import { DEFAULT_AGENT_ENGINE, parseAgentEngine } from '../../shared/agent-engine.js';
 
 const BACKFILL_MODES: ReadonlySet<MemoryBackfillMode> = new Set([
   'auto',
@@ -231,7 +230,6 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
   if (raw === undefined) {
     return {
       enabled: true,
-      engine: DEFAULT_AGENT_ENGINE,
       embeddings: {
         enabled: false,
         provider: 'disabled',
@@ -267,7 +265,6 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
   const map = raw as Record<string, unknown>;
   const supportedKeys = new Set([
     'enabled',
-    'engine',
     'embeddings',
     'dreaming',
     'llm',
@@ -403,7 +400,6 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
 
   return {
     enabled,
-    engine: parseAgentEngine(map.engine, 'memory.engine'),
     embeddings: {
       enabled: embeddingsEnabled,
       provider: embeddingsEnabled ? embeddingProvider : 'disabled',

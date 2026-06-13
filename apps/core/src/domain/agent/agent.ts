@@ -21,7 +21,6 @@ export interface LlmProfile {
   appId: AppId;
   purpose: 'chat' | 'planning' | 'coding' | 'embedding' | 'summarization';
   modelAlias: string;
-  agentEngine?: import('../../shared/agent-engine.js').AgentEngine;
   thinking?: {
     mode: ThinkingMode;
     effort?: ThinkingEffort;

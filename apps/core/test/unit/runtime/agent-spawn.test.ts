@@ -1251,9 +1251,13 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('projects provider models through Gantry gateway env only when broker supplies a run token', async () => {
+    // NOTE (Packets 4-5): OpenRouter now routes to the DeepAgents lane, so the
+    // SDK-lane gateway projection is exercised here with an Anthropic model. The
+    // OpenRouter-specific projection assertions move to the DeepAgents runner
+    // tests once the OpenAI-compatible gateway projection lands.
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
       env: {
-        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/openrouter',
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/anthropic',
         ANTHROPIC_API_KEY: 'gtw_test',
         ANTHROPIC_AUTH_TOKEN: 'gtw_test',
       },
@@ -1264,7 +1268,7 @@ describe('agent-spawn timeout behavior', () => {
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
     const resultPromise = spawnTestAgent(
       testGroup,
-      { ...testInput, model: 'kimi 2.6' },
+      { ...testInput, model: 'opus' },
       () => {},
     );
     await vi.advanceTimersByTimeAsync(10);
@@ -1277,21 +1281,16 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.ANTHROPIC_MODEL).toBe('moonshotai/kimi-k2.6');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-8');
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
     expect(runnerInput.modelCredentialEnv).toMatchObject({
-      ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/openrouter',
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/anthropic',
       ANTHROPIC_API_KEY: 'gtw_test',
       ANTHROPIC_AUTH_TOKEN: 'gtw_test',
     });
-    expect(mockEnsureEgressGateway).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        allowedNetworkHosts: expect.arrayContaining(['openrouter.ai:443']),
-      }),
-    );
   });
 
   it('rejects raw Claude Code OAuth projection in direct runtime', async () => {
@@ -1319,7 +1318,7 @@ describe('agent-spawn timeout behavior', () => {
   it('rejects provider models when the broker token is not run-scoped', async () => {
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
       env: {
-        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/openrouter',
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/anthropic',
         ANTHROPIC_API_KEY: 'provider-token',
       },
       credentialProviders: {},
@@ -1329,7 +1328,7 @@ describe('agent-spawn timeout behavior', () => {
 
     const result = await spawnTestAgent(
       testGroup,
-      { ...testInput, model: 'kimi' },
+      { ...testInput, model: 'opus' },
       () => {},
     );
 
@@ -1349,7 +1348,7 @@ describe('agent-spawn timeout behavior', () => {
 
     const result = await spawnTestAgent(
       testGroup,
-      { ...testInput, model: 'kimi' },
+      { ...testInput, model: 'opus' },
       () => {},
     );
 
@@ -3213,24 +3212,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  it('rejects an OpenAI model under the Anthropic SDK engine before spawn', async () => {
-    vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('anthropic_sdk');
-    const result = await spawnTestAgent(
-      testGroup,
-      { ...testInput, model: 'gpt' },
-      () => {},
-    );
-
-    expect(result).toMatchObject({
-      status: 'error',
-      error:
-        'Model gpt uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.',
-    });
-    expect(spawn).not.toHaveBeenCalled();
-  });
-
-  it('routes an OpenAI model to the DeepAgents adapter when the agent engine is deepagents', async () => {
-    vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('deepagents');
+  it('routes an OpenAI model to the DeepAgents adapter (engine derived from provider)', async () => {
     const result = await spawnTestAgent(
       testGroup,
       { ...testInput, model: 'gpt' },

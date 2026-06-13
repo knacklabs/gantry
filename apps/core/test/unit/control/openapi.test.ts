@@ -586,8 +586,9 @@ describe('control OpenAPI documentation', () => {
     expect(spec.paths['/v1/models/preview']?.post).toMatchObject({
       'x-gantry-required-scopes': ['sessions:read', 'jobs:read'],
     });
-    // Agent read/write expose the public engine; model preview exposes the agent
-    // target plus the resolved-route diagnostics.
+    // Agent read exposes the derived engine; the update request no longer
+    // accepts it. Model preview exposes the agent target plus derived
+    // engine + executionProviderId diagnostics.
     const engineEnum = [...AGENT_ENGINES];
     expect(spec.components.schemas.Agent.required).toContain('agentEngine');
     expect(spec.components.schemas.Agent.properties.agentEngine).toMatchObject({
@@ -596,7 +597,7 @@ describe('control OpenAPI documentation', () => {
     });
     expect(
       spec.components.schemas.AgentUpdateRequest.properties.agentEngine,
-    ).toMatchObject({ type: 'string', enum: engineEnum });
+    ).toBeUndefined();
     expect(
       spec.components.schemas.ModelPreviewRequest.properties.target.enum,
     ).toContain('agent');
@@ -606,8 +607,10 @@ describe('control OpenAPI documentation', () => {
       agentEngine: { type: 'string', enum: engineEnum },
       credentialProfile: { type: 'string' },
       executionProviderId: { type: 'string' },
-      incompatible: { type: 'string' },
     });
+    expect(
+      spec.components.schemas.ModelPreviewResponse.properties.incompatible,
+    ).toBeUndefined();
     expect(engineEnum).toEqual([DEFAULT_AGENT_ENGINE, DEEPAGENTS_ENGINE]);
     expect(
       spec.paths['/v1/guided-actions/execute']?.post.description,

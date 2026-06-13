@@ -15,7 +15,6 @@ vi.mock('@core/config/index.js', () => ({
   syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
   getDefaultModelConfig: configMocks.getDefaultModelConfig,
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
-  getMemoryEngine: vi.fn(() => ['anthropic', 'sdk'].join('_')),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
   configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));

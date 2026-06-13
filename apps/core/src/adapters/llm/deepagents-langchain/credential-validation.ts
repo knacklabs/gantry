@@ -23,9 +23,10 @@ export function validateDeepAgentCredentialProjection(input: {
   if (!entry) return;
 
   const provider = getModelProviderDefinition(entry.modelRoute.id);
-  const supportedModes = provider?.executionRoutes.find(
-    (route) => route.executionProviderId === 'deepagents:langchain',
-  )?.supportedCredentialModes;
+  const supportedModes =
+    provider?.executionRoute.executionProviderId === 'deepagents:langchain'
+      ? provider.executionRoute.supportedCredentialModes
+      : undefined;
 
   const setupRequiredMessage = `Setup required: configure ${provider?.label ?? entry.modelRoute.id} Model Access before using ${entry.recommendedAlias} with ${agentEngineLabel(DEEPAGENTS_ENGINE)}.`;
 

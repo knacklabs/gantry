@@ -11,20 +11,23 @@ import {
 } from '../../shared/agent-engine.js';
 import { resolveExecutionRoute } from '../../shared/model-execution-route.js';
 
-// Jobs inherit the bound agent's engine; there is no job-level engine selector.
-// Resolution is `modelAlias + agentEngine -> executionRoute`.
+// The engine a job runs on is derived from the resolved job model's provider;
+// there is no job-level engine selector. Resolution is
+// `modelAlias -> provider -> executionRoute`.
 function executionProviderIdForResolution(
   resolution: ModelResolution,
-  agentEngine: AgentEngine,
 ): ExecutionProviderId | undefined {
   if (!resolution.ok) return undefined;
-  const route = resolveExecutionRoute({
-    entry: resolution.entry,
-    agentEngine,
-  });
+  const route = resolveExecutionRoute({ entry: resolution.entry });
   return route.ok
     ? (route.value.executionProviderId as ExecutionProviderId)
     : undefined;
+}
+
+function engineForResolution(resolution?: ModelResolution): AgentEngine {
+  if (!resolution?.ok) return DEFAULT_AGENT_ENGINE;
+  const route = resolveExecutionRoute({ entry: resolution.entry });
+  return route.ok ? route.value.engine : DEFAULT_AGENT_ENGINE;
 }
 
 export type JobModelDefaultConfig = {
@@ -59,19 +62,17 @@ export function jobModelWorkloadForSchedule(
 
 export function resolveDefaultJobExecutionProviderId(
   scheduleType: Job['schedule_type'],
-  agentEngine: AgentEngine = DEFAULT_AGENT_ENGINE,
 ): ExecutionProviderId | undefined {
   const resolution = resolveModelSelectionForWorkload(
     'opus',
     jobModelWorkloadForSchedule(scheduleType),
   );
-  return executionProviderIdForResolution(resolution, agentEngine);
+  return executionProviderIdForResolution(resolution);
 }
 
 export function resolveJobModel(
   job: Pick<Job, 'model' | 'schedule_type'>,
   defaultConfig: JobModelDefaultConfig,
-  agentEngine: AgentEngine = DEFAULT_AGENT_ENGINE,
 ): ResolvedJobModel {
   const selectedModel = job.model || defaultConfig.model;
   const defaultResolution = defaultConfig.model
@@ -91,9 +92,9 @@ export function resolveJobModel(
     source: job.model ? 'job.model' : defaultConfig.source,
     resolution,
     entry: resolution?.ok ? resolution.entry : undefined,
-    agentEngine,
+    agentEngine: engineForResolution(resolution),
     defaultExecutionProviderId: defaultResolution
-      ? executionProviderIdForResolution(defaultResolution, agentEngine)
+      ? executionProviderIdForResolution(defaultResolution)
       : undefined,
   };
 }

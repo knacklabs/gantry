@@ -1,10 +1,9 @@
-import {
-  agentEngineLabel,
-  DEFAULT_AGENT_ENGINE,
-  type AgentEngine,
-} from './agent-engine.js';
-import type { ModelCatalogEntry } from './model-catalog.js';
-import { listModelCatalogEntries } from './model-catalog.js';
+import type { AgentEngine } from './agent-engine.js';
+import { DEFAULT_AGENT_ENGINE } from './agent-engine.js';
+import type {
+  ModelCatalogEntry,
+  ModelExecutionProviderId,
+} from './model-catalog.js';
 import {
   getModelProviderDefinition,
   listModelRouteProviders,
@@ -13,101 +12,98 @@ import {
 
 export interface ResolvedExecutionRoute {
   route: ModelExecutionRoute;
+  engine: AgentEngine;
   executionProviderId: ModelExecutionRoute['executionProviderId'];
   supportedCredentialModes: readonly string[];
 }
 
 export type ExecutionRouteResolution =
   | { ok: true; value: ResolvedExecutionRoute }
-  | { ok: false; reason: 'incompatible-engine'; message: string };
+  | { ok: false; reason: 'unknown-provider'; message: string };
 
-// Resolves `modelAlias + agentEngine -> executionRoute`. The entry already
-// carries the resolved model alias and its provider route; this picks the
-// execution adapter for the agent's engine or returns a typed incompatibility
-// error with the locked plan copy. Credential-mode rejection happens later,
-// where the bound credential mode is known, using `supportedCredentialModes`.
+// Resolves `modelAlias -> executionRoute`. The engine is no longer chosen: it is
+// derived from the resolved entry's provider, which carries the single execution
+// route (engine + execution adapter + supported credential modes). Credential-mode
+// rejection happens later, where the bound credential mode is known, using
+// `supportedCredentialModes`.
 export function resolveExecutionRoute(input: {
   entry: ModelCatalogEntry;
-  agentEngine: AgentEngine;
 }): ExecutionRouteResolution {
-  const { entry, agentEngine } = input;
+  const { entry } = input;
   const provider = getModelProviderDefinition(entry.modelRoute.id);
   if (!provider) {
     return {
       ok: false,
-      reason: 'incompatible-engine',
+      reason: 'unknown-provider',
       message: `Model ${entry.recommendedAlias} references unsupported provider route ${entry.modelRoute.id}.`,
     };
   }
-  const route = provider.executionRoutes.find(
-    (candidate) => candidate.engine === agentEngine,
-  );
-  if (route) {
-    return {
-      ok: true,
-      value: {
-        route,
-        executionProviderId: route.executionProviderId,
-        supportedCredentialModes: route.supportedCredentialModes,
-      },
-    };
-  }
+  const route = provider.executionRoute;
   return {
-    ok: false,
-    reason: 'incompatible-engine',
-    message: incompatibleEngineMessage(entry, agentEngine, provider),
+    ok: true,
+    value: {
+      route,
+      engine: route.engine,
+      executionProviderId: route.executionProviderId,
+      supportedCredentialModes: route.supportedCredentialModes,
+    },
   };
 }
 
-function incompatibleEngineMessage(
+// Read-only diagnostic for model-catalog response shapes: the derived single
+// route as a one-element array (engine + executionProviderId). Returns an empty
+// array for an unknown provider so the response field stays well-formed.
+export function executionRoutesForEntry(
   entry: ModelCatalogEntry,
-  agentEngine: AgentEngine,
-  provider: NonNullable<ReturnType<typeof getModelProviderDefinition>>,
-): string {
-  const alias = entry.recommendedAlias;
-  if (
-    agentEngine === DEFAULT_AGENT_ENGINE &&
-    provider.responseFamily === 'openai'
-  ) {
-    return `Model ${alias} uses the OpenAI endpoint, which is not supported by Anthropic SDK. Choose DeepAgents or an Anthropic-compatible model.`;
+): { engine: AgentEngine; executionProviderId: ModelExecutionProviderId }[] {
+  const provider = getModelProviderDefinition(entry.modelRoute.id);
+  if (!provider) return [];
+  return [
+    {
+      engine: provider.executionRoute.engine,
+      executionProviderId: provider.executionRoute.executionProviderId,
+    },
+  ];
+}
+
+// Diagnostic memory transport lane for a model's response family. Memory is
+// system-owned host work dispatched purely on the model's family: the default
+// family uses the native SDK memory client, the secondary family uses the
+// OpenAI-compatible direct client. Returns null for an unknown family.
+export type MemoryTransportLane = 'native_sdk' | 'openai_direct';
+const DEFAULT_MEMORY_RESPONSE_FAMILY = 'anthropic';
+const SECONDARY_MEMORY_RESPONSE_FAMILY = 'openai';
+export function memoryTransportLaneForResponseFamily(
+  responseFamily: string | null | undefined,
+): MemoryTransportLane | null {
+  if (responseFamily === SECONDARY_MEMORY_RESPONSE_FAMILY) {
+    return 'openai_direct';
   }
-  const compatible = compatibleAliasesForEngine(agentEngine);
-  const aliasList = compatible.length > 0 ? compatible.join(', ') : 'none';
-  return `Model ${alias} cannot run with ${agentEngineLabel(agentEngine)}. Choose one of: ${aliasList}.`;
+  if (responseFamily === DEFAULT_MEMORY_RESPONSE_FAMILY) return 'native_sdk';
+  return null;
+}
+
+// The single provider -> engine derivation point. The engine is read-only:
+// callers pass the resolved model's provider id and get the engine its models
+// run on. Unknown providers fall back to the system default.
+export function deriveAgentEngineForProvider(providerId: string): AgentEngine {
+  const provider = getModelProviderDefinition(providerId);
+  return provider?.executionRoute.engine ?? DEFAULT_AGENT_ENGINE;
 }
 
 // Reverse lookup: which agent engine an internal `executionProviderId` belongs
-// to. The execution-route registry maps `engine -> executionProviderId` per
-// provider; this inverts it so run diagnostics (job run detail, run-start audit)
-// can surface the inherited engine from the persisted diagnostic provider id
-// without re-reading settings. Returns undefined for an unknown provider id.
+// to. The execution-route registry maps each provider to its single
+// `executionProviderId`; this inverts it so run diagnostics (job run detail,
+// run-start audit) can surface the derived engine from the persisted diagnostic
+// provider id. Returns undefined for an unknown provider id.
 export function engineForExecutionProviderId(
   executionProviderId: string,
 ): AgentEngine | undefined {
   const normalized = executionProviderId.trim();
   for (const provider of listModelRouteProviders()) {
-    for (const route of provider.executionRoutes) {
-      if (route.executionProviderId === normalized) return route.engine;
+    if (provider.executionRoute.executionProviderId === normalized) {
+      return provider.executionRoute.engine;
     }
   }
   return undefined;
-}
-
-// Recommended aliases whose provider route exposes an execution route for the
-// given engine. Used to populate the generic pair-incompatibility copy and to
-// drive settings/CLI compatibility surfaces.
-export function compatibleAliasesForEngine(
-  agentEngine: AgentEngine,
-): readonly string[] {
-  const aliases: string[] = [];
-  for (const entry of listModelCatalogEntries()) {
-    const provider = getModelProviderDefinition(entry.modelRoute.id);
-    if (!provider) continue;
-    if (
-      provider.executionRoutes.some((route) => route.engine === agentEngine)
-    ) {
-      aliases.push(entry.recommendedAlias);
-    }
-  }
-  return aliases;
 }

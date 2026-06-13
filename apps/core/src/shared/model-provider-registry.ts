@@ -100,9 +100,10 @@ export interface ModelProviderCacheSupport {
   response: ModelProviderResponseCacheSupport;
 }
 
-// An execution route declares which internal execution adapter runs this
-// provider's models under a given agent engine, and which credential modes that
-// pairing supports. Resolution is `modelAlias + agentEngine -> executionRoute`.
+// The execution route is derived from the provider, not chosen. Each provider
+// declares the single engine its models run on, the internal execution adapter
+// for that engine, and the credential modes that pairing supports. Resolution is
+// `modelAlias -> provider -> executionRoute`; there is no `agentEngine` input.
 export interface ModelExecutionRoute {
   engine: AgentEngine;
   executionProviderId: ModelExecutionProviderId;
@@ -120,7 +121,7 @@ export interface ModelProviderDefinition {
   credentialModes: readonly ModelCredentialModeDefinition[];
   gateway: ModelGatewayDefinition;
   cacheSupport: ModelProviderCacheSupport;
-  executionRoutes: readonly ModelExecutionRoute[];
+  executionRoute: ModelExecutionRoute;
 }
 
 export const MODEL_PROVIDER_DEFINITIONS = [
@@ -215,21 +216,13 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'normal_usage',
       },
     },
-    executionRoutes: [
-      {
-        engine: DEFAULT_AGENT_ENGINE,
-        executionProviderId: 'anthropic:claude-agent-sdk',
-        supportedCredentialModes: ['api_key', 'claude_code_oauth'],
-      },
-      {
-        // DeepAgents runs Anthropic API-key models through LangChain
-        // ChatAnthropic. Claude OAuth/subscription is intentionally absent: it
-        // is the Anthropic SDK lane only.
-        engine: DEEPAGENTS_ENGINE,
-        executionProviderId: 'deepagents:langchain',
-        supportedCredentialModes: ['api_key'],
-      },
-    ],
+    // Claude is the Anthropic SDK lane: it is the only engine that supports
+    // Claude OAuth/subscription, and it also serves Claude API-key.
+    executionRoute: {
+      engine: DEFAULT_AGENT_ENGINE,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      supportedCredentialModes: ['api_key', 'claude_code_oauth'],
+    },
   },
   {
     id: 'openrouter',
@@ -309,15 +302,14 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'zero_usage_on_hit',
       },
     },
-    executionRoutes: [
-      // OpenRouter projects an Anthropic-compatible gateway with a bearer token;
-      // DeepAgents has no verified ChatAnthropic lane over that projection in v1.
-      {
-        engine: DEFAULT_AGENT_ENGINE,
-        executionProviderId: 'anthropic:claude-agent-sdk',
-        supportedCredentialModes: ['api_key'],
-      },
-    ],
+    // OpenRouter is the DeepAgents lane (was anthropic_sdk). The gateway
+    // sdkProjection + cacheSupport above still describe the Anthropic-compatible
+    // projection; Packets 4-5 swap that to the OpenAI-compatible projection.
+    executionRoute: {
+      engine: DEEPAGENTS_ENGINE,
+      executionProviderId: 'deepagents:langchain',
+      supportedCredentialModes: ['api_key'],
+    },
   },
   {
     id: 'openai',
@@ -383,13 +375,11 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'normal_usage',
       },
     },
-    executionRoutes: [
-      {
-        engine: DEEPAGENTS_ENGINE,
-        executionProviderId: 'deepagents:langchain',
-        supportedCredentialModes: ['api_key'],
-      },
-    ],
+    executionRoute: {
+      engine: DEEPAGENTS_ENGINE,
+      executionProviderId: 'deepagents:langchain',
+      supportedCredentialModes: ['api_key'],
+    },
   },
 ] as const satisfies readonly ModelProviderDefinition[];
 

@@ -93,12 +93,11 @@ function normalizeCompactDefaults(
     if (
       key !== 'name' &&
       key !== 'model' &&
-      key !== 'agent_engine' &&
       key !== 'jobs' &&
       key !== 'sessions'
     ) {
       throw new Error(
-        `defaults.${key} is not supported. Configure defaults.name, defaults.model, defaults.agent_engine, defaults.jobs.*, or defaults.sessions.*.`,
+        `defaults.${key} is not supported. Configure defaults.name, defaults.model, defaults.jobs.*, or defaults.sessions.*.`,
       );
     }
   }
@@ -119,7 +118,6 @@ function normalizeCompactDefaults(
   normalized.agent = {
     name: defaults.name,
     default_model: defaults.model,
-    agent_engine: defaults.agent_engine,
     one_time_job_default_model:
       jobs.one_time_model ?? jobs.one_time_job_default_model,
     recurring_job_default_model:

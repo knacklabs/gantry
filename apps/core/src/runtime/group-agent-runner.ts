@@ -31,7 +31,6 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
-import { DEFAULT_AGENT_ENGINE } from '../shared/agent-engine.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
@@ -240,14 +239,9 @@ export function createGroupAgentRunner(input: {
       group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS,
     );
     // Live-turn lease execution provider must match the runner's engine-resolved
-    // route. Engine inherits from the projected route config or the bound agent.
-    const liveTurnEngine =
-      group.agentConfig?.agentEngine ?? DEFAULT_AGENT_ENGINE;
+    // route. The engine is derived from the resolved model's provider.
     const liveTurnRoute = initialModelSelection.model
-      ? resolveExecutionRoute({
-          entry: initialModelSelection.model,
-          agentEngine: liveTurnEngine,
-        })
+      ? resolveExecutionRoute({ entry: initialModelSelection.model })
       : undefined;
     const executionProviderId = (
       liveTurnRoute?.ok

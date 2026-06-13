@@ -21,6 +21,7 @@ import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
+import type { RunnerStartupHostPhaseTimings } from './agent-spawn-startup-timing.js';
 import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
@@ -149,6 +150,7 @@ export interface RunnerProcessSpec {
   runnerLabel: string;
   processName: string;
   startTime: number;
+  startupHostPhases?: RunnerStartupHostPhaseTimings;
   logsDir: string;
   runtimeDetails: string[];
   sandbox: Omit<RunnerSandboxSpawnInput, 'command' | 'args' | 'env'>;

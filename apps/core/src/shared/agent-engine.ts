@@ -1,9 +1,11 @@
-// Public agent-engine vocabulary. This module is the single source of the SDK
+// Internal agent-engine vocabulary. This module is the single source of the SDK
 // engine value outside the provider adapter and the contracts zod enum; every
 // other module references the exported constants so the provider-boundary
-// architecture gate stays count-exact. The SDK engine is the system default and
-// the Claude OAuth/subscription lane; DeepAgents is the API-key engine. See
-// docs/architecture/deepagents-agent-engine-handoff-plan.md.
+// architecture gate stays count-exact. The SDK engine is the Claude
+// OAuth/subscription + API-key lane; DeepAgents is the API-key engine for every
+// other provider. The engine is no longer user-selectable: it is derived from
+// the resolved model's provider (see `deriveAgentEngineForProvider` in
+// model-execution-route.ts) and surfaced only as a read-only diagnostic.
 
 export const DEEPAGENTS_ENGINE = 'deepagents';
 
@@ -29,46 +31,4 @@ export function isAgentEngine(value: unknown): value is AgentEngine {
     typeof value === 'string' &&
     (AGENT_ENGINES as readonly string[]).includes(value)
   );
-}
-
-function normalizeAgentEngineInput(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[-\s]+/g, '_');
-}
-
-// Lenient resolution for runtime read paths: an unknown value falls back to the
-// system default rather than throwing.
-export function resolveAgentEngine(value: unknown): AgentEngine {
-  if (typeof value !== 'string') return DEFAULT_AGENT_ENGINE;
-  const normalized = normalizeAgentEngineInput(value);
-  return isAgentEngine(normalized) ? normalized : DEFAULT_AGENT_ENGINE;
-}
-
-// Strict parsing for settings/config edges: an unknown value throws with the
-// locked plan copy. When `path` is provided the message is prefixed with it for
-// settings/document errors; CLI/API edges pass no path to surface the bare
-// locked copy.
-export function parseAgentEngine(value: unknown, path?: string): AgentEngine {
-  if (value === undefined) return DEFAULT_AGENT_ENGINE;
-  if (typeof value !== 'string') {
-    throw new Error(unsupportedAgentEngineMessage(value, path));
-  }
-  const normalized = normalizeAgentEngineInput(value);
-  if (!isAgentEngine(normalized)) {
-    throw new Error(unsupportedAgentEngineMessage(value, path));
-  }
-  return normalized;
-}
-
-// Locked plan copy for an unsupported engine value. The provider literals live
-// only in this module, so every surface that needs this copy imports it here.
-export function unsupportedAgentEngineMessage(
-  value: unknown,
-  path?: string,
-): string {
-  const display = typeof value === 'string' ? value : String(value);
-  const message = `Unsupported agent engine: ${display}. Choose ${DEFAULT_AGENT_ENGINE} or ${DEEPAGENTS_ENGINE}.`;
-  return path ? `${path}: ${message}` : message;
 }

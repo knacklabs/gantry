@@ -360,37 +360,6 @@ export async function handleAgentRoutes(
     };
     await repository.saveAgent(updated);
     await ctx.syncSettingsFromProjection(auth.appId as AppId);
-    // Engine is durable in settings.yaml (not a stored agent field), so a change
-    // rewrites settings and reconciles in the same operation per the
-    // restart-owned sync rule. An incompatible model/engine pair is rejected by
-    // settings validation with the locked plan copy before any write lands.
-    if (parsed.data.agentEngine !== undefined) {
-      const folder = folderForAgentId(updated.id);
-      if (!folder) {
-        sendError(
-          res,
-          400,
-          'INVALID_REQUEST',
-          'Agent does not have a workspace folder; engine cannot be set.',
-        );
-        return true;
-      }
-      try {
-        await ctx.setAgentEngine({
-          appId: auth.appId as AppId,
-          folder,
-          agentEngine: parsed.data.agentEngine,
-        });
-      } catch (err) {
-        sendError(
-          res,
-          400,
-          'INVALID_REQUEST',
-          err instanceof Error ? err.message : 'Engine update failed.',
-        );
-        return true;
-      }
-    }
     sendJson(res, 200, agentToResponse(ctx, updated));
     return true;
   }

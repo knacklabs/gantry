@@ -75,17 +75,12 @@ describe('validateDeepAgentCredentialProjection (A3 fail-closed)', () => {
   });
 
   it('rejects Claude OAuth mode with the locked OAuth copy', () => {
-    // Env keys are built by concatenation to avoid tripping the provider-token
-    // boundary gate on a literal in a non-adapter test file.
-    const anthropicEnv = {
-      ['ANTHROPIC' + '_BASE_URL']: 'http://127.0.0.1:4567/anthropic',
-      ['ANTHROPIC' + '_API_KEY']: 'gtw_t',
-    };
+    // Defense in depth: even on a DeepAgents-routed model (gpt), a claude OAuth
+    // credential mode must be rejected — it can only ever project to the SDK lane.
     expect(() =>
       validateDeepAgentCredentialProjection({
-        entry: catalogEntry('sonnet'),
+        entry: catalogEntry('gpt'),
         projection: projection({
-          env: anthropicEnv,
           brokerAuthMode: 'claude_code_oauth',
         }),
       }),

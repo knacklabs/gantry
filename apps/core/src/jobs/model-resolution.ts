@@ -28,10 +28,7 @@ export function resolveJobExecutionProviderId(input: {
   const resolution = input.resolvedModel.resolution;
   let routed: ExecutionProviderId | undefined;
   if (resolution?.ok) {
-    const route = resolveExecutionRoute({
-      entry: resolution.entry,
-      agentEngine: input.resolvedModel.agentEngine,
-    });
+    const route = resolveExecutionRoute({ entry: resolution.entry });
     if (route.ok) {
       routed = route.value.executionProviderId as ExecutionProviderId;
     }
@@ -70,10 +67,7 @@ function resolvedRunDiagnostics(resolved: ResolvedJobModel) {
   let executionProviderId: string | null = null;
   let supportedCredentialModes: readonly string[] = [];
   if (resolved.resolution?.ok) {
-    const route = resolveExecutionRoute({
-      entry: resolved.resolution.entry,
-      agentEngine: resolved.agentEngine,
-    });
+    const route = resolveExecutionRoute({ entry: resolved.resolution.entry });
     if (route.ok) {
       executionProviderId = route.value.executionProviderId;
       supportedCredentialModes = route.value.supportedCredentialModes;

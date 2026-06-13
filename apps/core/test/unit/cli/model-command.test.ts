@@ -42,32 +42,6 @@ describe('model CLI command', () => {
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
   });
 
-  it('shows the memory engine label in memory and status output', async () => {
-    const runtimeHome = makeRuntimeHome();
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-    // Default memory engine label.
-    await expect(runModelCommand(runtimeHome, ['memory'])).resolves.toBe(0);
-    expect(logSpy.mock.calls.at(-1)?.[0]).toContain(
-      'Memory engine: Anthropic SDK',
-    );
-
-    // Flip the memory engine in settings and confirm the label updates.
-    const settings = loadRuntimeSettings(runtimeHome);
-    settings.memory.engine = 'deepagents';
-    saveRuntimeSettings(runtimeHome, settings);
-
-    await expect(runModelCommand(runtimeHome, ['memory'])).resolves.toBe(0);
-    expect(logSpy.mock.calls.at(-1)?.[0]).toContain(
-      'Memory engine: DeepAgents',
-    );
-
-    await expect(runModelCommand(runtimeHome, ['status'])).resolves.toBe(0);
-    expect(logSpy.mock.calls.at(-1)?.[0]).toContain(
-      'Memory engine: DeepAgents',
-    );
-  });
-
   it('sets and resets chat and job defaults by alias', async () => {
     const runtimeHome = makeRuntimeHome();
     const preflightPreset = vi.fn(async () => ({

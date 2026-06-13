@@ -107,6 +107,7 @@ export function executeRunnerProcess(
     const startupTiming = createRunnerStartupTiming({
       startTime,
       nowMs: currentTimeMs,
+      hostPhases: spec.startupHostPhases,
     });
     try {
       runner = sandboxProvider.start({ command, args, env, ...sandbox });
@@ -229,6 +230,9 @@ export function executeRunnerProcess(
           try {
             let parsed: AgentOutput = JSON.parse(jsonStr);
             startupTiming.markFirstStructuredOutput();
+            if (isVisibleResultFrame(parsed)) {
+              startupTiming.markFirstVisibleOutput();
+            }
             const streamedProviderSessionId =
               providerSessionExternalSessionId(parsed);
             if (streamedProviderSessionId) {
@@ -681,4 +685,8 @@ export function executeRunnerProcess(
       });
     });
   });
+}
+
+function isVisibleResultFrame(output: AgentOutput): boolean {
+  return typeof output.result === 'string' && output.result.length > 0;
 }

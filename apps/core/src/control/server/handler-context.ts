@@ -94,9 +94,6 @@ export type ControlRouteContext = {
     agentFolder?: string,
   ) => ControlDefaultModelConfig;
   getModelDefaults: () => ControlModelDefaults;
-  // The configured memory engine (`memory.engine`), read fresh so the model
-  // preview reflects a reviewed settings reload without restart.
-  getMemoryEngine: () => AgentEngine;
   patchModelDefaults: (
     body: Record<string, unknown>,
   ) => Promise<ControlModelDefaultsPatchResult>;
@@ -121,21 +118,11 @@ export type ControlRouteContext = {
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   syncSettingsFromProjection: (appId: AppId) => Promise<void>;
   /**
-   * Effective engine for an agent folder (per-agent override else the configured
-   * default). Injected from the runtime/config layer so the control adapter
-   * exposes the diagnostic without importing config directly.
+   * Engine derived from the agent's effective model provider (read-only
+   * diagnostic). Injected from the runtime/config layer so the control adapter
+   * exposes it without importing config directly.
    */
   getEffectiveAgentEngine: (agentFolder?: string) => AgentEngine;
-  /**
-   * Write a per-agent engine into settings.yaml and reconcile in the same
-   * operation (restart-owned sync). Throws with the locked plan copy when the
-   * resulting model/engine pairing is incompatible.
-   */
-  setAgentEngine: (input: {
-    appId: AppId;
-    folder: string;
-    agentEngine: AgentEngine;
-  }) => Promise<void>;
 };
 
 export function authorizeControlRequest(

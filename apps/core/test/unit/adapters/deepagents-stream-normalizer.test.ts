@@ -101,6 +101,30 @@ describe('normalizeDeepAgentStream', () => {
     expect(result.terminalUsage.outputTokens).toBe(4);
   });
 
+  it('reports first stream event separately from first visible text', async () => {
+    const firstEvents: string[] = [];
+    let visibleTextCount = 0;
+
+    await normalizeDeepAgentStream({
+      events: asStream([
+        {
+          event: 'on_chat_model_start',
+        },
+        streamEvent('visible'),
+      ]),
+      newSessionId: 'session-timing',
+      modelProfile: { maxInputTokens: 1000 },
+      emit: () => {},
+      onFirstEvent: (eventName) => firstEvents.push(eventName),
+      onFirstVisibleText: () => {
+        visibleTextCount += 1;
+      },
+    });
+
+    expect(firstEvents).toEqual(['on_chat_model_start']);
+    expect(visibleTextCount).toBe(1);
+  });
+
   it('returns the assistant text as the terminal result when no partial text streamed', async () => {
     const frames: RunnerOutputFrame[] = [];
     const result = await normalizeDeepAgentStream({

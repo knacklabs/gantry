@@ -187,7 +187,6 @@ export function settingsToRevisionDocument(
       name: agent.name,
       persona: agent.persona,
       relationship_mode: agent.relationshipMode,
-      agent_engine: agent.agentEngine,
       model: agent.model,
       one_time_job_default_model: agent.oneTimeJobDefaultModel,
       recurring_job_default_model: agent.recurringJobDefaultModel,
@@ -211,7 +210,6 @@ export function settingsToRevisionDocument(
     agent: {
       name: settings.agent.name,
       default_model: settings.agent.defaultModel,
-      agent_engine: settings.agent.defaultAgentEngine,
       one_time_job_default_model: settings.agent.oneTimeJobDefaultModel,
       recurring_job_default_model: settings.agent.recurringJobDefaultModel,
       sessions: {
