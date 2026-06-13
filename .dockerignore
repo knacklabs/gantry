@@ -12,6 +12,8 @@ packages/*/dist
 coverage
 .nyc_output
 __MACOSX
+__pycache__
+*.pyc
 *.log
 npm-debug.log*
 Dockerfile
