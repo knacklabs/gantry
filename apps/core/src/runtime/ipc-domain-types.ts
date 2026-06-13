@@ -26,6 +26,7 @@ import type { BrowserSessionStatus } from './browser-capability-types.js';
 import type { BrowserUsageSettings } from './browser-usage-governor.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
+import type { ToolCallRecord } from './reply-trace.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -104,6 +105,13 @@ export interface IpcDeps {
     | BrowserUsageSettings
     | undefined
     | Promise<BrowserUsageSettings | undefined>;
+  /**
+   * Best-effort: record one MCP tool call into the per-reply latency trace,
+   * keyed by the run handle so the persist site can drain it. Generic — server
+   * and tool are data from the IPC payload. Absent in callers/tests that do not
+   * trace. Must never throw into the reply path.
+   */
+  recordReplyToolCall?: (runHandle: string, record: ToolCallRecord) => void;
 }
 
 export interface IpcDomainContext {

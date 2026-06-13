@@ -445,6 +445,10 @@ export function registerServiceTools(server: McpServer): void {
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_call_tool',
         taskId,
+        // The run handle joins this MCP call to its reply trace: core keys the
+        // RunTraceCollector by runHandle at capture and drains by the same key
+        // at persist time. Matches the other capability IPC writers.
+        runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,
