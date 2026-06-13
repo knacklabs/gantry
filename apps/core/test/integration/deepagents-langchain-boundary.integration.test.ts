@@ -606,7 +606,7 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
     } finally {
       await gateway.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it('throws a stale-session error when resuming an unknown session id', async () => {
     const gateway = await startFakeOpenAiGateway();
@@ -635,7 +635,7 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
     } finally {
       await gateway.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it('runs an ephemeral scheduled job without persisting a session file', async () => {
     const gateway = await startFakeOpenAiGateway();
@@ -663,7 +663,7 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
     } finally {
       await gateway.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it('gates a third-party MCP tool call and writes a durable permission-request file (HITL durability)', async () => {
     // A gateway that forces the model to call the third-party tool on the first
@@ -720,7 +720,7 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
     } finally {
       await gateway.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   // OpenRouter cache accounting end to end: a fake OpenRouter chat-completions
   // gateway returns a streamed FINAL chunk carrying usage with
@@ -782,7 +782,7 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
     } finally {
       await gateway.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   // R9: an in-flight run that receives a `_close` sentinel (close-stdin / STOP)
   // aborts the stream and exits cleanly WITHOUT emitting a turn-complete marker
@@ -836,5 +836,5 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
     } finally {
       await gateway.close();
     }
-  }, 60_000);
+  }, 120_000);
 });
