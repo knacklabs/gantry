@@ -11,10 +11,22 @@ import type { GuardrailConfig } from '@core/domain/types.js';
 // not execute tools or produce conversation-specific customer answers.
 import bssCustomerSupportPolicy from '../../../../../../agents/boondi_support/guardrails/guardrail.ts';
 
+// Boondi's contract: deterministic screen + inline scope block for turns the
+// deterministic stage did not resolve (the policy exports systemPromptAppend).
 const config: GuardrailConfig = {
   file: 'guardrail.ts',
   model: 'haiku',
+  mode: 'deterministic',
+  unresolved: 'inline',
+};
+
+// Legacy classifier-escalation contract: deterministic screen, then classifier
+// for unresolved turns (no inline block).
+const classifierConfig: GuardrailConfig = {
+  file: 'guardrail.ts',
+  model: 'haiku',
   mode: 'both',
+  unresolved: 'classifier',
 };
 
 const policy = bssCustomerSupportPolicy;
@@ -25,6 +37,18 @@ const legacyClassifierPolicy: GuardrailPolicy = {
   evaluateDeterministic: () => null,
   directResponse: () => 'not used',
 };
+
+// Build an arbitrary GuardrailPolicy for the unresolved-contract matrix below.
+// (The wider suite imports Boondi's real policy; these cases need policies whose
+// deterministic / systemPromptAppend behavior is controlled per-test.)
+function makePolicy(overrides: Partial<GuardrailPolicy>): GuardrailPolicy {
+  return {
+    id: 'test_policy',
+    prompt: 'test prompt',
+    directResponse: () => 'not used',
+    ...overrides,
+  };
+}
 
 describe('BSS customer support guardrail', () => {
   it('handles obvious BSS support turns without calling the classifier', async () => {
@@ -212,7 +236,7 @@ describe('BSS customer support guardrail', () => {
 
     await expect(
       evaluateAgentGuardrail({
-        config,
+        config: classifierConfig,
         policy: legacyClassifierPolicy,
         messages: ['unclear support turn'],
         classifier,
@@ -233,7 +257,7 @@ describe('BSS customer support guardrail', () => {
   it('fails closed for malformed or failed legacy classifier decisions', async () => {
     await expect(
       evaluateAgentGuardrail({
-        config,
+        config: classifierConfig,
         policy: legacyClassifierPolicy,
         messages: ['unclear support turn'],
         classifier: vi.fn(() => ({ action: 'allow' })),
@@ -246,7 +270,7 @@ describe('BSS customer support guardrail', () => {
 
     await expect(
       evaluateAgentGuardrail({
-        config,
+        config: classifierConfig,
         policy: legacyClassifierPolicy,
         messages: ['unclear support turn'],
         classifier: vi.fn(() => {
@@ -270,5 +294,199 @@ describe('BSS customer support guardrail', () => {
     expect(customerVisibleGuardrailResponse(undefined, 'scope_rejection')).toBe(
       'I can only help with the configured support scope.',
     );
+  });
+});
+
+describe('unresolved contract', () => {
+  // policy that resolves nothing deterministically but exports an inline append
+  const inlinePolicy = makePolicy({
+    evaluateDeterministic: () => null,
+    systemPromptAppend: () => 'INLINE SCOPE BLOCK',
+  });
+  // policy that exports an append but config will NOT say inline
+  const appendButNotInline = inlinePolicy;
+  // policy with no append at all
+  const noAppendPolicy = makePolicy({ evaluateDeterministic: () => null });
+
+  it('deterministic + inline: inconclusive turn allows with append', async () => {
+    const d = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'inline',
+      },
+      policy: inlinePolicy,
+      messages: ['something ambiguous'],
+      allowInlineSystemPromptAppend: true,
+    });
+    expect(d).toEqual({
+      action: 'allow',
+      reason: 'inconclusive_inline_guardrail',
+      systemPromptAppend: 'INLINE SCOPE BLOCK',
+    });
+  });
+
+  it('deterministic + inline on warm path: allows plain, never classifier', async () => {
+    const d = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'inline',
+      },
+      policy: inlinePolicy,
+      messages: ['x'],
+      allowInlineSystemPromptAppend: false,
+      classifier: async () => {
+        throw new Error('classifier must not be called');
+      },
+    });
+    expect(d).toEqual({
+      action: 'allow',
+      reason: 'inconclusive_inline_guardrail_unattached',
+    });
+  });
+
+  it('deterministic + inline but policy has no append: clarifies', async () => {
+    const d = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'inline',
+      },
+      policy: noAppendPolicy,
+      messages: ['x'],
+      allowInlineSystemPromptAppend: true,
+    });
+    expect(d).toEqual({
+      action: 'direct_response',
+      responseKind: 'scope_clarification',
+      reason: 'inline_guardrail_unconfigured',
+    });
+  });
+
+  it('deterministic + clarify: clarifies', async () => {
+    const d = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'clarify',
+      },
+      policy: noAppendPolicy,
+      messages: ['x'],
+    });
+    expect(d).toEqual({
+      action: 'direct_response',
+      responseKind: 'scope_clarification',
+      reason: 'unresolved_clarify',
+    });
+  });
+
+  it('deterministic + allow: allows plain (append ignored even if present)', async () => {
+    const d = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'allow',
+      },
+      policy: appendButNotInline,
+      messages: ['x'],
+      allowInlineSystemPromptAppend: true,
+    });
+    expect(d).toEqual({ action: 'allow', reason: 'unresolved_allow' });
+  });
+
+  it('deterministic + reject: rejects', async () => {
+    const d = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'reject',
+      },
+      policy: noAppendPolicy,
+      messages: ['x'],
+    });
+    expect(d).toEqual({
+      action: 'direct_response',
+      responseKind: 'scope_rejection',
+      reason: 'unresolved_reject',
+    });
+  });
+
+  it('both + classifier: calls classifier on inconclusive', async () => {
+    const calls: number[] = [];
+    await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'both',
+        unresolved: 'classifier',
+      },
+      policy: appendButNotInline,
+      messages: ['x'],
+      classifier: async () => {
+        calls.push(1);
+        return { action: 'allow', reason: 'classifier_allow' };
+      },
+    });
+    // append was NOT used; classifier won (no hidden magic)
+    expect(calls.length).toBe(1);
+  });
+
+  it('classifier mode: calls classifier directly, no deterministic', async () => {
+    let deterministicCalled = false;
+    await evaluateAgentGuardrail({
+      config: { file: 'g.ts', model: 'haiku', mode: 'classifier' },
+      policy: makePolicy({
+        evaluateDeterministic: () => {
+          deterministicCalled = true;
+          return { action: 'allow', reason: 'det_allow' };
+        },
+      }),
+      messages: ['x'],
+      classifier: async () => ({ action: 'allow', reason: 'classifier_allow' }),
+    });
+    expect(deterministicCalled).toBe(false);
+  });
+
+  it('resolved allow + inline attaches append; non-inline ignores it', async () => {
+    const resolveAllow = makePolicy({
+      evaluateDeterministic: () => ({ action: 'allow', reason: 'det_allow' }),
+      systemPromptAppend: () => 'BLOCK',
+    });
+    const withInline = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'deterministic',
+        unresolved: 'inline',
+      },
+      policy: resolveAllow,
+      messages: ['order status'],
+      allowInlineSystemPromptAppend: true,
+    });
+    expect(withInline).toEqual({
+      action: 'allow',
+      reason: 'det_allow',
+      systemPromptAppend: 'BLOCK',
+    });
+    const withClassifier = await evaluateAgentGuardrail({
+      config: {
+        file: 'g.ts',
+        model: 'haiku',
+        mode: 'both',
+        unresolved: 'classifier',
+      },
+      policy: resolveAllow,
+      messages: ['order status'],
+      classifier: async () => ({ action: 'allow', reason: 'classifier_allow' }),
+    });
+    // no append leaked
+    expect(withClassifier).toEqual({ action: 'allow', reason: 'det_allow' });
   });
 });
