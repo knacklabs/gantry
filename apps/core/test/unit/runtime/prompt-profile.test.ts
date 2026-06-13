@@ -317,6 +317,11 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain(
       'If an approved operational source is already connected',
     );
+    expect(prompt).toContain(
+      'inspect connected MCP sources with mcp_list_tools',
+    );
+    expect(prompt).toContain('display names only');
+    expect(prompt).toContain('Do not show internal ids, codes, UUIDs');
     expect(prompt).toContain('include the returned deep link');
     expect(prompt).not.toContain('CAW');
     expect(prompt).not.toContain('position_url');
@@ -368,6 +373,9 @@ describe('PromptProfileService', () => {
     );
     expect(prompt).toContain(
       'instead of requesting the same access again or using command/browser fallback',
+    );
+    expect(prompt).toContain(
+      'Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names',
     );
     expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
   });

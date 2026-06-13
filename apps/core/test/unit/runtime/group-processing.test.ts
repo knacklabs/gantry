@@ -1637,6 +1637,46 @@ describe('createGroupProcessor', () => {
       ).toBe(true);
     });
 
+    it('does not post elapsed progress after visible output is already shown', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath({ group, messages });
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({
+            status: 'success',
+            result: 'Here are the project names.',
+          });
+          (channel.sendProgressUpdate as ReturnType<typeof vi.fn>).mockClear();
+          await vi.advanceTimersByTimeAsync(125_000);
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(
+        (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.some(
+          (call) =>
+            typeof call[1] === 'string' &&
+            call[1].startsWith('Still working ('),
+        ),
+      ).toBe(false);
+    });
+
     it('resets elapsed progress when a continuation message starts a new visible turn', async () => {
       let continuationHandler: (() => void) | undefined;
       const run = deferred<AgentOutput>();

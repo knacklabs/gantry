@@ -113,6 +113,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     if (!content) return;
     const sender = event.user || 'unknown';
     const senderName = await this.resolveUserName(event.user);
+    const threadId =
+      event.thread_ts || (isGroupConversation ? event.ts : undefined);
     await this.opts.onMessage(jid, {
       id: event.ts,
       chat_jid: jid,
@@ -123,7 +125,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
       is_from_me: this.botUserId ? sender === this.botUserId : false,
       external_message_id: event.ts,
-      thread_id: event.thread_ts || undefined,
+      thread_id: threadId,
       attachments: enriched.attachments,
       reply_to_message_id:
         event.thread_ts && event.thread_ts !== event.ts

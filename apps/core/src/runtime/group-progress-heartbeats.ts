@@ -160,6 +160,7 @@ export function createResponseProgressSenders(input: {
 export function startGroupProgressHeartbeats(input: {
   supportsProgress: boolean;
   isTypingActive: () => boolean;
+  hasVisibleOutput?: () => boolean;
   getLastAgentProgressAt: () => number;
   getElapsedMs: () => number;
   chatJid: string;
@@ -200,7 +201,10 @@ export function startGroupProgressHeartbeats(input: {
       if (!input.supportsProgress || paused || !input.isTypingActive()) return;
       const now = currentTimeMs();
       const elapsedMs = input.getElapsedMs();
-      if (now - lastElapsedProgressAt >= ELAPSED_PROGRESS_INTERVAL_MS) {
+      if (
+        !input.hasVisibleOutput?.() &&
+        now - lastElapsedProgressAt >= ELAPSED_PROGRESS_INTERVAL_MS
+      ) {
         lastElapsedProgressAt = now;
         const progressOptions =
           input.buildProgressOptions?.() ?? input.buildMessageOptions();

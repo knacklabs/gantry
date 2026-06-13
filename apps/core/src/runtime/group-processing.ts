@@ -450,6 +450,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     progressHeartbeat = startGroupProgressHeartbeats({
       supportsProgress,
       isTypingActive: () => typingActive,
+      hasVisibleOutput: () => activeGenerationHasOutput,
       getLastAgentProgressAt: () => lastAgentProgressAt,
       getElapsedMs: activeElapsedMs,
       chatJid,

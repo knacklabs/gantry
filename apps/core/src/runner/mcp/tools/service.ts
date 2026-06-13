@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { nowIso } from '../../../shared/time/datetime.js';
 import {
   availableSemanticCapabilities,
+  attachedMcpSourceIds,
   capabilityStatusText,
   chatJid,
   configuredAllowedTools,
@@ -243,6 +244,24 @@ export function registerServiceTools(server: McpServer): void {
         },
       );
       if (wrongLaneGuidance) return wrongLaneGuidance;
+      const existingSource = existingMcpSourceForRequest(args.name);
+      if (existingSource) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: [
+                `MCP source "${existingSource.serverName}" is already available for this run.`,
+                existingSource.selectedCapabilities.length
+                  ? `Selected capabilities: ${existingSource.selectedCapabilities.join(', ')}`
+                  : 'A matching MCP source is already attached.',
+                `Use mcp_list_tools with serverName="${existingSource.serverName}", then mcp_call_tool with serverName="${existingSource.serverName}" for approved actions.`,
+                'Do not request the same MCP source setup again unless a tool call reports access is missing or denied.',
+              ].join('\n'),
+            },
+          ],
+        };
+      }
       const taskId = makeIpcId('request-mcp');
       writeIpcFile(TASKS_DIR, {
         type: 'request_mcp_server',
@@ -621,6 +640,83 @@ function isBrowserWrongLaneText(value: string): boolean {
     compact === 'browserbackend' ||
     compact === 'browsercontrol'
   );
+}
+
+function existingMcpSourceForRequest(name: string):
+  | {
+      serverName: string;
+      selectedCapabilities: string[];
+    }
+  | undefined {
+  const requestedName = normalizeMcpServerName(name);
+  if (!requestedName) return undefined;
+
+  const attachedSourceName = attachedMcpSourceIds
+    .map(displayMcpSourceName)
+    .find((sourceName) => normalizeMcpServerName(sourceName) === requestedName);
+  if (attachedSourceName) {
+    return {
+      serverName: attachedSourceName,
+      selectedCapabilities:
+        selectedMcpCapabilitiesForSource(attachedSourceName),
+    };
+  }
+
+  const selectedCapabilities = selectedMcpCapabilitiesForSource(name);
+  if (selectedCapabilities.length > 0) {
+    return {
+      serverName: name.trim(),
+      selectedCapabilities,
+    };
+  }
+
+  return undefined;
+}
+
+function selectedMcpCapabilitiesForSource(serverName: string): string[] {
+  const requestedName = normalizeMcpServerName(serverName);
+  if (!requestedName) return [];
+  return availableSemanticCapabilities
+    .filter((capability) => {
+      if (
+        !configuredAllowedTools.includes(
+          `capability:${capability.capabilityId}`,
+        )
+      ) {
+        return false;
+      }
+      const sourceServerName = mcpSourceServerName(capability.source);
+      if (normalizeMcpServerName(sourceServerName) === requestedName) {
+        return true;
+      }
+      return capability.implementationBindings.some((binding) => {
+        if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
+        const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
+        return normalizeMcpServerName(match?.[1]) === requestedName;
+      });
+    })
+    .map((capability) => capability.capabilityId)
+    .sort();
+}
+
+function mcpSourceServerName(source: unknown): string | undefined {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return undefined;
+  }
+  const record = source as Record<string, unknown>;
+  if (record.source !== 'mcp') return undefined;
+  return typeof record.serverName === 'string' ? record.serverName : undefined;
+}
+
+function displayMcpSourceName(sourceId: string): string {
+  const normalized = sourceId.trim();
+  return normalized.startsWith('mcp:')
+    ? normalized.slice('mcp:'.length)
+    : normalized;
+}
+
+function normalizeMcpServerName(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
 }
 
 type CapabilityReviewToolName =

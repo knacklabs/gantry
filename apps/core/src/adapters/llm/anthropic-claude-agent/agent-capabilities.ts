@@ -129,6 +129,14 @@ function gantryMcpAllowedTools(input: {
   ).map(gantryMcpFullToolName);
 }
 
+function suppressedGantryMcpToolNames(input: {
+  suppressRequestPermission?: boolean;
+}): string[] {
+  return input.suppressRequestPermission
+    ? [gantryMcpFullToolName('request_access')]
+    : [];
+}
+
 function defaultAllowedTools(input: {
   hideAuthorityTools?: boolean;
   suppressRequestPermission?: boolean;
@@ -196,7 +204,10 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               suppressRequestPermission,
             }),
       availableTools: baseAvailableTools,
-      disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
+      disallowedTools: [
+        ...UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
+        ...suppressedGantryMcpToolNames({ suppressRequestPermission }),
+      ],
     };
   },
 };

@@ -194,7 +194,7 @@ describe('agent capability composition', () => {
     });
   });
 
-  it('hides request_permission when reviewed MCP access is selected', () => {
+  it('suppresses request_access when reviewed MCP access is selected', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       appId: 'default',
@@ -229,22 +229,21 @@ describe('agent capability composition', () => {
       ],
     });
 
-    expect(profile.allowedTools).not.toContain(
-      'mcp__gantry__request_permission',
-    );
+    expect(profile.allowedTools).not.toContain('mcp__gantry__request_access');
     expect(profile.alwaysAllowedTools).not.toContain(
-      'mcp__gantry__request_permission',
+      'mcp__gantry__request_access',
     );
+    expect(profile.disallowedTools).toContain('mcp__gantry__request_access');
     expect(
       JSON.parse(
         String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
       ),
-    ).not.toContain('request_permission');
+    ).not.toContain('request_access');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });
 
-  it('hides request_permission when an MCP source is attached for the run', () => {
+  it('suppresses request_access when an MCP source is attached for the run', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       appId: 'default',
@@ -257,14 +256,13 @@ describe('agent capability composition', () => {
       attachedMcpSourceIds: ['mcp:00dab2e4-3c5c-4d5c-b7f3-be05f2f38d49'],
     });
 
-    expect(profile.allowedTools).not.toContain(
-      'mcp__gantry__request_permission',
-    );
+    expect(profile.allowedTools).not.toContain('mcp__gantry__request_access');
+    expect(profile.disallowedTools).toContain('mcp__gantry__request_access');
     expect(
       JSON.parse(
         String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
       ),
-    ).not.toContain('request_permission');
+    ).not.toContain('request_access');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });

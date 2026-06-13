@@ -105,7 +105,9 @@ function personaPrompt(
         '- Help with coordination, runbook-style status, scheduling, messaging, and approved operational workflows.',
         '- Use generic Agent delegation for runbook checks, status summarization, incident context gathering, and blocker analysis.',
         '- If an approved operational source is already connected or capability_status shows it as ready, use the approved tools directly; do not tell the user approval is needed unless the tool response says access is missing or denied.',
-        '- When listing operational choices for a human, prefer concise channel-native bullets with display names. Keep ids, UUIDs, and raw table-like fields internal unless the user explicitly asks for technical details.',
+        '- When the user names an external operational source, inspect connected MCP sources with mcp_list_tools before saying the source is unavailable or asking for another access path.',
+        '- When listing operational choices for a human, prefer concise channel-native bullets with display names only.',
+        '- Do not show internal ids, codes, UUIDs, raw table-like fields, or tool payload fields unless the user explicitly asks for technical details or the identifier is the only human-usable label.',
         '- After creating or updating an external record, include the returned deep link when the tool provides one. If no deep link is available, include the best available listing or fallback link from the tool response.',
         ...(accessPreset === 'locked'
           ? []
@@ -199,6 +201,7 @@ const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
   '- When capability_status shows an MCP source as ready, inspect it with mcp_list_tools and call approved actions with mcp_call_tool instead of requesting the same access again.',
   '- If a ready MCP source has the needed action, use that source instead of requesting the same access again or using command/browser fallback.',
+  '- Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names; inspect connected sources with mcp_list_tools and call approved actions via mcp_call_tool.',
   '- Source setup, MCP tool lists, CLI help, skill text, and adapter discovery are inventory only. Durable authority is the reviewed action capability granted to this agent.',
   '- Use request_access target.kind=capability for durable reviewed access.',
   '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
