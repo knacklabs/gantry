@@ -190,6 +190,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       modelCredentials: getRuntimeStorage().repositories.modelCredentials,
       gatewayBindHost: brokerConfig.gatewayBindHost,
       publishRuntimeEvent: options.publishRuntimeEvent,
+      limits: () => getRuntimeSettingsForConfig().limits,
     }).catch((error) => {
       credentialBrokerPromise = undefined;
       throw error;

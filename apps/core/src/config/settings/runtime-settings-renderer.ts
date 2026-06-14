@@ -43,6 +43,10 @@ import type {
   RuntimeSettings,
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
+import {
+  renderLimitsSettingsYaml,
+  renderModelFamiliesYaml,
+} from './runtime-settings-optional-blocks-renderer.js';
 
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
 
@@ -185,21 +189,6 @@ function renderPermissionSettingsYaml(
     '  egress:',
     `    denylist: ${JSON.stringify(permissions.egress.denylist)}`,
   );
-  lines.push('');
-}
-
-function renderModelFamiliesYaml(
-  lines: string[],
-  modelFamilies: Record<string, string[]>,
-): void {
-  const entries = Object.entries(modelFamilies)
-    .filter(([, members]) => members.length > 0)
-    .sort(([a], [b]) => a.localeCompare(b));
-  if (entries.length === 0) return;
-  lines.push('model_families:');
-  for (const [alias, members] of entries) {
-    lines.push(`  ${quoteYamlKey(alias)}: ${JSON.stringify(members)}`);
-  }
   lines.push('');
 }
 
@@ -715,6 +704,7 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   if (!isDefaultPermissionSettings(settings.permissions)) {
     renderPermissionSettingsYaml(lines, settings.permissions);
   }
+  renderLimitsSettingsYaml(lines, settings.limits);
   renderModelFamiliesYaml(lines, settings.modelFamilies);
 
   return lines.join('\n');

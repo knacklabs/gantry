@@ -5,7 +5,10 @@ import {
   type ModelPresetId,
 } from '../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
-import { formatContextWindow } from '../shared/model-catalog-format.js';
+import {
+  formatContextWindow,
+  formatCostPerMillion,
+} from '../shared/model-catalog-format.js';
 import {
   listModelFamilies,
   type FamilyOrderOverrides,
@@ -82,8 +85,8 @@ export function formatModelList(
   const { configuredProviders, familyOrder } = availability;
   const hasAvailability = configuredProviders !== undefined;
   const header = hasAvailability
-    ? 'Alias | Model | Response family | Route | Context | Cache | Availability | Status'
-    : 'Alias | Model | Response family | Route | Context | Cache | Status';
+    ? 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Availability | Status'
+    : 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status';
   const rows = [
     'Available model aliases',
     header,
@@ -104,6 +107,7 @@ export function formatModelList(
         entry.modelRoute.label,
         formatContextWindow(entry.contextWindowTokens),
         cacheSupport.statusLabel,
+        formatCostPerMillion(entry),
         ...(hasAvailability ? [badge ?? ''] : []),
         aliasStatus(alias, entry, defaults),
       ];

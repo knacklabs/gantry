@@ -51,6 +51,27 @@ export function formatContextWindow(tokens: number | undefined): string {
   return String(tokens);
 }
 
+// Compact in/out price label for a catalog row: "$0.59/$0.79" (input/output per
+// 1M tokens) or "—" when the entry declares no pricing (the DeepAgents-lane ids
+// whose per-token rate is unpublished, plus any SDK-lane entry that omits it).
+// Trailing zeros are trimmed so $10.00 renders as "$10" and $0.435 keeps its
+// precision.
+export function formatCostPerMillion(entry: ModelCatalogEntry): string {
+  const input = entry.inputUsdPerMillionTokens;
+  const output = entry.outputUsdPerMillionTokens;
+  if (typeof input !== 'number' || typeof output !== 'number') {
+    return '—';
+  }
+  return `$${trimUsd(input)}/$${trimUsd(output)}`;
+}
+
+function trimUsd(value: number): string {
+  return value
+    .toFixed(3)
+    .replace(/\.?0+$/, '')
+    .replace(/^$/, '0');
+}
+
 export function formatModelDisplay(entry: ModelCatalogEntry): string {
   const experimental = entry.experimental ? ' experimental' : '';
   return `${entry.displayName} (${entry.modelRoute.label}${experimental})`;
@@ -62,8 +83,8 @@ export function formatModelCatalog(
   const { defaults = {}, configuredProviders, familyOrder } = options;
   const hasAvailability = configuredProviders !== undefined;
   const header = hasAvailability
-    ? 'Alias | Model | Response family | Route | Context | Cache | Availability | Status'
-    : 'Alias | Model | Response family | Route | Context | Cache | Status';
+    ? 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Availability | Status'
+    : 'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status';
   const lines = [
     'Supported model aliases',
     header,
@@ -72,6 +93,7 @@ export function formatModelCatalog(
   for (const entry of MODEL_CATALOG) {
     const cacheSupport = resolveModelCacheSupport(entry);
     const contextWindow = formatContextWindow(entry.contextWindowTokens);
+    const cost = formatCostPerMillion(entry);
     const availability = availabilityBadgeForProvider(
       entry.modelRoute.id,
       configuredProviders,
@@ -95,6 +117,7 @@ export function formatModelCatalog(
         entry.modelRoute.label,
         contextWindow,
         cacheSupport.statusLabel,
+        cost,
         ...(hasAvailability ? [availability ?? ''] : []),
         badges.join(', '),
       ];

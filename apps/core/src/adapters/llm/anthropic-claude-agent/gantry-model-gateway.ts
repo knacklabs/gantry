@@ -17,6 +17,11 @@ import type {
 } from '../../../domain/models/credentials.js';
 import type { ModelCredentialProvider } from '../../../domain/model-credentials/model-credentials.js';
 import {
+  applyRateCap,
+  GatewayRateLimiter,
+  type GatewayProviderRateLimits,
+} from './gantry-model-gateway-rate-limit.js';
+import {
   getModelProviderByGatewayPath,
   getModelProviderDefinition,
   getDefaultModelRouteProvider,
@@ -85,6 +90,9 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
   private readonly audit?: (
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
+  // In-memory per-(app, provider) sliding-window rate limiter. The settings
+  // getter is read live so a reload applies without rebuilding the broker.
+  private readonly rateLimiter: GatewayRateLimiter;
 
   constructor(
     private readonly credentials: ModelCredentialRepository,
@@ -96,6 +104,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       requestBodyLimitBytes?: number;
       upstreamTimeoutMs?: number;
       audit?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
+      limits?: () => GatewayProviderRateLimits;
     } = {},
   ) {
     this.credentialService = new ModelCredentialService(credentials);
@@ -111,6 +120,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     this.upstreamTimeoutMs =
       options.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
     this.audit = options.audit;
+    this.rateLimiter = new GatewayRateLimiter(options.limits);
   }
 
   async getInjection(
@@ -253,6 +263,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     this.listenPromise = undefined;
     this.port = 0;
     this.tokens.clear();
+    this.rateLimiter.clear();
     if (this.tokenSweepTimer) {
       clearInterval(this.tokenSweepTimer);
       this.tokenSweepTimer = undefined;
@@ -392,6 +403,26 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       credential.payload,
     );
 
+    // In-memory per-(app, provider) sliding-window rate cap. Enforced AFTER
+    // credential/path validation and BEFORE upstream fetch, so a rejected
+    // request never reaches the provider. No DB, no usage-body parsing.
+    const rateLimited = await applyRateCap({
+      limiter: this.rateLimiter,
+      appId: tokenRecord.appId,
+      providerId,
+      audit: () =>
+        this.publishGatewayUseAudit(tokenRecord, {
+          outcome: 'rate_limited',
+          method: req.method ?? 'GET',
+          status: 429,
+        }),
+      reject: (limit) =>
+        sendGatewayJson(res, 429, {
+          error: `Rate limit: ${providerId} exceeded ${limit} requests/min for this app.`,
+        }),
+    });
+    if (rateLimited) return;
+
     const upstreamAbort = new AbortController();
     const timeout = setTimeout(
       () =>
@@ -439,7 +470,11 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
   private async publishGatewayUseAudit(
     tokenRecord: GatewayTokenRecord,
     input: {
-      outcome: 'forwarded' | 'upstream_error' | 'credential_missing';
+      outcome:
+        | 'forwarded'
+        | 'upstream_error'
+        | 'credential_missing'
+        | 'rate_limited';
       method: string;
       status: number;
       upstreamHost?: string;

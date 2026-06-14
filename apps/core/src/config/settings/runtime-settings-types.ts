@@ -246,6 +246,19 @@ export interface RuntimePermissionSettings {
   egress: EgressSettings;
 }
 
+// Optional in-memory per-provider request rate caps enforced at the model
+// gateway. Maps a model provider id (validated against the executable provider
+// registry) to a requests-per-minute cap for that provider, per app.
+// Absent/empty -> no caps (no behavior change). This is restart-owned config
+// (settings.yaml is the source of truth); no DB projection, no spend ledger.
+export interface RuntimeProviderLimit {
+  requestsPerMinute: number;
+}
+
+export interface RuntimeLimitSettings {
+  providers: Record<string, RuntimeProviderLimit>;
+}
+
 export interface RuntimeSettings {
   desiredState: RuntimeDesiredStateSettings;
   providers: Record<string, RuntimeProviderSettings>;
@@ -260,6 +273,9 @@ export interface RuntimeSettings {
   runtime: RuntimeProcessSettings;
   browser: RuntimeBrowserSettings;
   permissions: RuntimePermissionSettings;
+  // Optional in-memory per-provider request rate caps (settings.yaml `limits`).
+  // Absent/empty -> no caps. Restart-owned; no DB projection.
+  limits: RuntimeLimitSettings;
   // Optional per-family member-order override for model families. Maps a family
   // alias to a list of member aliases OR provider ids in preference order;
   // absent/empty -> the hardcoded MODEL_FAMILIES order. Unknown tokens are

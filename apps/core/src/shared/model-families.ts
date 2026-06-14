@@ -93,12 +93,37 @@ export function listModelFamilies(): readonly ModelFamily[] {
 // the desired preference order. Unknown tokens are ignored; default members not
 // named are appended in their declared order so an override is always a partial
 // reorder, never a way to drop a member or smuggle in an unknown one.
+//
+// The reserved token `cheapest` (CHEAPEST_ORDER_TOKEN) switches a family to
+// cost-ordering: members are ranked by total token price (input + output USD per
+// 1M, summed) ascending, so the resolver picks the lowest-priced CONFIGURED
+// member instead of the declared-order first. A member whose catalog entry has
+// no pricing sorts last (unknown cost is treated as most expensive) with the
+// declared order as the stable tie-break. `cheapest` may be the whole value
+// (`['cheapest']`, pure cost order) or follow explicit tokens (explicit named
+// members first, then the remainder cost-ordered). DEFAULT (no override) stays
+// declared order.
 export type FamilyOrderOverrides = Readonly<Record<string, readonly string[]>>;
+
+export const CHEAPEST_ORDER_TOKEN = 'cheapest';
+
+// Total token price (input + output USD per 1M) for a family member, or
+// undefined when the member's catalog entry declares no pricing. Used as the
+// cost-ordering key.
+function familyMemberTotalPriceUsd(member: string): number | undefined {
+  const resolved = resolveModelSelection(member);
+  if (!resolved.ok) return undefined;
+  const { inputUsdPerMillionTokens: input, outputUsdPerMillionTokens: output } =
+    resolved.entry;
+  if (typeof input !== 'number' || typeof output !== 'number') return undefined;
+  return input + output;
+}
 
 // Effective member order for a family given an optional override. Pure: tokens
 // are matched against the family's own members (by alias or by the member's
 // provider id), de-duplicated in override order, then any remaining default
-// members are appended. Returns the hardcoded order when no override applies.
+// members are appended. The `cheapest` token cost-orders the remainder. Returns
+// the hardcoded order when no override applies.
 export function effectiveFamilyMembers(
   family: ModelFamily,
   order?: FamilyOrderOverrides,
@@ -106,6 +131,9 @@ export function effectiveFamilyMembers(
   const override =
     order?.[family.alias] ?? order?.[normalizeFamilyKey(family.alias)];
   if (!override || override.length === 0) return family.members;
+  const cheapest = override.some(
+    (token) => normalizeFamilyKey(token) === CHEAPEST_ORDER_TOKEN,
+  );
   const memberByToken = new Map<string, string>();
   for (const member of family.members) {
     memberByToken.set(normalizeFamilyKey(member), member);
@@ -121,9 +149,17 @@ export function effectiveFamilyMembers(
       seen.add(member);
     }
   }
-  for (const member of family.members) {
-    if (!seen.has(member)) ordered.push(member);
+  const remaining = family.members.filter((member) => !seen.has(member));
+  if (cheapest) {
+    // Stable sort by total price ascending; unpriced members keep declared order
+    // at the end (Infinity key).
+    remaining.sort(
+      (a, b) =>
+        (familyMemberTotalPriceUsd(a) ?? Number.POSITIVE_INFINITY) -
+        (familyMemberTotalPriceUsd(b) ?? Number.POSITIVE_INFINITY),
+    );
   }
+  ordered.push(...remaining);
   return ordered;
 }
 

@@ -168,6 +168,45 @@ describe('model families', () => {
       ).toEqual({ alias: 'cerebras' });
     });
 
+    it('cost-orders members with the cheapest token (cheapest configured wins)', () => {
+      const llama = getModelFamily('llama-70b')!;
+      // groq total price ($0.59+$0.79=$1.38) < together ($1.04+$1.04=$2.08), so
+      // cheapest puts groq first regardless of any contrary declared/override
+      // order. Contrast: an explicit declared order can place together first.
+      expect(
+        effectiveFamilyMembers(llama, { 'llama-70b': ['cheapest'] }),
+      ).toEqual(['groq', 'together']);
+      // Explicit order (no cheapest) is honored as-is: together first.
+      expect(
+        effectiveFamilyMembers(llama, { 'llama-70b': ['together', 'groq'] }),
+      ).toEqual(['together', 'groq']);
+      // With both providers configured, cheapest selects the lower-priced member
+      // (groq) even though the explicit override above selected together.
+      expect(
+        resolveModelFamilyAlias('llama-70b', {
+          ...configured(['groq', 'together']),
+          order: { 'llama-70b': ['cheapest'] },
+        }),
+      ).toEqual({ alias: 'groq' });
+      // Only the pricier provider configured -> cheapest still falls through to
+      // the configured one.
+      expect(
+        resolveModelFamilyAlias('llama-70b', {
+          ...configured(['together']),
+          order: { 'llama-70b': ['cheapest'] },
+        }),
+      ).toEqual({ alias: 'together' });
+    });
+
+    it('sorts unpriced members last under the cheapest token', () => {
+      // gpt-oss: groq-oss is priced ($0.15+$0.60), cerebras omits pricing, so
+      // cheapest keeps groq-oss first and pushes the unpriced cerebras last.
+      const gptOss = getModelFamily('gpt-oss')!;
+      expect(
+        effectiveFamilyMembers(gptOss, { 'gpt-oss': ['cheapest'] }),
+      ).toEqual(['groq-oss', 'cerebras']);
+    });
+
     it('honors the override in resolveModelSelectionForWorkloadWithFamilies display', () => {
       const resolved = resolveModelSelectionForWorkloadWithFamilies(
         'gpt-oss',

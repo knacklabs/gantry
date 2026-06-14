@@ -194,6 +194,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     runtime,
     browser,
     permissions,
+    limits: { providers: {} },
     modelFamilies: {},
   };
 }

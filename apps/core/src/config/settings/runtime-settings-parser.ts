@@ -36,6 +36,8 @@ import type { ChatAllowlistEntry } from './sender-allowlist.js';
 import { parseMemorySettings } from './runtime-settings-memory-parser.js';
 import { parseBrowserSettings } from './runtime-settings-browser-parser.js';
 import { parsePermissionSettings } from './runtime-settings-permissions-parser.js';
+import { parseLimitsSettings } from './runtime-settings-limits-parser.js';
+import { parseModelFamilies } from './runtime-settings-model-families-parser.js';
 
 function parseStringArrayValue(raw: unknown, pathPrefix: string): string[] {
   if (!Array.isArray(raw)) {
@@ -51,28 +53,6 @@ function parseStringArrayValue(raw: unknown, pathPrefix: string): string[] {
       }),
     ),
   ];
-}
-
-// `model_families` is an optional map of <familyAlias> -> [member-or-provider...]
-// in preference order. Structural validation only: each value must be a
-// non-empty string array. Unknown family aliases and unknown members are
-// tolerated here and ignored at resolve time (effectiveFamilyMembers), so the
-// override is always a partial reorder and never a way to add/drop a member.
-function parseModelFamilies(raw: unknown): Record<string, string[]> {
-  if (raw === undefined) return {};
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error('model_families must be a mapping');
-  }
-  const families: Record<string, string[]> = {};
-  for (const [alias, membersRaw] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
-    families[alias] = parseStringArrayValue(
-      membersRaw,
-      `model_families.${alias}`,
-    );
-  }
-  return families;
 }
 
 function parseOptionalStringValue(
@@ -1087,10 +1067,11 @@ export function parseRuntimeSettingsObject(
       key !== 'runtime' &&
       key !== 'browser' &&
       key !== 'permissions' &&
+      key !== 'limits' &&
       key !== 'model_families'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, agent, model_access, memory, runtime, browser, permissions, and model_families.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, and model_families.`,
       );
     }
   }
@@ -1124,6 +1105,7 @@ export function parseRuntimeSettingsObject(
   const runtime = parseRuntimeProcessSettings(root.runtime);
   const browser = parseBrowserSettings(root.browser);
   const permissions = parsePermissionSettings(root.permissions);
+  const limits = parseLimitsSettings(root.limits);
   const modelFamilies = parseModelFamilies(root.model_families);
 
   return {
@@ -1140,6 +1122,7 @@ export function parseRuntimeSettingsObject(
     runtime,
     browser,
     permissions,
+    limits,
     modelFamilies,
   };
 }

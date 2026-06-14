@@ -11,9 +11,16 @@ import {
 import { resolveModelCacheSupport } from '@core/shared/model-cache-support.js';
 import {
   formatContextWindow,
+  formatCostPerMillion,
   formatModelCatalog,
 } from '@core/shared/model-catalog-format.js';
 import { normalizeModelUsage } from '@core/shared/model-usage.js';
+
+function rowFor(text: string, alias: string): string {
+  const line = text.split('\n').find((row) => row.startsWith(`${alias} |`));
+  if (!line) throw new Error(`row for ${alias} not found`);
+  return line;
+}
 
 describe('model catalog resolution', () => {
   it('keeps versioned aliases pinned while short aliases stay recommended', () => {
@@ -219,12 +226,37 @@ describe('model catalog resolution', () => {
 
   it('renders a context-window column in the model catalog table', () => {
     const output = formatModelCatalog({ defaults: { chat: 'opus' } });
-    // Header carries the new column and Gemini Pro shows the 1M window.
+    // Header carries the Context + Cost columns; Gemini Pro shows the 1M window.
     expect(output).toContain(
-      'Alias | Model | Response family | Route | Context | Cache | Status',
+      'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status',
     );
     expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);
     expect(output).toMatch(/groq \| Groq Llama 3\.3 70B[^\n]*\| 131K \|/);
+  });
+
+  it('formats per-1M cost with trimmed trailing zeros', () => {
+    const groq = findModelByRunnerModel('llama-3.3-70b-versatile')!;
+    expect(formatCostPerMillion(groq)).toBe('$0.59/$0.79');
+    const gemini = findModelByRunnerModel('gemini-2.5-pro')!;
+    expect(formatCostPerMillion(gemini)).toBe('$1.25/$10');
+    // Omitted pricing renders as an em dash.
+    const cerebras = findModelByRunnerModel('gpt-oss-120b')!;
+    expect(formatCostPerMillion(cerebras)).toBe('—');
+  });
+
+  it('renders a Cost column with curated prices and "—" when omitted', () => {
+    const output = formatModelCatalog();
+    // Priced DeepAgents-lane providers show in/out per 1M.
+    expect(rowFor(output, 'groq')).toContain('$0.59/$0.79');
+    expect(rowFor(output, 'gemini')).toContain('$1.25/$10');
+    expect(rowFor(output, 'grok')).toContain('$1.25/$2.5');
+    // SDK-lane Anthropic alias carries its declared price too.
+    expect(rowFor(output, 'opus')).toContain('$5/$25');
+    // Omitted prices render as an em dash: Perplexity (hybrid per-request fee),
+    // Cerebras (subscription-only), Fireworks DeepSeek v3p1 (unverifiable band).
+    expect(rowFor(output, 'perplexity')).toContain('| — |');
+    expect(rowFor(output, 'cerebras')).toContain('| — |');
+    expect(rowFor(output, 'fireworks')).toContain('| — |');
   });
 
   it('derives cache support from provider metadata and model route', () => {
@@ -412,6 +444,38 @@ describe('model usage normalization', () => {
       cacheProvider: 'anthropic',
       cacheStatus: 'partial',
     });
+  });
+
+  it('estimates DeepAgents-lane cost from catalog price for the raw usage branch', () => {
+    // gemini-2.5-pro: $1.25/1M input, $10/1M output. The chat-completions usage
+    // shape carries no SDK cost, so the catalog price drives the estimate.
+    // Cached reads are billed at the input price (not discounted), so the full
+    // prompt_tokens count is charged at input.
+    const usage = normalizeModelUsage({
+      message: {
+        usage: {
+          prompt_tokens: 1_000_000,
+          completion_tokens: 500_000,
+          prompt_tokens_details: { cached_tokens: 400_000 },
+        },
+      },
+      fallbackModel: 'gemini-2.5-pro',
+    });
+    // 1.0M input * $1.25 + 0.5M output * $10 = 1.25 + 5 = $6.25.
+    expect(usage?.estimatedCostUsd).toBeCloseTo(6.25, 6);
+    expect(usage?.inputTokens).toBe(1_000_000);
+    expect(usage?.outputTokens).toBe(500_000);
+  });
+
+  it('leaves DeepAgents-lane cost undefined when the model has no curated price', () => {
+    // cerebras gpt-oss-120b omits pricing (subscription-only) -> no estimate.
+    const usage = normalizeModelUsage({
+      message: {
+        usage: { prompt_tokens: 1000, completion_tokens: 500 },
+      },
+      fallbackModel: 'gpt-oss-120b',
+    });
+    expect(usage?.estimatedCostUsd).toBeUndefined();
   });
 
   it('marks cache as unsupported when provider metadata is unavailable', () => {

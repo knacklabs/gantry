@@ -1097,4 +1097,91 @@ describe('GantryModelGatewayBroker', () => {
       await broker.close();
     }
   });
+
+  it('blocks requests after the per-provider per-minute cap and audits the rejection', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-cap');
+    const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+    const audit = vi.fn(async () => undefined);
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo, {
+      audit,
+      limits: () => ({ providers: { anthropic: { requestsPerMinute: 2 } } }),
+    });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+      const url = `${injection.env[anthropicBaseUrlKey]}/v1/messages`;
+      const token = injection.env[anthropicApiKeyKey]!;
+
+      const first = await gatewayRequest({ url, token });
+      const second = await gatewayRequest({ url, token });
+      const third = await gatewayRequest({ url, token });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(third.status).toBe(429);
+      expect(third.body).toContain(
+        'Rate limit: anthropic exceeded 2 requests/min for this app.',
+      );
+      // The rejected request never forwarded upstream (only the 2 admitted did).
+      expect(upstreamFetch).toHaveBeenCalledTimes(2);
+      expect(audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId,
+          eventType: 'credential.model.used',
+          actor: 'gantry-model-gateway',
+          payload: expect.objectContaining({
+            providerId: 'anthropic',
+            outcome: 'rate_limited',
+            status: 429,
+          }),
+        }),
+      );
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('admits requests again after the rate window rolls', async () => {
+    // Fake only Date so the broker's sliding-window clock advances while the
+    // real HTTP server / fetch I/O keep running.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-14T00:00:00Z'));
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-window');
+    const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo, {
+      limits: () => ({ providers: { anthropic: { requestsPerMinute: 1 } } }),
+    });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+      const url = `${injection.env[anthropicBaseUrlKey]}/v1/messages`;
+      const token = injection.env[anthropicApiKeyKey]!;
+
+      expect((await gatewayRequest({ url, token })).status).toBe(200);
+      // Second within the same window -> blocked.
+      expect((await gatewayRequest({ url, token })).status).toBe(429);
+      // Advance past the 60s window -> admitted again.
+      vi.setSystemTime(new Date('2026-06-14T00:01:01Z'));
+      expect((await gatewayRequest({ url, token })).status).toBe(200);
+    } finally {
+      await broker.close();
+      vi.useRealTimers();
+    }
+  });
 });

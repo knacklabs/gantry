@@ -36,9 +36,13 @@ describe('model CLI command', () => {
 
     const output = logSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Available model aliases');
-    // The Context column sits between Route and Cache.
+    // The Context column sits between Route and Cache; Cost follows Cache.
     expect(output).toContain(
-      'Alias | Model | Response family | Route | Context | Cache | Status',
+      'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status',
+    );
+    // Curated prices render in the new Cost column.
+    expect(output).toMatch(
+      /groq \| Groq Llama 3\.3 70B[^\n]*\| \$0\.59\/\$0\.79 \|/,
     );
     expect(output).toContain('opus-4.8 | Opus 4.8');
     expect(output).toContain('Opus 4.8');
