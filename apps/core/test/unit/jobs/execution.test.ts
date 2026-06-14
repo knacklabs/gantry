@@ -2611,6 +2611,17 @@ describe('jobs/execution', () => {
         expect.stringContaining('second provider reply'),
         null,
       );
+      // The jobs lane emits RUN_FAILOVER for observability (parity with the live
+      // lane): from/to model captured, reason carries the eligibility-class error.
+      const failoverEvent = runtimeStoreMock.publish.mock.calls.find(
+        ([event]) => event?.eventType === 'run.failover',
+      )?.[0];
+      expect(failoverEvent).toBeDefined();
+      expect(failoverEvent?.payload).toMatchObject({
+        fromModel: 'groq-oss',
+        toModel: 'cerebras',
+      });
+      expect(String(failoverEvent?.payload?.reason)).toContain('401');
     });
 
     it('finalizes failed when every candidate fails (eligible errors, no stream)', async () => {

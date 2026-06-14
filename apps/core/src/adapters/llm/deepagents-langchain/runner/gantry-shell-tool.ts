@@ -8,6 +8,7 @@ import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
 } from '../../../../shared/tool-execution-policy-service.js';
+import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../../../../shared/neutral-ca-trust-env.js';
 import {
   evaluateNeutralToolPreChecks,
   evaluateNeutralToolPolicy,
@@ -39,11 +40,13 @@ import type { ThirdPartyMcpGateConfig } from './third-party-mcp-gate.js';
 //      the durable pending_interactions row BEFORE the prompt renders),
 //   4. deny -> return the deny string to the model (the command never runs).
 //
-// On allow the command runs via child_process.spawn inheriting process.env, so
-// it inherits the runner's OS sandbox confinement (protected-path write denies)
-// and the runner's egress proxy env (HTTP_PROXY/HTTPS_PROXY/GANTRY_EGRESS_PROXY_URL),
-// keeping all outbound traffic on the Gantry egress gateway. Output is captured
-// and truncated to a sane cap; the call honors a timeout / AbortSignal.
+// On allow the command runs via child_process.spawn as a child of the
+// already-sandboxed runner, so it inherits the runner's OS sandbox confinement
+// (protected-path write denies). Its env is a scrubbed allowlist (NOT inherited
+// process.env) carrying the egress proxy + CA-trust keys so outbound traffic
+// stays on the Gantry egress gateway, while the runner's IPC/provider secrets do
+// not leak. Output is captured and truncated to a sane cap; the call honors a
+// timeout / AbortSignal.
 
 export const GANTRY_SHELL_TOOL_NAME = 'RunCommand';
 
@@ -61,12 +64,15 @@ const MAX_OUTPUT_CHARS = 16_000;
 // budget; the model can re-issue with a narrower command if it needs more.
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 
-// Network/proxy + neutral runtime env keys the child must inherit so egress is
-// proxied through the Gantry egress gateway and TLS trust resolves. These are
-// already set on the runner's own process.env by agent-spawn (the runner is a
-// child of the host that projects them). The child env is an explicit allowlist
-// (NOT inherited process.env) so these keys carry through while secrets do not;
-// this set is also asserted present in tests.
+// Network/proxy + CA-trust env keys the child must carry so egress stays on the
+// Gantry egress gateway and TLS trust resolves — for EVERY client type, not just
+// node. These are projected onto the runner's process.env by the host
+// (buildToolNetworkEnv in shared/tool-network-env.ts sets the proxy/gRPC/CA keys;
+// agent-spawn-helpers.ts sets GODEBUG=netdns=go for Go's resolver). The child env
+// is an explicit allowlist (NOT inherited process.env) so these carry through
+// while secrets do not. This MUST stay a superset of what buildToolNetworkEnv
+// projects (a test asserts it) — the Claude lane's bash-trust-env.ts carries the
+// same set; missing keys silently break egress for Go/gRPC/curl/git tools.
 export const SHELL_CHILD_NETWORK_ENV_KEYS = [
   'HTTP_PROXY',
   'HTTPS_PROXY',
@@ -74,10 +80,15 @@ export const SHELL_CHILD_NETWORK_ENV_KEYS = [
   'https_proxy',
   'ALL_PROXY',
   'all_proxy',
+  'GRPC_PROXY',
+  'grpc_proxy',
   'NO_PROXY',
   'no_proxy',
+  'NODE_USE_ENV_PROXY',
+  'GODEBUG',
   'GANTRY_EGRESS_PROXY_URL',
   'NODE_EXTRA_CA_CERTS',
+  ...NEUTRAL_CA_TRUST_ENV_KEYS,
 ] as const;
 
 // Minimal POSIX keys a shell needs to function. Only those actually set on

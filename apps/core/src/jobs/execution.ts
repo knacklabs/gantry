@@ -23,6 +23,7 @@ import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
 import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
 import { runJobAgentWithFailover } from './execution-failover.js';
+import { publishRunFailoverEvent } from '../runtime/failover-candidate-loop.js';
 import { providerSessionExternalSessionId } from '../runtime/agent-output-provider-session.js';
 import {
   buildRuntimeRunOptions,
@@ -440,15 +441,27 @@ export async function runJob(
               runOptions,
               fallbackProviderId: executionProviderId,
               hasStreamedOutput: () => hasStreamedResult,
-              // Same lease, no re-claim: reconcile recorded provider metadata to
-              // the target and reset per-attempt error. Returns the prior provider.
-              onFailover: async (toProviderId) => {
+              // Same lease, no re-claim: reconcile recorded provider metadata,
+              // reset per-attempt error, emit RUN_FAILOVER (live-lane parity),
+              // return the prior provider.
+              onFailover: async (toProviderId, details) => {
                 const fromProviderId = executionProviderId;
                 executionProviderId = toProviderId;
                 error = null;
                 await updateRunProviderMetadata({
                   providerRunId: null,
                   providerSessionId: null,
+                });
+                publishRunFailoverEvent({
+                  publish: publishRuntimeEvent,
+                  appId: executionAppId,
+                  agentId: executionAgentId,
+                  runId,
+                  conversationId: execution.executionJid,
+                  threadId: execution.threadId || undefined,
+                  fromProvider: fromProviderId,
+                  family: execution.group.agentConfig?.model ?? null,
+                  details,
                 });
                 return fromProviderId;
               },

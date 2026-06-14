@@ -10,6 +10,7 @@ import {
   describeFailover,
   executionProviderIdForCandidate,
   shouldFailoverToNextCandidate,
+  type FailoverAdvanceDetails,
 } from '../runtime/failover-candidate-loop.js';
 
 // Jobs-lane model-family failover around the agent spawn. Re-spawns the run on
@@ -36,10 +37,12 @@ export async function runJobAgentWithFailover(input: {
   fallbackProviderId: ExecutionProviderId;
   hasStreamedOutput: () => boolean;
   // Called before each failover re-spawn so the caller can reconcile the run's
-  // recorded provider metadata with the failover target and reset per-attempt
-  // error state. Returns the provider id the run is moving FROM (for logging).
+  // recorded provider metadata with the failover target, reset per-attempt error
+  // state, and emit observability (RUN_FAILOVER). Returns the provider id the run
+  // is moving FROM (for logging).
   onFailover: (
     toProviderId: ExecutionProviderId,
+    details: FailoverAdvanceDetails,
   ) => Promise<ExecutionProviderId>;
   log: (message: string) => void;
 }): Promise<AgentOutput> {
@@ -71,12 +74,19 @@ export async function runJobAgentWithFailover(input: {
       toModel,
       input.fallbackProviderId,
     );
-    const fromProviderId = await input.onFailover(toProviderId);
+    const fromModel =
+      input.candidates[attempt] ?? input.firstModel ?? '(default)';
+    const fromProviderId = await input.onFailover(toProviderId, {
+      toProviderId,
+      fromModel,
+      toModel,
+      reason: output.error,
+    });
     input.log(
       describeFailover({
         fromProviderId,
         toProviderId,
-        fromModel: input.candidates[attempt] ?? input.firstModel ?? '(default)',
+        fromModel,
         toModel,
         reason: output.error,
       }),
