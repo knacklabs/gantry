@@ -142,7 +142,7 @@ export class InteraktChannel implements ChannelAdapter {
     return this.webhookSecret;
   }
 
-  async handleWebhookEvent(parsed: unknown): Promise<void> {
+  async handleWebhookEvent(parsed: unknown, ingressAtMs?: number): Promise<void> {
     const event = parsed as InteraktWebhookEvent;
     if (!event || typeof event !== 'object') {
       logger.debug({}, 'Interakt webhook: payload is not an object');
@@ -223,6 +223,7 @@ export class InteraktChannel implements ChannelAdapter {
       sender_name: traitsName || phone,
       content: message.message ?? '',
       timestamp: receivedAt,
+      ingress_at: new Date(ingressAtMs ?? nowMs).toISOString(),
       is_from_me: false,
       is_bot_message: false,
       external_message_id: message.id,

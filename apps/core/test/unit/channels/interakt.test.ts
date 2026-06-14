@@ -209,6 +209,35 @@ describe('InteraktChannel inbound', () => {
     );
   });
 
+  it('propagates explicit ingressAtMs onto inbound.ingress_at', async () => {
+    const ingressAtMs = 1_700_000_000_000;
+    await channel.handleWebhookEvent(
+      {
+        version: '1.0',
+        timestamp: '2026-05-20T10:00:00Z',
+        type: 'message_received',
+        data: {
+          customer: {
+            channel_phone_number: '917003705584',
+            traits: { name: 'Ingress User' },
+          },
+          message: {
+            id: 'msg-ingress',
+            chat_message_type: 'CustomerMessage',
+            message_content_type: 'Text',
+            message: 'ingress test',
+            received_at_utc: '2026-05-20T10:00:00Z',
+          },
+        },
+      },
+      ingressAtMs,
+    );
+
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    const [, msg] = onMessage.mock.calls[0]!;
+    expect(msg.ingress_at).toBe(new Date(ingressAtMs).toISOString());
+  });
+
   it('ignores BusinessMessage (echo of our own send)', async () => {
     await channel.handleWebhookEvent({
       type: 'message_received',

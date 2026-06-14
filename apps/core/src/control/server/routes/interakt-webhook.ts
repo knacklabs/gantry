@@ -34,6 +34,7 @@ export async function handleInteraktWebhookRoutes(
     return true;
   }
 
+  const ingressAtMs = Date.now();
   let rawBody: Buffer;
   try {
     rawBody = await readRawBody(req, MAX_BODY_BYTES);
@@ -70,7 +71,7 @@ export async function handleInteraktWebhookRoutes(
       return;
     }
     void channel
-      .handleWebhookEvent(parsed)
+      .handleWebhookEvent(parsed, ingressAtMs)
       .catch((err) => logger.error({ err }, 'Interakt webhook handler failed'));
   });
   return true;
