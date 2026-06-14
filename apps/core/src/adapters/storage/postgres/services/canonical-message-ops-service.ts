@@ -136,6 +136,7 @@ export class CanonicalMessageOpsService {
         (row.delivery_status as NewMessage['delivery_status']),
       delivered_at: ref.delivered_at ?? row.delivered_at ?? undefined,
       delivery_error: ref.delivery_error ?? row.delivery_error ?? undefined,
+      ingress_at: row.ingress_at ?? undefined,
     };
   }
 }
