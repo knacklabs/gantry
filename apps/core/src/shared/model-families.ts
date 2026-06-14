@@ -214,6 +214,41 @@ export function resolveModelFamilyAlias(
   return { alias: members[0] };
 }
 
+// Ordered failover candidate list for a model alias. For a NON-family alias the
+// caller uses it unchanged, so candidates = [alias]. For a family alias the
+// candidates are its concrete members in effective order, partitioned so every
+// CONFIGURED member comes first (in effective order) and every UNCONFIGURED
+// member is appended last as a last-resort attempt. This is the runtime-failover
+// generalization of `resolveModelFamilyAlias`, whose single result is exactly
+// `resolveModelFamilyCandidates(alias, deps)[0]`. Pure/sync: the
+// `isProviderConfigured` predicate is injected, mirroring the single-rewrite
+// path.
+export function resolveModelFamilyCandidates(
+  alias: string | null | undefined,
+  deps: {
+    isProviderConfigured: (providerId: string) => boolean;
+    order?: FamilyOrderOverrides;
+  },
+): string[] {
+  const family = getModelFamily(alias);
+  if (!family) return alias ? [alias] : [];
+  const members = effectiveFamilyMembers(family, deps.order);
+  const configured: string[] = [];
+  const unconfigured: string[] = [];
+  for (const member of members) {
+    const providerId = providerIdForFamilyMember(member);
+    if (providerId && deps.isProviderConfigured(providerId)) {
+      configured.push(member);
+    } else {
+      unconfigured.push(member);
+    }
+  }
+  // Configured-first, then unconfigured last as last-resort. When none are
+  // configured this is just the effective member order (first member leads),
+  // matching the loud-failure fallback of resolveModelFamilyAlias.
+  return [...configured, ...unconfigured];
+}
+
 export interface FamilyMemberAvailability {
   member: string;
   providerId: string | undefined;

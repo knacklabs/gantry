@@ -36,6 +36,7 @@ import type {
   RuntimeRouterStateRepository,
 } from '../../domain/repositories/ops-repo.js';
 import {
+  getConfiguredModelProvidersForApp,
   getRuntimeRepositories,
   getRuntimeSkillArtifactStore,
   getRuntimeStorage,
@@ -555,6 +556,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     executionAdapter,
     executionAdapters,
     runnerSandboxProvider,
+    getConfiguredModelProviders: getConfiguredModelProvidersForApp,
+    getModelFamilyOrder: () => getRuntimeSettingsForConfig().modelFamilies,
   });
 
   return {

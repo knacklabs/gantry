@@ -21,7 +21,8 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
-import { rewriteModelFamilyAliasForApp } from '../runtime/model-family-resolution.js';
+import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
+import { runJobAgentWithFailover } from './execution-failover.js';
 import { providerSessionExternalSessionId } from '../runtime/agent-output-provider-session.js';
 import {
   buildRuntimeRunOptions,
@@ -132,18 +133,16 @@ export async function runJob(
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
-  // Credential-driven model-family selection for jobs: if the explicit job model
-  // is a family alias, rewrite it to the concrete member whose provider is
-  // configured for this job's app before resolving the model. Done here (not just
-  // at spawn) so the lease's executionProviderId and derived engine reflect the
-  // chosen provider; the spawn then receives the already-concrete alias via
-  // resolvedModel.selectedModel. An empty job model still inherits the default.
-  const jobModelForResolution = await rewriteModelFamilyAliasForApp({
+  // Credential-driven model-family candidates for jobs, configured-first.
+  // candidates[0] resolves the model + claims the lease; the rest are failover
+  // targets used UNDER THE SAME lease if candidates[0] fails before output streams.
+  const jobFailoverCandidates = await resolveModelFamilyCandidatesForApp({
     alias: currentJob.model || '',
     appId: runtimeAppId,
     listConfiguredProviders: getConfiguredModelProvidersForApp,
     familyOrder: getRuntimeSettingsForConfig().modelFamilies,
   });
+  const jobModelForResolution = jobFailoverCandidates[0] ?? '';
   const resolvedModel = resolveJobModel(
     { ...currentJob, model: jobModelForResolution || currentJob.model },
     getEffectiveModelConfig(undefined, jobModelUseKind, execution.group.folder),
@@ -164,7 +163,9 @@ export async function runJob(
     publishRuntimeEvent,
   });
   if (pausedForSetup) return;
-  const executionProviderId = resolveJobExecutionProviderId({
+  // Mutable: a model-family failover reconciles this to the target provider for
+  // recorded metadata only; the claimed lease keeps its fencing version (no re-claim).
+  let executionProviderId = resolveJobExecutionProviderId({
     resolvedModel,
     executionAdapter: deps.executionAdapter,
     executionAdapters: deps.executionAdapters,
@@ -431,11 +432,30 @@ export async function runJob(
                   cause: 'job',
                 })
               : undefined;
-            const output = await (deps.runAgent ?? spawnAgent)(
-              execution.group,
-              {
+            const output = await runJobAgentWithFailover({
+              group: execution.group,
+              candidates: jobFailoverCandidates,
+              firstModel: resolvedModel.selectedModel,
+              spawn: deps.runAgent ?? spawnAgent,
+              runOptions,
+              fallbackProviderId: executionProviderId,
+              hasStreamedOutput: () => hasStreamedResult,
+              // Same lease, no re-claim: reconcile recorded provider metadata to
+              // the target and reset per-attempt error. Returns the prior provider.
+              onFailover: async (toProviderId) => {
+                const fromProviderId = executionProviderId;
+                executionProviderId = toProviderId;
+                error = null;
+                await updateRunProviderMetadata({
+                  providerRunId: null,
+                  providerSessionId: null,
+                });
+                return fromProviderId;
+              },
+              log: (message) =>
+                logger.warn({ jobId: currentJob.id, runId }, message),
+              baseInput: {
                 prompt: currentJob.prompt,
-                model: resolvedModel.selectedModel,
                 workspaceFolder: execution.group.folder,
                 chatJid: execution.executionJid,
                 threadId: execution.threadId || undefined,
@@ -462,7 +482,7 @@ export async function runJob(
                 attachedMcpSourceIds,
                 semanticCapabilities,
               },
-              (proc, runHandle) => {
+              onProcess: (proc, runHandle) => {
                 void updateRunProviderMetadata({ providerRunId: runHandle });
                 deps.onProcess(
                   queueJid,
@@ -472,7 +492,7 @@ export async function runJob(
                   execution.stopAliasJids,
                 );
               },
-              async (streamedOutput: AgentOutput) => {
+              streamHandler: async (streamedOutput: AgentOutput) => {
                 for (const event of streamedOutput.runtimeEvents ?? []) {
                   const eventKey = runnerRuntimeEventKey(event);
                   if (eventKey) streamedRuntimeEventKeys.add(eventKey);
@@ -511,8 +531,7 @@ export async function runJob(
                   error = streamedOutput.error || 'Unknown error';
                 }
               },
-              runOptions,
-            );
+            });
             streamingFlusher.flush(true);
             await forwardRunnerRuntimeEvents({
               events: output.runtimeEvents?.filter((event) => {

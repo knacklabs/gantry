@@ -10,6 +10,7 @@ import {
   listModelFamilies,
   providerIdForFamilyMember,
   resolveModelFamilyAlias,
+  resolveModelFamilyCandidates,
   resolveModelSelectionForWorkloadWithFamilies,
 } from '@core/shared/model-families.js';
 
@@ -73,6 +74,60 @@ describe('model families', () => {
       expect(resolveModelFamilyAlias('llama-70b', configured([]))).toEqual({
         alias: 'groq',
       });
+    });
+  });
+
+  describe('resolveModelFamilyCandidates (failover ordering)', () => {
+    it('returns [alias] for a non-family alias', () => {
+      expect(resolveModelFamilyCandidates('opus', configured([]))).toEqual([
+        'opus',
+      ]);
+      expect(
+        resolveModelFamilyCandidates('groq-oss', configured(['groq'])),
+      ).toEqual(['groq-oss']);
+    });
+
+    it('returns [] for an empty alias', () => {
+      expect(resolveModelFamilyCandidates('', configured([]))).toEqual([]);
+      expect(resolveModelFamilyCandidates(undefined, configured([]))).toEqual(
+        [],
+      );
+    });
+
+    it('orders configured members first, unconfigured last', () => {
+      // Only the second member (cerebras) configured -> it leads, groq-oss last.
+      expect(
+        resolveModelFamilyCandidates('gpt-oss', configured(['cerebras'])),
+      ).toEqual(['cerebras', 'groq-oss']);
+      // Both configured -> effective (declared) order preserved among configured.
+      expect(
+        resolveModelFamilyCandidates(
+          'gpt-oss',
+          configured(['groq', 'cerebras']),
+        ),
+      ).toEqual(['groq-oss', 'cerebras']);
+    });
+
+    it('falls back to the effective member order when none configured', () => {
+      // candidates[0] equals resolveModelFamilyAlias's loud-failure first member.
+      expect(resolveModelFamilyCandidates('gpt-oss', configured([]))).toEqual([
+        'groq-oss',
+        'cerebras',
+      ]);
+      expect(resolveModelFamilyCandidates('gpt-oss', configured([]))[0]).toBe(
+        resolveModelFamilyAlias('gpt-oss', configured([]))?.alias,
+      );
+    });
+
+    it('honors the order override and configured-first partition together', () => {
+      // Override puts cerebras first; only groq configured -> groq-oss leads
+      // (configured), cerebras appended last (unconfigured) despite override.
+      expect(
+        resolveModelFamilyCandidates('gpt-oss', {
+          ...configured(['groq']),
+          order: { 'gpt-oss': ['cerebras', 'groq-oss'] },
+        }),
+      ).toEqual(['groq-oss', 'cerebras']);
     });
   });
 

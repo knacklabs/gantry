@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { rewriteModelFamilyAliasForApp } from '@core/runtime/model-family-resolution.js';
+import {
+  resolveModelFamilyCandidatesForApp,
+  rewriteModelFamilyAliasForApp,
+} from '@core/runtime/model-family-resolution.js';
 
 describe('rewriteModelFamilyAliasForApp', () => {
   const lookup = (providers: string[]) => vi.fn(async () => new Set(providers));
@@ -82,5 +85,55 @@ describe('rewriteModelFamilyAliasForApp', () => {
       }),
     });
     expect(result).toBe('gpt-oss');
+  });
+});
+
+describe('resolveModelFamilyCandidatesForApp', () => {
+  const lookup = (providers: string[]) => vi.fn(async () => new Set(providers));
+
+  it('returns [alias] for a non-family alias without reading credentials', async () => {
+    const listConfiguredProviders = lookup([]);
+    const result = await resolveModelFamilyCandidatesForApp({
+      alias: 'opus',
+      appId: 'app-1',
+      listConfiguredProviders,
+    });
+    expect(result).toEqual(['opus']);
+    expect(listConfiguredProviders).not.toHaveBeenCalled();
+  });
+
+  it('orders configured providers first, then unconfigured last', async () => {
+    expect(
+      await resolveModelFamilyCandidatesForApp({
+        alias: 'gpt-oss',
+        appId: 'a',
+        listConfiguredProviders: lookup(['cerebras']),
+      }),
+    ).toEqual(['cerebras', 'groq-oss']);
+  });
+
+  it('candidates[0] equals the single-rewrite default', async () => {
+    const candidates = await resolveModelFamilyCandidatesForApp({
+      alias: 'gpt-oss',
+      appId: 'a',
+      listConfiguredProviders: lookup(['cerebras']),
+    });
+    const single = await rewriteModelFamilyAliasForApp({
+      alias: 'gpt-oss',
+      appId: 'a',
+      listConfiguredProviders: lookup(['cerebras']),
+    });
+    expect(candidates[0]).toBe(single);
+  });
+
+  it('falls back to [alias] when the credential lookup fails', async () => {
+    const result = await resolveModelFamilyCandidatesForApp({
+      alias: 'gpt-oss',
+      appId: 'a',
+      listConfiguredProviders: vi.fn(async () => {
+        throw new Error('db down');
+      }),
+    });
+    expect(result).toEqual(['gpt-oss']);
   });
 });

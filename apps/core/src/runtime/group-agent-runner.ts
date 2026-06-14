@@ -32,6 +32,10 @@ import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
+import {
+  resolveTurnFailoverCandidates,
+  runFamilyFailoverLoop,
+} from './failover-candidate-loop.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
@@ -243,7 +247,11 @@ export function createGroupAgentRunner(input: {
     const liveTurnRoute = initialModelSelection.model
       ? resolveExecutionRoute({ entry: initialModelSelection.model })
       : undefined;
-    const executionProviderId = (
+    // Per-candidate during model-family failover: starts at the chat-default
+    // model's provider and is reassigned to the active candidate's provider when
+    // a failover advances. Closures below capture this binding by reference so
+    // provider-session persistence/expiry follow the candidate actually running.
+    let executionProviderId = (
       liveTurnRoute?.ok
         ? liveTurnRoute.value.executionProviderId
         : resolveRuntimeExecutionProviderId(deps.executionAdapter)
@@ -517,6 +525,7 @@ export function createGroupAgentRunner(input: {
       const invokeAgent = (agentInput: {
         memoryContextBlock?: string;
         resumeSessionId?: string;
+        model?: string;
       }) =>
         runAgentImpl(
           group,
@@ -524,6 +533,7 @@ export function createGroupAgentRunner(input: {
             prompt,
             ...(turnContext?.appId ? { appId: turnContext.appId } : {}),
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
+            ...(agentInput.model ? { model: agentInput.model } : {}),
             chatJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,
@@ -586,9 +596,20 @@ export function createGroupAgentRunner(input: {
           wrappedOnOutput,
           runOptions,
         );
+      // Configured-first model-family failover candidates for THIS turn. [] means
+      // no override (keep pre-failover behavior); candidates[0] is the existing
+      // single-rewrite default, passed as the model so spawn uses that member.
+      const failoverCandidates = await resolveTurnFailoverCandidates({
+        requestedModel: group.agentConfig?.model,
+        appId: turnContext?.appId ?? 'default',
+        listConfiguredProviders: deps.getConfiguredModelProviders,
+        familyOrder: deps.getModelFamilyOrder?.(),
+      });
+      const firstModel = failoverCandidates[0];
       let output = await invokeAgent({
         memoryContextBlock,
         resumeSessionId: turnContext?.externalSessionId,
+        ...(firstModel ? { model: firstModel } : {}),
       });
       const activeExecutionAdapter = resolveAgentExecutionAdapter({
         executionProviderId,
@@ -603,8 +624,28 @@ export function createGroupAgentRunner(input: {
         missingProviderSession &&
         (await expireTurnProviderSession(output.error ?? 'missing session'))
       ) {
-        output = await invokeAgent({ memoryContextBlock });
+        output = await invokeAgent({
+          memoryContextBlock,
+          ...(firstModel ? { model: firstModel } : {}),
+        });
       }
+      // Live model-family failover: while NO visible output has streamed and the
+      // error is provider-specific, advance to the next configured candidate and
+      // re-invoke with that model and NO resume id (a different provider must not
+      // resume the prior provider's session). Streamed-output read fresh each iter.
+      output = await runFamilyFailoverLoop({
+        candidates: failoverCandidates,
+        initialOutput: output,
+        fallbackProviderId: executionProviderId,
+        hasStreamedOutput: () => (streamedResult.snapshot()?.length ?? 0) > 0,
+        invoke: (model) => invokeAgent({ memoryContextBlock, model }),
+        onFailover: (toProviderId) => {
+          const fromProviderId = executionProviderId;
+          executionProviderId = toProviderId;
+          return fromProviderId;
+        },
+        log: (message) => runtimeLogger.warn({ group: group.name }, message),
+      });
       await forwardRuntimeEvents(output);
       if (output.status === 'error') {
         if (isStoppedByRequest(output)) {
