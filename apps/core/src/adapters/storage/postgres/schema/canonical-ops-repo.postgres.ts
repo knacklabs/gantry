@@ -175,7 +175,7 @@ export class PostgresRuntimeRepositoryBundle
 
   async getLastBotMessageCursor(
     chatJid: string,
-  ): Promise<{ timestamp: string; id: string } | undefined> {
+  ): ReturnType<RuntimeMessageRepository['getLastBotMessageCursor']> {
     return this.messages.getLastBotMessageCursor(chatJid);
   }
 

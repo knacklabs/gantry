@@ -102,10 +102,16 @@ export class CanonicalMessageOpsService {
 
   async getLastBotMessageCursor(
     chatJid: string,
-  ): Promise<{ timestamp: string; id: string } | undefined> {
+  ): Promise<{ timestamp: string; id: string; sendStartedAt?: string; sendCompletedAt?: string } | undefined> {
     const row = await this.repository.getLastBotMessageRow(chatJid);
     const msg = row ? this.mapMessage(row) : undefined;
-    return msg ? { timestamp: msg.timestamp, id: msg.id } : undefined;
+    if (!msg) return undefined;
+    return {
+      timestamp: msg.timestamp,
+      id: msg.id,
+      ...(msg.send_started_at ? { sendStartedAt: msg.send_started_at } : {}),
+      ...(msg.send_completed_at ? { sendCompletedAt: msg.send_completed_at } : {}),
+    };
   }
 
   async getLastBotMessageTimestamp(
@@ -137,6 +143,8 @@ export class CanonicalMessageOpsService {
       delivered_at: ref.delivered_at ?? row.delivered_at ?? undefined,
       delivery_error: ref.delivery_error ?? row.delivery_error ?? undefined,
       ingress_at: row.ingress_at ?? undefined,
+      send_started_at: row.send_started_at ?? undefined,
+      send_completed_at: row.send_completed_at ?? undefined,
     };
   }
 }

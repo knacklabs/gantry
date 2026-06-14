@@ -344,7 +344,11 @@ function buildTimeline(input: AssembleTimelineInput): BuiltTimeline {
   const payloadSources: (StagePayloadSource | undefined)[] = [];
   let cursor = windowStart;
 
-  const pushGap = (gapStart: number, gapEnd: number, nextKind?: NamedSpanKind) => {
+  const pushGap = (
+    gapStart: number,
+    gapEnd: number,
+    nextKind?: NamedSpanKind,
+  ) => {
     const ms = gapEnd - gapStart;
     if (ms <= 0) return;
     // The leading gap (still at windowStart) is the queue; a gap right before an llm turn is model-wait.

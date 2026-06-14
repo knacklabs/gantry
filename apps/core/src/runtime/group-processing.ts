@@ -120,6 +120,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       messageFilter,
     );
     if (missedMessages.length === 0) return true;
+    // Window start for the latency timeline: most recent driving inbound's
+    // gateway-ingress instant (ms epoch). undefined if not captured.
+    const drivingIngressAtMs = (() => {
+      for (let i = missedMessages.length - 1; i >= 0; i--) {
+        const iso = missedMessages[i]?.ingress_at;
+        if (iso) return new Date(iso).getTime();
+      }
+      return undefined;
+    })();
     const latestMessage = missedMessages[missedMessages.length - 1];
     const activeThreadId = firstThreadQueueId(
       queueThreadId,
@@ -343,10 +352,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     // runs as soon as a reply is finalized so the latency badge appears promptly;
     // the post-run block is a backstop for replies whose marker never fired.
     let traceTurns: NonNullable<AgentOutput['turns']> = [];
+    let traceStartup: AgentOutput['runnerStartup'];
     let persistedTurnCount = 0;
     let lastPersistedTraceCursorId: string | undefined;
     const persistReplyTraceForTurn = async (): Promise<void> => {
       if (!deps.replyTrace || traceTurns.length <= persistedTurnCount) return;
+      // best-effort: in a rare concurrent-send race the cursor may resolve a
+      // different outbound; the idempotency guard prevents double-persist but
+      // send-timing could attach to the wrong reply. Acceptable for a trace.
       const cursor = await ops()
         .getLastBotMessageCursor(chatJid)
         .catch(() => undefined);
@@ -362,6 +375,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
       if (!slice) return;
       lastPersistedTraceCursorId = cursor.id;
+      const isFirstReply = persistedTurnCount === 0;
       persistedTurnCount = slice.nextPersistedTurnCount;
       await persistReplyTrace({
         replyTrace: deps.replyTrace,
@@ -372,6 +386,28 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         runHandle: traceRunHandle,
         ...(slice.guardrail ? { guardrail: slice.guardrail } : {}),
         llmTurns: slice.llmTurns,
+        ...(drivingIngressAtMs !== undefined
+          ? { windowStart: drivingIngressAtMs }
+          : {}),
+        ...(cursor.sendCompletedAt
+          ? { windowEnd: new Date(cursor.sendCompletedAt).getTime() }
+          : {}),
+        ...(cursor.sendStartedAt && cursor.sendCompletedAt
+          ? {
+              send: {
+                startedAt: new Date(cursor.sendStartedAt).getTime(),
+                endedAt: new Date(cursor.sendCompletedAt).getTime(),
+              },
+            }
+          : {}),
+        ...(isFirstReply && traceStartup
+          ? {
+              startup: {
+                startedAt: agentRunStartedAt,
+                readyAt: traceStartup.firstSdkMessageAt,
+              },
+            }
+          : {}),
       });
     };
     if (guardrailResult.handled) {
@@ -434,7 +470,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       deps.channelRuntime.setTyping(chatJid, isTyping)
     );
     await setTypingState(true);
-    let startedAt = currentTimeMs();
+    const agentRunStartedAt = currentTimeMs();
+    let startedAt = agentRunStartedAt;
     let pausedAt: number | null = null;
     let pausedTotalMs = 0;
     const activeElapsedMs = () =>
@@ -707,6 +744,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       if (result.turns && result.turns.length > 0) {
         traceTurns = result.turns;
       }
+      if (result.runnerStartup) traceStartup = result.runnerStartup;
       if (awaitingResponseReceipt && !result.interactionBoundary) {
         awaitingResponseReceipt = false;
         await resumeActiveElapsed();

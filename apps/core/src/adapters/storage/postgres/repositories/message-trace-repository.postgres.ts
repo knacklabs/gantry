@@ -1,4 +1,4 @@
-import type { LatencyTimings } from '../../../../runtime/reply-trace.js';
+import type { LatencyTimeline, LatencyTimings } from '../../../../runtime/reply-trace.js';
 import { messageTracesPostgres } from '../schema/message-traces.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
@@ -11,7 +11,7 @@ export interface MessageTraceRow {
   conversationId: string;
   kind: MessageTraceKind;
   totalMs: number;
-  timingsJson: LatencyTimings;
+  timingsJson: LatencyTimings | LatencyTimeline;
   payloadsJson: Record<number, unknown> | null;
   /** ISO timestamp string (timestamptz mode: 'string'). */
   createdAt: string;

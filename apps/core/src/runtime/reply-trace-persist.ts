@@ -1,7 +1,7 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import {
-  assemblePayloads,
-  assembleTimings,
+  assembleTimeline,
+  assembleTimelinePayloads,
   type GuardrailRecord,
   type LlmTurnRecord,
 } from './reply-trace.js';
@@ -29,6 +29,10 @@ export interface PersistReplyTraceInput {
   guardrail?: GuardrailRecord;
   llmTurns?: readonly LlmTurnRecord[];
   command?: { name: string; ms: number; startedAt: number };
+  windowStart?: number;
+  windowEnd?: number;
+  send?: { startedAt: number; endedAt: number };
+  startup?: { startedAt: number; readyAt: number };
   now?: () => Date;
 }
 
@@ -47,16 +51,20 @@ export async function persistReplyTrace(
       ? input.replyTrace.drain(input.runHandle)
       : [];
     const assembleInput = {
+      ...(input.windowStart !== undefined ? { windowStart: input.windowStart } : {}),
+      ...(input.windowEnd !== undefined ? { windowEnd: input.windowEnd } : {}),
       ...(input.guardrail ? { guardrail: input.guardrail } : {}),
+      ...(input.startup ? { startup: input.startup } : {}),
       ...(input.llmTurns ? { llmTurns: input.llmTurns } : {}),
+      ...(input.send ? { send: input.send } : {}),
       ...(input.command ? { command: input.command } : {}),
       toolCalls,
     };
-    const timings = assembleTimings(assembleInput);
-    if (timings.stages.length === 0) return;
+    const timeline = assembleTimeline(assembleInput);
+    if (timeline.sections.length === 0) return;
 
     const payloadsJson = input.replyTrace.payloadsEnabled()
-      ? assemblePayloads(assembleInput)
+      ? assembleTimelinePayloads(assembleInput)
       : null;
 
     const createdAt = (input.now ? input.now() : new Date()).toISOString();
@@ -65,8 +73,8 @@ export async function persistReplyTrace(
       appId: input.appId,
       conversationId: input.chatJid,
       kind: input.kind,
-      totalMs: timings.totalMs,
-      timingsJson: timings,
+      totalMs: timeline.totalMs,
+      timingsJson: timeline,
       payloadsJson,
       createdAt,
     });

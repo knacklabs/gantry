@@ -27,7 +27,8 @@ describe('persistReplyTrace', () => {
           tool: 'search',
           ms: 21,
           ok: true,
-          startedAt: 2,
+          // startedAt after llm ends (1+300=301) so it is a distinct non-overlapping span
+          startedAt: 310,
           requestBytes: 5,
           responseBytes: 9,
         },
@@ -54,7 +55,7 @@ describe('persistReplyTrace', () => {
       llmTurns: [
         {
           ms: 300,
-          startedAt: 1,
+          startedAt: 18,
           detail: {
             model: 'sonnet',
             stopReason: 'end_turn',
@@ -70,12 +71,13 @@ describe('persistReplyTrace', () => {
     expect(saved[0].kind).toBe('reply');
     expect(saved[0].appId).toBe('app:test');
     expect(saved[0].conversationId).toBe('wa:42');
-    expect(saved[0].totalMs).toBe(18 + 300 + 21);
-    expect(saved[0].timingsJson.stages.map((s) => s.kind)).toEqual([
-      'guardrail',
-      'llm',
-      'tool',
-    ]);
+    // v2 timeline: sections exist, version === 2
+    expect(saved[0].timingsJson.version).toBe(2);
+    expect(saved[0].totalMs).toBeGreaterThan(0);
+    const sections = (saved[0].timingsJson as { sections: Array<{ kind: string }> }).sections;
+    expect(sections.map((s) => s.kind)).toContain('guardrail');
+    expect(sections.map((s) => s.kind)).toContain('llm');
+    expect(sections.map((s) => s.kind)).toContain('tool');
     expect(saved[0].payloadsJson).toBeNull();
     expect(saved[0].createdAt).toBe('2026-06-14T00:00:00.000Z');
   });
@@ -109,7 +111,7 @@ describe('persistReplyTrace', () => {
     });
 
     expect(saved[0].payloadsJson).not.toBeNull();
-    // tool stage is index 1 (guardrail absent → llm absent → only tool here)
+    // tool is the only section; its index is 0 in v2
     expect(saved[0].payloadsJson).toMatchObject({
       0: { request: { q: 1 }, response: { r: 2 } },
     });
@@ -156,7 +158,7 @@ describe('persistReplyTrace', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('builds a command trace with a command stage', async () => {
+  it('builds a command trace with a command section', async () => {
     const saved: MessageTraceRow[] = [];
     const port = makePort(saved);
     await persistReplyTrace({
@@ -169,9 +171,61 @@ describe('persistReplyTrace', () => {
       command: { name: '/new', ms: 4, startedAt: 0 },
     });
     expect(saved[0].kind).toBe('command');
-    expect(saved[0].timingsJson.stages[0]).toMatchObject({
+    const sections = (saved[0].timingsJson as { sections: Array<{ kind: string; label: string }> }).sections;
+    expect(sections[0]).toMatchObject({
       kind: 'command',
       label: '/new',
     });
+  });
+
+  it('assembles a v2 wall-clock timeline when windowStart/windowEnd/send/startup are provided', async () => {
+    const saved: MessageTraceRow[] = [];
+    const port = makePort(saved, {
+      drain: () => [],
+    });
+
+    const windowStart = 1000;
+    const windowEnd = 2500;
+    const llmStartedAt = 1200;
+    const llmMs = 800;
+
+    await persistReplyTrace({
+      replyTrace: port,
+      kind: 'reply',
+      chatJid: 'wa:99',
+      appId: 'app:test',
+      outboundMessageId: 'outbound:xyz',
+      runHandle: 'gantry-run-2',
+      windowStart,
+      windowEnd,
+      send: { startedAt: 2100, endedAt: windowEnd },
+      startup: { startedAt: windowStart, readyAt: 1150 },
+      llmTurns: [
+        {
+          ms: llmMs,
+          startedAt: llmStartedAt,
+          detail: { model: 'sonnet', stopReason: 'end_turn' },
+        },
+      ],
+      now: () => new Date('2026-06-14T00:00:00.000Z'),
+    });
+
+    expect(saved.length).toBe(1);
+    const row = saved[0];
+
+    // v2 assertions
+    expect(row.timingsJson.version).toBe(2);
+    expect(row.totalMs).toBe(windowEnd - windowStart); // 1500
+
+    const timeline = row.timingsJson as { version: 2; totalMs: number; sections: Array<{ kind: string; ms: number }> };
+    // sections must sum to totalMs
+    const sectionsSum = timeline.sections.reduce((s, x) => s + x.ms, 0);
+    expect(sectionsSum).toBe(row.totalMs);
+
+    // must contain startup, llm, send sections
+    const kinds = timeline.sections.map((s) => s.kind);
+    expect(kinds).toContain('startup');
+    expect(kinds).toContain('llm');
+    expect(kinds).toContain('send');
   });
 });

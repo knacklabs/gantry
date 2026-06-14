@@ -136,7 +136,7 @@ export interface RuntimeMessageRepository {
   getMessageThreadIds(conversationJid: string): Promise<Array<string | null>>;
   getLastBotMessageCursor(
     conversationJid: string,
-  ): Promise<{ timestamp: string; id: string } | undefined>;
+  ): Promise<{ timestamp: string; id: string; sendStartedAt?: string; sendCompletedAt?: string } | undefined>;
   getLastBotMessageTimestamp(
     conversationJid: string,
   ): Promise<string | undefined>;

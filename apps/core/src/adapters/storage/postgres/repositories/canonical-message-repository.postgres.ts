@@ -30,6 +30,9 @@ export interface CanonicalOpsMessageRow {
   delivery_error: string | null;
   /** Gateway ingress instant (ISO), when present — used by the latency timeline. */
   ingress_at: string | null;
+  /** Outbound send bracket (ISO), when present — used by the latency timeline. */
+  send_started_at?: string | null;
+  send_completed_at?: string | null;
   payload_json: string | null;
 }
 
@@ -379,6 +382,8 @@ export class PostgresCanonicalMessageRepository {
         delivered_at: m.deliveredAt,
         delivery_error: m.deliveryError,
         ingress_at: m.ingressAt,
+        send_started_at: m.sendStartedAt,
+        send_completed_at: m.sendCompletedAt,
         payload_json: sql<string | null>`${p.payloadJson}::text`,
       })
       .from(m)

@@ -323,7 +323,10 @@ describe('assembleTimeline (v2)', () => {
   });
 
   it('produces no sections for a zero-length window', () => {
-    const t = assembleTimeline({ windowStart: 1_000_000, windowEnd: 1_000_000 });
+    const t = assembleTimeline({
+      windowStart: 1_000_000,
+      windowEnd: 1_000_000,
+    });
     expect(t.totalMs).toBe(0);
     expect(t.sections).toEqual([]);
   });
