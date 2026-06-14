@@ -185,27 +185,12 @@ vi.mock('@core/runtime/egress-gateway.js', () => ({
   ensureEgressGateway: (...args: unknown[]) => mockEnsureEgressGateway(...args),
 }));
 
-// DeepAgents shell/filesystem pre-spawn guard. By default the combined guard
-// uses the REAL implementation (tier-1 shell-execution-disabled fires first and
-// unconditionally), so the rest of the suite is unaffected. The
-// `liftV1ShellGuard` seam lets a single test simulate the future enablement path
-// where the v1 shell guard is lifted, making the tier-2 enforcing-sandbox copy
-// reachable through spawnAgent.
-let liftV1ShellGuard = false;
-vi.mock('@core/runtime/deepagents-shell-filesystem-guard.js', async () => {
-  const actual = await vi.importActual<
-    typeof import('@core/runtime/deepagents-shell-filesystem-guard.js')
-  >('@core/runtime/deepagents-shell-filesystem-guard.js');
-  return {
-    ...actual,
-    deepAgentsShellFilesystemGuard: (
-      input: Parameters<typeof actual.deepAgentsShellFilesystemGuard>[0],
-    ) =>
-      liftV1ShellGuard
-        ? actual.deepAgentsEnforcingSandboxGuard(input)
-        : actual.deepAgentsShellFilesystemGuard(input),
-  };
-});
+// DeepAgents shell/filesystem pre-spawn guard runs with its REAL implementation:
+// shell/filesystem authority that is not confined by an enforcing sandbox fails
+// closed with the enforcing-sandbox copy, while shell/filesystem authority under
+// `sandbox_runtime` is allowed (the runner projects the gated shell tool). The
+// per-test sandbox provider is driven by the runtime-settings mock + the passed
+// runnerSandboxProvider, so no guard mock seam is needed.
 
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
@@ -249,10 +234,7 @@ import {
 } from '@core/config/index.js';
 import { getConfiguredModelProvidersForApp } from '@core/adapters/storage/postgres/runtime-store.js';
 import { DirectRunnerSandboxProvider } from '@core/adapters/sandbox/runner-sandbox-provider.js';
-import {
-  DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE,
-  DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
-} from '@core/runtime/deepagents-shell-filesystem-guard.js';
+import { DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE } from '@core/runtime/deepagents-shell-filesystem-guard.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import type { ConversationRoute } from '@core/domain/types.js';
@@ -741,7 +723,6 @@ describe('agent-spawn timeout behavior', () => {
 
   afterEach(() => {
     vi.useRealTimers();
-    liftV1ShellGuard = false;
     if (previousImageInventory === undefined) {
       delete process.env.GANTRY_IMAGE_CAPABILITIES_JSON;
     } else {
@@ -3293,39 +3274,10 @@ describe('agent-spawn timeout behavior', () => {
     expect(resolvedEntryId).toBe('groq:gpt-oss-120b');
   });
 
-  it('A9: blocks a deepagents shell run before spawn with the tier-1 shell-execution copy', async () => {
-    vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('deepagents');
-    const result = await spawnTestAgent(
-      testGroup,
-      {
-        ...testInput,
-        model: 'gpt',
-        toolPolicyRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
-      },
-      () => {},
-      undefined,
-      {
-        executionAdapter: {
-          id: 'deepagents:langchain',
-          prepare: vi.fn(async () => {
-            throw new Error('should not prepare: guard must fire first');
-          }),
-        },
-      },
-    );
-
-    expect(result).toMatchObject({
-      status: 'error',
-      error: DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE,
-    });
-    expect(spawn).not.toHaveBeenCalled();
-  });
-
-  it('A9: blocks a deepagents shell run with the tier-2 enforcing-sandbox copy once the v1 guard is lifted', async () => {
-    // Simulate the future enablement path: the v1 shell guard is lifted, so the
-    // enforcing-sandbox guard governs. The mocked runtime sandbox provider is
-    // 'direct' (non-enforcing), so the tier-2 copy fires.
-    liftV1ShellGuard = true;
+  it('A9: blocks a deepagents shell run under direct mode with the enforcing-sandbox copy (FAIL CLOSED)', async () => {
+    // Default mocked runtime sandbox provider is 'direct' (non-enforcing), so a
+    // DeepAgents run requesting shell authority fails closed before spawn — no
+    // shell tool can be projected without an enforcing OS sandbox.
     vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('deepagents');
     const result = await spawnTestAgent(
       testGroup,
@@ -3351,6 +3303,67 @@ describe('agent-spawn timeout behavior', () => {
       error: DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
     });
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('A9: allows a deepagents shell run under sandbox_runtime and projects GANTRY_DEEPAGENTS_SHELL_ENABLED', async () => {
+    // Under the enforcing whole-runner OS sandbox, a DeepAgents run with a
+    // RunCommand rule is allowed to spawn and the host projects the shell-enabled
+    // flag the runner reads to decide whether to inject the gated shell tool.
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+        egress: { denylist: [] },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'sandbox_runtime',
+          resourceLimits: { cpuSeconds: 0, memoryMb: 0, maxProcesses: 0 },
+        },
+      },
+    } as any);
+    const start = vi.fn(() => fakeProc as any);
+    const runnerSandboxProvider: RunnerSandboxProvider = {
+      id: 'sandbox_runtime',
+      enforcing: true,
+      start,
+    };
+    vi.mocked(getEffectiveAgentEngine).mockReturnValueOnce('deepagents');
+    const prepare = vi.fn(async () => ({
+      providerId: 'deepagents:langchain',
+      runnerPath: '/runner.js',
+      runnerArgs: ['/runner.js'],
+      env: {},
+      protectedFilesystemPaths: [],
+      runtimeDetails: [],
+      cleanup: vi.fn(),
+    }));
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        model: 'gpt',
+        toolPolicyRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+      },
+      () => {},
+      undefined,
+      {
+        runnerSandboxProvider,
+        executionAdapter: {
+          id: 'deepagents:langchain',
+          prepare: prepare as any,
+        },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(prepare).toHaveBeenCalledOnce();
+    const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
+    const env = startInput.env as Record<string, string>;
+    expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBe('1');
   });
 
   it('returns error when execution adapter prepare rejects', async () => {

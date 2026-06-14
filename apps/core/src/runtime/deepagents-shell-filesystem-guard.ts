@@ -11,15 +11,18 @@ import {
 import type { RunnerSandboxProviderId } from '../shared/runner-sandbox-provider.js';
 
 // Host-side, pre-spawn guards for DeepAgents runs that request shell (Bash /
-// RunCommand) or SDK filesystem-tool authority. Raw DeepAgents `execute` and
-// filesystem tools are disabled in v1 and only the future enablement path may
-// route them through Gantry policy. Both guards are pure functions so the
-// orderings and exact locked-plan copy are unit-testable without spawning a
+// RunCommand) or SDK filesystem-tool authority. Shell/filesystem authority on
+// the DeepAgents lane is enabled ONLY through a Gantry-owned, policy-gated,
+// sandbox-confined tool (a `RunCommand`-named LangChain tool injected into the
+// graph and wrapped with the neutral permission gate). Raw DeepAgents `execute`
+// and the baked-in filesystem tools stay disabled (StateBackend +
+// DENY_ALL_FILESYSTEM in the runner). These guards are pure functions so the
+// truth table and exact locked-plan copy are unit-testable without spawning a
 // runner. See docs/architecture/deepagents-agent-engine-handoff-plan.md.
 
-// Locked plan copy. The literals live here exactly once.
-export const DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE =
-  'DeepAgents shell execution is disabled until Gantry can route it through RunCommand policy.';
+// Locked plan copy. The literal lives here exactly once. It is the fail-closed
+// message surfaced when a DeepAgents run requests shell/filesystem authority but
+// the deployment posture or sandbox provider cannot enforce confinement.
 export const DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE =
   'DeepAgents requires an enforcing sandbox before shell or filesystem tools can be enabled in this deployment mode.';
 
@@ -62,9 +65,18 @@ function ruleGrantsFilesystemAuthority(rule: string): boolean {
   );
 }
 
+// Whether any resolved tool-policy rule would grant shell (RunCommand/Bash)
+// authority for the run. The Gantry-owned shell tool is projected only when this
+// is true (and the run is confined by an enforcing sandbox).
+export function requestsShellAuthority(
+  toolPolicyRules: readonly string[] | undefined,
+): boolean {
+  return (toolPolicyRules ?? []).some(ruleGrantsShellAuthority);
+}
+
 // Whether any resolved tool-policy rule would enable shell or filesystem
 // authority for the run. Exported so callers can short-circuit before invoking
-// the guards (e.g. to skip work when no such authority is requested).
+// the guard (e.g. to skip work when no such authority is requested).
 export function requestsShellOrFilesystemAuthority(
   toolPolicyRules: readonly string[] | undefined,
 ): boolean {
@@ -81,49 +93,68 @@ export interface DeepAgentsShellFilesystemGuardInput {
   sandboxProvider: RunnerSandboxProviderId | undefined;
 }
 
-// v1 guard: raw DeepAgents shell/filesystem authority is unconditionally
-// disabled. Returns the locked shell-execution copy when a DeepAgents run
-// requests shell or filesystem authority, else null. Non-DeepAgents engines are
-// never affected.
-export function deepAgentsShellExecutionGuard(
+// Whether the run's deployment posture + sandbox provider can enforce shell/
+// filesystem confinement (protected-path denies + egress proxy). True only when
+// the configured sandbox provider is the whole-runner OS sandbox AND the posture
+// does not additionally require an enforcing sandbox that this one is not. In
+// practice: `sandbox_runtime` always satisfies `requiresEnforcingSandbox`, so
+// this collapses to "the sandbox is the enforcing OS sandbox". `direct` and any
+// production/remote posture without `sandbox_runtime` cannot confine and so fail
+// closed.
+function deploymentCanEnforceShellSandbox(
   input: Pick<
     DeepAgentsShellFilesystemGuardInput,
-    'engine' | 'toolPolicyRules'
+    'securityEnv' | 'sandboxProvider'
   >,
-): string | null {
-  if (input.engine !== DEEPAGENTS_ENGINE) return null;
-  if (!requestsShellOrFilesystemAuthority(input.toolPolicyRules)) return null;
-  return DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE;
+): boolean {
+  const posture = resolveRuntimeSecurityPosture(input.securityEnv);
+  const sandboxIsEnforcing = input.sandboxProvider === 'sandbox_runtime';
+  if (!sandboxIsEnforcing) return false;
+  // sandbox_runtime is an enforcing sandbox; it satisfies a posture that
+  // requires one. (The posture flag is kept explicit so the intent — "a posture
+  // that demands enforcement is satisfied by an enforcing sandbox" — is clear.)
+  return posture.requiresEnforcingSandbox || sandboxIsEnforcing;
 }
 
-// Future-enablement guard: even once shell/filesystem authority is routed
-// through Gantry policy, a DeepAgents run that enables it requires an enforcing
-// sandbox when the deployment posture is production/remote OR the configured
-// sandbox provider is not enforcing. Data-driven so the same function gates the
-// later enablement path. Returns the locked enforcing-sandbox copy or null.
+// Pre-spawn guard for DeepAgents shell/filesystem authority. Truth table:
+//   - non-DeepAgents engine                                   -> null (unaffected)
+//   - DeepAgents, no shell/fs authority requested             -> null (no tool projected)
+//   - DeepAgents + shell/fs authority + enforcing sandbox     -> null (allowed; runner
+//                                                                projects the gated tool)
+//   - DeepAgents + shell/fs authority + NOT enforcing sandbox -> locked enforcing-sandbox
+//     (direct mode, or production/remote without sandbox_runtime)   copy (FAIL CLOSED)
+// Shell/filesystem authority that is not backed by an enforcing sandbox is
+// blocked; shell/filesystem with no shell/fs rule is simply not projected.
 export function deepAgentsEnforcingSandboxGuard(
   input: DeepAgentsShellFilesystemGuardInput,
 ): string | null {
   if (input.engine !== DEEPAGENTS_ENGINE) return null;
   if (!requestsShellOrFilesystemAuthority(input.toolPolicyRules)) return null;
-  const posture = resolveRuntimeSecurityPosture(input.securityEnv);
-  const sandboxIsEnforcing = input.sandboxProvider === 'sandbox_runtime';
-  if (posture.requiresEnforcingSandbox || !sandboxIsEnforcing) {
-    return DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE;
-  }
-  return null;
+  if (deploymentCanEnforceShellSandbox(input)) return null;
+  return DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE;
 }
 
-// Combined pre-spawn entry point. v1 ordering: the shell-execution guard fires
-// first and unconditionally blocks any DeepAgents shell/filesystem authority, so
-// the enforcing-sandbox copy is reachable only on the future enablement path
-// (when the first guard is lifted). Returns the first applicable locked message
-// or null when the run is safe to spawn.
+// Combined pre-spawn entry point. Returns the locked enforcing-sandbox message
+// when a DeepAgents run requests shell/filesystem authority that cannot be
+// confined, or null when the run is safe to spawn (no such authority, an
+// enforcing sandbox, or a non-DeepAgents engine).
 export function deepAgentsShellFilesystemGuard(
   input: DeepAgentsShellFilesystemGuardInput,
 ): string | null {
-  return (
-    deepAgentsShellExecutionGuard(input) ??
-    deepAgentsEnforcingSandboxGuard(input)
-  );
+  return deepAgentsEnforcingSandboxGuard(input);
+}
+
+// Whether the host should project the Gantry-owned shell tool into the runner
+// for this run: a DeepAgents run that requests shell (RunCommand/Bash) authority
+// AND is confined by an enforcing sandbox. Derived from the SAME inputs the
+// pre-spawn guard uses so the host env flag and the runner's projection agree;
+// the guard already fails the spawn closed if shell authority is requested
+// without an enforcing sandbox, so this only ever returns true on the allowed
+// path. Filesystem-only authority does NOT enable the shell tool.
+export function deepAgentsShellToolEnabled(
+  input: DeepAgentsShellFilesystemGuardInput,
+): boolean {
+  if (input.engine !== DEEPAGENTS_ENGINE) return false;
+  if (!requestsShellAuthority(input.toolPolicyRules)) return false;
+  return deploymentCanEnforceShellSandbox(input);
 }

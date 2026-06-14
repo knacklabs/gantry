@@ -8,6 +8,11 @@ import {
   EXCLUDED_BUILTIN_DEEPAGENT_TOOL_NAMES,
   EXCLUDED_FILESYSTEM_DEEPAGENT_TOOL_NAMES,
 } from '@core/adapters/llm/deepagents-langchain/runner/builtin-tool-exclusion.js';
+import { shouldProjectGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
+import {
+  createGantryShellTool,
+  GANTRY_SHELL_TOOL_NAME,
+} from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
 
 // The DeepAgents/LangChain packages are gated to the approved adapter boundary by
 // the provider-boundary sentinel; a test file may not statically import them. The
@@ -244,5 +249,81 @@ describe('DeepAgents raw authority denial', () => {
         '.mcp.json',
       );
     }
+  });
+
+  // Phase 4: the Gantry-owned shell tool is the ONLY execution surface, and it is
+  // injected into `tools` only when BOTH the host enabled it (the same guard
+  // inputs derive the flag) AND a resolved RunCommand rule is present. The tool
+  // is named RunCommand — NOT `execute` (which collides with deepagents).
+  describe('Gantry shell tool projection (the only execution surface)', () => {
+    it('projects ONLY when the host flag is set AND a RunCommand rule is present', () => {
+      // Authorized: flag '1' + a scoped RunCommand rule.
+      expect(
+        shouldProjectGantryShellTool({
+          shellEnabledEnv: '1',
+          configuredAllowedTools: ['RunCommand(npm test)'],
+        }),
+      ).toBe(true);
+      // No flag (host fails closed / direct mode) -> never projected.
+      expect(
+        shouldProjectGantryShellTool({
+          shellEnabledEnv: undefined,
+          configuredAllowedTools: ['RunCommand(npm test)'],
+        }),
+      ).toBe(false);
+      expect(
+        shouldProjectGantryShellTool({
+          shellEnabledEnv: '0',
+          configuredAllowedTools: ['RunCommand(npm test)'],
+        }),
+      ).toBe(false);
+      // Flag set but no RunCommand rule -> not projected (no shell requested).
+      expect(
+        shouldProjectGantryShellTool({
+          shellEnabledEnv: '1',
+          configuredAllowedTools: ['WebSearch', 'FileRead'],
+        }),
+      ).toBe(false);
+    });
+
+    it('names the shell tool RunCommand, never execute/ls/read_file (no deepagents collision)', () => {
+      expect(GANTRY_SHELL_TOOL_NAME).toBe('RunCommand');
+      const tool = createGantryShellTool({
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        configuredAllowedTools: ['RunCommand(npm test)'],
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {
+          appId: 'default',
+          agentId: 'agent:main',
+          chatJid: 'tg:group',
+          jobId: '',
+          jobName: '',
+          jobRunId: '',
+          jobRunLeaseToken: '',
+          jobRunLeaseFencingVersion: '',
+          ipcAuthToken: 'tok',
+          ipcResponseVerifyKey: '',
+          ipcResponseKeyId: 'kid',
+          permissionRequestTimeoutMs: 1000,
+          resolveWorkspaceIpcDir: (folder: string) => `/tmp/ipc/${folder}`,
+        },
+        lockedAccessPreset: false,
+      });
+      expect(tool.name).toBe('RunCommand');
+      for (const collidingName of [
+        'execute',
+        'ls',
+        'read_file',
+        'write_file',
+        'edit_file',
+        'glob',
+        'grep',
+        'task',
+        'write_todos',
+      ]) {
+        expect(tool.name).not.toBe(collidingName);
+      }
+    });
   });
 });

@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
-  DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE,
   deepAgentsEnforcingSandboxGuard,
-  deepAgentsShellExecutionGuard,
   deepAgentsShellFilesystemGuard,
+  deepAgentsShellToolEnabled,
+  requestsShellAuthority,
   requestsShellOrFilesystemAuthority,
 } from '@core/runtime/deepagents-shell-filesystem-guard.js';
 import type { RuntimeSecurityEnv } from '@core/shared/security-posture.js';
@@ -50,49 +50,30 @@ describe('deepAgentsShellFilesystemGuard', () => {
     });
   });
 
-  describe('deepAgentsShellExecutionGuard', () => {
-    it('returns the EXACT shell-execution copy for a DeepAgents shell request', () => {
-      expect(
-        deepAgentsShellExecutionGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['RunCommand(npm test)'],
-        }),
-      ).toBe(DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE);
-      expect(DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE).toBe(
-        'DeepAgents shell execution is disabled until Gantry can route it through RunCommand policy.',
-      );
-    });
-
-    it('returns the EXACT shell-execution copy for a DeepAgents filesystem request', () => {
-      expect(
-        deepAgentsShellExecutionGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['FileWrite'],
-        }),
-      ).toBe(DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE);
-    });
-
-    it('does not block the default (Anthropic SDK) engine', () => {
-      expect(
-        deepAgentsShellExecutionGuard({
-          engine: DEFAULT_AGENT_ENGINE,
-          toolPolicyRules: ['RunCommand(npm test)', 'FileWrite'],
-        }),
-      ).toBeNull();
-    });
-
-    it('does not block a DeepAgents run with no shell/fs authority', () => {
-      expect(
-        deepAgentsShellExecutionGuard({
-          engine: DEEPAGENTS_ENGINE,
-          toolPolicyRules: ['WebSearch', 'WebRead'],
-        }),
-      ).toBeNull();
+  describe('requestsShellAuthority', () => {
+    it('matches shell (RunCommand/Bash) authority but NOT filesystem-only authority', () => {
+      expect(requestsShellAuthority(['RunCommand(npm test)'])).toBe(true);
+      expect(requestsShellAuthority(['RunCommand'])).toBe(true);
+      expect(requestsShellAuthority(['Bash'])).toBe(true);
+      expect(requestsShellAuthority(['FileWrite'])).toBe(false);
+      expect(requestsShellAuthority(['FileRead', 'WebSearch'])).toBe(false);
+      expect(requestsShellAuthority([])).toBe(false);
     });
   });
 
-  describe('deepAgentsEnforcingSandboxGuard', () => {
-    it('returns the EXACT enforcing-sandbox copy under production posture even with sandbox_runtime', () => {
+  describe('deepAgentsEnforcingSandboxGuard (the operative gate)', () => {
+    it('ALLOWS shell under sandbox_runtime + safe local posture (returns null)', () => {
+      expect(
+        deepAgentsEnforcingSandboxGuard({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBeNull();
+    });
+
+    it('ALLOWS shell under sandbox_runtime even with production posture (the OS sandbox is enforcing)', () => {
       expect(
         deepAgentsEnforcingSandboxGuard({
           engine: DEEPAGENTS_ENGINE,
@@ -100,13 +81,10 @@ describe('deepAgentsShellFilesystemGuard', () => {
           securityEnv: PRODUCTION_ENV,
           sandboxProvider: 'sandbox_runtime',
         }),
-      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
-      expect(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE).toBe(
-        'DeepAgents requires an enforcing sandbox before shell or filesystem tools can be enabled in this deployment mode.',
-      );
+      ).toBeNull();
     });
 
-    it('returns the enforcing-sandbox copy when the sandbox provider is not enforcing (direct), local posture', () => {
+    it('BLOCKS shell under direct mode (non-enforcing) with the EXACT enforcing-sandbox copy — local posture', () => {
       expect(
         deepAgentsEnforcingSandboxGuard({
           engine: DEEPAGENTS_ENGINE,
@@ -115,17 +93,20 @@ describe('deepAgentsShellFilesystemGuard', () => {
           sandboxProvider: 'direct',
         }),
       ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
+      expect(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE).toBe(
+        'DeepAgents requires an enforcing sandbox before shell or filesystem tools can be enabled in this deployment mode.',
+      );
     });
 
-    it('passes when sandbox_runtime + local posture + shell/fs requested (future enablement path)', () => {
+    it('BLOCKS shell when the sandbox provider is undefined (fail closed)', () => {
       expect(
         deepAgentsEnforcingSandboxGuard({
           engine: DEEPAGENTS_ENGINE,
           toolPolicyRules: ['RunCommand(npm test)'],
           securityEnv: SAFE_LOCAL_ENV,
-          sandboxProvider: 'sandbox_runtime',
+          sandboxProvider: undefined,
         }),
-      ).toBeNull();
+      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
     });
 
     it('does not apply when no shell/fs authority is requested', () => {
@@ -151,10 +132,30 @@ describe('deepAgentsShellFilesystemGuard', () => {
     });
   });
 
-  describe('combined guard ordering', () => {
-    it('v1: shell-execution guard fires FIRST, masking the enforcing-sandbox copy', () => {
-      // Production + direct sandbox would trip BOTH guards; v1 ordering surfaces
-      // the shell-execution-disabled copy because that guard runs first.
+  describe('combined guard truth table', () => {
+    it('deepagents + RunCommand rule + sandbox_runtime -> null (allowed)', () => {
+      expect(
+        deepAgentsShellFilesystemGuard({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBeNull();
+    });
+
+    it('deepagents + RunCommand rule + direct -> tier-2 enforcing-sandbox copy (FAIL CLOSED)', () => {
+      expect(
+        deepAgentsShellFilesystemGuard({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'direct',
+        }),
+      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
+    });
+
+    it('deepagents + RunCommand rule + production-without-sandbox -> blocked (FAIL CLOSED)', () => {
       expect(
         deepAgentsShellFilesystemGuard({
           engine: DEEPAGENTS_ENGINE,
@@ -162,10 +163,10 @@ describe('deepAgentsShellFilesystemGuard', () => {
           securityEnv: PRODUCTION_ENV,
           sandboxProvider: 'direct',
         }),
-      ).toBe(DEEPAGENTS_SHELL_EXECUTION_DISABLED_MESSAGE);
+      ).toBe(DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE);
     });
 
-    it('combined guard returns null for a safe DeepAgents run with no shell/fs authority', () => {
+    it('deepagents + NO shell/fs rule -> null (no shell requested, no block)', () => {
       expect(
         deepAgentsShellFilesystemGuard({
           engine: DEEPAGENTS_ENGINE,
@@ -176,7 +177,7 @@ describe('deepAgentsShellFilesystemGuard', () => {
       ).toBeNull();
     });
 
-    it('combined guard returns null for the default engine regardless of rules/posture', () => {
+    it('non-deepagents engine -> null regardless of rules/posture', () => {
       expect(
         deepAgentsShellFilesystemGuard({
           engine: DEFAULT_AGENT_ENGINE,
@@ -185,6 +186,63 @@ describe('deepAgentsShellFilesystemGuard', () => {
           sandboxProvider: 'direct',
         }),
       ).toBeNull();
+    });
+  });
+
+  describe('deepAgentsShellToolEnabled (host projection flag)', () => {
+    it('true for deepagents + RunCommand rule + sandbox_runtime', () => {
+      expect(
+        deepAgentsShellToolEnabled({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBe(true);
+    });
+
+    it('false under direct mode (guard would block the spawn anyway)', () => {
+      expect(
+        deepAgentsShellToolEnabled({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'direct',
+        }),
+      ).toBe(false);
+    });
+
+    it('false for filesystem-only authority (the shell tool is shell, not FS)', () => {
+      expect(
+        deepAgentsShellToolEnabled({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['FileWrite'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBe(false);
+    });
+
+    it('false for the default (Anthropic SDK) engine', () => {
+      expect(
+        deepAgentsShellToolEnabled({
+          engine: DEFAULT_AGENT_ENGINE,
+          toolPolicyRules: ['RunCommand(npm test)'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBe(false);
+    });
+
+    it('false when no shell rule is present', () => {
+      expect(
+        deepAgentsShellToolEnabled({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['WebSearch'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBe(false);
     });
   });
 });

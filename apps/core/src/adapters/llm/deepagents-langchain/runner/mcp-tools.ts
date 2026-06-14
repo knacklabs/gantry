@@ -8,7 +8,9 @@ import {
   wrapThirdPartyMcpToolsWithGate,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
+import { createGantryShellTool } from './gantry-shell-tool.js';
 import { isHostPrivateBrowserMcpServerName } from '../../../../shared/agent-tool-references.js';
+import { isRunCommandToolRule } from '../../../../shared/gantry-tool-facades.js';
 
 // Connects the DeepAgents runner to Gantry-owned MCP authority and converts it
 // to LangChain tools. DeepAgents has no autonomous MCP — we fully control the
@@ -54,6 +56,12 @@ export interface ConnectGantryMcpInput {
   configuredAllowedTools: readonly string[];
   hideAuthorityTools: boolean;
   gate: Omit<ThirdPartyMcpGateConfig, 'configuredAllowedTools'>;
+  // Run-cancellation signal threaded into the gated shell tool so a command in
+  // flight is killed when the live-turn close sentinel aborts the run.
+  shellSignal?: AbortSignal;
+  // Working directory for the gated shell tool (defaults to the runner cwd, the
+  // sandboxed group workspace root).
+  shellCwd?: string;
 }
 
 export async function connectGantryAndThirdPartyMcpTools(
@@ -121,10 +129,57 @@ export async function connectGantryAndThirdPartyMcpTools(
     configuredAllowedTools: input.configuredAllowedTools,
   });
 
+  const shellTools = projectGantryShellTool(input);
+
   return {
-    tools: [...gantryTools, ...gatedThirdPartyTools],
+    tools: [...gantryTools, ...gatedThirdPartyTools, ...shellTools],
     close: () => client.close(),
   };
+}
+
+// Whether the Gantry-owned, policy-gated shell tool should be injected into the
+// graph for this run. Both conditions must hold:
+//   (a) the host enabled it via GANTRY_DEEPAGENTS_SHELL_ENABLED='1' — derived on
+//       the host from the SAME guard inputs (engine deepagents + RunCommand rule
+//       + enforcing sandbox_runtime); the host fails the spawn closed otherwise, AND
+//   (b) a resolved tool rule actually grants RunCommand/shell authority.
+// A missing/absent host flag OR no RunCommand rule means no shell tool — behavior
+// is exactly as before, and the model has no execution surface at all (StateBackend
+// + DENY_ALL_FILESYSTEM leave deepagents with no `execute`). Exported for unit
+// coverage of the two-condition gate.
+export function shouldProjectGantryShellTool(input: {
+  shellEnabledEnv: string | undefined;
+  configuredAllowedTools: readonly string[];
+}): boolean {
+  if (input.shellEnabledEnv !== '1') return false;
+  return input.configuredAllowedTools.some((rule) =>
+    isRunCommandToolRule(rule),
+  );
+}
+
+function projectGantryShellTool(
+  input: ConnectGantryMcpInput,
+): StructuredToolInterface[] {
+  if (
+    !shouldProjectGantryShellTool({
+      shellEnabledEnv: process.env.GANTRY_DEEPAGENTS_SHELL_ENABLED,
+      configuredAllowedTools: input.configuredAllowedTools,
+    })
+  ) {
+    return [];
+  }
+  return [
+    createGantryShellTool({
+      workspaceFolder: input.gate.workspaceFolder,
+      memoryBlock: input.gate.memoryBlock,
+      configuredAllowedTools: input.configuredAllowedTools,
+      gateContext: input.gate.gateContext,
+      permissionEnv: input.gate.permissionEnv,
+      lockedAccessPreset: input.gate.lockedAccessPreset,
+      ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
+      ...(input.shellSignal ? { signal: input.shellSignal } : {}),
+    }),
+  ];
 }
 
 function readExternalMcpServers(): Record<string, ExternalServerConfig> {

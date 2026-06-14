@@ -110,6 +110,10 @@ export async function runDeepAgentTurn(input: {
   const connected = await connectGantryAndThirdPartyMcpTools({
     configuredAllowedTools,
     hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
+    // The gated shell tool (when projected) runs commands as a child of this
+    // already-sandboxed runner; thread the run-cancellation signal so an
+    // in-flight command is killed on STOP/close.
+    ...(input.signal ? { shellSignal: input.signal } : {}),
     gate: {
       workspaceFolder: input.agentInput.workspaceFolder,
       memoryBlock,

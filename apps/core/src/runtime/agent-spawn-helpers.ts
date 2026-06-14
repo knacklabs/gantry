@@ -4,8 +4,26 @@ import path from 'path';
 import type { AgentInput } from './agent-spawn-types.js';
 import type { EgressGatewayPrivateHostMapping } from './egress-gateway.js';
 import { projectSandboxRuntimeModelGatewayEnv } from './agent-spawn-runtime-policy.js';
+import {
+  deepAgentsShellToolEnabled,
+  type DeepAgentsShellFilesystemGuardInput,
+} from './deepagents-shell-filesystem-guard.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
+
+// Host env projection for the DeepAgents shell tool. Returns the enable flag the
+// runner reads when (and only when) the run is a DeepAgents run that requests
+// shell (RunCommand) authority AND is confined by an enforcing sandbox — derived
+// from the SAME guard inputs as the pre-spawn admission check so host and runner
+// agree. The pre-spawn guard already fails the spawn closed for shell authority
+// without an enforcing sandbox, so this only flips to '1' on the allowed path.
+export function deepAgentsShellEnabledEnv(
+  input: DeepAgentsShellFilesystemGuardInput,
+): Record<string, string> {
+  return deepAgentsShellToolEnabled(input)
+    ? { GANTRY_DEEPAGENTS_SHELL_ENABLED: '1' }
+    : {};
+}
 
 export type RunnerAgentInput = Omit<AgentInput, 'toolPolicyRules'> & {
   allowedTools?: string[];

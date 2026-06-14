@@ -87,6 +87,7 @@ import {
   cleanupRunnerMcpConfigFile,
   cleanupRunnerTempDir,
   buildSandboxRuntimeGatewayOptions,
+  deepAgentsShellEnabledEnv,
   protectedWritePathsForOuterSandbox,
   sandboxRuntimeToolProcessEnv,
   sandboxRuntimeToolNetworkEnv,
@@ -580,6 +581,14 @@ export async function spawnAgent(
       ...(runnerSandboxProviderId === 'sandbox_runtime'
         ? { GANTRY_SANDBOX_RUNTIME_PROXY: '1' }
         : {}),
+      // DeepAgents shell-tool flag, derived from the pre-spawn guard inputs (see
+      // deepAgentsShellEnabledEnv); only '1' on the allowed sandbox path.
+      ...deepAgentsShellEnabledEnv({
+        engine: agentEngine,
+        toolPolicyRules: trustedToolPolicyRules,
+        securityEnv: process.env,
+        sandboxProvider: runnerSandboxProviderId,
+      }),
     };
     applyAgentEgressNoProxyEnv(env, { externalBypass: false });
     hostStartup.finish('runnerEnvMs', runnerEnvStarted);

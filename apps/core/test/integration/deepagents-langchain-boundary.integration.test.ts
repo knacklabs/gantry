@@ -274,6 +274,101 @@ async function startToolForcingOpenAiGateway(): Promise<FakeGateway> {
   };
 }
 
+// A gateway that forces ONE named tool call (with JSON arguments) on the first
+// turn, then a plain text answer once the tool result is seen. Used to drive the
+// Gantry shell tool (RunCommand) gate end to end.
+async function startNamedToolForcingGateway(
+  toolName: string,
+  toolArguments: string,
+): Promise<FakeGateway> {
+  const requests: FakeGateway['requests'] = [];
+  let turn = 0;
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      requests.push({
+        authorization: req.headers.authorization,
+        body,
+        path: req.url ?? '',
+      });
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const id = 'chatcmpl-named-tool';
+      const firstTurn = turn === 0;
+      turn += 1;
+      const chunks = firstTurn
+        ? [
+            {
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: 'assistant',
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: 'call_shell',
+                        type: 'function',
+                        function: { name: toolName, arguments: toolArguments },
+                      },
+                    ],
+                  },
+                  finish_reason: null,
+                },
+              ],
+            },
+            {
+              choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+              usage: {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                total_tokens: 15,
+              },
+            },
+          ]
+        : [
+            {
+              choices: [
+                {
+                  index: 0,
+                  delta: { role: 'assistant', content: 'Done.' },
+                  finish_reason: null,
+                },
+              ],
+            },
+            {
+              choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              usage: {
+                prompt_tokens: 20,
+                completion_tokens: 2,
+                total_tokens: 22,
+              },
+            },
+          ];
+      for (const chunk of chunks) {
+        res.write(
+          `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', model: 'gpt-5.5', ...chunk })}\n\n`,
+        );
+      }
+      res.write('data: [DONE]\n\n');
+      res.end();
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('named-tool gateway did not bind a port');
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/openai`,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
 // A fake OPENROUTER chat-completions gateway: OpenRouter is OpenAI-wire-
 // compatible, so this serves OpenAI-shaped SSE that ChatOpenRouter parses, with
 // a FINAL usage chunk carrying prompt_tokens_details.{cached_tokens,
@@ -833,6 +928,93 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
       expect(frames.some((frame) => isTurnCompleteMarker(frame))).toBe(false);
       // No error frame either (graceful stop).
       expect(frames.some((frame) => frame.status === 'error')).toBe(false);
+    } finally {
+      await gateway.close();
+    }
+  }, 120_000);
+
+  // Phase 4: under GANTRY_DEEPAGENTS_SHELL_ENABLED='1' + a RunCommand rule, the
+  // model sees a gated `RunCommand` shell tool. A command that the scoped rule
+  // allows runs without a permission prompt (policy match), executes inside the
+  // runner process, and the run completes — proving the tool is projected and
+  // gated, and the command actually executed.
+  it('projects a gated RunCommand shell tool under sandbox-enabled flag + RunCommand rule and runs an allowed command', async () => {
+    const gateway = await startNamedToolForcingGateway(
+      'RunCommand',
+      JSON.stringify({ command: 'echo gantry-shell-ran' }),
+    );
+    const temp = makeTempRoot();
+    const requestDir = path.join(temp.workspaceIpcDir, 'permission-requests');
+    try {
+      const result = await runRunner({
+        stdin: {
+          prompt: 'run the command',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+          // The scoped rule allows `echo *`, so the gate ALLOWS without a prompt.
+          allowedTools: ['RunCommand(echo *)'],
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+        extraEnv: {
+          // Host projects this only on the allowed path (deepagents + RunCommand
+          // rule + sandbox_runtime). Setting it here simulates that projection.
+          GANTRY_DEEPAGENTS_SHELL_ENABLED: '1',
+        },
+      });
+
+      expect(result.code).toBe(0);
+      // No permission-request file: the scoped rule allowed the command, so the
+      // gate did not need to prompt the host.
+      const requestFiles = fs.existsSync(requestDir)
+        ? fs.readdirSync(requestDir).filter((file) => file.endsWith('.json'))
+        : [];
+      expect(requestFiles.length).toBe(0);
+      // The second upstream turn carries the tool result back to the model; the
+      // executed command's stdout is in the request body.
+      expect(gateway.requests.length).toBeGreaterThanOrEqual(2);
+      const secondBody = gateway.requests[1]?.body ?? '';
+      expect(secondBody).toContain('gantry-shell-ran');
+      expect(secondBody).toContain('exited with code 0');
+      const frames = parseFrames(result.stdout);
+      expect(frames.some((frame) => frame.status === 'error')).toBe(false);
+    } finally {
+      await gateway.close();
+    }
+  }, 120_000);
+
+  // Phase 4 negative: WITHOUT the host flag the RunCommand shell tool is NOT
+  // projected even when a RunCommand rule is present — behavior is exactly as
+  // before (no shell execution surface). The forced tool call then fails to bind
+  // and the run surfaces an error frame, proving the tool was absent.
+  it('does NOT project the shell tool without the host flag (no shell surface)', async () => {
+    const gateway = await startNamedToolForcingGateway(
+      'RunCommand',
+      JSON.stringify({ command: 'echo should-not-exist' }),
+    );
+    const temp = makeTempRoot();
+    try {
+      const result = await runRunner({
+        stdin: {
+          prompt: 'run the command',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+          allowedTools: ['RunCommand(echo *)'],
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+        // GANTRY_DEEPAGENTS_SHELL_ENABLED is intentionally NOT set.
+      });
+
+      // The model tried to call a tool that was never bound; the lane fails the
+      // turn (no silent execution surface). The key invariant: the command never
+      // ran, so no executed-output marker reaches the gateway.
+      const ranOutput = gateway.requests.some((request) =>
+        request.body.includes('exited with code'),
+      );
+      expect(ranOutput).toBe(false);
     } finally {
       await gateway.close();
     }

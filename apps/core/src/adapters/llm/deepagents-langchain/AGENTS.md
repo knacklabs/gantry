@@ -139,6 +139,22 @@ without invoking the tool. Locked-preset agents are hard-denied without promptin
 Raw DeepAgents authority stays disabled: default `StateBackend` (no `execute`),
 deny-all filesystem `permissions`, never `LocalShellBackend`/`FilesystemBackend`.
 
+Gantry-owned shell tool (Phase 4): the ONLY execution surface is a `RunCommand`-
+named LangChain tool in `gantry-shell-tool.ts` (NOT `execute`/`ls`/`read_file`/etc
+— those collide with deepagents' baked-in tool names). `mcp-tools.ts` injects it
+into `tools` ONLY when `GANTRY_DEEPAGENTS_SHELL_ENABLED==='1'` (host flag) AND a
+resolved `RunCommand(...)` rule is present (`shouldProjectGantryShellTool`). The
+host sets that flag from `deepAgentsShellEnabledEnv` (= the pre-spawn guard's
+allowed path: engine deepagents + RunCommand rule + enforcing `sandbox_runtime`);
+the guard fails the spawn closed under `direct`/production-without-sandbox. The
+tool shapes `{ command }` into a `Bash` policy request, runs the SAME neutral gate
+as the third-party MCP tools (pre-checks → `evaluateNeutralToolPolicy` → durable
+`requestPermissionApprovalViaIpc`), then on allow `spawn`s a child of the
+already-sandboxed runner (inherits OS protected-path denies + the runner's
+egress-proxy env). NEVER swap in a deepagents execution backend (it throws when
+`permissions` is combined with an execution backend, and does not enforce
+`permissions` on `execute`). `File*` tools are NOT projected yet (shell only).
+
 `task` / `write_todos` decision: DeepAgents 1.10.2 bakes both middlewares into
 `createDeepAgent` unconditionally — there is no config switch to omit them.
 `createDeepAgent` itself uses a `wrapModelCall` middleware to exclude tools (its
