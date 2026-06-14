@@ -526,6 +526,14 @@ export async function runQuery(
               };
             }
           | undefined;
+        // message_start fires when the model BEGINS generating this turn (before
+        // any content); the assistant message only arrives once generation is
+        // done. Stamp the turn's start here so its duration reflects real
+        // generation time and excludes the inter-turn gap (tool calls). Verified
+        // ordering: message_start → content deltas → assistant → message_delta.
+        if (event?.type === 'message_start') {
+          llmTurns.onTurnStart(Date.now());
+        }
         if (event?.type === 'content_block_delta') {
           const delta = event.delta;
           if (delta?.type === 'text_delta' && typeof delta.text === 'string') {

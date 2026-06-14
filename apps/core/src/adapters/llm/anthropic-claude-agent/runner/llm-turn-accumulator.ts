@@ -26,11 +26,18 @@ function num(value: number | undefined): number {
 
 /**
  * Accumulates per-turn LLM timing + token usage from the child runner's SDK
- * loop. Each `assistant` message opens a turn (stamping its wall-clock start)
- * and closes the previous one; `closeOpenTurn` finalizes the last turn at the
- * `result` boundary. `message.usage` is BetaUsage (confirmed present on every
- * SDKAssistantMessage in @anthropic-ai/claude-agent-sdk@0.3.156); it is mapped
- * to the generic `{ in, out, cacheRead, cacheWrite }` shape.
+ * loop. The SDK emits, per turn, `message_start` (generation begins) → content
+ * deltas → an `assistant` message (generation done) → `message_delta` (final
+ * usage) → `result`. So a turn's TRUE generation time is `message_start →
+ * assistant`: `onTurnStart` stamps the start and `onAssistant` finalizes the
+ * duration. Measuring this way (rather than to the next turn / the `result`)
+ * excludes the inter-turn gap — i.e. tool-call time, which belongs to the tool
+ * stage, not the LLM. If `message_start` was never seen, `closeOpenTurn` falls
+ * back to the close boundary so a turn is never reported as 0 ms.
+ *
+ * `message.usage` is BetaUsage (confirmed present on every SDKAssistantMessage
+ * in @anthropic-ai/claude-agent-sdk@0.3.156); it is mapped to the generic
+ * `{ in, out, cacheRead, cacheWrite }` shape.
  *
  * Best-effort only — capture must never affect the reply.
  */
@@ -39,6 +46,8 @@ export class LlmTurnAccumulator {
   private open: (AgentRunnerLlmTurn & { startedAt: number }) | undefined;
   /** Anthropic message id of the open turn, to merge multi-event messages. */
   private openMessageId: string | undefined;
+  /** Wall-clock of the latest `message_start`, consumed by the next turn. */
+  private pendingStartedAt: number | undefined;
   private readonly now: () => number;
   private readonly capturePayloads: boolean;
 
@@ -47,21 +56,29 @@ export class LlmTurnAccumulator {
     this.capturePayloads = opts.capturePayloads ?? false;
   }
 
+  /** Called on the `message_start` stream event — marks generation start. */
+  onTurnStart(at: number = this.now()): void {
+    this.pendingStartedAt = at;
+  }
+
   /**
-   * Called on each `assistant` SDK message. `startedAt` defaults to the current
-   * clock; payload `input`/`output` are recorded only when capture is enabled.
+   * Called on each `assistant` SDK message — the point at which the turn's
+   * generation has finished. `arrivalAt` defaults to the current clock; payload
+   * `input`/`output` are recorded only when capture is enabled. The turn starts
+   * at the last `message_start` (or `arrivalAt` if none was seen) and its `ms`
+   * is the generation span, finalized here rather than at the next boundary.
    */
   onAssistant(
     message: SdkAssistantLike,
-    startedAt: number = this.now(),
+    arrivalAt: number = this.now(),
     payload?: { input?: unknown; output?: string },
   ): void {
     const messageId = message.message?.id;
     // The SDK emits one Anthropic message as multiple assistant events (e.g. a
     // text block then a tool_use block, same id). Merge them into the open turn
     // rather than opening a phantom duplicate (the tool_use-only event has no
-    // text). Only merge on a real, matching id — id-less events keep one turn
-    // each, as before.
+    // text). Extend the generation span to the latest event. Only merge on a
+    // real, matching id — id-less events keep one turn each, as before.
     if (
       this.open &&
       messageId !== undefined &&
@@ -73,14 +90,16 @@ export class LlmTurnAccumulator {
       if (message.message?.model && !this.open.detail.model) {
         this.open.detail.model = message.message.model;
       }
+      this.open.ms = Math.max(this.open.ms, arrivalAt - this.open.startedAt);
       return;
     }
-    // A new message closes the previous open turn at this boundary.
-    if (this.open) this.closeOpenTurn(startedAt);
+    // A new message closes the previous open turn (its ms is already final).
+    if (this.open) this.closeOpenTurn();
     const usage = message.message?.usage ?? {};
+    const startedAt = this.pendingStartedAt ?? arrivalAt;
     const turn: AgentRunnerLlmTurn & { startedAt: number } = {
       startedAt,
-      ms: 0,
+      ms: Math.max(0, arrivalAt - startedAt),
       detail: {
         ...(message.message?.model ? { model: message.message.model } : {}),
         ...(message.message?.stop_reason
@@ -100,6 +119,7 @@ export class LlmTurnAccumulator {
     }
     this.open = turn;
     this.openMessageId = messageId;
+    this.pendingStartedAt = undefined;
   }
 
   /**
@@ -121,10 +141,17 @@ export class LlmTurnAccumulator {
     if (stopReason) this.open.detail.stopReason = stopReason;
   }
 
-  /** Finalize the currently-open turn (at a `result` or next-assistant boundary). */
+  /**
+   * Finalize the currently-open turn (at a `result` or next-assistant boundary).
+   * The duration was already measured at `onAssistant` (generation span); only
+   * fall back to `endedAt - startedAt` when no `message_start` was seen (ms still
+   * 0) so a turn is never reported as 0 ms.
+   */
   closeOpenTurn(endedAt: number = this.now()): void {
     if (!this.open) return;
-    this.open.ms = Math.max(0, endedAt - this.open.startedAt);
+    if (this.open.ms === 0) {
+      this.open.ms = Math.max(0, endedAt - this.open.startedAt);
+    }
     this.completed.push(this.open);
     this.open = undefined;
     this.openMessageId = undefined;

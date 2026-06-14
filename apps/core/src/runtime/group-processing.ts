@@ -72,6 +72,7 @@ import { createProgressChannelSender } from './group-progress-channel-sender.js'
 import { createGroupAgentRunner } from './group-agent-runner.js';
 import { screenBatchPreAgent } from './group-guardrail.js';
 import { persistReplyTrace } from './reply-trace-persist.js';
+import { selectTurnTraceSlice } from './reply-trace.js';
 import { createThreadOptionBuilders } from './group-thread-options.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
@@ -334,19 +335,34 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     // when the agent spawns; turns arrive cumulatively from the child envelope.
     let traceRunHandle: string | undefined;
     let traceAppId: string | undefined;
+    // The child emits the CUMULATIVE turn list each reply, and a single warm run
+    // serves several user turns (continuations) under one process. Persist one
+    // trace per reply, keyed to that reply's outbound message: only the turns
+    // beyond the high-water mark belong to it, the guardrail rides the first
+    // reply, and `selectTurnTraceSlice` makes it idempotent per outbound id. This
+    // runs as soon as a reply is finalized so the latency badge appears promptly;
+    // the post-run block is a backstop for replies whose marker never fired.
     let traceTurns: NonNullable<AgentOutput['turns']> = [];
-    // Persist the per-reply trace as soon as the turn's reply is finalized
-    // (one-shot, idempotent) so the latency badge appears promptly instead of
-    // waiting for the warm session to close. The post-run block is a backstop.
-    let replyTracePersisted = false;
+    let persistedTurnCount = 0;
+    let lastPersistedTraceCursorId: string | undefined;
     const persistReplyTraceForTurn = async (): Promise<void> => {
-      if (replyTracePersisted || !deps.replyTrace) return;
-      if (!(guardrailTrace || traceTurns.length > 0)) return;
+      if (!deps.replyTrace || traceTurns.length <= persistedTurnCount) return;
       const cursor = await ops()
         .getLastBotMessageCursor(chatJid)
         .catch(() => undefined);
       if (!cursor) return;
-      replyTracePersisted = true;
+      const slice = selectTurnTraceSlice({
+        allTurns: traceTurns,
+        persistedTurnCount,
+        cursorId: cursor.id,
+        ...(lastPersistedTraceCursorId
+          ? { lastPersistedCursorId: lastPersistedTraceCursorId }
+          : {}),
+        ...(guardrailTrace ? { guardrail: guardrailTrace } : {}),
+      });
+      if (!slice) return;
+      lastPersistedTraceCursorId = cursor.id;
+      persistedTurnCount = slice.nextPersistedTurnCount;
       await persistReplyTrace({
         replyTrace: deps.replyTrace,
         kind: 'reply',
@@ -354,8 +370,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         appId: traceAppId ?? 'default',
         outboundMessageId: cursor.id,
         runHandle: traceRunHandle,
-        ...(guardrailTrace ? { guardrail: guardrailTrace } : {}),
-        ...(traceTurns.length > 0 ? { llmTurns: traceTurns } : {}),
+        ...(slice.guardrail ? { guardrail: slice.guardrail } : {}),
+        llmTurns: slice.llmTurns,
       });
     };
     if (guardrailResult.handled) {
@@ -920,14 +936,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }
     await setTypingState(false);
 
-    // Backstop for the per-reply latency trace: the turn-complete marker
-    // normally persists it promptly, but persist here too (idempotent one-shot)
-    // for paths that never hit that marker (non-streaming, early exits). Any
-    // failure is swallowed inside persistReplyTrace and can never affect the
-    // already-delivered reply. Drain any leftover MCP records so a completed run
-    // cannot leak them when there was no outbound message to attach to.
+    // Backstop for the per-reply latency trace: a reply's marker normally
+    // persists it promptly, but persist here too for paths that never hit one
+    // (non-streaming, early exits). Any failure is swallowed inside
+    // persistReplyTrace and can never affect the already-delivered reply. Then
+    // drain any leftover MCP records (idempotent — empty once persisted) so a
+    // completed run cannot leak a tail that had no outbound message to attach to.
     await persistReplyTraceForTurn();
-    if (!replyTracePersisted && traceRunHandle) {
+    if (traceRunHandle) {
       deps.replyTrace?.drain(traceRunHandle);
     }
 

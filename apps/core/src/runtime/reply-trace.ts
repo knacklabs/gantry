@@ -197,6 +197,50 @@ export function assemblePayloads(
   return payloads;
 }
 
+export interface TurnTraceSliceInput {
+  /** The cumulative LLM-turn list the child emits — grows across a warm run. */
+  allTurns: readonly LlmTurnRecord[];
+  /** How many of `allTurns` earlier replies in this run already persisted. */
+  persistedTurnCount: number;
+  /** Outbound message id this reply is keyed to. */
+  cursorId: string;
+  /** Outbound id of the previous persisted reply (idempotency guard). */
+  lastPersistedCursorId?: string;
+  /** The pre-agent guardrail decision — belongs to the run's first reply only. */
+  guardrail?: GuardrailRecord;
+}
+
+export interface TurnTraceSlice {
+  llmTurns: LlmTurnRecord[];
+  guardrail?: GuardrailRecord;
+  /** New high-water mark to carry into the next reply of the same run. */
+  nextPersistedTurnCount: number;
+}
+
+/**
+ * Decide what to persist for the just-finalized reply of a (possibly warm,
+ * multi-reply) run. A warm run handles several user turns under one child
+ * process and emits the CUMULATIVE turn list each time, so only the tail beyond
+ * `persistedTurnCount` belongs to this reply; the guardrail rides the run's
+ * first reply alone. Returns `null` when this outbound was already traced
+ * (same cursor) or no new turns have accumulated — keeping each outbound message
+ * traced exactly once. Pure: the caller owns the cursor + high-water state.
+ */
+export function selectTurnTraceSlice(
+  input: TurnTraceSliceInput,
+): TurnTraceSlice | null {
+  if (input.cursorId === input.lastPersistedCursorId) return null;
+  const llmTurns = input.allTurns.slice(input.persistedTurnCount);
+  if (llmTurns.length === 0) return null;
+  return {
+    llmTurns,
+    ...(input.persistedTurnCount === 0 && input.guardrail
+      ? { guardrail: input.guardrail }
+      : {}),
+    nextPersistedTurnCount: input.allTurns.length,
+  };
+}
+
 /** Opt-in payload-capture flag (boot-hydrated; off by default). */
 export const tracePayloadsEnabled = (): boolean =>
   process.env['GANTRY_TRACE_PAYLOADS']?.trim() === '1';

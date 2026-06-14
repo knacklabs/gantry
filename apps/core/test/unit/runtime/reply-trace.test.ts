@@ -3,6 +3,9 @@ import {
   RunTraceCollector,
   assembleTimings,
   assemblePayloads,
+  selectTurnTraceSlice,
+  type GuardrailRecord,
+  type LlmTurnRecord,
   type ToolCallRecord,
 } from '@core/runtime/reply-trace.js';
 
@@ -57,6 +60,72 @@ describe('RunTraceCollector', () => {
   it('drain of an unknown run returns empty, never throws', () => {
     const c = new RunTraceCollector();
     expect(c.drain('nope')).toEqual([]);
+  });
+});
+
+describe('selectTurnTraceSlice', () => {
+  const turn = (startedAt: number): LlmTurnRecord => ({
+    ms: 1,
+    startedAt,
+    detail: {},
+  });
+  const guardrail: GuardrailRecord = {
+    ms: 5,
+    startedAt: 0,
+    detail: { mode: 'deterministic', decision: 'allow', inlineAttached: true },
+  };
+
+  it('returns all turns plus the guardrail on the first traced turn', () => {
+    const slice = selectTurnTraceSlice({
+      allTurns: [turn(1), turn(2)],
+      persistedTurnCount: 0,
+      cursorId: 'm1',
+      guardrail,
+    });
+    expect(slice).toEqual({
+      llmTurns: [turn(1), turn(2)],
+      guardrail,
+      nextPersistedTurnCount: 2,
+    });
+  });
+
+  it('slices only the new turns for a later warm-run turn, without the guardrail', () => {
+    // A warm run emits the cumulative turn list each turn; only the tail beyond
+    // persistedTurnCount belongs to this reply. The guardrail rode the 1st turn.
+    const slice = selectTurnTraceSlice({
+      allTurns: [turn(1), turn(2), turn(3)],
+      persistedTurnCount: 2,
+      cursorId: 'm2',
+      lastPersistedCursorId: 'm1',
+      guardrail,
+    });
+    expect(slice).toEqual({
+      llmTurns: [turn(3)],
+      nextPersistedTurnCount: 3,
+    });
+  });
+
+  it('is idempotent per outbound message (same cursor → null)', () => {
+    expect(
+      selectTurnTraceSlice({
+        allTurns: [turn(1), turn(2)],
+        persistedTurnCount: 0,
+        cursorId: 'm1',
+        lastPersistedCursorId: 'm1',
+        guardrail,
+      }),
+    ).toBeNull();
+  });
+
+  it('returns null when no new turns have accumulated', () => {
+    expect(
+      selectTurnTraceSlice({
+        allTurns: [turn(1), turn(2)],
+        persistedTurnCount: 2,
+        cursorId: 'm2',
+        lastPersistedCursorId: 'm1',
+      }),
+    ).toBeNull();
   });
 });
 
