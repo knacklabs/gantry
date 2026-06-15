@@ -940,6 +940,63 @@ describe('agent-spawn timeout behavior', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
   });
 
+  it('recycles the warm handle and falls back cold when bind fails', async () => {
+    vi.mocked(getRuntimeWarmPoolConfig).mockReturnValue({
+      enabled: true,
+      size: 1,
+      idleTtlMs: 240_000,
+    });
+    const warmHandle: WarmWorkerHandle = {
+      id: 'warm-worker-bind-fails',
+      key: 'warm-key',
+      bornAt: 100,
+      bound: false,
+    };
+    const warmPool: WarmPoolRuntime = {
+      acquire: vi.fn(() => warmHandle),
+      release: vi.fn(async () => undefined),
+    };
+    const warmAdapter: WarmPoolCapable = {
+      ...testExecutionAdapter,
+      prewarm: vi.fn(async () => warmHandle),
+      recycle: vi.fn(),
+      bind: vi.fn(async () => {
+        throw new Error('bind transport failed');
+      }),
+    };
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        appId: 'app-one',
+        agentId: 'agent-one',
+      },
+      vi.fn(),
+      undefined,
+      {
+        executionAdapter: warmAdapter,
+        warmPool,
+      },
+    );
+
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalled());
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'bind failure cold',
+    });
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'success',
+      result: 'bind failure cold',
+    });
+    expect(warmPool.acquire).toHaveBeenCalledTimes(1);
+    expect(warmAdapter.bind).toHaveBeenCalledTimes(1);
+    expect(warmPool.release).toHaveBeenCalledWith(warmHandle);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
   it('does not acquire from the pool when the adapter is not warm-capable', async () => {
     vi.mocked(getRuntimeWarmPoolConfig).mockReturnValue({
       enabled: true,

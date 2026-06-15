@@ -1435,6 +1435,7 @@ describe('GroupQueue', () => {
 
   it('stopGroup sends SIGTERM to the active process group', async () => {
     let resolveProcess: () => void;
+    const release = vi.fn(async () => undefined);
     const processMessages = vi.fn(async () => {
       await new Promise<void>((resolve) => {
         resolveProcess = resolve;
@@ -1446,7 +1447,25 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     const mockProcess = { pid: 4242, killed: false, kill: vi.fn() } as any;
-    queue.registerProcess('group1@g.us', mockProcess, 'run-1', 'team');
+    queue.registerProcess(
+      'group1@g.us',
+      mockProcess,
+      'run-1',
+      'team',
+      undefined,
+      undefined,
+      {
+        pooledWarmWorker: {
+          handle: {
+            id: 'warm-worker-stop',
+            key: 'warm-key',
+            bornAt: 100,
+            bound: true,
+          },
+          release,
+        },
+      },
+    );
 
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true as never);
     expect(queue.stopGroup('group1@g.us')).toBe(true);
@@ -1456,6 +1475,7 @@ describe('GroupQueue', () => {
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('stopGroup falls back to SIGTERM on the direct process when group kill fails', async () => {

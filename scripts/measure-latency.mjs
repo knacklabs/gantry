@@ -104,7 +104,8 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--samples') args.samples = Number(argv[++i]);
     else if (a === '--json') args.json = argv[++i];
-    else if (a === '--only') args.only = argv[++i].split(',').map((s) => s.trim());
+    else if (a === '--only')
+      args.only = argv[++i].split(',').map((s) => s.trim());
     else throw new Error(`unknown argument: ${a}`);
   }
   if (!Number.isInteger(args.samples) || args.samples < 1) {
@@ -150,13 +151,20 @@ function flowEvents(text, phone) {
       continue;
     }
     const envelope = json;
-    if (json && typeof json.flow !== 'string' && json.context && typeof json.context.flow === 'string') {
+    if (
+      json &&
+      typeof json.flow !== 'string' &&
+      json.context &&
+      typeof json.context.flow === 'string'
+    ) {
       json = json.context;
     }
     if (typeof json.flow !== 'string') continue;
     const iso = line.match(/^\[([0-9T:.Z+-]+)\]/);
     const t = Date.parse(
-      iso ? iso[1] : json.time || json.timestamp || envelope.time || envelope.timestamp,
+      iso
+        ? iso[1]
+        : json.time || json.timestamp || envelope.time || envelope.timestamp,
     );
     if (Number.isNaN(t)) continue;
     const jid = json.jid || json.chatJid || null;
@@ -183,7 +191,8 @@ function flowEvents(text, phone) {
   return out;
 }
 
-const isReply = (e) => e.flow === 'outbound' && !String(e.reply || '').includes(RESET_REPLY);
+const isReply = (e) =>
+  e.flow === 'outbound' && !String(e.reply || '').includes(RESET_REPLY);
 
 async function waitForEvent(off, phone, predicate, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -199,13 +208,27 @@ async function waitForEvent(off, phone, predicate, timeoutMs) {
 
 function activeRunnerPids() {
   try {
-    return execFileSync('pgrep', ['-f', RUNNER_PROC_PATTERN], { stdio: ['ignore', 'pipe', 'ignore'] })
+    const pids = execFileSync('pgrep', ['-f', RUNNER_PROC_PATTERN], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
       .toString()
       .trim()
       .split('\n')
       .filter(Boolean);
+    return pids.filter((pid) => !isWarmPoolWorkerPid(pid));
   } catch {
     return []; // pgrep exits 1 when nothing matches
+  }
+}
+
+function isWarmPoolWorkerPid(pid) {
+  try {
+    const command = execFileSync('ps', ['-p', pid, '-o', 'command='], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString();
+    return command.includes('--gantry-warm-pool-worker=');
+  } catch {
+    return false;
   }
 }
 
@@ -215,7 +238,9 @@ async function waitForSlotIsolation() {
     const pids = activeRunnerPids();
     if (pids.length === 0) return true;
     if (Date.now() > deadline) {
-      console.error(`  ! slot isolation timeout: runner pids still alive: ${pids.join(', ')}`);
+      console.error(
+        `  ! slot isolation timeout: runner pids still alive: ${pids.join(', ')}`,
+      );
       return false;
     }
     await sleep(1000);
@@ -283,7 +308,9 @@ function transcriptEntriesSince(snapshot, sinceMs) {
       if (Number.isNaN(tMs) || tMs < sinceMs) continue;
       if (obj.type === 'assistant' && obj.message?.usage) {
         const usage = obj.message.usage;
-        const content = Array.isArray(obj.message.content) ? obj.message.content : [];
+        const content = Array.isArray(obj.message.content)
+          ? obj.message.content
+          : [];
         entries.push({
           tMs,
           kind: 'assistant',
@@ -292,11 +319,17 @@ function transcriptEntriesSince(snapshot, sinceMs) {
           cacheRead: usage.cache_read_input_tokens ?? 0,
           cacheWrite: usage.cache_creation_input_tokens ?? 0,
           outputTokens: usage.output_tokens ?? 0,
-          tools: content.filter((c) => c?.type === 'tool_use').map((c) => c.name),
+          tools: content
+            .filter((c) => c?.type === 'tool_use')
+            .map((c) => c.name),
           stop: obj.message.stop_reason,
         });
       } else {
-        entries.push({ tMs, kind: obj.type || 'other', session: obj.sessionId });
+        entries.push({
+          tMs,
+          kind: obj.type || 'other',
+          session: obj.sessionId,
+        });
       }
     }
   }
@@ -354,8 +387,13 @@ async function measureTurn(scenario, ctx) {
   const snapshot = transcriptSnapshot();
   const off = logSize();
   const sentAt = Date.now();
-  const sent = await sendWebhook({ text: scenario.text, from: phone, name: 'Latency Suite' });
-  if (!sent.ok) throw new Error(`webhook rejected (HTTP ${sent.status}): ${sent.response}`);
+  const sent = await sendWebhook({
+    text: scenario.text,
+    from: phone,
+    name: 'Latency Suite',
+  });
+  if (!sent.ok)
+    throw new Error(`webhook rejected (HTTP ${sent.status}): ${sent.response}`);
 
   const found = await waitForEvent(off, phone, isReply, TURN_TIMEOUT_MS);
   await sleep(SETTLE_MS); // let trailing mcp.response / model.usage lines flush
@@ -367,7 +405,14 @@ async function measureTurn(scenario, ctx) {
   const spans = mcpSpans(events);
   const usageEvents = events.filter((e) => e.flow === 'model.usage');
   const rate = [...events].reverse().find((e) => e.flow === 'model.rate_limit');
-  if (rate) ctx.lastRateLimit = { utilization: rate.utilization, status: rate.rateLimitStatus, type: rate.rateLimitType, at: rate.t, carried: false };
+  if (rate)
+    ctx.lastRateLimit = {
+      utilization: rate.utilization,
+      status: rate.rateLimitStatus,
+      type: rate.rateLimitType,
+      at: rate.t,
+      carried: false,
+    };
 
   const entries = transcriptEntriesSince(snapshot, sentAt - 2_000);
   const rounds = roundsFromEntries(entries);
@@ -382,12 +427,14 @@ async function measureTurn(scenario, ctx) {
     totalMs,
     stages: {
       pickupGuardrailMs: guardrail ? guardrail.t - sentAt : null,
-      spawnToLlmInputMs: guardrail && llmInput ? llmInput.t - guardrail.t : null,
+      spawnToLlmInputMs:
+        guardrail && llmInput ? llmInput.t - guardrail.t : null,
       mcpTotalMs: spans.length ? spans.reduce((acc, s) => acc + s.ms, 0) : null,
       // Post-result tail: reply persisted/sent minus the final LLM round's
       // completion (transcript timestamp). The getContextUsage() tail (RC4)
       // lives here; F2 should collapse it to ~0.1s.
-      postResultTailMs: reply && lastAssistantAt ? reply.t - lastAssistantAt : null,
+      postResultTailMs:
+        reply && lastAssistantAt ? reply.t - lastAssistantAt : null,
     },
     mcp: spans,
     rounds: rounds.map(({ at, ...r }) => r),
@@ -398,14 +445,20 @@ async function measureTurn(scenario, ctx) {
     resumed: llmInput ? Boolean(llmInput.resumed) : null,
     guardrailDecision: guardrail?.guardrailDecision ?? null,
     usageEventCount: usageEvents.length,
-    rateLimit: ctx.lastRateLimit ? { ...ctx.lastRateLimit, carried: !rate } : null,
+    rateLimit: ctx.lastRateLimit
+      ? { ...ctx.lastRateLimit, carried: !rate }
+      : null,
     replyPreview: reply ? String(reply.reply || '').slice(0, 80) : null,
   };
 }
 
 async function sessionReset(phone) {
   const off = logSize();
-  const sent = await sendWebhook({ text: '/new', from: phone, name: 'Latency Suite' });
+  const sent = await sendWebhook({
+    text: '/new',
+    from: phone,
+    name: 'Latency Suite',
+  });
   if (!sent.ok) throw new Error(`/new webhook rejected (HTTP ${sent.status})`);
   const ok = await waitForEvent(
     off,
@@ -413,13 +466,18 @@ async function sessionReset(phone) {
     (e) => e.flow === 'outbound' && String(e.reply || '').includes(RESET_REPLY),
     RESET_TIMEOUT_MS,
   );
-  if (!ok) throw new Error(`session reset for ${phone} got no confirmation within ${RESET_TIMEOUT_MS}ms`);
+  if (!ok)
+    throw new Error(
+      `session reset for ${phone} got no confirmation within ${RESET_TIMEOUT_MS}ms`,
+    );
 }
 
 // ---------- aggregation ----------
 
 function median(values) {
-  const v = values.filter((x) => typeof x === 'number' && Number.isFinite(x)).sort((a, b) => a - b);
+  const v = values
+    .filter((x) => typeof x === 'number' && Number.isFinite(x))
+    .sort((a, b) => a - b);
   if (!v.length) return null;
   const mid = Math.floor(v.length / 2);
   return v.length % 2 ? v[mid] : Math.round((v[mid - 1] + v[mid]) / 2);
@@ -443,8 +501,12 @@ function summarize(scenario, samples) {
       postResultTailMs: median(ok.map((s) => s.stages.postResultTailMs)),
     },
     medianRoundCount: median(ok.map((s) => s.roundCount)),
-    medianFirstCacheRead: median(ok.map((s) => s.firstRound?.cacheRead ?? null)),
-    medianFirstCacheWrite: median(ok.map((s) => s.firstRound?.cacheWrite ?? null)),
+    medianFirstCacheRead: median(
+      ok.map((s) => s.firstRound?.cacheRead ?? null),
+    ),
+    medianFirstCacheWrite: median(
+      ok.map((s) => s.firstRound?.cacheWrite ?? null),
+    ),
     utilizations: samples.map(
       (s) => s.rateLimit?.utilization ?? s.rateLimit?.status ?? null,
     ),
@@ -469,10 +531,18 @@ function printSummary(rows) {
 
 async function main() {
   const args = parseArgs(process.argv);
-  const scenarios = args.only ? SCENARIOS.filter((s) => args.only.includes(s.id)) : SCENARIOS;
+  const scenarios = args.only
+    ? SCENARIOS.filter((s) => args.only.includes(s.id))
+    : SCENARIOS;
   if (!scenarios.length) throw new Error('no scenarios selected');
-  if (args.only && scenarios.some((s) => s.id === 'T4') && !scenarios.some((s) => s.id === 'T3')) {
-    throw new Error('T4 (warm) requires T3 in the same run — it rides T3\'s session');
+  if (
+    args.only &&
+    scenarios.some((s) => s.id === 'T4') &&
+    !scenarios.some((s) => s.id === 'T3')
+  ) {
+    throw new Error(
+      "T4 (warm) requires T3 in the same run — it rides T3's session",
+    );
   }
   if (!fs.existsSync(LOG)) {
     throw new Error(
@@ -480,10 +550,14 @@ async function main() {
     );
   }
   if (!fs.existsSync(TRANSCRIPT_DIR)) {
-    console.error(`! transcript dir missing (${TRANSCRIPT_DIR}) — per-round evidence will be empty`);
+    console.error(
+      `! transcript dir missing (${TRANSCRIPT_DIR}) — per-round evidence will be empty`,
+    );
   }
 
-  console.log(`Latency suite: ${scenarios.map((s) => s.id).join(', ')} × ${args.samples} sample(s)`);
+  console.log(
+    `Latency suite: ${scenarios.map((s) => s.id).join(', ')} × ${args.samples} sample(s)`,
+  );
   console.log(`flow log: ${LOG}`);
 
   const ctx = { lastRateLimit: null };
@@ -498,7 +572,17 @@ async function main() {
       for (const scenario of scenarios) {
         const isolated = await waitForSlotIsolation();
         if (!isolated) {
-          bySid.get(scenario.id).push({ scenario: scenario.id, ok: false, slotViolation: true, totalMs: null, stages: {}, rounds: [], roundCount: 0 });
+          bySid
+            .get(scenario.id)
+            .push({
+              scenario: scenario.id,
+              ok: false,
+              slotViolation: true,
+              totalMs: null,
+              stages: {},
+              rounds: [],
+              roundCount: 0,
+            });
           console.log(`  ${scenario.id} SKIPPED (slot isolation not reached)`);
           continue;
         }
@@ -536,7 +620,10 @@ async function main() {
   const jsonPath = args.json || `/tmp/latency-suite-${Date.now()}.json`;
   fs.writeFileSync(jsonPath, JSON.stringify(out, null, 2));
   console.log(`detail JSON: ${jsonPath}`);
-  console.log('Admin-panel proof: http://localhost:3000/?c=conversation:wa:<phone> for phones ' + [...new Set(scenarios.map((s) => s.phone))].join(', '));
+  console.log(
+    'Admin-panel proof: http://localhost:3000/?c=conversation:wa:<phone> for phones ' +
+      [...new Set(scenarios.map((s) => s.phone))].join(', '),
+  );
 
   process.exit(rows.some((r) => r.succeeded === 0) ? 1 : 0);
 }
