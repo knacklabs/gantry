@@ -13,8 +13,23 @@ vi.mock('@core/jobs/ipc-handler.js', () => ({
   processTaskIpc: vi.fn(),
 }));
 
+// Partially mock the memory module: processMemoryRequest is stubbed so the test
+// controls the response WITHOUT standing up the Postgres-backed memory service,
+// but writeMemoryResponse stays REAL so the response-router → signed-resp-frame
+// path is exercised end to end (exactly as the task test uses the real
+// writeTaskIpcResponse).
+vi.mock('@core/memory/memory-ipc.js', async (importActual) => {
+  const actual =
+    await importActual<typeof import('@core/memory/memory-ipc.js')>();
+  return { ...actual, processMemoryRequest: vi.fn() };
+});
+
 import { processTaskIpc } from '@core/jobs/ipc-handler.js';
 import { writeTaskIpcResponse } from '@core/jobs/ipc-shared.js';
+import { processMemoryRequest } from '@core/memory/memory-ipc.js';
+import { computeMemoryIpcAuthToken } from '@core/runtime/ipc-auth.js';
+import { normalizeMemoryIpcActions } from '@core/shared/memory-ipc-actions.js';
+import type { MemoryIpcResponse } from '@gantry/contracts';
 import {
   startIpcSocketServer,
   type IpcSocketServerHandle,
@@ -36,6 +51,7 @@ import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js
 import { clearIpcRateLimitState } from '@core/runtime/ipc-rate-limit.js';
 
 const processTaskIpcMock = vi.mocked(processTaskIpc);
+const processMemoryRequestMock = vi.mocked(processMemoryRequest);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -260,6 +276,56 @@ function buildTaskPayload(
   });
 }
 
+// --- Memory envelopes ------------------------------------------------------
+// The memory channel has its OWN HMAC token (computeMemoryIpcAuthToken), bound
+// to the folder + thread + chatJid/userId/scope + the EXACT allowedActions set
+// + reviewer scope. The signed request must carry a context that re-derives the
+// same token AND lists the action in allowedActions, or parseMemoryIpcRequest
+// rejects it. This mirrors the grandchild's buildSignedMemoryEnvelope.
+const MEMORY_ALLOWED_ACTIONS = normalizeMemoryIpcActions([
+  'memory_search',
+  'memory_save',
+  'continuity_summary',
+  'procedure_save',
+]);
+const MEMORY_CHAT_JID = CHAT_JID;
+const MEMORY_DEFAULT_SCOPE = 'group' as const;
+
+function memoryAuthToken(folder: string, threadId: string | undefined): string {
+  return computeMemoryIpcAuthToken(folder, {
+    chatJid: MEMORY_CHAT_JID,
+    defaultScope: MEMORY_DEFAULT_SCOPE,
+    threadId: threadId ?? null,
+    allowedActions: MEMORY_ALLOWED_ACTIONS,
+    reviewerIsControlApprover: false,
+  });
+}
+
+function buildMemoryPayload(
+  memoryToken: string,
+  responseKeyId: string,
+  opts: {
+    requestId: string;
+    action?: string;
+    threadId?: string;
+    payload?: Record<string, unknown>;
+  },
+): Record<string, unknown> {
+  return createSignedIpcRequestEnvelope(memoryToken, {
+    requestId: opts.requestId,
+    action: opts.action ?? 'memory_search',
+    payload: opts.payload ?? { query: 'hello' },
+    context: {
+      chatJid: MEMORY_CHAT_JID,
+      ...(opts.threadId ? { threadId: opts.threadId } : {}),
+      responseKeyId,
+      defaultScope: MEMORY_DEFAULT_SCOPE,
+      allowedActions: MEMORY_ALLOWED_ACTIONS,
+      reviewerIsControlApprover: false,
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Test lifecycle
 // ---------------------------------------------------------------------------
@@ -275,6 +341,7 @@ function socketPathFor(name = 'core.sock'): string {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipc-socket-transport-'));
   processTaskIpcMock.mockReset();
+  processMemoryRequestMock.mockReset();
   clearIpcResponders();
   clearConsumedIpcRequestIds();
   clearIpcRateLimitState();
@@ -573,17 +640,19 @@ describe('ipc-socket-server task dispatch', () => {
     const auth = makeAuth(FOLDER, THREAD_ID);
     const client = await handshake(handle, auth);
 
+    // `browser` is not yet cut over to the socket, so it remains the explicit
+    // unsupported-channel reject (memory now has its own dispatcher).
     client.sendReq(
-      'memory',
+      'browser',
       buildTaskPayload(auth.authToken, auth.responseKeyId, {
-        taskId: 'm1',
+        taskId: 'b1',
         type: 'noop',
         threadId: THREAD_ID,
       }),
-      'req-mem',
+      'req-unsup',
     );
 
-    const resp = await client.waitForId('req-mem');
+    const resp = await client.waitForId('req-unsup');
     expect(resp.type).toBe('resp');
     expect((resp.payload as { ok?: boolean }).ok).toBe(false);
     expect((resp.payload as { code?: string }).code).toBe(
@@ -619,6 +688,206 @@ describe('ipc-socket-server task dispatch', () => {
     expect((resp.payload as { ok?: boolean }).ok).toBe(false);
     expect((resp.payload as { code?: string }).code).toBe('rate_limited');
     expect(processTaskIpcMock).not.toHaveBeenCalled();
+    expect(client.isClosed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Memory dispatch (Pillar 1, Phase 5.3a)
+//
+// processMemoryRequest is mocked (no Postgres); writeMemoryResponse is REAL, so
+// the server's dispatchMemory → registerIpcResponder → writeMemoryResponse →
+// signed-resp-frame path runs end to end. The memory channel keeps its OWN auth
+// (memory HMAC token + replay scope + allowedActions), re-verified here by the
+// real parseMemoryIpcRequest exactly as the fs watcher does.
+// ---------------------------------------------------------------------------
+
+describe('ipc-socket-server memory dispatch', () => {
+  async function handshake(
+    handle: IpcSocketServerHandle,
+    auth: ReturnType<typeof makeAuth>,
+    threadId = THREAD_ID,
+  ): Promise<FakeWorkerClient> {
+    const client = await connect(handle);
+    client.sendHello(
+      buildHelloPayload(auth.authToken, { folder: FOLDER, threadId }),
+      'hs',
+    );
+    const welcome = await client.waitForId('hs');
+    expect(welcome.ctrl).toBe('welcome');
+    return client;
+  }
+
+  it('M1. memory req → signed resp frame (router + ed25519 end to end)', async () => {
+    const response: MemoryIpcResponse = {
+      ok: true,
+      requestId: 'mem-7',
+      provider: 'postgres',
+      data: { results: [{ id: 'm-1' }] },
+    };
+    processMemoryRequestMock.mockResolvedValue(response);
+
+    const handle = await startServer(buildDeps());
+    const auth = makeAuth(FOLDER, THREAD_ID);
+    const memToken = memoryAuthToken(FOLDER, THREAD_ID);
+    const client = await handshake(handle, auth);
+
+    client.sendReq(
+      'memory',
+      buildMemoryPayload(memToken, auth.responseKeyId, {
+        requestId: 'mem-7',
+        action: 'memory_search',
+        threadId: THREAD_ID,
+      }),
+      'req-mem-7',
+    );
+
+    const resp = await client.waitForId('req-mem-7');
+    expect(resp.type).toBe('resp');
+    expect(resp.channel).toBe('memory');
+    const { signature, ...payloadWithoutSig } = resp.payload as {
+      signature?: string;
+    } & Record<string, unknown>;
+    expect(typeof signature).toBe('string');
+    expect(
+      verifyIpcResponsePayload(
+        auth.responseVerifyKey,
+        payloadWithoutSig,
+        signature,
+      ),
+    ).toBe(true);
+    expect(payloadWithoutSig.ok).toBe(true);
+    expect(payloadWithoutSig.requestId).toBe('mem-7');
+    expect(payloadWithoutSig.provider).toBe('postgres');
+    expect(payloadWithoutSig.data).toEqual({ results: [{ id: 'm-1' }] });
+
+    // The handler ran exactly once, with the parser's trusted request shape.
+    expect(processMemoryRequestMock).toHaveBeenCalledTimes(1);
+    const [reqArg, folderArg] = processMemoryRequestMock.mock.calls[0];
+    expect(folderArg).toBe(FOLDER);
+    expect(reqArg).toEqual(
+      expect.objectContaining({
+        requestId: 'mem-7',
+        action: 'memory_search',
+        allowedActions: MEMORY_ALLOWED_ACTIONS,
+      }),
+    );
+
+    // No memory-responses file was written — the responder consumed it.
+    const responsesDir = path.join(
+      process.env.GANTRY_HOME as string,
+      'data',
+      'ipc',
+      FOLDER,
+      'memory-responses',
+    );
+    expect(fs.existsSync(path.join(responsesDir, 'mem-7.json'))).toBe(false);
+  });
+
+  it('M2. forged memory req (wrong memory token) → {ok:false} reject, connection survives', async () => {
+    processMemoryRequestMock.mockResolvedValue({
+      ok: true,
+      requestId: 'mem-ok',
+      provider: 'postgres',
+      data: { results: [] },
+    } satisfies MemoryIpcResponse);
+
+    const handle = await startServer(buildDeps());
+    const auth = makeAuth(FOLDER, THREAD_ID);
+    const client = await handshake(handle, auth);
+
+    // Sign with a memory token bound to a DIFFERENT folder → signature mismatch
+    // → parseMemoryIpcRequest throws → invalid_request, handler never runs.
+    const wrongToken = memoryAuthToken('group-evil', THREAD_ID);
+    client.sendReq(
+      'memory',
+      buildMemoryPayload(wrongToken, auth.responseKeyId, {
+        requestId: 'mem-bad',
+        threadId: THREAD_ID,
+      }),
+      'req-mem-bad',
+    );
+
+    const resp = await client.waitForId('req-mem-bad');
+    expect(resp.type).toBe('resp');
+    expect((resp.payload as { ok?: boolean }).ok).toBe(false);
+    expect((resp.payload as { code?: string }).code).toBe('invalid_request');
+    expect(processMemoryRequestMock).not.toHaveBeenCalled();
+    expect(client.isClosed).toBe(false);
+
+    // Connection still usable: a valid memory req now gets a signed response.
+    const memToken = memoryAuthToken(FOLDER, THREAD_ID);
+    client.sendReq(
+      'memory',
+      buildMemoryPayload(memToken, auth.responseKeyId, {
+        requestId: 'mem-ok',
+        threadId: THREAD_ID,
+      }),
+      'req-mem-ok',
+    );
+    const ok = await client.waitForId('req-mem-ok');
+    expect((ok.payload as { ok?: boolean }).ok).toBe(true);
+  });
+
+  it('M3. replay of the same memory req is rejected the second time', async () => {
+    let handlerCalls = 0;
+    processMemoryRequestMock.mockImplementation(async () => {
+      handlerCalls += 1;
+      return {
+        ok: true,
+        requestId: 'mem-replay',
+        provider: 'postgres',
+        data: { results: [] },
+      } satisfies MemoryIpcResponse;
+    });
+
+    const handle = await startServer(buildDeps());
+    const auth = makeAuth(FOLDER, THREAD_ID);
+    const memToken = memoryAuthToken(FOLDER, THREAD_ID);
+    const client = await handshake(handle, auth);
+
+    const payload = buildMemoryPayload(memToken, auth.responseKeyId, {
+      requestId: 'mem-replay',
+      threadId: THREAD_ID,
+    });
+
+    client.sendReq('memory', payload, 'req-first');
+    const first = await client.waitForId('req-first');
+    expect((first.payload as { ok?: boolean }).ok).toBe(true);
+
+    // Re-send the byte-identical signed payload under a new frame id → the
+    // memory replay guard (requestId already consumed) rejects it.
+    client.sendReq('memory', payload, 'req-second');
+    const second = await client.waitForId('req-second');
+    expect((second.payload as { ok?: boolean }).ok).toBe(false);
+    expect((second.payload as { code?: string }).code).toBe('invalid_request');
+    expect(handlerCalls).toBe(1);
+  });
+
+  it('M4. memory rate limit → rate_limited resp, connection survives', async () => {
+    const { canProcessIpcFile } =
+      await import('@core/runtime/ipc-rate-limit.js');
+    for (let i = 0; i < 300; i += 1) canProcessIpcFile(FOLDER, 'memory');
+
+    const handle = await startServer(buildDeps());
+    const auth = makeAuth(FOLDER, THREAD_ID);
+    const memToken = memoryAuthToken(FOLDER, THREAD_ID);
+    const client = await handshake(handle, auth);
+
+    client.sendReq(
+      'memory',
+      buildMemoryPayload(memToken, auth.responseKeyId, {
+        requestId: 'mem-rl',
+        threadId: THREAD_ID,
+      }),
+      'req-mem-rl',
+    );
+
+    const resp = await client.waitForId('req-mem-rl');
+    expect(resp.type).toBe('resp');
+    expect((resp.payload as { ok?: boolean }).ok).toBe(false);
+    expect((resp.payload as { code?: string }).code).toBe('rate_limited');
+    expect(processMemoryRequestMock).not.toHaveBeenCalled();
     expect(client.isClosed).toBe(false);
   });
 });

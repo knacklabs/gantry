@@ -114,22 +114,28 @@ export function hasValidIpcResponseSignature(
   return verifyIpcResponsePayload(IPC_RESPONSE_VERIFY_KEY, payload, signature);
 }
 
-export async function requestMemoryAction(
-  action: MemoryIpcAction,
-  payload: Record<string, unknown>,
-): Promise<{
+export interface MemoryActionResult {
   ok: boolean;
   provider?: string;
   data?: unknown;
   error?: string;
-}> {
-  ensurePrivateDirSync(MEMORY_REQUESTS_DIR);
-  ensurePrivateDirSync(MEMORY_RESPONSES_DIR);
+}
 
-  const timeoutMs = getMemoryActionTimeoutMs(action);
-  const requestId = makeIpcId('mem');
-  const reqPath = path.join(MEMORY_REQUESTS_DIR, `${requestId}.json`);
-  const tmpReqPath = `${reqPath}.tmp`;
+/**
+ * Build the signed memory IPC envelope (context merge + ed25519-verifiable HMAC
+ * signature) WITHOUT writing it anywhere. This is the exact payload the fs path
+ * persists to MEMORY_REQUESTS_DIR and the socket path sends as a `memory`
+ * request frame, so the host re-verifies it identically (same memory token,
+ * replay scope, and allowedActions) whether it arrived as a file or a frame.
+ *
+ * `requestId` is reused as the socket request/response correlation id.
+ */
+function buildSignedMemoryEnvelope(
+  requestId: string,
+  action: MemoryIpcAction,
+  payload: Record<string, unknown>,
+  timeoutMs: number,
+): Record<string, unknown> {
   const requestPayload = {
     requestId,
     action,
@@ -145,10 +151,95 @@ export async function requestMemoryAction(
     },
     expiresAt: new Date(currentTimeMs() + timeoutMs).toISOString(),
   };
-  const requestEnvelope = createSignedIpcRequestEnvelope(
-    MEMORY_IPC_AUTH_TOKEN,
-    requestPayload,
+  return createSignedIpcRequestEnvelope(MEMORY_IPC_AUTH_TOKEN, requestPayload);
+}
+
+/**
+ * Map a verified socket `memory` resp payload to the same shape the fs path
+ * returns. The payload still carries `requestId`/`signature` (already verified
+ * by the client); we keep only the fields requestMemoryAction surfaces.
+ */
+function memoryResultFromSocketResponse(
+  resp: Record<string, unknown>,
+): MemoryActionResult {
+  return {
+    ok: Boolean(resp.ok),
+    ...(typeof resp.provider === 'string' ? { provider: resp.provider } : {}),
+    ...(Object.prototype.hasOwnProperty.call(resp, 'data')
+      ? { data: resp.data }
+      : {}),
+    ...(typeof resp.error === 'string' ? { error: resp.error } : {}),
+  };
+}
+
+/**
+ * Pure classification of a failed socket `memory` request, mirroring
+ * classifyTaskSocketError. Memory has no `null` (timeout) return: instead the
+ * fs path's deadline outcome is `{ ok:false, error: <timeout> }`, so:
+ *  - timeout              → that same deadline result (do NOT replay via fs).
+ *  - transient transport  → fall back to the durable fs mailbox (write+poll).
+ *  - other {ok:false}     → a real signed handler rejection / bad_signature /
+ *                           server transport error → surface as {ok:false}.
+ */
+export function classifyMemorySocketError(
+  err: unknown,
+  timeoutMs: number,
+): { kind: 'result'; result: MemoryActionResult } | { kind: 'fallback' } {
+  if (!(err instanceof IpcRequestError)) {
+    // Unexpected non-protocol error → fall back to fs rather than fail hard.
+    return { kind: 'fallback' };
+  }
+  if (err.code === 'timeout') {
+    return {
+      kind: 'result',
+      result: { ok: false, error: formatMemoryTimeoutError(timeoutMs) },
+    };
+  }
+  if (SOCKET_FALLBACK_CODES.has(err.code)) return { kind: 'fallback' };
+  return { kind: 'result', result: { ok: false, error: err.message } };
+}
+
+export async function requestMemoryAction(
+  action: MemoryIpcAction,
+  payload: Record<string, unknown>,
+): Promise<MemoryActionResult> {
+  const timeoutMs = getMemoryActionTimeoutMs(action);
+  const requestId = makeIpcId('mem');
+  const requestEnvelope = buildSignedMemoryEnvelope(
+    requestId,
+    action,
+    payload,
+    timeoutMs,
   );
+
+  // Socket/dual mode: route over the same mcp-role connection the runner uses,
+  // reusing the byte-identical signed envelope. Transient failures fall back to
+  // the durable fs mailbox below so a flaky socket never fails a memory action
+  // the fs path would complete.
+  const client = getTaskSocketClient();
+  if (client) {
+    const connected = await ensureTaskSocketConnected(client);
+    if (connected) {
+      try {
+        const resp = await client.request('memory', requestEnvelope, {
+          id: requestId,
+          timeoutMs,
+        });
+        return memoryResultFromSocketResponse(resp);
+      } catch (err) {
+        const disposition = classifyMemorySocketError(err, timeoutMs);
+        if (disposition.kind === 'result') return disposition.result;
+        // 'fallback' → fall through to the durable fs mailbox below.
+      }
+    }
+    // connect failed or transient request failure → fs fallback.
+  }
+
+  ensurePrivateDirSync(MEMORY_REQUESTS_DIR);
+  ensurePrivateDirSync(MEMORY_RESPONSES_DIR);
+
+  const reqPath = path.join(MEMORY_REQUESTS_DIR, `${requestId}.json`);
+  const tmpReqPath = `${reqPath}.tmp`;
   writePrivateFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
   fs.renameSync(tmpReqPath, reqPath);
 
@@ -456,15 +547,17 @@ const SOCKET_FALLBACK_CODES = new Set([
 ]);
 
 /**
- * The slice of IpcSocketClient that sendTaskRequest depends on. Narrowed so a
- * test can inject a fake to exercise the timeout/fallback/ok:false branches
- * without standing up a real socket.
+ * The slice of IpcSocketClient that sendTaskRequest and the socket branch of
+ * requestMemoryAction depend on. Narrowed so a test can inject a fake to
+ * exercise the timeout/fallback/ok:false branches without standing up a real
+ * socket. The same lazily-built mcp-role client serves both the `task` and
+ * `memory` channels.
  */
 export interface TaskSocketClientLike {
   readonly connected: boolean;
   connect(): Promise<void>;
   request(
-    channel: 'task',
+    channel: 'task' | 'memory',
     signedPayload: Record<string, unknown>,
     opts?: { id?: string; timeoutMs?: number },
   ): Promise<Record<string, unknown>>;

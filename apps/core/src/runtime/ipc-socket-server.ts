@@ -29,8 +29,13 @@ import {
 } from './ipc-response-router.js';
 import { canProcessIpcFile } from './ipc-rate-limit.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
-import { parseIpcMessage } from './ipc-parsing.js';
+import { parseIpcMessage, parseMemoryIpcRequest } from './ipc-parsing.js';
+import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
+import {
+  processMemoryRequest,
+  writeMemoryResponse,
+} from '../memory/memory-ipc.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import { type IpcWireChannel, type IpcWireFrame } from '../shared/ipc-wire.js';
 
@@ -191,6 +196,11 @@ export async function startIpcSocketServer(
       return;
     }
 
+    if (channel === 'memory') {
+      await dispatchMemory(frame, conn, folder);
+      return;
+    }
+
     if (channel === 'message') {
       // Fire-and-forget; no response frame.
       if (!canProcessIpcFile(folder, 'messages')) {
@@ -225,8 +235,8 @@ export async function startIpcSocketServer(
       return;
     }
 
-    // memory/browser/permission/user_question/etc. are cut over in a later
-    // phase by making their writers router-aware. Until then: explicit reject.
+    // browser/permission/user_question/etc. are cut over in a later phase by
+    // making their writers router-aware. Until then: explicit reject.
     conn.send(transportError(frame.id, channel, 'unsupported_channel'));
   }
 
@@ -279,6 +289,83 @@ export async function startIpcSocketServer(
         conn.send(transportError(frame.id, 'task', 'internal_error'));
       }
       logger.error({ err, folder }, 'task handler threw');
+    } finally {
+      const after = state.get(conn);
+      if (after && after.inFlight > 0) after.inFlight -= 1;
+    }
+  }
+
+  async function dispatchMemory(
+    frame: IpcWireFrame,
+    conn: IpcConnection,
+    folder: string,
+  ): Promise<void> {
+    if (!canProcessIpcFile(folder, 'memory')) {
+      // Unsigned transport-level error mirroring the fs path's rate-limit drop.
+      conn.send(transportError(frame.id, 'memory', 'rate_limited'));
+      return;
+    }
+
+    let request;
+    try {
+      // parseMemoryIpcRequest re-verifies the memory HMAC/freshness/replay AND
+      // re-checks allowedActions — a forged, replayed, or disallowed-action
+      // frame throws here (fail-closed); the connection survives.
+      request = parseMemoryIpcRequest(frame.payload, folder);
+    } catch (err) {
+      conn.send(transportError(frame.id, 'memory', 'invalid_request'));
+      logger.warn({ err, folder }, 'rejected memory frame');
+      return;
+    }
+
+    const memoryKey = `memory-${request.requestId}`;
+    const threadId = request.context?.threadId;
+    // Register a responder so the handler's writeMemoryResponse is delivered as
+    // a frame instead of a memory-responses/<requestId>.json file write.
+    registerIpcResponder(folder, memoryKey, (signed) => {
+      conn.send({
+        v: 1,
+        type: 'resp',
+        channel: 'memory',
+        id: frame.id,
+        payload: signed,
+      });
+    });
+
+    const st = state.get(conn);
+    if (st) st.inFlight += 1;
+    try {
+      const response = await processMemoryRequest(
+        {
+          requestId: request.requestId,
+          action: request.action,
+          payload: request.payload || {},
+          allowedActions: request.allowedActions,
+          ...(request.deadlineAtMs
+            ? { deadlineAtMs: request.deadlineAtMs }
+            : {}),
+          ...(request.context ? { context: request.context } : {}),
+        },
+        folder,
+      );
+      writeMemoryResponse(
+        folder,
+        request.requestId,
+        response,
+        getIpcResponseSigningPrivateKey(
+          folder,
+          threadId,
+          request.responseKeyId,
+        ),
+      );
+    } catch (err) {
+      // The handler threw before producing a response — clear the responder and
+      // surface a transport-level error so the client's pending request settles.
+      const pending = takeIpcResponder(folder, memoryKey);
+      if (pending) {
+        conn.send(transportError(frame.id, 'memory', 'internal_error'));
+      }
+      logger.error({ err, folder }, 'memory handler threw');
     } finally {
       const after = state.get(conn);
       if (after && after.inFlight > 0) after.inFlight -= 1;

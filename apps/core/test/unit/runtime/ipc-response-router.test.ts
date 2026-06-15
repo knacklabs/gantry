@@ -16,6 +16,9 @@ import {
   takeIpcResponder,
 } from '@core/runtime/ipc-response-router.js';
 import { writeTaskIpcResponse } from '@core/jobs/ipc-shared.js';
+import { writeMemoryResponse } from '@core/memory/memory-ipc.js';
+import { getIpcResponseSigningPrivateKey } from '@core/runtime/ipc-auth.js';
+import type { MemoryIpcResponse } from '@gantry/contracts';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -310,5 +313,150 @@ describe('writeTaskIpcResponse — router integration', () => {
     expect(Object.keys(socketContent).sort()).toEqual(
       Object.keys(fileContent).sort(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: writeMemoryResponse routing behaviour (Pillar 1, Phase 5.3a)
+// ---------------------------------------------------------------------------
+
+describe('writeMemoryResponse — router integration', () => {
+  let envelope: ReturnType<typeof setupSigningKey>;
+
+  function memoryResponsePath(folder: string, requestId: string): string {
+    const gantryHome = process.env.GANTRY_HOME as string;
+    return path.join(
+      gantryHome,
+      'data',
+      'ipc',
+      folder,
+      'memory-responses',
+      `${requestId}.json`,
+    );
+  }
+
+  function signingKeyFor(): string | undefined {
+    return getIpcResponseSigningPrivateKey(
+      FOLDER,
+      undefined,
+      envelope.responseKeyId,
+    );
+  }
+
+  beforeEach(() => {
+    envelope = setupSigningKey(FOLDER);
+  });
+
+  afterEach(() => {
+    clearIpcResponders();
+  });
+
+  // 1 — Equivalence: no responder → signed file written, byte-shape as before.
+  it('writes the signed memory response file when no responder is registered', () => {
+    const requestId = `mem-eq-${Date.now()}`;
+    const filePath = memoryResponsePath(FOLDER, requestId);
+    const response: MemoryIpcResponse = {
+      ok: true,
+      requestId,
+      provider: 'postgres',
+      data: { results: [{ id: 'm-1' }] },
+    };
+
+    writeMemoryResponse(FOLDER, requestId, response, signingKeyFor());
+
+    expect(fs.existsSync(filePath)).toBe(true);
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    expect(parsed.ok).toBe(true);
+    expect(parsed.requestId).toBe(requestId);
+    expect(parsed.provider).toBe('postgres');
+    expect(parsed.data).toEqual({ results: [{ id: 'm-1' }] });
+    expect(typeof parsed.signature).toBe('string');
+
+    const { signature, ...withoutSig } = parsed;
+    expect(
+      verifyIpcResponsePayload(
+        envelope.responseVerifyKey,
+        withoutSig as Record<string, unknown>,
+        signature as string,
+      ),
+    ).toBe(true);
+  });
+
+  // 2 — Socket delivery: responder receives the signed object, no file created.
+  it('calls the registered responder with the signed object and creates no file', () => {
+    const requestId = `mem-sock-${Date.now()}`;
+    const filePath = memoryResponsePath(FOLDER, requestId);
+    const received: Record<string, unknown>[] = [];
+
+    registerIpcResponder(FOLDER, `memory-${requestId}`, (signed) => {
+      received.push(signed);
+    });
+
+    const response: MemoryIpcResponse = {
+      ok: true,
+      requestId,
+      provider: 'postgres',
+      data: { results: [] },
+    };
+    writeMemoryResponse(FOLDER, requestId, response, signingKeyFor());
+
+    expect(received).toHaveLength(1);
+    expect(fs.existsSync(filePath)).toBe(false);
+
+    const signed = received[0];
+    expect(signed.ok).toBe(true);
+    expect(signed.requestId).toBe(requestId);
+    expect(signed.provider).toBe('postgres');
+    expect(typeof signed.signature).toBe('string');
+
+    const { signature, ...withoutSig } = signed;
+    expect(
+      verifyIpcResponsePayload(
+        envelope.responseVerifyKey,
+        withoutSig as Record<string, unknown>,
+        signature as string,
+      ),
+    ).toBe(true);
+
+    // Single-shot: consumed after delivery.
+    expect(hasIpcResponder(FOLDER, `memory-${requestId}`)).toBe(false);
+  });
+
+  // 3 — Fallback after take: second write (no re-register) writes the file.
+  it('falls back to file write on a second call after the responder was consumed', () => {
+    const requestId = `mem-fallback-${Date.now()}`;
+    const filePath = memoryResponsePath(FOLDER, requestId);
+    const response: MemoryIpcResponse = { ok: true, requestId, provider: 'p' };
+
+    registerIpcResponder(FOLDER, `memory-${requestId}`, vi.fn());
+
+    writeMemoryResponse(FOLDER, requestId, response, signingKeyFor());
+    expect(fs.existsSync(filePath)).toBe(false);
+
+    writeMemoryResponse(FOLDER, requestId, response, signingKeyFor());
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  // 4 — Fail-closed: no signing key → neither file nor responder consumed.
+  it('does not write a file or call the responder when no signing key is available', () => {
+    const requestId = `mem-failclosed-${Date.now()}`;
+    const filePath = memoryResponsePath(FOLDER, requestId);
+    const responder = vi.fn();
+
+    registerIpcResponder(FOLDER, `memory-${requestId}`, responder);
+
+    // No signing key (undefined) → signIpcResponsePayload returns undefined →
+    // early return BEFORE the responder is taken (mirrors the task fail-closed
+    // path, where neither a file nor the responder is touched).
+    const response: MemoryIpcResponse = { ok: true, requestId, provider: 'p' };
+    writeMemoryResponse(FOLDER, requestId, response, undefined);
+
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(responder).not.toHaveBeenCalled();
+    // Responder still registered (not consumed) — the request will time out.
+    expect(hasIpcResponder(FOLDER, `memory-${requestId}`)).toBe(true);
   });
 });

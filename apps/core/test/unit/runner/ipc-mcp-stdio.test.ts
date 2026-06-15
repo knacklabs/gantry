@@ -16,20 +16,37 @@ vi.mock('@core/jobs/ipc-handler.js', () => ({
   processTaskIpc: vi.fn(),
 }));
 
+// Memory socket-mode test: the in-process socket server runs the REAL
+// dispatchMemory + writeMemoryResponse, but processMemoryRequest is stubbed so
+// the test controls the response without a Postgres-backed memory service. The
+// spawned grandchild runs the real socket client + memory signing/verification
+// and never sees this mock.
+vi.mock('@core/memory/memory-ipc.js', async (importActual) => {
+  const actual =
+    await importActual<typeof import('@core/memory/memory-ipc.js')>();
+  return { ...actual, processMemoryRequest: vi.fn() };
+});
+
 import { processTaskIpc } from '@core/jobs/ipc-handler.js';
 import { writeTaskIpcResponse } from '@core/jobs/ipc-shared.js';
+import { processMemoryRequest } from '@core/memory/memory-ipc.js';
 import {
   startIpcSocketServer,
   type IpcSocketServerHandle,
 } from '@core/runtime/ipc-socket-server.js';
 import type { IpcDeps } from '@core/runtime/ipc-domain-types.js';
 import type { ConversationRoute } from '@core/domain/types.js';
-import { createIpcAuthEnvelope } from '@core/runtime/ipc-auth.js';
+import {
+  createIpcAuthEnvelope,
+  computeMemoryIpcAuthToken,
+} from '@core/runtime/ipc-auth.js';
+import { normalizeMemoryIpcActions } from '@core/shared/memory-ipc-actions.js';
 import { clearIpcResponders } from '@core/runtime/ipc-response-router.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
 import { clearIpcRateLimitState } from '@core/runtime/ipc-rate-limit.js';
 
 const processTaskIpcMock = vi.mocked(processTaskIpc);
+const processMemoryRequestMock = vi.mocked(processMemoryRequest);
 
 const tempRoots: string[] = [];
 
@@ -1640,6 +1657,7 @@ describe(
 
     beforeEach(() => {
       processTaskIpcMock.mockReset();
+      processMemoryRequestMock.mockReset();
       clearIpcResponders();
       clearConsumedIpcRequestIds();
       clearIpcRateLimitState();
@@ -1717,6 +1735,86 @@ describe(
       // The handler ran exactly once over the socket (no fs request file written).
       expect(processTaskIpcMock).toHaveBeenCalledTimes(1);
       expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
+    });
+
+    // The grandchild's allowed memory actions (and the memory token derived from
+    // them) for this socket-mode run.
+    const SOCKET_MEMORY_ACTIONS = normalizeMemoryIpcActions([
+      'memory_search',
+      'memory_save',
+      'continuity_summary',
+      'procedure_save',
+    ]);
+
+    async function runSocketMemoryTool(
+      fixture: ReturnType<typeof createMcpFixture>,
+      toolName: string,
+      args: Record<string, unknown>,
+    ): Promise<{ exitCode: number | null; stderr: string }> {
+      const auth = createIpcAuthEnvelope(SOCKET_FOLDER, SOCKET_THREAD_ID);
+      // Memory has its OWN HMAC token; the grandchild signs the memory envelope
+      // with it, and the host re-derives the same token in parseMemoryIpcRequest.
+      // It must match the exact context the grandchild emits (folder + thread +
+      // chatJid + group scope + allowedActions + reviewer scope).
+      const memoryToken = computeMemoryIpcAuthToken(SOCKET_FOLDER, {
+        chatJid: SOCKET_CHAT_JID,
+        defaultScope: 'group',
+        threadId: SOCKET_THREAD_ID,
+        allowedActions: SOCKET_MEMORY_ACTIONS,
+        reviewerIsControlApprover: false,
+      });
+      const handle = await startIpcSocketServer(buildSocketDeps(), {
+        socketPath,
+      });
+      if (!handle) throw new Error('socket server failed to start');
+      socketServer = handle;
+
+      return runMcpFixture(fixture, toolName, args, {
+        GANTRY_IPC_TRANSPORT: 'socket',
+        GANTRY_IPC_SOCKET_PATH: socketPath,
+        GANTRY_GROUP_FOLDER: SOCKET_FOLDER,
+        GANTRY_CHAT_JID: SOCKET_CHAT_JID,
+        GANTRY_THREAD_ID: SOCKET_THREAD_ID,
+        GANTRY_IPC_AUTH_TOKEN: auth.authToken,
+        GANTRY_MEMORY_IPC_AUTH_TOKEN: memoryToken,
+        GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(SOCKET_MEMORY_ACTIONS),
+        GANTRY_IPC_RESPONSE_VERIFY_KEY: auth.responseVerifyKey,
+        GANTRY_IPC_RESPONSE_KEY_ID: auth.responseKeyId,
+        TEST_MCP_AUTO_RESPOND_TASKS: '0',
+      });
+    }
+
+    it('routes a memory_search over the socket and returns the signed response data', async () => {
+      processMemoryRequestMock.mockImplementation(async (req) => ({
+        ok: true,
+        requestId: req.requestId,
+        provider: 'postgres',
+        data: { results: [{ id: 'mem-1', value: 'User prefers concise.' }] },
+      }));
+
+      const fixture = createMcpFixture();
+      const result = await runSocketMemoryTool(fixture, 'memory_search', {
+        query: 'preferences',
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+      // The grandchild verified the ed25519 signature and surfaced the data.
+      expect(record.result.content[0].text).toContain('"provider": "postgres"');
+      expect(record.result.content[0].text).toContain('"id": "mem-1"');
+      // The handler ran exactly once over the socket; the action and folder are
+      // the trusted ones parseMemoryIpcRequest produced.
+      expect(processMemoryRequestMock).toHaveBeenCalledTimes(1);
+      const [reqArg, folderArg] = processMemoryRequestMock.mock.calls[0];
+      expect(folderArg).toBe(SOCKET_FOLDER);
+      expect(reqArg.action).toBe('memory_search');
+      // No fs memory request/response files were written — pure socket path.
+      expect(fs.existsSync(path.join(fixture.ipcDir, 'memory-requests'))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(fixture.ipcDir, 'memory-responses'))).toBe(
+        false,
+      );
     });
   },
 );
