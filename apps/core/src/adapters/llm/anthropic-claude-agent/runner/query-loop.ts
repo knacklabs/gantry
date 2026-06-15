@@ -286,6 +286,11 @@ export async function runQuery(
   // the result envelope emits `dispatchedAt` (post-bind pickup → TTFT) instead
   // of `runnerStartup` (whose firstSdkMessageAt predates bind).
   let warmBound = false;
+  // Warm-pool (F4): the BOUND customer chatJid, captured at bind. On a generic
+  // worker `agentInput.chatJid` is the boot-time generic value, so telemetry
+  // that needs the real customer scope reads this when set (cold path leaves it
+  // undefined and falls back to `agentInput.chatJid`, byte-identical).
+  let boundChatJid: string | undefined;
   // Warm continuation: the instant this turn's input is delivered to the model
   // (pushed to the SDK stream). Emitted per result so core can split the warm
   // leading span into real pickup (queue) + the model's first-token wait.
@@ -483,6 +488,7 @@ export async function runQuery(
         guardrailPreface: agentInput.guardrailSystemPromptAppend,
         onBound: (scope) => {
           warmBound = true;
+          boundChatJid = scope.chatJid;
           pendingTurnInput = scope.firstMessage;
           pendingTurnDispatchedAt = Date.now();
         },
@@ -629,7 +635,9 @@ export async function runQuery(
                   agentId: agentInput.agentId,
                   runId: agentInput.runId,
                   jobId: agentInput.jobId,
-                  chatJid: agentInput.chatJid,
+                  // Warm path: the bound customer scope (F4); cold path falls
+                  // back to the boot-time generic value.
+                  chatJid: boundChatJid ?? agentInput.chatJid,
                   threadId: agentInput.threadId,
                 },
                 rateLimit,
