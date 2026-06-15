@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  WAITING_STATUS_THRESHOLD_MS,
   WAITING_STATUS_TEXT,
   startWaitingStatusMonitor,
 } from '@core/app/bootstrap/live-execution-waiting-status.js';
@@ -53,6 +54,10 @@ beforeEach(() => vi.useRealTimers());
 afterEach(() => vi.restoreAllMocks());
 
 describe('startWaitingStatusMonitor', () => {
+  it('defaults the visible waiting status threshold to 30 seconds', () => {
+    expect(WAITING_STATUS_THRESHOLD_MS).toBe(30_000);
+  });
+
   it('sends the visible status once per waiting episode past the threshold', async () => {
     const { sent, tick, monitor } = makeMonitor({
       results: [
