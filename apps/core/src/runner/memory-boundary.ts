@@ -17,10 +17,14 @@ interface MemoryBoundaryPermissionOpts {
 
 export function composeSystemPromptAppend(
   compiledPrompt: string | undefined,
-  hasMemoryContext: boolean,
+  // Retained for call-site clarity; the boundary policy is now UNCONDITIONAL
+  // (Pillar 2 Fix #1) so the cached system-prompt prefix is byte-identical
+  // whether or not a customer has a memory block. The durable memory itself is
+  // still injected only when present (as the first user message, elsewhere).
+  _hasMemoryContext: boolean,
 ): string | undefined {
   const parts = [
-    hasMemoryContext ? MEMORY_CONTEXT_SYSTEM_POLICY : '',
+    MEMORY_CONTEXT_SYSTEM_POLICY,
     compiledPrompt?.trim() || '',
   ].filter(Boolean);
   return parts.length > 0 ? parts.join('\n\n') : undefined;

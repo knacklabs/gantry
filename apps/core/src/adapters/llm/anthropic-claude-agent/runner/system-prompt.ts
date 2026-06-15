@@ -44,16 +44,28 @@ export function readMemoryContextBlock(agentInput: AgentRunnerInput): string {
   }
 }
 
+export interface BuildRunnerSystemPromptOptions {
+  /**
+   * Warm-pool generic boot (Pillar 2 Fix #2): OMIT the per-customer guardrail
+   * append from the cached boot prefix. It rides the first user message
+   * per-turn instead, so the shared prefix is byte-identical across customers
+   * (the cache anchor). Default false ⇒ cold path keeps the guardrail in boot.
+   */
+  genericBoot?: boolean;
+}
+
 export function buildRunnerSystemPrompt(
   agentInput: AgentRunnerInput,
   memoryBlock: string,
   context: RunnerSystemPromptContext = {},
+  options: BuildRunnerSystemPromptOptions = {},
 ): ReturnType<typeof buildSystemPrompt> {
   return buildSystemPrompt(
     composeSystemPromptAppend(
       [
         agentInput.compiledSystemPrompt,
-        agentInput.guardrailSystemPromptAppend,
+        // Generic boot moves the guardrail to a per-turn preface (Fix #2).
+        options.genericBoot ? '' : agentInput.guardrailSystemPromptAppend,
         approvedMcpServicesPrompt(context),
       ]
         .filter(Boolean)

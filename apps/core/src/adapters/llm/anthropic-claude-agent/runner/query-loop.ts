@@ -339,9 +339,16 @@ export async function runQuery(
   const externalMcpServers = readExternalMcpServers();
   const externalMcpAllowedTools = readExternalMcpAllowedTools();
   const externalMcpAlwaysAllowedTools = readExternalMcpAlwaysAllowedTools();
-  const systemPrompt = buildRunnerSystemPrompt(agentInput, memoryBlock, {
-    approvedMcpServerNames: Object.keys(externalMcpServers),
-  });
+  const systemPrompt = buildRunnerSystemPrompt(
+    agentInput,
+    memoryBlock,
+    {
+      approvedMcpServerNames: Object.keys(externalMcpServers),
+    },
+    // Generic boot keeps the guardrail OUT of the cached prefix (Fix #2); it is
+    // prepended to the bound first message in dispatchWarmQuery instead.
+    { genericBoot: warmGenericBoot },
+  );
   const localCliCredentialDirectories = [
     ...new Set([
       ...readLocalCliCredentialDirectories(),
