@@ -795,21 +795,42 @@ export async function* query({ prompt, options }) {
       warmUsage = undefined;
     }
     if (warmUsage) {
+      const warmUsageTokens = {
+        input_tokens: warmUsage.in ?? 0,
+        output_tokens: warmUsage.out ?? 0,
+        cache_read_input_tokens: warmUsage.cacheRead ?? 0,
+        cache_creation_input_tokens: warmUsage.cacheWrite ?? 0,
+      };
+      // Mirror the real SDK ordering: message_start (turn start) → assistant
+      // (carries message.usage so the turn accumulator records detail.tokens) →
+      // message_delta (final usage) → result. This exercises the full cache
+      // token plumbing through to turns[].detail.tokens + the result usage.
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start' },
+      };
       yield {
         type: 'assistant',
         uuid: 'assistant-warm-1',
-        message: { content: [{ type: 'text', text: 'warm reply' }] },
+        message: {
+          id: 'msg-warm-1',
+          content: [{ type: 'text', text: 'warm reply' }],
+          usage: warmUsageTokens,
+        },
+      };
+      yield {
+        type: 'stream_event',
+        event: {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: warmUsageTokens,
+        },
       };
       yield {
         type: 'result',
         subtype: 'success',
         result: 'runner-ok',
-        usage: {
-          input_tokens: warmUsage.in ?? 0,
-          output_tokens: warmUsage.out ?? 0,
-          cache_read_input_tokens: warmUsage.cacheRead ?? 0,
-          cache_creation_input_tokens: warmUsage.cacheWrite ?? 0,
-        },
+        usage: warmUsageTokens,
       };
       if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
         setTimeout(() => {
