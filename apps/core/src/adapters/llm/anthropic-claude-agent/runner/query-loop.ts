@@ -1,10 +1,14 @@
 import {
   query,
+  startup,
   type EffortLevel,
+  type Options,
+  type Query,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { composeAgentCapabilities } from '../agent-capabilities.js';
+import { awaitBind, type ConversationBindScope } from './bind-channel.js';
 import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
@@ -68,6 +72,12 @@ import { createCanUseToolCallback } from './tool-permission-gate.js';
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
+  /**
+   * Warm-pool (Pillar 2, F3): boot the SDK generic via `startup()`, await the
+   * per-customer bind, then run `warmQuery.query(stream)`. The bound first
+   * message + memory block ride the stream (NOT the boot system prompt).
+   */
+  warmGenericBoot?: boolean;
 }
 
 function localCliCredentialDirectoriesFromRuntimeAccess(
@@ -164,6 +174,59 @@ function assistantOutputText(message: unknown): string {
   return parts.join('');
 }
 
+/**
+ * Warm-pool two-phase dispatch (F3). Boots the SDK GENERIC via `startup()`
+ * (CLI + MCP connect, no customer message), awaits the per-customer bind over a
+ * non-stdin channel, pushes the bound first message + memory block (and the
+ * guardrail preface, kept per-turn — Fix #2) onto the stream, then runs the
+ * single warm query. `startup()`/`WarmQuery` is single-use = Model A.
+ */
+async function dispatchWarmQuery(args: {
+  sdkOptions: Options;
+  stream: MessageStream;
+  guardrailPreface?: string;
+  onBound: (scope: ConversationBindScope) => void;
+}): Promise<Query> {
+  const warm = await startup({ options: args.sdkOptions });
+  log('Warm worker booted generic via startup(); awaiting bind');
+  let scope: ConversationBindScope;
+  try {
+    scope = await awaitBind();
+  } catch (err) {
+    // Never leak a warm CLI subprocess if the bind never lands.
+    try {
+      warm.close();
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+  // The guardrail preface + memory block ride the FIRST user message (not the
+  // cached system prompt) so the shared prefix stays byte-identical across
+  // customers (Fix #2 / spec §2.3). Memory is pushed first by pushInitialPrompt;
+  // the guardrail preface, when present, leads the customer's first message.
+  const guardrailPreface = args.guardrailPreface?.trim();
+  const firstMessage = guardrailPreface
+    ? `${guardrailPreface}\n\n${scope.firstMessage}`
+    : scope.firstMessage;
+  args.stream.pushInitialPrompt(firstMessage, scope.memoryBlock || undefined);
+  args.onBound(scope);
+  const sdkQuery = warm.query(args.stream);
+  // Test-only (F10): prove the WarmQuery is single-use by attempting a second
+  // query() — the SDK throws "Can only be called once per WarmQuery". Never
+  // taken in production (Model A binds exactly once per worker).
+  if (process.env.GANTRY_SPIKE_DOUBLE_QUERY === '1') {
+    try {
+      warm.query(args.stream);
+    } catch (err) {
+      log(
+        `WarmQuery single-use verified: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  return sdkQuery;
+}
+
 export async function runQuery(
   prompt: string,
   mcpServerPath: string,
@@ -181,12 +244,18 @@ export async function runQuery(
 }> {
   const enableIpcFollowups = options.enableIpcFollowups ?? true;
   const persistSdkSession = options.persistSdkSession ?? true;
+  const warmGenericBoot = options.warmGenericBoot ?? false;
   const stream = new MessageStream();
   const queryRunId = randomUUID();
-  const memoryBlock = readMemoryContextBlock(agentInput);
-  stream.pushInitialPrompt(prompt, memoryBlock);
-  if (!enableIpcFollowups) {
-    stream.end();
+  // Generic boot carries no customer memory at boot; the bound memory block
+  // rides the stream after the bind (below). The cold path keeps today's
+  // behavior: memory read from the input and pushed with the first prompt.
+  const memoryBlock = warmGenericBoot ? '' : readMemoryContextBlock(agentInput);
+  if (!warmGenericBoot) {
+    stream.pushInitialPrompt(prompt, memoryBlock);
+    if (!enableIpcFollowups) {
+      stream.end();
+    }
   }
   let ipcPolling = true;
   let closedDuringQuery = false;
@@ -194,8 +263,16 @@ export async function runQuery(
   // The customer message that drives the NEXT turn (for the reply trace's
   // per-turn input payload): the run prompt to begin with, then each warm-run
   // continuation as it is piped in. Consumed by the first turn that answers it
-  // and cleared, so a turn's tool-loop follow-ons carry no input.
-  let pendingTurnInput: string | undefined = prompt;
+  // and cleared, so a turn's tool-loop follow-ons carry no input. For a warm
+  // generic boot there is no boot-time prompt — it is set to the bound first
+  // message after the bind below.
+  let pendingTurnInput: string | undefined = warmGenericBoot
+    ? undefined
+    : prompt;
+  // Warm-pool (F1): true once this run is bound to a customer from the pool, so
+  // the result envelope emits `dispatchedAt` (post-bind pickup → TTFT) instead
+  // of `runnerStartup` (whose firstSdkMessageAt predates bind).
+  let warmBound = false;
   // Warm continuation: the instant this turn's input is delivered to the model
   // (pushed to the SDK stream). Emitted per result so core can split the warm
   // leading span into real pickup (queue) + the model's first-token wait.
@@ -317,66 +394,80 @@ export async function runQuery(
     externalMcpAlwaysAllowedTools,
     isScheduledJob: agentInput.isScheduledJob,
   });
+  const sdkOptions: Options = {
+    model: configuredModel,
+    thinking: queryThinking,
+    effort: queryEffort,
+    cwd: WORKSPACE_GROUP_DIR,
+    additionalDirectories:
+      additionalDirectories.length > 0 ? additionalDirectories : undefined,
+    persistSession: persistSdkSession,
+    // Generic boot omits `resume` (fresh session); returning-customer resume is
+    // a cold-spawn fallback (spec §6.4 D-P2-1(b)).
+    ...(!warmGenericBoot && persistSdkSession && agentInput.sessionId
+      ? { resume: agentInput.sessionId }
+      : {}),
+    systemPrompt,
+    settings: {
+      autoMemoryEnabled: false,
+      includeGitInstructions: includeGitInstructionsForPersona(
+        agentInput.persona,
+      ),
+      skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
+    },
+    skills: enabledSdkSkills,
+    tools: [...capabilities.availableTools],
+    allowedTools: [...capabilities.allowedTools],
+    disallowedTools: [...capabilities.disallowedTools],
+    env: isolatedSdkEnv,
+    sandbox: buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
+      denyReadPaths: protectedFilesystemDenyReadPaths,
+      denyWritePaths: protectedFilesystemDenyWritePaths,
+    }),
+    permissionMode: capabilities.permissionMode,
+    hooks: {
+      PreToolUse: [
+        {
+          hooks: [createSafetyPreToolUseHook(memoryBlock)],
+          timeout: 5,
+        },
+      ],
+    },
+    canUseTool: createCanUseToolCallback({
+      agentInput,
+      sdkEnv: isolatedSdkEnv,
+      workspaceFolder,
+      memoryBlock,
+      configuredModel,
+      capabilities,
+      primeToolAttempts,
+      getNewSessionId: () => newSessionId,
+      emitInteractionBoundary,
+      recordToolActivity: (toolName) => heartbeat.recordToolActivity(toolName),
+    }),
+    settingSources: ['user'] as const,
+    mcpServers: capabilities.mcpServers,
+    includePartialMessages: true,
+  };
   // MEASUREMENT-ONLY: just before the SDK spawns the Claude Code CLI subprocess.
   timingMark('before_sdk_query');
   queryDispatchedAt = Date.now();
-  const sdkQuery = query({
-    prompt: stream,
-    options: {
-      model: configuredModel,
-      thinking: queryThinking,
-      effort: queryEffort,
-      cwd: WORKSPACE_GROUP_DIR,
-      additionalDirectories:
-        additionalDirectories.length > 0 ? additionalDirectories : undefined,
-      persistSession: persistSdkSession,
-      ...(persistSdkSession && agentInput.sessionId
-        ? { resume: agentInput.sessionId }
-        : {}),
-      systemPrompt,
-      settings: {
-        autoMemoryEnabled: false,
-        includeGitInstructions: includeGitInstructionsForPersona(
-          agentInput.persona,
-        ),
-        skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
-      },
-      skills: enabledSdkSkills,
-      tools: [...capabilities.availableTools],
-      allowedTools: [...capabilities.allowedTools],
-      disallowedTools: [...capabilities.disallowedTools],
-      env: isolatedSdkEnv,
-      sandbox: buildSdkFilesystemSandbox(protectedFilesystemDenyWritePaths, {
-        denyReadPaths: protectedFilesystemDenyReadPaths,
-        denyWritePaths: protectedFilesystemDenyWritePaths,
-      }),
-      permissionMode: capabilities.permissionMode,
-      hooks: {
-        PreToolUse: [
-          {
-            hooks: [createSafetyPreToolUseHook(memoryBlock)],
-            timeout: 5,
-          },
-        ],
-      },
-      canUseTool: createCanUseToolCallback({
-        agentInput,
-        sdkEnv: isolatedSdkEnv,
-        workspaceFolder,
-        memoryBlock,
-        configuredModel,
-        capabilities,
-        primeToolAttempts,
-        getNewSessionId: () => newSessionId,
-        emitInteractionBoundary,
-        recordToolActivity: (toolName) =>
-          heartbeat.recordToolActivity(toolName),
-      }),
-      settingSources: ['user'],
-      mcpServers: capabilities.mcpServers,
-      includePartialMessages: true,
-    },
-  });
+  // Two-phase warm-pool entry (F3): boot the CLI/MCP tree GENERIC via
+  // startup(), await the per-customer bind over a non-stdin channel, push the
+  // bound first message + memory onto the stream, then run the SINGLE warm
+  // query. The cold path is byte-identical (plain query() from stdin).
+  const sdkQuery = warmGenericBoot
+    ? await dispatchWarmQuery({
+        sdkOptions,
+        stream,
+        guardrailPreface: agentInput.guardrailSystemPromptAppend,
+        onBound: (scope) => {
+          warmBound = true;
+          pendingTurnInput = scope.firstMessage;
+          pendingTurnDispatchedAt = Date.now();
+        },
+      })
+    : query({ prompt: stream, options: sdkOptions });
   // Context usage is diagnostics-only (model-status store / session-command
   // display) but its fetch round-trips the CLI (0.7-4.1s measured). It is
   // emitted as a follow-up envelope so the reply envelope is never held back.

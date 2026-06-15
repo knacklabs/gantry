@@ -39,6 +39,12 @@ export interface AgentRunnerInput {
   compiledSystemPrompt?: string;
   guardrailSystemPromptAppend?: string;
   memoryContextBlock?: string;
+  /**
+   * Warm-pool (Pillar 2, F3): boot this worker GENERIC (no customer identity /
+   * first message at boot) via the SDK `startup()` primitive, then await a BIND
+   * over a non-stdin channel before running. Default off ⇒ today's cold path.
+   */
+  warmGenericBoot?: boolean;
   yoloMode?: YoloModeSettings;
   modelCredentialEnv?: Record<string, string>;
   runtimeAccess?: CapabilityRuntimeAccess[];

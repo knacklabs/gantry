@@ -18,6 +18,7 @@ import {
   prepareInteractiveIpcInputDir,
   shouldClose,
 } from './ipc-input.js';
+import { isWarmGenericBoot } from './bind-channel.js';
 import { readStdin } from './input.js';
 import { log } from './logging.js';
 import {
@@ -89,6 +90,25 @@ async function main(): Promise<void> {
 
   if (!agentInput.isScheduledJob) {
     prepareInteractiveIpcInputDir();
+  }
+
+  // Warm-pool two-phase entry (F3): a generic worker has no boot-time prompt and
+  // must NOT drain the IPC input dir (that dir carries the bind, delivered after
+  // the generic startup() boot). Run the interactive loop directly in warm mode;
+  // the bound first message + memory arrive at bind.
+  if (isWarmGenericBoot(agentInput)) {
+    log('Booting warm generic worker (two-phase: startup → bind → run)');
+    await runInteractiveQueryLoop({
+      prompt: '',
+      mcpServerPath,
+      agentInput,
+      sdkEnv,
+      configuredModel: configuredModel.model,
+      configuredThinking: configuredThinking.thinking,
+      configuredEffort: configuredThinking.effort,
+      warmGenericBoot: true,
+    });
+    return;
   }
 
   const prompt = buildInitialPrompt(agentInput);
@@ -241,12 +261,15 @@ async function runInteractiveQueryLoop(opts: {
   configuredModel?: string;
   configuredThinking?: Parameters<typeof runQuery>[5];
   configuredEffort?: Parameters<typeof runQuery>[6];
+  warmGenericBoot?: boolean;
 }): Promise<void> {
   let diagnosticSessionId: string | undefined;
 
   try {
     log(
-      `Starting live streaming query with ${opts.agentInput.sessionId ? 'resumed SDK session' : 'new persistent SDK session'}...`,
+      opts.warmGenericBoot
+        ? 'Starting warm generic boot (startup → bind → new persistent SDK session)...'
+        : `Starting live streaming query with ${opts.agentInput.sessionId ? 'resumed SDK session' : 'new persistent SDK session'}...`,
     );
     const queryResult = await runQuery(
       opts.prompt,
@@ -256,7 +279,11 @@ async function runInteractiveQueryLoop(opts: {
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      { enableIpcFollowups: true, persistSdkSession: true },
+      {
+        enableIpcFollowups: true,
+        persistSdkSession: true,
+        warmGenericBoot: opts.warmGenericBoot ?? false,
+      },
     );
     if (queryResult.newSessionId) {
       diagnosticSessionId = queryResult.newSessionId;

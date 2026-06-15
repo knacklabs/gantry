@@ -34,6 +34,9 @@ export function drainIpcInput(): string[] {
     const files = fs
       .readdirSync(IPC_INPUT_DIR)
       .filter((f) => f.endsWith('.json'))
+      // Warm-pool (F3): the bind envelope (`_bind.json`) is consumed by the bind
+      // channel, not the message drain — never let the input drain eat it.
+      .filter((f) => f !== '_bind.json')
       .sort();
 
     const messages: string[] = [];
