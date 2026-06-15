@@ -175,15 +175,20 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
     // terminal payload; this loop emits the single terminal frame, folding in
     // the continuation/stop decision (R2/R3), mirroring the Anthropic
     // query-loop's per-result frame.
+    let firstTurn = true;
     for (;;) {
+      const followupText = pendingFollowups.join('\n');
       const turnInput =
         pendingFollowups.length > 0
           ? {
               ...agentInput,
-              prompt: `${agentInput.prompt}\n${pendingFollowups.join('\n')}`,
+              prompt: firstTurn
+                ? `${agentInput.prompt}\n${followupText}`
+                : followupText,
             }
           : agentInput;
       pendingFollowups = [];
+      firstTurn = false;
 
       let stoppedThisTurn = false;
       let turn: Awaited<ReturnType<typeof runDeepAgentTurn>> | undefined;

@@ -38,6 +38,7 @@ import { resolveExecutionRoute } from '../shared/model-execution-route.js';
 import { getSelectedAgentHarness } from '../config/index.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import {
+  executionProviderIdForCandidate,
   resolveTurnFailoverCandidates,
   runFamilyFailoverLoop,
   publishRunFailoverEvent,
@@ -249,6 +250,24 @@ export function createGroupAgentRunner(input: {
       group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS,
     );
     const agentHarness = getSelectedAgentHarness(group.folder);
+    // Configured-first model-family failover candidates for THIS turn. [] means
+    // no override (keep pre-failover behavior); candidates[0] is the existing
+    // single-rewrite default, passed as the model so spawn uses that member.
+    //
+    // This must happen before session/turn context lookup: family aliases do
+    // not resolve through defaultModelStatusSelection(), so provider-session
+    // lookup has to be keyed by the first concrete candidate's execution lane.
+    const failoverCandidates = await resolveTurnFailoverCandidates({
+      requestedModel: group.agentConfig?.model,
+      appId: 'default',
+      listConfiguredProviders: deps.getConfiguredModelProviders,
+      familyOrder: deps.getModelFamilyOrder?.(),
+    });
+    const firstModel = failoverCandidates[0];
+    const fallbackExecutionProviderId = (): ExecutionProviderId =>
+      resolveRuntimeExecutionProviderId(
+        deps.executionAdapter,
+      ) as ExecutionProviderId;
     // Live-turn lease execution provider must match the runner's engine-resolved
     // route. The engine is derived from the resolved model's provider.
     const liveTurnRoute = initialModelSelection.model
@@ -261,11 +280,11 @@ export function createGroupAgentRunner(input: {
     // model's provider and is reassigned to the active candidate's provider when
     // a failover advances. Closures below capture this binding by reference so
     // provider-session persistence/expiry follow the candidate actually running.
-    let executionProviderId = (
-      liveTurnRoute?.ok
-        ? liveTurnRoute.value.executionProviderId
-        : resolveRuntimeExecutionProviderId(deps.executionAdapter)
-    ) as ExecutionProviderId;
+    let executionProviderId = firstModel
+      ? executionProviderIdForCandidate(firstModel, undefined, agentHarness)
+      : liveTurnRoute?.ok
+        ? (liveTurnRoute.value.executionProviderId as ExecutionProviderId)
+        : fallbackExecutionProviderId();
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
     const modelStatus = createRuntimeModelStatusAccess(
       group.folder,
@@ -644,16 +663,6 @@ export function createGroupAgentRunner(input: {
           wrappedOnOutput,
           runOptions,
         );
-      // Configured-first model-family failover candidates for THIS turn. [] means
-      // no override (keep pre-failover behavior); candidates[0] is the existing
-      // single-rewrite default, passed as the model so spawn uses that member.
-      const failoverCandidates = await resolveTurnFailoverCandidates({
-        requestedModel: group.agentConfig?.model,
-        appId: turnContext?.appId ?? 'default',
-        listConfiguredProviders: deps.getConfiguredModelProviders,
-        familyOrder: deps.getModelFamilyOrder?.(),
-      });
-      const firstModel = failoverCandidates[0];
       let output = await invokeAgent({
         memoryContextBlock,
         ...(firstModel ? { model: firstModel } : {}),

@@ -4461,6 +4461,14 @@ describe('createGroupProcessor', () => {
         agentConfig: { name: 'Andy', model: 'gpt-oss' },
       });
       const { deps } = setupHappyPath({ group });
+      deps.executionAdapters = createAgentExecutionAdapterRegistry([
+        deps.executionAdapter!,
+        {
+          id: 'deepagents:langchain',
+          isMissingProviderSessionError: vi.fn(() => false),
+          prepare: vi.fn(),
+        },
+      ]);
       deps.getConfiguredModelProviders = vi.fn(
         async () => new Set(['groq', 'cerebras']),
       );
@@ -4516,6 +4524,30 @@ describe('createGroupProcessor', () => {
         model: 'cerebras',
       });
       expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+    });
+
+    it('uses the first concrete family candidate provider for turn context and run creation', async () => {
+      const { deps, group } = setupFamilyGroup();
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentFolder: group.folder,
+          executionProviderId: 'deepagents:langchain',
+          conversationJid: 'group1@g.us',
+        }),
+      );
+      expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
+        agentSessionId: 'agent-session:1',
+        executionProviderId: 'deepagents:langchain',
+        providerSessionId: undefined,
+        cause: 'message',
+      });
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        model: 'groq-oss',
+      });
     });
 
     it('does NOT fail over once visible output has streamed (safety boundary)', async () => {

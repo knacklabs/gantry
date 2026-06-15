@@ -45,15 +45,20 @@ export async function resolveTurnFailoverCandidates(input: {
 // alias can't be resolved (it then fails loudly downstream at spawn).
 export function executionProviderIdForCandidate(
   alias: string,
-  fallback: ExecutionProviderId,
+  fallback: ExecutionProviderId | undefined,
   agentHarness?: AgentHarness,
 ): ExecutionProviderId {
   const resolved = resolveModelSelection(alias);
-  if (!resolved.ok) return fallback;
+  if (!resolved.ok) {
+    if (fallback) return fallback;
+    throw new Error(`Unable to resolve model candidate: ${alias}`);
+  }
   const route = resolveExecutionRoute({ entry: resolved.entry, agentHarness });
-  return route.ok
-    ? (route.value.executionProviderId as ExecutionProviderId)
-    : fallback;
+  if (route.ok) return route.value.executionProviderId as ExecutionProviderId;
+  if (fallback) return fallback;
+  throw new Error(
+    `Unable to resolve execution provider for model candidate: ${alias}`,
+  );
 }
 
 // The load-bearing failover decision, identical for both lanes: advance to the

@@ -379,6 +379,57 @@ async function startSlowOpenAiGateway(delayMs: number): Promise<FakeGateway> {
   };
 }
 
+async function startContinuationGateway(input: {
+  firstDelayMs: number;
+  onFirstRequest: () => void;
+}): Promise<FakeGateway> {
+  const requests: FakeGateway['requests'] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      const requestIndex = requests.length;
+      requests.push({
+        authorization: req.headers.authorization,
+        body,
+        path: req.url ?? '',
+      });
+      if (requestIndex === 0) input.onFirstRequest();
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const id = `chatcmpl-continuation-${requestIndex + 1}`;
+      const content = requestIndex === 0 ? 'First answer' : 'Follow-up answer';
+      res.write(
+        `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', model: 'gpt-5.5', choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }] })}\n\n`,
+      );
+      const finish = () => {
+        res.write(
+          `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', model: 'gpt-5.5', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 7 + requestIndex, completion_tokens: 2, total_tokens: 9 + requestIndex } })}\n\n`,
+        );
+        res.write('data: [DONE]\n\n');
+        res.end();
+      };
+      if (requestIndex === 0) {
+        setTimeout(finish, input.firstDelayMs);
+      } else {
+        finish();
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('continuation gateway did not bind a port');
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/openai`,
+    requests,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
 interface TempRoot {
   root: string;
   sessionsDir: string;
@@ -579,6 +630,50 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
         role: 'ai',
         text: 'Hello Gantry',
       });
+    } finally {
+      await gateway.close();
+    }
+  }, 120_000);
+
+  it('sends only buffered follow-up text as the prompt for continuation turns', async () => {
+    const temp = makeTempRoot();
+    const initialPrompt = 'initial unique prompt alpha';
+    const followup = 'follow-up unique prompt beta';
+    const gateway = await startContinuationGateway({
+      firstDelayMs: 750,
+      onFirstRequest: () => {
+        fs.writeFileSync(
+          path.join(temp.inputDir, '001-followup.json'),
+          JSON.stringify({ type: 'message', text: followup }),
+        );
+      },
+    });
+    try {
+      const result = await runRunner({
+        stdin: {
+          prompt: initialPrompt,
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+      });
+
+      expect(result.code).toBe(0);
+      expect(gateway.requests.length).toBeGreaterThanOrEqual(2);
+      const frames = parseFrames(result.stdout);
+      expect(frames.some((frame) => frame.continuedByFollowup)).toBe(true);
+
+      const secondBody = JSON.parse(gateway.requests[1].body) as {
+        messages?: unknown;
+      };
+      const serializedMessages = JSON.stringify(secondBody.messages);
+      const initialOccurrences =
+        serializedMessages.split(initialPrompt).length - 1;
+      const followupOccurrences = serializedMessages.split(followup).length - 1;
+      expect(initialOccurrences).toBe(1);
+      expect(followupOccurrences).toBe(1);
     } finally {
       await gateway.close();
     }
