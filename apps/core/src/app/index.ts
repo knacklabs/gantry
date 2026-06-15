@@ -22,6 +22,7 @@ import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.
 import { GANTRY_HOME } from '../config/index.js';
 import { hydrateDynamicRuntimeEnv } from '../config/env/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
+import type { IpcSocketServerHandle } from '../runtime/ipc-socket-server.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
   formatRuntimePreflightFailure,
@@ -89,6 +90,11 @@ export async function startGantryRuntime(
       close: () => Promise<void>;
     };
   } = {};
+  // Populated by startRuntimeServices when IPC_TRANSPORT is 'socket'/'dual' and
+  // this core wins the socket election (undefined otherwise — fs mode or
+  // election lost). Bridged into installShutdownHandlers below to stop the
+  // server on shutdown; null-safe when no server was started.
+  const socketServerRef: { current?: IpcSocketServerHandle } = {};
   app.setChannelRuntime({
     hasChannel: channelWiring.hasChannel,
     supportsStreaming: channelWiring.supportsStreaming,
@@ -138,6 +144,9 @@ export async function startGantryRuntime(
     closeControlServer: async () => {
       await controlServerRef.current?.close();
     },
+    closeIpcSocketServer: async () => {
+      await socketServerRef.current?.stop();
+    },
     closeStorage: closeRuntimeStorage,
     closeScheduler: stopSchedulerLoop,
     closeOutboundDeliveryRecovery: stopOutboundDeliveryRecoveryLoop,
@@ -158,6 +167,7 @@ export async function startGantryRuntime(
     {
       app,
       channelWiring,
+      socketServerRef,
     },
     {
       mcpHostnameLookup,

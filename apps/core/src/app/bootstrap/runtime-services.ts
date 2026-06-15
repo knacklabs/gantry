@@ -1,5 +1,6 @@
 import {
   DEFAULT_TRIGGER,
+  IPC_TRANSPORT,
   getCredentialBrokerRuntimeConfig,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
@@ -16,6 +17,11 @@ import type { NewMessage } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
+import {
+  startIpcSocketServer,
+  type IpcSocketServerHandle,
+} from '../../runtime/ipc-socket-server.js';
+import { makeSocketContinuationDelivery } from '../../runtime/continuation-delivery.js';
 // prettier-ignore
 import { recoverPendingMessages, startMessagePollingLoop } from '../../runtime/message-loop.js';
 import { createIdleSessionSweeper } from '../../runtime/idle-session-sweep.js';
@@ -66,6 +72,9 @@ type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 interface Deps {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
+  startIpcSocketServer: typeof startIpcSocketServer;
+  makeSocketContinuationDelivery: typeof makeSocketContinuationDelivery;
+  ipcTransport: typeof IPC_TRANSPORT;
   writeGroupsSnapshot: typeof writeGroupsSnapshot;
   opsRepository: RuntimeBootstrapRepository;
   recoverPendingMessages: typeof recoverPendingMessages;
@@ -101,11 +110,22 @@ type RuntimeServicesDefaults = Omit<
 export type RuntimeServicesOptions = {
   app: RuntimeApp;
   channelWiring: ChannelWiring;
+  /**
+   * Populated with the live IPC socket-server handle when `IPC_TRANSPORT` is
+   * 'socket' or 'dual' and this core wins the socket election. The caller
+   * (`app/index.ts`) bridges it into `installShutdownHandlers` so the server is
+   * stopped on shutdown — symmetric with `controlServerRef`. Left untouched in
+   * 'fs' mode (default) and when the election is lost (handle is undefined).
+   */
+  socketServerRef?: { current?: IpcSocketServerHandle };
 };
 function makeDefaultDeps(): RuntimeServicesDefaults {
   return {
     startSchedulerLoop,
     startIpcWatcher,
+    startIpcSocketServer,
+    makeSocketContinuationDelivery,
+    ipcTransport: IPC_TRANSPORT,
     writeGroupsSnapshot,
     recoverPendingMessages,
     startMessagePollingLoop,
@@ -171,7 +191,7 @@ export async function startRuntimeServices(
     ...deps,
   };
 
-  const { app, channelWiring } = options;
+  const { app, channelWiring, socketServerRef } = options;
   const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
 
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);
@@ -218,7 +238,7 @@ export async function startRuntimeServices(
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });
 
-  resolved.startIpcWatcher({
+  const ipcDeps: IpcDeps = {
     sendMessage: (jid, text, options) =>
       channelWiring.sendMessage(jid, text, {
         durability: 'required',
@@ -258,7 +278,27 @@ export async function startRuntimeServices(
     requestUserAnswer: channelWiring.requestUserAnswer,
     mcpHostnameLookup: resolved.mcpHostnameLookup,
     recordReplyToolCall: resolved.recordReplyToolCall,
-  });
+  };
+
+  // IPC transport selection. Default 'fs' starts only the filesystem watcher —
+  // byte-for-byte today's behavior. 'socket' starts only the event-IPC socket
+  // server; 'dual' starts both (file fallback + push). The socket server
+  // self-elects: when another core already owns the socket it returns
+  // undefined, in which case continuations stay on the durable fs mailbox.
+  if (resolved.ipcTransport === 'fs' || resolved.ipcTransport === 'dual') {
+    resolved.startIpcWatcher(ipcDeps);
+  }
+  if (resolved.ipcTransport === 'socket' || resolved.ipcTransport === 'dual') {
+    const socketServer = await resolved.startIpcSocketServer(ipcDeps);
+    if (socketServer) {
+      if (socketServerRef) socketServerRef.current = socketServer;
+      app.queue.setContinuationDelivery(
+        resolved.makeSocketContinuationDelivery((folder) =>
+          socketServer.connectionsForFolder(folder),
+        ),
+      );
+    }
+  }
   syncGroupSnapshots();
   app.queue.setProcessMessagesFn((chatJid) =>
     app.processGroupMessages(chatJid, { queued: true }),

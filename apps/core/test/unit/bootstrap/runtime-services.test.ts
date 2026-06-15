@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { startRuntimeServices } from '@core/app/bootstrap/runtime-services.js';
+import { installShutdownHandlers } from '@core/app/bootstrap/shutdown.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { ChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
@@ -10,6 +11,7 @@ function makeApp(): RuntimeApp {
   const queue = {
     registerProcess: vi.fn(),
     setProcessMessagesFn: vi.fn(),
+    setContinuationDelivery: vi.fn(),
     closeStdin: vi.fn(),
     notifyIdle: vi.fn(),
     isGroupActive: vi.fn(),
@@ -1618,5 +1620,211 @@ describe('startRuntimeServices', () => {
     });
     expect(recoveryResult.claimed).toBe(0);
     expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('startRuntimeServices — IPC transport selection', () => {
+  function makeFakeSocketServer() {
+    return {
+      socketPath: '/tmp/fake.sock',
+      stop: vi.fn(async () => {}),
+      connectionsForFolder: vi.fn(() => []),
+    };
+  }
+
+  // Minimal deps that let startRuntimeServices reach the transport branch and
+  // then park in startMessagePollingLoop. Spies for the transport seam are
+  // overridable; everything else is a no-op.
+  function makeTransportDeps(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      startSchedulerLoop: vi.fn(),
+      startIpcWatcher: vi.fn(),
+      writeGroupsSnapshot: vi.fn(),
+      opsRepository: {} as any,
+      getToolRepository: vi.fn(() => ({}) as any),
+      recoverPendingMessages: vi.fn(),
+      startMessagePollingLoop: vi.fn(() => new Promise<never>(() => {})),
+      logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+      exit: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it('fs mode (default): starts ONLY the watcher — no socket server, no continuation delivery', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const startIpcSocketServer = vi.fn(async () => makeFakeSocketServer());
+    const makeSocketContinuationDelivery = vi.fn(() => ({}) as any);
+    const startIpcWatcher = vi.fn();
+    const socketServerRef: { current?: unknown } = {};
+
+    await startRuntimeServices(
+      { app, channelWiring, socketServerRef: socketServerRef as any },
+      makeTransportDeps({
+        ipcTransport: 'fs',
+        startIpcWatcher,
+        startIpcSocketServer,
+        makeSocketContinuationDelivery,
+      }) as any,
+    );
+
+    expect(startIpcWatcher).toHaveBeenCalledTimes(1);
+    expect(startIpcSocketServer).not.toHaveBeenCalled();
+    expect(makeSocketContinuationDelivery).not.toHaveBeenCalled();
+    expect(app.queue.setContinuationDelivery).not.toHaveBeenCalled();
+    expect(socketServerRef.current).toBeUndefined();
+  });
+
+  it('socket mode: starts the socket server, registers continuation delivery, populates the ref — watcher NOT started', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const fakeServer = makeFakeSocketServer();
+    const startIpcSocketServer = vi.fn(async () => fakeServer);
+    const fakeDelivery = {
+      deliverContinuation: vi.fn(),
+      deliverClose: vi.fn(),
+    };
+    const makeSocketContinuationDelivery = vi.fn(() => fakeDelivery as any);
+    const startIpcWatcher = vi.fn();
+    const socketServerRef: { current?: unknown } = {};
+
+    await startRuntimeServices(
+      { app, channelWiring, socketServerRef: socketServerRef as any },
+      makeTransportDeps({
+        ipcTransport: 'socket',
+        startIpcWatcher,
+        startIpcSocketServer,
+        makeSocketContinuationDelivery,
+      }) as any,
+    );
+
+    expect(startIpcWatcher).not.toHaveBeenCalled();
+    expect(startIpcSocketServer).toHaveBeenCalledTimes(1);
+    expect(socketServerRef.current).toBe(fakeServer);
+    expect(makeSocketContinuationDelivery).toHaveBeenCalledTimes(1);
+    expect(app.queue.setContinuationDelivery).toHaveBeenCalledTimes(1);
+    expect(app.queue.setContinuationDelivery).toHaveBeenCalledWith(
+      fakeDelivery,
+    );
+
+    // The lookup passed to makeSocketContinuationDelivery resolves through the
+    // live handle's connectionsForFolder.
+    const lookup = (makeSocketContinuationDelivery as any).mock.calls[0][0];
+    lookup('main');
+    expect(fakeServer.connectionsForFolder).toHaveBeenCalledWith('main');
+  });
+
+  it('dual mode: starts BOTH the watcher and the socket server', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const fakeServer = makeFakeSocketServer();
+    const startIpcSocketServer = vi.fn(async () => fakeServer);
+    const makeSocketContinuationDelivery = vi.fn(() => ({}) as any);
+    const startIpcWatcher = vi.fn();
+    const socketServerRef: { current?: unknown } = {};
+
+    await startRuntimeServices(
+      { app, channelWiring, socketServerRef: socketServerRef as any },
+      makeTransportDeps({
+        ipcTransport: 'dual',
+        startIpcWatcher,
+        startIpcSocketServer,
+        makeSocketContinuationDelivery,
+      }) as any,
+    );
+
+    expect(startIpcWatcher).toHaveBeenCalledTimes(1);
+    expect(startIpcSocketServer).toHaveBeenCalledTimes(1);
+    expect(socketServerRef.current).toBe(fakeServer);
+    expect(app.queue.setContinuationDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it('socket mode, election lost: no continuation delivery, ref stays undefined', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    // startIpcSocketServer returns undefined when another core owns the socket.
+    const startIpcSocketServer = vi.fn(async () => undefined);
+    const makeSocketContinuationDelivery = vi.fn(() => ({}) as any);
+    const startIpcWatcher = vi.fn();
+    const socketServerRef: { current?: unknown } = {};
+
+    await startRuntimeServices(
+      { app, channelWiring, socketServerRef: socketServerRef as any },
+      makeTransportDeps({
+        ipcTransport: 'socket',
+        startIpcWatcher,
+        startIpcSocketServer,
+        makeSocketContinuationDelivery,
+      }) as any,
+    );
+
+    expect(startIpcSocketServer).toHaveBeenCalledTimes(1);
+    expect(socketServerRef.current).toBeUndefined();
+    expect(makeSocketContinuationDelivery).not.toHaveBeenCalled();
+    expect(app.queue.setContinuationDelivery).not.toHaveBeenCalled();
+  });
+
+  it('shutdown bridge stops the elected socket server after the queue drains; null-safe when none', async () => {
+    // Mirror the app/index.ts wiring: a socketServerRef populated by
+    // startRuntimeServices and a closeIpcSocketServer closure over it.
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const fakeServer = makeFakeSocketServer();
+    const socketServerRef: { current?: { stop: () => Promise<void> } } = {};
+
+    await startRuntimeServices(
+      { app, channelWiring, socketServerRef: socketServerRef as any },
+      makeTransportDeps({
+        ipcTransport: 'socket',
+        startIpcSocketServer: vi.fn(async () => fakeServer),
+        makeSocketContinuationDelivery: vi.fn(() => ({}) as any),
+      }) as any,
+    );
+    expect(socketServerRef.current).toBe(fakeServer);
+
+    const order: string[] = [];
+    const handlers = new Map<'SIGTERM' | 'SIGINT', () => void>();
+    vi.mocked(fakeServer.stop).mockImplementation(async () => {
+      order.push('socket.stop');
+    });
+
+    installShutdownHandlers(
+      {
+        queue: {
+          shutdown: vi.fn(async () => {
+            order.push('queue.shutdown');
+          }),
+        },
+        disconnectChannels: vi.fn(async () => {}),
+        closeIpcSocketServer: async () => {
+          await socketServerRef.current?.stop();
+        },
+      },
+      {
+        onSignal: (signal, handler) => {
+          handlers.set(signal, handler);
+        },
+        closeAllBrowsers: vi.fn(async () => {}),
+        logger: { info: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+
+    handlers.get('SIGTERM')?.();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Server stopped, and only after the queue grace.
+    expect(fakeServer.stop).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['queue.shutdown', 'socket.stop']);
+
+    // Null-safe: with no elected server (fs mode / election lost) the bridge
+    // closure awaits an optional-chained stop() and resolves without throwing.
+    const emptyRef: { current?: { stop: () => Promise<void> } } = {};
+    const closeNone = async () => {
+      await emptyRef.current?.stop();
+    };
+    await expect(closeNone()).resolves.toBeUndefined();
   });
 });

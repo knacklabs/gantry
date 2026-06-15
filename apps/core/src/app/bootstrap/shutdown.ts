@@ -21,6 +21,7 @@ export interface InstallShutdownHandlersOptions {
   closeOutboundDeliveryRecovery?: () => Promise<void>;
   closeSettingsWatcher?: () => void;
   closeBrowserToolBackends?: () => Promise<void>;
+  closeIpcSocketServer?: () => Promise<void>;
 }
 
 function makeDefaultDeps(): ShutdownDeps {
@@ -65,6 +66,16 @@ export function installShutdownHandlers(
         resolved.logger.warn(
           { err },
           'Failed to close control server during shutdown',
+        );
+      }
+    }
+    if (options.closeIpcSocketServer) {
+      try {
+        await options.closeIpcSocketServer();
+      } catch (err) {
+        resolved.logger.warn(
+          { err },
+          'Failed to stop IPC socket server during shutdown',
         );
       }
     }
