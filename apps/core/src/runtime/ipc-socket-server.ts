@@ -1,7 +1,12 @@
 import path from 'path';
 import type net from 'net';
 
-import { DATA_DIR, ipcSocketPathFor } from '../config/index.js';
+import {
+  DATA_DIR,
+  IPC_FRAME_MAX_BYTES,
+  IPC_HEARTBEAT_INTERVAL_MS,
+  ipcSocketPathFor,
+} from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { computeIpcAuthToken } from './ipc-auth.js';
@@ -14,7 +19,10 @@ import {
   releaseIpcSocket,
   type SocketBindResult,
 } from './ipc-socket-bind.js';
-import { IpcConnection, type IpcConnectionScope } from './ipc-connection.js';
+import {
+  IpcConnection,
+  type IpcConnectionScope,
+} from '../shared/ipc-connection.js';
 import {
   registerIpcResponder,
   takeIpcResponder,
@@ -387,7 +395,14 @@ export async function startIpcSocketServer(
   // onConnection
   // -------------------------------------------------------------------------
   function onConnection(socket: net.Socket): void {
-    const conn = new IpcConnection({ socket, onFrame, onClose, onError });
+    const conn = new IpcConnection({
+      socket,
+      maxBytes: IPC_FRAME_MAX_BYTES,
+      heartbeatIntervalMs: IPC_HEARTBEAT_INTERVAL_MS,
+      onFrame,
+      onClose,
+      onError,
+    });
     const handshakeTimer = setTimeout(() => {
       if (conn.scope === undefined && !conn.closed) {
         conn.destroy('handshake_timeout');

@@ -12,7 +12,7 @@ import {
   type DuplexLike,
   type IpcConnectionOptions,
   type IpcConnectionScope,
-} from '@core/runtime/ipc-connection.js';
+} from '@core/shared/ipc-connection.js';
 
 // ---------------------------------------------------------------------------
 // Fake duplex

@@ -1,4 +1,4 @@
-import { IPC_FRAME_MAX_BYTES } from '../config/index.js';
+export const DEFAULT_IPC_FRAME_MAX_BYTES = 1024 * 1024; // 1 MiB
 
 export class FrameTooLargeError extends Error {
   constructor(
@@ -12,7 +12,7 @@ export class FrameTooLargeError extends Error {
 
 export function encodeFrame(
   body: string | Buffer,
-  maxBytes = IPC_FRAME_MAX_BYTES,
+  maxBytes = DEFAULT_IPC_FRAME_MAX_BYTES,
 ): Buffer {
   const payload = Buffer.isBuffer(body) ? body : Buffer.from(body, 'utf8');
   if (payload.length > maxBytes)
@@ -26,7 +26,7 @@ export class FrameDecoder {
   private buf: Buffer = Buffer.alloc(0);
   private readonly maxBytes: number;
   constructor(opts: { maxBytes?: number } = {}) {
-    this.maxBytes = opts.maxBytes ?? IPC_FRAME_MAX_BYTES;
+    this.maxBytes = opts.maxBytes ?? DEFAULT_IPC_FRAME_MAX_BYTES;
   }
   push(chunk: Buffer): Buffer[] {
     if (chunk.length)

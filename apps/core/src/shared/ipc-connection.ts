@@ -1,15 +1,12 @@
 import { randomUUID } from 'crypto';
-import {
-  encodeFrame,
-  FrameDecoder,
-  FrameTooLargeError,
-} from '../shared/ipc-frame.js';
+import { encodeFrame, FrameDecoder, FrameTooLargeError } from './ipc-frame.js';
 import {
   encodeWireFrame,
   parseWireFrame,
   type IpcWireFrame,
-} from '../shared/ipc-wire.js';
-import { IPC_HEARTBEAT_INTERVAL_MS } from '../config/index.js';
+} from './ipc-wire.js';
+
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -43,7 +40,7 @@ export interface IpcConnectionOptions {
   socket: DuplexLike;
   /** Frame body size cap passed to FrameDecoder / encodeFrame. */
   maxBytes?: number;
-  /** Milliseconds between heartbeat pings. Default: IPC_HEARTBEAT_INTERVAL_MS (10 000). */
+  /** Milliseconds between heartbeat pings. Default: DEFAULT_HEARTBEAT_INTERVAL_MS (10 000). */
   heartbeatIntervalMs?: number;
   /** How many consecutive missed pongs before we close. Default: 2. */
   maxMissedPongs?: number;
@@ -78,7 +75,7 @@ export class IpcConnection {
     this.socket = opts.socket;
     this.maxBytes = opts.maxBytes;
     this.heartbeatIntervalMs =
-      opts.heartbeatIntervalMs ?? IPC_HEARTBEAT_INTERVAL_MS;
+      opts.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
     this.maxMissedPongs = opts.maxMissedPongs ?? 2;
     this._onFrame = opts.onFrame;
     this._onClose = opts.onClose;
