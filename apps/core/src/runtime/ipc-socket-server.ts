@@ -99,6 +99,13 @@ const DEFAULT_MAX_IN_FLIGHT = 64;
 interface ConnState {
   handshakeTimer?: ReturnType<typeof setTimeout>;
   inFlight: number;
+  /**
+   * Response-router keys (folder-scoped correlationIds) this connection has a
+   * single-shot responder registered under, for each request still in flight.
+   * On a mid-flight drop `onClose` purges any still-registered responder here so
+   * a late handler resolution cannot deliver to (or leak on) a dead connection.
+   */
+  responderKeys: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +149,29 @@ export async function startIpcSocketServer(
   const connections = new Set<IpcConnection>();
   const byFolder = new Map<string, Set<IpcConnection>>();
   const state = new WeakMap<IpcConnection, ConnState>();
+
+  // -------------------------------------------------------------------------
+  // In-flight bookkeeping helpers. A dispatcher registers a single-shot
+  // responder for its request, then runs the handler; on completion (success,
+  // failure, or rate-limit fallback) the responder is consumed by the write
+  // chokepoint or explicitly taken. We mirror BOTH the in-flight slot counter
+  // and the per-connection set of registered responder keys here so a mid-flight
+  // connection drop can free the slots (cap recovers) and purge the responders
+  // (no leak; no delivery to a dead connection) in `onClose`.
+  // -------------------------------------------------------------------------
+  function beginInFlight(conn: IpcConnection, responderKey: string): void {
+    const st = state.get(conn);
+    if (!st) return;
+    st.inFlight += 1;
+    st.responderKeys.add(responderKey);
+  }
+
+  function endInFlight(conn: IpcConnection, responderKey: string): void {
+    const st = state.get(conn);
+    if (!st) return;
+    if (st.inFlight > 0) st.inFlight -= 1;
+    st.responderKeys.delete(responderKey);
+  }
 
   // -------------------------------------------------------------------------
   // Handshake validation — low-level token possession check. Returns the bound
@@ -322,8 +352,7 @@ export async function startIpcSocketServer(
       });
     });
 
-    const st = state.get(conn);
-    if (st) st.inFlight += 1;
+    beginInFlight(conn, taskKey);
     try {
       await processTaskIpc(data, folder, deps, ipcBaseDir);
     } catch (err) {
@@ -335,8 +364,7 @@ export async function startIpcSocketServer(
       }
       logger.error({ err, folder }, 'task handler threw');
     } finally {
-      const after = state.get(conn);
-      if (after && after.inFlight > 0) after.inFlight -= 1;
+      endInFlight(conn, taskKey);
     }
   }
 
@@ -377,8 +405,7 @@ export async function startIpcSocketServer(
       });
     });
 
-    const st = state.get(conn);
-    if (st) st.inFlight += 1;
+    beginInFlight(conn, memoryKey);
     try {
       const response = await processMemoryRequest(
         {
@@ -412,8 +439,7 @@ export async function startIpcSocketServer(
       }
       logger.error({ err, folder }, 'memory handler threw');
     } finally {
-      const after = state.get(conn);
-      if (after && after.inFlight > 0) after.inFlight -= 1;
+      endInFlight(conn, memoryKey);
     }
   }
 
@@ -508,8 +534,7 @@ export async function startIpcSocketServer(
       return;
     }
 
-    const st = state.get(conn);
-    if (st) st.inFlight += 1;
+    beginInFlight(conn, userqKey);
     try {
       // No file/claimedPath on the socket path: the handler runs the approval
       // flow and calls the router-aware writer, which delivers the signed
@@ -539,8 +564,7 @@ export async function startIpcSocketServer(
       logger.error({ err, folder }, 'user_question handler threw');
     } finally {
       releaseInteractionInFlight(inFlightKey);
-      const after = state.get(conn);
-      if (after && after.inFlight > 0) after.inFlight -= 1;
+      endInFlight(conn, userqKey);
     }
   }
 
@@ -705,8 +729,7 @@ export async function startIpcSocketServer(
       return;
     }
 
-    const st = state.get(conn);
-    if (st) st.inFlight += 1;
+    beginInFlight(conn, permissionKey);
     try {
       // No file/claimedPath on the socket path: the handler runs the approval
       // flow + persistence/recovery and calls the router-aware writer, which
@@ -736,8 +759,7 @@ export async function startIpcSocketServer(
       logger.error({ err, folder }, 'permission handler threw');
     } finally {
       releaseInteractionInFlight(inFlightKey);
-      const after = state.get(conn);
-      if (after && after.inFlight > 0) after.inFlight -= 1;
+      endInFlight(conn, permissionKey);
     }
   }
 
@@ -817,8 +839,7 @@ export async function startIpcSocketServer(
       return;
     }
 
-    const st = state.get(conn);
-    if (st) st.inFlight += 1;
+    beginInFlight(conn, browserKey);
     try {
       // No file/claimedPath on the socket path: the handler runs the backend +
       // browser grant lifecycle and calls the router-aware writer, which
@@ -849,8 +870,7 @@ export async function startIpcSocketServer(
       logger.error({ err, folder }, 'browser handler threw');
     } finally {
       releaseBrowserInFlight();
-      const after = state.get(conn);
-      if (after && after.inFlight > 0) after.inFlight -= 1;
+      endInFlight(conn, browserKey);
     }
   }
 
@@ -949,8 +969,29 @@ export async function startIpcSocketServer(
         if (set.size === 0) byFolder.delete(folder);
       }
     }
-    // NOTE (later phase): revoke this connection's ed25519 response signing key
-    // here so an orphaned/duplicate response cannot be delivered after drop.
+    // Purge any single-shot responder still registered for this connection's
+    // in-flight requests and release their in-flight slots. The connection's
+    // pending client-side requests are already rejected `connection_lost` by the
+    // client; on the server side a handler that resolves AFTER the drop would
+    // otherwise call the responder (conn.send is a no-op on a closed connection,
+    // so harmless) or leave the entry leaked in the router. Taking it here makes
+    // the drop self-healing: the slot frees (the per-connection cap recovers) and
+    // no responder can later deliver to — or leak past — a dead connection. A
+    // worker that retries with the SAME requestId is still rejected by the
+    // consumed-id replay set (the handler ran at most once), so this purge cannot
+    // cause double-execution.
+    if (st && folder) {
+      for (const key of st.responderKeys) {
+        takeIpcResponder(folder, key);
+      }
+      st.responderKeys.clear();
+      st.inFlight = 0;
+    }
+    // NOTE: the ed25519 response signing key is SPAWN-scoped, not
+    // connection-scoped — it is minted at spawn and revoked in agent-spawn's
+    // `finally` at run end (see ipc-auth.ts revokeIpcResponseSigningKey). A
+    // transient connection drop + reconnect+retry within the SAME run must still
+    // be able to sign responses, so the key is deliberately NOT revoked on drop.
   }
 
   function onError(err: Error, conn: IpcConnection): void {
@@ -984,7 +1025,11 @@ export async function startIpcSocketServer(
     ) {
       (handshakeTimer as { unref(): void }).unref();
     }
-    state.set(conn, { handshakeTimer, inFlight: 0 });
+    state.set(conn, {
+      handshakeTimer,
+      inFlight: 0,
+      responderKeys: new Set<string>(),
+    });
     connections.add(conn);
   }
 
