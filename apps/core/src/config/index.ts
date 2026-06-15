@@ -8,6 +8,7 @@ import {
   runtimeEnvValue,
   runtimeEnvValueDynamic,
 } from './env/index.js';
+import { parseBooleanEnv } from './env/parse.js';
 import { getMemoryModelConfig } from './memory.js';
 import { getGantryHome } from '../shared/gantry-home.js';
 import { resolveRuntimeStorageConfig } from './settings/storage.js';
@@ -435,3 +436,67 @@ function resolveConfigTimezone(): string {
   return 'UTC';
 }
 export const TIMEZONE = resolveConfigTimezone();
+
+// ── IPC transport config ──────────────────────────────────────────────────────
+const IPC_TRANSPORT_VALUES = ['fs', 'socket', 'dual'] as const;
+type IpcTransport = (typeof IPC_TRANSPORT_VALUES)[number];
+function parseIpcTransport(raw: string | undefined): IpcTransport {
+  const v = raw?.trim() ?? '';
+  return (IPC_TRANSPORT_VALUES as readonly string[]).includes(v)
+    ? (v as IpcTransport)
+    : 'fs';
+}
+export const IPC_TRANSPORT: IpcTransport = parseIpcTransport(
+  process.env.GANTRY_IPC_TRANSPORT || envConfig.GANTRY_IPC_TRANSPORT,
+);
+export const IPC_SOCKET_PATH: string =
+  process.env.GANTRY_IPC_SOCKET_PATH?.trim() ||
+  envConfig.GANTRY_IPC_SOCKET_PATH?.trim() ||
+  '';
+export const IPC_FRAME_MAX_BYTES: number =
+  parseInt(
+    process.env.GANTRY_IPC_FRAME_MAX_BYTES ||
+      envConfig.GANTRY_IPC_FRAME_MAX_BYTES ||
+      '',
+    10,
+  ) || 1048576;
+export const IPC_HEARTBEAT_INTERVAL_MS: number =
+  parseInt(
+    process.env.GANTRY_IPC_HEARTBEAT_INTERVAL_MS ||
+      envConfig.GANTRY_IPC_HEARTBEAT_INTERVAL_MS ||
+      '',
+    10,
+  ) || 10000;
+export const IPC_RECONCILE_INTERVAL_MS: number =
+  parseInt(
+    process.env.GANTRY_IPC_RECONCILE_INTERVAL_MS ||
+      envConfig.GANTRY_IPC_RECONCILE_INTERVAL_MS ||
+      '',
+    10,
+  ) || 5000;
+export const IPC_EVENT_PIPE: boolean = parseBooleanEnv(
+  process.env.GANTRY_IPC_EVENT_PIPE || envConfig.GANTRY_IPC_EVENT_PIPE,
+  false,
+);
+export const IPC_EVENT_PIPE_DEBOUNCE_MS: number =
+  parseInt(
+    process.env.GANTRY_IPC_EVENT_PIPE_DEBOUNCE_MS ||
+      envConfig.GANTRY_IPC_EVENT_PIPE_DEBOUNCE_MS ||
+      '',
+    10,
+  ) || 500;
+export const IPC_SHUTDOWN_KILL: boolean = parseBooleanEnv(
+  process.env.GANTRY_IPC_SHUTDOWN_KILL || envConfig.GANTRY_IPC_SHUTDOWN_KILL,
+  false,
+);
+export const IPC_ORPHAN_SWEEP: boolean = parseBooleanEnv(
+  process.env.GANTRY_IPC_ORPHAN_SWEEP || envConfig.GANTRY_IPC_ORPHAN_SWEEP,
+  false,
+);
+export const IPC_REPLAY_PERSIST: boolean = parseBooleanEnv(
+  process.env.GANTRY_IPC_REPLAY_PERSIST || envConfig.GANTRY_IPC_REPLAY_PERSIST,
+  false,
+);
+export function ipcSocketPathFor(ipcBaseDir: string): string {
+  return IPC_SOCKET_PATH || path.join(ipcBaseDir, 'core.sock');
+}
