@@ -5,6 +5,8 @@ import path from 'path';
 
 import {
   DATA_DIR,
+  IPC_TRANSPORT,
+  ipcSocketPathFor,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   TIMEZONE,
   getRuntimeSettingsForConfig,
@@ -599,6 +601,8 @@ export async function spawnAgent(
       GANTRY_IPC_DIR: hostRuntime.groupIpcDir,
       GANTRY_IPC_INPUT_DIR: ipcInputDir,
       GANTRY_IPC_AUTH_TOKEN: ipcAuth.authToken,
+      GANTRY_IPC_TRANSPORT: IPC_TRANSPORT,
+      GANTRY_IPC_SOCKET_PATH: ipcSocketPathFor(path.join(DATA_DIR, 'ipc')),
       GANTRY_CHAT_JID: input.chatJid,
       ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
       ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),

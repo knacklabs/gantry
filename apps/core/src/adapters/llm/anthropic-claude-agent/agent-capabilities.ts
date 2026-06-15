@@ -54,6 +54,8 @@ export interface AgentCapabilityContext {
   semanticCapabilities?: readonly SemanticCapabilityDefinition[];
   ipcDir?: string;
   ipcAuthToken?: string;
+  ipcTransport?: string;
+  ipcSocketPath?: string;
   browserIpcAuthToken?: string;
   memoryIpcAuthToken?: string;
   ipcResponseVerifyKey?: string;
@@ -265,6 +267,10 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ),
       ...(ctx.ipcDir ? { GANTRY_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { GANTRY_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
+      ...(ctx.ipcTransport ? { GANTRY_IPC_TRANSPORT: ctx.ipcTransport } : {}),
+      ...(ctx.ipcSocketPath
+        ? { GANTRY_IPC_SOCKET_PATH: ctx.ipcSocketPath }
+        : {}),
       ...(ctx.browserIpcAuthToken &&
       (ctx.configuredAllowedTools ?? []).some(isCanonicalBrowserCapabilityRule)
         ? { GANTRY_BROWSER_IPC_AUTH_TOKEN: ctx.browserIpcAuthToken }

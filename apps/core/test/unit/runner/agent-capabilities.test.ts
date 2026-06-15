@@ -808,4 +808,34 @@ describe('agent capability composition', () => {
     );
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
   });
+
+  it('projects ipcTransport and ipcSocketPath into gantry MCP env when present', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'wa:123',
+      groupFolder: 'boondi',
+      ipcTransport: 'socket',
+      ipcSocketPath: '/tmp/gantry/ipc/core.sock',
+    });
+
+    expect(profile.mcpServers.gantry?.env?.GANTRY_IPC_TRANSPORT).toBe('socket');
+    expect(profile.mcpServers.gantry?.env?.GANTRY_IPC_SOCKET_PATH).toBe(
+      '/tmp/gantry/ipc/core.sock',
+    );
+  });
+
+  it('omits ipcTransport and ipcSocketPath from gantry MCP env when absent', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'wa:123',
+      groupFolder: 'boondi',
+    });
+
+    expect(
+      profile.mcpServers.gantry?.env?.GANTRY_IPC_TRANSPORT,
+    ).toBeUndefined();
+    expect(
+      profile.mcpServers.gantry?.env?.GANTRY_IPC_SOCKET_PATH,
+    ).toBeUndefined();
+  });
 });

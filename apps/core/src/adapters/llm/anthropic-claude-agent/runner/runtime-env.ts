@@ -161,6 +161,7 @@ export function buildSdkEnv(
   stripNonModelProxyEnv(sdkEnv);
   applyAgentEgressNoProxyEnv(sdkEnv);
   delete sdkEnv.GANTRY_IPC_AUTH_TOKEN;
+  delete sdkEnv.GANTRY_IPC_SOCKET_PATH;
   delete sdkEnv.GANTRY_IPC_RESPONSE_VERIFY_KEY;
   delete sdkEnv.GANTRY_IPC_RESPONSE_KEY_ID;
   delete sdkEnv.GANTRY_MCP_CONFIG_FILE;

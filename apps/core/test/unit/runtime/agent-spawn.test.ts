@@ -32,6 +32,8 @@ vi.mock('@core/config/index.js', () => ({
   TIMEZONE: 'America/Los_Angeles',
   LOG_LEVEL: 'info',
   GANTRY_IPC_AUTH_SECRET: 'test-ipc-secret',
+  IPC_TRANSPORT: 'fs',
+  ipcSocketPathFor: (ipcBaseDir: string) => `${ipcBaseDir}/core.sock`,
   getEffectiveModelConfig: vi.fn((groupModel?: string) =>
     groupModel
       ? { model: groupModel, source: 'group.agentConfig.model' }

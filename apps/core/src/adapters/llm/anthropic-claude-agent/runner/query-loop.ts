@@ -308,6 +308,8 @@ export async function runQuery(
     semanticCapabilities: agentInput.semanticCapabilities,
     ipcDir: process.env.GANTRY_IPC_DIR,
     ipcAuthToken: process.env.GANTRY_IPC_AUTH_TOKEN,
+    ipcTransport: process.env.GANTRY_IPC_TRANSPORT,
+    ipcSocketPath: process.env.GANTRY_IPC_SOCKET_PATH,
     browserIpcAuthToken: process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN,
     memoryIpcAuthToken: process.env.GANTRY_MEMORY_IPC_AUTH_TOKEN,
     ipcResponseVerifyKey: process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY,
