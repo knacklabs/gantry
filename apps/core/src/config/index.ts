@@ -409,7 +409,13 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 export function buildTriggerPattern(trigger: string): RegExp {
-  return new RegExp(`^${escapeRegex(trigger.trim())}\\b`, 'i');
+  const normalizedTrigger = trigger.trim();
+  const slackMentionMatch = normalizedTrigger.match(/^<@([A-Z0-9]+)>?$/i);
+  if (slackMentionMatch) {
+    const mention = `<@${escapeRegex(slackMentionMatch[1])}>?`;
+    return new RegExp(`(?:^|\\s)${mention}(?=\\s|$|[,.!?;:])`, 'i');
+  }
+  return new RegExp(`^${escapeRegex(normalizedTrigger)}\\b`, 'i');
 }
 export const DEFAULT_TRIGGER = `@${ASSISTANT_NAME}`;
 export function getTriggerPattern(trigger?: string): RegExp {

@@ -347,6 +347,7 @@ export class PostgresRuntimeRepositoryBundle
       memoryUserId?: string;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
+      accessFingerprint?: string;
     },
   ): Promise<boolean> {
     return this.sessions.setSession(agentFolder, sessionId, threadId, {
@@ -356,6 +357,7 @@ export class PostgresRuntimeRepositoryBundle
       memoryUserId: metadata.memoryUserId,
       expectedAgentSessionId: metadata.expectedAgentSessionId,
       expectedAgentSessionResetAt: metadata.expectedAgentSessionResetAt,
+      accessFingerprint: metadata.accessFingerprint,
     });
   }
 
@@ -376,6 +378,7 @@ export class PostgresRuntimeRepositoryBundle
     agentSessionResetAt?: string | null;
     providerSessionId?: string;
     externalSessionId?: string;
+    providerSessionAccessFingerprint?: string;
     memoryContextBlock?: string;
   }> {
     return this.sessions.getAgentTurnContext({

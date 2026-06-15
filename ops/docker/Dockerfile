@@ -65,12 +65,21 @@ ENV NODE_ENV=production \
 # package installs belong to a future bake lane, see TODOS.md) and the Go
 # toolchain (Go-built tools ship as binaries: add the binary here per tool).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv bubblewrap \
+    && apt-get install -y --no-install-recommends \
+      python3 \
+      python3-venv \
+      libatomic1 \
+      bubblewrap \
+      socat \
+      ripgrep \
     && rm -rf /var/lib/apt/lists/*
 # bubblewrap backs runtime.sandbox.provider=sandbox_runtime (the whole-runner
 # OS sandbox on Linux). Creating its namespaces inside Docker additionally
 # requires a user-namespace-capable seccomp profile on `docker run`; fleet
 # rehearsal and Terraform launch configs pass that container runtime option.
+# socat backs the sandbox-runtime egress proxy, ripgrep is the expected fast
+# search binary for agent turns, and libatomic1 is required by newer Node builds
+# on small Ubuntu/Debian hosts.
 
 # Non-root runtime user. The base image already ships a `node` user (uid 1000);
 # create a dedicated home and a writable runtime-state dir owned by it.

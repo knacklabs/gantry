@@ -156,6 +156,8 @@ export async function runStorageStep(draft: SetupDraft): Promise<FlowAction> {
         'Use a managed Postgres database such as Neon or Supabase.',
         'Enable the vector extension and pg_trgm in the database before continuing.',
         'Remote URLs must include sslmode=require or stronger.',
+        'On IPv4-only hosts, prefer an IPv4-capable pooler endpoint when your provider direct host resolves only to IPv6.',
+        'If Node reports a certificate-chain error, install the provider CA bundle and set NODE_EXTRA_CA_CERTS in the runtime .env.',
       ].join('\n'),
       'Hosted Postgres',
     );

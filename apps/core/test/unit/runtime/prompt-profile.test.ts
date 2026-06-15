@@ -200,6 +200,7 @@ describe('PromptProfileService', () => {
     });
     expect(soul.content).toContain('Name:** Kai');
     expect(soul.content).toContain('speak in user intent and outcome first');
+    expect(soul.content).toContain('ask one decision-blocking question');
     expect(soul.content).toContain('ask the smallest plain-language question');
     expect(soul.content).toContain(
       'For migrated jobs, describe what the job will do',
@@ -304,6 +305,29 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('source: gantry://agent-instructions');
   });
 
+  it('keeps operations persona guidance product-neutral', async () => {
+    const { service } = createService();
+
+    const prompt = await service.compileSystemPrompt({
+      agentFolder: 'team',
+      persona: 'operations',
+    });
+
+    expect(prompt).toContain('Operations persona');
+    expect(prompt).toContain(
+      'If an approved operational source is already connected',
+    );
+    expect(prompt).toContain(
+      'inspect connected MCP sources with mcp_list_tools',
+    );
+    expect(prompt).toContain('display names only');
+    expect(prompt).toContain('Do not show internal ids, codes, UUIDs');
+    expect(prompt).toContain('include the returned deep link');
+    expect(prompt).not.toContain('CAW');
+    expect(prompt).not.toContain('position_url');
+    expect(prompt).not.toContain('positions_url');
+  });
+
   it('consolidates former shared guidance into generated operating guidance', async () => {
     const { service } = createService();
 
@@ -343,6 +367,15 @@ describe('PromptProfileService', () => {
     expect(prompt).not.toContain('Source = what exists');
     expect(prompt).not.toContain(
       'mcp_list_tools and used through mcp_call_tool',
+    );
+    expect(prompt).toContain(
+      'When capability_status shows an MCP source as ready, inspect it with mcp_list_tools and call approved actions with mcp_call_tool instead of requesting the same access again',
+    );
+    expect(prompt).toContain(
+      'instead of requesting the same access again or using command/browser fallback',
+    );
+    expect(prompt).toContain(
+      'Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names',
     );
     expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
   });

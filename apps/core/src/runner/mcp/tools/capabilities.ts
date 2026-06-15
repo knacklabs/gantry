@@ -27,6 +27,10 @@ export type SemanticCapabilityProvider = () =>
   | readonly SemanticCapabilityDefinition[]
   | Promise<readonly SemanticCapabilityDefinition[]>;
 
+type RunCommandFallbackValidator = (input: {
+  argvPattern: string;
+}) => ToolResponse | null;
+
 const CapabilityTargetSchema = z.object({
   kind: z.literal('capability'),
   id: z
@@ -48,7 +52,11 @@ const RunCommandTargetSchema = z.object({
 export function registerAccessRequestTool(
   server: McpServer,
   submitCapabilityReviewTask: CapabilityReviewSubmitter,
-  options: { listCapabilities?: SemanticCapabilityProvider } = {},
+  options: {
+    listCapabilities?: SemanticCapabilityProvider;
+    isCapabilitySelected?: (capabilityId: string) => boolean;
+    validateRunCommandFallback?: RunCommandFallbackValidator;
+  } = {},
 ): void {
   server.tool(
     'request_access',
@@ -102,6 +110,25 @@ export function registerAccessRequestTool(
               ],
             };
           }
+          if (options.isCapabilitySelected?.(approved.capabilityId)) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: [
+                    `Capability "${approved.displayName}" is already selected for this run.`,
+                    'Use the available action directly instead of requesting the same access again.',
+                    approved.implementationBindings.some(
+                      (binding) => binding.kind === 'mcp_tool',
+                    )
+                      ? 'For MCP sources, use mcp_list_tools to inspect the ready source, then mcp_call_tool to call the approved action.'
+                      : 'Check capability_status if you need to confirm current access.',
+                  ].join('\n'),
+                },
+              ],
+            };
+          }
           return submitCapabilityReviewTask(
             'request_permission',
             'Capability',
@@ -139,6 +166,10 @@ export function registerAccessRequestTool(
               ],
             };
           }
+          const fallbackValidation = options.validateRunCommandFallback?.({
+            argvPattern: target.argvPattern,
+          });
+          if (fallbackValidation) return fallbackValidation;
           if (args.temporaryOnly !== true) {
             const durableValidation = validateDurableAccessRule(rule);
             if (!durableValidation.ok) {

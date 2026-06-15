@@ -83,6 +83,16 @@ const SANDBOX_RUNTIME_TOOL_PROXY_ENV_KEYS = [
   'GIT_SSH_COMMAND',
 ] as const;
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
+const SANDBOX_RUNTIME_SDK_DIRECT_EGRESS_GUARDS = {
+  DISABLE_TELEMETRY: '1',
+  CLAUDE_CODE_BYOC_ENABLE_DATADOG: '0',
+  CLAUDE_CODE_REMOTE_SEND_KEEPALIVES: '0',
+} as const;
+const SANDBOX_RUNTIME_SDK_DIRECT_EGRESS_ENV_DENYLIST = [
+  'CLAUDE_CODE_ENABLE_TELEMETRY',
+  'DATADOG_LOGS_ENDPOINT',
+  'DATADOG_CLIENT_TOKEN',
+] as const;
 
 const MODEL_CREDENTIAL_ENV_KEYS = new Set([
   'ANTHROPIC_BASE_URL',
@@ -143,6 +153,20 @@ function applySandboxRuntimeProxyEnv(
   target.no_proxy = '';
 }
 
+function applySandboxRuntimeSdkDirectEgressGuards(
+  target: Record<string, string | undefined>,
+): void {
+  if (process.env.GANTRY_SANDBOX_RUNTIME_PROXY !== '1') return;
+  Object.assign(target, SANDBOX_RUNTIME_SDK_DIRECT_EGRESS_GUARDS);
+  const modelBaseUrl = target.ANTHROPIC_BASE_URL?.trim();
+  if (modelBaseUrl) {
+    target.CLAUDE_CODE_API_BASE_URL = modelBaseUrl;
+  }
+  for (const key of SANDBOX_RUNTIME_SDK_DIRECT_EGRESS_ENV_DENYLIST) {
+    delete target[key];
+  }
+}
+
 function hasProxyEnv(target: Record<string, string | undefined>): boolean {
   return PROXY_ENV_KEYS.some((key) => !!target[key]?.trim());
 }
@@ -189,6 +213,7 @@ export function buildSdkEnv(
   copyPlaceholderEnv(sdkEnv, ['ANTHROPIC_API_KEY']);
   stripNonModelProxyEnv(sdkEnv);
   applySandboxRuntimeProxyEnv(sdkEnv);
+  applySandboxRuntimeSdkDirectEgressGuards(sdkEnv);
   if (hasProxyEnv(sdkEnv)) {
     sdkEnv.NO_PROXY = '';
     sdkEnv.no_proxy = '';

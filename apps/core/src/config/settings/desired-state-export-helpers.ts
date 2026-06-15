@@ -71,7 +71,7 @@ export function activeSources(
 export function readableActiveCapabilities(
   toolBindings: AgentToolBinding[],
   toolCatalogById: Map<unknown, { name: string; inputSchema?: unknown }>,
-  options: {
+  _options: {
     skillBindings?: AgentSkillBinding[];
     skillCatalogById?: Map<unknown, SkillCatalogItem>;
   } = {},

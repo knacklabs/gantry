@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { authorizedMcpServerIdsForAgent } from '@core/application/mcp/mcp-authorized-servers.js';
 
 describe('authorizedMcpServerIdsForAgent', () => {
-  it('does not authorize attached MCP sources without projected capability rules', async () => {
+  it('authorizes active attached MCP sources without direct tool rules', async () => {
     const result = await authorizedMcpServerIdsForAgent({
       mcpServers: mcpServerRepository(),
       tools: toolRepository(),
@@ -12,7 +12,7 @@ describe('authorizedMcpServerIdsForAgent', () => {
       allowedTools: [],
     });
 
-    expect(result).toEqual([]);
+    expect(result).toEqual(['mcp:github', 'mcp:slack']);
   });
 
   it('authorizes only attached MCP servers referenced by selected capability rules', async () => {

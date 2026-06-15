@@ -288,6 +288,7 @@ export async function processPermissionInteractionIpc(input: {
         sourceAgentFolder: input.sourceAgentFolder,
         updates: updatedPermissions,
         toolRepository,
+        mcpServerRepository: input.deps.getMcpServerRepository?.(),
         mirrorAgentToolRulesToSettings,
         permissionRepository: input.deps.getPermissionRepository?.(),
         semanticCapabilityDefinitions:

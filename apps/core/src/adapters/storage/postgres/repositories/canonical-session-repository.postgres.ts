@@ -60,6 +60,41 @@ function conversationKindInput(kind?: 'dm' | 'channel'): {
   return {};
 }
 
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function stringMetadataValue(
+  metadata: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function providerSessionContext(providerSession: {
+  id: string;
+  externalSessionId: string;
+  metadataJson: unknown;
+}): {
+  providerSessionId: string;
+  externalSessionId: string;
+  providerSessionAccessFingerprint?: string;
+} {
+  const accessFingerprint = stringMetadataValue(
+    parseJsonRecord(providerSession.metadataJson),
+    'accessFingerprint',
+  );
+  return {
+    providerSessionId: providerSession.id,
+    externalSessionId: providerSession.externalSessionId,
+    ...(accessFingerprint
+      ? { providerSessionAccessFingerprint: accessFingerprint }
+      : {}),
+  };
+}
+
 export class PostgresCanonicalSessionRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
 
@@ -83,6 +118,7 @@ export class PostgresCanonicalSessionRepository {
     agentSessionResetAt?: string | null;
     providerSessionId?: string;
     externalSessionId?: string;
+    providerSessionAccessFingerprint?: string;
   }> {
     assertSafeExecutionProviderId(input.executionProviderId);
     const ensured = await this.ensureAgentSession(input);
@@ -91,6 +127,7 @@ export class PostgresCanonicalSessionRepository {
       .select({
         id: pgSchema.providerSessionsPostgres.id,
         externalSessionId: pgSchema.providerSessionsPostgres.externalSessionId,
+        metadataJson: pgSchema.providerSessionsPostgres.metadataJson,
       })
       .from(pgSchema.providerSessionsPostgres)
       .where(
@@ -110,12 +147,7 @@ export class PostgresCanonicalSessionRepository {
       agentId: ensured.agentId,
       agentSessionId: ensured.agentSessionId,
       agentSessionResetAt: ensured.agentSessionResetAt ?? null,
-      ...(providerSession
-        ? {
-            providerSessionId: providerSession.id,
-            externalSessionId: providerSession.externalSessionId,
-          }
-        : {}),
+      ...(providerSession ? providerSessionContext(providerSession) : {}),
     };
   }
 
@@ -289,6 +321,7 @@ export class PostgresCanonicalSessionRepository {
     jobId?: string;
     expectedAgentSessionId?: string;
     expectedAgentSessionResetAt?: string | null;
+    accessFingerprint?: string;
   }): Promise<boolean> {
     assertSafeProviderSessionId(input.sessionId);
     assertSafeExecutionProviderId(input.executionProviderId);
@@ -304,6 +337,7 @@ export class PostgresCanonicalSessionRepository {
       jobId,
       expectedAgentSessionId,
       expectedAgentSessionResetAt,
+      accessFingerprint,
     } = input;
     const normalizedJobId = jobId?.trim() || null;
     const resolvedMemoryUserId = memoryUserId?.trim() || null;
@@ -400,6 +434,7 @@ export class PostgresCanonicalSessionRepository {
             conversationKind: conversationKind ?? null,
             memoryUserId: resolvedMemoryUserId,
             threadId: threadId ?? null,
+            accessFingerprint: accessFingerprint ?? null,
           }),
           status: 'active',
         })
@@ -442,6 +477,7 @@ export class PostgresCanonicalSessionRepository {
             conversationKind: conversationKind ?? null,
             memoryUserId: resolvedMemoryUserId,
             threadId: threadId ?? null,
+            accessFingerprint: accessFingerprint ?? null,
           }),
           status: 'active',
           updatedAt: sql`now()`,

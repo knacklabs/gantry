@@ -106,10 +106,10 @@ function inspectLinuxSandboxRuntimeTools(): DoctorCheck | undefined {
     return runnerSandboxCheck({
       status: 'fail',
       message: 'sandbox_runtime needs bubblewrap (`bwrap`) on Linux.',
-      nextAction: 'Install bubblewrap and rerun doctor.',
+      nextAction: 'Install bubblewrap, socat, and ripgrep, then rerun doctor.',
       action: {
         type: 'run_verification',
-        label: 'Install bubblewrap and rerun doctor.',
+        label: 'Install bubblewrap, socat, and ripgrep, then rerun doctor.',
       },
     });
   }
@@ -117,10 +117,10 @@ function inspectLinuxSandboxRuntimeTools(): DoctorCheck | undefined {
     return runnerSandboxCheck({
       status: 'fail',
       message: 'sandbox_runtime needs socat on Linux for proxy bridging.',
-      nextAction: 'Install socat and rerun doctor.',
+      nextAction: 'Install bubblewrap, socat, and ripgrep, then rerun doctor.',
       action: {
         type: 'run_verification',
-        label: 'Install socat and rerun doctor.',
+        label: 'Install bubblewrap, socat, and ripgrep, then rerun doctor.',
       },
     });
   }
@@ -128,10 +128,10 @@ function inspectLinuxSandboxRuntimeTools(): DoctorCheck | undefined {
     return runnerSandboxCheck({
       status: 'fail',
       message: 'sandbox_runtime needs ripgrep (`rg`) for deny path detection.',
-      nextAction: 'Install ripgrep and rerun doctor.',
+      nextAction: 'Install bubblewrap, socat, and ripgrep, then rerun doctor.',
       action: {
         type: 'run_verification',
-        label: 'Install ripgrep and rerun doctor.',
+        label: 'Install bubblewrap, socat, and ripgrep, then rerun doctor.',
       },
     });
   }

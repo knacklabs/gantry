@@ -645,6 +645,8 @@ describe('agent-spawn timeout behavior', () => {
     process.env.GANTRY_IMAGE_CAPABILITIES_JSON = JSON.stringify([
       'acme.records.get',
       'acme.invoices.read',
+      'github.issues.create',
+      'mcp.caw-ats.access',
       'google.sheets.values.get',
       'skill.linkedin-posting.publish',
     ]);
@@ -1616,6 +1618,167 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
+  it('keeps sandbox-runtime projection compatible with stdio MCP, local CLI, and skill actions', async () => {
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+        egress: {
+          denylist: [],
+        },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'sandbox_runtime',
+          resourceLimits: {
+            cpuSeconds: 0,
+            memoryMb: 0,
+            maxProcesses: 0,
+          },
+        },
+      },
+    } as any);
+    process.env.HOME = '/Users/tester';
+    process.env.XDG_CONFIG_HOME = '/Users/tester/.config';
+    const start = vi.fn(() => fakeProc as any);
+    const runnerSandboxProvider: RunnerSandboxProvider = {
+      id: 'sandbox_runtime',
+      enforcing: true,
+      start,
+    };
+    const repository = new SpawnMcpRepository([
+      mcpRecord({
+        allowedToolPatterns: ['issues.*'],
+        bindingAllowedToolPatterns: ['issues.*'],
+      }),
+    ]);
+    const localCliAccess = {
+      selectedCapabilityId: 'acme.invoices.read',
+      sourceType: 'local_cli' as const,
+      auditLabel: 'Acme invoices read',
+      commandRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+      credentialDirs: ['${XDG_CONFIG_HOME}/acme'],
+      networkBindings: [
+        {
+          commandRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+          hosts: ['api.acme.test:443'],
+        },
+      ],
+    };
+    const skillAccess = {
+      selectedCapabilityId: 'skill.linkedin-posting.publish',
+      sourceType: 'skill_action' as const,
+      auditLabel: 'LinkedIn posting',
+      skillId: 'skill:linkedin-posting',
+      selectedAction: 'publish',
+      declaredEnvRefs: ['LINKEDIN_ACCESS_TOKEN'],
+      commandRules: ['RunCommand(skills/linkedin-posting/post.py *)'],
+      networkBindings: [
+        {
+          commandRules: ['RunCommand(skills/linkedin-posting/post.py *)'],
+          hosts: ['api.linkedin.com:443'],
+        },
+      ],
+    };
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        attachedMcpSourceIds: ['mcp:github'],
+        toolPolicyRules: [
+          'capability:github.issues.create',
+          'mcp__github__issues.create',
+          'capability:acme.invoices.read',
+          'RunCommand(/usr/local/bin/acme invoices read *)',
+          'capability:skill.linkedin-posting.publish',
+          'RunCommand(skills/linkedin-posting/post.py *)',
+        ],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'github.issues.create',
+            sourceType: 'mcp_server',
+            auditLabel: 'GitHub issues create',
+            reviewedServerId: 'github',
+            allowedTools: ['mcp__github__issues.create'],
+            credentialRefs: [],
+            networkHosts: [],
+          },
+          localCliAccess,
+          skillAccess,
+        ],
+      },
+      () => {},
+      undefined,
+      {
+        runnerSandboxProvider,
+        mcpServerRepository: repository,
+        capabilitySecretRepository: new SpawnCapabilitySecretRepository({
+          GITHUB_TOKEN: 'gantry-secret-token',
+          LINKEDIN_ACCESS_TOKEN: 'linkedin-token',
+        }),
+        mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+        skillRepository: new SpawnSkillRepository() as any,
+        skillContext: { appId: 'app-one', agentId: 'agent-one' },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
+    const env = startInput.env as Record<string, string>;
+    expect(env.GANTRY_MCP_CONFIG_FILE).toMatch(/mcp-.*\.json$/);
+    expect(JSON.parse(env.GANTRY_MCP_ALLOWED_TOOLS_JSON)).toEqual([
+      'mcp__github__issues.create',
+    ]);
+    expect(JSON.parse(env.GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON)).toEqual([
+      '/Users/tester/.config/acme',
+    ]);
+    expect(env.LINKEDIN_ACCESS_TOKEN).toBe('linkedin-token');
+    expect(startInput.runtimeReadPaths).toContain(env.GANTRY_MCP_CONFIG_FILE);
+    expect(startInput.runtimeReadPaths).toContain('/Users/tester/.config/acme');
+    expect(startInput.protectedWritePaths).toContain(
+      '/Users/tester/.config/acme',
+    );
+    expect(startInput.allowedNetworkHosts).toEqual(
+      expect.arrayContaining([
+        `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
+        'api.github.com:443',
+        'api.acme.test:443',
+        'api.linkedin.com:443',
+      ]),
+    );
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        networkAttribution: expect.arrayContaining([
+          expect.objectContaining({ host: 'api.github.com:443' }),
+          expect.objectContaining({ host: 'api.acme.test:443' }),
+          expect.objectContaining({ host: 'api.linkedin.com:443' }),
+        ]),
+      }),
+    );
+    const mcpConfigWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([target]) => String(target).includes('/mcp-'));
+    expect(mcpConfigWrite).toBeDefined();
+    expect(JSON.parse(String(mcpConfigWrite?.[1]))).toEqual({
+      github: expect.objectContaining({
+        type: 'stdio',
+        env: expect.objectContaining({
+          GITHUB_TOKEN: 'gantry-secret-token',
+          HTTP_PROXY: 'http://127.0.0.1:18080/',
+          HTTPS_PROXY: 'http://127.0.0.1:18080/',
+          GODEBUG: 'netdns=go',
+        }),
+      }),
+    });
+  });
+
   it('fails closed when live sandbox provider drifts from settings', async () => {
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {
@@ -1816,9 +1979,8 @@ describe('agent-spawn timeout behavior', () => {
     const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
     const env = startInput.env as Record<string, string>;
     const providerConfigDir = env.CLAUDE_CONFIG_DIR;
-    expect(env.TMPDIR).toContain(
-      '/tmp/gantry-test-data/ipc/test-group/tmp/gantry-test-group-',
-    );
+    expect(env.TMPDIR).toMatch(/^\/tmp\/gantry-srt-[a-f0-9]{12}$/);
+    expect(env.TMPDIR).not.toContain('/ipc/');
     expect(env.CLAUDE_CODE_TMPDIR).toBe(env.TMPDIR);
     expect(startInput.runtimeReadPaths).toContain(
       '/tmp/gantry-test-data/sessions/test-group/extra',
@@ -1827,7 +1989,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(startInput.runtimeWritePaths).toContain(providerConfigDir);
     expect(startInput.runtimeWritePaths).toContain(env.TMPDIR);
     const claudeToolTempDir = startInput.runtimeWritePaths.find((item) =>
-      /\/tmp\/gantry-test-group-.*\/claude-\d+$/.test(item),
+      /^\/tmp\/gantry-srt-[a-f0-9]{12}\/claude-\d+$/.test(item),
     );
     expect(claudeToolTempDir).toBeDefined();
     expect(startInput.runtimeReadPaths).toContain(claudeToolTempDir);
@@ -2330,73 +2492,76 @@ describe('agent-spawn timeout behavior', () => {
     rmSyncSpy.mockRestore();
   });
 
-  it('does not project remote MCP sources into the direct SDK MCP config', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    const { getHostRuntimeCredentialEnv } =
-      await import('@core/runtime/agent-spawn-host.js');
-    vi.mocked(getHostRuntimeCredentialEnv).mockImplementation(async () => ({
-      env: {
-        ['ANTHROPIC' + '_BASE_URL']: 'http://127.0.0.1:4567/anthropic',
-        ['ANTHROPIC' + '_API_KEY']: 'gtw_default',
-      },
-      credentialProviders: {},
-      brokerApplied: true,
-      brokerProfile: 'gantry',
-    }));
-    const repository = new SpawnMcpRepository([
-      mcpRecord({
-        transport: 'http',
-        allowedToolPatterns: ['issues.*'],
-        bindingAllowedToolPatterns: ['issues.*'],
-      }),
-    ]);
-    const resultPromise = spawnTestAgent(
-      testGroup,
-      {
-        ...testInput,
-        attachedMcpSourceIds: ['mcp:github'],
-        runtimeAccess: [
-          {
-            selectedCapabilityId: 'github.issues.create',
-            sourceType: 'mcp_server',
-            auditLabel: 'GitHub issues create',
-            reviewedServerId: 'github',
-            allowedTools: ['mcp__github__issues.create'],
-            credentialRefs: [],
-            networkHosts: [],
-          },
-        ],
-      },
-      () => {},
-      undefined,
-      {
-        mcpServerRepository: repository,
-        capabilitySecretRepository: new SpawnCapabilitySecretRepository({
-          GITHUB_TOKEN: 'gantry-secret-token',
+  it.each(['http', 'sse'] as const)(
+    'does not project remote %s MCP sources into the direct SDK MCP config',
+    async (transport) => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      const { getHostRuntimeCredentialEnv } =
+        await import('@core/runtime/agent-spawn-host.js');
+      vi.mocked(getHostRuntimeCredentialEnv).mockImplementation(async () => ({
+        env: {
+          ['ANTHROPIC' + '_BASE_URL']: 'http://127.0.0.1:4567/anthropic',
+          ['ANTHROPIC' + '_API_KEY']: 'gtw_default',
+        },
+        credentialProviders: {},
+        brokerApplied: true,
+        brokerProfile: 'gantry',
+      }));
+      const repository = new SpawnMcpRepository([
+        mcpRecord({
+          transport,
+          allowedToolPatterns: ['issues.*'],
+          bindingAllowedToolPatterns: ['issues.*'],
         }),
-        mcpContext: { appId: 'app-one', agentId: 'agent-one' },
-      },
-    );
+      ]);
+      const resultPromise = spawnTestAgent(
+        testGroup,
+        {
+          ...testInput,
+          attachedMcpSourceIds: ['mcp:github'],
+          runtimeAccess: [
+            {
+              selectedCapabilityId: 'github.issues.create',
+              sourceType: 'mcp_server',
+              auditLabel: 'GitHub issues create',
+              reviewedServerId: 'github',
+              allowedTools: ['mcp__github__issues.create'],
+              credentialRefs: [],
+              networkHosts: [],
+            },
+          ],
+        },
+        () => {},
+        undefined,
+        {
+          mcpServerRepository: repository,
+          capabilitySecretRepository: new SpawnCapabilitySecretRepository({
+            GITHUB_TOKEN: 'gantry-secret-token',
+          }),
+          mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+        },
+      );
 
-    await vi.advanceTimersByTimeAsync(10);
-    fakeProc.emit('close', 0);
-    await vi.advanceTimersByTimeAsync(10);
-    await resultPromise;
+      await vi.advanceTimersByTimeAsync(10);
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+      await resultPromise;
 
-    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
-      string,
-      string
-    >;
-    expect(env.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
-    expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
-    expect(repository.materializedInputs).toEqual([
-      expect.objectContaining({
-        appId: 'app-one',
-        agentId: 'agent-one',
-        serverIds: ['mcp:github'],
-      }),
-    ]);
-  });
+      const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+        string,
+        string
+      >;
+      expect(env.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
+      expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
+      expect(repository.materializedInputs).toEqual([
+        expect.objectContaining({
+          appId: 'app-one',
+          agentId: 'agent-one',
+          serverIds: ['mcp:github'],
+        }),
+      ]);
+    },
+  );
 
   it('starts the agent and skips selected MCP servers when credentials are missing', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
@@ -3027,6 +3192,38 @@ describe('agent-spawn timeout behavior', () => {
       expect(spawn).not.toHaveBeenCalled();
     },
   );
+
+  it('allows third-party MCP tools projected from reviewed semantic capability runtime access', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        toolPolicyRules: [
+          'capability:mcp.caw-ats.access',
+          'mcp__caw-ats__ats_list_positions',
+        ],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'mcp.caw-ats.access',
+            sourceType: 'mcp_server',
+            auditLabel: 'caw-ats MCP access',
+            reviewedServerId: 'caw-ats',
+            allowedTools: ['mcp__caw-ats__ats_list_positions'],
+            credentialRefs: [],
+            networkHosts: [],
+          },
+        ],
+      },
+      () => {},
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(spawn).toHaveBeenCalled();
+  });
 
   it('keeps browser action backend private when Browser is selected', async () => {
     const originalNoProxy = process.env.NO_PROXY;

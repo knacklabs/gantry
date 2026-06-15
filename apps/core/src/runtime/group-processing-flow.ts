@@ -1,3 +1,5 @@
+import { parseThreadQueueKey } from '../shared/thread-queue-key.js';
+
 export async function handleFailure(input: {
   outputSentToUser: boolean;
   groupName: string;
@@ -7,6 +9,7 @@ export async function handleFailure(input: {
     setCursor: (chatJid: string, timestamp: string) => void;
     saveState: () => Promise<void> | void;
   };
+  isShuttingDown?: () => boolean;
   logger: {
     warn(payload: Record<string, unknown>, message: string): void;
   };
@@ -15,6 +18,20 @@ export async function handleFailure(input: {
     input.logger.warn(
       { group: input.groupName },
       'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
+    );
+    return true;
+  }
+  if (input.isShuttingDown?.()) {
+    input.logger.warn(
+      { group: input.groupName, queueJid: input.queueJid },
+      'Agent error during runtime shutdown, preserving cursor to avoid restart replay',
+    );
+    return true;
+  }
+  if (parseThreadQueueKey(input.queueJid).threadId && !input.previousCursor) {
+    input.logger.warn(
+      { group: input.groupName, queueJid: input.queueJid },
+      'Agent error on first thread message, preserving cursor to avoid replay loop',
     );
     return true;
   }

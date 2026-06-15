@@ -72,11 +72,26 @@ export interface ResolvedRunnerMcpProjection {
 
 export function validateRunnerAllowedTools(
   rules: readonly string[],
+  runtimeAccess: AgentInput['runtimeAccess'] = [],
 ): string | null {
   try {
+    const reviewedExternalMcpTools = new Set(
+      reviewedExternalMcpToolNamesFromRuntimeAccess(runtimeAccess),
+    );
+    const unreviewedExternalMcpTool = rules.find((rule) => {
+      const trimmed = rule.trim();
+      return (
+        /^mcp__(?!gantry__)[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/.test(trimmed) &&
+        !reviewedExternalMcpTools.has(trimmed)
+      );
+    });
+    if (unreviewedExternalMcpTool) {
+      return `Configured agent tool ${unreviewedExternalMcpTool} is invalid. Third-party MCP tool names must be projected from a reviewed semantic capability.`;
+    }
     validateAgentToolRuntimeRules({
       rules,
       errorSubject: 'Configured agent tool',
+      allowProjectedThirdPartyMcpTools: true,
     });
     return null;
   } catch (err) {

@@ -24,6 +24,7 @@ import {
   SLACK_NATIVE_APPEND_MAX_LENGTH,
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
+import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
 import { nowIso } from '../../shared/time/datetime.js';
 const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
 const SLACK_RETRY_DELAY_MAX_MS = 5000;
@@ -113,6 +114,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     if (!content) return;
     const sender = event.user || 'unknown';
     const senderName = await this.resolveUserName(event.user);
+    const threadId =
+      event.thread_ts || (isGroupConversation ? event.ts : undefined);
     await this.opts.onMessage(jid, {
       id: event.ts,
       chat_jid: jid,
@@ -123,7 +126,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
       is_from_me: this.botUserId ? sender === this.botUserId : false,
       external_message_id: event.ts,
-      thread_id: event.thread_ts || undefined,
+      thread_id: threadId,
       attachments: enriched.attachments,
       reply_to_message_id:
         event.thread_ts && event.thread_ts !== event.ts
@@ -401,7 +404,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         }
       });
     }
-    this.app.action('gantry_perm_decision', async (args: any) => {
+    const handlePermissionDecision = async (args: any) => {
       await args.ack();
       const body = args.body as {
         channel?: { id?: string };
@@ -514,7 +517,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       await this.resolvePermissionPrompt(payload.requestId, {
         ...decision,
       });
-    });
+    };
+    for (const actionId of SLACK_PERMISSION_DECISION_ACTION_IDS) {
+      this.app.action(actionId, handlePermissionDecision);
+    }
     this.app.action('gantry_userq_select', async (args: any) => {
       await args.ack();
       const action = args.action as { value?: string };

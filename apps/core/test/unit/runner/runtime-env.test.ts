@@ -102,11 +102,19 @@ describe('Anthropic runner runtime env', () => {
 
     expect(sdkEnv.HTTP_PROXY).toBe('http://localhost:3128');
     expect(sdkEnv.HTTPS_PROXY).toBe('http://localhost:3128');
+    expect(sdkEnv.CLAUDE_CODE_API_BASE_URL).toBe(
+      'http://127.0.0.1:4567/anthropic',
+    );
+    expect(sdkEnv.DISABLE_TELEMETRY).toBe('1');
+    expect(sdkEnv.CLAUDE_CODE_BYOC_ENABLE_DATADOG).toBe('0');
+    expect(sdkEnv.CLAUDE_CODE_REMOTE_SEND_KEEPALIVES).toBe('0');
     expect(sdkEnv.CLAUDE_CODE_PROXY_RESOLVES_HOSTS).toBe('1');
     expect(sdkEnv.GODEBUG).toBe('netdns=go');
     expect(sdkEnv.NO_PROXY).toBe('');
     expect(toolEnv.HTTP_PROXY).toBe('http://localhost:3128');
     expect(toolEnv.HTTPS_PROXY).toBe('http://localhost:3128');
+    expect(toolEnv.CLAUDE_CODE_API_BASE_URL).toBeUndefined();
+    expect(toolEnv.DISABLE_TELEMETRY).toBeUndefined();
     expect(toolEnv.CLAUDE_CODE_PROXY_RESOLVES_HOSTS).toBe('1');
     expect(toolEnv.ALL_PROXY).toBe('socks5h://localhost:3129');
     expect(toolEnv.GRPC_PROXY).toBe('socks5h://localhost:3129');
@@ -122,6 +130,20 @@ describe('Anthropic runner runtime env', () => {
     const sdkEnv = buildSdkEnv();
 
     expect(sdkEnv.CLAUDE_CODE_SANDBOXED).toBe('1');
+  });
+
+  it('does not apply sandbox-runtime SDK direct egress guards outside sandbox mode', async () => {
+    const { buildSdkEnv } = await loadRuntimeEnv();
+
+    const sdkEnv = buildSdkEnv({
+      [['ANTHROPIC', 'BASE', 'URL'].join('_')]:
+        'http://127.0.0.1:4567/anthropic',
+    });
+
+    expect(sdkEnv.CLAUDE_CODE_API_BASE_URL).toBeUndefined();
+    expect(sdkEnv.DISABLE_TELEMETRY).toBeUndefined();
+    expect(sdkEnv.CLAUDE_CODE_BYOC_ENABLE_DATADOG).toBeUndefined();
+    expect(sdkEnv.CLAUDE_CODE_REMOTE_SEND_KEEPALIVES).toBeUndefined();
   });
 
   it('rejects proxy env in model credentials', async () => {

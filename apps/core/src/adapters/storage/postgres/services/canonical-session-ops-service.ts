@@ -111,6 +111,7 @@ export class CanonicalSessionOpsService {
       jobId?: string;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
+      accessFingerprint?: string;
     },
   ): Promise<boolean> {
     return this.repository.setProviderSession({
@@ -130,6 +131,7 @@ export class CanonicalSessionOpsService {
       jobId: metadata.jobId,
       expectedAgentSessionId: metadata.expectedAgentSessionId,
       expectedAgentSessionResetAt: metadata.expectedAgentSessionResetAt,
+      accessFingerprint: metadata.accessFingerprint,
     });
   }
 
@@ -149,6 +151,7 @@ export class CanonicalSessionOpsService {
     agentSessionId: string;
     providerSessionId?: string;
     externalSessionId?: string;
+    providerSessionAccessFingerprint?: string;
     agentSessionResetAt?: string | null;
     memoryContextBlock?: string;
   }> {

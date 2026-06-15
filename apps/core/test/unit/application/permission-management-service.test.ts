@@ -5,7 +5,10 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PermissionManagementService } from '@core/application/permissions/permission-management-service.js';
-import type { PermissionRepository } from '@core/domain/ports/repositories.js';
+import type {
+  McpServerRepository,
+  PermissionRepository,
+} from '@core/domain/ports/repositories.js';
 import type { PermissionDecision } from '@core/domain/permissions/permissions.js';
 import type {
   AgentToolBinding,
@@ -114,6 +117,31 @@ function skillActionCapability(): SemanticCapabilityDefinition {
   };
 }
 
+function mcpCapability(): SemanticCapabilityDefinition {
+  return {
+    capabilityId: 'mcp.caw-ats.access',
+    version: '1',
+    displayName: 'caw-ats MCP access',
+    category: 'MCP',
+    risk: 'write',
+    can: 'Call approved caw-ats MCP tools.',
+    cannot: 'Call unapproved MCP tools or receive raw credentials.',
+    credentialSource: 'none',
+    implementationBindings: [
+      {
+        kind: 'mcp_tool',
+        mcpTool: 'mcp__caw-ats__ats_list_positions',
+      },
+    ],
+    preflight: { kind: 'none' },
+    source: {
+      source: 'mcp',
+      serverName: 'caw-ats',
+      allowedToolPatterns: ['ats_list_positions'],
+    },
+  };
+}
+
 describe('PermissionManagementService', () => {
   it('records timed grant expiry for audit without requiring a new schema', async () => {
     const { repository, saveDecision } = permissionRepository();
@@ -207,6 +235,91 @@ describe('PermissionManagementService', () => {
         }>
       )[0]?.commandPreviewHashes[0],
     ).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  it('activates reviewed MCP sources before mirroring persistent MCP capability settings', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const saveTool = vi.fn(async () => undefined);
+    const saveAgentBinding = vi.fn(async () => undefined);
+    const appendAuditEvent = vi.fn(async () => undefined);
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    const server = {
+      id: 'mcp:caw-ats',
+      appId: 'app:test',
+      name: 'caw-ats',
+      status: 'active',
+    };
+    const mcpServerRepository = {
+      getServerByName: vi.fn(async () => server),
+      listAgentBindings: vi.fn(async () => [
+        {
+          id: 'agent-mcp-binding:agent:test:mcp:caw-ats',
+          appId: 'app:test',
+          agentId: 'agent:test',
+          serverId: 'mcp:caw-ats',
+          status: 'disabled',
+          required: false,
+          permissionPolicyIds: [],
+          createdAt: '2026-05-15T11:00:00.000Z',
+          updatedAt: '2026-05-15T11:00:00.000Z',
+        },
+      ]),
+      saveAgentBinding,
+      appendAuditEvent,
+    } as unknown as McpServerRepository;
+
+    const persisted = await service.applyPersistentToolRuleGrant({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      sourceAgentFolder: 'main_agent',
+      requestId: 'permission_mcp',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:mcp.caw-ats.access' }],
+        },
+      ],
+      toolRepository: {
+        getTool: vi.fn(async () => null),
+        listTools: vi.fn(async () => []),
+        saveTool,
+        saveAgentToolBinding: vi.fn(async () => undefined),
+        disableAgentToolBinding: vi.fn(async () => null),
+        listAgentToolBindings: vi.fn(async () => []),
+        listAgentToolBindingsForAgents: vi.fn(),
+      },
+      mcpServerRepository,
+      mirrorAgentToolRulesToSettings,
+      semanticCapabilityDefinitions: {
+        'mcp.caw-ats.access': mcpCapability(),
+      },
+    });
+
+    expect(persisted).toEqual(['capability:mcp.caw-ats.access']);
+    expect(saveAgentBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: 'mcp:caw-ats',
+        status: 'active',
+        createdAt: '2026-05-15T11:00:00.000Z',
+      }),
+    );
+    expect(appendAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'bind',
+        reason: 'Activated by persistent MCP capability approval.',
+      }),
+    );
+    expect(saveAgentBinding.mock.invocationCallOrder[0]).toBeLessThan(
+      mirrorAgentToolRulesToSettings.mock.invocationCallOrder[0],
+    );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['capability:mcp.caw-ats.access'],
+      { appId: 'app:test' },
+    );
   });
 
   it('canonicalizes generated skill runtime RunCommand grants to trusted skill action capabilities', async () => {

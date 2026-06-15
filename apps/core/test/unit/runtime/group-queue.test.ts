@@ -394,7 +394,9 @@ describe('GroupQueue', () => {
     const processMessages = vi.fn(async () => true);
     queue.setProcessMessagesFn(processMessages);
 
+    expect(queue.isShuttingDown()).toBe(false);
     await queue.shutdown(0);
+    expect(queue.isShuttingDown()).toBe(true);
 
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(100);

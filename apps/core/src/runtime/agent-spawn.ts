@@ -174,6 +174,7 @@ export async function spawnAgent(
   const effectiveModelEntry = resolvedModel.value.modelEntry;
   const allowedToolValidationError = validateRunnerAllowedTools(
     input.toolPolicyRules ?? [],
+    input.runtimeAccess ?? [],
   );
   if (allowedToolValidationError) {
     return {
@@ -472,12 +473,9 @@ export async function spawnAgent(
       'extra',
     );
     if (runnerSandboxProviderId === 'sandbox_runtime') {
-      runnerTempDir = path.join(
-        hostRuntime.workspaceIpcDir,
-        'tmp',
-        processName,
-      );
-      fs.mkdirSync(runnerTempDir, { recursive: true, mode: 0o700 });
+      const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+      runnerTempDir = path.join('/tmp', `gantry-srt-${suffix}`);
+      fs.mkdirSync(runnerTempDir, { recursive: false, mode: 0o700 });
       const providerToolTempDirLeaf =
         preparedExecution.sandboxRuntime?.toolTempDirLeaf;
       if (providerToolTempDirLeaf) {

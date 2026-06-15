@@ -118,6 +118,7 @@ import {
   buildPermissionPromptContentBlocks,
   buildPermissionReceiptBlocks,
 } from '@core/channels/slack/permission-blocks.js';
+import { SLACK_PERMISSION_DECISION_ACTION_IDS } from '@core/channels/slack/permission-action-id.js';
 
 function createOpts(
   controlAllowlist = {
@@ -316,6 +317,87 @@ describe('Slack channel', () => {
         sender: 'U123',
         sender_name: 'Alice',
         content: 'hello',
+      }),
+    );
+  });
+
+  it('normalizes top-level Slack channel messages as their own thread root', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        external_message_id: '1710000000.000100',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: undefined,
+      }),
+    );
+  });
+
+  it('keeps Slack thread replies in the root thread without requiring a new root', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000001.000200',
+        thread_ts: '1710000000.000100',
+        user: 'U123',
+        text: 'continue without tag',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        external_message_id: '1710000001.000200',
+        thread_id: '1710000000.000100',
+        reply_to_message_id: '1710000000.000100',
+      }),
+    );
+  });
+
+  it('does not force top-level Slack DMs into threads', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'D123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'hello',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:D123',
+      expect.objectContaining({
+        external_message_id: '1710000000.000100',
+        thread_id: undefined,
       }),
     );
   });
@@ -976,9 +1058,20 @@ describe('Slack channel', () => {
       'Approval applies to the parent conversation.',
     );
     expect(postCall?.text).toContain('Command:\n```\ngit status --short\n```');
+    const actionsBlock = postCall?.blocks?.find(
+      (block: any) => block.type === 'actions',
+    ) as { elements?: Array<{ action_id?: string }> } | undefined;
+    const actionIds = (actionsBlock?.elements || []).map(
+      (element) => element.action_id,
+    );
+    expect(new Set(actionIds).size).toBe(actionIds.length);
+    expect(actionIds).toContain('gantry_perm_decision_allow_once');
 
+    for (const actionId of SLACK_PERMISSION_DECISION_ACTION_IDS) {
+      expect(appRef.current.actionHandlers.has(actionId)).toBe(true);
+    }
     const actionHandler = appRef.current.actionHandlers.get(
-      'gantry_perm_decision',
+      'gantry_perm_decision_allow_once',
     );
     await actionHandler?.({
       ack: vi.fn().mockResolvedValue(undefined),

@@ -1,9 +1,11 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
+  McpServerRepository,
   PermissionRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type {
   PermissionDecision,
   PermissionDecisionId,
@@ -26,6 +28,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalUpdate,
 } from '../../domain/types.js';
+import { ensureMcpSourceBindingsForRules } from './mcp-capability-source-bindings.js';
 import {
   adminMcpToolIdForFullName,
   isAdminMcpToolFullName,
@@ -62,6 +65,7 @@ export interface PersistentPermissionGrantInput {
   sourceAgentFolder: string;
   updates: PermissionApprovalUpdate[];
   toolRepository: ToolCatalogRepository;
+  mcpServerRepository?: McpServerRepository;
   mirrorAgentToolRulesToSettings: MirrorAgentToolRulesToSettings;
   permissionRepository?: PermissionRepository;
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
@@ -147,6 +151,7 @@ export class PermissionManagementService {
 
     const timestamp = this.clock.now();
     const savedBindings: AgentToolBinding[] = [];
+    const activatedMcpBindings: AgentMcpServerBinding[] = [];
     const grantedToolIds: string[] = [];
     const previouslyActiveToolIds = new Set(
       (typeof input.toolRepository.listAgentToolBindings === 'function'
@@ -218,6 +223,16 @@ export class PermissionManagementService {
           savedBindings.push(binding);
         }
       }
+      activatedMcpBindings.push(
+        ...(await ensureMcpSourceBindingsForRules({
+          appId: input.appId,
+          agentId: input.agentId,
+          mcpServerRepository: input.mcpServerRepository,
+          rules: allowedRules,
+          semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+          timestamp,
+        })),
+      );
       await input.mirrorAgentToolRulesToSettings(
         input.sourceAgentFolder,
         allowedRules,
@@ -231,6 +246,16 @@ export class PermissionManagementService {
             agentId: binding.agentId,
             toolId: binding.toolId,
             updatedAt: this.clock.now(),
+          }),
+        ),
+      );
+      await Promise.allSettled(
+        activatedMcpBindings.map((binding) =>
+          input.mcpServerRepository?.disableAgentBinding({
+            appId: binding.appId,
+            agentId: binding.agentId,
+            serverId: binding.serverId,
+            updatedAt: this.clock.now() as never,
           }),
         ),
       );

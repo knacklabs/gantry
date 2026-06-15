@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createDefaultRuntimeSettings,
@@ -15,6 +15,7 @@ import {
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
+import { addActiveMcpSourcesToRuntimeSettings } from '@core/config/settings/restart-sync.js';
 import { runSettingsCommand } from '@core/cli/settings.js';
 
 function emptySources() {
@@ -22,6 +23,44 @@ function emptySources() {
 }
 
 describe('runtime settings', () => {
+  it('adds active MCP source refs before desired-state mirroring reconciles settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'ReAgent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [{ id: 'mcp.caw-ats.access', version: '1' }],
+    };
+
+    await addActiveMcpSourcesToRuntimeSettings({
+      settings,
+      agentFolder: 'main_agent',
+      appId: 'default' as never,
+      repositories: {
+        mcpServers: {
+          listAgentBindings: vi.fn(async () => [
+            {
+              appId: 'default',
+              agentId: 'agent:main_agent',
+              id: 'agent-mcp-binding:agent:main_agent:mcp:caw-ats',
+              serverId: 'mcp:caw-ats',
+              status: 'active',
+              required: false,
+              permissionPolicyIds: [],
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z',
+            },
+          ]),
+        } as never,
+      },
+    });
+
+    expect(settings.agents.main_agent.sources.mcpServers).toEqual([
+      { id: 'mcp:caw-ats' },
+    ]);
+  });
+
   it('defaults, renders, and parses agent.name', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.agent.name).toBe('Default Agent');

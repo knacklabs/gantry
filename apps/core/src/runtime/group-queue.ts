@@ -73,6 +73,10 @@ export class GroupQueue {
     return { ...this.policy };
   }
 
+  isShuttingDown(): boolean {
+    return this.shuttingDown;
+  }
+
   private getGroup(groupJid: string): GroupState {
     let state = this.groups.get(groupJid);
     if (!state) {

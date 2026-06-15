@@ -36,6 +36,10 @@ npm i -g @caw/gantry
 gantry
 ```
 
+The package is private. If a deployment host cannot access CAW's package
+registry, clone this repository on the host, run `npm ci && npm run build`, and
+use the built CLI entrypoint from that checkout instead of a global npm install.
+
 The first run is a guided CLI flow with a single path: runtime home, database, model access, channel connection, agent, conversation binding, then final doctor verification before the ready screen. Memory, the background service, and extra providers are optional and configured after the runtime is ready.
 
 ### NPM Install First-Run Flow
@@ -57,6 +61,28 @@ Then follow this order:
 8. On the ready screen, finish setup (the default exits cleanly) or choose `Start Gantry now` to begin listening immediately.
 
 Optional, post-ready: memory is on by default (`gantry memory ...` to adjust), install a background service with `gantry service install`, and add more providers with `gantry provider connect`.
+
+### Linux Host Prerequisites
+
+For Ubuntu EC2 and other Linux hosts, install the runtime prerequisites before
+building or starting Gantry:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl git libatomic1 bubblewrap socat ripgrep
+```
+
+Use Node `>=24 <26`. On small instances, add swap and build with a larger Node
+heap if TypeScript runs out of memory:
+
+```bash
+export NODE_OPTIONS=--max-old-space-size=1536
+npm run build
+```
+
+`sandbox_runtime` requires `bubblewrap`, `socat`, and `ripgrep`; `gantry doctor`
+fails closed when they are missing. `libatomic1` is required by newer Node
+Linux binaries on some minimal images.
 
 ### CLI Commands
 
@@ -204,23 +230,23 @@ reviewed Gantry MCP settings tools. Agents do not mutate it by themselves; they
 can request reviewed changes, and Gantry writes the file only after the
 appropriate user/admin approval.
 
-| Setting area                                   | Who changes it                              | Purpose                                                                                                                                                           |
-| ---------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defaults`                                     | User/admin                                  | Global agent name, default model, and job model defaults.                                                                                                         |
-| `providers`                                    | Setup or user/admin                         | Enable channel providers and point them at runtime secret env refs.                                                                                               |
-| `provider_connections`                         | Setup or advanced user/admin                | Explicit workspace/bot/tenant/provider connection records when compact provider settings are not enough.                                                          |
-| `conversations`                                | Setup or user/admin                         | Conversation ids, display names, sender policy, approvers, bound agent, trigger, and per-conversation model override.                                             |
-| `bindings`                                     | Advanced user/admin                         | Explicit route bindings when one compact `conversations.<id>.agent` field is not expressive enough.                                                               |
-| `agents.<id>.name`, `persona`, `model`, `jobs` | User/admin                                  | Agent identity and default model behavior.                                                                                                                        |
-| `agents.<id>.access.sources`                   | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                   |
+| Setting area                                   | Who changes it                              | Purpose                                                                                                                                                                         |
+| ---------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaults`                                     | User/admin                                  | Global agent name, default model, and job model defaults.                                                                                                                       |
+| `providers`                                    | Setup or user/admin                         | Enable channel providers and point them at runtime secret env refs.                                                                                                             |
+| `provider_connections`                         | Setup or advanced user/admin                | Explicit workspace/bot/tenant/provider connection records when compact provider settings are not enough.                                                                        |
+| `conversations`                                | Setup or user/admin                         | Conversation ids, display names, sender policy, approvers, bound agent, trigger, and per-conversation model override.                                                           |
+| `bindings`                                     | Advanced user/admin                         | Explicit route bindings when one compact `conversations.<id>.agent` field is not expressive enough.                                                                             |
+| `agents.<id>.name`, `persona`, `model`, `jobs` | User/admin                                  | Agent identity and default model behavior.                                                                                                                                      |
+| `agents.<id>.access.sources`                   | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                                 |
 | `agents.<id>.access.selections`                | User/admin or approved access flow          | Durable allowed capability ids and versions. Agents request reviewed capability ids with `request_access target.kind=capability`; scoped `RunCommand` is the only raw fallback. |
-| `memory`                                       | User/admin                                  | Memory, embeddings, dreaming, LLM, and maintenance settings.                                                                                                      |
-| `permissions`                                  | User/admin                                  | YOLO-mode denylist additions and egress hostname denylist.                                                                                                        |
-| `browser`                                      | User/admin                                  | Browser usage policy and per-site limits.                                                                                                                         |
-| `runtime.queue`                                | User/admin                                  | Runtime concurrency and retry tuning. Restart after changing it.                                                                                                  |
-| `storage`                                      | Advanced user/admin                         | Postgres URL env key and schema. Secrets stay in `.env` or credential stores.                                                                                     |
-| `model_access`                                 | Advanced user/admin                         | Gantry model gateway enablement and loopback bind host. Model provider credentials stay in Credential Center.                                                     |
-| `desired_state`                                | Admin/export flow                           | Reconcile/export mode switch for settings-owned desired state.                                                                                                    |
+| `memory`                                       | User/admin                                  | Memory, embeddings, dreaming, LLM, and maintenance settings.                                                                                                                    |
+| `permissions`                                  | User/admin                                  | YOLO-mode denylist additions and egress hostname denylist.                                                                                                                      |
+| `browser`                                      | User/admin                                  | Browser usage policy and per-site limits.                                                                                                                                       |
+| `runtime.queue`                                | User/admin                                  | Runtime concurrency and retry tuning. Restart after changing it.                                                                                                                |
+| `storage`                                      | Advanced user/admin                         | Postgres URL env key and schema. Secrets stay in `.env` or credential stores.                                                                                                   |
+| `model_access`                                 | Advanced user/admin                         | Gantry model gateway enablement and loopback bind host. Model provider credentials stay in Credential Center.                                                                   |
+| `desired_state`                                | Admin/export flow                           | Reconcile/export mode switch for settings-owned desired state.                                                                                                                  |
 
 Optional runtime queue tuning:
 
@@ -299,7 +325,52 @@ The Compose file hardcodes the local ports, schema names, and non-secret role na
 
 Gantry intentionally does not expose a destructive database-reset command in the runtime CLI. If you need to start over during development, stop Gantry, reset your local Postgres outside the agent-facing CLI, then run `gantry provider connect telegram` or `gantry provider connect slack` to re-register chats.
 
-For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste the Gantry-role URL with `sslmode=require` during setup.
+For hosted Postgres, use Neon, Supabase, or another provider that supports
+`vector` and `pg_trgm`, then paste the Gantry-role URL with `sslmode=require`
+during setup.
+
+Hosted Postgres checklist:
+
+1. Use a database endpoint reachable from the host. On IPv4-only EC2 hosts,
+   prefer your provider's IPv4-capable pooler endpoint if the direct database
+   hostname resolves only to IPv6.
+2. Enable required extensions in the target database:
+
+   ```sql
+   create extension if not exists vector;
+   create extension if not exists pg_trgm;
+   create extension if not exists pgcrypto with schema public;
+   ```
+
+3. Create a runtime role and schema owned by that role. Keep Gantry runtime
+   tables and pg-boss internals in schemas that the runtime role can create,
+   read, write, and migrate:
+
+   ```sql
+   create role gantry_app login password '<strong-password>';
+   create schema if not exists gantry authorization gantry_app;
+   create schema if not exists pgboss authorization gantry_app;
+   grant connect on database postgres to gantry_app;
+   grant usage, create on schema gantry to gantry_app;
+   grant usage, create on schema pgboss to gantry_app;
+   ```
+
+4. Use the runtime role URL with an explicit schema and SSL mode:
+
+   ```env
+   GANTRY_DATABASE_URL=postgresql://gantry_app:<password>@<host>:5432/postgres?schema=gantry&sslmode=require
+   ```
+
+5. If Node reports `self-signed certificate in certificate chain`, install the
+   provider CA bundle on the host and point Gantry at it:
+
+   ```env
+   NODE_EXTRA_CA_CERTS=/home/ubuntu/gantry/certs/provider-root-ca.pem
+   ```
+
+If the deployment contains another Gantry-adjacent service that also uses the
+same hosted Postgres database, give that service a separate database role and
+schema. Do not reuse the Gantry runtime role for independent services.
 
 ### Provider And Conversation Setup
 
@@ -317,6 +388,8 @@ Notes:
 - For Telegram groups, add the bot to the group and send a message before discovery; if Gantry must see every group message, make the bot an admin or disable Group Privacy in BotFather with `/setprivacy`.
 - `gantry provider connect telegram` auto-discovers recent chats and can register one without manual chat ID copy/paste. The human sender from the selected discovery message is added as a conversation approver, so `/new`, `/model`, `/dream`, and `/memory-status` work immediately.
 - Slack uses Socket Mode with `SLACK_BOT_TOKEN` (`xoxb-...`) and `SLACK_APP_TOKEN` (`xapp-...`); create a Slack app, add a bot user/scopes, enable Socket Mode, generate the app-level token, install/reinstall the app, then invite it to the target channel or DM it once.
+- Slack bot scopes for normal channel and DM operation are: `chat:write`, `app_mentions:read`, `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `mpim:read`, and `mpim:history`. Reinstall the Slack app after any scope change.
+- For Slack DMs, open the Slack app configuration, go to App Home, enable the Messages Tab, and enable the setting that lets users send messages from the messages tab. Without this, Slack can show "Sending messages to this app has been turned off" even when Socket Mode is connected.
 - `gantry provider connect slack` auto-discovers accessible conversations and can register one directly.
 - Slack tool permission approvals are deny-by-default until approvers are listed on the target conversation in `settings.yaml`. Guided setup asks for comma-separated Slack member IDs like `U0123456789`; these users must be members of that conversation to approve tool permissions and answer interactive prompts.
 - Slack UX uses native Slack surfaces (threads, streaming updates, actions).

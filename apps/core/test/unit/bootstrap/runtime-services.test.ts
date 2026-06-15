@@ -355,7 +355,60 @@ describe('startRuntimeServices', () => {
     expect(startMessagePollingLoop).toHaveBeenCalledOnce();
   });
 
-  it('graceful drain stops the waiting-status monitor and resets its metrics accessor', async () => {
+  it('does not start the waiting-status monitor in workstation mode', async () => {
+    vi.useFakeTimers();
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const liveTurns = new FakeLiveTurns();
+    const coordination = Object.assign(new FakeCoordination(), {
+      registerWorker: vi.fn(async () => {}),
+      heartbeatWorker: vi.fn(async () => true),
+    });
+    liveTurns.coordination = coordination;
+    const getOldestWaitingLiveAdmission = vi.fn(async () => ({
+      conversationJid: 'tg:primary',
+      threadId: null,
+      waitingSince: '2026-06-11T00:00:00.000Z',
+      ageSeconds: 42,
+    }));
+    (liveTurns as any).getOldestWaitingLiveAdmission =
+      getOldestWaitingLiveAdmission;
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getWorkerCoordinationRepository: vi.fn(() => coordination as any),
+        getLiveTurnRepository: vi.fn(() => liveTurns as any),
+        getDeploymentMode: vi.fn(() => 'workstation' as const),
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(() => ({
+          stop: vi.fn(),
+          done: new Promise<void>(() => {}),
+        })) as any,
+        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(getOldestWaitingLiveAdmission).not.toHaveBeenCalled();
+      expect(getOldestWaitingLiveAdmissionSeconds()).toBe(0);
+    } finally {
+      stopLiveTurnRecoveryLoop();
+      await shutdownLiveTurnAuthority();
+      vi.useRealTimers();
+    }
+  });
+
+  it('graceful drain stops the fleet waiting-status monitor and resets its metrics accessor', async () => {
     vi.useFakeTimers();
     const app = makeApp();
     const channelWiring = makeChannelWiring();
@@ -391,6 +444,7 @@ describe('startRuntimeServices', () => {
         getToolRepository: vi.fn(() => ({}) as any),
         getWorkerCoordinationRepository: vi.fn(() => coordination as any),
         getLiveTurnRepository: vi.fn(() => liveTurns as any),
+        getDeploymentMode: vi.fn(() => 'fleet' as const),
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn(() => ({
           stop: vi.fn(),

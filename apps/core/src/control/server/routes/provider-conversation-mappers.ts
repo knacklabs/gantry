@@ -63,7 +63,7 @@ function memorySubjectToContract(subject: MemorySubject | undefined) {
 export function memorySubjectFromContract(
   appId: AppId,
   raw: { type: string; id: string } | undefined,
-  conversationId?: ConversationId,
+  _conversationId?: ConversationId,
 ): MemorySubject | undefined {
   if (!raw) return undefined;
   switch (raw.type) {
