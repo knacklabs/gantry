@@ -8,6 +8,7 @@ import {
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
 import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
+import type { MessageTraceRow } from '@core/adapters/storage/postgres/repositories/message-trace-repository.postgres.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -931,6 +932,67 @@ describe('createGroupProcessor', () => {
       } finally {
         consoleError.mockRestore();
       }
+    });
+  });
+
+  describe('reply trace warm-bound first replies', () => {
+    it('routes a warm-bound first reply through dispatchedAt instead of startup', async () => {
+      const base = Date.now();
+      const saveTrace = vi
+        .fn<(row: MessageTraceRow) => Promise<void>>()
+        .mockResolvedValue(undefined);
+      const agentOutput = {
+        status: 'success',
+        result: 'warm reply',
+        warmBound: true,
+        runnerStartup: {
+          queryDispatchedAt: base - 2_500,
+          firstSdkMessageAt: base - 2_000,
+        },
+        dispatchedAt: base + 300,
+        turns: [
+          {
+            ms: 2_000,
+            startedAt: base + 2_500,
+            detail: {},
+          },
+        ],
+      } satisfies AgentOutput & { warmBound: true };
+      const { deps } = setupHappyPath({
+        group: makeGroup({ requiresTrigger: false }),
+        agentOutput,
+      });
+      deps.replyTrace = {
+        drain: vi.fn(() => []),
+        saveTrace,
+        payloadsEnabled: vi.fn(() => false),
+      };
+      const opsRepository = deps.opsRepository as NonNullable<
+        GroupProcessingDeps['opsRepository']
+      >;
+      opsRepository.getLastBotMessageCursor = vi.fn().mockResolvedValue({
+        id: 'bot-out-1',
+        timestamp: '1700000002',
+        sendStartedAt: new Date(base + 4_990).toISOString(),
+        sendCompletedAt: new Date(base + 5_000).toISOString(),
+      });
+      opsRepository.getLastInboundIngressAtOrBefore = vi
+        .fn()
+        .mockResolvedValue(new Date(base).toISOString());
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+      expect(saveTrace).toHaveBeenCalledOnce();
+      const traceRow = saveTrace.mock.calls[0]?.[0];
+      expect(
+        traceRow?.timingsJson.sections.map((section) => section.kind),
+      ).toEqual(['queue', 'model_wait', 'llm', 'gap', 'send']);
+      expect(
+        traceRow?.timingsJson.sections.some(
+          (section) => section.kind === 'startup',
+        ),
+      ).toBe(false);
     });
   });
 

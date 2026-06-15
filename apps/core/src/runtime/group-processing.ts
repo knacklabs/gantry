@@ -344,6 +344,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     // the post-run block is a backstop for replies whose marker never fired.
     let traceTurns: NonNullable<AgentOutput['turns']> = [];
     let traceStartup: AgentOutput['runnerStartup'];
+    let traceWarmBound = false;
     // Warm continuation: dispatch instant of the reply being generated, taken
     // from the runner envelope (result.dispatchedAt = when the continuation was
     // delivered to the model). Splits a warm reply's leading span into real
@@ -413,7 +414,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               },
             }
           : {}),
-        ...(isFirstReply && traceStartup
+        ...(isFirstReply && !traceWarmBound && traceStartup
           ? {
               startup: {
                 startedAt: agentRunStartedAt,
@@ -421,7 +422,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
               },
             }
           : {}),
-        ...(!isFirstReply && traceDispatchedAt !== undefined
+        ...((!isFirstReply || traceWarmBound) && traceDispatchedAt !== undefined
           ? { dispatchedAt: traceDispatchedAt }
           : {}),
       });
@@ -784,6 +785,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         traceTurns = result.turns;
       }
       if (result.runnerStartup) traceStartup = result.runnerStartup;
+      if (result.warmBound) traceWarmBound = true;
       if (result.dispatchedAt !== undefined)
         traceDispatchedAt = result.dispatchedAt;
       if (awaitingResponseReceipt && !result.interactionBoundary) {
