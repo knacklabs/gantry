@@ -216,4 +216,64 @@ describe('app memory session hydration scope', () => {
       }),
     ]);
   });
+
+  it('uses lexical-only bounded query recall for first-visible hydration', async () => {
+    const queryHit = {
+      id: 'memory-query-hit',
+      appId: 'default',
+      agentId: 'agent:a',
+      subjectType: 'channel',
+      subjectId: 'conversation:sl:C123',
+      channelId: 'conversation:sl:C123',
+      kind: 'decision',
+      key: 'decision:query-hit',
+      value: 'Query-relevant memory is still available before first output.',
+    } satisfies FakeMemoryItem;
+    const listForHydrationReadOnly = vi.fn(async () => [queryHit]);
+    const searchForHydrationReadOnly = vi.fn(async () => [
+      {
+        item: queryHit,
+        score: 0.8,
+        lexicalScore: 0.8,
+        vectorScore: 0,
+        reasons: ['lexical'],
+      },
+    ]);
+    vi.spyOn(AppMemoryService, 'getInstance').mockReturnValue({
+      listForHydrationReadOnly,
+      searchForHydrationReadOnly,
+    } as never);
+
+    const items = await loadSessionAppMemoryItems({
+      session: {
+        id: 'session:first-visible' as never,
+        appId: 'default' as never,
+        agentId: 'agent:a' as never,
+        conversationId: 'conversation:sl:C123' as never,
+        userId: 'agent:a' as never,
+        status: 'active',
+        createdAt: '2026-01-01T00:00:00.000Z' as never,
+        updatedAt: '2026-01-01T00:00:00.000Z' as never,
+      },
+      conversationKind: 'channel',
+      hydrationMode: 'first_visible',
+      limit: 2,
+      query: 'release decision',
+    });
+
+    expect(searchForHydrationReadOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'release decision',
+        channelId: 'conversation:sl:C123',
+      }),
+      { statementTimeoutMs: 250, allowEmbeddings: false },
+    );
+    expect(listForHydrationReadOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelId: 'conversation:sl:C123',
+      }),
+      { statementTimeoutMs: 250 },
+    );
+    expect(items.map((item) => item.id)).toEqual(['memory-query-hit']);
+  });
 });

@@ -392,6 +392,10 @@ describe('Claude Agent SDK boundary integration', () => {
             result: string | null;
             newSessionId?: string;
             sessionInit?: boolean;
+            runtimeEvents?: Array<{
+              eventType?: string;
+              payload?: Record<string, unknown>;
+            }>;
           },
       );
     logSpy.mockRestore();
@@ -399,6 +403,16 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(outputs[0]).toMatchObject({
       result: null,
       newSessionId: 'claude-session-boundary',
+      runtimeEvents: [
+        expect.objectContaining({
+          eventType: 'run.startup_diagnostic',
+          payload: expect.objectContaining({
+            diagnostic: 'tool_search',
+            enableToolSearch: 'auto:10',
+            reason: 'official_auto_threshold',
+          }),
+        }),
+      ],
     });
     expect(outputs[0].sessionInit).toBeUndefined();
     const firstVisibleIdx = outputs.findIndex(
@@ -436,10 +450,14 @@ describe('Claude Agent SDK boundary integration', () => {
       model: 'sonnet',
       cwd: path.join(env.root, 'workspace', 'group'),
       permissionMode: 'default',
-      settingSources: ['user'],
+      settingSources: [],
+      strictMcpConfig: true,
       skills: ['gantry-admin', 'gantry-browser', 'linkedin-posting'],
       includePartialMessages: true,
     });
+    expect(call?.options.env.ENABLE_TOOL_SEARCH).toBe('auto:10');
+    expect(call?.options.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+    expect(call?.options.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     expect(call?.options.allowedTools).toEqual(
       expect.arrayContaining([
         'Read',
@@ -453,6 +471,7 @@ describe('Claude Agent SDK boundary integration', () => {
         'mcp__gantry__request_mcp_server',
         'mcp__gantry__request_access',
         'mcp__gantry__mcp_list_tools',
+        'mcp__gantry__mcp_describe_tool',
         'mcp__gantry__mcp_call_tool',
         'Agent',
         'Skill',
@@ -551,6 +570,9 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(call?.options.env).toEqual({
       CLAUDE_CONFIG_DIR: path.join(env.root, 'claude-config'),
       ...SDK_NATIVE_SKILL_DISABLE_ENV,
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+      ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+      ENABLE_TOOL_SEARCH: 'auto:10',
     });
     expect(call?.options.env).not.toHaveProperty(
       'GANTRY_MEMORY_IPC_ACTIONS_JSON',

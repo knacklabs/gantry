@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SANDBOX_RUNTIME_MODEL_GATEWAY_HOST,
   loopbackAuthorityFromUrl,
+  pickPreparedExecutionEnv,
   projectSandboxRuntimeModelGatewayEnv,
   resolveRunnerMcpProjection,
 } from '@core/runtime/agent-spawn-runtime-policy.js';
@@ -99,6 +100,24 @@ describe('agent spawn runtime policy', () => {
         connectHost: '127.0.0.1',
       },
     ]);
+  });
+
+  it('passes non-secret DeepAgents prepared env to the runner', () => {
+    expect(
+      pickPreparedExecutionEnv({
+        GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
+        GANTRY_DEEPAGENTS_MODEL_PROVIDER: 'openai',
+        GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL: 'automatic',
+        GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS: '400000',
+        GANTRY_DEEPAGENTS_CHECKPOINT_DATABASE_URL:
+          'postgres://secret@localhost/db',
+      }),
+    ).toEqual({
+      GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
+      GANTRY_DEEPAGENTS_MODEL_PROVIDER: 'openai',
+      GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL: 'automatic',
+      GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS: '400000',
+    });
   });
 
   it('does not project reviewed third-party MCP sources for DeepAgents', () => {

@@ -292,6 +292,8 @@ import { getGantryHome } from './gantry-home.js';
 import { ensureRuntimeSettings } from './settings/runtime-settings.js';
 
 export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Andy';
+// Fallback route-wide polling interval for runtimes without durable live
+// admission claims. Normal live admission uses queue-scoped durable work items.
 export const POLL_INTERVAL = 2000;
 
 // Paths are absolute and resolve from the configured runtime home.
@@ -865,7 +867,8 @@ When Gantry starts, it:
    - Starts the IPC watcher for runtime messages
    - Sets up the per-group queue with `processGroupMessages`
    - Recovers any unprocessed messages from before shutdown
-   - Starts the message polling loop
+   - Starts durable live-admission work claims when available; otherwise starts
+     the fallback message polling loop
 
 ### Service Lifecycle
 

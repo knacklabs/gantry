@@ -30,6 +30,7 @@ import {
   stderrLooksLikeSandboxBlock,
 } from './agent-spawn-log-sanitization.js';
 import { createRunnerStartupTiming } from './agent-spawn-startup-timing.js';
+import { publishRunnerProcessStartupDiagnostic } from './agent-spawn-process-diagnostic.js';
 const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
 
@@ -59,13 +60,8 @@ function parseBufferedRunnerOutput(stdout: string): AgentOutput {
 }
 
 function runnerContextPayload(input: RunnerProcessSpec['input']) {
-  return {
-    appId: input.appId,
-    agentId: input.agentId,
-    sessionId: input.sessionId,
-    jobId: input.jobId,
-    runId: input.runId,
-  };
+  const { appId, agentId, sessionId, jobId, runId } = input;
+  return { appId, agentId, sessionId, jobId, runId };
 }
 
 export function executeRunnerProcess(
@@ -322,6 +318,15 @@ export function executeRunnerProcess(
     runner.on('close', (code, signal) => {
       clearTimeout(timeout);
       const duration = currentTimeMs() - startTime;
+      publishRunnerProcessStartupDiagnostic({
+        spec,
+        code,
+        signal,
+        hadStreamingOutput,
+        timedOut,
+        timeoutReason,
+        startupTiming: startupTiming.payload(),
+      });
 
       if (timedOut) {
         const ts = nowIso().replace(/[:.]/g, '-');

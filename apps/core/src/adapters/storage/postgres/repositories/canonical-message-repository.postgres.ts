@@ -1,9 +1,17 @@
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
+import type { LiveAdmissionWorkItemEnqueueResult } from '../../../../domain/ports/live-turns.js';
+import { agentIdForFolder as normalizeAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import { normalizeProviderId } from '../../../../channels/provider-registry.js';
 import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '../../../../shared/message-cursor.js';
+import { makeThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
+import { enqueueLiveAdmissionWorkItem } from './live-admission-work-item-repository.postgres.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -31,8 +39,36 @@ export interface CanonicalOpsMessageRow {
   payload_json: string | null;
 }
 
-function messageIdFor(chatJid: string, id: string): string {
+export interface MessageLiveAdmissionInput {
+  appId: string;
+  agentId?: string | null;
+  agentSessionId?: string | null;
+  triggerDecision?: Record<string, unknown>;
+  now?: string;
+}
+
+export function messageIdFor(chatJid: string, id: string): string {
   return `message:${chatJid}:${id}`;
+}
+
+function liveAdmissionWorkItemId(appId: string, canonicalMessageId: string) {
+  return `live-admission:${appId}:${canonicalMessageId}`;
+}
+
+function liveAdmissionIdempotencyKey(
+  msg: NewMessage,
+  appId: string,
+  providerId: string,
+): string {
+  const providerMessageId = msg.external_message_id?.trim() || msg.id;
+  return [
+    'live-admission',
+    appId,
+    providerId,
+    msg.chat_jid,
+    msg.thread_id?.trim() || 'main',
+    providerMessageId,
+  ].join(':');
 }
 
 export function externalRefForMessage(
@@ -69,8 +105,11 @@ export class PostgresCanonicalMessageRepository {
     this.graph = new PostgresCanonicalGraphRepository(db);
   }
 
-  async saveMessage(msg: NewMessage): Promise<void> {
-    await this.db.transaction(async (tx) => {
+  async saveMessage(
+    msg: NewMessage,
+    options: { liveAdmission?: MessageLiveAdmissionInput } = {},
+  ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined> {
+    return this.db.transaction(async (tx) => {
       const providerId =
         normalizeProviderId(msg.provider ?? providerIdForJid(msg.chat_jid)) ||
         'app';
@@ -189,6 +228,32 @@ export class PostgresCanonicalMessageRepository {
           })),
         );
       }
+      if (direction !== 'inbound' || !options.liveAdmission) {
+        return undefined;
+      }
+      const admission = options.liveAdmission;
+      return enqueueLiveAdmissionWorkItem(tx, {
+        id: liveAdmissionWorkItemId(admission.appId, canonicalMessageId),
+        appId: admission.appId,
+        agentId: admission.agentId
+          ? normalizeAgentIdForFolder(admission.agentId)
+          : null,
+        agentSessionId: admission.agentSessionId,
+        conversationId: msg.chat_jid,
+        threadId: msg.thread_id ?? null,
+        queueJid: makeThreadQueueKey(msg.chat_jid, msg.thread_id),
+        messageId: canonicalMessageId,
+        messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(msg)),
+        senderUserId: msg.sender,
+        senderDisplayName: msg.sender_name,
+        idempotencyKey: liveAdmissionIdempotencyKey(
+          msg,
+          admission.appId,
+          providerId,
+        ),
+        triggerDecision: admission.triggerDecision,
+        now: admission.now ?? msg.timestamp,
+      });
     });
   }
 

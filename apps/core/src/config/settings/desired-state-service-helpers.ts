@@ -24,6 +24,10 @@ import type {
   RuntimeConfiguredConversation,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+export {
+  agentIdForFolder,
+  folderForAgentId,
+} from '../../domain/agent/agent-folder-id.js';
 
 export function configuredRoutingBindingsByAgent(
   settings: RuntimeSettings,
@@ -177,15 +181,6 @@ export function classifySettingsChanges(
     liveApplied: [...new Set(liveApplied)].sort(),
     restartRequired: [...new Set(restartRequired)].sort(),
   };
-}
-
-export function agentIdForFolder(folder: string): AgentId {
-  return (folder.startsWith('agent:') ? folder : `agent:${folder}`) as AgentId;
-}
-
-export function folderForAgentId(agentId: AgentId): string | null {
-  const raw = String(agentId);
-  return raw.startsWith('agent:') ? raw.slice('agent:'.length) : null;
 }
 
 export function hasAnyCapability(agent: RuntimeConfiguredAgent) {

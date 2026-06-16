@@ -11,6 +11,7 @@ import {
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
 import { PROACTIVE_RECOMMENDATION_GUIDANCE } from '../../shared/capability-guidance.js';
+import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
@@ -29,9 +30,6 @@ const PERSONA_SOURCE = 'gantry://persona';
 const CAPABILITY_GUIDANCE_SOURCE = 'gantry://capability-guidance';
 const OPERATING_GUIDANCE_SOURCE = 'gantry://operating-guidance';
 const AGENT_INSTRUCTIONS_SOURCE = 'gantry://agent-instructions';
-const AGENT_FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-const RESERVED_AGENT_FOLDERS = new Set(['global', 'shared']);
-
 export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   Record<PromptSectionName, number>
 > = {
@@ -105,7 +103,7 @@ function personaPrompt(
         '- Help with coordination, runbook-style status, scheduling, messaging, and approved operational workflows.',
         '- Use generic Agent delegation for runbook checks, status summarization, incident context gathering, and blocker analysis.',
         '- If an approved operational source is already connected or capability_status shows it as ready, use the approved tools directly; do not tell the user approval is needed unless the tool response says access is missing or denied.',
-        '- When the user names an external operational source, inspect connected MCP sources with mcp_list_tools before saying the source is unavailable or asking for another access path.',
+        '- When the user names an external operational source, inspect connected MCP sources with mcp_list_tools and fetch one-tool details with mcp_describe_tool when schema is needed before saying the source is unavailable or asking for another access path.',
         '- When listing operational choices for a human, prefer concise channel-native bullets with display names only.',
         '- Do not show internal ids, codes, UUIDs, raw table-like fields, or tool payload fields unless the user explicitly asks for technical details or the identifier is the only human-usable label.',
         '- After creating or updating an external record, include the returned deep link when the tool provides one. If no deep link is available, include the best available listing or fallback link from the tool response.',
@@ -199,9 +197,9 @@ const OPERATING_GUIDANCE_HEAD = [
 
 const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
-  '- When capability_status shows an MCP source as ready, inspect it with mcp_list_tools and call approved actions with mcp_call_tool instead of requesting the same access again.',
+  '- When capability_status shows an MCP source as ready, inspect it with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, and call approved actions with mcp_call_tool instead of requesting the same access again.',
   '- If a ready MCP source has the needed action, use that source instead of requesting the same access again or using command/browser fallback.',
-  '- Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names; inspect connected sources with mcp_list_tools and call approved actions via mcp_call_tool.',
+  '- Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names; inspect connected sources with mcp_list_tools, fetch detail with mcp_describe_tool when needed, and call approved actions via mcp_call_tool.',
   '- Source setup, MCP tool lists, CLI help, skill text, and adapter discovery are inventory only. Durable authority is the reviewed action capability granted to this agent.',
   '- Use request_access target.kind=capability for durable reviewed access.',
   '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
@@ -311,16 +309,6 @@ function renderSection(section: PromptSection): string {
     section.content,
     `[[/${section.name}]]`,
   ].join('\n');
-}
-
-function isValidPromptAgentFolder(agentFolder: string): boolean {
-  if (!agentFolder) return false;
-  if (agentFolder !== agentFolder.trim()) return false;
-  if (!AGENT_FOLDER_PATTERN.test(agentFolder)) return false;
-  if (agentFolder.includes('/') || agentFolder.includes('\\')) return false;
-  if (agentFolder.includes('..')) return false;
-  if (RESERVED_AGENT_FOLDERS.has(agentFolder.toLowerCase())) return false;
-  return true;
 }
 
 export class PromptProfileService {

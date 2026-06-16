@@ -1,7 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 
-import { DeepAgentsLangChainExecutionAdapter } from '@core/adapters/llm/deepagents-langchain/execution-adapter.js';
+const checkpointSetupMock = vi.hoisted(() => ({
+  ensureDeepAgentsCheckpointSchema: vi.fn(async () => undefined),
+}));
+
+vi.mock(
+  '@core/adapters/llm/deepagents-langchain/checkpoint-setup.js',
+  () => checkpointSetupMock,
+);
+
+import {
+  deepAgentsCheckpointSchema,
+  DeepAgentsLangChainExecutionAdapter,
+} from '@core/adapters/llm/deepagents-langchain/execution-adapter.js';
 import type { AgentExecutionAdapterPrepareInput } from '@core/application/agent-execution/agent-execution-adapter.js';
 import {
   type ModelCatalogEntry,
@@ -24,6 +36,13 @@ const openAiBaseUrlKey = () => 'OPENAI' + '_BASE_URL';
 const openAiApiKeyKey = () => 'OPENAI' + '_API_KEY';
 const claudeCodeOAuthTokenKey = () =>
   ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
+const runtimePostgresUrl = 'postgres://gantry_app:secret@localhost:5432/gantry';
+
+beforeEach(() => {
+  checkpointSetupMock.ensureDeepAgentsCheckpointSchema.mockClear();
+  vi.mocked(fs.existsSync).mockReset();
+  vi.mocked(fs.existsSync).mockReturnValue(true);
+});
 
 function catalogEntry(alias: string): ModelCatalogEntry {
   const resolved = resolveModelSelection(alias);
@@ -61,6 +80,11 @@ function prepareInput(
       brokerProfile: 'gantry',
       brokerApplied: true,
       brokerAuthMode: 'api_key',
+    },
+    runtimeStorage: {
+      postgresUrl: runtimePostgresUrl,
+      postgresUrlEnv: 'GANTRY_DATABASE_URL',
+      postgresSchema: 'gantry',
     },
     browserIpcEnabled: false,
     packageRootFromRunner: () => '/opt/gantry',
@@ -100,9 +124,20 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL).toBe(
       'automatic',
     );
-    expect(prepared.env.GANTRY_DEEPAGENTS_SESSIONS_DIR).toBe(
-      '/tmp/gantry/agents/test-agent/.llm-runtime/deepagents/sessions',
-    );
+    expect(prepared.env.GANTRY_DEEPAGENTS_SESSIONS_DIR).toBeUndefined();
+    expect(prepared.runnerInputPatch?.deepAgentCheckpointer).toEqual({
+      databaseUrl: runtimePostgresUrl,
+      schema: 'gantry_deepagents',
+    });
+    expect(
+      checkpointSetupMock.ensureDeepAgentsCheckpointSchema,
+    ).toHaveBeenCalledOnce();
+    expect(
+      checkpointSetupMock.ensureDeepAgentsCheckpointSchema,
+    ).toHaveBeenCalledWith({
+      databaseUrl: runtimePostgresUrl,
+      schema: 'gantry_deepagents',
+    });
     // gpt-5.5 has a real library profile, so the catalog declares no curated
     // window and the host must NOT project the max-input-tokens env.
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBeUndefined();
@@ -118,6 +153,53 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     );
     // gpt-5.4-mini has no library profile -> curated 400_000 window projected.
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe('400000');
+  });
+
+  it('omits the Postgres checkpointer for scheduled jobs', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+    const prepared = await adapter.prepare(
+      prepareInput({
+        input: {
+          prompt: 'run job',
+          chatJid: 'job:1',
+          isScheduledJob: true,
+        },
+      }),
+    );
+
+    expect(prepared.runnerInputPatch?.deepAgentCheckpointer).toBeUndefined();
+    expect(
+      checkpointSetupMock.ensureDeepAgentsCheckpointSchema,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('fails live DeepAgents preparation when runtime Postgres is not configured', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          runtimeStorage: {
+            postgresUrl: null,
+            postgresUrlEnv: 'GANTRY_DATABASE_URL',
+            postgresSchema: 'gantry',
+          },
+        }),
+      ),
+    ).rejects.toThrow(
+      'DeepAgents live sessions require runtime Postgres storage',
+    );
+    expect(
+      checkpointSetupMock.ensureDeepAgentsCheckpointSchema,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('derives an isolated checkpoint schema from the configured storage schema', () => {
+    expect(deepAgentsCheckpointSchema('gantry')).toBe('gantry_deepagents');
+    expect(deepAgentsCheckpointSchema('a'.repeat(63))).toMatch(
+      /^a+_deepagents$/,
+    );
+    expect(deepAgentsCheckpointSchema('a'.repeat(63))).toHaveLength(63);
   });
 
   it('projects the automatic cache-control mode for the OpenRouter (Kimi) lane', async () => {

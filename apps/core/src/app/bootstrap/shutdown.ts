@@ -26,7 +26,7 @@ export interface InstallShutdownHandlersOptions {
   closeLiveTurnRecovery?: () => Promise<void>;
   /** Stop admitting NEW live turns (active turns keep running). */
   closeLiveTurnAdmission?: () => void;
-  /** Stop the live message polling loop so no new run rows are created. */
+  /** Stop the live admission loop so no new run rows are created. */
   closeMessagePolling?: () => void;
   closeLiveTurnAuthority?: () => Promise<void>;
   closeSettingsWatcher?: () => void;

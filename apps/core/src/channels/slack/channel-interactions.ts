@@ -19,68 +19,27 @@ import {
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
-import { DEFAULT_TRIGGER, getTriggerPattern } from '../../config/index.js';
 import { buildPermissionReceiptBlocks } from './permission-blocks.js';
+import {
+  buildTriggerPattern,
+  triggerForRoute,
+} from '../../shared/trigger-pattern.js';
 import {
   SLACK_NATIVE_APPEND_MAX_LENGTH,
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
 import { nowIso } from '../../shared/time/datetime.js';
-const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
-const SLACK_RETRY_DELAY_MAX_MS = 5000;
+import {
+  clampSlackRetryDelayMs,
+  slackRateLimitRetryDelayMs,
+} from './channel-retry-delay.js';
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
   'scheduler_pause_job',
   'scheduler_open',
 ]);
-function clampSlackRetryDelayMs(delayMs: number): number {
-  if (!Number.isFinite(delayMs) || delayMs <= 0) {
-    return SLACK_RETRY_DELAY_FALLBACK_MS;
-  }
-  return Math.min(SLACK_RETRY_DELAY_MAX_MS, Math.max(1, Math.round(delayMs)));
-}
 export abstract class SlackChannelInteractions extends SlackChannelState {
-  private rateLimitRetryDelayMs(input: unknown): number | null {
-    const candidate = input as {
-      retry_after?: unknown;
-      retryAfter?: unknown;
-      data?: { retry_after?: unknown; retryAfter?: unknown };
-      headers?: { retry_after?: unknown; retryAfter?: unknown };
-      status?: unknown;
-      statusCode?: unknown;
-      code?: unknown;
-      error?: unknown;
-    };
-    const values = [
-      candidate.retry_after,
-      candidate.retryAfter,
-      candidate.data?.retry_after,
-      candidate.data?.retryAfter,
-      candidate.headers?.retry_after,
-      candidate.headers?.retryAfter,
-    ];
-    for (const value of values) {
-      if (typeof value === 'number' && value > 0) {
-        return clampSlackRetryDelayMs(value * 1000);
-      }
-      if (typeof value === 'string') {
-        const parsed = Number.parseFloat(value);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return clampSlackRetryDelayMs(parsed * 1000);
-        }
-      }
-    }
-    if (
-      candidate.status === 429 ||
-      candidate.statusCode === 429 ||
-      candidate.code === 429 ||
-      candidate.error === 'ratelimited'
-    ) {
-      return SLACK_RETRY_DELAY_FALLBACK_MS;
-    }
-    return null;
-  }
   private async waitForRetry(delayMs: number): Promise<void> {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, clampSlackRetryDelayMs(delayMs));
@@ -119,7 +78,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       this.botUserId && group
         ? rawContent.replace(
             new RegExp(`^<@${this.botUserId}>\\s+`),
-            `${group.trigger?.trim() || DEFAULT_TRIGGER} `,
+            `${triggerForRoute(group)} `,
           )
         : rawContent;
     if (!content) return;
@@ -129,7 +88,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       Boolean(group) &&
       (options.forceOwnedTopLevel ||
         group.requiresTrigger === false ||
-        getTriggerPattern(group.trigger).test(content.trim()));
+        buildTriggerPattern(triggerForRoute(group)).test(content.trim()));
     const threadId =
       event.thread_ts ||
       (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
@@ -208,7 +167,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
             appended = true;
             break;
           }
-          const retryDelayMs = this.rateLimitRetryDelayMs(result);
+          const retryDelayMs = slackRateLimitRetryDelayMs(result);
           if (retryDelayMs === null || attempt >= 2) {
             lastFailure = result;
             break;
@@ -219,7 +178,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           );
           await this.waitForRetry(retryDelayMs);
         } catch (err) {
-          const retryDelayMs = this.rateLimitRetryDelayMs(err);
+          const retryDelayMs = slackRateLimitRetryDelayMs(err);
           if (retryDelayMs === null || attempt >= 2) {
             lastFailure = err;
             break;

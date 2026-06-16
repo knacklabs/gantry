@@ -67,6 +67,7 @@ import {
   credentialRefsForRequestedMcp,
   headerNameForCredentialNeed,
 } from './ipc-mcp-server-request-credentials.js';
+import { createMcpToolHandlers } from './ipc-mcp-tool-handlers.js';
 import { semanticCapabilityInteraction } from './ipc-semantic-capability-interaction.js';
 import {
   appendLiveToolRules,
@@ -78,6 +79,8 @@ import {
 } from './request-access-job-recovery.js';
 import { requestOnlyCapabilityPendingKey } from './request-only-capability-dedupe.js';
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
+const { mcpCallToolHandler, mcpDescribeToolHandler, mcpListToolsHandler } =
+  createMcpToolHandlers(createMcpProxyForSourceGroup);
 configureSkillInstallHandlers({
   getStorage: getRuntimeStorage,
   logInfo: (context, message) => logger.info(context, message),
@@ -269,100 +272,6 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
     );
   }
 };
-const mcpListToolsHandler: TaskHandler = async (context) => {
-  const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
-  const { acceptData, reject } = createContextTaskResponder(context);
-  if (!data.appId) {
-    reject('MCP tool listing requires signed app scope.', 'forbidden');
-    return;
-  }
-  const requestedTargetJid = validateSameChannelApprovalTarget({
-    data,
-    sourceAgentFolderJids,
-    requestKind: 'MCP tool list',
-    reject,
-  });
-  if (!requestedTargetJid) return;
-  try {
-    const payload = data.payload || {};
-    const serverName = toTrimmedString(payload.serverName, { maxLen: 80 });
-    const proxy = await createMcpProxyForSourceGroup({
-      appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
-      deps,
-      ipcDir: context.ipcBaseDir
-        ? path.join(context.ipcBaseDir, sourceAgentFolder)
-        : undefined,
-      runHandle: data.runHandle,
-    });
-    const result = await proxy.listTools({
-      appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
-      ...(serverName ? { serverName } : {}),
-    });
-    acceptData('Connected MCP tools listed for this agent.', result);
-  } catch (err) {
-    reject(
-      err instanceof Error ? err.message : 'MCP tool listing failed.',
-      'mcp_proxy_failed',
-    );
-  }
-};
-const mcpCallToolHandler: TaskHandler = async (context) => {
-  const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
-  const { acceptData, reject } = createContextTaskResponder(context);
-  if (!data.appId) {
-    reject('MCP tool calls require signed app scope.', 'forbidden');
-    return;
-  }
-  const requestedTargetJid = validateSameChannelApprovalTarget({
-    data,
-    sourceAgentFolderJids,
-    requestKind: 'MCP tool call',
-    reject,
-  });
-  if (!requestedTargetJid) return;
-  try {
-    const payload = data.payload || {};
-    const serverName = toTrimmedString(payload.serverName, { maxLen: 80 });
-    const toolName = toTrimmedString(payload.toolName, { maxLen: 160 });
-    if (!serverName || !toolName) {
-      reject(
-        'Missing required fields: serverName and toolName.',
-        'invalid_request',
-      );
-      return;
-    }
-    const args =
-      payload.arguments &&
-      typeof payload.arguments === 'object' &&
-      !Array.isArray(payload.arguments)
-        ? (payload.arguments as Record<string, unknown>)
-        : {};
-    const proxy = await createMcpProxyForSourceGroup({
-      appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
-      deps,
-      ipcDir: context.ipcBaseDir
-        ? path.join(context.ipcBaseDir, sourceAgentFolder)
-        : undefined,
-      runHandle: data.runHandle,
-    });
-    const result = await proxy.callTool({
-      appId: data.appId as never,
-      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
-      serverName,
-      toolName,
-      arguments: args,
-    });
-    acceptData(`MCP tool ${serverName}.${toolName} completed.`, result);
-  } catch (err) {
-    reject(
-      err instanceof Error ? err.message : 'MCP tool call failed.',
-      'mcp_proxy_failed',
-    );
-  }
-};
 // prettier-ignore
 type RequestOnlyCapabilityToolName = 'request_skill_dependency_install' | 'request_permission';
 // prettier-ignore
@@ -479,7 +388,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
   }
 };
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_describe_tool: mcpDescribeToolHandler, mcp_call_tool: mcpCallToolHandler };
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
   const requestedTargetJid = toTrimmedString(input.data.chatJid, { maxLen: 512 });
@@ -919,6 +828,8 @@ async function createMcpProxyForSourceGroup(input: {
     }),
     lookupHostname: input.deps.mcpHostnameLookup,
     egressDenylist: getRuntimeSettingsForConfig().permissions.egress.denylist,
+    publishRuntimeEvent: input.deps.publishRuntimeEvent,
+    runHandle: input.runHandle,
   });
 }
 async function syncApprovedCapabilitySettings(

@@ -106,4 +106,43 @@ describe('CanonicalMessageOpsService', () => {
       ],
     );
   });
+
+  it('publishes an opaque live admission wakeup after storing a work item', async () => {
+    const notifyLiveAdmissionWorkItem = vi.fn(async () => {});
+    const saveMessage = vi.fn(async () => ({
+      outcome: 'enqueued' as const,
+      item: {
+        id: 'live-admission:default:message-1',
+        appId: 'default',
+      },
+    }));
+    const service = new CanonicalMessageOpsService(
+      { saveMessage } as unknown as PostgresCanonicalMessageRepository,
+      { notifyLiveAdmissionWorkItem },
+    );
+
+    await service.storeMessageWithLiveAdmission(
+      {
+        id: 'provider-message-1',
+        chat_jid: 'tg:one',
+        provider: 'telegram',
+        sender: '42',
+        sender_name: 'Ravi',
+        content: 'sensitive body',
+        timestamp: '2026-05-06T00:00:00.000Z',
+      },
+      {
+        appId: 'default',
+        agentId: 'main',
+      },
+    );
+
+    expect(notifyLiveAdmissionWorkItem).toHaveBeenCalledWith({
+      appId: 'default',
+      workItemId: 'live-admission:default:message-1',
+    });
+    expect(
+      JSON.stringify(notifyLiveAdmissionWorkItem.mock.calls),
+    ).not.toContain('sensitive body');
+  });
 });

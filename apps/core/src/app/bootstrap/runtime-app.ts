@@ -3,6 +3,7 @@ import {
   getCredentialBrokerRuntimeConfig,
   getRuntimeQueueConfig,
   getRuntimeSettingsForConfig,
+  getSelectedAgentHarness,
 } from '../../config/index.js';
 import {
   createAgentCredentialBroker,
@@ -560,6 +561,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     runnerSandboxProvider,
     getConfiguredModelProviders: getConfiguredModelProvidersForApp,
     getModelFamilyOrder: () => getRuntimeSettingsForConfig().modelFamilies,
+    getSelectedAgentHarness,
   });
 
   return {

@@ -347,7 +347,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         external_message_id: '1710000000.000100',
         thread_id: '1710000000.000100',
-        content: '@bot list projects',
+        content: '@Ops list projects',
         reply_to_message_id: undefined,
       }),
     );

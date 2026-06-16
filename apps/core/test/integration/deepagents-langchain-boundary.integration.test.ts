@@ -3,8 +3,12 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import pg from 'pg';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
+
+import { DeepAgentSessionStore } from '@core/adapters/llm/deepagents-langchain/runner/session-store.js';
+import { ensureDeepAgentsCheckpointSchema } from '@core/adapters/llm/deepagents-langchain/checkpoint-setup.js';
 
 // Spawns the real DeepAgents (LangChain) runner against a local fake model
 // gateway that returns canned OpenAI chat-completions SSE. No real network: the
@@ -18,6 +22,11 @@ const RUNNER_ENTRY = path.resolve(
   '../../src/adapters/llm/deepagents-langchain/runner/index.ts',
 );
 const TSX_BIN = path.resolve(__dirname, '../../../../node_modules/.bin/tsx');
+const POSTGRES_TEST_DATABASE_URL = process.env.GANTRY_TEST_DATABASE_URL;
+const maybeDescribe = POSTGRES_TEST_DATABASE_URL ? describe : describe.skip;
+const checkpointPool = POSTGRES_TEST_DATABASE_URL
+  ? new pg.Pool({ connectionString: POSTGRES_TEST_DATABASE_URL })
+  : null;
 
 // A self-contained stub Gantry facade MCP stdio server (plain Node, no TS) that
 // the runner can spawn via `node <path>`. Exposes the baseline tools the runner
@@ -70,6 +79,10 @@ interface ParsedFrame {
       cache_read_input_tokens: number;
     } | null;
   };
+  runtimeEvents?: Array<{
+    eventType?: string;
+    payload?: Record<string, unknown>;
+  }>;
   error?: string;
 }
 
@@ -94,6 +107,12 @@ function parseFrames(stdout: string): ParsedFrame[] {
     frames.push(JSON.parse(match[1].trim()) as ParsedFrame);
   }
   return frames;
+}
+
+function messageContentText(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const content = (message as { content?: unknown }).content;
+  return typeof content === 'string' ? content : JSON.stringify(content);
 }
 
 interface FakeGateway {
@@ -433,6 +452,7 @@ async function startContinuationGateway(input: {
 interface TempRoot {
   root: string;
   sessionsDir: string;
+  checkpointSchema: string;
   inputDir: string;
   ipcDir: string;
   workspaceIpcDir: string;
@@ -440,11 +460,19 @@ interface TempRoot {
   mcpConfigPath: string;
 }
 
-function runRunner(input: {
+function quoteIdent(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+async function runRunner(input: {
   stdin: Record<string, unknown>;
   temp: TempRoot;
   baseUrl: string;
   apiKey: string;
+  deepAgentCheckpointerOverride?: {
+    databaseUrl: string;
+    schema: string;
+  };
   // The resolved model provider the host projects to the runner; it selects the
   // LangChain class (openai -> ChatOpenAI via initChatModel; openrouter ->
   // ChatOpenRouter). Defaults to the openai lane.
@@ -457,6 +485,12 @@ function runRunner(input: {
   // _close sentinel) while the run is in flight, then close stdin.
   onSpawn?: (child: ReturnType<typeof spawn>) => void;
 }): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  if (!input.stdin.isScheduledJob) {
+    await ensureDeepAgentsCheckpointSchema({
+      databaseUrl: POSTGRES_TEST_DATABASE_URL ?? '',
+      schema: input.temp.checkpointSchema,
+    });
+  }
   const provider = input.provider ?? 'openai';
   const modelId =
     input.modelId ??
@@ -472,7 +506,6 @@ function runRunner(input: {
         GANTRY_DEEPAGENTS_MODEL_PROVIDER: provider,
         GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL:
           input.cachePromptControl ?? 'automatic',
-        GANTRY_DEEPAGENTS_SESSIONS_DIR: input.temp.sessionsDir,
         GANTRY_IPC_INPUT_DIR: input.temp.inputDir,
         // Common host env (agent-spawn projects these for every runner). The
         // runner spawns the Gantry facade MCP stdio server with this path and
@@ -506,13 +539,27 @@ function runRunner(input: {
       OPENAI_BASE_URL: input.baseUrl,
       OPENAI_API_KEY: input.apiKey,
     };
-    child.stdin.write(JSON.stringify({ ...input.stdin, modelCredentialEnv }));
+    const deepAgentCheckpointer = input.stdin.isScheduledJob
+      ? undefined
+      : (input.deepAgentCheckpointerOverride ?? {
+          databaseUrl: POSTGRES_TEST_DATABASE_URL,
+          schema: input.temp.checkpointSchema,
+        });
+    child.stdin.write(
+      JSON.stringify({
+        ...input.stdin,
+        ...(deepAgentCheckpointer ? { deepAgentCheckpointer } : {}),
+        modelCredentialEnv,
+      }),
+    );
     child.stdin.end();
     input.onSpawn?.(child);
   });
 }
 
 const tempRoots: string[] = [];
+const checkpointSchemas: string[] = [];
+let checkpointCounter = 0;
 // Stub MCP servers must resolve @modelcontextprotocol/sdk from the repo
 // node_modules, so the temp tree lives under the repo (not os.tmpdir()).
 const REPO_TMP_BASE = path.resolve(__dirname, '../.tmp-deepagents-int');
@@ -521,6 +568,8 @@ function makeTempRoot(): TempRoot {
   fs.mkdirSync(REPO_TMP_BASE, { recursive: true });
   const root = fs.mkdtempSync(path.join(REPO_TMP_BASE, 'run-'));
   tempRoots.push(root);
+  const checkpointSchema = `gda_boundary_${process.pid}_${++checkpointCounter}`;
+  checkpointSchemas.push(checkpointSchema);
   const sessionsDir = path.join(root, 'sessions');
   const inputDir = path.join(root, 'ipc-input');
   const ipcDir = path.join(root, 'ipc');
@@ -535,6 +584,7 @@ function makeTempRoot(): TempRoot {
   return {
     root,
     sessionsDir,
+    checkpointSchema,
     inputDir,
     ipcDir,
     workspaceIpcDir,
@@ -543,14 +593,92 @@ function makeTempRoot(): TempRoot {
   };
 }
 
-afterEach(() => {
+async function expectCheckpointExists(
+  temp: TempRoot,
+  sessionId: string,
+): Promise<void> {
+  const store = new DeepAgentSessionStore({
+    databaseUrl: POSTGRES_TEST_DATABASE_URL ?? '',
+    schema: temp.checkpointSchema,
+  });
+  const saver = await store.load(sessionId);
+  const tuple = await saver.getTuple({
+    configurable: { thread_id: sessionId },
+  });
+  await saver.end();
+  expect(tuple).toBeTruthy();
+}
+
+async function putCheckpoint(input: {
+  temp: TempRoot;
+  sessionId: string;
+  content: string;
+}): Promise<void> {
+  await ensureDeepAgentsCheckpointSchema({
+    databaseUrl: POSTGRES_TEST_DATABASE_URL ?? '',
+    schema: input.temp.checkpointSchema,
+  });
+  const store = new DeepAgentSessionStore({
+    databaseUrl: POSTGRES_TEST_DATABASE_URL ?? '',
+    schema: input.temp.checkpointSchema,
+  });
+  const saver = await store.create(input.sessionId);
+  await saver.put(
+    { configurable: { thread_id: input.sessionId } },
+    {
+      v: 4,
+      ts: new Date(0).toISOString(),
+      id: `checkpoint-${input.sessionId}`,
+      channel_values: {
+        messages: [{ role: 'human', content: input.content }],
+      },
+      channel_versions: { messages: 1 },
+      versions_seen: {},
+      pending_sends: [],
+    },
+    {},
+    { messages: 1 },
+  );
+  await saver.end();
+}
+
+async function corruptCheckpointBlob(input: {
+  temp: TempRoot;
+  sessionId: string;
+}): Promise<void> {
+  const result = await checkpointPool?.query(
+    `UPDATE ${quoteIdent(input.temp.checkpointSchema)}.checkpoint_blobs
+     SET type = 'json', blob = $2
+     WHERE thread_id = $1`,
+    [input.sessionId, Buffer.from('{')],
+  );
+  expect(result?.rowCount).toBeGreaterThan(0);
+}
+
+function unauthorizedDatabaseUrl(): string {
+  const url = new URL(POSTGRES_TEST_DATABASE_URL ?? '');
+  url.username = `gantry_forbidden_${process.pid}`;
+  url.password = 'bad-password';
+  return url.toString();
+}
+
+afterEach(async () => {
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
   fs.rmSync(REPO_TMP_BASE, { recursive: true, force: true });
+  for (const schema of checkpointSchemas.splice(0)) {
+    await checkpointPool?.query(
+      `DROP SCHEMA IF EXISTS ${quoteIdent(schema)} CASCADE`,
+    );
+  }
 });
 
-describe('DeepAgents (LangChain) runner boundary integration', () => {
+afterAll(async () => {
+  await checkpointPool?.end();
+});
+
+maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
   it('streams runner frames from a gateway-backed OpenAI run and persists the session', async () => {
     const gateway = await startFakeOpenAiGateway();
     const temp = makeTempRoot();
@@ -619,17 +747,54 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
         expect(request.body).not.toContain('gtw_');
       }
 
-      // Adapter-private session projection is persisted for live resume.
-      const sessionFiles = fs.readdirSync(sessionsDir);
-      expect(sessionFiles).toContain(`${sessionId}.json`);
-      const persisted = JSON.parse(
-        fs.readFileSync(path.join(sessionsDir, `${sessionId}.json`), 'utf-8'),
-      ) as { version: number; messages: Array<{ role: string; text: string }> };
-      expect(persisted.version).toBe(1);
-      expect(persisted.messages.at(-1)).toEqual({
-        role: 'ai',
-        text: 'Hello Gantry',
+      // Adapter-private LangGraph checkpoint projection is persisted through
+      // the official PostgresSaver. There is no JSON session-file fallback.
+      expect(fs.readdirSync(sessionsDir)).toEqual([]);
+      await expectCheckpointExists(temp, sessionId as string);
+      const startupDiagnostic = frames
+        .flatMap((frame) => frame.runtimeEvents ?? [])
+        .find((event) => event.eventType === 'run.startup_diagnostic');
+      expect(startupDiagnostic?.payload).toMatchObject({
+        checkpointerConfigured: true,
+        checkpointLoadCount: expect.any(Number),
+        checkpointLoadMs: expect.any(Number),
+        checkpointWriteCount: expect.any(Number),
+        checkpointWriteMs: expect.any(Number),
       });
+      expect(
+        (startupDiagnostic?.payload?.checkpointWriteCount as number) ?? 0,
+      ).toBeGreaterThan(0);
+
+      const resumed = await runRunner({
+        stdin: {
+          prompt: 'resume the same checkpoint',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+          sessionId,
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+      });
+      expect(resumed.code).toBe(0);
+      const resumedFrames = parseFrames(resumed.stdout);
+      const resumedStartupDiagnostic = resumedFrames
+        .flatMap((frame) => frame.runtimeEvents ?? [])
+        .find((event) => event.eventType === 'run.startup_diagnostic');
+      expect(resumedStartupDiagnostic?.payload).toMatchObject({
+        checkpointerConfigured: true,
+        checkpointLoadCount: expect.any(Number),
+        checkpointLoadMs: expect.any(Number),
+        checkpointWriteCount: expect.any(Number),
+        checkpointWriteMs: expect.any(Number),
+      });
+      expect(
+        (resumedStartupDiagnostic?.payload?.checkpointLoadCount as number) ?? 0,
+      ).toBeGreaterThan(0);
+      expect(
+        (resumedStartupDiagnostic?.payload?.checkpointWriteCount as number) ??
+          0,
+      ).toBeGreaterThan(0);
     } finally {
       await gateway.close();
     }
@@ -674,6 +839,25 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
       const followupOccurrences = serializedMessages.split(followup).length - 1;
       expect(initialOccurrences).toBe(1);
       expect(followupOccurrences).toBe(1);
+      const messages = Array.isArray(secondBody.messages)
+        ? secondBody.messages
+        : [];
+      const lastUserMessage = messages
+        .filter(
+          (message): message is { role?: unknown; content?: unknown } =>
+            Boolean(message) &&
+            typeof message === 'object' &&
+            (message as { role?: unknown }).role === 'user',
+        )
+        .at(-1);
+      const lastUserContent = messageContentText(lastUserMessage);
+      expect(lastUserContent).toContain(followup);
+      expect(lastUserContent).not.toContain(initialPrompt);
+      const sessionId = frames[0].newSessionId;
+      expect(sessionId).toBeTruthy();
+      if (!sessionId) throw new Error('missing session id');
+      expect(fs.readdirSync(temp.sessionsDir)).toEqual([]);
+      await expectCheckpointExists(temp, sessionId);
     } finally {
       await gateway.close();
     }
@@ -702,6 +886,114 @@ describe('DeepAgents (LangChain) runner boundary integration', () => {
         'No DeepAgents session found with session ID',
       );
       // No upstream call should happen for a missing session.
+      expect(gateway.requests.length).toBe(0);
+    } finally {
+      await gateway.close();
+    }
+  }, 120_000);
+
+  it('does not resume from a checkpoint owned by a different thread id', async () => {
+    const gateway = await startFakeOpenAiGateway();
+    const temp = makeTempRoot();
+    const otherSessionId = 'other-session-id';
+    const requestedSessionId = 'requested-session-id';
+    try {
+      await putCheckpoint({
+        temp,
+        sessionId: otherSessionId,
+        content: 'checkpoint belongs to another thread',
+      });
+
+      const result = await runRunner({
+        stdin: {
+          prompt: 'resume the requested session',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+          sessionId: requestedSessionId,
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+      });
+
+      expect(result.code).toBe(1);
+      const frames = parseFrames(result.stdout);
+      const errorFrame = frames.find((frame) => frame.status === 'error');
+      expect(errorFrame?.error).toContain(
+        `No DeepAgents session found with session ID: ${requestedSessionId}`,
+      );
+      expect(errorFrame?.error).not.toContain(otherSessionId);
+      expect(frames.some((frame) => frame.sessionInit)).toBe(false);
+      expect(gateway.requests.length).toBe(0);
+    } finally {
+      await gateway.close();
+    }
+  }, 120_000);
+
+  it('fails before session init and model startup when checkpoint data is corrupt', async () => {
+    const gateway = await startFakeOpenAiGateway();
+    const temp = makeTempRoot();
+    const sessionId = 'corrupt-session-id';
+    try {
+      await putCheckpoint({
+        temp,
+        sessionId,
+        content: 'this checkpoint will be corrupted',
+      });
+      await corruptCheckpointBlob({ temp, sessionId });
+
+      const result = await runRunner({
+        stdin: {
+          prompt: 'resume corrupt session',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+          sessionId,
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+      });
+
+      expect(result.code).toBe(1);
+      const frames = parseFrames(result.stdout);
+      const errorFrame = frames.find((frame) => frame.status === 'error');
+      expect(errorFrame?.error).toMatch(
+        /Unexpected end of JSON input|Unexpected token|Expected property name/i,
+      );
+      expect(frames.some((frame) => frame.sessionInit)).toBe(false);
+      expect(gateway.requests.length).toBe(0);
+    } finally {
+      await gateway.close();
+    }
+  }, 120_000);
+
+  it('fails before session init and model startup when the checkpoint store is unauthorized', async () => {
+    const gateway = await startFakeOpenAiGateway();
+    const temp = makeTempRoot();
+    try {
+      const result = await runRunner({
+        stdin: {
+          prompt: 'resume unauthorized checkpoint store',
+          workspaceFolder: 'group',
+          chatJid: 'tg:group',
+          sessionId: 'unauthorized-session-id',
+        },
+        temp,
+        baseUrl: gateway.baseUrl,
+        apiKey: 'gtw_integrationtoken',
+        deepAgentCheckpointerOverride: {
+          databaseUrl: unauthorizedDatabaseUrl(),
+          schema: temp.checkpointSchema,
+        },
+      });
+
+      expect(result.code).toBe(1);
+      const frames = parseFrames(result.stdout);
+      const errorFrame = frames.find((frame) => frame.status === 'error');
+      expect(errorFrame?.error).toMatch(
+        /authentication failed|password authentication failed|role .* does not exist|permission denied|SASL/i,
+      );
+      expect(frames.some((frame) => frame.sessionInit)).toBe(false);
       expect(gateway.requests.length).toBe(0);
     } finally {
       await gateway.close();

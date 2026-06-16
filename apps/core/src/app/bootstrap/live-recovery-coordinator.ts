@@ -4,6 +4,7 @@ import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
+import { collectPendingMessagesSince } from '../../runtime/pending-message-replay.js';
 import { parseThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { buildLiveTurnContinuation } from './live-turn-continuation.js';
 
@@ -327,7 +328,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   chatJid: string;
   threadId: string | null;
   replayCursor: string;
-  maxMessagesPerPrompt: number;
+  messageFetchPageSize: number;
   timezone: string;
   getMessagesSince?: (
     conversationJid: string,
@@ -344,12 +345,15 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     typeof routeScopeActiveLiveTurnAdmission
   >[0]['completeSessionAgentRun'];
 }): Promise<boolean> {
-  const messages = await input.getMessagesSince?.(
-    input.chatJid,
-    input.replayCursor,
-    input.maxMessagesPerPrompt,
-    { threadId: input.threadId },
-  );
+  const messages = input.getMessagesSince
+    ? await collectPendingMessagesSince({
+        getMessagesSince: input.getMessagesSince,
+        chatJid: input.chatJid,
+        sinceCursor: input.replayCursor,
+        pageSize: input.messageFetchPageSize,
+        options: { threadId: input.threadId },
+      })
+    : undefined;
   return routeScopeActiveLiveTurnAdmission({
     scope: input.scope,
     queueJid: input.queueJid,

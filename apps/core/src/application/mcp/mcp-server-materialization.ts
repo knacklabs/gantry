@@ -19,6 +19,9 @@ export type SdkMcpServerConfig =
 
 export interface MaterializedMcpCapability {
   name: string;
+  serverId: string;
+  bindingId: string;
+  sourceRevision?: string;
   config: SdkMcpServerConfig;
   allowedToolPatterns: string[];
   autoApproveToolPatterns: string[];
@@ -63,6 +66,9 @@ export function materializeMcpRecord(
     };
     return {
       name: record.definition.name,
+      serverId: record.definition.id,
+      bindingId: record.binding.id,
+      sourceRevision: mcpSourceRevision(record),
       config: {
         type: config.transport,
         url: config.url,
@@ -90,6 +96,9 @@ export function materializeMcpRecord(
   };
   return {
     name: record.definition.name,
+    serverId: record.definition.id,
+    bindingId: record.binding.id,
+    sourceRevision: mcpSourceRevision(record),
     config: {
       type: 'stdio',
       command: template.command,
@@ -103,6 +112,15 @@ export function materializeMcpRecord(
     networkHosts: record.definition.networkHosts ?? [],
     required: record.binding.required,
   };
+}
+
+function mcpSourceRevision(record: MaterializedMcpServer): string {
+  return JSON.stringify({
+    serverId: record.definition.id,
+    serverUpdatedAt: record.definition.updatedAt,
+    bindingId: record.binding.id,
+    bindingUpdatedAt: record.binding.updatedAt,
+  });
 }
 
 function resolveCredentialValues(

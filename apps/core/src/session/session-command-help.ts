@@ -1,7 +1,7 @@
 export function formatSessionCommandsHelp(): string {
   return [
     'Gantry commands',
-    'In Slack, mention the agent with !<command> when slash commands are intercepted by Slack, for example: @Gantry !new.',
+    'Mention the agent with !<command> when slash commands are intercepted, for example: @Gantry !new.',
     '',
     'Session',
     '/commands or !commands - List available chat commands.',

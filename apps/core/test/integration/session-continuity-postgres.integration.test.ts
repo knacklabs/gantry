@@ -217,6 +217,73 @@ maybeDescribe('Postgres memory continuity', () => {
     });
   });
 
+  it('keeps app-scoped provider sessions isolated for the same agent and route', async () => {
+    const workspaceFolder = 'app-scoped-shared-agent';
+    const chatJid = 'app:shared:conversation';
+    const externalConversationId = 'shared-conversation';
+
+    await runtime.control.ensureAppSession({
+      appId: 'app:one',
+      conversationId: externalConversationId,
+      chatJid,
+      workspaceFolder,
+    });
+    await runtime.control.ensureAppSession({
+      appId: 'app:two',
+      conversationId: externalConversationId,
+      chatJid,
+      workspaceFolder,
+    });
+
+    await runtime.sessionOps.setSession(
+      workspaceFolder,
+      'provider-session:test:app-one',
+      null,
+      {
+        appId: 'app:one',
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+        chatJid,
+      },
+    );
+    await runtime.sessionOps.setSession(
+      workspaceFolder,
+      'provider-session:test:app-two',
+      null,
+      {
+        appId: 'app:two',
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+        chatJid,
+      },
+    );
+
+    const appOneContext = await runtime.sessionOps.getAgentTurnContext({
+      appId: 'app:one',
+      workspaceFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      chatJid,
+      threadId: null,
+    });
+    const appTwoContext = await runtime.sessionOps.getAgentTurnContext({
+      appId: 'app:two',
+      workspaceFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      chatJid,
+      threadId: null,
+    });
+
+    expect(appOneContext).toMatchObject({
+      appId: 'app:one',
+      agentId: `agent:${workspaceFolder}`,
+      externalSessionId: 'provider-session:test:app-one',
+    });
+    expect(appTwoContext).toMatchObject({
+      appId: 'app:two',
+      agentId: `agent:${workspaceFolder}`,
+      externalSessionId: 'provider-session:test:app-two',
+    });
+    expect(appOneContext.agentSessionId).not.toBe(appTwoContext.agentSessionId);
+  });
+
   it('scoped reset clears only the targeted agent owner session state', async () => {
     const chatJid = 'tg:session-reset-owner';
     const routeFolder = 'runtime_workspace_folder';

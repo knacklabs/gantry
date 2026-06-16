@@ -114,7 +114,17 @@ export class ConversationMessageIngressModule {
       provider,
       conversation.kind === 'group' || conversation.kind === 'channel',
     );
-    await this.deps.ops.storeMessage(message);
+    if (this.deps.ops.storeMessageWithLiveAdmission) {
+      await this.deps.ops.storeMessageWithLiveAdmission(message, {
+        appId: input.appId,
+        triggerDecision: {
+          source: 'external_ingress',
+          conversationKind: conversation.kind,
+        },
+      });
+    } else {
+      await this.deps.ops.storeMessage(message);
+    }
     const accepted = await this.deps.runtimeEvents.publish({
       appId: input.appId as AppId,
       conversationId: conversation.id,

@@ -906,8 +906,18 @@ describe('executeRunnerProcess', () => {
 
     it('distinguishes session init from first visible output in startup timing', async () => {
       const onOutput = vi.fn(async () => {});
+      const publishRuntimeEvent = vi.fn(async () => undefined);
       const spec = makeSpec({
+        input: {
+          prompt: 'Hello there',
+          workspaceFolder: 'test-group',
+          chatJid: 'test@g.us',
+          appId: 'default',
+          agentId: 'agent:test',
+          runId: 'agent-run:test-visible',
+        },
         onOutput,
+        options: { publishRuntimeEvent },
         startupHostPhases: {
           adapterPrepareMs: 7,
           mcpProjectionMs: 11,
@@ -980,6 +990,43 @@ describe('executeRunnerProcess', () => {
       expect(logContent).toContain('First Visible Output: 80ms');
       expect(logContent).toContain('Host Phase - Adapter Prepare: 7ms');
       expect(logContent).toContain('Host Phase - MCP Projection: 11ms');
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          agentId: 'agent:test',
+          runId: 'agent-run:test-visible',
+          conversationId: 'test@g.us',
+          eventType: 'run.startup_diagnostic',
+          actor: 'runtime',
+          responseMode: 'none',
+          payload: expect.objectContaining({
+            provider: 'host',
+            diagnostic: 'runner_process_timing',
+            sandbox: {
+              provider: 'direct',
+              enforcing: false,
+            },
+            exit: {
+              code: 0,
+              signal: null,
+              timedOut: false,
+              hadStreamingOutput: true,
+            },
+            startupTiming: expect.objectContaining({
+              firstStructuredOutputMs: 25,
+              providerSessionMs: 25,
+              firstVisibleOutputMs: 80,
+              hostPhases: expect.objectContaining({
+                adapterPrepareMs: 7,
+                mcpProjectionMs: 11,
+              }),
+            }),
+          }),
+        }),
+      );
+      expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+        '/tmp/test-workspace',
+      );
     });
 
     it('treats SIGTERM after streamed output as closed, not failed', async () => {

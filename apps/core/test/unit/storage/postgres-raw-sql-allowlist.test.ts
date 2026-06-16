@@ -11,6 +11,8 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   // pg_advisory_xact_lock guards run-slot capacity checks against concurrent
   // acquisition; same operational primitive as the file-artifact path lock.
   'apps/core/src/adapters/storage/postgres/repositories/worker-coordination-lease.postgres.ts',
+  // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
+  'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-store.ts',
   'apps/core/src/adapters/storage/postgres/storage-service.ts',

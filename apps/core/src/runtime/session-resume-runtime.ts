@@ -1,6 +1,7 @@
 import type { NewMessage, ConversationRoute } from '../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import { selectedSkillDisplay } from '../domain/skills/skill-identity.js';
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
@@ -276,6 +277,7 @@ export function createRuntimeUserVisibleStreamSanitizer(): {
 
 export async function archiveCurrentRuntimeSession(input: {
   ops: RuntimeAgentSessionRepository;
+  appId?: string;
   group: ConversationRoute;
   chatJid: string;
   threadId: string | null;
@@ -286,6 +288,7 @@ export async function archiveCurrentRuntimeSession(input: {
   executionProviderId?: import('../domain/sessions/sessions.js').ExecutionProviderId;
 }): Promise<void> {
   const turnContext = await input.ops.getAgentTurnContext?.({
+    appId: input.appId,
     agentFolder: input.group.folder,
     executionProviderId:
       input.executionProviderId ?? resolveRuntimeExecutionProviderId(),
@@ -476,16 +479,10 @@ export async function buildApprovedSkillContextBlock(input: {
     appId: string;
     agentId: string;
   };
-  maxChars?: number;
 }): Promise<string> {
-  if (
-    !input.skillRepository ||
-    !input.skillArtifactStore ||
-    !input.turnContext
-  ) {
+  if (!input.skillRepository || !input.turnContext) {
     return '';
   }
-  const maxChars = input.maxChars ?? 16_000;
   const skills = await input.skillRepository.listEnabledSkillsForAgent({
     appId: input.turnContext.appId as never,
     agentId: input.turnContext.agentId as never,
@@ -493,38 +490,28 @@ export async function buildApprovedSkillContextBlock(input: {
   if (skills.length === 0) return '';
   const sections: string[] = [
     '[[INSTALLED_SKILLS_AVAILABLE_THIS_SESSION]]',
-    'The following installed Gantry skills are available to use in this session. Follow the SKILL.md instructions when relevant. Do not claim these skills are unavailable solely because the provider session was already running.',
+    'The following reviewed Gantry skills are available to use in this session. This block intentionally contains only skill metadata so provider-native skill loading can use progressive disclosure. Do not claim these skills are unavailable solely because the provider session was already running.',
   ];
-  let remaining = maxChars - sections.join('\n').length;
   for (const skill of skills) {
-    if (!skill.storage || remaining <= 0) break;
-    const bundle = await input.skillArtifactStore.getSkillArtifact(
-      skill.storage.storageRef,
+    sections.push(
+      [
+        '',
+        `## ${selectedSkillDisplay(skill)}`,
+        `id: ${skill.id}`,
+        `name: ${skill.name}`,
+        `source: ${skill.source}`,
+        skill.storage?.contentHash
+          ? `revision: ${skill.storage.contentHash}`
+          : undefined,
+        skill.description ? `description: ${skill.description}` : undefined,
+      ]
+        .filter((line): line is string => line !== undefined)
+        .join('\n'),
     );
-    const skillMarkdown = bundle.assets.find(
-      (asset) => asset.path === 'SKILL.md',
-    );
-    if (!skillMarkdown) continue;
-    const content = Buffer.from(skillMarkdown.content).toString('utf-8');
-    const rendered = [
-      '',
-      `## ${skill.name}`,
-      `id: ${skill.id}`,
-      skill.description ? `description: ${skill.description}` : undefined,
-      '',
-      '```markdown',
-      content,
-      '```',
-    ]
-      .filter((line): line is string => line !== undefined)
-      .join('\n');
-    const chunk =
-      rendered.length <= remaining
-        ? rendered
-        : `${rendered.slice(0, Math.max(0, remaining - 80)).trimEnd()}\n[Skill context truncated]`;
-    sections.push(chunk);
-    remaining -= chunk.length;
   }
+  sections.push(
+    'Full SKILL.md instructions and supporting files are read only through the selected provider or DeepAgents skill mechanism after the skill matches the task and the run has authority.',
+  );
   sections.push('[[/APPROVED_SKILLS_AVAILABLE_THIS_SESSION]]');
   return sections.length > 3 ? sections.join('\n') : '';
 }

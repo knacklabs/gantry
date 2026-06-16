@@ -228,6 +228,10 @@ function createMcpFixture(): {
     path.join(runnerDir, 'memory-timeouts.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/ipc-response-wait.ts'),
+    path.join(runnerDir, 'ipc-response-wait.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
@@ -760,6 +764,33 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     });
   });
 
+  it('writes MCP tool detail requests through IPC without execution arguments', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'mcp_describe_tool', {
+      serverName: 'github',
+      toolName: 'create_issue',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'mcp_describe_tool',
+      payload: {
+        serverName: 'github',
+        toolName: 'create_issue',
+      },
+    });
+    expect(task.runHandle).toBeUndefined();
+  });
+
   it('keeps default first-party MCP tools registered despite stale runner projection', async () => {
     const fixture = createMcpFixture();
     const staleSurface = JSON.stringify([
@@ -1166,7 +1197,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'use: mcp_list_tools with serverName="caw-ats", then mcp_call_tool with serverName="caw-ats"',
+      'use: mcp_list_tools with serverName="caw-ats", mcp_describe_tool for one tool schema if needed, then mcp_call_tool with serverName="caw-ats"',
     );
     expect(record.result.content[0].text).toContain(
       'Do not request the same MCP capability again',
@@ -1308,7 +1339,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'use mcp_list_tools to inspect the ready source, then mcp_call_tool',
+      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1339,7 +1370,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'use mcp_list_tools to inspect the ready source, then mcp_call_tool',
+      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1380,7 +1411,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'Use mcp_list_tools with serverName="caw-ats", then mcp_call_tool',
+      'Use mcp_list_tools with serverName="caw-ats", mcp_describe_tool when schema is needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);

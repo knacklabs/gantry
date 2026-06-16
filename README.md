@@ -409,6 +409,7 @@ Skills, MCP servers, SDK tools, host tools, browser tools, local CLIs, and chann
 - `request_mcp_server`
 - `request_access`
 - `mcp_list_tools`
+- `mcp_describe_tool`
 - `mcp_call_tool`
 - `settings_desired_state`
 - `request_settings_update`

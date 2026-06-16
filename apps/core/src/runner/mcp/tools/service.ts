@@ -4,24 +4,17 @@ import { nowIso } from '../../../shared/time/datetime.js';
 import {
   availableSemanticCapabilities,
   attachedMcpSourceIds,
-  capabilityStatusText,
   chatJid,
   currentConfiguredAllowedTools,
   deploymentMode,
   isAdminMcpToolEnabled,
-  lockedAccessPreset,
   TASKS_DIR,
   threadId,
 } from '../context.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
-import {
-  MCP_PROXY_WAIT_MS,
-  SKILL_APPROVAL_WAIT_MS,
-} from './service-constants.js';
+import { SKILL_APPROVAL_WAIT_MS } from './service-constants.js';
 import {
   formatMcpApprovalResponse,
-  formatMcpCallToolResponse,
-  formatMcpListToolsResponse,
   formatSkillProposalResponse,
 } from './service-formatters.js';
 import { registerAccessRequestTool } from './capabilities.js';
@@ -30,11 +23,9 @@ import { registerSettingsTools } from './settings.js';
 import { makeIpcId } from '../ipc-ids.js';
 import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
 import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
-import {
-  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
-  UNREVIEWED_DISCOVERY_GUIDANCE,
-} from '../../../shared/capability-guidance.js';
 import type { SemanticCapabilityDefinition } from '../../../shared/semantic-capabilities.js';
+import { browserWrongLaneRequestGuidance } from './service-browser-guidance.js';
+import { registerMcpProxyTools } from './mcp-proxy-tools.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
@@ -273,7 +264,7 @@ export function registerServiceTools(server: McpServer): void {
                 existingSource.selectedCapabilities.length
                   ? `Selected capabilities: ${existingSource.selectedCapabilities.join(', ')}`
                   : 'A matching MCP source is already attached.',
-                `Use mcp_list_tools with serverName="${existingSource.serverName}", then mcp_call_tool with serverName="${existingSource.serverName}" for approved actions.`,
+                `Use mcp_list_tools with serverName="${existingSource.serverName}", mcp_describe_tool when schema is needed, then mcp_call_tool with serverName="${existingSource.serverName}" for approved actions.`,
                 'Do not request the same MCP source setup again unless a tool call reports access is missing or denied.',
               ].join('\n'),
             },
@@ -335,119 +326,7 @@ export function registerServiceTools(server: McpServer): void {
     },
   );
 
-  server.tool(
-    'mcp_list_tools',
-    lockedAccessPreset
-      ? 'List tools from MCP server sources connected to this agent.'
-      : 'Refresh tools from MCP server sources connected to this agent. This is source inventory only; use reviewed action capabilities as the authority.',
-    {
-      serverName: z
-        .string()
-        .optional()
-        .describe('Optional connected MCP server name to inspect'),
-    },
-    async (args) => {
-      const taskId = makeIpcId('mcp-list-tools');
-      writeIpcFile(TASKS_DIR, {
-        type: 'mcp_list_tools',
-        taskId,
-        targetJid: chatJid,
-        chatJid,
-        authThreadId: threadId,
-        payload: {
-          serverName: args.serverName,
-        },
-        timestamp: nowIso(),
-      });
-      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
-      if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'MCP tool listing failed.',
-            },
-          ],
-          isError: true,
-        };
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: (lockedAccessPreset
-              ? [
-                  formatMcpListToolsResponse(response.data, {
-                    includeReviewGuidance: false,
-                  }),
-                  capabilityStatusText(),
-                ]
-              : [
-                  formatMcpListToolsResponse(response.data),
-                  SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
-                  UNREVIEWED_DISCOVERY_GUIDANCE,
-                  capabilityStatusText(),
-                ]
-            ).join('\n\n'),
-          },
-        ],
-      };
-    },
-  );
-
-  server.tool(
-    'mcp_call_tool',
-    lockedAccessPreset
-      ? 'Call a tool from an MCP server source connected to this agent. Use serverName and the raw tool name from mcp_list_tools.'
-      : 'Call a raw MCP source tool only when the requested action is covered by reviewed current-run capability access. Prefer the reviewed action capability as the product contract; do not call direct third-party mcp__server__tool names.',
-    {
-      serverName: z.string().describe('Connected MCP server name'),
-      toolName: z
-        .string()
-        .describe('Raw MCP tool name without the mcp__server__ prefix'),
-      arguments: z
-        .record(z.string(), z.unknown())
-        .optional()
-        .describe('JSON object arguments for the MCP tool'),
-    },
-    async (args) => {
-      const taskId = makeIpcId('mcp-call-tool');
-      writeIpcFile(TASKS_DIR, {
-        type: 'mcp_call_tool',
-        taskId,
-        runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
-        targetJid: chatJid,
-        chatJid,
-        authThreadId: threadId,
-        payload: {
-          serverName: args.serverName,
-          toolName: args.toolName,
-          arguments: args.arguments ?? {},
-        },
-        timestamp: nowIso(),
-      });
-      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
-      if (!response?.ok) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: response?.error || 'MCP tool call failed.',
-            },
-          ],
-          isError: true,
-        };
-      }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: formatMcpCallToolResponse(response.data),
-          },
-        ],
-      };
-    },
-  );
+  registerMcpProxyTools(server);
 
   server.tool(
     'service_restart',
@@ -616,62 +495,6 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
     ],
     isError: true,
   };
-}
-
-const BROWSER_WRONG_LANE_GUIDANCE = [
-  'Browser control is a built-in Gantry tool capability, not a skill install or third-party MCP server request.',
-  'Do not request browser automation through request_skill_install or request_mcp_server.',
-  'Ask a configured conversation approver to approve Browser access, then use the browser tools.',
-].join(' ');
-
-function browserWrongLaneRequestGuidance(
-  _toolName: 'request_skill_install' | 'request_mcp_server',
-  payload: Record<string, unknown>,
-) {
-  if (!isBrowserWrongLanePayload(payload)) return null;
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: `${BROWSER_WRONG_LANE_GUIDANCE} No install request was recorded.`,
-      },
-    ],
-    isError: true,
-  };
-}
-
-function isBrowserWrongLanePayload(payload: Record<string, unknown>): boolean {
-  return [
-    payload.name,
-    payload.slug,
-    payload.spec,
-    payload.origin,
-    payload.docsUrl,
-    payload.package,
-    payload.expectedFiles,
-    payload.dependencies,
-    payload.installCommandArgv,
-    payload.requestedToolPatterns,
-  ]
-    .flatMap(explicitWrongLaneText)
-    .some(isBrowserWrongLaneText);
-}
-
-function explicitWrongLaneText(value: unknown): string[] {
-  if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value.flatMap(explicitWrongLaneText);
-  return [];
-}
-
-function isBrowserWrongLaneText(value: string): boolean {
-  const normalized = value.toLowerCase();
-  const compact = normalized.replace(/[^a-z0-9]+/g, '');
-  return (
-    normalized === 'browser' ||
-    normalized === 'browser-control' ||
-    compact === 'browserbackend' ||
-    compact === 'browsercontrol'
-  );
 }
 
 function existingMcpSourceForRequest(name: string):

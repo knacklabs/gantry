@@ -1,13 +1,19 @@
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
 import type { AgentInput } from './agent-spawn-types.js';
 import type { EgressGatewayPrivateHostMapping } from './egress-gateway.js';
+import type {
+  RunnerSandboxResourceLimits,
+  RunnerSandboxSpawnInput,
+} from '../shared/runner-sandbox-provider.js';
 import { projectSandboxRuntimeModelGatewayEnv } from './agent-spawn-runtime-policy.js';
 import {
   deepAgentsShellToolEnabled,
   type DeepAgentsShellFilesystemGuardInput,
 } from './deepagents-shell-filesystem-guard.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
 
@@ -29,12 +35,35 @@ export type RunnerAgentInput = Omit<AgentInput, 'toolPolicyRules'> & {
   allowedTools?: string[];
   modelCredentialEnv?: Record<string, string>;
   toolNetworkEnv?: Record<string, string>;
+  deepAgentCheckpointer?: {
+    databaseUrl: string;
+    schema: string;
+  };
 };
 type WarnLogger = (metadata: Record<string, unknown>, message: string) => void;
 type SandboxRuntimeGatewayOptions = {
   allowedNetworkHosts?: string[];
   privateNetworkHostMappings?: readonly EgressGatewayPrivateHostMapping[];
 };
+
+export function prepareRunnerWorkspace(input: {
+  folder: string;
+  nowMs: () => number;
+  warn: WarnLogger;
+}): { groupDir: string; processName: string } {
+  const groupDir = resolveWorkspaceFolderPath(input.folder);
+  fs.mkdirSync(groupDir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(groupDir, 0o700);
+  } catch (err) {
+    input.warn({ err, groupDir }, 'Failed to tighten agent workspace mode');
+  }
+  const safeName = input.folder.replace(/[^a-zA-Z0-9-]/g, '-');
+  return {
+    groupDir,
+    processName: `gantry-${safeName}-${input.nowMs()}-${randomUUID().slice(0, 8)}`,
+  };
+}
 
 export function cleanupRunnerMcpConfigFile(
   configPath: string | undefined,
@@ -127,4 +156,119 @@ export function buildSandboxRuntimeGatewayOptions(
         : {}),
     },
   };
+}
+
+export function buildRunnerSandboxSpawnInput(input: {
+  groupDir: string;
+  sandboxConfigPath: string;
+  egressProxyUrl?: string;
+  allowedNetworkHosts: readonly string[];
+  runnerPackageRoot: string;
+  workspaceIpcDir: string;
+  workspaceExtraDir: string;
+  providerConfigDir?: string;
+  runnerTempDir?: string;
+  providerToolTempDir?: string;
+  localCliCredentialPaths: readonly string[];
+  mcpConfigPath?: string;
+  protectedReadPaths: readonly string[];
+  protectedWritePaths: readonly string[];
+  resourceLimits: RunnerSandboxResourceLimits;
+  principal: {
+    appId: string;
+    agentId?: string;
+    conversationId: string;
+    threadId?: string;
+    runId?: string;
+    jobId?: string;
+  };
+}): Omit<RunnerSandboxSpawnInput, 'command' | 'args' | 'env'> {
+  return {
+    cwd: input.groupDir,
+    workspaceRoot: input.groupDir,
+    configFilePath: input.sandboxConfigPath,
+    egressProxyUrl: input.egressProxyUrl,
+    allowedNetworkHosts: input.allowedNetworkHosts,
+    runtimeReadPaths: [
+      input.runnerPackageRoot,
+      input.workspaceIpcDir,
+      input.workspaceExtraDir,
+      ...(input.providerConfigDir ? [input.providerConfigDir] : []),
+      ...(input.runnerTempDir ? [input.runnerTempDir] : []),
+      ...(input.providerToolTempDir ? [input.providerToolTempDir] : []),
+      ...input.localCliCredentialPaths,
+      ...(input.mcpConfigPath ? [input.mcpConfigPath] : []),
+    ],
+    runtimeWritePaths: [
+      input.workspaceIpcDir,
+      ...(input.providerConfigDir ? [input.providerConfigDir] : []),
+      ...(input.runnerTempDir ? [input.runnerTempDir] : []),
+      ...(input.providerToolTempDir ? [input.providerToolTempDir] : []),
+    ],
+    protectedReadPaths: input.protectedReadPaths,
+    protectedWritePaths: input.protectedWritePaths,
+    resourceLimits: input.resourceLimits,
+    sandboxProfile: {
+      id: 'runner-default',
+      network: 'required',
+      filesystem: 'workspace_write',
+    },
+    principal: input.principal,
+  };
+}
+
+export function buildAndLogRunnerRuntimeDetails(input: {
+  logger: {
+    debug: (context: Record<string, unknown>, message: string) => void;
+    info: (context: Record<string, unknown>, message: string) => void;
+  };
+  groupName: string;
+  processName: string;
+  command: string;
+  args: readonly string[];
+  groupDir: string;
+  ipcInputDir: string;
+  sandboxProviderId: string;
+  sandboxEnforcing: boolean;
+  brokerProfile: string;
+  brokerApplied: boolean;
+  mcpServerNames: readonly string[];
+  browserProfileName: string;
+  preparedRuntimeDetails: readonly string[];
+  effectiveModel?: string;
+  effectiveModelSource?: string;
+  systemPromptChars: number;
+}): string[] {
+  const runtimeDetails = [
+    `groupDir=${input.groupDir}`,
+    'globalDir=(none)',
+    `ipcInput=${input.ipcInputDir}`,
+    `sandbox=${input.sandboxProviderId} enforcing=${input.sandboxEnforcing}`,
+    `broker=${input.brokerProfile}`,
+    `brokerApplied=${input.brokerApplied}`,
+    `mcpServers=${input.mcpServerNames.join(',') || '(none)'}`,
+    `browserProfile=${input.browserProfileName}`,
+    ...input.preparedRuntimeDetails,
+  ];
+  input.logger.debug(
+    {
+      group: input.groupName,
+      processName: input.processName,
+      command: input.command,
+      args: input.args.join(' '),
+      runtimeDetails,
+    },
+    'Host agent runtime configuration',
+  );
+  input.logger.info(
+    {
+      group: input.groupName,
+      processName: input.processName,
+      model: input.effectiveModel ?? null,
+      modelSource: input.effectiveModelSource,
+      systemPromptChars: input.systemPromptChars,
+    },
+    'Spawning host agent',
+  );
+  return runtimeDetails;
 }

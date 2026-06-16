@@ -21,11 +21,16 @@ import { nowIso } from '../../shared/time/datetime.js';
 const MEMORY_CONTEXT_TRUNCATION_LADDER = [4000, 2000, 1000, 500, 250, 120];
 const GANTRY_CONTEXT_OPENING_PATTERN = /<\s*\/?\s*gantry[_a-z0-9-]*/gi;
 const FULLWIDTH_CONTEXT_OPENING_PATTERN = /＜\s*\/?\s*gantry[_a-z0-9-]*/gi;
+const FIRST_VISIBLE_STATEMENT_TIMEOUT_MS = 250;
+
+export type HydrationMode = 'first_visible' | 'full';
 
 export interface HydrateAgentContextOptions {
   memoryItemLimit?: number;
   digestItemLimit?: number;
   maxChars?: number;
+  hydrationMode?: HydrationMode;
+  statementTimeoutMs?: number;
 }
 
 interface HydratedSessionDigest {
@@ -68,6 +73,8 @@ export interface HydrateAgentContextDependencies {
     limit: number;
     conversationKind?: string;
     query?: string;
+    hydrationMode: HydrationMode;
+    statementTimeoutMs?: number;
   }) => Promise<HydratedContextMemoryItem[]>;
   loadContinuityJobs?: (input: {
     session: AgentSession;
@@ -100,12 +107,20 @@ export class HydrateAgentContextService {
     sessionId: AgentSessionId;
     conversationKind?: string;
     query?: string;
+    hydrationMode?: HydrationMode;
     options?: HydrateAgentContextOptions;
   }) {
     const session = await this.sessions.getAgentSession(input.sessionId);
     if (!session) throw new ApplicationError('NOT_FOUND', 'Session not found');
 
     const options = { ...this.defaults, ...input.options };
+    const hydrationMode =
+      input.hydrationMode ?? options.hydrationMode ?? 'full';
+    const statementTimeoutMs =
+      options.statementTimeoutMs ??
+      (hydrationMode === 'first_visible'
+        ? FIRST_VISIBLE_STATEMENT_TIMEOUT_MS
+        : undefined);
     const [digests, memories, jobs] = await Promise.all([
       this.loadRecentDigests(session, options.digestItemLimit ?? 3),
       this.loadMemories(
@@ -113,6 +128,8 @@ export class HydrateAgentContextService {
         options.memoryItemLimit ?? 8,
         input.conversationKind,
         input.query,
+        hydrationMode,
+        statementTimeoutMs,
       ),
       this.loadContinuityJobs(session, 8),
     ]);
@@ -134,6 +151,7 @@ export class HydrateAgentContextService {
     recordHydrationStatus({
       session,
       conversationKind: input.conversationKind,
+      hydrationMode,
       block: context.block,
       maxChars,
       truncated: context.truncated,
@@ -165,6 +183,7 @@ export class HydrateAgentContextService {
       jobs,
       block: context.block,
       continuityStatus: {
+        hydrationMode,
         subject: continuitySubjectForSession(session),
         bytes: Buffer.byteLength(context.block, 'utf8'),
         maxBytes: maxChars,
@@ -208,6 +227,8 @@ export class HydrateAgentContextService {
     limit: number,
     conversationKind?: string,
     query?: string,
+    hydrationMode: HydrationMode = 'full',
+    statementTimeoutMs?: number,
   ): Promise<HydratedContextMemoryItem[]> {
     if (this.dependencies.loadAppMemoryItems) {
       const hydrationQuery = query?.trim();
@@ -216,6 +237,8 @@ export class HydrateAgentContextService {
         limit,
         ...(conversationKind ? { conversationKind } : {}),
         ...(hydrationQuery ? { query: hydrationQuery } : {}),
+        hydrationMode,
+        ...(statementTimeoutMs ? { statementTimeoutMs } : {}),
       });
     }
     return [];
@@ -533,6 +556,7 @@ function continuitySubjectForSession(
 function recordHydrationStatus(input: {
   session: AgentSession;
   conversationKind?: string;
+  hydrationMode: HydrationMode;
   block: string;
   maxChars: number;
   truncated: boolean;
@@ -541,6 +565,7 @@ function recordHydrationStatus(input: {
 }) {
   recordSessionContinuityInjectionStatus({
     injectedAt: nowIso(),
+    hydrationMode: input.hydrationMode,
     subject: continuitySubjectForSession(input.session, input.conversationKind),
     bytes: Buffer.byteLength(input.block, 'utf8'),
     maxBytes: input.maxChars,

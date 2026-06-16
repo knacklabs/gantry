@@ -63,6 +63,19 @@ describe('PostgresRuntimeRepositoryBundle', () => {
     expect(makeOwnedAgentSessionScopeKey('agent:agent_a', routeScope)).not.toBe(
       makeOwnedAgentSessionScopeKey('agent:agent_b', routeScope),
     );
+    expect(
+      makeOwnedAgentSessionScopeKey('agent:agent_a', routeScope, 'app:one'),
+    ).toBe(
+      'app:app%3Aone::agent:agent%3Aagent_a::runtime_workspace_folder::conversation:tg%3Asession-rebind',
+    );
+    expect(
+      makeOwnedAgentSessionScopeKey('agent:agent_a', routeScope, 'app:one'),
+    ).not.toBe(
+      makeOwnedAgentSessionScopeKey('agent:agent_a', routeScope, 'app:two'),
+    );
+    expect(makeOwnedAgentSessionScopeKey('agent:agent_a', routeScope)).not.toBe(
+      makeOwnedAgentSessionScopeKey('agent:agent_a', routeScope, 'app:one'),
+    );
   });
 
   it('forwards hydrateMemory:false to skip concrete session memory hydration', async () => {
@@ -129,6 +142,25 @@ describe('PostgresRuntimeRepositoryBundle', () => {
       limit: 3,
       query: 'remember style',
       conversationKind: 'channel',
+      hydrationMode: 'full',
+    });
+
+    await bundle.getAgentTurnContext({
+      agentFolder: 'main',
+      conversationJid: 'tg:primary',
+      threadId: 'topic-1',
+      conversationKind: 'channel',
+      query: 'remember style',
+      hydrationMode: 'first_visible',
+    });
+
+    expect(loadAppMemoryItems).toHaveBeenLastCalledWith({
+      session,
+      limit: 3,
+      query: 'remember style',
+      conversationKind: 'channel',
+      hydrationMode: 'first_visible',
+      statementTimeoutMs: 250,
     });
   });
 
@@ -317,6 +349,7 @@ describe('PostgresRuntimeRepositoryBundle', () => {
     };
 
     expect(repository.resetScope).toHaveBeenCalledWith({
+      appId: undefined,
       scopeKey: 'main::conversation:sl%3AC-A::thread:111.222',
       chatJid: 'sl:C-A',
       threadId: '111.222',
@@ -345,6 +378,7 @@ describe('PostgresRuntimeRepositoryBundle', () => {
     await bundle.deleteSession('main', null);
 
     expect(repository.resetScope).toHaveBeenCalledWith({
+      appId: undefined,
       scopeKey: 'main',
       chatJid: undefined,
       threadId: null,

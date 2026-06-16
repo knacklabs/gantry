@@ -19,7 +19,7 @@ vi.mock('@core/config/index.js', () => ({
   ASSISTANT_NAME: 'Andy',
   IDLE_TIMEOUT: 1_800_000,
   MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
-  MAX_MESSAGES_PER_PROMPT: 50,
+  MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
   getRuntimeSettingsForConfig: () => ({
     memory: {
@@ -219,6 +219,7 @@ function makeDeps(
       enforcing: false,
       start: vi.fn(),
     },
+    getSelectedAgentHarness: vi.fn(() => 'auto'),
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
@@ -390,6 +391,37 @@ describe('createGroupProcessor', () => {
 
       expect(result).toBe(true);
       expect(mockSpawnAgent).toHaveBeenCalled();
+    });
+
+    it('starts the run with all pending messages across fetch pages', async () => {
+      const messages = Array.from({ length: 52 }, (_, index) =>
+        makeMessage({
+          id: String(index + 1),
+          content: `message ${index + 1}`,
+          timestamp: `2024-01-01T00:00:${String(index + 1).padStart(
+            2,
+            '0',
+          )}.000Z`,
+        }),
+      );
+      const { deps } = setupHappyPath({ messages });
+      mockGetMessagesSince
+        .mockResolvedValueOnce(messages.slice(0, 50))
+        .mockResolvedValueOnce(messages.slice(50));
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(mockGetMessagesSince).toHaveBeenCalledTimes(2);
+      expect(mockFormatMessages).toHaveBeenCalledWith(messages, 'UTC');
+      expect(mockSpawnAgent).toHaveBeenCalled();
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '2024-01-01T00:00:52.000Z',
+        id: '52',
+      });
     });
   });
 
@@ -1029,6 +1061,121 @@ describe('createGroupProcessor', () => {
           id: 'anthropic:claude-agent-sdk',
         }),
       });
+    });
+
+    it('adds selected skill metadata to runtime context without injecting full skill bodies', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const skillRepository = {
+        getSkill: vi.fn(async () => ({
+          id: 'skill:release-writer',
+          appId: 'app:test',
+          agentId: 'agent:test',
+          name: 'release-writer',
+          description: 'Use for drafting release notes.',
+          source: 'admin_uploaded',
+          status: 'installed',
+          promptRefs: [],
+          toolIds: [],
+          workflowRefs: [],
+          storage: {
+            storageType: 'local-filesystem',
+            storageRef: 'skills/release-writer',
+            contentHash: 'sha256-release-writer',
+            sizeBytes: 1024,
+          },
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+        })),
+        listAgentSkillBindings: vi.fn(async () => [
+          {
+            id: 'binding:release-writer',
+            appId: 'app:test',
+            agentId: 'agent:test',
+            skillId: 'skill:release-writer',
+            status: 'active',
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+          },
+        ]),
+        listEnabledSkillsForAgent: vi.fn(async () => [
+          {
+            id: 'skill:release-writer',
+            appId: 'app:test',
+            agentId: 'agent:test',
+            name: 'release-writer',
+            description: 'Use for drafting release notes.',
+            source: 'admin_uploaded',
+            status: 'installed',
+            promptRefs: [],
+            toolIds: [],
+            workflowRefs: [],
+            storage: {
+              storageType: 'local-filesystem',
+              storageRef: 'skills/release-writer',
+              contentHash: 'sha256-release-writer',
+              sizeBytes: 1024,
+            },
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+          },
+        ]),
+      };
+      const skillArtifactStore = {
+        getSkillArtifact: vi.fn(async () => ({
+          assets: [
+            {
+              path: 'SKILL.md',
+              content: Buffer.from(
+                [
+                  '---',
+                  'name: release-writer',
+                  'description: Use for drafting release notes.',
+                  '---',
+                  '# Release Writer',
+                  'FULL BODY INSTRUCTIONS MUST NOT BE INJECTED',
+                ].join('\n'),
+              ),
+            },
+          ],
+        })),
+      };
+      const { deps } = setupHappyPath({ group });
+      deps.getSkillRepository = vi.fn(() => skillRepository as never);
+      deps.getSkillArtifactStore = vi.fn(() => skillArtifactStore as never);
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          externalSessionId: 'claude-session-1',
+          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          memoryContextBlock:
+            '<gantry_memory_context>memory</gantry_memory_context>',
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const memoryContextBlock = mockSpawnAgent.mock.calls[0][1]
+        .memoryContextBlock as string;
+      expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
+        appId: 'app:test',
+        agentId: 'agent:test',
+      });
+      expect(skillArtifactStore.getSkillArtifact).not.toHaveBeenCalled();
+      expect(memoryContextBlock).toContain(
+        '<gantry_memory_context>memory</gantry_memory_context>',
+      );
+      expect(memoryContextBlock).toContain(
+        'release-writer (skill:release-writer)',
+      );
+      expect(memoryContextBlock).toContain('revision: sha256-release-writer');
+      expect(memoryContextBlock).not.toContain('```markdown');
+      expect(memoryContextBlock).not.toContain(
+        'FULL BODY INSTRUCTIONS MUST NOT BE INJECTED',
+      );
     });
 
     it('expires provider session resume when runtime access projection changes', async () => {
@@ -3593,12 +3740,14 @@ describe('createGroupProcessor', () => {
       expect(
         (deps.opsRepository as any).getAgentTurnContext,
       ).toHaveBeenCalledWith({
+        appId: 'default',
         agentFolder: 'my-group',
         executionProviderId: 'anthropic:claude-agent-sdk',
         conversationJid: 'group1@g.us',
         threadId: null,
         conversationKind: 'channel',
         memoryUserId: 'user1@s.whatsapp.net',
+        hydrationMode: 'first_visible',
         query: 'hello',
       });
     });
@@ -4066,7 +4215,10 @@ describe('createGroupProcessor', () => {
       expect(deps.clearSession).toHaveBeenCalledWith(
         'grp-folder',
         undefined,
-        expect.objectContaining({ conversationJid: 'group1@g.us' }),
+        expect.objectContaining({
+          appId: 'default',
+          conversationJid: 'group1@g.us',
+        }),
       );
     });
 
@@ -4547,6 +4699,40 @@ describe('createGroupProcessor', () => {
       });
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         model: 'groq-oss',
+      });
+    });
+
+    it('resolves family candidates from the app-session scope instead of default', async () => {
+      const { deps, group } = setupFamilyGroup();
+      const conversationJid = 'app:tenant:support';
+      mockGetMessagesSince.mockReturnValue([
+        makeMessage({ chat_jid: conversationJid }),
+      ]);
+      deps.getConfiguredModelProviders = vi.fn(async (appId: string) =>
+        appId === 'tenant' ? new Set(['cerebras']) : new Set(['groq']),
+      );
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'tenant',
+          agentId: 'agent:tenant',
+          agentSessionId: 'agent-session:tenant',
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages(conversationJid)).resolves.toBe(true);
+
+      expect(deps.getConfiguredModelProviders).toHaveBeenCalledWith('tenant');
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'tenant',
+          agentFolder: group.folder,
+          conversationJid,
+        }),
+      );
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        appId: 'tenant',
+        model: 'cerebras',
       });
     });
 

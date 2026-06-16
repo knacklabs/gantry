@@ -1,6 +1,6 @@
 import { createDeepAgent, StateBackend } from 'deepagents';
 import type { FilesystemPermission } from 'deepagents';
-import { HumanMessage, AIMessage } from '@langchain/core/messages';
+import { HumanMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 
@@ -21,8 +21,15 @@ import {
 import { createBuiltinToolExclusionMiddleware } from './builtin-tool-exclusion.js';
 import { connectGantryAndThirdPartyMcpTools } from './mcp-tools.js';
 import { buildPermissionIpcRuntimeEnv } from './runtime-env.js';
+import {
+  buildDeepAgentStartupDiagnosticEvent,
+  createDeepAgentStartupTiming,
+} from './startup-diagnostic.js';
 import type { DeepAgentRunnerInput } from './types.js';
-import type { PersistedTurnMessage } from './session-store.js';
+import type {
+  DeepAgentCheckpointSaver,
+  DeepAgentCheckpointTiming,
+} from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
 
@@ -43,7 +50,11 @@ const DENY_ALL_FILESYSTEM: FilesystemPermission[] = [
 interface DeepAgentGraph {
   streamEvents(
     input: { messages: BaseMessage[] },
-    options: { version: 'v2'; signal?: AbortSignal },
+    options: {
+      version: 'v2';
+      signal?: AbortSignal;
+      configurable?: { thread_id: string };
+    },
   ): AsyncIterable<LangGraphStreamEvent>;
 }
 
@@ -54,12 +65,12 @@ interface ModelProfileLike {
 
 export interface DeepAgentTurnResult {
   text: string;
-  messages: PersistedTurnMessage[];
   // Terminal-frame payload for the single per-turn terminal marker the caller
   // (runner index) emits; it folds in the continuation/stop decision (R2/R3).
   terminalResult: string | null;
   terminalUsage: RunnerOutputFrame['usage'];
   terminalContextUsage: RunnerOutputFrame['contextUsage'];
+  startupRuntimeEvents?: RunnerOutputFrame['runtimeEvents'];
 }
 
 export async function runDeepAgentTurn(input: {
@@ -70,8 +81,11 @@ export async function runDeepAgentTurn(input: {
   // to the model profile's `maxInputTokens` for window-aware compaction +
   // context-usage. Undefined for ids with a real library profile.
   maxInputTokens?: number;
-  priorMessages: PersistedTurnMessage[];
   newSessionId: string;
+  threadId?: string;
+  checkpointer?: DeepAgentCheckpointSaver;
+  checkpointTiming?: DeepAgentCheckpointTiming;
+  includeMemoryContext: boolean;
   emit: (frame: RunnerOutputFrame) => void;
   log?: (message: string) => void;
   // Marks tool activity (by name) on each tool-call start; the scheduled-job
@@ -85,6 +99,7 @@ export async function runDeepAgentTurn(input: {
   const logElapsed = (message: string) => {
     input.log?.(`${message} after ${Math.max(0, nowMs() - startedAt)}ms`);
   };
+  const startupTiming = createDeepAgentStartupTiming({ nowMs });
   const gateway = resolveGatewayCredentialEnv(
     input.agentInput.modelCredentialEnv ?? {},
   );
@@ -93,56 +108,70 @@ export async function runDeepAgentTurn(input: {
   // agentInput.sessionId, else freshly minted by the store), so cache hits
   // persist across turns of the same conversation.
   const stickySessionId = input.agentInput.sessionId ?? input.newSessionId;
-  const resolved = await buildRunnerModel({
-    provider: input.provider,
-    modelId: input.modelId,
-    gatewayBaseUrl: gateway.baseUrl,
-    gatewayToken: gateway.token,
-    sessionId: stickySessionId,
-    ...(input.maxInputTokens !== undefined
-      ? { maxInputTokens: input.maxInputTokens }
-      : {}),
-  });
+  const resolved = await startupTiming.measureAsync('modelBuildMs', () =>
+    buildRunnerModel({
+      provider: input.provider,
+      modelId: input.modelId,
+      gatewayBaseUrl: gateway.baseUrl,
+      gatewayToken: gateway.token,
+      sessionId: stickySessionId,
+      ...(input.maxInputTokens !== undefined
+        ? { maxInputTokens: input.maxInputTokens }
+        : {}),
+    }),
+  );
   logElapsed('Model built');
-  const systemPrompt = composeDeepAgentSystemPrompt(input.agentInput);
+  const systemPrompt = startupTiming.measure('systemPromptMs', () =>
+    composeDeepAgentSystemPrompt(input.agentInput),
+  );
   logElapsed('System prompt composed');
 
   const configuredAllowedTools = input.agentInput.allowedTools ?? [];
   const memoryBlock = readMemoryContextBlock(input.agentInput);
-  const permissionEnv = buildPermissionIpcRuntimeEnv();
+  const permissionEnv = startupTiming.measure('permissionEnvMs', () =>
+    buildPermissionIpcRuntimeEnv(),
+  );
   logElapsed('Permission env prepared');
-  const connected = await connectGantryAndThirdPartyMcpTools({
-    configuredAllowedTools,
-    hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
-    // The gated shell tool (when projected) runs commands as a child of this
-    // already-sandboxed runner; thread the run-cancellation signal so an
-    // in-flight command is killed on STOP/close.
-    ...(input.signal ? { shellSignal: input.signal } : {}),
-    gate: {
-      workspaceFolder: input.agentInput.workspaceFolder,
-      memoryBlock,
-      gateContext: {
-        isScheduledJob: input.agentInput.isScheduledJob,
-        jobId: input.agentInput.jobId,
-        threadId: input.agentInput.threadId,
-        conversationId: input.agentInput.chatJid,
-        yoloMode: input.agentInput.yoloMode,
+  const connected = await startupTiming.measureAsync('mcpConnectMs', () =>
+    connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools,
+      hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
+      // The gated shell tool (when projected) runs commands as a child of this
+      // already-sandboxed runner; thread the run-cancellation signal so an
+      // in-flight command is killed on STOP/close.
+      ...(input.signal ? { shellSignal: input.signal } : {}),
+      gate: {
+        workspaceFolder: input.agentInput.workspaceFolder,
+        memoryBlock,
+        gateContext: {
+          isScheduledJob: input.agentInput.isScheduledJob,
+          jobId: input.agentInput.jobId,
+          threadId: input.agentInput.threadId,
+          conversationId: input.agentInput.chatJid,
+          yoloMode: input.agentInput.yoloMode,
+        },
+        permissionEnv,
+        lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
       },
-      permissionEnv,
-      lockedAccessPreset: process.env.GANTRY_AGENT_ACCESS_PRESET === 'locked',
-    },
-  });
+    }),
+  );
   logElapsed(`MCP tools connected (tools=${connected.tools.length})`);
+  startupTiming.markToolsReady();
 
   try {
-    const agent = createDeepAgent({
-      model: resolved.model,
-      backend: new StateBackend(),
-      permissions: DENY_ALL_FILESYSTEM,
-      tools: connected.tools as StructuredToolInterface[] as never,
-      middleware: [createBuiltinToolExclusionMiddleware()] as never,
-      ...(systemPrompt ? { systemPrompt } : {}),
-    }) as unknown as DeepAgentGraph;
+    const agent = startupTiming.measure(
+      'graphCreateMs',
+      () =>
+        createDeepAgent({
+          model: resolved.model,
+          backend: (config) => new StateBackend(config),
+          ...(input.checkpointer ? { checkpointer: input.checkpointer } : {}),
+          permissions: DENY_ALL_FILESYSTEM,
+          tools: connected.tools as StructuredToolInterface[] as never,
+          middleware: [createBuiltinToolExclusionMiddleware()] as never,
+          ...(systemPrompt ? { systemPrompt } : {}),
+        }) as unknown as DeepAgentGraph,
+    );
     logElapsed('DeepAgent graph created');
 
     // Gated cache_control breakpoints: on 'explicit' the leading stable prompt
@@ -151,47 +180,85 @@ export async function runDeepAgentTurn(input: {
     const cacheMode = parseCachePromptControlMode(
       process.env.GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL,
     );
-    const turnMessages = applyCachePromptControl(
-      buildTurnMessages(input.agentInput, input.priorMessages),
-      cacheMode,
+    const turnMessages = startupTiming.measure('turnMessagesMs', () =>
+      applyCachePromptControl(
+        buildTurnMessages(input.agentInput, {
+          includeMemoryContext: input.includeMemoryContext,
+        }),
+        cacheMode,
+      ),
     );
     logElapsed(
       `Turn messages built (messages=${turnMessages.length}, cacheMode=${cacheMode})`,
     );
     const profile = readModelProfile(resolved.model);
 
-    const events = agent.streamEvents(
-      { messages: turnMessages },
-      { version: 'v2', ...(input.signal ? { signal: input.signal } : {}) },
+    const events = startupTiming.measure('streamIteratorMs', () =>
+      agent.streamEvents(
+        { messages: turnMessages },
+        {
+          version: 'v2',
+          ...(input.signal ? { signal: input.signal } : {}),
+          ...(input.threadId
+            ? { configurable: { thread_id: input.threadId } }
+            : {}),
+        },
+      ),
     );
     logElapsed('LangGraph stream iterator created');
-    const normalized = await normalizeDeepAgentStream({
-      events,
-      newSessionId: input.newSessionId,
-      modelId: resolved.modelId,
-      modelProfile: { maxInputTokens: profile.maxInputTokens },
-      cacheProvider: cacheProviderForEndpoint(resolved.endpointFamily),
-      emit: input.emit,
-      onFirstEvent: (eventName) =>
-        logElapsed(`First LangGraph event (${eventName})`),
-      onFirstVisibleText: () => logElapsed('First visible text delta'),
-      ...(input.onToolStart ? { onToolStart: input.onToolStart } : {}),
-    });
+    const normalized = await startupTiming.measureAsync(
+      'streamNormalizeMs',
+      () =>
+        normalizeDeepAgentStream({
+          events,
+          newSessionId: input.newSessionId,
+          modelId: resolved.modelId,
+          modelProfile: { maxInputTokens: profile.maxInputTokens },
+          cacheProvider: cacheProviderForEndpoint(resolved.endpointFamily),
+          emit: input.emit,
+          onFirstEvent: (eventName) => {
+            startupTiming.markFirstLangGraphEvent(eventName);
+            logElapsed(`First LangGraph event (${eventName})`);
+          },
+          onFirstVisibleText: () => {
+            startupTiming.markFirstVisibleOutput();
+            logElapsed('First visible text delta');
+          },
+          onToolStart: (toolName) => {
+            startupTiming.markToolStart();
+            input.onToolStart?.(toolName);
+          },
+        }),
+    );
     logElapsed('Stream normalized');
     const text = normalized.text;
-
-    const userText = composeUserTurnText(input.agentInput);
-    const messages: PersistedTurnMessage[] = [
-      ...input.priorMessages,
-      { role: 'human', text: userText },
-      { role: 'ai', text },
+    const startupRuntimeEvents = [
+      buildDeepAgentStartupDiagnosticEvent({
+        agentInput: input.agentInput,
+        modelProvider: input.provider,
+        modelId: resolved.modelId,
+        endpointFamily: resolved.endpointFamily,
+        timing: startupTiming.snapshot(),
+        selectedAllowedToolCount: configuredAllowedTools.length,
+        connectedToolCount: connected.tools.length,
+        systemPromptChars: systemPrompt?.length ?? 0,
+        memoryContextChars: memoryBlock.length,
+        turnMessageCount: turnMessages.length,
+        cacheMode,
+        checkpointerConfigured: input.checkpointer !== undefined,
+        ...(input.checkpointTiming
+          ? { checkpointTiming: input.checkpointTiming.snapshot() }
+          : {}),
+        scheduledJob: input.agentInput.isScheduledJob === true,
+      }),
     ];
+
     return {
       text,
-      messages,
       terminalResult: normalized.terminalResult,
       terminalUsage: normalized.terminalUsage,
       terminalContextUsage: normalized.terminalContextUsage,
+      startupRuntimeEvents,
     };
   } finally {
     await connected.close().catch(() => {});
@@ -204,25 +271,19 @@ export async function runDeepAgentTurn(input: {
 // HumanMessage — model-visible prompt context, never system authority.
 export function buildTurnMessages(
   agentInput: DeepAgentRunnerInput,
-  priorMessages: PersistedTurnMessage[],
+  options: { includeMemoryContext?: boolean } = {},
 ): BaseMessage[] {
-  const messages: BaseMessage[] = priorMessages.map((message) =>
-    message.role === 'human'
-      ? new HumanMessage(message.text)
-      : new AIMessage(message.text),
-  );
+  const messages: BaseMessage[] = [];
   const memoryBlock =
     typeof agentInput.memoryContextBlock === 'string'
       ? agentInput.memoryContextBlock.trim()
       : '';
   // Durable memory context is leading untrusted data, not system authority.
-  if (memoryBlock) messages.push(new HumanMessage(memoryBlock));
+  if (memoryBlock && options.includeMemoryContext !== false) {
+    messages.push(new HumanMessage(memoryBlock));
+  }
   messages.push(new HumanMessage(agentInput.prompt));
   return messages;
-}
-
-function composeUserTurnText(agentInput: DeepAgentRunnerInput): string {
-  return agentInput.prompt;
 }
 
 // The DeepAgents lane has a single gateway base-url + run-scoped token per run,

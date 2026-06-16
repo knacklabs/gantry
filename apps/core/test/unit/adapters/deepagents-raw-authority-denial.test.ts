@@ -219,7 +219,7 @@ describe('DeepAgents raw authority denial', () => {
     );
     const text = fs.readFileSync(runnerFile, 'utf-8');
     // The import statement and createDeepAgent backend must be StateBackend only.
-    expect(text).toContain('new StateBackend()');
+    expect(text).toMatch(/new\s+StateBackend\([^)]*\)/);
     expect(text).not.toMatch(/new\s+LocalShellBackend/);
     expect(text).not.toMatch(/new\s+FilesystemBackend/);
     expect(text).not.toMatch(/import\s*\{[^}]*LocalShellBackend[^}]*\}/);

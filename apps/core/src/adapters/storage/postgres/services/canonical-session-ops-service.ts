@@ -1,4 +1,7 @@
-import { HydrateAgentContextService } from '../../../../application/sessions/hydrate-agent-context-service.js';
+import {
+  HydrateAgentContextService,
+  type HydrationMode,
+} from '../../../../application/sessions/hydrate-agent-context-service.js';
 import type {
   AgentSessionDigestRepository,
   AgentSessionRepository,
@@ -19,6 +22,8 @@ type SessionAppMemoryLoaderInput = {
   limit: number;
   conversationKind?: string;
   query?: string;
+  hydrationMode: HydrationMode;
+  statementTimeoutMs?: number;
 };
 type HydratedAppMemoryItem = {
   id: string;
@@ -70,7 +75,14 @@ export class CanonicalSessionOpsService {
         {
           digests: repositories.agentSessionDigests,
           loadAppMemoryItems: repositories.loadAppMemoryItems
-            ? async ({ session, limit, conversationKind, query }) => {
+            ? async ({
+                session,
+                limit,
+                conversationKind,
+                query,
+                hydrationMode,
+                statementTimeoutMs,
+              }) => {
                 const resolvedConversationKind = conversationKind
                   ? conversationKind
                   : session.conversationId
@@ -82,6 +94,8 @@ export class CanonicalSessionOpsService {
                   session,
                   limit,
                   query,
+                  hydrationMode,
+                  ...(statementTimeoutMs ? { statementTimeoutMs } : {}),
                   conversationKind:
                     typeof resolvedConversationKind === 'string'
                       ? resolvedConversationKind
@@ -104,6 +118,7 @@ export class CanonicalSessionOpsService {
     sessionId: string,
     threadId: string | null | undefined,
     metadata: {
+      appId?: string;
       executionProviderId: ExecutionProviderId;
       chatJid?: string;
       conversationKind?: 'dm' | 'channel';
@@ -115,6 +130,7 @@ export class CanonicalSessionOpsService {
     },
   ): Promise<boolean> {
     return this.repository.setProviderSession({
+      appId: metadata.appId,
       workspaceFolder,
       executionProviderId: metadata.executionProviderId,
       sessionId,
@@ -136,6 +152,7 @@ export class CanonicalSessionOpsService {
   }
 
   async getAgentTurnContext(input: {
+    appId?: string;
     workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
     chatJid: string;
@@ -145,6 +162,7 @@ export class CanonicalSessionOpsService {
     jobId?: string;
     query?: string;
     hydrateMemory?: boolean;
+    hydrationMode?: HydrationMode;
   }): Promise<{
     appId: string;
     agentId: string;
@@ -156,6 +174,7 @@ export class CanonicalSessionOpsService {
     memoryContextBlock?: string;
   }> {
     const context = await this.repository.getAgentTurnContext({
+      appId: input.appId,
       workspaceFolder: input.workspaceFolder,
       executionProviderId: input.executionProviderId,
       chatJid: input.chatJid,
@@ -177,6 +196,7 @@ export class CanonicalSessionOpsService {
             sessionId: context.agentSessionId as never,
             conversationKind: input.conversationKind,
             query: input.query,
+            hydrationMode: input.hydrationMode,
           });
     return {
       ...context,
@@ -197,6 +217,7 @@ export class CanonicalSessionOpsService {
     workspaceFolder: string,
     threadId?: string | null,
     metadata: {
+      appId?: string;
       chatJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
@@ -204,6 +225,7 @@ export class CanonicalSessionOpsService {
     } = {},
   ): Promise<void> {
     await this.repository.resetScope({
+      appId: metadata.appId,
       scopeKey: makeSessionScopeKey(workspaceFolder, threadId, {
         conversationJid: metadata.chatJid,
         conversationKind: metadata.conversationKind,

@@ -35,44 +35,20 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
-import { getSelectedAgentHarness } from '../config/index.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
+import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import {
   executionProviderIdForCandidate,
   resolveTurnFailoverCandidates,
   runFamilyFailoverLoop,
   publishRunFailoverEvent,
 } from './failover-candidate-loop.js';
+import { runtimeLogger } from './group-runtime-logger.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
+const DEFAULT_TURN_APP_ID = 'default';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
 const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
-const RUNTIME_LOG_PROVIDER_FIELDS =
-  'sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id';
-const RUNTIME_LOG_PROVIDER_FIELD_PATTERNS: RegExp[] = [
-  new RegExp(
-    `(["'](?:${RUNTIME_LOG_PROVIDER_FIELDS})["']\\s*:\\s*")([^"\\r\\n]*)(")`,
-    'gi',
-  ),
-  new RegExp(
-    `(["'](?:${RUNTIME_LOG_PROVIDER_FIELDS})["']\\s*:\\s*')([^'\\r\\n]*)(')`,
-    'gi',
-  ),
-  new RegExp(
-    `\\b((?:${RUNTIME_LOG_PROVIDER_FIELDS})\\s*[:=]\\s*)([^\\s"',}\\]]+)`,
-    'gi',
-  ),
-  new RegExp(
-    `\\b((?:${RUNTIME_LOG_PROVIDER_FIELDS})\\s+)([^\\s"',}\\]]+)`,
-    'gi',
-  ),
-];
-const RUNTIME_LOG_PROVIDER_VALUE_PATTERNS: RegExp[] = [
-  /\bclaude-session-[A-Za-z0-9._:-]+\b/g,
-  /\bprovider-session:[A-Za-z0-9._:-]+\b/g,
-];
-const RUNTIME_LOG_REDACT_KEY_PATTERN =
-  /^(sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$/i;
 const memoryReviewApproverCache = new Map<string, [boolean, number]>();
 
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
@@ -89,57 +65,6 @@ function isStoppedByRequest(output: AgentOutput): boolean {
     /\bstopped by request\b/i.test(output.error ?? '')
   );
 }
-function redactRuntimeLogString(value: string): string {
-  let out = value;
-  for (const pattern of RUNTIME_LOG_PROVIDER_FIELD_PATTERNS) {
-    out = out.replace(pattern, (_match, prefix, _secret, suffix = '') => {
-      return `${prefix}[REDACTED]${suffix}`;
-    });
-  }
-  for (const pattern of RUNTIME_LOG_PROVIDER_VALUE_PATTERNS) {
-    out = out.replace(pattern, '[REDACTED]');
-  }
-  return out;
-}
-function redactRuntimeLogValue(value: unknown, depth: number): unknown {
-  if (depth > 6) return '[TRUNCATED_DEPTH]';
-  if (typeof value === 'string') return redactRuntimeLogString(value);
-  if (Array.isArray(value)) {
-    return value.map((entry) => redactRuntimeLogValue(entry, depth + 1));
-  }
-  if (value instanceof Error) {
-    const errorPayload: Record<string, unknown> = {
-      type: value.constructor?.name || 'Error',
-      name: value.name,
-      message: value.message,
-      stack: value.stack,
-    };
-    const withCause = value as Error & {
-      cause?: unknown;
-      code?: unknown;
-    };
-    if ('code' in withCause) {
-      errorPayload.code = withCause.code;
-    }
-    if ('cause' in withCause) {
-      errorPayload.cause = withCause.cause;
-    }
-    return redactRuntimeLogValue(errorPayload, depth + 1);
-  }
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      if (RUNTIME_LOG_REDACT_KEY_PATTERN.test(key)) {
-        out[key] = '[REDACTED]';
-        continue;
-      }
-      out[key] = redactRuntimeLogValue(entry, depth + 1);
-    }
-    return out;
-  }
-  return value;
-}
-
 function runtimeEventDedupKey(input: {
   eventType: string;
   appId?: string;
@@ -194,26 +119,6 @@ async function memoryReviewerApproverAllowed(
   ]);
   return allowed;
 }
-const runtimeLogger = {
-  info(payload: Record<string, unknown>, message: string) {
-    console.info(
-      redactRuntimeLogString(message),
-      redactRuntimeLogValue(payload, 0),
-    );
-  },
-  warn(payload: Record<string, unknown>, message: string) {
-    console.warn(
-      redactRuntimeLogString(message),
-      redactRuntimeLogValue(payload, 0),
-    );
-  },
-  error(payload: Record<string, unknown>, message: string) {
-    console.error(
-      redactRuntimeLogString(message),
-      redactRuntimeLogValue(payload, 0),
-    );
-  },
-};
 export function createGroupAgentRunner(input: {
   deps: GroupProcessingDeps;
   ops: () => GroupProcessingRepository;
@@ -249,7 +154,8 @@ export function createGroupAgentRunner(input: {
     const initialModelSelection = defaultModelStatusSelection(
       group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS,
     );
-    const agentHarness = getSelectedAgentHarness(group.folder);
+    const agentHarness = deps.getSelectedAgentHarness(group.folder);
+    const turnAppId = appIdFromConversationJid(chatJid) ?? DEFAULT_TURN_APP_ID;
     // Configured-first model-family failover candidates for THIS turn. [] means
     // no override (keep pre-failover behavior); candidates[0] is the existing
     // single-rewrite default, passed as the model so spawn uses that member.
@@ -259,7 +165,7 @@ export function createGroupAgentRunner(input: {
     // lookup has to be keyed by the first concrete candidate's execution lane.
     const failoverCandidates = await resolveTurnFailoverCandidates({
       requestedModel: group.agentConfig?.model,
-      appId: 'default',
+      appId: turnAppId,
       listConfiguredProviders: deps.getConfiguredModelProviders,
       familyOrder: deps.getModelFamilyOrder?.(),
     });
@@ -292,17 +198,20 @@ export function createGroupAgentRunner(input: {
     );
     const streamedResult = createRuntimeResultSummaryAccumulator();
     const turnContext = await ops().getAgentTurnContext?.({
+      appId: turnAppId,
       agentFolder: group.folder,
       executionProviderId,
       conversationJid: chatJid,
       threadId: sessionThreadId,
       conversationKind: group.conversationKind,
       memoryUserId: options?.memoryContext?.userId,
+      hydrationMode: 'first_visible',
       query:
         options?.memoryContext?.source === 'message'
           ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
           : undefined,
     });
+    const runtimeAppId = turnContext?.appId ?? turnAppId;
     let defaultRuntimeModel: string | undefined;
     const forwardedRuntimeEventKeys = new Set<string>();
     const defaultMemoryScope = memoryScopeForConversationKind(
@@ -367,6 +276,7 @@ export function createGroupAgentRunner(input: {
         nextSessionId,
         sessionThreadId,
         {
+          appId: runtimeAppId,
           executionProviderId,
           conversationJid: chatJid,
           conversationKind: group.conversationKind,
@@ -390,7 +300,7 @@ export function createGroupAgentRunner(input: {
       if (output.runtimeEvents?.length && deps.publishRuntimeEvent) {
         for (const event of output.runtimeEvents) {
           if (!isRuntimeEventType(event.eventType)) continue;
-          const appId = event.appId ?? turnContext?.appId;
+          const appId = event.appId ?? runtimeAppId;
           if (!appId) continue;
           const eventKey = runtimeEventDedupKey({
             eventType: event.eventType,
@@ -598,7 +508,7 @@ export function createGroupAgentRunner(input: {
           group,
           {
             prompt,
-            ...(turnContext?.appId ? { appId: turnContext.appId } : {}),
+            appId: runtimeAppId,
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             ...(agentInput.model ? { model: agentInput.model } : {}),
             chatJid,
@@ -703,7 +613,7 @@ export function createGroupAgentRunner(input: {
           executionProviderId = toProviderId;
           publishRunFailoverEvent({
             publish: deps.publishRuntimeEvent,
-            appId: turnContext?.appId,
+            appId: runtimeAppId,
             agentId: turnContext?.agentId,
             runId: runState.runId,
             conversationId: chatJid,

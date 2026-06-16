@@ -9,6 +9,7 @@ import type {
 import type { RuntimeEventType } from '../events/runtime-event-types.js';
 import type { ExecutionProviderId } from '../sessions/sessions.js';
 import type { RunLease } from '../ports/worker-coordination.js';
+import type { LiveAdmissionWorkItemEnqueueResult } from '../ports/live-turns.js';
 
 export interface JobUpsertInput {
   id: string;
@@ -119,6 +120,16 @@ export interface RuntimeChatMetadataRepository {
 
 export interface RuntimeMessageRepository {
   storeMessage(msg: NewMessage): Promise<void>;
+  storeMessageWithLiveAdmission?(
+    msg: NewMessage,
+    admission: {
+      appId: string;
+      agentId?: string | null;
+      agentSessionId?: string | null;
+      triggerDecision?: Record<string, unknown>;
+      now?: string;
+    },
+  ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined>;
   getNewMessages(
     jids: string[],
     lastCursor: string,
@@ -257,6 +268,7 @@ export interface RuntimeRouterStateRepository {
 
 export interface RuntimeAgentSessionRepository {
   getAgentTurnContext?(input: {
+    appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
@@ -266,6 +278,7 @@ export interface RuntimeAgentSessionRepository {
     jobId?: string;
     query?: string;
     hydrateMemory?: boolean;
+    hydrationMode?: 'first_visible' | 'full';
   }): Promise<{
     appId: string;
     agentId: string;
@@ -281,6 +294,7 @@ export interface RuntimeAgentSessionRepository {
     sessionId: string,
     threadId: string | null | undefined,
     metadata: {
+      appId?: string;
       executionProviderId: ExecutionProviderId;
       conversationJid?: string;
       conversationKind?: 'dm' | 'channel';
@@ -323,6 +337,7 @@ export interface RuntimeAgentSessionRepository {
     agentFolder: string,
     threadId?: string | null,
     metadata?: {
+      appId?: string;
       conversationJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;

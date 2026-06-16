@@ -15,6 +15,7 @@ import type {
 } from '../../../../domain/sessions/sessions.js';
 import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
 import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
+import type { LiveAdmissionWorkItemNotifier } from '../../../../domain/ports/live-turns.js';
 import type {
   JobEventListFilters,
   JobListFilters,
@@ -95,12 +96,14 @@ export class PostgresRuntimeRepositoryBundle
     private readonly options: {
       runtimeEvents: RuntimeEventPublisher;
       sessions?: SessionRuntimeOptions;
+      liveAdmissionNotifier?: LiveAdmissionWorkItemNotifier;
     },
   ) {
     const repositories = createPostgresDomainRepositories(this.db, this.pool);
     this.graph = new PostgresCanonicalGraphRepository(this.db);
     this.messages = new CanonicalMessageOpsService(
       new PostgresCanonicalMessageRepository(this.db),
+      this.options.liveAdmissionNotifier,
     );
     this.jobs = new CanonicalJobOpsService(
       new PostgresCanonicalJobRepository(this.db),
@@ -144,6 +147,19 @@ export class PostgresRuntimeRepositoryBundle
 
   async storeMessage(msg: NewMessage): Promise<void> {
     await this.messages.storeMessage(msg);
+  }
+
+  async storeMessageWithLiveAdmission(
+    msg: NewMessage,
+    admission: {
+      appId: string;
+      agentId?: string | null;
+      agentSessionId?: string | null;
+      triggerDecision?: Record<string, unknown>;
+      now?: string;
+    },
+  ) {
+    return this.messages.storeMessageWithLiveAdmission(msg, admission);
   }
 
   async getNewMessages(
@@ -342,6 +358,7 @@ export class PostgresRuntimeRepositoryBundle
     sessionId: string,
     threadId: string | null | undefined,
     metadata: {
+      appId?: string;
       executionProviderId: ExecutionProviderId;
       conversationJid?: string;
       conversationKind?: 'dm' | 'channel';
@@ -352,6 +369,7 @@ export class PostgresRuntimeRepositoryBundle
     },
   ): Promise<boolean> {
     return this.sessions.setSession(agentFolder, sessionId, threadId, {
+      appId: metadata.appId,
       executionProviderId: metadata.executionProviderId,
       chatJid: metadata.conversationJid,
       conversationKind: metadata.conversationKind,
@@ -363,6 +381,7 @@ export class PostgresRuntimeRepositoryBundle
   }
 
   async getAgentTurnContext(input: {
+    appId?: string;
     agentFolder: string;
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
@@ -372,6 +391,7 @@ export class PostgresRuntimeRepositoryBundle
     jobId?: string;
     query?: string;
     hydrateMemory?: boolean;
+    hydrationMode?: 'first_visible' | 'full';
   }): Promise<{
     appId: string;
     agentId: string;
@@ -383,6 +403,7 @@ export class PostgresRuntimeRepositoryBundle
     memoryContextBlock?: string;
   }> {
     return this.sessions.getAgentTurnContext({
+      appId: input.appId,
       workspaceFolder: input.agentFolder,
       executionProviderId: input.executionProviderId,
       chatJid: input.conversationJid,
@@ -392,6 +413,7 @@ export class PostgresRuntimeRepositoryBundle
       jobId: input.jobId,
       query: input.query,
       hydrateMemory: input.hydrateMemory,
+      hydrationMode: input.hydrationMode,
     });
   }
 
@@ -519,6 +541,7 @@ export class PostgresRuntimeRepositoryBundle
     agentFolder: string,
     threadId?: string | null,
     metadata: {
+      appId?: string;
       conversationJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
@@ -526,6 +549,7 @@ export class PostgresRuntimeRepositoryBundle
     } = {},
   ): Promise<void> {
     await this.sessions.deleteSession(agentFolder, threadId, {
+      appId: metadata.appId,
       chatJid: metadata.conversationJid,
       conversationKind: metadata.conversationKind,
       memoryUserId: metadata.memoryUserId,

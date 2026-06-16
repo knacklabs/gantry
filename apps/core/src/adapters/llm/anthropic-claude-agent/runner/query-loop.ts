@@ -29,7 +29,9 @@ import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
   allowedOuterSandboxClaudeExecutable,
   discoverAdditionalDirectories,
-  IPC_POLL_MS,
+  IPC_INPUT_DIR,
+  IPC_INTERACTION_BOUNDARY_DIR,
+  RUNTIME_SIGNAL_FALLBACK_POLL_MS,
   resolveClaudeCodeExecutableFromPath,
   WORKSPACE_GROUP_DIR,
 } from './runtime-env.js';
@@ -58,6 +60,11 @@ import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
+import {
+  decideClaudeSdkToolSearch,
+  toolSearchStartupRuntimeEvent,
+} from './tool-search-decision.js';
+import { startRuntimeSignalPump } from './runtime-signal-pump.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
@@ -161,8 +168,8 @@ export async function runQuery(
       interactionBoundary: 'user_interaction',
     });
   };
-  const pollRuntimeSignalsDuringQuery = () => {
-    if (!ipcPolling) return;
+  const processRuntimeSignalsDuringQuery = (): boolean => {
+    if (!ipcPolling) return false;
     const interactionBoundaries = drainInteractionBoundaries();
     for (let i = 0; i < interactionBoundaries; i += 1) {
       emitInteractionBoundary();
@@ -173,7 +180,7 @@ export async function runQuery(
       steeringGate.close();
       stream.end();
       ipcPolling = false;
-      return;
+      return false;
     }
     if (enableIpcFollowups) {
       const messages = drainIpcInput();
@@ -186,9 +193,21 @@ export async function runQuery(
         }
       }
     }
-    setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
+    return true;
   };
-  setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
+  const runtimeSignalPump = startRuntimeSignalPump({
+    inputDir: IPC_INPUT_DIR,
+    interactionBoundaryDir: IPC_INTERACTION_BOUNDARY_DIR,
+    fallbackPollMs: RUNTIME_SIGNAL_FALLBACK_POLL_MS,
+    processSignals: processRuntimeSignalsDuringQuery,
+    deps: {
+      onWatchError: ({ dir, error }) => {
+        log(
+          `Runtime signal watch failed for ${dir}: ${error instanceof Error ? error.message : String(error)}; using fallback poll`,
+        );
+      },
+    },
+  });
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
@@ -229,6 +248,8 @@ export async function runQuery(
   const isolatedSdkEnv: Record<string, string | undefined> = {
     ...sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   };
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
@@ -274,6 +295,19 @@ export async function runQuery(
   log(
     `SDK query prepared in ${elapsedMs()}ms ` +
       `(tools=${capabilities.availableTools.length} mcpServers=${Object.keys(capabilities.mcpServers ?? {}).length})`,
+  );
+  const toolSearchDecision = decideClaudeSdkToolSearch({
+    sdkEnv: isolatedSdkEnv,
+    availableTools: capabilities.availableTools,
+    allowedTools: capabilities.allowedTools,
+    disallowedTools: capabilities.disallowedTools,
+    mcpServers: capabilities.mcpServers,
+  });
+  isolatedSdkEnv.ENABLE_TOOL_SEARCH = toolSearchDecision.enableToolSearch;
+  log(
+    `SDK ToolSearch ${toolSearchDecision.enableToolSearch} ` +
+      `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
+      `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
   const sdkQuery = query({
     prompt: stream,
@@ -338,8 +372,9 @@ export async function runQuery(
         recordToolActivity: (toolName) =>
           heartbeat.recordToolActivity(toolName),
       }),
-      settingSources: ['user'],
+      settingSources: [],
       mcpServers: capabilities.mcpServers,
+      strictMcpConfig: true,
       includePartialMessages: true,
     },
   });
@@ -372,6 +407,12 @@ export async function runQuery(
           status: 'success',
           result: null,
           newSessionId,
+          runtimeEvents: [
+            toolSearchStartupRuntimeEvent({
+              agentInput,
+              decision: toolSearchDecision,
+            }),
+          ],
         });
       }
       if (
@@ -490,6 +531,7 @@ export async function runQuery(
     }
   } finally {
     ipcPolling = false;
+    runtimeSignalPump.stop();
     heartbeat.stop();
     steeringGate.close();
   }

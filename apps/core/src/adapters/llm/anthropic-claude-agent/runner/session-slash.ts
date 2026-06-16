@@ -67,6 +67,8 @@ export async function runSessionSlashCommand(
   const isolatedSdkEnv: Record<string, string | undefined> = {
     ...opts.sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   };
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
@@ -103,7 +105,8 @@ export async function runSessionSlashCommand(
           behavior: 'deny' as const,
           message: 'Session slash commands cannot use tools.',
         }),
-        settingSources: ['user'] as const,
+        settingSources: [] as const,
+        strictMcpConfig: true,
       },
     })) {
       const msgType =

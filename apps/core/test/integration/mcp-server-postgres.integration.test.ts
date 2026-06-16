@@ -72,23 +72,27 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         agentId: 'agent:one' as never,
         credentialEnv: { LINEAR_TOKEN_REF: 'broker-safe-linear-token' },
       });
-      expect(materialized).toEqual([
-        {
-          name: 'linear',
-          config: {
-            type: 'stdio',
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-linear'],
-            env: { LINEAR_TOKEN: 'broker-safe-linear-token' },
-          },
-          allowedToolNames: ['mcp__linear__search_issues'],
-          allowedToolPatterns: ['search_issues'],
-          autoApproveToolNames: ['mcp__linear__search_issues'],
-          autoApproveToolPatterns: ['search_issues'],
-          networkHosts: [],
-          required: false,
+      expect(materialized).toHaveLength(1);
+      expect(materialized[0]).toMatchObject({
+        name: 'linear',
+        serverId: created.id,
+        bindingId: expect.stringContaining(
+          `agent-mcp-binding:agent:one:${created.id}`,
+        ),
+        sourceRevision: expect.stringContaining(created.id),
+        config: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-linear'],
+          env: { LINEAR_TOKEN: 'broker-safe-linear-token' },
         },
-      ]);
+        allowedToolNames: ['mcp__linear__search_issues'],
+        allowedToolPatterns: ['search_issues'],
+        autoApproveToolNames: ['mcp__linear__search_issues'],
+        autoApproveToolPatterns: ['search_issues'],
+        networkHosts: [],
+        required: false,
+      });
 
       const second = await service.connectServer({
         appId: 'app-one' as never,

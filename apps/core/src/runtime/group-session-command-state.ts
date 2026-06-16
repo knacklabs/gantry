@@ -39,6 +39,7 @@ export function createAdvanceCursorHandler(input: {
 
 export function createArchiveCurrentSessionHandler(input: {
   ops: () => RuntimeAgentSessionRepository;
+  appId?: string;
   group: ArchiveSessionInput['group'];
   chatJid: string;
   threadId: string | null;
@@ -50,6 +51,7 @@ export function createArchiveCurrentSessionHandler(input: {
   return async (cause: ArchiveSessionInput['cause'] = 'new-session') => {
     await archiveCurrentRuntimeSession({
       ops: input.ops(),
+      appId: input.appId,
       group: input.group,
       chatJid: input.chatJid,
       threadId: input.threadId,
@@ -66,6 +68,7 @@ export function createArchiveCurrentSessionHandler(input: {
 
 export function createPrepareSessionArchiveHandler(input: {
   ops: () => RuntimeAgentSessionRepository;
+  appId?: string;
   group: ArchiveSessionInput['group'];
   chatJid: string;
   threadId: string | null;
@@ -77,6 +80,7 @@ export function createPrepareSessionArchiveHandler(input: {
   return async (_cause: 'new-session') => {
     const ops = input.ops();
     const turnContext = await ops.getAgentTurnContext?.({
+      appId: input.appId,
       agentFolder: input.group.folder,
       executionProviderId: resolveRuntimeExecutionProviderId(
         input.executionAdapter,

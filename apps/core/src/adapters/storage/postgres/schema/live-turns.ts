@@ -116,3 +116,82 @@ export const liveTurnCommandsPostgres = pgTable(
       .where(sql`${table.status} = 'pending'`),
   }),
 );
+
+export const liveAdmissionWorkItemsPostgres = pgTable(
+  'live_admission_work_items',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id').notNull(),
+    agentId: text('agent_id'),
+    agentSessionId: text('agent_session_id'),
+    conversationId: text('conversation_id').notNull(),
+    threadId: text('thread_id'),
+    queueJid: text('queue_jid').notNull(),
+    messageId: text('message_id').notNull(),
+    messageCursor: text('message_cursor').notNull(),
+    senderUserId: text('sender_user_id'),
+    senderDisplayName: text('sender_display_name'),
+    idempotencyKey: text('idempotency_key').notNull(),
+    // state is application-constrained to:
+    // queued | claimed | deferred | completed | failed | canceled.
+    state: text('state').notNull().default('queued'),
+    sourceKind: text('source_kind').notNull().default('message'),
+    triggerDecisionJson: jsonb('trigger_decision_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    claimWorkerInstanceId: text('claim_worker_instance_id'),
+    claimToken: text('claim_token'),
+    claimExpiresAt: timestamp('claim_expires_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    fencingVersion: integer('fencing_version').notNull().default(0),
+    retryCount: integer('retry_count').notNull().default(0),
+    deferUntil: timestamp('defer_until', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    deferredReason: text('deferred_reason'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    claimedAt: timestamp('claimed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    endedAt: timestamp('ended_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex(
+      'uq_live_admission_work_items_idempotency',
+    ).on(table.idempotencyKey),
+    dueIdx: index('idx_live_admission_work_items_due').on(
+      table.state,
+      table.deferUntil,
+      table.createdAt,
+    ),
+    claimExpiryIdx: index('idx_live_admission_work_items_claim_expiry').on(
+      table.state,
+      table.claimExpiresAt,
+    ),
+    conversationIdx: index('idx_live_admission_work_items_conversation').on(
+      table.appId,
+      table.conversationId,
+      table.threadId,
+      table.createdAt,
+    ),
+    agentIdx: index('idx_live_admission_work_items_agent').on(
+      table.appId,
+      table.agentId,
+      table.createdAt,
+    ),
+  }),
+);

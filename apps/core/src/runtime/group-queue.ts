@@ -225,28 +225,23 @@ export class GroupQueue {
           ? state.pendingMessages
           : state.pendingTasks.length > 0;
 
-      if (!pending) {
-        continue;
-      }
-
-      if (!state.active) {
-        return candidate;
-      }
+      if (!pending) continue;
+      if (!state.active) return candidate;
 
       queue.push(candidate);
     }
     return null;
   }
 
-  enqueueMessageCheck(groupJid: string): void {
-    if (this.shuttingDown) return;
+  enqueueMessageCheck(groupJid: string): boolean {
+    if (this.shuttingDown) return false;
 
     const state = this.getGroup(groupJid);
 
     if (state.active) {
       state.pendingMessages = true;
       logger.debug({ groupJid }, 'Agent run active, message queued');
-      return;
+      return true;
     }
 
     if (this.activeMessageCount >= this.policy.maxMessageRuns) {
@@ -260,7 +255,7 @@ export class GroupQueue {
           'Message queue backlog cap reached, deferring enqueue signal',
         );
         state.pendingMessages = true;
-        return;
+        return false;
       }
       state.pendingMessages = true;
       this.enqueueWaitingGroup('message', groupJid);
@@ -268,7 +263,7 @@ export class GroupQueue {
         { groupJid, activeMessageCount: this.activeMessageCount },
         'At message concurrency limit, message queued',
       );
-      return;
+      return true;
     }
 
     this.trackRun(
@@ -276,6 +271,7 @@ export class GroupQueue {
         logger.error({ groupJid, err }, 'Unhandled error in runForGroup'),
       ),
     );
+    return true;
   }
 
   enqueueTask(

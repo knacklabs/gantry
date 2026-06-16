@@ -5,6 +5,9 @@ import path from 'path';
 import {
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
+  STORAGE_POSTGRES_SCHEMA,
+  STORAGE_POSTGRES_URL,
+  STORAGE_POSTGRES_URL_ENV,
   TIMEZONE,
   getDeploymentMode,
   getRuntimeSettingsForConfig,
@@ -14,12 +17,6 @@ import {
 import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute } from '../domain/types.js';
-import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../domain/models/credentials.js';
-import { LlmProfileResolutionService } from '../application/model-resolution/llm-profile-resolution-service.js';
-import type { LlmProfile } from '../domain/agent/agent.js';
-import { DEFAULT_SETUP_MODEL_ALIAS } from '../shared/model-catalog.js';
-import { rewriteModelFamilyAliasForApp } from './model-family-resolution.js';
-import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
@@ -56,7 +53,6 @@ import {
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
-import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
 import {
   attachMcpSourceNetworkHosts,
   egressNetworkAttributionFromRuntimeAccess,
@@ -72,7 +68,7 @@ import {
   resolveRunnerMcpProjection,
   sandboxAllowedNetworkHostsFromRuntimeAccess,
 } from './agent-spawn-runtime-policy.js';
-import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import {
   getConfiguredModelProvidersForApp,
   getRuntimeFileArtifactStore,
@@ -83,7 +79,10 @@ import { resolveAgentExecutionAdapter } from '../application/agent-execution/age
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
 import { withStdioMcpEgressEnv } from './agent-spawn-mcp-egress-env.js';
 import { createRunnerHostStartupTiming } from './agent-spawn-startup-timing.js';
+import { publishRunnerHostStartupDiagnosticFromSpawn } from './agent-spawn-startup-diagnostic.js';
+import { resolveSelectedSkillEnvForSpawn } from './agent-spawn-selected-skill-env.js';
 import { validateAgentPreSpawnAdmission } from './agent-spawn-admission.js';
+import { resolveSpawnModel } from './agent-spawn-model-resolution.js';
 import {
   cleanupRunnerMcpConfigFile,
   cleanupRunnerTempDir,
@@ -92,6 +91,9 @@ import {
   protectedWritePathsForOuterSandbox,
   sandboxRuntimeToolProcessEnv,
   sandboxRuntimeToolNetworkEnv,
+  prepareRunnerWorkspace,
+  buildRunnerSandboxSpawnInput,
+  buildAndLogRunnerRuntimeDetails,
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 const DEFAULT_RUNNER_APP_ID = 'default';
@@ -101,7 +103,6 @@ export type {
   AgentInput,
   AgentOutput,
 } from './agent-spawn-types.js';
-
 function uniqueStrings(values: readonly string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -122,27 +123,15 @@ export async function spawnAgent(
 ): Promise<AgentOutput> {
   const startTime = currentTimeMs();
   const hostStartup = createRunnerHostStartupTiming({ nowMs: currentTimeMs });
-  const { groupDir, processName } = hostStartup.measure(
-    'workspacePrepMs',
-    () => {
-      const resolvedGroupDir = resolveWorkspaceFolderPath(group.folder);
-      fs.mkdirSync(resolvedGroupDir, { recursive: true, mode: 0o700 });
-      try {
-        fs.chmodSync(resolvedGroupDir, 0o700);
-      } catch (err) {
-        logger.warn(
-          { err, groupDir: resolvedGroupDir },
-          'Failed to tighten agent workspace mode',
-        );
-      }
-      const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
-      return {
-        groupDir: resolvedGroupDir,
-        processName: `gantry-${safeName}-${currentTimeMs()}-${randomUUID().slice(0, 8)}`,
-      };
-    },
+  const { groupDir, processName } = hostStartup.measure('workspacePrepMs', () =>
+    prepareRunnerWorkspace({
+      folder: group.folder,
+      nowMs: currentTimeMs,
+      warn: logger.warn.bind(logger),
+    }),
   );
   const modelResolutionStarted = hostStartup.start();
+  const runtimeSettings = getRuntimeSettingsForConfig();
   const modelConfig = getEffectiveModelConfig(
     input.isScheduledJob ? undefined : group.agentConfig?.model,
     input.isScheduledJob
@@ -150,40 +139,14 @@ export async function spawnAgent(
       : 'interactive',
     group.folder,
   );
-  const requestedModel = input.model || modelConfig.model;
-  const agentHarness = getSelectedAgentHarness(group.folder);
-  // Credential-driven model-family selection (live path): a family alias is
-  // rewritten to the concrete member whose provider has a configured credential.
-  const familyResolvedModel = await rewriteModelFamilyAliasForApp({
-    alias: requestedModel || modelConfig.model || DEFAULT_SETUP_MODEL_ALIAS,
+  const { modelWorkload, resolvedModel } = await resolveSpawnModel({
+    group,
+    agentInput: input,
     appId: input.appId || DEFAULT_RUNNER_APP_ID,
+    modelConfig,
+    agentHarness: getSelectedAgentHarness(group.folder),
+    modelFamilyOrder: runtimeSettings.modelFamilies,
     listConfiguredProviders: getConfiguredModelProvidersForApp,
-    familyOrder: getRuntimeSettingsForConfig().modelFamilies,
-  });
-  const modelWorkload = input.isScheduledJob
-    ? input.jobModelUseKind === 'oneTimeJob'
-      ? 'one_time_job'
-      : 'recurring_job'
-    : 'chat';
-  // Engine is a read-only diagnostic derived from the resolved model's
-  // provider; jobs and conversations inherit it and there is no engine selector.
-  // Resolution must fail before the runner process starts.
-  const runtimeSettings = getRuntimeSettingsForConfig();
-  const llmProfileResolutionService = new LlmProfileResolutionService();
-  const profileTimestamp = nowIso();
-  const runtimeLlmProfile: LlmProfile = {
-    id: `transient-runtime-profile:${group.folder}:${modelWorkload}` as never,
-    appId: (input.appId || DEFAULT_RUNNER_APP_ID) as never,
-    purpose: input.isScheduledJob ? 'coding' : 'chat',
-    modelAlias: familyResolvedModel,
-    credentialProfileRef: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-    createdAt: profileTimestamp as never,
-    updatedAt: profileTimestamp as never,
-  };
-  const resolvedModel = llmProfileResolutionService.resolve({
-    profile: runtimeLlmProfile,
-    workload: modelWorkload,
-    agentHarness,
   });
   hostStartup.finish('modelResolutionMs', modelResolutionStarted);
   if (!resolvedModel.ok) {
@@ -317,6 +280,11 @@ export async function spawnAgent(
             : {}),
           proxy: hostCredentials.proxy,
         },
+        runtimeStorage: {
+          postgresUrl: STORAGE_POSTGRES_URL,
+          postgresUrlEnv: STORAGE_POSTGRES_URL_ENV,
+          postgresSchema: STORAGE_POSTGRES_SCHEMA,
+        },
         browserIpcEnabled,
         packageRootFromRunner: (runnerPath) =>
           resolvePackageRootFromSourceDir(path.dirname(runnerPath)),
@@ -369,6 +337,7 @@ export async function spawnAgent(
     let reviewedMcpToolNames: string[] = [];
     let allMcpCapabilities: MaterializedMcpCapability[] = [];
     let selectedMcpServerNames: string[] = [];
+    let projectedMcpSourceIds: string[] = [];
     let effectiveRuntimeAccess = input.runtimeAccess ?? [];
     await hostStartup.measureAsync('mcpProjectionMs', async () => {
       const mcpSourceRecords =
@@ -395,7 +364,7 @@ export async function spawnAgent(
         mcpSourceRecords,
       });
       reviewedMcpToolNames = projection.reviewedMcpToolNames;
-      const projectedMcpSourceIds = projection.projectedMcpSourceIds;
+      projectedMcpSourceIds = projection.projectedMcpSourceIds;
       allMcpCapabilities =
         options?.mcpServerRepository &&
         options.capabilitySecretRepository &&
@@ -504,6 +473,10 @@ export async function spawnAgent(
     runnerInput.toolNetworkEnv = toolNetworkEnv;
     if (runnerInputPatch.semanticCapabilities) {
       runnerInput.semanticCapabilities = runnerInputPatch.semanticCapabilities;
+    }
+    if (runnerInputPatch.deepAgentCheckpointer) {
+      runnerInput.deepAgentCheckpointer =
+        runnerInputPatch.deepAgentCheckpointer;
     }
     const localCliCredentialPaths = resolveHomeRelativePaths(
       localCliCredentialPathHintsFromRuntimeAccess(effectiveRuntimeAccess),
@@ -615,57 +588,32 @@ export async function spawnAgent(
     // Job-level model overrides group-level model.
     const effectiveModelSource = input.model ? 'job.model' : modelConfig.source;
 
-    const runtimeDetails = [
-      `groupDir=${hostRuntime.groupDir}`,
-      'globalDir=(none)',
-      `ipcInput=${ipcInputDir}`,
-      `sandbox=${options?.runnerSandboxProvider?.id ?? 'direct'} enforcing=${options?.runnerSandboxProvider?.enforcing === true}`,
-      `broker=${hostCredentials.brokerProfile}`,
-      `brokerApplied=${hostCredentials.brokerApplied}`,
-      `mcpServers=${allMcpCapabilities.map((capability) => capability.name).join(',') || '(none)'}`,
-      `browserProfile=${browserProfileName}`,
-      ...preparedExecution.runtimeDetails,
-    ];
-
-    logger.debug(
-      {
-        group: group.name,
-        processName,
-        command,
-        args: args.join(' '),
-        runtimeDetails,
-      },
-      'Host agent runtime configuration',
-    );
-
-    logger.info(
-      {
-        group: group.name,
-        processName,
-        model: effectiveModel ?? null,
-        modelSource: effectiveModelSource,
-        systemPromptChars: compiledSystemPrompt.length,
-      },
-      'Spawning host agent',
-    );
+    const runtimeDetails = buildAndLogRunnerRuntimeDetails({
+      logger,
+      groupName: group.name,
+      processName,
+      command,
+      args,
+      groupDir: hostRuntime.groupDir,
+      ipcInputDir,
+      sandboxProviderId: options?.runnerSandboxProvider?.id ?? 'direct',
+      sandboxEnforcing: options?.runnerSandboxProvider?.enforcing === true,
+      brokerProfile: hostCredentials.brokerProfile,
+      brokerApplied: hostCredentials.brokerApplied,
+      mcpServerNames: allMcpCapabilities.map((capability) => capability.name),
+      browserProfileName,
+      preparedRuntimeDetails: preparedExecution.runtimeDetails,
+      effectiveModel,
+      effectiveModelSource,
+      systemPromptChars: compiledSystemPrompt.length,
+    });
 
     const logsDir = path.join(groupDir, 'logs');
     fs.mkdirSync(logsDir, { recursive: true });
     const selectedSkillEnv = await hostStartup.measureAsync(
       'selectedSkillEnvMs',
       () =>
-        options?.skillRepository &&
-        options.capabilitySecretRepository &&
-        options.skillContext?.appId &&
-        options.skillContext.agentId
-          ? resolveSelectedSkillEnvForAgent({
-              appId: options.skillContext.appId as never,
-              agentId: options.skillContext.agentId as never,
-              skills: options.skillRepository,
-              secrets: options.capabilitySecretRepository,
-              runtimeAccess: effectiveRuntimeAccess,
-            })
-          : Promise.resolve({ env: {} }),
+        resolveSelectedSkillEnvForSpawn({ options, effectiveRuntimeAccess }),
     );
     Object.assign(env, pickSelectedCapabilityEnv(selectedSkillEnv.env));
     mcpConfigPath = hostStartup.measure('mcpConfigMs', () =>
@@ -745,6 +693,45 @@ export async function spawnAgent(
       path.dirname(args[0] ?? hostRuntime.runnerDistDir),
     );
     hostStartup.finish('sandboxSpecMs', sandboxSpecStarted);
+    const finalAllowedNetworkHosts =
+      sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts ??
+      sandboxAllowedNetworkHosts;
+    await publishRunnerHostStartupDiagnosticFromSpawn({
+      publishRuntimeEvent: options?.publishRuntimeEvent,
+      logger,
+      agentInput: input,
+      runnerAppId,
+      agentEngine,
+      executionProviderId: preparedExecution.providerId,
+      hostPhases: hostStartup.payload(),
+      snapshot: {
+        trustedToolPolicyRules,
+        preparedEnv: preparedExecution.env,
+        attachedMcpSourceIds,
+        projectedMcpSourceIds,
+        selectedMcpServerNames,
+        allMcpCapabilities,
+        runnerVisibleMcpServerNames,
+        reviewedMcpToolNames,
+        mcpConfigPath,
+        selectedSkillEnv,
+        runnerInput,
+        effectiveRuntimeAccess,
+        browserIpcEnabled,
+        memoryIpcAllowedActions,
+        runnerSandboxProviderId,
+        runnerSandboxEnforcing:
+          options?.runnerSandboxProvider?.enforcing === true,
+        finalAllowedNetworkHosts,
+        sandboxProtectedReadPaths,
+        sandboxProtectedWritePaths,
+        localCliCredentialPaths,
+        egressProxyConfigured: Boolean(egressGateway?.proxyUrl),
+        upstreamProxyConfigured: Boolean(upstreamProxyUrl),
+        hostCredentials,
+        compiledSystemPrompt,
+      },
+    });
     const output = await executeRunnerProcess({
       group,
       input: runnerInput,
@@ -760,38 +747,22 @@ export async function spawnAgent(
       startupHostPhases: hostStartup.payload(),
       logsDir,
       runtimeDetails,
-      sandbox: {
-        cwd: hostRuntime.groupDir,
-        workspaceRoot: hostRuntime.groupDir,
-        configFilePath: sandboxConfigPath,
+      sandbox: buildRunnerSandboxSpawnInput({
+        groupDir: hostRuntime.groupDir,
+        sandboxConfigPath,
         egressProxyUrl: egressGateway?.proxyUrl,
-        allowedNetworkHosts:
-          sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts ??
-          sandboxAllowedNetworkHosts,
-        runtimeReadPaths: [
-          runnerPackageRoot,
-          hostRuntime.workspaceIpcDir,
-          workspaceExtraDir,
-          ...(providerConfigDir ? [providerConfigDir] : []),
-          ...(runnerTempDir ? [runnerTempDir] : []),
-          ...(providerToolTempDir ? [providerToolTempDir] : []),
-          ...localCliCredentialPaths,
-          ...(mcpConfigPath ? [mcpConfigPath] : []),
-        ],
-        runtimeWritePaths: [
-          hostRuntime.workspaceIpcDir,
-          ...(providerConfigDir ? [providerConfigDir] : []),
-          ...(runnerTempDir ? [runnerTempDir] : []),
-          ...(providerToolTempDir ? [providerToolTempDir] : []),
-        ],
+        allowedNetworkHosts: finalAllowedNetworkHosts,
+        runnerPackageRoot,
+        workspaceIpcDir: hostRuntime.workspaceIpcDir,
+        workspaceExtraDir,
+        providerConfigDir,
+        runnerTempDir,
+        providerToolTempDir,
+        localCliCredentialPaths,
+        mcpConfigPath,
         protectedReadPaths: sandboxProtectedReadPaths,
         protectedWritePaths: sandboxProtectedWritePaths,
         resourceLimits: runtimeSandbox.resourceLimits,
-        sandboxProfile: {
-          id: 'runner-default',
-          network: 'required',
-          filesystem: 'workspace_write',
-        },
         principal: {
           appId: runnerAppId,
           agentId: input.agentId,
@@ -800,7 +771,7 @@ export async function spawnAgent(
           runId: input.runId,
           jobId: input.jobId,
         },
-      },
+      }),
     });
     return output;
   } finally {

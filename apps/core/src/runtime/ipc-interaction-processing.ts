@@ -1,6 +1,5 @@
 import fs from 'fs';
 import { createHash } from 'node:crypto';
-
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,

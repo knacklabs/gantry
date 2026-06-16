@@ -322,16 +322,19 @@ The public lifecycle is:
 Jobs have no serialized execution mode. Interactive message admission stays in
 `GroupQueue` per process; scheduler work enters the background pg-boss lane and
 uses `runtime.queue.max_job_runs` as its worker concurrency bound.
-Live execution is horizontally distributed across processes: message polling and
-durable live-turn admission run on every live-capable process (`all`/`live-worker`
-roles with `runtime.live_turns.enabled: true`), and the durable
-one-active-turn-per-scope claim — not a host lease — serializes ownership. The
-old singleton `runtime:live-turn-host:default` lease is gone; a lease-elected
-recovery coordinator (`runtime:live-recovery-coordinator:default`) owns only
-startup pending-message recovery and the periodic recovery sweep. Process roles
-that do not run live execution (`control`, `job-worker`) initialize channels in
+Live execution is horizontally distributed across processes: durable
+live-admission work claims and durable live-turn admission run on every
+live-capable process (`all`/`live-worker` roles with
+`runtime.live_turns.enabled: true`), and the durable
+one-active-turn-per-scope claim — not a host lease — serializes ownership. When
+durable admission claims are available, the normal live path processes
+queue-scoped work items instead of route-wide message polling. The old singleton
+`runtime:live-turn-host:default` lease is gone; a lease-elected recovery
+coordinator (`runtime:live-recovery-coordinator:default`) owns only startup
+pending-message recovery and the periodic recovery sweep. Process roles that do
+not run live execution (`control`, `job-worker`) initialize channels in
 outbound-only mode for scheduler/control delivery and skip inbound provider
-polling/socket leases and live message polling entirely. See
+polling/socket leases and live admission entirely. See
 [live-horizontal-execution.md](./live-horizontal-execution.md).
 Scheduled job prompt runs and scheduler recovery turns call the same
 `agent-spawn` runner path as live turns, so `runtime.sandbox.provider:

@@ -50,7 +50,6 @@ import { slackThreadTsFromThreadId } from './thread-ts.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   private interactionCallbacksEnabled = true;
-
   protected async sendSnippetFallback(
     _input: SlackSnippetFallbackInput,
   ): Promise<SlackSnippetFallbackResult | null> {
@@ -709,7 +708,6 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       onChatMetadata: this.opts.onChatMetadata,
     });
   }
-
   isConnected(): boolean {
     return this.app !== null;
   }

@@ -3,7 +3,7 @@ import {
   getRuntimeSettingsForConfig,
   getTriggerPattern,
   IDLE_TIMEOUT,
-  MAX_MESSAGES_PER_PROMPT,
+  MESSAGE_FETCH_PAGE_SIZE,
   TIMEZONE,
 } from '../config/index.js';
 import {
@@ -11,7 +11,7 @@ import {
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { MessageSendOptions, ProgressUpdateOptions } from '../domain/types.js';
+import { MessageSendOptions } from '../domain/types.js';
 import {
   createSerializedAgentOutputCallbacks,
   isAgentTurnCompleteMarker,
@@ -50,6 +50,8 @@ import { getGroupBrowserStatus } from './group-browser-status.js';
 import {
   handleFailure,
   resetGroupStreamingForTurn,
+  resolveGroupTurnFinalProgressState,
+  shouldSendTurnFinalProgress,
   waitOutput,
 } from './group-processing-flow.js';
 import {
@@ -71,12 +73,16 @@ import {
 } from './group-agent-runner.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import {
   isModelAccessAuthFailure,
   sendModelAccessAuthFailureNotice,
 } from './model-access-auth-failure.js';
+import { createGroupTurnOptionBuilders } from './group-turn-options.js';
+import { collectPendingMessagesSince } from './pending-message-replay.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const DEFAULT_TURN_APP_ID = 'default';
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 type ActiveTurnUiCleanup = { token: symbol; cancel: () => void };
 const activeTurnUiCleanupByQueue = new Map<string, ActiveTurnUiCleanup>();
@@ -105,6 +111,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     } = {},
   ): Promise<boolean> {
     const { chatJid, threadId: queueThreadId } = parseThreadQueueKey(queueJid);
+    const turnAppId = appIdFromConversationJid(chatJid) ?? DEFAULT_TURN_APP_ID;
     const group = deps.getGroup(chatJid);
     if (!group) return true;
     if (!deps.channelRuntime.hasChannel(chatJid)) {
@@ -115,47 +122,27 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const messageFilter = scopedQueue
       ? { threadId: queueThreadId ?? null }
       : undefined;
-    const missedMessages = await ops().getMessagesSince(
+    const missedMessages = await collectPendingMessagesSince({
+      getMessagesSince: ops().getMessagesSince,
       chatJid,
-      await deps.getCursor(queueJid),
-      MAX_MESSAGES_PER_PROMPT,
-      messageFilter,
-    );
+      sinceCursor: await deps.getCursor(queueJid),
+      pageSize: MESSAGE_FETCH_PAGE_SIZE,
+      options: messageFilter,
+    });
     if (missedMessages.length === 0) return true;
     const latestMessage = missedMessages[missedMessages.length - 1];
     const activeThreadId = firstThreadQueueId(
       queueThreadId,
       latestMessage.thread_id,
     );
-    const resolveThreadId = (threadId?: string) => threadId ?? activeThreadId;
     let streamGeneration = (streamingGenerationCounter += 1);
     let progressGeneration = streamGeneration;
-    const buildMessageOptions = (threadId?: string) => {
-      const resolved = resolveThreadId(threadId);
-      return resolved ? { threadId: resolved } : undefined;
-    };
-    const buildStreamingOptions = (args: {
-      threadId?: string;
-      done?: boolean;
-    }) => ({
-      generation: streamGeneration,
-      ...(resolveThreadId(args.threadId)
-        ? { threadId: resolveThreadId(args.threadId) }
-        : {}),
-      ...(args.done !== undefined ? { done: args.done } : {}),
-    });
-    const buildProgressOptions = (
-      args: { threadId?: string; done?: boolean; replaceOnly?: boolean } = {},
-    ): ProgressUpdateOptions => ({
-      ...(resolveThreadId(args.threadId)
-        ? { threadId: resolveThreadId(args.threadId) }
-        : {}),
-      generation: progressGeneration,
-      ...(args.done !== undefined ? { done: args.done } : {}),
-      ...(args.replaceOnly !== undefined
-        ? { replaceOnly: args.replaceOnly }
-        : {}),
-    });
+    const { buildMessageOptions, buildStreamingOptions, buildProgressOptions } =
+      createGroupTurnOptionBuilders({
+        activeThreadId,
+        streamGeneration: () => streamGeneration,
+        progressGeneration: () => progressGeneration,
+      });
     const sendMessageToChannel = async (
       text: string,
       options?: MessageSendOptions,
@@ -228,7 +215,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           recurring: getDefaultModelConfig('recurringJob', group.folder).model,
         }),
         getConfiguredModelProviders: () =>
-          getConfiguredModelProvidersForApp('default'),
+          getConfiguredModelProvidersForApp(turnAppId),
         getModelFamilyOrder: () => getRuntimeSettingsForConfig().modelFamilies,
         getGroupModelOverride: () => group.agentConfig?.model,
         setGroupModelOverride: async (value) =>
@@ -241,6 +228,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           deps.setGroupThinkingOverride(chatJid, value),
         ...createSessionArchiveHandlers({
           ops,
+          appId: turnAppId,
           group,
           chatJid,
           threadId: activeThreadId ?? null,
@@ -251,6 +239,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         }),
         clearCurrentSession: () =>
           deps.clearSession(group.folder, activeThreadId, {
+            appId: turnAppId,
             conversationJid: chatJid,
             conversationKind: group.conversationKind,
             memoryUserId,
@@ -807,25 +796,22 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
     }
 
-    const finalProgressState: FinalProgressState =
-      output === 'stopped'
-        ? 'stopped'
-        : output === 'error' || hadError
-          ? 'failed'
-          : sawDeliveryIncomplete ||
-              (sawTerminalDeliveryFailure && outputSentToUser)
-            ? 'delivery_incomplete'
-            : sawTerminalDeliveryFailure
-              ? 'failed'
-              : 'completed';
-    const completedWhileAwaitingUserResponse =
-      finalProgressState === 'completed' && awaitingResponseReceipt;
+    const finalProgressState = resolveGroupTurnFinalProgressState({
+      output,
+      hadError,
+      sawDeliveryIncomplete,
+      sawTerminalDeliveryFailure,
+      outputSentToUser,
+    });
     if (
-      !completedWhileAwaitingUserResponse &&
-      (finalProgressState !== 'completed' ||
-        !sentAnyTurnDoneProgress ||
-        (activeGenerationHasOutput &&
-          sentTurnDoneProgressGeneration !== progressGeneration))
+      shouldSendTurnFinalProgress({
+        finalProgressState,
+        awaitingResponseReceipt,
+        sentAnyTurnDoneProgress,
+        activeGenerationHasOutput,
+        sentTurnDoneProgressGeneration,
+        progressGeneration,
+      })
     ) {
       await sendDoneProgress(finalProgressState);
     }

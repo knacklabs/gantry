@@ -306,6 +306,7 @@ describe('durable session resume use cases', () => {
       session,
       limit: 8,
       query: 'continuity tests',
+      hydrationMode: 'full',
     });
     expect(hydrated.digests).toHaveLength(1);
     expect(hydrated.block).toContain('gantry.memory_context.v1');
@@ -1209,6 +1210,7 @@ describe('durable session resume use cases', () => {
     expect(loadAppMemoryItems).toHaveBeenCalledWith({
       session,
       limit: 8,
+      hydrationMode: 'full',
     });
     expect(hydrated.memories).toHaveLength(1);
     expect(hydrated.block).toContain(

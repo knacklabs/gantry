@@ -23,7 +23,7 @@ import {
   getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { FileArtifactNotFoundError } from '../../../domain/file-artifacts/file-artifact.js';
-import { folderForAgentId } from '../../../config/settings/desired-state-service-helpers.js';
+import { folderForAgentId } from '../../../domain/agent/agent-folder-id.js';
 import { isValidWorkspaceFolder } from '../../../platform/workspace-folder.js';
 import { createProfileFileMirrorWriter } from '../../../platform/profile-file-mirror.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';

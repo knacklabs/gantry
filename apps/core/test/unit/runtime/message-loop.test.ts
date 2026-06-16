@@ -16,7 +16,7 @@ const mockFormatMessages = vi.fn();
 vi.mock('@core/config/index.js', () => ({
   getTriggerPattern: (...args: unknown[]) => mockGetTriggerPattern(...args),
   POLL_INTERVAL: 100,
-  MAX_MESSAGES_PER_PROMPT: 50,
+  MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
 }));
 vi.mock('@core/platform/sender-allowlist.js', () => ({
@@ -124,6 +124,21 @@ function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
     ...overrides,
   };
   return deps;
+}
+
+function makePendingMessage(index: number) {
+  return {
+    id: String(index),
+    chat_jid: 'group@g.us',
+    sender: `user-${index}@s.whatsapp.net`,
+    content: `message ${index}`,
+    timestamp: `2024-01-01T00:00:${String(index).padStart(2, '0')}.000Z`,
+    is_from_me: false,
+    message_id: `msg-${index}`,
+    reply_to_message_id: null,
+    reply_to_content: null,
+    sender_name: `User ${index}`,
+  };
 }
 
 beforeEach(() => {
@@ -255,6 +270,191 @@ describe('recoverPendingMessages', () => {
 });
 
 describe('thread queue routing', () => {
+  it('processes a durable live admission item without route-wide message polling', async () => {
+    const msg = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'hello',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: null,
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    mockGetMessagesSince.mockReturnValueOnce([msg]);
+    const enqueued: string[] = [];
+    const deps = makeDeps({
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: () => false,
+        enqueueMessageCheck: (queueJid: string) => {
+          enqueued.push(queueJid);
+          return true;
+        },
+      },
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1',
+        messageCursor: '2024-01-01T00:00:01.000Z::1',
+        senderUserId: 'user@s.whatsapp.net',
+        senderDisplayName: 'User',
+        idempotencyKey: 'provider:msg-1',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:01.000Z',
+        updatedAt: '2024-01-01T00:00:01.000Z',
+        claimedAt: '2024-01-01T00:00:01.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(mockGetNewMessages).not.toHaveBeenCalled();
+    expect(mockGetMessagesSince).toHaveBeenCalledOnce();
+    expect(enqueued).toEqual(['group@g.us']);
+  });
+
+  it('routes all durable pending messages across fetch pages without a prompt cap', async () => {
+    const messages = Array.from({ length: 51 }, (_, index) =>
+      makePendingMessage(index + 1),
+    );
+    mockGetMessagesSince
+      .mockResolvedValueOnce(messages.slice(0, 50))
+      .mockResolvedValueOnce(messages.slice(50));
+    const sendMessage = vi.fn(() => true);
+    const deps = makeDeps({
+      queue: {
+        ...makeDeps().queue,
+        sendMessage,
+      },
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:51',
+        messageCursor: '2024-01-01T00:00:51.000Z::51',
+        senderUserId: 'user-51@s.whatsapp.net',
+        senderDisplayName: 'User 51',
+        idempotencyKey: 'provider:msg-51',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:51.000Z',
+        updatedAt: '2024-01-01T00:00:51.000Z',
+        claimedAt: '2024-01-01T00:00:51.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(mockGetMessagesSince).toHaveBeenCalledTimes(2);
+    expect(mockFormatMessages).toHaveBeenCalledWith(messages, 'UTC');
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage.mock.calls[0][2]).toMatchObject({
+      cursorAfter: JSON.stringify({
+        timestamp: '2024-01-01T00:00:51.000Z',
+        id: '51',
+      }),
+    });
+    expect(deps.cursors['group@g.us']).toBe(
+      JSON.stringify({
+        timestamp: '2024-01-01T00:00:51.000Z',
+        id: '51',
+      }),
+    );
+  });
+
+  it('defers durable live admission when the message queue rejects capacity', async () => {
+    const msg = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'hello',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: null,
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    mockGetMessagesSince.mockReturnValueOnce([msg]);
+    const deps = makeDeps({
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: () => false,
+        enqueueMessageCheck: () => false,
+      },
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1',
+        messageCursor: '2024-01-01T00:00:01.000Z::1',
+        senderUserId: 'user@s.whatsapp.net',
+        senderDisplayName: 'User',
+        idempotencyKey: 'provider:msg-1',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:01.000Z',
+        updatedAt: '2024-01-01T00:00:01.000Z',
+        claimedAt: '2024-01-01T00:00:01.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('queued_capacity');
+  });
+
   it('enqueues separate queue keys for Slack/Telegram thread messages', async () => {
     const threadA = {
       id: 1,
@@ -361,7 +561,7 @@ describe('thread queue routing', () => {
       {
         threadId: undefined,
         senderUserIds: ['sl:UADMIN', 'sl:UOTHER'],
-        idempotencyKey: 'continuation:group@g.us:1,2',
+        idempotencyKey: expect.stringMatching(/^continuation:[a-f0-9]{64}$/),
         cursorAfter: expect.any(String),
       },
     );

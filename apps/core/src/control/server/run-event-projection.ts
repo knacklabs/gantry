@@ -13,6 +13,7 @@ export interface PublicRunEvent {
   type:
     | 'queued'
     | 'started'
+    | 'diagnostic'
     | 'model_event'
     | 'tool_request'
     | 'permission_decision'
@@ -116,6 +117,8 @@ function publicRunEventTypeFor(
     case RUNTIME_EVENT_TYPES.JOB_STARTED:
     case RUNTIME_EVENT_TYPES.JOB_RUN_STARTED:
       return 'started';
+    case RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC:
+      return 'diagnostic';
     case RUNTIME_EVENT_TYPES.JOB_STREAMING:
     case RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING:
       return 'output_chunk';

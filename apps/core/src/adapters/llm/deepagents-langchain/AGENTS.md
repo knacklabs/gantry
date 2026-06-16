@@ -109,8 +109,9 @@ correct-by-construction:
   `ChatOpenRouter`) — see "Model construction" above. `cache-control.ts` applies the
   gated `cache_control` breakpoints. `stream-normalizer.ts` is a pure
   function over `streamEvents(..., {version:'v2'})` → neutral runner frames
-  (unit-tested without network). `session-store.ts` is the adapter-private live
-  session projection. `deep-agent-runner.ts` wires `createDeepAgent`.
+  (unit-tested without network). `session-store.ts` is the adapter-private
+  LangGraph checkpoint projection for live resume. `deep-agent-runner.ts` wires
+  `createDeepAgent`.
 - `runner/mcp-tools.ts` — connects Gantry-owned MCP authority via
   `@langchain/mcp-adapters` `MultiServerMCPClient`: it spawns the Gantry facade
   stdio server (`GANTRY_MCP_SERVER_PATH`) with the projected env block, filters
@@ -238,6 +239,12 @@ newSessionId, sessionInit:true}` so the host persists the provider session
 - Startup timing logs must keep `sessionInit` separate from first visible
   content: the first LangGraph event is diagnostic, and first visible reply
   timing begins only when the normalizer emits a non-empty text delta.
+- Runner startup diagnostics must ride on the single terminal marker frame,
+  never as a separate `{status:'success', result:null}` frame. The host treats
+  non-`sessionInit` success/null frames as completion markers. Keep the
+  `run.startup_diagnostic` payload count/timing-only: no prompts, raw schemas,
+  tool args, paths, base URLs, or credentials. Tool readiness and tool activity
+  diagnostics use elapsed milliseconds and counts, not raw tool inputs.
 - Live-turn control parity (`runner/live-control.ts`): a poll loop watches the
   neutral IPC-input dir while a turn is in flight. A `_close` sentinel (host
   `/stop` or close-stdin, both written by `continuation-input.ts`) aborts the
@@ -253,10 +260,19 @@ newSessionId, sessionInit:true}` so the host persists the provider session
   the just-finished turn carries `continuedByFollowup` (the SINGLE marker for
   that turn — there is no separate continuation-only frame). The host delivery is
   engine-neutral, so no host code branches on engine.
-- Session-store durability (`runner/session-store.ts`): live session files are
-  written atomically (`<path>.tmp` then `renameSync`, same-fs atomic) so a kill
-  mid-write never truncates the live file and forces a stale-session retry that
-  would discard the conversation.
+- Session-store durability (`runner/session-store.ts`): live session continuity
+  uses LangChain's official Postgres checkpointer (`PostgresSaver`) with
+  `thread_id === sessionId`, not raw `{role,text}` message history, SQLite, a
+  custom saver, or a bounded/reduced transcript. Follow-up turns pass only the
+  new user input into `streamEvents` with the same `thread_id`; LangGraph
+  checkpoint state supplies continuity. Do not add max-message or max-character
+  trimming here because it silently lowers model quality. Missing, corrupt,
+  unauthorized, or wrong-thread checkpoint state must fail before `sessionInit`,
+  model gateway calls, MCP startup, tool execution, or permission prompts, and
+  any opened saver must be closed before the error propagates. Startup
+  diagnostics should report checkpoint load/write counts and milliseconds from
+  the official saver methods only; do not log checkpoint values, thread ids,
+  database URLs, schemas, prompts, or raw checkpoint blobs.
 - Raw-authority denial (`runner/builtin-tool-exclusion.ts` +
   `runner/deep-agent-runner.ts`): the model-visible tool surface excludes the
   DeepAgents built-ins `task`, `write_todos`, and the six filesystem tools

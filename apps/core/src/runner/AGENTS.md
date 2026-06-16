@@ -66,3 +66,7 @@
   requested", "installed", "available now", or "needs setup"; do not echo
   selected-skill lists, internal MCP tool ids, task ids, or raw status blocks
   unless the user asks for technical details.
+- Runner-side file IPC response waits should use `waitForIpcResponseFile` so
+  response files can wake the runner through `fs.watch` while retaining bounded
+  polling as a fallback. Do not add new raw sleep/poll loops for signed
+  permission, memory, browser, or task response files.

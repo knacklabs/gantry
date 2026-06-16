@@ -10,6 +10,7 @@ import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { ChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { runBoundedOutboundDeliveryRecovery } from '@core/jobs/outbound-delivery-recovery.js';
+import { buildPendingMessagesContinuationIdempotencyKey } from '@core/runtime/pending-message-replay.js';
 import {
   FakeCoordination,
   FakeLiveTurns,
@@ -785,7 +786,10 @@ describe('startRuntimeServices', () => {
         expect.objectContaining({
           liveTurnId: 'turn-existing',
           commandType: 'continuation',
-          idempotencyKey: 'continuation:tg:primary:msg-follow-up',
+          idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
+            queueJid: 'tg:primary',
+            messages: [{ id: 'msg-follow-up' }],
+          }),
           payload: expect.objectContaining({
             text: expect.stringContaining('same follow-up'),
           }),

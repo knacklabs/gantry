@@ -101,6 +101,11 @@ export interface AgentExecutionAdapterPrepareInput {
   effectiveModel?: string;
   effectiveModelEntry?: ModelCatalogEntry;
   modelCredentialProjection: AgentExecutionCredentialProjection;
+  runtimeStorage?: {
+    postgresUrl: string | null;
+    postgresUrlEnv: string;
+    postgresSchema: string;
+  };
   browserIpcEnabled: boolean;
   packageRootFromRunner: (runnerPath: string) => string;
   options?: AgentExecutionAdapterOptions;
@@ -115,6 +120,10 @@ export interface PreparedAgentExecution {
     modelCredentialEnv?: Record<string, string>;
     toolNetworkEnv?: Record<string, string>;
     semanticCapabilities?: SemanticCapabilityDefinition[];
+    deepAgentCheckpointer?: {
+      databaseUrl: string;
+      schema: string;
+    };
   };
   sandboxRuntime?: {
     toolTempDirLeaf?: string;

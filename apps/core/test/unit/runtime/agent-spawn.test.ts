@@ -29,6 +29,9 @@ vi.mock('@core/config/index.js', () => ({
   GANTRY_HOME: '/tmp/gantry-config',
   RUNTIME_SETTINGS_PATH: '/tmp/gantry-config/settings.yaml',
   GANTRY_MODEL_GATEWAY_URL: 'http://localhost:10254',
+  STORAGE_POSTGRES_SCHEMA: 'public',
+  STORAGE_POSTGRES_URL: 'postgres://gantry:test@127.0.0.1:5432/gantry',
+  STORAGE_POSTGRES_URL_ENV: 'GANTRY_DATABASE_URL',
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
   TIMEZONE: 'America/Los_Angeles',
   LOG_LEVEL: 'info',
@@ -952,6 +955,91 @@ describe('agent-spawn timeout behavior', () => {
 
     expect(mockEnsureWorkspaceIpcLayout).toHaveBeenCalledWith(
       '/tmp/gantry-test-data/ipc/test-group',
+    );
+  });
+
+  it('publishes a host startup diagnostic with projection counts', async () => {
+    const publishRuntimeEvent = vi.fn();
+    const executionAdapter: AgentExecutionAdapter = {
+      id: 'anthropic:claude-agent-sdk',
+      async prepare() {
+        return {
+          providerId: 'anthropic:claude-agent-sdk',
+          runnerPath:
+            '/tmp/gantry-home/dist/adapters/llm/anthropic-claude-agent/runner/index.js',
+          runnerArgs: [
+            '/tmp/gantry-home/dist/adapters/llm/anthropic-claude-agent/runner/index.js',
+          ],
+          env: {
+            GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify([
+              'send_message',
+              'file',
+            ]),
+          },
+          protectedFilesystemPaths: ['/tmp/secret-path'],
+          runtimeDetails: ['executionProvider=anthropic:claude-agent-sdk'],
+          cleanup: vi.fn(),
+        };
+      },
+    };
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        appId: 'app-one',
+        agentId: 'agent-one',
+        runId: 'run-one',
+        threadId: 'reply-one',
+        toolPolicyRules: ['Browser'],
+        attachedSkillSourceIds: ['skill:one'],
+        selectedSkillDisplays: ['Skill One'],
+      },
+      () => {},
+      undefined,
+      { executionAdapter, publishRuntimeEvent },
+    );
+    emitOutputMarker(fakeProc, { status: 'success', result: 'started' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        runId: 'run-one',
+        conversationId: 'conversation:test@g.us',
+        threadId: 'thread:test@g.us:reply-one',
+        eventType: 'run.startup_diagnostic',
+        actor: 'runtime',
+        responseMode: 'none',
+        payload: expect.objectContaining({
+          provider: 'host',
+          diagnostic: 'host_startup_projection',
+          executionProviderId: 'anthropic:claude-agent-sdk',
+          toolPolicyRuleCount: 1,
+          gantryMcpToolCount: 2,
+          selectedSkillSourceCount: 1,
+          selectedSkillDisplayCount: 1,
+          browserIpcEnabled: true,
+          mcpConfigProjected: false,
+          sandbox: expect.objectContaining({
+            provider: 'direct',
+            enforcing: false,
+          }),
+          egress: {
+            proxyConfigured: true,
+            upstreamProxyConfigured: false,
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+      '/tmp/secret-path',
+    );
+    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+      'http://127.0.0.1:18080',
     );
   });
 

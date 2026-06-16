@@ -1,6 +1,6 @@
 import {
   DEFAULT_TRIGGER,
-  MAX_MESSAGES_PER_PROMPT,
+  MESSAGE_FETCH_PAGE_SIZE,
   TIMEZONE,
   getCredentialBrokerRuntimeConfig,
   getDeploymentMode,
@@ -31,6 +31,7 @@ import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js
 import type { WorkerCoordinationRepository } from '../../domain/ports/worker-coordination.js';
 import type { RuntimeDependencyRepository } from '../../domain/ports/fleet-capability-state.js';
 import type {
+  LiveAdmissionWakeupSource,
   LiveTurn,
   LiveTurnCoordinationRepository,
 } from '../../domain/ports/live-turns.js';
@@ -124,6 +125,7 @@ interface Deps {
     | WorkerCoordinationRepository
     | undefined;
   getLiveTurnRepository?: () => LiveTurnCoordinationRepository | undefined;
+  getLiveAdmissionWakeupSource?: () => LiveAdmissionWakeupSource | undefined;
   /** Toolchain manifests for the live-turn recovery capability gate (fleet). */
   getRuntimeDependencyRepository?: () =>
     | RuntimeDependencyRepository
@@ -153,12 +155,7 @@ export type RuntimeServicesOptions = {
   app: RuntimeApp;
   channelWiring: ChannelWiring;
   liveTurnsEnabled?: boolean;
-  /**
-   * Recovery-coordinator lease manager. When provided, recovery (startup
-   * pending-message recovery + recovery sweep) runs only while this worker holds
-   * the lease; polling/admission run regardless. When omitted (single-process
-   * embedding/tests), this process is also the coordinator immediately.
-   */
+  /** Recovery lease manager; omitted single-process embeddings coordinate immediately. */
   recoveryCoordinator?: RecoveryCoordinatorPort;
   /** Process role; persisted on the worker_instances row at registration. */
   processRole?: ProcessRole;
@@ -518,7 +515,7 @@ export async function startRuntimeServices(
       app,
       opsRepository: resolved.opsRepository,
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
-      maxMessagesPerPrompt: MAX_MESSAGES_PER_PROMPT,
+      messageFetchPageSize: MESSAGE_FETCH_PAGE_SIZE,
       timezone: TIMEZONE,
       warn: (context, message) => resolved.logger.warn(context, message),
       finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
@@ -561,8 +558,8 @@ export async function startRuntimeServices(
         })) === 'queued_to_owner'
       );
     },
-    enqueueMessageCheck: (queueJid: string): void => {
-      app.queue.enqueueMessageCheck(queueJid);
+    enqueueMessageCheck: (queueJid: string): boolean => {
+      return app.queue.enqueueMessageCheck(queueJid);
     },
     closeStdin: async (queueJid: string): Promise<void> => {
       if (!liveTurnAuthority) {
@@ -993,9 +990,6 @@ export async function startRuntimeServices(
     return;
   }
 
-  // WP2 live execution services: the message polling loop runs on EVERY live
-  // worker (distributed admission); only the recovery coordinator (startup
-  // pending-message recovery + recovery sweep) is lease-elected.
   const messageLoopDeps: MessageLoopDeps = {
     getConversationRoutes: () => app.getConversationRoutes(),
     getLastTimestamp: () => app.getLastTimestamp(),
@@ -1018,6 +1012,9 @@ export async function startRuntimeServices(
     liveTurnAuthority,
     liveTurnLeaseDeps,
     messageLoopDeps,
+    liveAdmissionWakeupSource: liveTurnLeaseDeps
+      ? resolved.getLiveAdmissionWakeupSource?.()
+      : undefined,
     recoveryCoordinator: options.recoveryCoordinator,
     isEligibleToRecoverLiveTurn,
     alertNoEligibleLiveTurnRecoverer: starvationAlerter
@@ -1031,11 +1028,7 @@ export async function startRuntimeServices(
     registerActiveRecoveryLoop: (loop) => {
       activeLiveTurnRecoveryLoop = loop;
     },
-    // Waiting-status monitor (coordinator singleton): detects live messages
-    // queued behind a saturated fleet and sends the visible status once per
-    // episode via the transient progress-update path. This is fleet-only UX:
-    // workstation recovery can replay old local backlog during startup, and a
-    // root-level "available worker" message is misleading there.
+    // Fleet-only queued-capacity UX; workstation recovery can replay old backlog.
     waitingStatus:
       liveTurns && resolved.getDeploymentMode() === 'fleet'
         ? {

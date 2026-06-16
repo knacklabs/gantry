@@ -238,7 +238,7 @@ Agent-facing tools:
 - `request_settings_update`: selected-capability reviewed edit to non-secret `settings.yaml` desired state.
 - `admin_permission_list`: selected-capability list of current-agent persistent Gantry MCP grants.
 - `admin_permission_revoke`: selected-capability revocation of a current-agent persistent Gantry MCP grant.
-- `mcp_list_tools` / `mcp_call_tool`: list and call connected third-party MCP tools through the Gantry proxy.
+- `mcp_list_tools` / `mcp_describe_tool` / `mcp_call_tool`: search connected third-party MCP source inventory, fetch one tool schema/detail, and call approved tools through the Gantry proxy.
 - `service_restart`: selected-capability restart after approved changes that require host restart.
 - `register_agent`: selected-capability binding of a channel conversation to an agent.
 

@@ -242,6 +242,7 @@ describe('agent capability composition', () => {
       ),
     ).toContain('request_access');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_describe_tool');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });
 
@@ -268,6 +269,7 @@ describe('agent capability composition', () => {
       ),
     ).toContain('request_access');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_describe_tool');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });
 

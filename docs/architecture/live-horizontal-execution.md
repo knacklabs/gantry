@@ -104,15 +104,20 @@ owns admission, the local runner-hook registry, the ownership tick (renew lease
 
 ## Horizontal execution + recovery coordinator
 
-Live execution is distributed: message polling, NEW live-turn admission, and
-owned-turn execution run on EVERY live-capable worker
+Live execution is distributed: durable live-admission work claims, NEW
+live-turn admission, and owned-turn execution run on EVERY live-capable worker
 (`apps/core/src/app/bootstrap/live-execution.ts`
-`buildLiveAdmissionProcessor`/`startLiveExecutionServices`). There is no lease
-gate on polling or admission. The durable one-active-turn-per-scope claim
-(`uq_live_turns_active_scope`) is the only serialization point: when two pollers
-race the same scope, the loser routes its message to the owning turn's command
-inbox instead of starting a second run. `runtime.live_turns.enabled` stays the
-global feature flag.
+`buildLiveAdmissionProcessor`/`startLiveExecutionServices`). There is no
+recovery lease gate on admission. When the live-turn repository exposes durable
+admission claims, workers process queue-scoped work items instead of scanning
+every route on `POLL_INTERVAL`; the old message poller is only a fallback for
+single-process/test embeddings without durable claims. Postgres `LISTEN/NOTIFY`
+wakes the durable admission loop with opaque work-item ids only; missed or
+coalesced notifications are recovered by claiming due durable rows. The durable
+one-active-turn-per-scope claim (`uq_live_turns_active_scope`) is the
+serialization point: when two workers race the same scope, the loser routes its
+message to the owning turn's command inbox instead of starting a second run.
+`runtime.live_turns.enabled` stays the global feature flag.
 
 Orphan-run avoidance: admission does a cheap `getActiveLiveTurn(scope)`
 pre-check before minting an `agent_run`. If a turn is already active the

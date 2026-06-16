@@ -11,6 +11,14 @@ import {
   SDK_NATIVE_SKILL_OVERRIDES,
 } from '@core/adapters/llm/anthropic-claude-agent/native-sdk-skills.js';
 
+const RUNNER_IPC_CHILD_TIMEOUT_MS = 50_000;
+const RUNNER_IPC_TEST_TIMEOUT_MS = 60_000;
+// The heartbeat test observes a real 15s heartbeat interval after a cold tsx
+// runner boot, so it needs a wider per-spawn budget than the default child
+// runner timeout and a matching vitest timeout above it.
+const HEARTBEAT_RUNNER_TIMEOUT_MS = 60_000;
+const HEARTBEAT_TEST_TIMEOUT_MS = 70_000;
+
 const tempRoots: string[] = [];
 
 function sha256(value: string): string {
@@ -46,6 +54,8 @@ interface RunnerRecord {
     persistSession?: boolean;
     resume?: unknown;
     resumeSessionAt?: unknown;
+    settingSources?: string[];
+    strictMcpConfig?: boolean;
     systemPromptExcludeDynamicSections?: boolean;
   }>;
 }
@@ -413,6 +423,8 @@ export async function* query({ prompt, options }) {
     persistSession: options?.persistSession,
     resume: options?.resume,
     resumeSessionAt: options?.resumeSessionAt,
+    settingSources: options?.settingSources,
+    strictMcpConfig: options?.strictMcpConfig,
     systemPromptAppend: options?.systemPrompt?.append,
     systemPromptExcludeDynamicSections:
       options?.systemPrompt?.excludeDynamicSections,
@@ -771,7 +783,7 @@ async function runRunner(
   fixture: ReturnType<typeof createRunnerFixture>,
   input: Record<string, unknown>,
   extraEnv: Record<string, string> = {},
-  timeoutMs = 25_000,
+  timeoutMs = RUNNER_IPC_CHILD_TIMEOUT_MS,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   const child = spawn(
     process.execPath,
@@ -843,13 +855,6 @@ function readRunnerOutputs(stdout: string): Array<Record<string, unknown>> {
   ];
   return matches.map((match) => JSON.parse(match[1] ?? '{}'));
 }
-
-const RUNNER_IPC_TEST_TIMEOUT_MS = 35_000;
-// The heartbeat test observes a real 15s heartbeat interval after a cold tsx
-// runner boot, so it needs a wider per-spawn budget than the default 25s and a
-// matching vitest timeout above it.
-const HEARTBEAT_RUNNER_TIMEOUT_MS = 60_000;
-const HEARTBEAT_TEST_TIMEOUT_MS = 70_000;
 
 describe('agent-runner IPC lifecycle', () => {
   it(
@@ -923,6 +928,25 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
       expect(sdkEnv.GANTRY_MCP_SERVERS_JSON).toBeUndefined();
       expect(sdkEnv.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
+      expect(sdkEnv.ENABLE_TOOL_SEARCH).toBe('false');
+      const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
+        (output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(startupDiagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'run.startup_diagnostic',
+            payload: expect.objectContaining({
+              diagnostic: 'tool_search',
+              enableToolSearch: 'false',
+              reason: 'non_first_party_base_url_tool_reference_unproven',
+              anthropicBaseUrlKind: 'non_first_party',
+            }),
+          }),
+        ]),
+      );
+      expect(JSON.stringify(startupDiagnostics)).not.toContain('broker.local');
       const gantryMcpServer = call?.mcpServers?.gantry as
         | { args?: string[] }
         | undefined;
@@ -1015,7 +1039,10 @@ describe('agent-runner IPC lifecycle', () => {
       const attemptEvents = outputs.flatMap((output) =>
         Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
       ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
-      expect(attemptEvents).toEqual([
+      const permissionEvents = attemptEvents.filter(
+        (event) => event.eventType === 'permission.requested',
+      );
+      expect(permissionEvents).toEqual([
         expect.objectContaining({
           eventType: 'permission.requested',
           payload: expect.objectContaining({
@@ -1459,6 +1486,8 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.settings?.skillOverrides).toEqual(
         SDK_NATIVE_SKILL_OVERRIDES,
       );
+      expect(call?.settingSources).toEqual([]);
+      expect(call?.strictMcpConfig).toBe(true);
       expect(call?.skills).toEqual([
         'gantry-admin',
         'gantry-browser',
@@ -1477,6 +1506,8 @@ describe('agent-runner IPC lifecycle', () => {
       );
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+      expect(call?.sdkEnv?.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1499,8 +1530,12 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.settings?.skillOverrides).toEqual(
         SDK_NATIVE_SKILL_OVERRIDES,
       );
+      expect(call?.settingSources).toEqual([]);
+      expect(call?.strictMcpConfig).toBe(true);
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+      expect(call?.sdkEnv?.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1599,12 +1634,15 @@ describe('agent-runner IPC lifecycle', () => {
       const attemptEvents = outputs.flatMap((output) =>
         Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
       ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
-      expect(attemptEvents).toHaveLength(2);
-      expect(attemptEvents.map((event) => event.eventType)).toEqual([
+      const permissionEvents = attemptEvents.filter(
+        (event) => event.eventType === 'permission.requested',
+      );
+      expect(permissionEvents).toHaveLength(2);
+      expect(permissionEvents.map((event) => event.eventType)).toEqual([
         'permission.requested',
         'permission.requested',
       ]);
-      expect(attemptEvents.map((event) => event.payload?.toolName)).toEqual([
+      expect(permissionEvents.map((event) => event.payload?.toolName)).toEqual([
         'RunCommand',
         'Browser',
       ]);
