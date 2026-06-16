@@ -8,6 +8,7 @@ type WatchFactory = (
 ) => FSWatcher;
 
 type TimeoutHandle = ReturnType<typeof setTimeout>;
+type RuntimeSignalSource = 'external' | 'fallback' | 'watch' | 'watch-error';
 
 export interface RuntimeSignalPump {
   trigger(): void;
@@ -24,6 +25,7 @@ export interface RuntimeSignalPumpDeps {
 
 export function startRuntimeSignalPump(input: {
   fallbackPollMs: number;
+  healthyWatchFallbackPollMs?: number;
   inputDir: string;
   interactionBoundaryDir?: string;
   processSignals: () => boolean;
@@ -37,8 +39,15 @@ export function startRuntimeSignalPump(input: {
   let running = true;
   let processing = false;
   let rerunAfterCurrentPass = false;
+  let rerunAfterCurrentPassSource: RuntimeSignalSource = 'external';
   let timer: TimeoutHandle | undefined;
+  let timerSource: RuntimeSignalSource = 'fallback';
   const watchers: FSWatcher[] = [];
+  const healthyWatchFallbackPollMs = Math.max(
+    input.fallbackPollMs,
+    input.healthyWatchFallbackPollMs ??
+      Math.min(input.fallbackPollMs * 4, 2_000),
+  );
 
   const clearTimer = () => {
     if (!timer) return;
@@ -46,12 +55,14 @@ export function startRuntimeSignalPump(input: {
     timer = undefined;
   };
 
-  const schedule = (delayMs: number) => {
+  const schedule = (delayMs: number, source: RuntimeSignalSource) => {
     if (!running) return;
     clearTimer();
+    timerSource = source;
     timer = setTimeoutFn(() => {
+      const source = timerSource;
       timer = undefined;
-      run();
+      run(source);
     }, delayMs);
     timer.unref?.();
   };
@@ -68,36 +79,48 @@ export function startRuntimeSignalPump(input: {
     }
   };
 
-  const run = () => {
+  const run = (source: RuntimeSignalSource) => {
     if (!running) return;
     if (processing) {
       rerunAfterCurrentPass = true;
+      rerunAfterCurrentPassSource = source;
       return;
     }
     processing = true;
     let rerun = false;
+    let rerunSource: RuntimeSignalSource = 'external';
     let keepRunning = true;
     try {
       keepRunning = input.processSignals();
     } finally {
       processing = false;
       rerun = rerunAfterCurrentPass;
+      rerunSource = rerunAfterCurrentPassSource;
       rerunAfterCurrentPass = false;
+      rerunAfterCurrentPassSource = 'external';
     }
     if (!keepRunning) {
       stop();
       return;
     }
-    schedule(rerun ? 0 : input.fallbackPollMs);
+    schedule(
+      rerun
+        ? 0
+        : source === 'watch'
+          ? healthyWatchFallbackPollMs
+          : input.fallbackPollMs,
+      rerun ? rerunSource : 'fallback',
+    );
   };
 
-  const trigger = () => {
+  const trigger = (source: RuntimeSignalSource = 'external') => {
     if (!running) return;
     if (processing) {
       rerunAfterCurrentPass = true;
+      rerunAfterCurrentPassSource = source;
       return;
     }
-    schedule(0);
+    schedule(0, source);
   };
 
   const watchDirs = [
@@ -115,13 +138,14 @@ export function startRuntimeSignalPump(input: {
         dir,
         { persistent: false },
         (_eventType, filename) => {
-          if (isRuntimeSignalFile(dir, input.inputDir, filename)) trigger();
+          if (isRuntimeSignalFile(dir, input.inputDir, filename))
+            trigger('watch');
         },
       );
       watcher.unref?.();
       watcher.on?.('error', (error) => {
         onWatchError?.({ dir, error });
-        trigger();
+        trigger('watch-error');
       });
       watchers.push(watcher);
     } catch (error) {
@@ -129,7 +153,7 @@ export function startRuntimeSignalPump(input: {
     }
   }
 
-  schedule(input.fallbackPollMs);
+  schedule(input.fallbackPollMs, 'fallback');
   return { trigger, stop };
 }
 

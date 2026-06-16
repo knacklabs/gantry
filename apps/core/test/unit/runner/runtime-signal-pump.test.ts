@@ -132,6 +132,106 @@ describe('startRuntimeSignalPump', () => {
     expect(timeouts.timers.at(-1)?.ms).toBe(500);
   });
 
+  it('backs off fallback polling after healthy filesystem wakeups', () => {
+    const timeouts = timeoutDeps();
+    const listeners = new Map<string, WatchListener>();
+    const processSignals = vi.fn(() => true);
+
+    startRuntimeSignalPump({
+      inputDir: '/tmp/gantry-runner/input',
+      fallbackPollMs: 500,
+      healthyWatchFallbackPollMs: 2_000,
+      processSignals,
+      deps: {
+        setTimeout: timeouts.setTimeoutFn,
+        clearTimeout: timeouts.clearTimeoutFn,
+        mkdirSync: vi.fn(),
+        watch: vi.fn((dir, _options, listener) => {
+          listeners.set(dir, listener);
+          return fakeWatcher({});
+        }),
+      },
+    });
+
+    listeners.get('/tmp/gantry-runner/input')?.('rename', 'message-1.json');
+    expect(timeouts.timers.at(-1)?.ms).toBe(0);
+    timeouts.timers.at(-1)?.callback();
+
+    expect(processSignals).toHaveBeenCalledTimes(1);
+    expect(timeouts.timers.at(-1)?.ms).toBe(2_000);
+  });
+
+  it('returns to short fallback polling after a missed-event recovery pass', () => {
+    const timeouts = timeoutDeps();
+    const listeners = new Map<string, WatchListener>();
+    const processSignals = vi.fn(() => true);
+
+    startRuntimeSignalPump({
+      inputDir: '/tmp/gantry-runner/input',
+      fallbackPollMs: 500,
+      healthyWatchFallbackPollMs: 2_000,
+      processSignals,
+      deps: {
+        setTimeout: timeouts.setTimeoutFn,
+        clearTimeout: timeouts.clearTimeoutFn,
+        mkdirSync: vi.fn(),
+        watch: vi.fn((dir, _options, listener) => {
+          listeners.set(dir, listener);
+          return fakeWatcher({});
+        }),
+      },
+    });
+
+    listeners.get('/tmp/gantry-runner/input')?.('rename', 'message-1.json');
+    timeouts.timers.at(-1)?.callback();
+    expect(timeouts.timers.at(-1)?.ms).toBe(2_000);
+
+    timeouts.timers.at(-1)?.callback();
+
+    expect(processSignals).toHaveBeenCalledTimes(2);
+    expect(timeouts.timers.at(-1)?.ms).toBe(500);
+  });
+
+  it('uses short fallback polling after watcher error recovery', () => {
+    const timeouts = timeoutDeps();
+    const error = new Error('watch failed after setup');
+    const onWatchError = vi.fn();
+    const processSignals = vi.fn(() => true);
+    let errorListener: ((error: unknown) => void) | undefined;
+
+    startRuntimeSignalPump({
+      inputDir: '/tmp/gantry-runner/input',
+      fallbackPollMs: 500,
+      healthyWatchFallbackPollMs: 2_000,
+      processSignals,
+      deps: {
+        setTimeout: timeouts.setTimeoutFn,
+        clearTimeout: timeouts.clearTimeoutFn,
+        mkdirSync: vi.fn(),
+        onWatchError,
+        watch: vi.fn(() =>
+          fakeWatcher({
+            on: vi.fn((eventName, listener) => {
+              if (eventName === 'error') errorListener = listener;
+              return undefined;
+            }),
+          }),
+        ),
+      },
+    });
+
+    errorListener?.(error);
+    expect(onWatchError).toHaveBeenCalledWith({
+      dir: '/tmp/gantry-runner/input',
+      error,
+    });
+    expect(timeouts.timers.at(-1)?.ms).toBe(0);
+    timeouts.timers.at(-1)?.callback();
+
+    expect(processSignals).toHaveBeenCalledTimes(1);
+    expect(timeouts.timers.at(-1)?.ms).toBe(500);
+  });
+
   it('stops and closes watchers when processing returns false', () => {
     const timeouts = timeoutDeps();
     const close = vi.fn();
