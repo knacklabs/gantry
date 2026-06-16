@@ -728,6 +728,7 @@ export async function runQuery(
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
           ...(turns.length > 0 ? { turns } : {}),
+          ...(warmBound ? { warmBound: true } : {}),
           // F1: a warm-bound run booted BEFORE bind, so firstSdkMessageAt
           // predates the customer's message and runnerStartup would mis-route
           // the trace (lumping the lead as one queue with no model_wait split).

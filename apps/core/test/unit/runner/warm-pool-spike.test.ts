@@ -103,6 +103,7 @@ describe('warm-pool spike: SDK warm primitive', () => {
       // mis-route the trace; it must be suppressed in favor of dispatchedAt.
       const reply = outputs.find((o) => o.dispatchedAt !== undefined);
       expect(reply, JSON.stringify(outputs)).toBeDefined();
+      expect(reply?.warmBound).toBe(true);
       expect(reply?.dispatchedAt as number).toBeGreaterThan(0);
       expect(reply?.runnerStartup).toBeUndefined();
       // No envelope anywhere should carry runnerStartup for a warm-bound run.
@@ -167,6 +168,7 @@ describe('warm-pool spike: SDK warm primitive', () => {
       // startup, exactly like reply-trace.test.ts's warm-continuation case. ---
       const reply = outputs.find((o) => o.dispatchedAt !== undefined);
       expect(reply, JSON.stringify(outputs)).toBeDefined();
+      expect(reply?.warmBound).toBe(true);
       expect(reply?.runnerStartup).toBeUndefined();
       const dispatchedAt = reply!.dispatchedAt!;
       const windowStart = dispatchedAt - 300; // ingress 300ms before dispatch

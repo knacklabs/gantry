@@ -1028,7 +1028,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(recipe.cleanup).toEqual(expect.any(Function));
   });
 
-  it('does not pool direct MCP servers that require config-time caller identity', async () => {
+  it('uses the warm pool for caller-identity HTTP MCPs routed through the Gantry facade', async () => {
     vi.mocked(getRuntimeWarmPoolConfig).mockReturnValue({
       enabled: true,
       size: 1,
@@ -1036,21 +1036,17 @@ describe('agent-spawn timeout behavior', () => {
     });
     process.env.CRM_IDENTITY_SECRET = 'test_secret_thirty_two_bytes_long_xx';
     const prewarm = vi.fn(async () => undefined);
-    const warmPool: WarmPoolRuntime = {
-      acquire: vi.fn(() => ({
-        id: 'warm-worker-with-static-identity-risk',
-        key: 'warm-key',
-        bornAt: 100,
-        bound: false,
-      })),
-      prewarm,
-      release: vi.fn(async () => undefined),
-    };
+    const warmProc = createFakeProcess();
     const warmHandle: WarmWorkerHandle = {
-      id: 'unused-warm-worker',
+      id: 'warm-worker-facade-routed-mcp',
       key: 'warm-key',
       bornAt: 100,
       bound: false,
+    };
+    const warmPool: WarmPoolRuntime = {
+      acquire: vi.fn(() => warmHandle),
+      prewarm,
+      release: vi.fn(async () => undefined),
     };
     const warmAdapter: WarmPoolCapable = {
       ...testExecutionAdapter,
@@ -1058,8 +1054,8 @@ describe('agent-spawn timeout behavior', () => {
       recycle: vi.fn(),
       bind: vi.fn(async () => ({
         handle: warmHandle,
-        process: createFakeProcess() as unknown as ChildProcess,
-        runHandle: 'unused-warm-run',
+        process: warmProc as unknown as ChildProcess,
+        runHandle: 'warm-facade-mcp-run',
       })),
     };
     const repository = new SpawnMcpRepository([
@@ -1075,6 +1071,7 @@ describe('agent-spawn timeout behavior', () => {
       }),
     ]);
     try {
+      const onProcess = vi.fn();
       const resultPromise = spawnTestAgent(
         testGroup,
         {
@@ -1084,7 +1081,7 @@ describe('agent-spawn timeout behavior', () => {
           chatJid: 'wa:919654405340',
           attachedMcpSourceIds: ['mcp:crm'],
         },
-        vi.fn(),
+        onProcess,
         undefined,
         {
           executionAdapter: warmAdapter,
@@ -1095,21 +1092,41 @@ describe('agent-spawn timeout behavior', () => {
         },
       );
 
-      await vi.waitFor(() => expect(spawn).toHaveBeenCalled());
-      emitOutputMarker(fakeProc, {
+      await vi.waitFor(() => expect(onProcess).toHaveBeenCalled());
+      if (vi.mocked(spawn).mock.calls.length > 0) {
+        emitOutputMarker(fakeProc, {
+          status: 'success',
+          result: 'served cold through stale static-identity guard',
+        });
+        fakeProc.emit('close', 0);
+        await vi.advanceTimersByTimeAsync(10);
+        await resultPromise;
+      }
+      expect(spawn).not.toHaveBeenCalled();
+
+      emitOutputMarker(warmProc, {
         status: 'success',
-        result: 'served cold for static identity MCP',
+        result: 'served warm for facade-routed MCP',
+        warmBound: true,
+        dispatchedAt: 123,
       });
-      fakeProc.emit('close', 0);
+      warmProc.emit('close', 0);
       await vi.advanceTimersByTimeAsync(10);
 
       await expect(resultPromise).resolves.toMatchObject({
         status: 'success',
-        result: 'served cold for static identity MCP',
+        result: 'served warm for facade-routed MCP',
+        warmBound: true,
       });
-      expect(warmPool.acquire).not.toHaveBeenCalled();
+      expect(warmPool.acquire).toHaveBeenCalledTimes(1);
       expect(prewarm).not.toHaveBeenCalled();
-      expect(warmAdapter.bind).not.toHaveBeenCalled();
+      expect(warmAdapter.bind).toHaveBeenCalledWith(
+        warmHandle,
+        expect.objectContaining({
+          chatJid: 'wa:919654405340',
+          firstMessage: 'Hello',
+        }),
+      );
     } finally {
       delete process.env.CRM_IDENTITY_SECRET;
     }

@@ -100,7 +100,7 @@ describe('WarmPoolManager', () => {
     const second = manager.acquire(recipe.key);
 
     expect(first?.id).toBe('worker-1');
-    expect(first?.bound).toBe(true);
+    expect(first?.bound).toBe(false);
     expect(second).toBeNull();
     expect(manager.size(recipe.key)).toBe(0);
   });
@@ -137,6 +137,47 @@ describe('WarmPoolManager', () => {
     expect(recycled.map((handle) => handle.id)).toEqual(['worker-1']);
     expect(replacement?.id).toBe('worker-2');
     expect(replacement?.id).not.toBe(acquired?.id);
+  });
+
+  it('uses a fresh worker recipe when replacing a released worker', async () => {
+    let now = 1_000;
+    let nextWorkerId = 0;
+    let nextRecipeId = 1;
+    const usedRecipes: string[] = [];
+    const recipeFor = (id: string): SharedBootRecipe =>
+      makeRecipe({
+        runnerProcessName: id,
+        refresh: async () => recipeFor(`recipe-${++nextRecipeId}`),
+      });
+    const capability: WarmPoolCapable = {
+      id: 'anthropic:claude-agent-sdk',
+      prepare: async () => {
+        throw new Error('not used');
+      },
+      prewarm: vi.fn(async (recipe) => {
+        usedRecipes.push(recipe.runnerProcessName ?? '(missing)');
+        return {
+          id: `worker-${++nextWorkerId}`,
+          key: recipe.key,
+          bornAt: now,
+          bound: false,
+        };
+      }),
+      bind: async (): Promise<BoundRun> => {
+        throw new Error('not used');
+      },
+      recycle: vi.fn(async () => undefined),
+    };
+    const manager = new WarmPoolManager({ capability, clock: () => now });
+    const recipe = recipeFor('recipe-1');
+    await manager.prewarm(recipe, 1);
+    const acquired = manager.acquire(recipe.key);
+    expect(acquired).not.toBeNull();
+
+    now = 2_000;
+    await manager.release(acquired!);
+
+    expect(usedRecipes).toEqual(['recipe-1', 'recipe-2']);
   });
 
   it('retries a failed release replacement with backoff so the pool recovers', async () => {

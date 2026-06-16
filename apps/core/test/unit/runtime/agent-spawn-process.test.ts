@@ -783,6 +783,53 @@ describe('executeRunnerProcess', () => {
       expect(result.newSessionId).toBe('sess-abc');
     });
 
+    it('resolves pooled external runs on reply terminal output, not init metadata', async () => {
+      const onOutput = vi.fn(async () => {});
+      const spec = makeSpec({
+        onOutput,
+        inputDelivery: 'external',
+        resolveOnTerminalOutput: true,
+      });
+      const resultP = executeRunnerProcess(spec);
+      let settled = false;
+      resultP.then(() => {
+        settled = true;
+      });
+
+      const initJson = JSON.stringify({
+        status: 'success',
+        result: null,
+        newSessionId: 'sess-warm',
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${initJson}\n${OUTPUT_END_MARKER}\n`,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(settled).toBe(false);
+      expect(onOutput).toHaveBeenCalledTimes(1);
+
+      const replyJson = JSON.stringify({
+        status: 'success',
+        result: null,
+        newSessionId: 'sess-warm',
+        warmBound: true,
+        dispatchedAt: 123,
+        turns: [{ ms: 25, startedAt: 125, detail: {} }],
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${replyJson}\n${OUTPUT_END_MARKER}\n`,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+
+      await expect(resultP).resolves.toMatchObject({
+        status: 'success',
+        result: null,
+        newSessionId: 'sess-warm',
+      });
+      expect(onOutput).toHaveBeenCalledTimes(2);
+    });
+
     it('does not log structured provider resume handles on completion', async () => {
       const onOutput = vi.fn(async () => {});
       const spec = makeSpec({ onOutput });

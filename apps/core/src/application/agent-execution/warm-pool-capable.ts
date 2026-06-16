@@ -36,6 +36,12 @@ export interface SharedBootRecipe extends WarmPoolKeyInput {
   runnerInput?: Record<string, unknown>;
   runnerProcessName?: string;
   cleanup?: () => Promise<void> | void;
+  /**
+   * Produce a fresh one-worker recipe for replacements. Use this when the
+   * recipe owns per-worker resources such as credentials, response keys, or
+   * egress gateways that are revoked by cleanup().
+   */
+  refresh?: () => Promise<SharedBootRecipe>;
 }
 
 export interface ConversationBindScope {

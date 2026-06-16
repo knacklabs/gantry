@@ -74,6 +74,13 @@ import {
   type SharedBootRecipe,
 } from '../application/agent-execution/warm-pool-capable.js';
 import { isPoolEligible } from './warm-pool-eligibility.js';
+
+function isSdkNativeMcpCapability(
+  capability: MaterializedMcpCapability,
+): boolean {
+  return capability.config.type !== 'http' && capability.config.type !== 'sse';
+}
+
 type RunnerAgentInput = AgentInput & {
   modelCredentialEnv?: Record<string, string>;
   warmGenericBoot?: boolean;
@@ -782,11 +789,6 @@ export async function spawnAgent(
       isPoolEligible(input) &&
       hasWarmPoolCapability(executionAdapter)
     ) {
-      const hasConfigTimeCallerIdentityMcp = allMcpCapabilitiesForRunner.some(
-        (capability) =>
-          capability.callerIdentity &&
-          capability.callerIdentity.mode !== 'disabled',
-      );
       const key = poolKeyOf({
         providerId: preparedExecution.providerId,
         appId: runnerAppId,
@@ -802,6 +804,12 @@ export async function spawnAgent(
         systemPromptVersion: promptVersionHash(compiledSystemPrompt),
       });
       const createWarmPrewarmRecipe = async (): Promise<SharedBootRecipe> => {
+        // HTTP/SSE MCP servers are exposed to agents through Gantry's
+        // mcp_call_tool facade, which signs caller identity from the late-bound
+        // chat JID. Keep generic SDK boot config limited to SDK-native servers.
+        const warmMcpCapabilitiesForRunner = allMcpCapabilitiesForRunner.filter(
+          isSdkNativeMcpCapability,
+        );
         const warmProcessName = `gantry-warm-${safeName}-${currentTimeMs()}-${randomUUID().slice(0, 8)}`;
         const warmIpcInputDir = path.join(
           hostRuntime.groupIpcDir,
@@ -953,21 +961,21 @@ export async function spawnAgent(
           delete warmEnv.GANTRY_MCP_ALLOWED_TOOLS_JSON;
           delete warmEnv.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON;
           warmMcpConfigPath =
-            allMcpCapabilitiesForRunner.length > 0
+            warmMcpCapabilitiesForRunner.length > 0
               ? writeRunnerMcpConfigFile(
                   hostRuntime.groupIpcDir,
-                  allMcpCapabilitiesForRunner,
+                  warmMcpCapabilitiesForRunner,
                 )
               : undefined;
           if (warmMcpConfigPath) {
             warmEnv.GANTRY_MCP_CONFIG_FILE = warmMcpConfigPath;
             warmEnv.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(
-              allMcpCapabilitiesForRunner.flatMap(
+              warmMcpCapabilitiesForRunner.flatMap(
                 (capability) => capability.allowedToolNames,
               ),
             );
             warmEnv.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON = JSON.stringify(
-              allMcpCapabilitiesForRunner.flatMap(
+              warmMcpCapabilitiesForRunner.flatMap(
                 (capability) => capability.autoApproveToolNames,
               ),
             );
@@ -1018,6 +1026,7 @@ export async function spawnAgent(
             runnerInput: warmRunnerInputRecord,
             runnerProcessName: warmProcessName,
             cleanup,
+            refresh: createWarmPrewarmRecipe,
           };
         } catch (err) {
           await cleanup();
@@ -1025,7 +1034,7 @@ export async function spawnAgent(
         }
       };
       const scheduleWarmPrewarm = (): void => {
-        if (!warmPool.prewarm || hasConfigTimeCallerIdentityMcp) return;
+        if (!warmPool.prewarm) return;
         void (async () => {
           const recipe = await createWarmPrewarmRecipe();
           try {
@@ -1041,9 +1050,7 @@ export async function spawnAgent(
           );
         });
       };
-      const handle = hasConfigTimeCallerIdentityMcp
-        ? null
-        : warmPool.acquire(key);
+      const handle = warmPool.acquire(key);
       if (handle) {
         try {
           const bound = await executionAdapter.bind(handle, {
@@ -1100,6 +1107,7 @@ export async function spawnAgent(
             boundProcess: bound.process,
             inputDelivery: 'external',
             registeredRunHandle: bound.runHandle,
+            resolveOnTerminalOutput: true,
             processMetadata: {
               pooledWarmWorker: {
                 handle: bound.handle,

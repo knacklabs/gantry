@@ -58,6 +58,7 @@ import { hasWarmPoolCapability } from '../../application/agent-execution/warm-po
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import { runClaudeQuery } from '../../adapters/llm/anthropic-claude-agent/memory-query.js';
 import { WarmPoolManager } from '../../runtime/warm-pool-manager.js';
+import { ProcessWarmPoolOrphanReaper } from '../../runtime/warm-pool-orphan-reaper.js';
 import type { WarmPoolRuntime } from '../../runtime/agent-spawn-types.js';
 
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
@@ -161,6 +162,7 @@ function createConfiguredWarmPool(
   return new WarmPoolManager({
     capability: executionAdapter,
     maxConcurrentPrewarm: Math.max(1, config.size),
+    orphanReaper: new ProcessWarmPoolOrphanReaper(),
   });
 }
 

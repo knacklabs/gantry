@@ -15,6 +15,7 @@ interface WarmPoolEntry {
   targetSize: number;
   idle: IdleWorker[];
   prewarming: number;
+  bootAttempts: number;
   retryTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -67,7 +68,6 @@ export class WarmPoolManager {
     const entry = this.entries.get(key);
     const worker = entry?.idle.shift();
     if (!worker) return null;
-    worker.handle.bound = true;
     return worker.handle;
   }
 
@@ -149,11 +149,20 @@ export class WarmPoolManager {
   private entryFor(recipe: SharedBootRecipe): WarmPoolEntry {
     let entry = this.entries.get(recipe.key);
     if (!entry) {
-      entry = { recipe, targetSize: 0, idle: [], prewarming: 0 };
+      entry = {
+        recipe,
+        targetSize: 0,
+        idle: [],
+        prewarming: 0,
+        bootAttempts: 0,
+      };
       this.entries.set(recipe.key, entry);
       return entry;
     }
     entry.recipe = recipe;
+    if (entry.idle.length === 0 && entry.prewarming === 0) {
+      entry.bootAttempts = 0;
+    }
     return entry;
   }
 
@@ -166,9 +175,10 @@ export class WarmPoolManager {
   private async bootOne(entry: WarmPoolEntry): Promise<void> {
     entry.prewarming += 1;
     try {
-      const handle = await this.withPrewarmSlot(() =>
-        this.capability.prewarm(entry.recipe),
-      );
+      const handle = await this.withPrewarmSlot(async () => {
+        const recipe = await this.recipeForBoot(entry);
+        return this.capability.prewarm(recipe);
+      });
       if (!handle) return;
       handle.bound = false;
       if (this.shuttingDown || this.entries.get(entry.recipe.key) !== entry) {
@@ -179,6 +189,13 @@ export class WarmPoolManager {
     } finally {
       entry.prewarming -= 1;
     }
+  }
+
+  private async recipeForBoot(entry: WarmPoolEntry): Promise<SharedBootRecipe> {
+    const useSeedRecipe = entry.bootAttempts === 0;
+    entry.bootAttempts += 1;
+    if (useSeedRecipe || !entry.recipe.refresh) return entry.recipe;
+    return entry.recipe.refresh();
   }
 
   private async replenishOrSchedule(key: WarmPoolKey): Promise<void> {

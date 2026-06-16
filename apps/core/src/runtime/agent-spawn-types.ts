@@ -194,4 +194,5 @@ export interface RunnerProcessSpec {
   inputDelivery?: 'stdin' | 'external';
   registeredRunHandle?: string;
   processMetadata?: AgentProcessMetadata;
+  resolveOnTerminalOutput?: boolean;
 }

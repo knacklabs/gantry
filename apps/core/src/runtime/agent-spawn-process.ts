@@ -150,6 +150,23 @@ function readScheduledJobHeartbeat(
   return null;
 }
 
+function isTerminalStreamingOutput(output: AgentOutput): boolean {
+  const hasTerminalTurnMetadata =
+    (output.turns?.length ?? 0) > 0 ||
+    output.usage !== undefined ||
+    output.runnerStartup !== undefined ||
+    output.dispatchedAt !== undefined ||
+    output.warmBound === true;
+
+  return (
+    output.status === 'success' &&
+    hasTerminalTurnMetadata &&
+    !output.compactBoundary &&
+    !output.interactionBoundary &&
+    !output.continuedByFollowup
+  );
+}
+
 function formatScheduledJobIdleStallError(input: {
   timeoutMs: number;
   heartbeat?: ScheduledJobHeartbeatPayload | null;
@@ -192,6 +209,7 @@ export function executeRunnerProcess(
     inputDelivery,
     registeredRunHandle,
     processMetadata,
+    resolveOnTerminalOutput,
   } = spec;
 
   return new Promise((resolve) => {
@@ -236,6 +254,7 @@ export function executeRunnerProcess(
     let newSessionId: string | undefined;
     let outputChain = Promise.resolve();
     let timedOut = false;
+    let resolvedOnTerminalOutput = false;
     let timeoutReason: RunnerTimeoutReason = 'timeout';
     let lastScheduledJobHeartbeat: ScheduledJobHeartbeatPayload | null = null;
     const scheduledJobIdleMs = scheduledJobIdleTimeoutMs();
@@ -355,6 +374,26 @@ export function executeRunnerProcess(
                   'onOutput callback failed',
                 );
               });
+            if (resolveOnTerminalOutput && isTerminalStreamingOutput(parsed)) {
+              void outputChain.then(() => {
+                if (resolvedOnTerminalOutput) return;
+                resolvedOnTerminalOutput = true;
+                clearTimeout(timeout);
+                logger.info(
+                  {
+                    group: group.name,
+                    duration: currentTimeMs() - startTime,
+                    providerSessionCreated: !!newSessionId,
+                  },
+                  `${runnerLabel} completed (streaming mode)`,
+                );
+                resolve({
+                  status: 'success',
+                  result: null,
+                  newSessionId,
+                });
+              });
+            }
           } catch (err) {
             logger.warn(
               {

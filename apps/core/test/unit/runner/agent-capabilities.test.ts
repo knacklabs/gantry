@@ -760,6 +760,39 @@ describe('agent capability composition', () => {
     expect(profile.alwaysAllowedTools).toEqual([]);
   });
 
+  it('keeps loopback HTTP MCP servers behind the Gantry facade', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'wa:919654405340',
+      groupFolder: 'boondi_support',
+      externalMcpServers: {
+        shopify: {
+          type: 'http',
+          url: 'http://127.0.0.1:18081/mcp',
+          headers: {
+            'X-Caller-Identity': 'phone:+919654405340;ts=1;sig=static',
+          },
+        },
+      },
+      externalMcpAllowedTools: [
+        'mcp__shopify__search_products',
+        'mcp__shopify__*',
+      ],
+      externalMcpAlwaysAllowedTools: ['mcp__shopify__search_products'],
+      configuredAllowedTools: ['mcp__gantry__mcp_call_tool'],
+      attachedMcpSourceIds: ['mcp:shopify'],
+    });
+
+    expect(profile.mcpServers.shopify).toBeUndefined();
+    expect(profile.allowedTools).not.toContain('mcp__shopify__search_products');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
+    expect(profile.mcpServers.gantry?.env).toEqual(
+      expect.objectContaining({
+        GANTRY_SELECTED_MCP_SERVERS_JSON: JSON.stringify(['mcp:shopify']),
+      }),
+    );
+  });
+
   it('does not expose raw runtime browser MCP servers as configured MCP input', () => {
     const hostPrivateServerName = `${'browser'}_${'backend'}`;
     const hiddenRuntimeServerName = `${'agent'}_${'browser'}`;
