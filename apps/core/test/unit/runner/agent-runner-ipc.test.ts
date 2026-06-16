@@ -865,6 +865,7 @@ describe('agent-runner IPC lifecycle', () => {
     'passes only broker-safe values into the Agent SDK env',
     async () => {
       const fixture = createRunnerFixture();
+      const claudeConfigDirEnvKey = ['CLAUDE', 'CONFIG', 'DIR'].join('_');
 
       const result = await runRunner(
         fixture,
@@ -886,6 +887,18 @@ describe('agent-runner IPC lifecycle', () => {
           TEST_EXIT_AFTER_QUERY: '1',
           ANTHROPIC_API_KEY: 'raw-provider-key',
           CLAUDE_CODE_OAUTH_TOKEN: 'raw-oauth-token',
+          [claudeConfigDirEnvKey]: path.join(
+            fixture.root,
+            'isolated-claude-config',
+          ),
+          HOME: path.join(fixture.root, 'host-home'),
+          USERPROFILE: path.join(fixture.root, 'host-profile'),
+          XDG_CONFIG_HOME: path.join(fixture.root, 'host-xdg-config'),
+          APPDATA: path.join(fixture.root, 'host-appdata'),
+          LOCALAPPDATA: path.join(fixture.root, 'host-localappdata'),
+          USER: 'host-user',
+          USERNAME: 'host-username',
+          LOGNAME: 'host-logname',
           HTTP_PROXY: 'http://127.0.0.1:10255/',
           HTTPS_PROXY: 'http://127.0.0.1:10255/',
           NODE_USE_ENV_PROXY: '1',
@@ -905,6 +918,17 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(sdkEnv[claudeConfigDirEnvKey]).toBe(
+        path.join(fixture.root, 'isolated-claude-config'),
+      );
+      expect(sdkEnv.HOME).toBeUndefined();
+      expect(sdkEnv.USERPROFILE).toBeUndefined();
+      expect(sdkEnv.XDG_CONFIG_HOME).toBeUndefined();
+      expect(sdkEnv.APPDATA).toBeUndefined();
+      expect(sdkEnv.LOCALAPPDATA).toBeUndefined();
+      expect(sdkEnv.USER).toBeUndefined();
+      expect(sdkEnv.USERNAME).toBeUndefined();
+      expect(sdkEnv.LOGNAME).toBeUndefined();
       expect(sdkEnv.HTTP_PROXY).toBeUndefined();
       expect(sdkEnv.HTTPS_PROXY).toBeUndefined();
       expect(sdkEnv.http_proxy).toBeUndefined();
