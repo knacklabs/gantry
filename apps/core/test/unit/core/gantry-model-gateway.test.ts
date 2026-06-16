@@ -433,6 +433,96 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('passes ToolSearch deferred tools and tool references through the Anthropic gateway', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-upstream');
+    const upstreamFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            content: [
+              {
+                type: 'tool_search_tool_result',
+                content: {
+                  type: 'tool_search_tool_search_result',
+                  tool_references: [
+                    {
+                      type: 'tool_reference',
+                      tool_name: 'search_slack_messages',
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          modelRouteId: 'anthropic',
+        },
+      });
+      const body = JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 256,
+        messages: [{ role: 'user', content: 'search slack' }],
+        tools: [
+          {
+            name: 'search_slack_messages',
+            description: 'Search Slack messages by keyword and channel.',
+            input_schema: { type: 'object', properties: {} },
+            defer_loading: true,
+          },
+          {
+            type: 'tool_search_tool_bm25_20251119',
+            name: 'tool_search_tool_bm25',
+          },
+        ],
+      });
+
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+        headers: { 'anthropic-beta': 'tool-search-2025-11-19' },
+        body,
+      });
+
+      expect(response.status).toBe(200);
+      const upstreamOptions = upstreamFetch.mock.calls[0]?.[1];
+      const upstreamBody = JSON.parse(
+        Buffer.from(upstreamOptions?.body as Buffer).toString('utf-8'),
+      );
+      expect(upstreamBody.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'search_slack_messages',
+            defer_loading: true,
+          }),
+          expect.objectContaining({
+            type: 'tool_search_tool_bm25_20251119',
+          }),
+        ]),
+      );
+      expect(upstreamOptions?.headers).toEqual(
+        expect.objectContaining({
+          'anthropic-beta': 'tool-search-2025-11-19',
+          'x-api-key': 'sk-ant-upstream',
+        }),
+      );
+      expect(response.body).toContain('"tool_reference"');
+      expect(response.body).toContain('"search_slack_messages"');
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('projects Anthropic Claude Code OAuth through gateway credentials', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.setWithMode('anthropic', 'claude_code_oauth', {

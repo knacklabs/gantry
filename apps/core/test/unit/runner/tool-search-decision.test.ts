@@ -6,6 +6,7 @@ import {
 } from '@core/adapters/llm/anthropic-claude-agent/runner/tool-search-decision.js';
 
 const baseUrlEnvKey = ['ANTHROPIC', 'BASE', 'URL'].join('_');
+const apiKeyEnvKey = ['ANTHROPIC', 'API', 'KEY'].join('_');
 const anthropicSdkProvider = ['anthropic', 'sdk'].join('_');
 
 describe('Claude SDK ToolSearch decision', () => {
@@ -33,6 +34,41 @@ describe('Claude SDK ToolSearch decision', () => {
   it('disables ToolSearch when Gantry or another proxy has not proved tool_reference support', () => {
     const decision = decideClaudeSdkToolSearch({
       sdkEnv: { [baseUrlEnvKey]: 'http://127.0.0.1:18789/v1' },
+      availableTools: ['Read', 'ToolSearch'],
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash'],
+      mcpServers: { gantry: { command: 'node' } },
+    });
+
+    expect(decision).toMatchObject({
+      enableToolSearch: 'false',
+      reason: 'non_first_party_base_url_tool_reference_unproven',
+      anthropicBaseUrlKind: 'non_first_party',
+    });
+  });
+
+  it('uses the SDK auto threshold for Gantry loopback gateway routing', () => {
+    const decision = decideClaudeSdkToolSearch({
+      sdkEnv: {
+        [baseUrlEnvKey]: 'http://127.0.0.1:18789/anthropic',
+        [apiKeyEnvKey]: 'gtw_run_scoped_token',
+      },
+      availableTools: ['Read', 'ToolSearch'],
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash'],
+      mcpServers: { gantry: { command: 'node' } },
+    });
+
+    expect(decision).toMatchObject({
+      enableToolSearch: 'auto:10',
+      reason: 'gantry_gateway_tool_reference_pass_through',
+      anthropicBaseUrlKind: 'gantry_loopback',
+    });
+  });
+
+  it('keeps arbitrary loopback proxies disabled without a Gantry gateway token', () => {
+    const decision = decideClaudeSdkToolSearch({
+      sdkEnv: { [baseUrlEnvKey]: 'http://127.0.0.1:18789/anthropic' },
       availableTools: ['Read', 'ToolSearch'],
       allowedTools: ['Read'],
       disallowedTools: ['Bash'],

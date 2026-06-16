@@ -5,11 +5,13 @@ import type {
 } from './types.js';
 
 export type ClaudeSdkToolSearchMode = 'auto:10' | 'false';
+const ANTHROPIC_API_KEY_ENV = ['ANTHROPIC', 'API', 'KEY'].join('_');
 
 export interface ClaudeSdkToolSearchDecision {
   enableToolSearch: ClaudeSdkToolSearchMode;
   reason:
     | 'official_auto_threshold'
+    | 'gantry_gateway_tool_reference_pass_through'
     | 'non_first_party_base_url_tool_reference_unproven'
     | 'invalid_base_url_tool_reference_unproven'
     | 'no_registered_tools';
@@ -18,7 +20,12 @@ export interface ClaudeSdkToolSearchDecision {
   disallowedToolCount: number;
   mcpServerCount: number;
   serializedToolConfigBytes: number;
-  anthropicBaseUrlKind: 'unset' | 'first_party' | 'non_first_party' | 'invalid';
+  anthropicBaseUrlKind:
+    | 'unset'
+    | 'first_party'
+    | 'gantry_loopback'
+    | 'non_first_party'
+    | 'invalid';
 }
 
 export function decideClaudeSdkToolSearch(input: {
@@ -43,6 +50,7 @@ export function decideClaudeSdkToolSearch(input: {
   );
   const anthropicBaseUrlKind = classifyAnthropicBaseUrl(
     input.sdkEnv.ANTHROPIC_BASE_URL,
+    input.sdkEnv[ANTHROPIC_API_KEY_ENV],
   );
 
   if (availableToolCount === 0 && mcpServerCount === 0) {
@@ -86,7 +94,10 @@ export function decideClaudeSdkToolSearch(input: {
 
   return {
     enableToolSearch: 'auto:10',
-    reason: 'official_auto_threshold',
+    reason:
+      anthropicBaseUrlKind === 'gantry_loopback'
+        ? 'gantry_gateway_tool_reference_pass_through'
+        : 'official_auto_threshold',
     availableToolCount,
     allowedToolCount,
     disallowedToolCount,
@@ -129,6 +140,7 @@ export function toolSearchStartupRuntimeEvent(input: {
 
 function classifyAnthropicBaseUrl(
   value: string | undefined,
+  apiKey: string | undefined,
 ): ClaudeSdkToolSearchDecision['anthropicBaseUrlKind'] {
   const raw = value?.trim();
   if (!raw) return 'unset';
@@ -138,7 +150,19 @@ function classifyAnthropicBaseUrl(
   } catch {
     return 'invalid';
   }
-  return parsed.hostname.toLowerCase() === 'api.anthropic.com'
-    ? 'first_party'
-    : 'non_first_party';
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (hostname === 'api.anthropic.com') return 'first_party';
+  if (
+    (hostname === '127.0.0.1' || hostname === '::1') &&
+    stripTrailingSlashes(parsed.pathname) === '/anthropic' &&
+    apiKey?.startsWith('gtw_')
+  ) {
+    return 'gantry_loopback';
+  }
+  return 'non_first_party';
+}
+
+function stripTrailingSlashes(value: string): string {
+  const stripped = value.replace(/\/+$/, '');
+  return stripped || '/';
 }
