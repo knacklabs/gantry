@@ -164,6 +164,10 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'memory-boundary.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/runtime-signal-pump.ts'),
+    path.join(runnerDir, 'runtime-signal-pump.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/tool-gate-core.ts'),
     path.join(runnerDir, 'tool-gate-core.ts'),
   );
