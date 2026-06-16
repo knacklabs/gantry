@@ -7,11 +7,10 @@
  * (`agent-spawn-process.ts`), so the bind cannot ride stdin.
  *
  * Transport is pluggable so the real Pillar-1 two-phase socket swaps in at
- * combine time. For the standalone worktree-B shim the bind arrives either as a
- * test-only env JSON (`GANTRY_SPIKE_BIND`, fast path) or as a `{type:'bind'}`
- * envelope written into `GANTRY_IPC_INPUT_DIR` (the existing continuation-input
- * dir). The receiver only reads the bind; it never mutates customer state
- * downstream.
+ * combine time. For the standalone worktree-B shim the bind arrives as a
+ * `{type:'bind'}` envelope written into `GANTRY_IPC_INPUT_DIR` (the existing
+ * continuation-input dir). The receiver only reads the bind; it never mutates
+ * customer state downstream.
  */
 import fs from 'fs';
 import path from 'path';
@@ -31,14 +30,6 @@ export interface ConversationBindScope {
   guardrailPreface?: string;
   threadId?: string;
   memoryUserId?: string;
-  // Test-harness only (cache-plumbing assertion); remove or make real when the
-  // Phase-3 bind transport lands.
-  usage?: {
-    in?: number;
-    out?: number;
-    cacheRead?: number;
-    cacheWrite?: number;
-  };
   ipcAuthToken?: string;
   browserIpcAuthToken?: string;
   memoryIpcAuthToken?: string;
@@ -87,10 +78,6 @@ function parseBindScope(raw: string): ConversationBindScope | undefined {
       threadId: typeof scope.threadId === 'string' ? scope.threadId : undefined,
       memoryUserId:
         typeof scope.memoryUserId === 'string' ? scope.memoryUserId : undefined,
-      usage:
-        scope.usage && typeof scope.usage === 'object'
-          ? scope.usage
-          : undefined,
       ipcAuthToken:
         typeof scope.ipcAuthToken === 'string' ? scope.ipcAuthToken : undefined,
       browserIpcAuthToken:
@@ -117,23 +104,11 @@ function parseBindScope(raw: string): ConversationBindScope | undefined {
 
 /**
  * Await the per-customer bind. Resolves with the scope once it arrives.
- * - Test-only fast path: `GANTRY_SPIKE_BIND` env (a JSON scope) resolves
- *   immediately, modelling an already-delivered bind.
  * - Shim path: poll `GANTRY_IPC_INPUT_DIR/_bind.json` until present.
  */
 export async function awaitBind(
   options: AwaitBindOptions = {},
 ): Promise<ConversationBindScope> {
-  const fast = process.env.GANTRY_SPIKE_BIND?.trim();
-  if (fast) {
-    const scope = parseBindScope(fast);
-    if (scope) {
-      log(`Warm bind received via env fast-path (chatJid=${scope.chatJid})`);
-      return scope;
-    }
-    throw new Error('GANTRY_SPIKE_BIND was set but is not a valid bind scope');
-  }
-
   const inputDir = process.env.GANTRY_IPC_INPUT_DIR;
   if (!inputDir) {
     throw new Error('Cannot await warm bind: GANTRY_IPC_INPUT_DIR is unset');

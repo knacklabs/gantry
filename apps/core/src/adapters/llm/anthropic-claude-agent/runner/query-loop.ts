@@ -229,20 +229,7 @@ async function dispatchWarmQuery(args: {
     : scope.firstMessage;
   args.stream.pushInitialPrompt(firstMessage, scope.memoryBlock || undefined);
   args.onBound(scope);
-  const sdkQuery = warm.query(args.stream);
-  // Test-only (F10): prove the WarmQuery is single-use by attempting a second
-  // query() — the SDK throws "Can only be called once per WarmQuery". Never
-  // taken in production (Model A binds exactly once per worker).
-  if (process.env.GANTRY_SPIKE_DOUBLE_QUERY === '1') {
-    try {
-      warm.query(args.stream);
-    } catch (err) {
-      log(
-        `WarmQuery single-use verified: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-  return sdkQuery;
+  return warm.query(args.stream);
 }
 
 export async function runQuery(

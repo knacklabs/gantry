@@ -1,12 +1,10 @@
 /**
  * Shared real-runner test harness for the Anthropic Claude Agent runner.
  *
- * Extracted verbatim from `agent-runner-ipc.test.ts` (no behavior change) so the
- * warm-pool spike (`warm-pool-spike.test.ts`) can reuse the exact same fixture:
- * a temp root with the real runner source copied in and a filesystem-injected
- * fake SDK. The fake SDK additionally exposes a single-use `startup()`/
- * `WarmQuery` primitive (F10) for the warm-pool path; the cold `query()` path is
- * unchanged.
+ * Extracted verbatim from `agent-runner-ipc.test.ts` (no behavior change): a
+ * temp root with the real runner source copied in and a filesystem-injected fake
+ * SDK. The fake SDK additionally exposes a single-use `startup()`/`WarmQuery`
+ * primitive (F10) for the warm-pool path; the cold `query()` path is unchanged.
  */
 import fs from 'fs';
 import os from 'os';
@@ -782,64 +780,6 @@ export async function* query({ prompt, options }) {
     };
     yield { type: 'result', subtype: 'success', result: '' };
     return;
-  }
-  // Warm-pool: when a bind carries sample token usage, surface it on the result
-  // so the envelope cache-plumbing (detail.tokens.cacheRead/cacheWrite) can be
-  // asserted (gate criterion 4). Cold path leaves usage undefined as before.
-  const warmUsageRaw = process.env.GANTRY_SPIKE_USAGE;
-  if (warmUsageRaw) {
-    let warmUsage;
-    try {
-      warmUsage = JSON.parse(warmUsageRaw);
-    } catch {
-      warmUsage = undefined;
-    }
-    if (warmUsage) {
-      const warmUsageTokens = {
-        input_tokens: warmUsage.in ?? 0,
-        output_tokens: warmUsage.out ?? 0,
-        cache_read_input_tokens: warmUsage.cacheRead ?? 0,
-        cache_creation_input_tokens: warmUsage.cacheWrite ?? 0,
-      };
-      // Mirror the real SDK ordering: message_start (turn start) → assistant
-      // (carries message.usage so the turn accumulator records detail.tokens) →
-      // message_delta (final usage) → result. This exercises the full cache
-      // token plumbing through to turns[].detail.tokens + the result usage.
-      yield {
-        type: 'stream_event',
-        event: { type: 'message_start' },
-      };
-      yield {
-        type: 'assistant',
-        uuid: 'assistant-warm-1',
-        message: {
-          id: 'msg-warm-1',
-          content: [{ type: 'text', text: 'warm reply' }],
-          usage: warmUsageTokens,
-        },
-      };
-      yield {
-        type: 'stream_event',
-        event: {
-          type: 'message_delta',
-          delta: { stop_reason: 'end_turn' },
-          usage: warmUsageTokens,
-        },
-      };
-      yield {
-        type: 'result',
-        subtype: 'success',
-        result: 'runner-ok',
-        usage: warmUsageTokens,
-      };
-      if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
-        setTimeout(() => {
-          fs.mkdirSync(process.env.GANTRY_IPC_INPUT_DIR, { recursive: true });
-          fs.writeFileSync(path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'), '');
-        }, 20);
-      }
-      return;
-    }
   }
   yield { type: 'result', subtype: 'success', result: 'runner-ok' };
 
