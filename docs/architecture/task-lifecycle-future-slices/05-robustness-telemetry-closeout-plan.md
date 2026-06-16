@@ -18,6 +18,8 @@ In scope:
 - Retry, timeout, model-call, tool-call, loop, and worker-pool budgets.
 - Cancellation propagation and terminal evidence.
 - Startup, first-visible, cost, token, prompt-cache, and delegation metrics.
+- Progress-event coalescing, bounded replay cursors, and redacted lifecycle
+  status fields for high-frequency delegated work.
 - Frontend/headless/protocol adapters as Gantry adapters.
 - Cleanup searches and final launch gates.
 
@@ -35,6 +37,10 @@ Non-goals:
 - Cancellation reaches provider tasks where supported and always fences Gantry
   writes after terminal state.
 - Metrics and audit remain separate from policy decisions.
+- High-frequency progress does not create unbounded runtime-event write
+  amplification; dropped or coalesced notifications recover from durable state.
+- Lifecycle status text, errors, and provider correlation evidence are redacted
+  and bounded before external delivery or telemetry export.
 - Protocol adapters authenticate to Gantry app/agent/conversation/thread/run
   identity or fail closed.
 - Every deferred raw provider surface has a fail-closed test or explicit
@@ -69,16 +75,23 @@ Gantry runtime surfaces; provider-native protocols remain adapter details.
 2. Add retry, timeout, loop, tool-call, model-call, and worker-pool budget
    behavior for delegated lifecycle work.
 3. Add cancellation propagation and terminal write fencing tests.
-4. Extend startup and delegation diagnostics with cost/token/cache/timing
+4. Add progress-event coalescing and bounded replay cursors for delegated work.
+5. Extend startup and delegation diagnostics with cost/token/cache/timing
    fields.
-5. Classify protocol adapters and managed/provider extension surfaces.
-6. Run cleanup searches, benchmark checks, architecture checks, build, tests,
+6. Add redaction and bounded-field checks for lifecycle status, errors, and
+   provider correlation evidence before telemetry or channel delivery.
+7. Classify protocol adapters and managed/provider extension surfaces.
+8. Run cleanup searches, benchmark checks, architecture checks, build, tests,
    artifact validation, and autoreview before closeout.
 
 ## 6. Risks
 
 - Retry loops can hide terminal failures and keep workers occupied.
+- Per-progress runtime-event persistence can become write amplification under
+  high-frequency subagent progress unless coalesced behind durable state.
 - Cost/telemetry data can leak prompt or tool details without redaction.
+- Lifecycle status text and provider correlation ids can leak adapter-private
+  details unless bounded and redacted before leaving runtime evidence.
 - Protocol adapters can become a second control plane if they bypass Gantry
   runtime identity and permissions.
 
@@ -87,6 +100,8 @@ Gantry runtime surfaces; provider-native protocols remain adapter details.
 - Structured-output validation tests.
 - Retry/timeout/cancellation terminal evidence tests.
 - Telemetry redaction tests.
+- Progress coalescing/replay tests under high-frequency delegated updates.
+- Lifecycle status/error/provider-correlation bounding and redaction tests.
 - Protocol adapter fail-closed tests.
 - 300-concurrent benchmark artifact or explicit launch blocker.
 - `npm run build`

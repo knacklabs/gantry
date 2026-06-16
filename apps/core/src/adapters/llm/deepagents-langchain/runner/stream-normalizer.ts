@@ -4,8 +4,16 @@ import type {
   NormalizedModelUsage,
   RuntimeContextUsageSnapshot,
 } from '../../../../shared/model-catalog.js';
-import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
+import type {
+  RunnerOutputFrame,
+  RunnerRuntimeEventFrame,
+} from '../../../../runner/runner-frame.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import {
+  buildTaskLifecycleRuntimeEvent,
+  type TaskLifecycleContext,
+  type TaskLifecycleEventInput,
+} from '../../../../runner/task-lifecycle-events.js';
 
 // Pure normalizer: turns an async iterable of LangGraph `streamEvents` (v2)
 // events into provider-neutral runner output frames. Kept free of any
@@ -34,6 +42,27 @@ export interface LangGraphStreamEvent {
   };
 }
 
+const GANTRY_TASK_LIFECYCLE_EVENT = Symbol('GantryTaskLifecycleStreamEvent');
+const GANTRY_TASK_LIFECYCLE_EVENT_NAME = 'gantry_task_lifecycle';
+
+interface GantryTaskLifecycleStreamEvent extends LangGraphStreamEvent {
+  [GANTRY_TASK_LIFECYCLE_EVENT]: true;
+}
+
+export function buildGantryTaskLifecycleStreamEvent(
+  input: TaskLifecycleEventInput,
+): LangGraphStreamEvent {
+  const event = {
+    event: GANTRY_TASK_LIFECYCLE_EVENT_NAME,
+    data: { output: input },
+  } as GantryTaskLifecycleStreamEvent;
+  Object.defineProperty(event, GANTRY_TASK_LIFECYCLE_EVENT, {
+    value: true,
+    enumerable: false,
+  });
+  return event;
+}
+
 export interface ModelProfileSnapshot {
   maxInputTokens?: number;
   maxOutputTokens?: number;
@@ -57,6 +86,7 @@ export interface StreamNormalizerInput {
   // heartbeat uses this to mark tool activity so a long-running tool (e.g. the
   // shell tool) keeps the lease alive instead of looking idle.
   onToolStart?: (toolName: string) => void;
+  runtimeEventContext?: TaskLifecycleContext;
 }
 
 interface UsageAccumulator {
@@ -127,6 +157,19 @@ export async function normalizeDeepAgentStream(
     if (event.event === 'on_tool_start' && typeof event.name === 'string') {
       input.onToolStart?.(event.name);
     }
+    const taskEvent = taskLifecycleRuntimeEventFromStreamEvent(
+      input.runtimeEventContext,
+      event,
+    );
+    if (taskEvent) {
+      input.emit({
+        status: 'success',
+        result: null,
+        newSessionId: input.newSessionId,
+        runtimeEventOnly: true,
+        runtimeEvents: [taskEvent],
+      });
+    }
   }
 
   // The terminal frame is emitted by the caller (runner index) so there is
@@ -143,6 +186,104 @@ export async function normalizeDeepAgentStream(
       input.modelProfile,
     ),
   };
+}
+
+function taskLifecycleRuntimeEventFromStreamEvent(
+  context: TaskLifecycleContext | undefined,
+  event: LangGraphStreamEvent,
+): RunnerRuntimeEventFrame | null {
+  if (!context || !isGantryTaskLifecycleStreamEvent(event)) return null;
+  return buildTaskLifecycleRuntimeEvent(
+    context,
+    taskLifecycleInputFromValue(event.data?.output),
+  );
+}
+
+function isGantryTaskLifecycleStreamEvent(
+  event: LangGraphStreamEvent,
+): event is GantryTaskLifecycleStreamEvent {
+  return (
+    event.event === GANTRY_TASK_LIFECYCLE_EVENT_NAME &&
+    (event as { [GANTRY_TASK_LIFECYCLE_EVENT]?: boolean })[
+      GANTRY_TASK_LIFECYCLE_EVENT
+    ] === true
+  );
+}
+
+function taskLifecycleInputFromValue(value: unknown): TaskLifecycleEventInput {
+  if (!value || typeof value !== 'object') {
+    return { kind: 'notification', taskId: '' };
+  }
+  const record = value as Record<string, unknown>;
+  const kind = taskLifecycleKind(record.kind);
+  const patch =
+    record.patch && typeof record.patch === 'object'
+      ? (record.patch as Record<string, unknown>)
+      : {};
+  return {
+    kind,
+    taskId: stringField(record, 'taskId') ?? '',
+    toolUseId: stringField(record, 'toolUseId'),
+    description: stringField(record, 'description'),
+    subagentType: stringField(record, 'subagentType'),
+    taskType: stringField(record, 'taskType'),
+    workflowName: stringField(record, 'workflowName'),
+    skipTranscript: record.skipTranscript === true,
+    lastToolName: stringField(record, 'lastToolName'),
+    summary: stringField(record, 'summary'),
+    status: stringField(record, 'status'),
+    usage: taskLifecycleUsage(record.usage),
+    patch: {
+      status: stringField(patch, 'status'),
+      description: stringField(patch, 'description'),
+      endTime: numberField(patch, 'endTime'),
+      totalPausedMs: numberField(patch, 'totalPausedMs'),
+      isBackgrounded:
+        typeof patch.isBackgrounded === 'boolean'
+          ? patch.isBackgrounded
+          : undefined,
+      hasError: patch.hasError === true,
+    },
+  };
+}
+
+function taskLifecycleKind(value: unknown): TaskLifecycleEventInput['kind'] {
+  return value === 'started' ||
+    value === 'progress' ||
+    value === 'updated' ||
+    value === 'notification'
+    ? value
+    : 'notification';
+}
+
+function taskLifecycleUsage(value: unknown): TaskLifecycleEventInput['usage'] {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  return {
+    totalTokens: numberField(record, 'totalTokens'),
+    toolUses: numberField(record, 'toolUses'),
+    durationMs: numberField(record, 'durationMs'),
+  };
+}
+
+function stringField(
+  value: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const field = value[key];
+  return typeof field === 'string' && field.trim().length > 0
+    ? field
+    : undefined;
+}
+
+function numberField(
+  value: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const field = value[key];
+  return typeof field === 'number' && Number.isFinite(field)
+    ? field
+    : undefined;
 }
 
 function textFromChunk(chunk: unknown): string {

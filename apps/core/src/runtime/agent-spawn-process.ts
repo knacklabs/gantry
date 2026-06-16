@@ -26,6 +26,10 @@ import {
   runnerResultWithProviderSession,
 } from './agent-output-provider-session.js';
 import {
+  isRunnerCompletionEvidenceFrame,
+  isVisibleResultFrame,
+} from './agent-output-callbacks.js';
+import {
   sanitizeRunnerLogText as sanitizeLogText,
   stderrLooksLikeSandboxBlock,
 } from './agent-spawn-log-sanitization.js';
@@ -264,7 +268,9 @@ export function executeRunnerProcess(
                 runner.kill('SIGKILL');
               }
             }
-            hadStreamingOutput = true;
+            if (isRunnerCompletionEvidenceFrame(parsed)) {
+              hadStreamingOutput = true;
+            }
             resetTimeout();
             outputChain = outputChain
               .then(() => onOutput(parsed))
@@ -690,8 +696,4 @@ export function executeRunnerProcess(
       });
     });
   });
-}
-
-function isVisibleResultFrame(output: AgentOutput): boolean {
-  return typeof output.result === 'string' && output.result.length > 0;
 }

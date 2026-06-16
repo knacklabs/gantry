@@ -77,6 +77,8 @@ export interface AgentOutput {
   // mistaken for turn completion. The session id still persists via
   // providerSessionExternalSessionId (reads newSessionId).
   sessionInit?: boolean;
+  // Runtime-event-only frames carry observable events without completing a turn.
+  runtimeEventOnly?: boolean;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;

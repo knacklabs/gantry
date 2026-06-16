@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildGantryTaskLifecycleStreamEvent,
   normalizeDeepAgentStream,
   type LangGraphStreamEvent,
 } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
@@ -380,6 +381,166 @@ describe('normalizeDeepAgentStream', () => {
       onToolStart: (toolName) => toolStarts.push(toolName),
     });
     expect(toolStarts).toEqual(['RunCommand', 'send_message']);
+  });
+
+  it('emits sanitized task lifecycle runtime events from Gantry-owned observations', async () => {
+    const frames: RunnerOutputFrame[] = [];
+    await normalizeDeepAgentStream({
+      events: asStream([
+        buildGantryTaskLifecycleStreamEvent({
+          kind: 'started',
+          taskId: 'task-1',
+          toolUseId: 'toolu-1',
+          description: 'Research pricing',
+          subagentType: 'general-purpose',
+          taskType: 'local_agent',
+          workflowName: 'pricing',
+          prompt: 'raw delegated prompt must not leak',
+        } as Parameters<typeof buildGantryTaskLifecycleStreamEvent>[0]),
+        buildGantryTaskLifecycleStreamEvent({
+          kind: 'progress',
+          taskId: 'task-1',
+          toolUseId: 'toolu-1',
+          summary: 'two sources checked',
+          lastToolName: 'WebSearch',
+          usage: {
+            totalTokens: 123,
+            toolUses: 2,
+            durationMs: 456,
+            rawTokens: 999,
+          },
+        } as Parameters<typeof buildGantryTaskLifecycleStreamEvent>[0]),
+        buildGantryTaskLifecycleStreamEvent({
+          kind: 'updated',
+          taskId: 'task-1',
+          patch: {
+            status: 'running',
+            description: 'Research pricing',
+            totalPausedMs: 0,
+            isBackgrounded: true,
+            hasError: true,
+            error: 'raw task error must not leak',
+          },
+        } as Parameters<typeof buildGantryTaskLifecycleStreamEvent>[0]),
+        buildGantryTaskLifecycleStreamEvent({
+          kind: 'notification',
+          taskId: 'task-1',
+          status: 'completed',
+          summary: 'subagent done',
+          outputFile: '/tmp/raw-task-output.json',
+        } as Parameters<typeof buildGantryTaskLifecycleStreamEvent>[0]),
+      ]),
+      newSessionId: 'session-task',
+      modelProfile: { maxInputTokens: 1000 },
+      runtimeEventContext: {
+        appId: 'app-one',
+        agentId: 'agent:team',
+        runId: 'run-1',
+        jobId: 'job-1',
+        conversationId: 'tg:team',
+        threadId: 'thread-1',
+        actor: 'deepagents',
+      },
+      emit: (frame) => frames.push(frame),
+    });
+
+    expect(frames.map((frame) => frame.runtimeEventOnly)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    const taskEvents = frames.flatMap((frame) => frame.runtimeEvents ?? []);
+    expect(taskEvents).toEqual([
+      expect.objectContaining({
+        eventType: 'task.started',
+        actor: 'deepagents',
+        payload: {
+          taskId: 'task-1',
+          toolUseId: 'toolu-1',
+          description: 'Research pricing',
+          subagentType: 'general-purpose',
+          taskType: 'local_agent',
+          workflowName: 'pricing',
+          skipTranscript: false,
+        },
+      }),
+      expect.objectContaining({
+        eventType: 'task.progress',
+        payload: {
+          taskId: 'task-1',
+          toolUseId: 'toolu-1',
+          lastToolName: 'WebSearch',
+          summary: 'two sources checked',
+          usage: {
+            totalTokens: 123,
+            toolUses: 2,
+            durationMs: 456,
+          },
+        },
+      }),
+      expect.objectContaining({
+        eventType: 'task.updated',
+        payload: {
+          taskId: 'task-1',
+          patch: {
+            status: 'running',
+            description: 'Research pricing',
+            totalPausedMs: 0,
+            isBackgrounded: true,
+            hasError: true,
+          },
+        },
+      }),
+      expect.objectContaining({
+        eventType: 'task.notification',
+        payload: {
+          taskId: 'task-1',
+          status: 'completed',
+          summary: 'subagent done',
+          skipTranscript: false,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(taskEvents)).not.toContain(
+      'raw delegated prompt must not leak',
+    );
+    expect(JSON.stringify(taskEvents)).not.toContain(
+      'raw task error must not leak',
+    );
+    expect(JSON.stringify(taskEvents)).not.toContain(
+      '/tmp/raw-task-output.json',
+    );
+  });
+
+  it('ignores custom lifecycle-shaped stream events without Gantry ownership', async () => {
+    const frames: RunnerOutputFrame[] = [];
+    await normalizeDeepAgentStream({
+      events: asStream([
+        {
+          event: 'gantry_task_lifecycle',
+          data: {
+            output: {
+              kind: 'progress',
+              taskId: 'task-from-custom-event',
+              summary: 'custom event must not become runtime evidence',
+            },
+          },
+        },
+      ]),
+      newSessionId: 'session-task',
+      modelProfile: { maxInputTokens: 1000 },
+      runtimeEventContext: {
+        appId: 'app-one',
+        agentId: 'agent:team',
+        runId: 'run-1',
+        conversationId: 'tg:team',
+        actor: 'deepagents',
+      },
+      emit: (frame) => frames.push(frame),
+    });
+
+    expect(frames).toEqual([]);
   });
 
   it('returns the assistant text as the terminal result when no partial text streamed', async () => {

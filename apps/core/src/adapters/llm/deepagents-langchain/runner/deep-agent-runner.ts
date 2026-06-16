@@ -237,6 +237,15 @@ export async function runDeepAgentTurn(input: {
           modelId: resolved.modelId,
           modelProfile: { maxInputTokens: profile.maxInputTokens },
           cacheProvider: cacheProviderForEndpoint(resolved.endpointFamily),
+          runtimeEventContext: {
+            appId: input.agentInput.appId,
+            agentId: input.agentInput.agentId,
+            runId: input.agentInput.runId,
+            jobId: input.agentInput.jobId,
+            conversationId: input.agentInput.chatJid,
+            threadId: input.agentInput.threadId,
+            actor: 'deepagents',
+          },
           emit: input.emit,
           onFirstEvent: (eventName) => {
             startupTiming.markFirstLangGraphEvent(eventName);

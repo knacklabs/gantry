@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { LangGraphStreamEvent } from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
+import {
+  buildGantryTaskLifecycleStreamEvent,
+  type LangGraphStreamEvent,
+} from '@core/adapters/llm/deepagents-langchain/runner/stream-normalizer.js';
 import type { DeepAgentRunnerInput } from '@core/adapters/llm/deepagents-langchain/runner/types.js';
 
 const mocks = vi.hoisted(() => ({
@@ -69,6 +72,33 @@ async function* fakeLangGraphEvents(): AsyncIterable<LangGraphStreamEvent> {
       output: {
         usage_metadata: {
           input_tokens: 7,
+          output_tokens: 1,
+        },
+      },
+    },
+  };
+}
+
+async function* fakeTaskLifecycleEvents(): AsyncIterable<LangGraphStreamEvent> {
+  yield buildGantryTaskLifecycleStreamEvent({
+    kind: 'progress',
+    taskId: 'task-1',
+    toolUseId: 'toolu-1',
+    summary: 'delegated work is running',
+    usage: {
+      totalTokens: 10,
+      toolUses: 1,
+      durationMs: 20,
+    },
+    prompt: 'raw delegated prompt must not leak',
+  } as Parameters<typeof buildGantryTaskLifecycleStreamEvent>[0]);
+  yield {
+    event: 'on_chat_model_stream',
+    data: {
+      chunk: {
+        content: 'done',
+        usage_metadata: {
+          input_tokens: 5,
           output_tokens: 1,
         },
       },
@@ -187,6 +217,62 @@ describe('runDeepAgentTurn startup diagnostics', () => {
     expect(serialized).not.toContain('secret memory text');
     expect(serialized).not.toContain('http://127.0.0.1:4545/openai');
     expect(serialized).not.toContain('gtw_secret_token');
+  });
+
+  it('passes Gantry lifecycle context into DeepAgents stream normalization', async () => {
+    mocks.createDeepAgent.mockReturnValue({
+      streamEvents: vi.fn(() => fakeTaskLifecycleEvents()),
+    });
+    const { runDeepAgentTurn } =
+      await import('@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js');
+    const frames: Array<Record<string, unknown>> = [];
+
+    await runDeepAgentTurn({
+      agentInput: input({
+        jobId: 'job-one',
+        threadId: 'thread-one',
+      }),
+      provider: 'openai',
+      modelId: 'gpt-test',
+      newSessionId: 'session-one',
+      includeMemoryContext: false,
+      emit: (frame) => frames.push(frame as Record<string, unknown>),
+    });
+
+    const taskFrame = frames.find((frame) =>
+      Array.isArray(frame.runtimeEvents),
+    );
+    expect(taskFrame).toMatchObject({
+      status: 'success',
+      result: null,
+      newSessionId: 'session-one',
+      runtimeEventOnly: true,
+      runtimeEvents: [
+        {
+          appId: 'app-one',
+          agentId: 'agent-one',
+          runId: 'run-one',
+          jobId: 'job-one',
+          conversationId: 'tg:room-one',
+          threadId: 'thread-one',
+          actor: 'deepagents',
+          eventType: 'task.progress',
+          payload: {
+            taskId: 'task-1',
+            toolUseId: 'toolu-1',
+            summary: 'delegated work is running',
+            usage: {
+              totalTokens: 10,
+              toolUses: 1,
+              durationMs: 20,
+            },
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(taskFrame)).not.toContain(
+      'raw delegated prompt must not leak',
+    );
   });
 
   it('passes projected DeepAgents skill sources and files through the graph state', async () => {

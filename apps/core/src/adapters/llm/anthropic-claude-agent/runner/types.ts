@@ -53,6 +53,7 @@ export interface AgentRunnerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
+  runtimeEventOnly?: boolean;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;

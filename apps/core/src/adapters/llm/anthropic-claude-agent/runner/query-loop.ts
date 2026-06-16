@@ -59,13 +59,17 @@ import {
 import { startJobHeartbeat } from './job-heartbeat.js';
 import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
-import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
 import {
   decideClaudeSdkToolSearch,
   toolSearchStartupRuntimeEvent,
 } from './tool-search-decision.js';
 import { startRuntimeSignalPump } from '../../../../runner/runtime-signal-pump.js';
+import {
+  buildTaskLifecycleRuntimeEvent,
+  type TaskLifecycleEventInput,
+  type TaskLifecycleUsageInput,
+} from '../../../../runner/task-lifecycle-events.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
@@ -149,10 +153,10 @@ function finiteNumberField(
     : undefined;
 }
 
-function taskUsagePayload(value: unknown): Record<string, number> | undefined {
+function taskUsagePayload(value: unknown): TaskLifecycleUsageInput | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const usage = value as Record<string, unknown>;
-  const out: Record<string, number> = {};
+  const out: TaskLifecycleUsageInput = {};
   const totalTokens = finiteNumberField(usage, 'total_tokens');
   const toolUses = finiteNumberField(usage, 'tool_uses');
   const durationMs = finiteNumberField(usage, 'duration_ms');
@@ -169,11 +173,7 @@ function taskRuntimeEvent(
   const taskId = stringField(message, 'task_id');
   if (!taskId) return null;
   const toolUseId = stringField(message, 'tool_use_id');
-  const basePayload: Record<string, unknown> = {
-    taskId,
-    ...(toolUseId ? { toolUseId } : {}),
-  };
-  const eventBase = {
+  const context = {
     appId: agentInput.appId,
     agentId: agentInput.agentId,
     runId: agentInput.runId,
@@ -181,35 +181,32 @@ function taskRuntimeEvent(
     conversationId: agentInput.chatJid,
     threadId: agentInput.threadId,
     actor: 'sdk',
-  } satisfies Omit<AgentRunnerRuntimeEventOutput, 'eventType' | 'payload'>;
+  };
+  let input: TaskLifecycleEventInput | null = null;
 
   if (message.subtype === 'task_started') {
-    return {
-      ...eventBase,
-      eventType: RUNTIME_EVENT_TYPES.TASK_STARTED,
-      payload: {
-        ...basePayload,
-        description: stringField(message, 'description'),
-        subagentType: stringField(message, 'subagent_type'),
-        taskType: stringField(message, 'task_type'),
-        workflowName: stringField(message, 'workflow_name'),
-        skipTranscript: message.skip_transcript === true,
-      },
+    input = {
+      kind: 'started',
+      taskId,
+      toolUseId,
+      description: stringField(message, 'description'),
+      subagentType: stringField(message, 'subagent_type'),
+      taskType: stringField(message, 'task_type'),
+      workflowName: stringField(message, 'workflow_name'),
+      skipTranscript: message.skip_transcript === true,
     };
   }
 
   if (message.subtype === 'task_progress') {
-    return {
-      ...eventBase,
-      eventType: RUNTIME_EVENT_TYPES.TASK_PROGRESS,
-      payload: {
-        ...basePayload,
-        description: stringField(message, 'description'),
-        subagentType: stringField(message, 'subagent_type'),
-        lastToolName: stringField(message, 'last_tool_name'),
-        summary: stringField(message, 'summary'),
-        usage: taskUsagePayload(message.usage),
-      },
+    input = {
+      kind: 'progress',
+      taskId,
+      toolUseId,
+      description: stringField(message, 'description'),
+      subagentType: stringField(message, 'subagent_type'),
+      lastToolName: stringField(message, 'last_tool_name'),
+      summary: stringField(message, 'summary'),
+      usage: taskUsagePayload(message.usage),
     };
   }
 
@@ -218,41 +215,37 @@ function taskRuntimeEvent(
       message.patch && typeof message.patch === 'object'
         ? (message.patch as Record<string, unknown>)
         : {};
-    return {
-      ...eventBase,
-      eventType: RUNTIME_EVENT_TYPES.TASK_UPDATED,
-      payload: {
-        ...basePayload,
-        patch: {
-          status: stringField(patch, 'status'),
-          description: stringField(patch, 'description'),
-          endTime: finiteNumberField(patch, 'end_time'),
-          totalPausedMs: finiteNumberField(patch, 'total_paused_ms'),
-          isBackgrounded:
-            typeof patch.is_backgrounded === 'boolean'
-              ? patch.is_backgrounded
-              : undefined,
-          hasError: typeof patch.error === 'string' && patch.error.length > 0,
-        },
+    input = {
+      kind: 'updated',
+      taskId,
+      toolUseId,
+      patch: {
+        status: stringField(patch, 'status'),
+        description: stringField(patch, 'description'),
+        endTime: finiteNumberField(patch, 'end_time'),
+        totalPausedMs: finiteNumberField(patch, 'total_paused_ms'),
+        isBackgrounded:
+          typeof patch.is_backgrounded === 'boolean'
+            ? patch.is_backgrounded
+            : undefined,
+        hasError: typeof patch.error === 'string' && patch.error.length > 0,
       },
     };
   }
 
   if (message.subtype === 'task_notification') {
-    return {
-      ...eventBase,
-      eventType: RUNTIME_EVENT_TYPES.TASK_NOTIFICATION,
-      payload: {
-        ...basePayload,
-        status: stringField(message, 'status'),
-        summary: stringField(message, 'summary'),
-        skipTranscript: message.skip_transcript === true,
-        usage: taskUsagePayload(message.usage),
-      },
+    input = {
+      kind: 'notification',
+      taskId,
+      toolUseId,
+      status: stringField(message, 'status'),
+      summary: stringField(message, 'summary'),
+      skipTranscript: message.skip_transcript === true,
+      usage: taskUsagePayload(message.usage),
     };
   }
 
-  return null;
+  return input ? buildTaskLifecycleRuntimeEvent(context, input) : null;
 }
 
 export async function runQuery(
@@ -534,6 +527,7 @@ export async function runQuery(
           status: 'success',
           result: null,
           newSessionId,
+          runtimeEventOnly: true,
           runtimeEvents: [
             toolSearchStartupRuntimeEvent({
               agentInput,
@@ -564,6 +558,7 @@ export async function runQuery(
         writeOutput({
           status: 'success',
           result: null,
+          runtimeEventOnly: true,
           runtimeEvents: [taskEvent],
         });
       }

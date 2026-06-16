@@ -168,6 +168,10 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'runtime-signal-pump.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/task-lifecycle-events.ts'),
+    path.join(runnerDir, 'task-lifecycle-events.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/tool-gate-core.ts'),
     path.join(runnerDir, 'tool-gate-core.ts'),
   );
@@ -1145,6 +1149,14 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode, result.stderr).toBe(0);
       const outputs = readRunnerOutputs(result.stdout);
+      const taskOutputs = outputs.filter((output) =>
+        (output.runtimeEvents ?? []).some(
+          (event: { eventType?: string }) =>
+            typeof event.eventType === 'string' &&
+            event.eventType.startsWith('task.'),
+        ),
+      );
+      expect(taskOutputs.every((output) => output.runtimeEventOnly)).toBe(true);
       const taskEvents = outputs
         .flatMap((output) =>
           Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],

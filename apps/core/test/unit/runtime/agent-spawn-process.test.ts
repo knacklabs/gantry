@@ -560,6 +560,45 @@ describe('executeRunnerProcess', () => {
       expect(logContent).toContain('Had Streaming Output: false');
     });
 
+    it('does not treat runtime-event-only output as idle-cleanup success after timeout', async () => {
+      const onOutput = vi.fn(async () => {});
+      const spec = makeSpec({ onOutput });
+      const resultP = executeRunnerProcess(spec);
+
+      const json = JSON.stringify({
+        status: 'success',
+        result: null,
+        newSessionId: 'sess-event-only',
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          {
+            eventType: 'task.progress',
+            actor: 'runner',
+            payload: { taskId: 'task-1' },
+          },
+        ],
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+
+      await vi.advanceTimersByTimeAsync(35_050);
+
+      expect(fakeProc.kill).toHaveBeenCalledWith('SIGKILL');
+      fakeProc.emit('close', 137);
+      await vi.advanceTimersByTimeAsync(10);
+
+      const result = await resultP;
+      expect(result.status).toBe('error');
+      expect(result.newSessionId).toBe('sess-event-only');
+      expect(onOutput).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeEventOnly: true }),
+      );
+      const [, logContent] = mockWriteFileSync.mock.calls[0];
+      expect(logContent).toContain('Had Streaming Output: false');
+    });
+
     it('timeout after streaming output resolves as error', async () => {
       const onOutput = vi.fn(async () => {});
       const spec = makeSpec({ onOutput, options: { timeoutMs: 200 } });
@@ -1064,6 +1103,43 @@ describe('executeRunnerProcess', () => {
           signal: 'SIGTERM',
         }),
         'test-runner closed after streamed output',
+      );
+    });
+
+    it('treats SIGTERM after runtime-event-only output as failed', async () => {
+      const onOutput = vi.fn(async () => {});
+      const spec = makeSpec({ onOutput });
+      const resultP = executeRunnerProcess(spec);
+
+      const json = JSON.stringify({
+        status: 'success',
+        result: null,
+        newSessionId: 'sess-event-only',
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          {
+            eventType: 'task.progress',
+            actor: 'runner',
+            payload: { taskId: 'task-1' },
+          },
+        ],
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+
+      fakeProc.emit('close', null, 'SIGTERM');
+      await vi.advanceTimersByTimeAsync(10);
+
+      const result = await resultP;
+      expect(result.status).toBe('error');
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'test-runner closed after streamed output',
+      );
+      expect(onOutput).toHaveBeenCalledWith(
+        expect.objectContaining({ runtimeEventOnly: true }),
       );
     });
 
