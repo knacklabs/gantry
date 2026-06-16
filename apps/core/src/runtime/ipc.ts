@@ -8,13 +8,16 @@ import { processMemoryRequest, writeMemoryResponse } from '../memory/memory-ipc.
 // prettier-ignore
 import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
 import type { IpcDeps } from './ipc-domain-types.js';
-import { writeTaskIpcResponse } from '../jobs/ipc-shared.js';
 // prettier-ignore
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
 // prettier-ignore
 import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
+import {
+  isLongRunningTask,
+  processLongRunningTaskIpc,
+} from './ipc-long-running-task.js';
 import { clearConsumedIpcRequestIds } from './ipc-auth-validation.js';
 import { processBrowserRequestDirectory } from './ipc-browser-requests.js';
 import { canProcessIpcFile, clearIpcRateLimitState } from './ipc-rate-limit.js';
@@ -26,10 +29,8 @@ import {
   IpcRequestWakeupRegistry,
   type IpcRequestWakeupHint,
 } from './ipc-request-wakeup-registry.js';
-import type {
-  RunnerControlPort,
-  RunnerControlRequestLane,
-} from './runner-control-port.js';
+import { IpcWakeupScopeTracker } from './ipc-wakeup-scope.js';
+import type { RunnerControlPort } from './runner-control-port.js';
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -44,47 +45,6 @@ let activeRunnerControlPort: FilesystemRunnerControlPort | undefined;
 let activeRequestWakeups: IpcRequestWakeupRegistry | undefined;
 const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const inFlightInteractionIpc = new Set<string>();
-type IpcProcessScope = 'all' | 'hinted';
-
-const isLongRunningTask = (type: string): boolean =>
-  type.startsWith('mcp_') || type === 'scheduler_wait_for_events';
-
-async function processLongRunningTaskIpc(input: {
-  data: ReturnType<typeof parseTaskIpcData>;
-  sourceAgentFolder: string;
-  deps: IpcDeps;
-  ipcBaseDir: string;
-  file: string;
-  claimedPath: string;
-  runnerControlPort: RunnerControlPort;
-}): Promise<void> {
-  try {
-    await processTaskIpc(
-      input.data,
-      input.sourceAgentFolder,
-      input.deps,
-      input.ipcBaseDir,
-    );
-    input.runnerControlPort.removeClaimedRequest(input.claimedPath);
-  } catch (err) {
-    writeTaskIpcResponse(
-      input.sourceAgentFolder,
-      input.data.taskId,
-      {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      },
-      input.data.authThreadId,
-      input.data.responseKeyId,
-    );
-    logger.error(
-      { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
-      'Error processing long-running IPC task',
-    );
-    // prettier-ignore
-    input.runnerControlPort.archiveFailedRequest(input.sourceAgentFolder, input.file, input.claimedPath);
-  }
-}
 
 export function resolveIpcFoldersFromGroups(
   groupRegistry: Record<string, RuntimeGroupRecord>,
@@ -193,15 +153,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
   const initializedLayoutFolders = new Set<string>();
   let processingIpcFiles = false;
   let processAgainAfterCurrentPass = false;
-  let nextProcessScope: IpcProcessScope = 'all';
-  let processAgainScope: IpcProcessScope | undefined;
-  const pendingWakeHints = new Map<string, Set<RunnerControlRequestLane>>();
-
-  const addWakeHint = (hint: IpcRequestWakeupHint): void => {
-    const lanes = pendingWakeHints.get(hint.workspaceFolder) ?? new Set();
-    lanes.add(hint.lane);
-    pendingWakeHints.set(hint.workspaceFolder, lanes);
-  };
+  const wakeupScope = new IpcWakeupScopeTracker();
 
   const scheduleProcess = (delayMs: number): void => {
     if (!ipcWatcherRunning) return;
@@ -217,24 +169,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
   };
 
   const scheduleNextPoll = (): void => {
-    nextProcessScope = 'all';
+    wakeupScope.scheduleFullScan();
     scheduleProcess(IPC_POLL_INTERVAL);
   };
 
   const triggerIpcProcessing = (hint?: IpcRequestWakeupHint): void => {
     if (!ipcWatcherRunning) return;
-    if (hint) addWakeHint(hint);
-    else {
-      nextProcessScope = 'all';
-      processAgainScope = 'all';
-    }
     if (processingIpcFiles) {
-      processAgainScope =
-        !hint || processAgainScope === 'all' ? 'all' : 'hinted';
+      wakeupScope.recordWakeupDuringPass(hint);
       processAgainAfterCurrentPass = true;
       return;
     }
-    nextProcessScope = hint ? 'hinted' : 'all';
+    wakeupScope.recordWakeup(hint);
     scheduleProcess(0);
   };
 
@@ -258,19 +204,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
       return;
     }
     processingIpcFiles = true;
-    const processScope = nextProcessScope;
-    nextProcessScope = 'all';
-    const wakeHints =
-      processScope === 'hinted'
-        ? new Map(pendingWakeHints)
-        : new Map<string, Set<RunnerControlRequestLane>>();
-    pendingWakeHints.clear();
-    const shouldProcessRequestLane = (
-      sourceAgentFolder: string,
-      lane: RunnerControlRequestLane,
-    ): boolean =>
-      processScope === 'all' ||
-      Boolean(wakeHints.get(sourceAgentFolder)?.has(lane));
+    const { scope: processScope, shouldProcessRequestLane } =
+      wakeupScope.startPass();
     let scheduleFollowupPass = false;
     try {
       const groupRegistry = deps.conversationRoutes();
@@ -850,12 +785,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
     }
     if (!ipcWatcherRunning) return;
     if (scheduleFollowupPass) {
-      nextProcessScope = processAgainScope ?? 'all';
-      processAgainScope = undefined;
+      wakeupScope.scheduleFollowupPass();
       scheduleProcess(0);
       return;
     }
-    processAgainScope = undefined;
+    wakeupScope.clearFollowupPass();
     scheduleNextPoll();
   };
 
