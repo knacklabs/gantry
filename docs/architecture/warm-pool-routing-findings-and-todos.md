@@ -2364,6 +2364,27 @@ Evidence:
     `GANTRY_TEST_DATABASE_URL=<disposable pgvector Postgres> npm run test:integration:postgres`
     passed 12 files / 61 tests, 1 skipped after the outbound-fence timing
     correction; the disposable container was removed after the check.
+  - The basic local runtime/MCP stack now supports
+    `GANTRY_CORE_COUNT=2 npm run dev:boondi-runtime` for multi-core
+    runtime-plumbing smoke against the same runtime home/Postgres. Each core
+    gets an adjacent control port, separate log, separate smoke env sidecar,
+    and isolated `GANTRY_IPC_SOCKET_PATH` under `GANTRY_RUNTIME_IPC_DIR`, so
+    the shared runtime-home IPC socket election does not hide the second core's
+    runner path.
+  - Verification:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/repo/boondi-scenarios.test.ts --testNamePattern "basic runtime MCP stack|multi-core runtime MCP stack"`
+    first failed because the stack was single-core only, then passed after
+    adding per-core control ports, smoke envs, logs, and IPC sockets.
+  - Verification:
+    `bash -n scripts/boondi-runtime-stack.sh && node --check scripts/boondi-runtime-smoke.mjs && node --check scripts/lib/runtime-smoke-env.mjs`
+    passed after the multi-core stack update.
+  - The standard `npm run test:integration:postgres` command now includes the
+    existing `runtime-worker-inventory.postgres.integration.test.ts`, so
+    per-instance worker inventory persistence is part of the shared Postgres
+    gate instead of relying only on unit/control-route coverage.
+  - Verification:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/repo/package-hygiene.test.ts --testNamePattern "runtime worker inventory"`
+    passed after locking the package-script entry.
 Open follow-ups:
   - Measure Boondi latency separately with `scripts/measure-latency.mjs` and
     boondi-admin `replySeconds`; the broad regression harness is a correctness

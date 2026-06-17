@@ -551,14 +551,14 @@ describe('Boondi regression scenarios', () => {
     expect(stack).toContain(
       'SMOKE_ENV_FILE="${GANTRY_RUNTIME_SMOKE_ENV:-/tmp/gantry-runtime-smoke.env}"',
     );
-    expect(stack).toContain('chmod 600 "$SMOKE_ENV_FILE"');
+    expect(stack).toContain('chmod 600 "$smoke_env"');
     expect(stack).toContain('const token=process.env.SMOKE_CONTROL_TOKEN;');
     expect(stack).not.toContain('const token=process.argv[1]');
     expect(stack).toContain(
-      'GANTRY_CONTROL_API_KEYS_JSON="$CONTROL_API_KEYS_JSON"',
+      'GANTRY_CONTROL_API_KEYS_JSON="$control_api_keys_json"',
     );
     expect(stack).toContain(
-      'GANTRY_RUNTIME_SMOKE_ENV=$SMOKE_ENV_FILE npm run smoke:boondi-runtime',
+      'GANTRY_RUNTIME_SMOKE_ENV=$smoke_env npm run smoke:boondi-runtime',
     );
     expect(stack).toContain('GANTRY_TEST_OPERATOR_PHONE="$OPERATOR"');
     expect(stack).toContain(
@@ -572,10 +572,25 @@ describe('Boondi regression scenarios', () => {
     expect(stack).toContain('http://127.0.0.1:8081/healthz');
     expect(stack).toContain('http://127.0.0.1:8082/healthz');
     expect(stack).toContain('http://127.0.0.1:4710/');
-    expect(stack).toContain('kill "$CORE_PID" "$SHOPIFY_PID" "$CRM_PID"');
+    expect(stack).toContain('kill "${CORE_PIDS[@]}" "$SHOPIFY_PID" "$CRM_PID"');
     expect(stack).toContain('npm run smoke:boondi-runtime');
     expect(pkg.scripts?.['dev:boondi-runtime']).toBe(
       'bash scripts/boondi-runtime-stack.sh',
     );
+  });
+
+  it('can start a local multi-core runtime MCP stack with isolated IPC sockets', () => {
+    const stack = fs.readFileSync(runtimeStackPath, 'utf-8');
+
+    expect(stack).toContain('GANTRY_CORE_COUNT="${GANTRY_CORE_COUNT:-1}"');
+    expect(stack).toContain('GANTRY_RUNTIME_IPC_DIR');
+    expect(stack).toContain('CORE_PIDS=()');
+    expect(stack).toContain('CORE_SMOKE_ENVS=()');
+    expect(stack).toContain('core-${idx}.sock');
+    expect(stack).toContain('GANTRY_IPC_SOCKET_PATH="$core_ipc_socket"');
+    expect(stack).toContain('GANTRY_CONTROL_PORT="$core_port"');
+    expect(stack).toContain('GANTRY_DEV_LOG="$core_log"');
+    expect(stack).toContain('GANTRY_RUNTIME_SMOKE_ENV=$smoke_env');
+    expect(stack).toContain('READY core_ports=${CORE_PORTS[*]}');
   });
 });

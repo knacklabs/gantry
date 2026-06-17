@@ -59,6 +59,8 @@ settings because they are test harness controls, not product behavior.
 | ---------------------------------- | ------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------- |
 | `BOONDI_CRM_RECONCILE_INTERVAL_MS` | `scripts/boondi-runtime-stack.sh` / CRM MCP process env | `10000` in local runtime stack  | Keep default for local smoke so CRM MCP readiness and returning-person checks settle quickly. | CRM MCP deployment owns its own watcher interval. | Restart CRM MCP.    | Affects CRM MCP background reconciliation speed in local checks; not Gantry runtime coordination.     |
 | `STOP_EXISTING`                    | `scripts/boondi-runtime-stack.sh`                       | `1`                             | Keep `1` for clean local listener startup.                                                    | Not applicable.                                   | Restart script.     | Prevents duplicate local core/MCP listeners from double-processing messages or hiding port conflicts. |
+| `GANTRY_CORE_COUNT`                | `scripts/boondi-runtime-stack.sh`                       | `1`                             | Use `2` only for local multi-core runtime-plumbing smoke against shared Postgres.              | Not applicable.                                   | Restart script.     | Starts multiple local Gantry core processes with adjacent control ports and isolated IPC sockets.     |
+| `GANTRY_RUNTIME_IPC_DIR`           | `scripts/boondi-runtime-stack.sh`                       | `/tmp/gantry-runtime-smoke-ipc` | Leave default unless another local smoke owns that path.                                      | Not applicable.                                   | Restart script.     | Holds per-core IPC sockets so each local core can run its own runner/socket path safely.              |
 | `SHOPIFY_DEV_LOG`                  | `scripts/boondi-runtime-stack.sh`                       | `/tmp/mcp-shopify-dev.log`      | Leave default unless collecting logs elsewhere.                                               | Not applicable.                                   | Restart script.     | Controls where local Shopify MCP stdout/stderr is written.                                            |
 | `CRM_DEV_LOG`                      | `scripts/boondi-runtime-stack.sh`                       | `/tmp/mcp-crm-dev.log`          | Leave default unless collecting logs elsewhere.                                               | Not applicable.                                   | Restart script.     | Controls where local CRM MCP stdout/stderr is written.                                                |
 | `CORE_URL`                         | `scripts/boondi-runtime-stack.sh`                       | `http://127.0.0.1:4710/`        | Leave default for local smoke.                                                                | Not applicable.                                   | Restart script.     | Health probe target for core readiness.                                                               |
@@ -84,6 +86,14 @@ For local inbound/outbound/MCP readiness, use:
 ```bash
 npm run dev:boondi-runtime
 # second terminal: run the exact Next: command printed by the stack
+```
+
+For local multi-core plumbing checks, start the same stack with two Gantry core
+processes:
+
+```bash
+GANTRY_CORE_COUNT=2 npm run dev:boondi-runtime
+# second terminal: run each exact Next: command printed by the stack
 ```
 
 That path proves the basic runtime plumbing only: signed webhook ACK, guardrail

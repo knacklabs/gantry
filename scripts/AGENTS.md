@@ -47,6 +47,11 @@
   matching must stay scoped to parsed JSON flow records for the same chat JID.
   Loose substring checks can mix events from different fake phones and send the
   duplicate probe before the first turn for that chat has actually finished.
+- For local multi-core runtime-plumbing checks, use
+  `GANTRY_CORE_COUNT=2 npm run dev:boondi-runtime`. The stack must give each
+  Gantry core a distinct control port, log, smoke env file, and
+  `GANTRY_IPC_SOCKET_PATH`; otherwise the shared runtime-home IPC socket
+  election hides the second core's runner path and makes the smoke misleading.
 - Keep `scripts/boondi-test-setup.sh` warning against anything other than
   `BOONDI_TEST_IDLE_TIMEOUT_MS=2500` for broad scenario suites, but raise both
   that variable and `runtime.runner.idle_timeout_ms`, for example to `20000`,

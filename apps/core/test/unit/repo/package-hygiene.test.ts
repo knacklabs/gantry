@@ -86,4 +86,14 @@ describe('package hygiene', () => {
 
     expect(offenders).toEqual([]);
   });
+
+  it('keeps runtime worker inventory in the standard Postgres integration gate', () => {
+    const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8')) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(pkg.scripts?.['test:integration:postgres']).toContain(
+      'apps/core/test/integration/runtime-worker-inventory.postgres.integration.test.ts',
+    );
+  });
 });
