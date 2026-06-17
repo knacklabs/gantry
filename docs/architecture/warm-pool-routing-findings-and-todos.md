@@ -2543,6 +2543,33 @@ Evidence:
     returned `ok: true`: Shopify primary, Shopify secondary, and CRM each had
     one guardrail event, one MCP request, one MCP response, one outbound dry-run
     event, and duplicate-inbound suppression.
+  - Active owner-lease heartbeat cadence is now settings-owned as
+    `runtime.ownership.heartbeat_interval_ms` instead of being derived from
+    `lease_ttl_ms / 3` in runtime startup. `/Users/caw-d/gantry/settings.yaml`
+    was backed up to
+    `/Users/caw-d/gantry/settings.yaml.codex-backup-20260617T162755Z` and now
+    explicitly sets `runtime.ownership.heartbeat_interval_ms: 15000` for local
+    startup.
+  - Verification:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/config/runtime-settings.test.ts apps/core/test/unit/config/public-runtime-settings.test.ts apps/core/test/unit/architecture/runtime-switch-reference.test.ts`
+    first failed because `runtime.ownership.heartbeat_interval_ms` was not
+    parsed, rendered, exposed publicly, or documented, then passed after adding
+    the settings-owned heartbeat interval.
+  - Verification:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/bootstrap/runtime-app.test.ts apps/core/test/unit/runtime/conversation-work-claim-gate.test.ts --testNamePattern "ownership|heartbeat|wires"`
+    passed 2 files / 6 selected tests.
+  - Verification:
+    `npm run typecheck -- --pretty false` passed after the ownership heartbeat
+    setting change.
+  - Fresh single-core local runtime-plumbing smoke passed after restarting
+    `GANTRY_CORE_COUNT=1 npm run dev:boondi-runtime` with
+    `runtime.ownership.heartbeat_interval_ms: 15000` loaded from
+    `/Users/caw-d/gantry/settings.yaml`. The stack reached
+    `READY core_ports=4710 core_codes=404 shopify=ok crm=ok`, and
+    `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env npm run smoke:boondi-runtime`
+    returned `ok: true`: Shopify primary, Shopify secondary, and CRM each had
+    one guardrail event, one MCP request, one MCP response, one outbound dry-run
+    event, and duplicate-inbound suppression.
 Open follow-ups:
   - Measure Boondi latency separately with `scripts/measure-latency.mjs` and
     boondi-admin `replySeconds`; the broad regression harness is a correctness

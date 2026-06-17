@@ -283,6 +283,7 @@ agents:
     const settings = createDefaultRuntimeSettings();
     expect(settings.runtime.ownership).toEqual({
       leaseTtlMs: 45_000,
+      heartbeatIntervalMs: 15_000,
       reconcilerIntervalMs: 15_000,
       reconcilerLimit: 100,
       shutdownClaimWaitMs: 1_000,
@@ -290,6 +291,7 @@ agents:
 
     settings.runtime.ownership = {
       leaseTtlMs: 30_000,
+      heartbeatIntervalMs: 10_000,
       reconcilerIntervalMs: 2_500,
       reconcilerLimit: 50,
       shutdownClaimWaitMs: 250,
@@ -299,6 +301,7 @@ agents:
     expect(yaml).toContain('runtime:');
     expect(yaml).toContain('ownership:');
     expect(yaml).toContain('lease_ttl_ms: 30000');
+    expect(yaml).toContain('heartbeat_interval_ms: 10000');
     expect(yaml).toContain('reconciler_interval_ms: 2500');
     expect(yaml).toContain('reconciler_limit: 50');
     expect(yaml).toContain('shutdown_claim_wait_ms: 250');

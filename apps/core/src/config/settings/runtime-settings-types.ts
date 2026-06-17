@@ -238,6 +238,7 @@ export interface RuntimeRunnerSettings {
 
 export interface RuntimeOwnershipSettings {
   leaseTtlMs: number;
+  heartbeatIntervalMs: number;
   reconcilerIntervalMs: number;
   reconcilerLimit: number;
   shutdownClaimWaitMs: number;

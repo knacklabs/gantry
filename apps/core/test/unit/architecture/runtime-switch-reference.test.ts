@@ -32,6 +32,7 @@ describe('runtime switch reference', () => {
       'runtime.warm_pool.cache_prewarm_concurrency',
       'runtime.runner.idle_timeout_ms',
       'runtime.ownership.lease_ttl_ms',
+      'runtime.ownership.heartbeat_interval_ms',
       'runtime.ownership.reconciler_interval_ms',
       'runtime.ownership.reconciler_limit',
       'runtime.ownership.shutdown_claim_wait_ms',

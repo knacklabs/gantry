@@ -124,9 +124,10 @@ session ID`, expire that provider session and retry the same turn once without
   the current owner lease at processing/send time, so channel wiring can verify
   the lease version immediately before provider dispatch.
 - Conversation-owner timing is settings-owned under `runtime.ownership`:
-  `lease_ttl_ms`, `reconciler_interval_ms`, `reconciler_limit`, and
-  `shutdown_claim_wait_ms`. Runtime wiring should read these through config
-  getters instead of adding env-only knobs or local constants in app startup.
+  `lease_ttl_ms`, `heartbeat_interval_ms`, `reconciler_interval_ms`,
+  `reconciler_limit`, and `shutdown_claim_wait_ms`. Runtime wiring should read
+  these through config getters instead of adding env-only knobs or local
+  constants in app startup.
 - Conversation-work dispatchers are shutdown-sensitive claim sources. After
   `close()`, they must ignore even already-captured notification callbacks and
   must not acquire new conversation-owner leases. If `close()` lands while a

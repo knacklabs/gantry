@@ -103,6 +103,7 @@ it('exposes settings-owned runtime ownership timing', async () => {
   const defaults = runtimeSettings.ensureRuntimeSettings(runtimeHome);
   defaults.runtime.ownership = {
     leaseTtlMs: 30_000,
+    heartbeatIntervalMs: 10_000,
     reconcilerIntervalMs: 2_500,
     reconcilerLimit: 50,
     shutdownClaimWaitMs: 250,
@@ -112,12 +113,14 @@ it('exposes settings-owned runtime ownership timing', async () => {
 
   expect(config.getPublicRuntimeSettings().runtime.ownership).toEqual({
     leaseTtlMs: 30_000,
+    heartbeatIntervalMs: 10_000,
     reconcilerIntervalMs: 2_500,
     reconcilerLimit: 50,
     shutdownClaimWaitMs: 250,
   });
   expect(config.getRuntimeOwnershipConfig()).toEqual({
     leaseTtlMs: 30_000,
+    heartbeatIntervalMs: 10_000,
     reconcilerIntervalMs: 2_500,
     reconcilerLimit: 50,
     shutdownClaimWaitMs: 250,

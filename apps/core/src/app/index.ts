@@ -138,7 +138,7 @@ export async function startGantryRuntime(
         threadId: parsed.threadId ?? null,
         ownerInstanceId: instanceId,
         leaseTtlMs: ownershipConfig.leaseTtlMs,
-        intervalMs: Math.max(1_000, Math.floor(ownershipConfig.leaseTtlMs / 3)),
+        intervalMs: ownershipConfig.heartbeatIntervalMs,
       });
     },
   });

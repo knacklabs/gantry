@@ -197,6 +197,7 @@ export function getRuntimeOwnershipConfig() {
   const ownership = getRuntimeSettingsForConfig().runtime.ownership;
   return {
     leaseTtlMs: ownership.leaseTtlMs,
+    heartbeatIntervalMs: ownership.heartbeatIntervalMs,
     reconcilerIntervalMs: ownership.reconcilerIntervalMs,
     reconcilerLimit: ownership.reconcilerLimit,
     shutdownClaimWaitMs: ownership.shutdownClaimWaitMs,

@@ -16,6 +16,7 @@ import {
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
   DEFAULT_MODEL_GATEWAY_BIND_HOST,
+  DEFAULT_RUNTIME_OWNERSHIP_HEARTBEAT_INTERVAL_MS,
   DEFAULT_RUNTIME_OWNERSHIP_LEASE_TTL_MS,
   DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_INTERVAL_MS,
   DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_LIMIT,
@@ -712,6 +713,7 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
     },
     ownership: {
       leaseTtlMs: DEFAULT_RUNTIME_OWNERSHIP_LEASE_TTL_MS,
+      heartbeatIntervalMs: DEFAULT_RUNTIME_OWNERSHIP_HEARTBEAT_INTERVAL_MS,
       reconcilerIntervalMs: DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_INTERVAL_MS,
       reconcilerLimit: DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_LIMIT,
       shutdownClaimWaitMs: DEFAULT_RUNTIME_OWNERSHIP_SHUTDOWN_CLAIM_WAIT_MS,
@@ -816,12 +818,13 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
   for (const key of Object.keys(ownership)) {
     if (
       key !== 'lease_ttl_ms' &&
+      key !== 'heartbeat_interval_ms' &&
       key !== 'reconciler_interval_ms' &&
       key !== 'reconciler_limit' &&
       key !== 'shutdown_claim_wait_ms'
     ) {
       throw new Error(
-        `runtime.ownership.${key} is not supported. Configure lease_ttl_ms, reconciler_interval_ms, reconciler_limit, or shutdown_claim_wait_ms.`,
+        `runtime.ownership.${key} is not supported. Configure lease_ttl_ms, heartbeat_interval_ms, reconciler_interval_ms, reconciler_limit, or shutdown_claim_wait_ms.`,
       );
     }
   }
@@ -912,6 +915,11 @@ function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
         ownership.lease_ttl_ms,
         'runtime.ownership.lease_ttl_ms',
         defaults.ownership.leaseTtlMs,
+      ),
+      heartbeatIntervalMs: parsePositiveIntegerValue(
+        ownership.heartbeat_interval_ms,
+        'runtime.ownership.heartbeat_interval_ms',
+        defaults.ownership.heartbeatIntervalMs,
       ),
       reconcilerIntervalMs: parsePositiveIntegerValue(
         ownership.reconciler_interval_ms,

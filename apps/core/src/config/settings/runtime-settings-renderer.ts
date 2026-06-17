@@ -24,6 +24,7 @@ import {
   DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING,
   DEFAULT_MODEL_GATEWAY_BIND_HOST,
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
+  DEFAULT_RUNTIME_OWNERSHIP_HEARTBEAT_INTERVAL_MS,
   DEFAULT_RUNTIME_OWNERSHIP_LEASE_TTL_MS,
   DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_INTERVAL_MS,
   DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_LIMIT,
@@ -661,6 +662,8 @@ function isDefaultRuntime(runtime: RuntimeSettings['runtime']): boolean {
       DEFAULT_WARM_POOL_CACHE_PREWARM_CONCURRENCY &&
     runtime.runner.idleTimeoutMs === DEFAULT_RUNNER_IDLE_TIMEOUT_MS &&
     runtime.ownership.leaseTtlMs === DEFAULT_RUNTIME_OWNERSHIP_LEASE_TTL_MS &&
+    runtime.ownership.heartbeatIntervalMs ===
+      DEFAULT_RUNTIME_OWNERSHIP_HEARTBEAT_INTERVAL_MS &&
     runtime.ownership.reconcilerIntervalMs ===
       DEFAULT_RUNTIME_OWNERSHIP_RECONCILER_INTERVAL_MS &&
     runtime.ownership.reconcilerLimit ===
@@ -763,6 +766,7 @@ function renderRuntimeProcessYaml(
     `    idle_timeout_ms: ${runtime.runner.idleTimeoutMs}`,
     '  ownership:',
     `    lease_ttl_ms: ${runtime.ownership.leaseTtlMs}`,
+    `    heartbeat_interval_ms: ${runtime.ownership.heartbeatIntervalMs}`,
     `    reconciler_interval_ms: ${runtime.ownership.reconcilerIntervalMs}`,
     `    reconciler_limit: ${runtime.ownership.reconcilerLimit}`,
     `    shutdown_claim_wait_ms: ${runtime.ownership.shutdownClaimWaitMs}`,
