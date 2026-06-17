@@ -564,7 +564,7 @@ describe('Boondi regression scenarios', () => {
       'GANTRY_CONTROL_API_KEYS_JSON="$control_api_keys_json"',
     );
     expect(stack).toContain(
-      'GANTRY_RUNTIME_SMOKE_ENV=$smoke_env npm run smoke:boondi-runtime',
+      'GANTRY_RUNTIME_SMOKE_ENV=${CORE_SMOKE_ENVS[$idx]} npm run smoke:boondi-runtime',
     );
     expect(stack).toContain('GANTRY_TEST_OPERATOR_PHONE="$OPERATOR"');
     expect(stack).toContain(
@@ -579,6 +579,10 @@ describe('Boondi regression scenarios', () => {
     expect(stack).toContain('GANTRY_CONTROL_API_KEYS_JSON');
     expect(stack).toContain('GANTRY_SMOKE_CONTROL_TOKEN');
     expect(stack).toContain('smoke_token_from_control_keys_json');
+    expect(stack).toContain('raw.slice(1,-1)');
+    expect(stack).toContain('CORE_SMOKE_TOKENS=()');
+    expect(stack).toContain('CORE_SMOKE_TOKENS+=("$smoke_token")');
+    expect(stack).toContain('${CORE_SMOKE_TOKENS[$idx]}');
     expect(stack).toContain('http://127.0.0.1:8081/healthz');
     expect(stack).toContain('http://127.0.0.1:8082/healthz');
     expect(stack).not.toContain('CORE_URL');
@@ -602,7 +606,9 @@ describe('Boondi regression scenarios', () => {
     expect(stack).toContain('GANTRY_IPC_SOCKET_PATH="$core_ipc_socket"');
     expect(stack).toContain('GANTRY_CONTROL_PORT="$core_port"');
     expect(stack).toContain('GANTRY_DEV_LOG="$core_log"');
-    expect(stack).toContain('GANTRY_RUNTIME_SMOKE_ENV=$smoke_env');
+    expect(stack).toContain(
+      'GANTRY_RUNTIME_SMOKE_ENV=${CORE_SMOKE_ENVS[$idx]}',
+    );
     expect(stack).toContain('READY core_ports=${CORE_PORTS[*]}');
   });
 

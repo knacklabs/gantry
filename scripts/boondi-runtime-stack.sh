@@ -32,6 +32,7 @@ CORE_PIDS=()
 CORE_PORTS=()
 CORE_LOGS=()
 CORE_SMOKE_ENVS=()
+CORE_SMOKE_TOKENS=()
 SHOPIFY_PID=""
 CRM_PID=""
 
@@ -50,7 +51,7 @@ generate_smoke_token() {
 }
 
 smoke_token_from_control_keys_json() {
-  CONTROL_API_KEYS_JSON="$1" node -e "const raw=process.env.CONTROL_API_KEYS_JSON||''; const keys=JSON.parse(raw); const key=keys.find((candidate)=>Array.isArray(candidate.scopes)&&candidate.scopes.includes('sessions:read')) || keys[0]; if (!key?.token) process.exit(1); process.stdout.write(key.token)"
+  CONTROL_API_KEYS_JSON="$1" node -e "const raw=(process.env.CONTROL_API_KEYS_JSON||'').trim(); const json=((raw.startsWith('\\\"')&&raw.endsWith('\\\"'))||(raw.startsWith(\"'\")&&raw.endsWith(\"'\"))) ? raw.slice(1,-1) : raw; const keys=JSON.parse(json); const key=keys.find((candidate)=>Array.isArray(candidate.scopes)&&candidate.scopes.includes('sessions:read')) || keys[0]; if (!key?.token) process.exit(1); process.stdout.write(key.token)"
 }
 
 control_keys_json_for_token() {
@@ -186,6 +187,7 @@ for idx in $(seq 1 "$GANTRY_CORE_COUNT"); do
   CORE_PORTS+=("$core_port")
   CORE_LOGS+=("$core_log")
   CORE_SMOKE_ENVS+=("$smoke_env")
+  CORE_SMOKE_TOKENS+=("$smoke_token")
 
   echo "starting Gantry core[$idx] (:${core_port}) -> $core_log"
   (
@@ -231,8 +233,13 @@ for _ in $(seq 1 60); do
     [ "$core_ready" -eq 1 ]; then
     echo "READY core_ports=${CORE_PORTS[*]} core_codes=${core_codes[*]} shopify=ok crm=ok"
     echo "Logs: core=${CORE_LOGS[*]} shopify=$SHOPIFY_DEV_LOG crm=$CRM_DEV_LOG"
-    for smoke_env in "${CORE_SMOKE_ENVS[@]}"; do
-      echo "Next: GANTRY_RUNTIME_SMOKE_ENV=$smoke_env npm run smoke:boondi-runtime"
+    for idx in "${!CORE_SMOKE_ENVS[@]}"; do
+      write_smoke_env \
+        "${CORE_SMOKE_ENVS[$idx]}" \
+        "${CORE_PORTS[$idx]}" \
+        "${CORE_LOGS[$idx]}" \
+        "${CORE_SMOKE_TOKENS[$idx]}"
+      echo "Next: GANTRY_RUNTIME_SMOKE_ENV=${CORE_SMOKE_ENVS[$idx]} npm run smoke:boondi-runtime"
     done
     wait "${CORE_PIDS[@]}" "$SHOPIFY_PID" "$CRM_PID"
     exit $?

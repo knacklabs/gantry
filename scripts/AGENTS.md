@@ -35,6 +35,10 @@
   inventory. The smoke should also resend the same provider message id and fail
   if that duplicate produces another guardrail, MCP, or outbound event for the
   chat.
+- The local runtime stack must tolerate `GANTRY_CONTROL_API_KEYS_JSON` loaded
+  from `.env` with shell-style quotes and must rewrite each smoke sidecar
+  immediately before printing its `Next:` command. A READY stack without a
+  readable sidecar is not a runnable local verification state.
 - Local runtime stack child processes must strip wrong-lane raw model
   credentials from the inherited environment, including `ANTHROPIC_API_KEY`,
   `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`, and

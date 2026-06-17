@@ -2510,6 +2510,39 @@ Evidence:
     `["queue","guardrail","llm","gap","tool","llm","gap"]` / send sections,
     while CRM guardrail replies were about 0.043s and 0.037s with
     `["queue","guardrail","gap"]`.
+  - Local runtime env/template cleanup removed the obsolete `IDLE_TIMEOUT`
+    placeholder from `.env.example`; live runner retention is settings-owned
+    through `runtime.runner.idle_timeout_ms`.
+  - `/Users/caw-d/gantry/settings.yaml` was backed up to
+    `/Users/caw-d/gantry/settings.yaml.codex-backup-20260617T161227Z` and now
+    explicitly carries non-secret runtime queue, ownership, and trace-retention
+    defaults alongside the existing runner and warm-pool settings. Follow-up
+    redacted scans showed no active `GANTRY_WARM_POOL`,
+    `GANTRY_WARM_POOL_CACHE_PROBE`, `IDLE_TIMEOUT`, `ANTHROPIC_API_KEY`,
+    `OPENAI_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN` entries in
+    `/Users/caw-d/gantry/.env` or `/Users/caw-d/gantry/settings.yaml`.
+  - `scripts/boondi-runtime-stack.sh` now tolerates shell-quoted
+    `GANTRY_CONTROL_API_KEYS_JSON`, tracks the smoke token per core, and
+    rewrites each `GANTRY_RUNTIME_SMOKE_ENV` sidecar immediately before
+    printing the `Next:` smoke command. This closes the local failure where the
+    stack reached READY but the advertised sidecar was missing.
+  - Verification:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/config/runtime-settings.test.ts apps/core/test/unit/config/public-runtime-settings.test.ts apps/core/test/unit/architecture/runtime-switch-reference.test.ts`
+    passed 3 files / 84 tests.
+  - Verification:
+    `bash -n scripts/boondi-runtime-stack.sh && node --check scripts/boondi-runtime-smoke.mjs && node --check scripts/lib/runtime-smoke-env.mjs`
+    passed.
+  - Verification:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/repo/boondi-scenarios.test.ts --testNamePattern "basic runtime MCP stack|local multi-core runtime MCP stack"`
+    passed 2 selected tests.
+  - Fresh single-core local runtime-plumbing smoke passed after restarting
+    `GANTRY_CORE_COUNT=1 npm run dev:boondi-runtime` from this checkout. The
+    stack reached `READY core_ports=4710 core_codes=404 shopify=ok crm=ok`,
+    created `/tmp/gantry-runtime-smoke.env` with `0600` permissions, and
+    `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env npm run smoke:boondi-runtime`
+    returned `ok: true`: Shopify primary, Shopify secondary, and CRM each had
+    one guardrail event, one MCP request, one MCP response, one outbound dry-run
+    event, and duplicate-inbound suppression.
 Open follow-ups:
   - Measure Boondi latency separately with `scripts/measure-latency.mjs` and
     boondi-admin `replySeconds`; the broad regression harness is a correctness
