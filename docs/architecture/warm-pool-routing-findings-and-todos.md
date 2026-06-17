@@ -2275,6 +2275,19 @@ Evidence:
     `GANTRY_TEST_DATABASE_URL=<disposable pgvector Postgres> npm run test:integration:postgres`
     passed 12 files / 61 tests, 1 skipped with owner-lease and
     missed-notification recovery integration included.
+  - Fresh disposable-Postgres verification exposed a stale test-time bug in
+    `outbound-ownership-verifier.postgres.integration.test.ts`: the test
+    created the "current" owner lease at a fixed historical timestamp, so the
+    production send fence correctly treated it as expired when verifying
+    against real current time. The test now creates an already-expired stale
+    owner relative to the actual test start and a still-valid current owner.
+  - Verification:
+    `GANTRY_TEST_DATABASE_URL=<disposable pgvector Postgres> npx vitest run -c vitest.integration.config.ts apps/core/test/integration/outbound-ownership-verifier.postgres.integration.test.ts`
+    passed 1 file / 1 test after the timing correction.
+  - Verification:
+    `GANTRY_TEST_DATABASE_URL=<disposable pgvector Postgres> npm run test:integration:postgres`
+    passed 12 files / 61 tests, 1 skipped after the outbound-fence timing
+    correction; the disposable container was removed after the check.
 Open follow-ups:
   - Measure Boondi latency separately with `scripts/measure-latency.mjs` and
     boondi-admin `replySeconds`; the broad regression harness is a correctness

@@ -65,6 +65,7 @@ maybeDescribe('outbound ownership verifier Postgres integration', () => {
 
   it('blocks stale owner tokens before channel send and allows the current owner', async () => {
     const conversationId = 'tg:919700000001';
+    const now = new Date();
     await runtime.ops.storeMessage({
       id: 'outbound-ownership-message-1',
       chat_jid: conversationId,
@@ -85,7 +86,7 @@ maybeDescribe('outbound ownership verifier Postgres integration', () => {
       threadId: null,
       ownerInstanceId: 'server-stale',
       leaseTtlMs: 1_000,
-      now: new Date('2026-06-17T10:30:00.000Z'),
+      now: new Date(now.getTime() - 2_000),
       reason: 'integration-stale-owner',
     });
     const currentOwner = await repository.claimLease({
@@ -94,7 +95,7 @@ maybeDescribe('outbound ownership verifier Postgres integration', () => {
       threadId: null,
       ownerInstanceId: 'server-current',
       leaseTtlMs: 45_000,
-      now: new Date('2026-06-17T10:30:02.000Z'),
+      now,
       reason: 'integration-current-owner',
     });
     const sendMessage = vi.fn(async () => ({ externalMessageId: 'tg.1' }));
