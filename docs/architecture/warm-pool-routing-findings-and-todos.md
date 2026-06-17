@@ -1773,7 +1773,7 @@ Evidence:
   - Fresh boondi-admin verification:
     `cd /Users/caw-d/Desktop/boondi-admin && npm run build` passed.
   - Fresh boondi-admin e2e verification:
-    `cd /Users/caw-d/Desktop/boondi-admin && PORT=3127 npx playwright test e2e/latency-report.spec.ts e2e/runtime-workers.spec.ts --reporter=list`
+    `cd /Users/caw-d/Desktop/boondi-admin && PORT=3127 npm run test:e2e -- e2e/latency-report.spec.ts e2e/runtime-workers.spec.ts --reporter=list`
     passed 4/4 tests. The first plain `npm run test:e2e -- ...` attempt timed
     out waiting for `localhost:3000` because an existing Next server on that
     port returned HTTP 500; the isolated port run avoided the stale listener
@@ -1866,10 +1866,10 @@ was already prepared for the same agent/model/tool/prompt shape.
 Checkpoint:
 
 ```text
-Status: In progress
+Status: Completed
 Checkpoint owner: Codex
 Started: 2026-06-17T01:39:20Z
-Completed:
+Completed: 2026-06-17T19:09:10Z
 Evidence:
   - Warm-pool enablement is now settings-owned. `GANTRY_WARM_POOL=1` no longer
     force-enables runtime warm pool.
@@ -2650,7 +2650,7 @@ Evidence:
     `/leads` `missing required error components` page and `/runtime` Control API
     fetch banner. Admin checks passed with `npm run build`, `npx tsc --noEmit`,
     and
-    `PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 npx playwright test e2e/runtime-workers.spec.ts e2e/leads-memory.spec.ts --project=chromium`.
+    `PORT=3000 npm run test:e2e -- e2e/runtime-workers.spec.ts e2e/leads-memory.spec.ts --project=chromium`.
   - `scripts/measure-latency.mjs` now prints `llmSum` and `llmMax` beside
     `spawn`, `mcp`, and `tail`, so provider/model wait is visible in the CLI
     summary instead of hidden in the JSON detail or admin trace modal.
@@ -2759,26 +2759,52 @@ Evidence:
     `boondi-admin` app. `e2e/runtime-workers.spec.ts` now mocks multiple
     runtime instances and asserts that the Runtime tab renders both healthy and
     stale instance rows, hostnames, and the healthy-runtime total. Verification:
-    `npx playwright test e2e/runtime-workers.spec.ts --project=chromium`
+    `npm run test:e2e -- e2e/runtime-workers.spec.ts --project=chromium`
     passed `3` tests in `/Users/caw-d/Desktop/boondi-admin`.
-Open follow-ups:
+  - Fresh two-core runtime-plumbing smoke passed against
+    `GANTRY_CORE_COUNT=2 GANTRY_DEV_LOG=/tmp/gantry-capture.log npm run dev:boondi-runtime`.
+    Both generated smoke env files reported `GANTRY_EXPECTED_RUNTIME_INSTANCES=2`;
+    core `4710` and core `4711` each returned `ok: true`, `concurrency: 1`,
+    and `caseCount: 3` with `workerInventory.before.instances=2` and
+    `workerInventory.after.instances=2`. Shopify primary, Shopify secondary,
+    and CRM each produced one guardrail event, one MCP request, one MCP
+    response, one outbound dry-run event, and duplicate-inbound suppression on
+    the corrected core-2 run. Reply times were core 1 `15921ms`, `11409ms`,
+    and `7321ms`; core 2 `8516ms`, `8649ms`, and `6975ms`. The shutdown log
+    scan found no egress, listener, ownership, runtime-event FK,
+    output-callback, warm-bind, Postgres, unhandled-error, timeout, agent-error,
+    or malformed Control API key signatures; ports `4710`, `4711`, `8081`, and
+    `8082` were free afterward.
+  - Live admin verification passed after adding
+    `NEXT_PUBLIC_SHOULD_ALLOW_CHAT_DEV=1` to `/Users/caw-d/Desktop/boondi-admin/.env.local`
+    and restarting the stale local admin server. Browser verification against a
+    fresh `GANTRY_CORE_COUNT=1 GANTRY_DEV_LOG=/tmp/gantry-capture.log npm run dev:boondi-runtime`
+    plus `npm run dev` in `/Users/caw-d/Desktop/boondi-admin` showed `/runtime`
+    rendering healthy worker inventory with no Control API fetch banner and
+    `/leads` rendering the leads UI with no `missing required error components`
+    text. Browser warning/error logs were empty for both pages.
+  - Final gates passed: `npm run build`, `npm run typecheck`,
+    `npm run test:unit` (`367` files / `3775` tests), and
+    `GANTRY_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:<port>/gantry_test' npm run test:integration:postgres`
+    (`13` files / `64` passed / `1` skipped) against disposable Postgres
+    container `gantry-it-1781723243` with `vector` and `pg_trgm` installed. The
+    disposable container was removed after the run.
+Deferred follow-ups:
   - Continue Boondi latency measurement with `scripts/measure-latency.mjs` and
     boondi-admin `replySeconds` across multiple T1-T5 samples; the broad
     regression harness remains a correctness gate for visible replies, routing,
-    guardrails, privacy, and tool calls. The next latency implementation item
-    is warm-pool capacity sizing/top-up before the customer turn plus provider
-    wait visibility, not CRM/Shopify behavior tuning.
+    guardrails, privacy, and tool calls. Any further warm-pool capacity/top-up
+    work is provider-sizing or SLA tuning, not a blocker for current
+    inbound/outbound/MCP runtime plumbing completion.
   - Full Boondi semantic scenario gates are useful product regression checks,
     but they are not the current runtime-plumbing gate. For local server
     readiness, use the signed-webhook smoke plus MCP request/response evidence
     above before chasing CRM/Shopify behavior details.
-  - Chaos and multi-instance production-readiness gates still remain as a final
-    cross-check, but the runtime-generic Postgres bridge now has focused
-    integration coverage for duplicate/no-owner dispatch, missed notification
-    recovery, current-owner routing, and stale-owner-hint takeover. Remaining
-    final audit work is to run the relevant integration set together with the
-    hard gates and decide whether any true local multi-process harness is still
-    needed beyond these shared-Postgres integration checks.
+  - Broader production chaos drills can still be added later, but the current
+    runtime-generic Postgres bridge gate is covered by duplicate/no-owner
+    dispatch, missed notification recovery, current-owner routing,
+    stale-owner-hint takeover, outbound send fencing, per-instance worker
+    inventory integration tests, and the two-core local smoke above.
 ```
 
 #### Summary (plain English)
