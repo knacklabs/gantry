@@ -2725,6 +2725,42 @@ Evidence:
     listener, ownership, runtime-event FK, output-callback, warm-bind,
     Postgres, or unhandled-error signatures; ports `4710`, `4711`, `8081`, and
     `8082` were free.
+  - Multi-instance stale-notification takeover coverage was tightened in the
+    real Postgres notification bridge. A new integration case starts two
+    dispatcher instances, lets one instance's lease expire, has the other
+    instance take over, then publishes a notification carrying the stale owner
+    hint. Only the current owner enqueues work; the old owner is not
+    resurrected, and customer text stays out of the notification/enqueue
+    payload.
+  - Verification:
+    `GANTRY_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55002/gantry_test' npx vitest run -c vitest.integration.config.ts apps/core/test/integration/conversation-owner-lease.postgres.integration.test.ts apps/core/test/integration/conversation-work-notifier.postgres.integration.test.ts apps/core/test/integration/outbound-ownership-verifier.postgres.integration.test.ts apps/core/test/integration/runtime-worker-inventory.postgres.integration.test.ts`
+    passed `4` files / `15` tests against disposable Postgres container
+    `3849d6f8dc8c6b0a25567e3988b5cdfa1be7a252f3ef176d5e628ff47655f064`,
+    which was removed after the run. This covers owner lease takeover/release,
+    two-dispatcher notification routing, missed notification recovery, stale
+    owner-hint takeover, outbound send fencing, and per-instance worker
+    inventory persistence.
+  - Fresh local server-readiness verification passed after the admin/env audit
+    reported a transient `dev:boondi-runtime` failure. Reproduction from this
+    checkout with
+    `GANTRY_CORE_COUNT=1 GANTRY_DEV_LOG=/tmp/gantry-capture.log npm run dev:boondi-runtime`
+    reached `READY core_ports=4710 core_codes=404 shopify=ok crm=ok`; the
+    follow-up
+    `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env GANTRY_DEV_LOG=/tmp/gantry-capture.log npm run smoke:boondi-runtime`
+    returned `ok: true`, `concurrency: 1`, and `caseCount: 3`. Shopify
+    primary, Shopify secondary, and CRM each produced one guardrail event, one
+    MCP request, one MCP response, one outbound dry-run event, and
+    duplicate-inbound suppression. Reply times were `9635ms`, `11441ms`, and
+    `6563ms`; all model-rate-limit snapshots were `null`. Shutdown log scan
+    found no egress, listener, ownership, runtime-event FK, output-callback,
+    warm-bind, Postgres, unhandled-error, or malformed Control API key
+    signatures; ports `4710`, `4711`, `8081`, and `8082` were free afterward.
+  - Admin runtime UI verification was tightened in the approved sibling
+    `boondi-admin` app. `e2e/runtime-workers.spec.ts` now mocks multiple
+    runtime instances and asserts that the Runtime tab renders both healthy and
+    stale instance rows, hostnames, and the healthy-runtime total. Verification:
+    `npx playwright test e2e/runtime-workers.spec.ts --project=chromium`
+    passed `3` tests in `/Users/caw-d/Desktop/boondi-admin`.
 Open follow-ups:
   - Continue Boondi latency measurement with `scripts/measure-latency.mjs` and
     boondi-admin `replySeconds` across multiple T1-T5 samples; the broad
@@ -2736,12 +2772,13 @@ Open follow-ups:
     but they are not the current runtime-plumbing gate. For local server
     readiness, use the signed-webhook smoke plus MCP request/response evidence
     above before chasing CRM/Shopify behavior details.
-  - Chaos and multi-instance production-readiness gates still remain, including
-    inbound/outbound/MCP-focused end-to-end takeover, stale-fence,
-    graceful-shutdown, and durable-recovery checks. The local three-warm-worker
-    concurrency smoke now passes under shared Postgres, and the real Postgres
-    notification bridge has integration coverage, but the full multi-instance
-    runtime harness is still open.
+  - Chaos and multi-instance production-readiness gates still remain as a final
+    cross-check, but the runtime-generic Postgres bridge now has focused
+    integration coverage for duplicate/no-owner dispatch, missed notification
+    recovery, current-owner routing, and stale-owner-hint takeover. Remaining
+    final audit work is to run the relevant integration set together with the
+    hard gates and decide whether any true local multi-process harness is still
+    needed beyond these shared-Postgres integration checks.
 ```
 
 #### Summary (plain English)

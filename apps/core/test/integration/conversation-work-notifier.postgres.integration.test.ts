@@ -250,6 +250,104 @@ maybeDescribe('PostgresConversationWorkNotifier integration', () => {
     }
   });
 
+  it('does not resurrect a stale owner hint after another instance takes over', async () => {
+    const conversationId = 'wa:918097570034';
+    await runtime.ops.storeMessage({
+      id: 'conversation-work-dispatcher-message-3',
+      chat_jid: conversationId,
+      provider: 'interakt',
+      sender: '918097570034',
+      sender_name: 'Takeover Dispatcher Customer',
+      content: 'takeover customer text must not enter the wakeup payload',
+      timestamp: '2026-06-17T10:22:30.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+      thread_id: null,
+    });
+
+    const repository = runtime.storageRuntime.conversationOwnerLeases;
+    const notifierA = new PostgresConversationWorkNotifier(
+      runtime.service.pool,
+    );
+    const notifierB = new PostgresConversationWorkNotifier(
+      runtime.service.pool,
+    );
+    const enqueuedA: string[] = [];
+    const enqueuedB: string[] = [];
+    const initialNow = new Date('2026-06-17T10:22:30.000Z');
+    let dispatchNow = initialNow;
+    const staleOwner = await repository.claimLease({
+      appId: 'default',
+      conversationId,
+      threadId: null,
+      ownerInstanceId: 'server-stale-hint',
+      leaseTtlMs: 1_000,
+      now: initialNow,
+      reason: 'integration-stale-hint-owner',
+    });
+    const takeoverNow = new Date('2026-06-17T10:22:32.000Z');
+    const currentOwner = await repository.claimLease({
+      appId: 'default',
+      conversationId,
+      threadId: null,
+      ownerInstanceId: 'server-current-takeover',
+      leaseTtlMs: 45_000,
+      now: takeoverNow,
+      reason: 'integration-stale-hint-takeover',
+    });
+    dispatchNow = new Date('2026-06-17T10:22:33.000Z');
+
+    const dispatcherA = startConversationWorkDispatcher({
+      instanceId: 'server-stale-hint',
+      notifier: notifierA,
+      claimLease: (input) => repository.claimLease(input),
+      leaseTtlMs: 45_000,
+      enqueueMessageCheck: (queueKey) => enqueuedA.push(queueKey),
+      now: () => dispatchNow,
+    });
+    const dispatcherB = startConversationWorkDispatcher({
+      instanceId: 'server-current-takeover',
+      notifier: notifierB,
+      claimLease: (input) => repository.claimLease(input),
+      leaseTtlMs: 45_000,
+      enqueueMessageCheck: (queueKey) => enqueuedB.push(queueKey),
+      now: () => dispatchNow,
+    });
+
+    try {
+      await publishUntilReceived({
+        notify: () =>
+          notifierA.notify({
+            appId: 'default',
+            conversationId,
+            threadId: null,
+            messageId: 'message:wa:918097570034:provider-stale-hint',
+            ownerInstanceId: staleOwner.lease.ownerInstanceId,
+            leaseVersion: staleOwner.lease.leaseVersion,
+            leaseExpiresAt: staleOwner.lease.leaseExpiresAt,
+          }),
+        received: () => enqueuedB.length > 0,
+      });
+      await sleep(100);
+
+      expect(staleOwner.acquired).toBe(true);
+      expect(currentOwner.acquired).toBe(true);
+      expect(currentOwner.lease.ownerInstanceId).toBe(
+        'server-current-takeover',
+      );
+      expect(enqueuedA).toEqual([]);
+      expect(enqueuedB).toEqual([conversationId]);
+      expect(JSON.stringify([...enqueuedA, ...enqueuedB])).not.toContain(
+        'takeover customer text',
+      );
+    } finally {
+      dispatcherA.close();
+      dispatcherB.close();
+      await notifierA.close();
+      await notifierB.close();
+    }
+  });
+
   it('recovers persisted inbound work when the notification callback never runs', async () => {
     const conversationId = 'wa:918097570033';
     await runtime.ops.storeMessage({
