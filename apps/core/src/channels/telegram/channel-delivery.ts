@@ -11,8 +11,10 @@ import {
   UserQuestionResponse,
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 
 import { TelegramChannelConnect } from './channel-connect.js';
+import { renderAgentTodoHtml } from './html-render.js';
 import {
   TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS,
   TELEGRAM_MESSAGE_MAX_LENGTH,
@@ -512,8 +514,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (!this.interactionCallbacksEnabled) {
       return {
         approved: false,
-        reason:
-          'Telegram interaction callbacks are not available on this worker.',
+        reason: 'This Telegram connection cannot collect approvals right now.',
       };
     }
     if (!this.bot) {
@@ -521,12 +522,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     }
     const chatId = jid.replace(/^tg:/, '');
     if (!chatId) {
-      return { approved: false, reason: 'Invalid Telegram chat ID' };
+      return {
+        approved: false,
+        reason: 'This Telegram conversation could not be identified.',
+      };
     }
     if (this.pendingPermissionPrompts.has(request.requestId)) {
       return {
         approved: false,
-        reason: `Duplicate pending request: ${request.requestId}`,
+        reason: 'This approval request is already awaiting a decision.',
       };
     }
 
@@ -687,6 +691,43 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       answers,
       ...(answeredBy ? { answeredBy } : {}),
     };
+  }
+
+  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
+    if (!this.bot) return;
+    const chatId = jid.replace(/^tg:/, '');
+    if (!chatId) return;
+    const html = renderAgentTodoHtml(render);
+    const existing = this.pendingTodos.get(jid);
+    if (existing) {
+      try {
+        await this.bot.api.editMessageText(
+          existing.chatId,
+          existing.messageId,
+          html,
+          { parse_mode: 'HTML', link_preview_options: { is_disabled: true } },
+        );
+        return;
+      } catch (err) {
+        logger.debug(
+          { jid, err: this.sanitizeErrorMessage(err) },
+          'Telegram todo edit failed; sending a fresh message',
+        );
+        this.pendingTodos.delete(jid);
+      }
+    }
+    try {
+      const sent = await this.bot.api.sendMessage(chatId, html, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+      });
+      this.pendingTodos.set(jid, { chatId, messageId: sent.message_id });
+    } catch (err) {
+      logger.warn(
+        { jid, err: this.sanitizeErrorMessage(err) },
+        'Failed to send Telegram todo message',
+      );
+    }
   }
 
   isConnected(): boolean {

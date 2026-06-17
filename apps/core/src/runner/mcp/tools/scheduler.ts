@@ -9,6 +9,7 @@ import {
   schedulerJobSummary,
   schedulerJobsSummary,
   schedulerNotificationTargetsSummary,
+  schedulerRunsSummary,
 } from './scheduler-formatters.js';
 import {
   formatSchedulerJobPlan,
@@ -569,10 +570,12 @@ export function registerSchedulerTools(server: McpServer): void {
       });
       const error = taskError(response, 'Scheduler run-now failed.');
       if (error) return error;
-      const data = dataRecord(response!);
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(data, null, 2) },
+          {
+            type: 'text' as const,
+            text: 'Queued an immediate run of this job.',
+          },
         ],
       };
     },
@@ -595,7 +598,7 @@ export function registerSchedulerTools(server: McpServer): void {
       const result = Array.isArray(runs) ? runs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          { type: 'text' as const, text: schedulerRunsSummary(result) },
         ],
       };
     },
@@ -627,7 +630,7 @@ export function registerSchedulerTools(server: McpServer): void {
       const result = Array.isArray(events) ? events : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          { type: 'text' as const, text: schedulerEventsSummary(result) },
         ],
       };
     },
@@ -690,7 +693,10 @@ export function registerSchedulerTools(server: McpServer): void {
       const result = Array.isArray(runs) ? runs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          {
+            type: 'text' as const,
+            text: schedulerRunsSummary(result, { title: 'Dead-lettered runs' }),
+          },
         ],
       };
     },

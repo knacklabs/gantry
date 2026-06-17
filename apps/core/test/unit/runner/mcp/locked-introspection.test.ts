@@ -206,9 +206,6 @@ describe('locked MCP listing and tool descriptions', () => {
       'Tools available from connected MCP servers:',
     );
     expect(provisionedOnly).toContain(
-      'Search page: serverName="crm" query="order"',
-    );
-    expect(provisionedOnly).toContain(
       'MCP inventory timing: connectedServerCount="2"',
     );
     expect(provisionedOnly).toContain('liveListMs="12"');
@@ -231,8 +228,9 @@ describe('locked MCP listing and tool descriptions', () => {
     );
     expect(provisionedOnly).toContain('callable: no');
     expect(provisionedOnly).toContain(
-      'More results: call mcp_list_tools with serverName="crm" query="order" cursor="20".',
+      'More results are available; ask me to continue',
     );
+    expect(provisionedOnly).not.toContain('cursor="20"');
     expect(provisionedOnly).not.toContain('reviewed action capability');
 
     const full = formatMcpListToolsResponse(listToolsData);

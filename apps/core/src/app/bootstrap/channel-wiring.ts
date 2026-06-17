@@ -37,6 +37,7 @@ import { ConversationAdministrationService } from '../../application/provider-co
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
 import type { AppId } from '../../domain/app/app.js';
 import {
+  asAgentTodoSurface,
   asGroupDiscoverySource,
   asPermissionApprovalSurface,
   asProgressSink,
@@ -60,6 +61,7 @@ import type {
 import { AsyncTaskQueue } from './async-task-queue.js';
 import { createChannelPersistenceHandlers } from './channel-persistence-handlers.js';
 import {
+  createAgentTodoRenderer,
   createPermissionApprovalRequester,
   createUserQuestionResponder,
 } from './channel-wiring-interactions.js';
@@ -166,6 +168,12 @@ export function createChannelWiring(
     findBoundChannel,
     asUserQuestionSurface: (channel) =>
       asUserQuestionSurface(channel as ChannelAdapter),
+    logger: resolved.logger,
+  });
+  const agentTodoRenderer = createAgentTodoRenderer({
+    findBoundChannel,
+    asAgentTodoSurface: (channel) =>
+      asAgentTodoSurface(channel as ChannelAdapter),
     logger: resolved.logger,
   });
   const channelOpts = {
@@ -728,8 +736,8 @@ export function createChannelWiring(
     connectedChannelLeases.length = 0;
     userQuestionResponder.clear();
   }
-
   return {
+    getRuntimeAppId: () => resolved.appId,
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,
@@ -748,6 +756,7 @@ export function createChannelWiring(
     syncGroups,
     requestPermissionApproval,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
+    renderAgentTodo: agentTodoRenderer,
     disconnectChannels,
     isControlApproverAllowed: (input) => {
       const providerId = providerIdForJid(input.conversationJid, '');

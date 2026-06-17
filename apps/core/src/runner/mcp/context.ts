@@ -219,6 +219,10 @@ export function capabilityStatusText(): string {
     (toolName) =>
       toolName === 'send_message' ||
       toolName === 'ask_user_question' ||
+      toolName === 'todo_update' ||
+      toolName === 'delegate_task' ||
+      toolName === 'task_get' ||
+      toolName === 'task_cancel' ||
       toolName === 'memory_search' ||
       toolName === 'memory_save' ||
       toolName === 'continuity_summary' ||

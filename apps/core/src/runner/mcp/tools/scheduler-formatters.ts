@@ -14,6 +14,10 @@ import {
 } from '../../../shared/semantic-capability-ids.js';
 import { formatDurableAccessRulesForUser } from '../../../shared/durable-access-policy.js';
 import { redactSensitiveText } from '../../../shared/sensitive-material.js';
+import {
+  formatDuration,
+  formatRunShortId,
+} from '../../../shared/human-format.js';
 
 export function schedulerJobSummary(job: unknown): string {
   const record =
@@ -178,15 +182,6 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       typeof record.visibility === 'object' && record.visibility !== null
         ? (record.visibility as Record<string, any>)
         : {};
-    const target =
-      typeof visibility.target === 'object' && visibility.target !== null
-        ? (visibility.target as Record<string, any>)
-        : {};
-    const executionContext =
-      typeof visibility.executionContext === 'object' &&
-      visibility.executionContext !== null
-        ? (visibility.executionContext as Record<string, any>)
-        : {};
     const health =
       typeof visibility.health === 'object' && visibility.health !== null
         ? (visibility.health as Record<string, any>)
@@ -207,11 +202,7 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       typeof visibility.setupLabel === 'string' && visibility.setupLabel
         ? visibility.setupLabel
         : setupReadinessLabel(String(setup.state ?? 'ready'));
-    const workspaceKey = String(
-      executionContext.workspaceKey ?? record.workspace_key ?? 'unknown',
-    );
-    const agent = String(target.agentId ?? record.agent_id ?? 'unknown');
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${setupLabel} | Workspace: ${workspaceKey} | Agent: ${agent} | Next: ${nextAction}`;
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${setupLabel} | Next: ${nextAction}`;
   });
   return [`Scheduler jobs (${jobs.length})`, ...lines].join('\n');
 }
@@ -248,9 +239,76 @@ export function schedulerEventsSummary(events: unknown[]): string {
       typeof payload.error === 'string' && payload.error.trim()
         ? ` error=${payload.error.slice(0, 160)}`
         : '';
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.event_type ?? '')} | run ${String(record.run_id ?? 'none')} | ${diagnostic || 'event'}${browserCount}${error}`;
+    const runLabel = record.run_id
+      ? `run ${formatRunShortId({ id: String(record.run_id) })}`
+      : 'no run';
+    return `- ${String(record.event_type ?? 'event')} | ${runLabel} | ${diagnostic || 'event'}${browserCount}${error}`;
   });
   return [`Scheduler events (${events.length})`, ...lines].join('\n');
+}
+
+export function schedulerRunsSummary(
+  runs: unknown[],
+  options: { title?: string } = {},
+): string {
+  const title = options.title ?? 'Job runs';
+  if (runs.length === 0) {
+    return title === 'Dead-lettered runs'
+      ? 'No dead-lettered runs.'
+      : 'No runs yet.';
+  }
+  const lines = runs.map((run) => {
+    const record =
+      typeof run === 'object' && run !== null
+        ? (run as Record<string, any>)
+        : {};
+    const label = formatRunShortId({
+      id: String(record.run_id ?? record.id ?? ''),
+      short_id: record.short_id ?? null,
+    });
+    const parts = [`Run ${label}: ${humanRunStatus(record.status)}`];
+    const duration = runDurationText(record);
+    if (duration) parts.push(`in ${duration}`);
+    const summary = compactText(
+      record.error_summary ?? record.result_summary,
+      160,
+    );
+    if (summary) parts.push(`— ${summary}`);
+    const retry =
+      typeof record.retry_count === 'number' && record.retry_count > 0
+        ? ` (retry ${record.retry_count})`
+        : '';
+    return `- ${parts.join(' ')}${retry}`;
+  });
+  return [`${title} (${runs.length})`, ...lines].join('\n');
+}
+
+function humanRunStatus(status: unknown): string {
+  switch (status) {
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'timeout':
+      return 'timed out';
+    case 'dead_lettered':
+      return 'dead-lettered';
+    default:
+      return 'unknown';
+  }
+}
+
+function runDurationText(record: Record<string, any>): string {
+  const start =
+    typeof record.started_at === 'string' ? Date.parse(record.started_at) : NaN;
+  const end =
+    typeof record.ended_at === 'string' ? Date.parse(record.ended_at) : NaN;
+  if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+    return formatDuration(end - start);
+  }
+  return '';
 }
 
 export function schedulerNotificationTargetsSummary(
@@ -290,21 +348,21 @@ export function schedulerNotificationTargetsSummary(
 }
 
 function executionContextSummary(context: Record<string, any>): string {
-  return [
-    `conversation_jid=${String(context.conversationJid ?? 'unknown')}`,
-    `thread_id=${context.threadId === null || context.threadId === undefined ? 'none' : String(context.threadId)}`,
-    `workspace_key=${String(context.workspaceKey ?? 'unknown')}`,
-  ].join(' ');
+  const label = providerDeliveryLabel(
+    String(context.conversationJid ?? ''),
+    context.threadId ?? null,
+  );
+  return label && label !== 'conversation' ? label : 'this conversation';
 }
 
 function routeLabel(route: Record<string, any>): string {
-  return [
-    compactText(route.label, 80) ?? 'route',
-    String(route.conversationJid ?? 'unknown'),
-    route.threadId === null || route.threadId === undefined
-      ? 'none'
-      : String(route.threadId),
-  ].join(':');
+  const named = compactText(route.label, 80);
+  if (named) return named;
+  const label = providerDeliveryLabel(
+    String(route.conversationJid ?? ''),
+    route.threadId ?? null,
+  );
+  return label && label !== 'conversation' ? label : 'a route';
 }
 
 function stringArray(value: unknown): string[] {

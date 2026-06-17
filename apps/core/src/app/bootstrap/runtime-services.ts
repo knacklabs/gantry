@@ -246,9 +246,12 @@ export function stopLiveTurnRecoveryLoop(): void {
   activeLiveTurnRecoveryLoop?.stop();
   activeLiveTurnRecoveryLoop = undefined;
 }
-export function stopMessagePollingLoop(): void {
-  activeMessagePollingLoop?.stop();
+export async function stopMessagePollingLoop(
+  timeoutMs?: number,
+): Promise<void> {
+  const loop = activeMessagePollingLoop;
   activeMessagePollingLoop = undefined;
+  await loop?.stop({ drainDeadlineMs: timeoutMs });
 }
 export function beginDrainingLiveTurnAdmission(): void {
   activeLiveTurnAuthority?.beginDraining();
@@ -500,6 +503,10 @@ export async function startRuntimeServices(
       liveTurnsEnabled && liveExecution
         ? channelWiring.requestUserAnswer(request)
         : Promise.reject(rejectNonLiveInteraction('question')),
+    renderAgentTodo: (jid, render) =>
+      liveTurnsEnabled && liveExecution
+        ? channelWiring.renderAgentTodo(jid, render)
+        : Promise.resolve(),
     mcpHostnameLookup: resolved.mcpHostnameLookup,
   });
   syncGroupSnapshots();
@@ -517,6 +524,7 @@ export async function startRuntimeServices(
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       messageFetchPageSize: MESSAGE_FETCH_PAGE_SIZE,
       timezone: TIMEZONE,
+      enqueueMessageCheck: app.queue.enqueueMessageCheck.bind(app.queue),
       warn: (context, message) => resolved.logger.warn(context, message),
       finalizeBrowserForLiveTurn: buildLiveTurnBrowserFinalizer({
         getConversationRoutes: () => app.getConversationRoutes(),
@@ -1008,6 +1016,7 @@ export async function startRuntimeServices(
     opsRepository: resolved.opsRepository,
   };
   activeLiveExecutionServices = startLiveExecutionServices({
+    appId: channelWiring.getRuntimeAppId(),
     app,
     liveTurnAuthority,
     liveTurnLeaseDeps,

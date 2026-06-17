@@ -38,6 +38,8 @@ import {
 } from './pending-message-replay.js';
 import { resolveNonSelfSenderIds } from './session-resume-runtime.js';
 
+const PENDING_MESSAGE_REPLAY_MAX_MESSAGES = MESSAGE_FETCH_PAGE_SIZE * 20;
+
 export interface MessageLoopDeps {
   getConversationRoutes: () => Record<string, ConversationRoute>;
   getLastTimestamp: () => string;
@@ -111,7 +113,11 @@ async function processQueueMessages(
   deps: MessageLoopDeps,
   queueJid: string,
   groupMessages: NewMessage[],
-  preloadedInitialBatch?: NewMessage[],
+  preloadedInitialReplay?: {
+    messages: NewMessage[];
+    hasMore: boolean;
+    cursorAfter: string | null;
+  },
 ): Promise<MessageAdmissionProcessingResult> {
   const opsRepository = resolveMessageRepository(deps);
   const conversationRoutes = deps.getConversationRoutes();
@@ -155,7 +161,12 @@ async function processQueueMessages(
           message: loopCmdMsg,
           command: loopCommand,
         });
-        if (handled) return 'completed';
+        if (handled) {
+          if (preloadedInitialReplay?.hasMore) {
+            return enqueueMessageCheck(deps, queueJid);
+          }
+          return 'completed';
+        }
       }
       if (loopCommand?.kind === 'stop') {
         await deps.queue.stopGroup?.(queueJid);
@@ -177,11 +188,23 @@ async function processQueueMessages(
     );
     const isContinuationThread =
       threadId !== undefined && recoveredCursor.trim().length > 0;
-    if (!hasTrigger && !isContinuationThread) return 'completed';
+    if (!hasTrigger && !isContinuationThread) {
+      const cursorAfter =
+        preloadedInitialReplay?.cursorAfter ??
+        encodeGroupMessageCursor(
+          toGroupMessageCursor(groupMessages[groupMessages.length - 1]),
+        );
+      deps.setAgentCursor(queueJid, cursorAfter);
+      saveStateBestEffort(deps, chatJid);
+      if (preloadedInitialReplay?.hasMore) {
+        return enqueueMessageCheck(deps, queueJid);
+      }
+      return 'completed';
+    }
   }
 
-  let initialBatch =
-    preloadedInitialBatch ??
+  const replay =
+    preloadedInitialReplay ??
     (await collectPendingMessagesSince({
       getMessagesSince: opsRepository.getMessagesSince,
       chatJid,
@@ -189,6 +212,7 @@ async function processQueueMessages(
       pageSize: MESSAGE_FETCH_PAGE_SIZE,
       options: { threadId: threadId ?? null },
     }));
+  let initialBatch = replay.messages;
   if (initialBatch.length === 0) {
     initialBatch = groupMessages;
   }
@@ -206,6 +230,8 @@ async function processQueueMessages(
       senderUserIds,
       idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
         queueJid,
+        sinceCursor: recoveredCursor,
+        cursorAfter,
         messages: initialBatch,
       }),
       cursorAfter,
@@ -220,6 +246,9 @@ async function processQueueMessages(
   );
   deps.setAgentCursor(queueJid, cursorAfter);
   saveStateBestEffort(deps, chatJid);
+  if (replay.hasMore) {
+    return enqueueMessageCheck(deps, queueJid);
+  }
   deps
     .setTyping(chatJid, true)
     .catch((err: unknown) =>
@@ -251,15 +280,17 @@ export async function processLiveAdmissionWorkItem(
   }
 
   const recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
-  const messages = await collectPendingMessagesSince({
+  const replay = await collectPendingMessagesSince({
     getMessagesSince: opsRepository.getMessagesSince,
     chatJid,
     sinceCursor: recoveredCursor,
     pageSize: MESSAGE_FETCH_PAGE_SIZE,
+    maxMessages: PENDING_MESSAGE_REPLAY_MAX_MESSAGES,
     options: { threadId: threadId ?? null },
   });
+  const messages = replay.messages;
   if (messages.length === 0) return 'completed';
-  return processQueueMessages(deps, item.queueJid, messages, messages);
+  return processQueueMessages(deps, item.queueJid, messages, replay);
 }
 
 export async function runMessagePollingTick(
@@ -309,7 +340,7 @@ export async function runMessagePollingTick(
 
 export interface MessagePollingLoopHandle {
   /** Stop the loop after the in-flight tick; cancels the pending poll delay. */
-  stop: () => void;
+  stop: (_options?: { drainDeadlineMs?: number }) => void;
   /** Settles when the loop exits (only rejects on an unexpected crash). */
   done: Promise<void>;
 }
@@ -370,8 +401,8 @@ export async function recoverPendingMessages(
         pageSize: MESSAGE_FETCH_PAGE_SIZE,
         options: { threadId },
       });
-      if (pending.length > 0) {
-        pendingCount += pending.length;
+      if (pending.messages.length > 0) {
+        pendingCount += pending.messages.length;
         queuedThreads.add(queueJid);
       }
     }

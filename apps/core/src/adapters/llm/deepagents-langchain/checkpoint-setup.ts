@@ -2,6 +2,8 @@ import pg from 'pg';
 import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 
 const SETUP_POOL_MAX_CONNECTIONS = 1;
+export const DEEPAGENTS_CHECKPOINT_PACKAGE_NAME =
+  '@langchain/langgraph-checkpoint-postgres';
 
 const setupByTarget = new Map<string, Promise<void>>();
 

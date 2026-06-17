@@ -187,6 +187,7 @@ export function buildLiveAdmissionProcessor(input: {
   executionAdapter: { id: ExecutionProviderId };
   messageFetchPageSize: number;
   timezone: string;
+  enqueueMessageCheck: (queueJid: string) => void;
   warn: WarnLog;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
 }): (queueJid: string) => Promise<boolean> {
@@ -221,6 +222,7 @@ export function buildLiveAdmissionProcessor(input: {
       getMessagesSince: opsRepository.getMessagesSince,
       setAgentCursor: app.setAgentCursor,
       saveState: app.saveState,
+      enqueueMessageCheck: input.enqueueMessageCheck,
       routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
       completeSessionAgentRun: opsRepository.completeSessionAgentRun,
     });
@@ -429,9 +431,10 @@ export interface WaitingStatusCoordination {
  *    tick rather than crash-looping.
  */
 export function startLiveExecutionServices(input: {
+  appId: string;
   app: AdmissionApp & {
     queue: {
-      getPolicy: () => { maxMessageRuns: number };
+      getPolicy: () => { maxMessageRuns: number; maxRetries?: number };
       enqueueMessageCheck: (queueJid: string) => void | boolean;
     };
   };
@@ -497,8 +500,10 @@ export function startLiveExecutionServices(input: {
   const pollingLoop = hasDurableAdmissionClaims
     ? startLiveAdmissionWorkLoop({
         liveAdmissions: liveTurnLeaseDeps.liveTurns,
+        appId: input.appId,
         workerInstanceId: liveTurnLeaseDeps.workerInstanceId,
         messageLoopDeps,
+        maxRetryCount: app.queue.getPolicy().maxRetries,
         warn,
       })
     : startMessagePollingLoop(messageLoopDeps);

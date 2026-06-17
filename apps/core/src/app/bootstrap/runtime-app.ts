@@ -519,6 +519,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
     queue: {
+      enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
       notifyIdle: (chatJid) => queue.notifyIdle(chatJid),
       stopGroup: (chatJid) => queue.stopGroup(chatJid),

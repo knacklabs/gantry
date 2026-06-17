@@ -50,6 +50,7 @@ vi.mock('@core/shared/time/datetime.js', async (importOriginal) => {
 });
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  SYSTEM_PROMPT_DYNAMIC_BOUNDARY: '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__',
   query: async function* ({
     prompt,
     options,
@@ -392,6 +393,7 @@ describe('Claude Agent SDK boundary integration', () => {
             result: string | null;
             newSessionId?: string;
             sessionInit?: boolean;
+            runtimeEventOnly?: boolean;
             runtimeEvents?: Array<{
               eventType?: string;
               payload?: Record<string, unknown>;
@@ -419,12 +421,30 @@ describe('Claude Agent SDK boundary integration', () => {
       (output) => typeof output.result === 'string' && output.result.length > 0,
     );
     expect(firstVisibleIdx).toBe(1);
-    expect(outputs.map((output) => output.result)).toEqual([
-      null,
+    const userVisibleOutputs = outputs.filter(
+      (output) => !output.runtimeEventOnly,
+    );
+    expect(userVisibleOutputs.map((output) => output.result)).toEqual([
       'Hello ',
       'world',
       null,
     ]);
+    expect(outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runtimeEventOnly: true,
+          runtimeEvents: [
+            expect.objectContaining({
+              eventType: 'run.startup_diagnostic',
+              payload: expect.objectContaining({
+                diagnostic: 'runner_startup_timing',
+                firstVisibleOutputMs: expect.any(Number),
+              }),
+            }),
+          ],
+        }),
+      ]),
+    );
   });
 
   it('passes hermetic Gantry capabilities and settings into the Claude SDK', async () => {
@@ -465,6 +485,7 @@ describe('Claude Agent SDK boundary integration', () => {
         'Grep',
         'mcp__gantry__send_message',
         'mcp__gantry__ask_user_question',
+        'mcp__gantry__todo_update',
         'mcp__gantry__request_skill_install',
         'mcp__gantry__request_skill_proposal',
         'mcp__gantry__request_skill_dependency_install',
@@ -473,8 +494,21 @@ describe('Claude Agent SDK boundary integration', () => {
         'mcp__gantry__mcp_list_tools',
         'mcp__gantry__mcp_describe_tool',
         'mcp__gantry__mcp_call_tool',
-        'Agent',
         'Skill',
+      ]),
+    );
+    expect(call?.options.allowedTools).not.toEqual(
+      expect.arrayContaining([
+        'Agent',
+        'Task',
+        'TaskCreate',
+        'TaskGet',
+        'TaskList',
+        'TaskUpdate',
+        'TodoWrite',
+        'mcp__gantry__delegate_task',
+        'mcp__gantry__task_get',
+        'mcp__gantry__task_cancel',
       ]),
     );
     expect(call?.options.tools).toEqual(
@@ -488,7 +522,6 @@ describe('Claude Agent SDK boundary integration', () => {
         'LS',
         'MultiEdit',
         'NotebookEdit',
-        'Agent',
         'WebSearch',
         'WebFetch',
         'ToolSearch',
@@ -499,8 +532,15 @@ describe('Claude Agent SDK boundary integration', () => {
       expect.arrayContaining([
         'AskUserQuestion',
         'SendMessage',
+        'Agent',
+        'Task',
+        'TaskCreate',
+        'TaskGet',
+        'TaskList',
+        'TaskUpdate',
         'TaskOutput',
         'TaskStop',
+        'TodoWrite',
         'EnterWorktree',
         'ExitWorktree',
         'Browser',
@@ -511,8 +551,15 @@ describe('Claude Agent SDK boundary integration', () => {
         'AskUserQuestion',
         'SendMessage',
         'CronCreate',
+        'Agent',
+        'Task',
+        'TaskCreate',
+        'TaskGet',
+        'TaskList',
+        'TaskUpdate',
         'TaskOutput',
         'TaskStop',
+        'TodoWrite',
         'EnterWorktree',
         'ExitWorktree',
       ]),

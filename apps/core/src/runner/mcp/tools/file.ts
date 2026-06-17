@@ -96,20 +96,37 @@ async function requestHostFileArtifactAction(
     FILE_ARTIFACT_TASK_TIMEOUT_MS,
   );
   if (!response) {
-    return compactJson({
-      ok: false,
-      status: 'rejected',
-      reason: 'FileArtifact request timed out waiting for host confirmation.',
-    });
+    return 'That file action was rejected: the host did not confirm it in time.';
   }
   if (!response.ok) {
-    return compactJson({
-      ok: false,
-      status: 'rejected',
-      reason: response.error || 'FileArtifact request failed.',
-    });
+    return `That file action was rejected: ${response.error || 'the file action failed.'}`;
   }
-  return compactJson(response.data ?? { ok: true });
+  const data =
+    response.data &&
+    typeof response.data === 'object' &&
+    !Array.isArray(response.data)
+      ? (response.data as Record<string, unknown>)
+      : {};
+  if (typeof data.content === 'string') return data.content;
+  if (Array.isArray(data.artifacts)) {
+    if (data.artifacts.length === 0) return 'No files found.';
+    const lines = data.artifacts.map((entry) => {
+      const rec =
+        entry && typeof entry === 'object'
+          ? (entry as Record<string, unknown>)
+          : {};
+      return `- ${String(rec.virtualPath ?? rec.path ?? 'file')}`;
+    });
+    return [`Files (${data.artifacts.length}):`, ...lines].join('\n');
+  }
+  const artifact =
+    data.artifact && typeof data.artifact === 'object'
+      ? (data.artifact as Record<string, unknown>)
+      : undefined;
+  const path = artifact
+    ? String(artifact.virtualPath ?? artifact.path ?? '')
+    : '';
+  return path ? `Saved ${path}.` : 'Done.';
 }
 
 export function measureFileToolPayloadSize(value: unknown): number {

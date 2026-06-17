@@ -515,6 +515,76 @@ describe('TeamsChannel adapter scaffold', () => {
     );
   });
 
+  it('sends Teams user-question cards and resolves Action.Submit answers from approvers', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const isControlApproverAllowed = vi.fn(async () => true);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({ externalMessageId: 'teams-q-1' })),
+    };
+    const opts = { ...makeOpts(), isControlApproverAllowed };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      opts,
+      sdkClient,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('teams:19:abc@thread.v2', {
+      requestId: 'q-teams-1',
+      sourceAgentFolder: 'teams_engineering',
+      questions: [
+        {
+          question: 'Which environment?',
+          header: 'Env',
+          multiSelect: false,
+          options: [
+            { label: 'staging', description: 'pre-prod' },
+            { label: 'production', description: 'live' },
+          ],
+        },
+      ],
+    });
+
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: '19:abc@thread.v2' }),
+    );
+    await Promise.resolve();
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'gantry_userq',
+        requestId: 'q-teams-1',
+        gantry_userq_choice_0: '1',
+        gantry_userq_other_0: '',
+      },
+    });
+
+    await expect(answerPromise).resolves.toEqual({
+      requestId: 'q-teams-1',
+      answers: { 'Which environment?': 'production' },
+      answeredBy: 'Team Admin',
+    });
+    expect(isControlApproverAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'teams',
+        conversationJid: 'teams:19:abc@thread.v2',
+        userId: 'teams-user-1',
+      }),
+    );
+  });
+
   it('keeps pending Teams permission prompts unresolved when decision user is unauthorized', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;

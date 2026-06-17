@@ -12,6 +12,10 @@ import {
   createGantryShellTool,
   GANTRY_SHELL_TOOL_NAME,
 } from './gantry-shell-tool.js';
+import {
+  createGantryFacadeTools,
+  DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES,
+} from './gantry-facade-tools.js';
 import { isHostPrivateBrowserMcpServerName } from '../../../../shared/agent-tool-references.js';
 import { isRunCommandToolRule } from '../../../../shared/gantry-tool-facades.js';
 
@@ -117,12 +121,25 @@ export async function connectGantryAndThirdPartyMcpTools(
   const gantryTools = (serverTools[GANTRY_SERVER_NAME] ?? []).filter((tool) =>
     selectedGantrySet.has(tool.name),
   );
+  const facadeTools = createGantryFacadeTools({
+    workspaceFolder: input.gate.workspaceFolder,
+    memoryBlock: input.gate.memoryBlock,
+    configuredAllowedTools: input.configuredAllowedTools,
+    gateContext: input.gate.gateContext,
+    permissionEnv: input.gate.permissionEnv,
+    lockedAccessPreset: input.gate.lockedAccessPreset,
+    ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
+  });
+  const reservedToolNames = new Set<string>([
+    ...selectedGantrySet,
+    ...DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES,
+  ]);
 
   const thirdPartyTools: StructuredToolInterface[] = [];
   for (const [name, tools] of Object.entries(serverTools)) {
     if (name === GANTRY_SERVER_NAME) continue;
     thirdPartyTools.push(
-      ...dropCollidingThirdPartyTools(name, tools, selectedGantrySet),
+      ...dropCollidingThirdPartyTools(name, tools, reservedToolNames),
     );
   }
   const gatedThirdPartyTools = wrapThirdPartyMcpToolsWithGate(thirdPartyTools, {
@@ -133,7 +150,12 @@ export async function connectGantryAndThirdPartyMcpTools(
   const shellTools = projectGantryShellTool(input);
 
   return {
-    tools: [...gantryTools, ...gatedThirdPartyTools, ...shellTools],
+    tools: [
+      ...gantryTools,
+      ...facadeTools,
+      ...gatedThirdPartyTools,
+      ...shellTools,
+    ],
     close: () => client.close(),
   };
 }

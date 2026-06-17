@@ -740,6 +740,45 @@ Read-only run event history is available over the control API:
 GET /v1/runs/:runId/events
 ```
 
+Run events are projections of persisted runtime events:
+
+```ts
+{
+  id: string;
+  appId: string;
+  runId: string;
+  type:
+    | 'queued'
+    | 'started'
+    | 'diagnostic'
+    | 'model_event'
+    | 'tool_request'
+    | 'permission_decision'
+    | 'output_chunk'
+    | 'completed'
+    | 'failed'
+    | 'canceled';
+  payload: unknown;
+  createdAt: string;
+  metadata: { runtimeEventType: string };
+}
+```
+
+Notable runtime event types include:
+
+- `task.started`, `task.progress`, and `task.updated`: provider-neutral task
+  lifecycle observations. Persisted text fields are length-bounded and omit raw
+  prompts, output paths, provider handles, credentials, and stack traces.
+- `mcp.tool_activity`: MCP proxy attempt, denial, success, or failure audit
+  evidence. Arguments and errors are summarized/redacted; raw MCP tool result
+  values are not persisted in the activity event.
+- `run.startup_diagnostic`: count/timing startup diagnostics from host or
+  runner setup. The public run event projection exposes these as
+  `type: 'diagnostic'`.
+
+These events are observable history only. They do not create permissions, alter
+selected capabilities, or prove provider/channel delivery by themselves.
+
 The current run event API exposes read-only runtime history, but Gantry does not
 yet host-enforce the five-line terminal evidence receipt until the receipt
 formatter/enforcer lands. The target terminal run and job evidence receipt uses

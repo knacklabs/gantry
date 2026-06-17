@@ -10,3 +10,7 @@
   authority. Keep search, pagination, `tool_ref`, one-tool schema detail, and
   call hints distinct from grants; `mcp_call_tool` must recheck reviewed
   current-run authority before every tool execution.
+- Agent planning/delegation tools are Gantry facades: `todo_update` is
+  baseline non-authority state, while `delegate_task`, `task_get`, and
+  `task_cancel` mount only when the canonical `AgentDelegation` capability is
+  selected. Never expose provider-native task/todo/subagent tool names here.

@@ -7,6 +7,7 @@ import type { AgentPersona } from '../../../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../../../shared/yolo-mode-policy.js';
 import type { CapabilityRuntimeAccess } from '../../../../shared/capability-runtime-access.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
+import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -35,6 +36,7 @@ export interface AgentRunnerInput {
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   assistantName?: string;
+  promptMode?: GantryAgentPromptMode;
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;

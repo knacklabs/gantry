@@ -25,6 +25,7 @@ const baseItem: LiveAdmissionWorkItem = {
   claimExpiresAt: '2024-01-01T00:01:00.000Z',
   fencingVersion: 1,
   retryCount: 1,
+  failureCount: 0,
   deferUntil: null,
   deferredReason: null,
   createdAt: '2024-01-01T00:00:01.000Z',
@@ -83,13 +84,17 @@ function makeDeps(enqueueMessageCheck: () => boolean): MessageLoopDeps {
 describe('startLiveAdmissionWorkLoop', () => {
   it('settles a claimed work item after queue-scoped replay succeeds', async () => {
     const settleLiveAdmissionWorkItem = vi.fn(async () => true);
+    const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
+    const claimLiveAdmissionWorkItems = vi.fn(async () => [baseItem]);
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {
-        claimLiveAdmissionWorkItems: vi.fn(async () => [baseItem]),
+        claimLiveAdmissionWorkItems,
+        renewLiveAdmissionWorkItemClaim,
         deferLiveAdmissionWorkItem: vi.fn(),
         settleLiveAdmissionWorkItem,
         enqueueLiveAdmissionWorkItem: vi.fn(),
       },
+      appId: 'default',
       workerInstanceId: 'worker-1',
       messageLoopDeps: makeDeps(() => true),
       intervalMs: 60_000,
@@ -106,6 +111,15 @@ describe('startLiveAdmissionWorkLoop', () => {
         }),
       ),
     );
+    expect(claimLiveAdmissionWorkItems).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'default' }),
+    );
+    expect(renewLiveAdmissionWorkItemClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'admission-1',
+        workerInstanceId: 'worker-1',
+      }),
+    );
     loop.stop();
     await loop.done;
   });
@@ -115,10 +129,12 @@ describe('startLiveAdmissionWorkLoop', () => {
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {
         claimLiveAdmissionWorkItems: vi.fn(async () => [baseItem]),
+        renewLiveAdmissionWorkItemClaim: vi.fn(async () => true),
         deferLiveAdmissionWorkItem,
         settleLiveAdmissionWorkItem: vi.fn(),
         enqueueLiveAdmissionWorkItem: vi.fn(),
       },
+      appId: 'default',
       workerInstanceId: 'worker-1',
       messageLoopDeps: makeDeps(() => false),
       intervalMs: 60_000,
@@ -150,10 +166,12 @@ describe('startLiveAdmissionWorkLoop', () => {
     const loop = startLiveAdmissionWorkLoop({
       liveAdmissions: {
         claimLiveAdmissionWorkItems,
+        renewLiveAdmissionWorkItemClaim: vi.fn(async () => true),
         deferLiveAdmissionWorkItem: vi.fn(),
         settleLiveAdmissionWorkItem,
         enqueueLiveAdmissionWorkItem: vi.fn(),
       },
+      appId: 'default',
       workerInstanceId: 'worker-1',
       messageLoopDeps: deps,
       intervalMs: 5,
@@ -178,5 +196,134 @@ describe('startLiveAdmissionWorkLoop', () => {
       claimLiveAdmissionWorkItems.mock.calls.length,
     ).toBeGreaterThanOrEqual(2);
     expect(deps.opsRepository.getNewMessages).not.toHaveBeenCalled();
+  });
+
+  it('settles poison work items as failed after the retry limit', async () => {
+    const settleLiveAdmissionWorkItem = vi.fn(async () => true);
+    const deferLiveAdmissionWorkItem = vi.fn(async () => true);
+    const loop = startLiveAdmissionWorkLoop({
+      liveAdmissions: {
+        claimLiveAdmissionWorkItems: vi.fn(async () => [
+          {
+            ...baseItem,
+            queueJid: 'other@g.us',
+            failureCount: 2,
+          },
+        ]),
+        renewLiveAdmissionWorkItemClaim: vi.fn(async () => true),
+        deferLiveAdmissionWorkItem,
+        settleLiveAdmissionWorkItem,
+        enqueueLiveAdmissionWorkItem: vi.fn(),
+      },
+      appId: 'default',
+      workerInstanceId: 'worker-1',
+      messageLoopDeps: makeDeps(() => true),
+      intervalMs: 60_000,
+      maxBatchesPerWake: 1,
+      maxRetryCount: 3,
+      warn: vi.fn(),
+    });
+
+    await vi.waitFor(() =>
+      expect(settleLiveAdmissionWorkItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'admission-1',
+          state: 'failed',
+        }),
+      ),
+    );
+    expect(deferLiveAdmissionWorkItem).not.toHaveBeenCalled();
+    loop.stop();
+    await loop.done;
+  });
+
+  it('does not dead-letter from claim count alone', async () => {
+    const settleLiveAdmissionWorkItem = vi.fn(async () => true);
+    const deferLiveAdmissionWorkItem = vi.fn(async () => true);
+    const loop = startLiveAdmissionWorkLoop({
+      liveAdmissions: {
+        claimLiveAdmissionWorkItems: vi.fn(async () => [
+          {
+            ...baseItem,
+            queueJid: 'other@g.us',
+            retryCount: 99,
+            failureCount: 0,
+          },
+        ]),
+        renewLiveAdmissionWorkItemClaim: vi.fn(async () => true),
+        deferLiveAdmissionWorkItem,
+        settleLiveAdmissionWorkItem,
+        enqueueLiveAdmissionWorkItem: vi.fn(),
+      },
+      appId: 'default',
+      workerInstanceId: 'worker-1',
+      messageLoopDeps: makeDeps(() => true),
+      intervalMs: 60_000,
+      maxBatchesPerWake: 1,
+      maxRetryCount: 3,
+      warn: vi.fn(),
+    });
+
+    await vi.waitFor(() =>
+      expect(deferLiveAdmissionWorkItem).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'admission-1',
+          reason: 'listener_degraded',
+          countFailure: true,
+        }),
+      ),
+    );
+    expect(settleLiveAdmissionWorkItem).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'admission-1',
+        state: 'failed',
+      }),
+    );
+    loop.stop();
+    await loop.done;
+  });
+
+  it('releases unstarted claimed work items when shutdown drain times out', async () => {
+    const deferLiveAdmissionWorkItem = vi.fn(async () => true);
+    const renewLiveAdmissionWorkItemClaim = vi.fn(async () => true);
+    const deps = makeDeps(() => true);
+    deps.opsRepository.getMessagesSince = vi.fn(
+      () => new Promise(() => undefined),
+    );
+    const loop = startLiveAdmissionWorkLoop({
+      liveAdmissions: {
+        claimLiveAdmissionWorkItems: vi.fn(async () => [
+          baseItem,
+          { ...baseItem, id: 'admission-2' },
+        ]),
+        renewLiveAdmissionWorkItemClaim,
+        deferLiveAdmissionWorkItem,
+        settleLiveAdmissionWorkItem: vi.fn(),
+        enqueueLiveAdmissionWorkItem: vi.fn(),
+      },
+      appId: 'default',
+      workerInstanceId: 'worker-1',
+      messageLoopDeps: deps,
+      intervalMs: 60_000,
+      maxBatchesPerWake: 1,
+      warn: vi.fn(),
+    });
+
+    await vi.waitFor(() =>
+      expect(renewLiveAdmissionWorkItemClaim).toHaveBeenCalled(),
+    );
+    await loop.stop({ drainDeadlineMs: 0 });
+
+    expect(deferLiveAdmissionWorkItem).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'admission-1',
+      }),
+    );
+    expect(deferLiveAdmissionWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'admission-2',
+        reason: 'retry',
+      }),
+    );
   });
 });

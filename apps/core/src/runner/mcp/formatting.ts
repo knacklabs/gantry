@@ -2,18 +2,48 @@ export function formatMemoryToolResponse(response: {
   provider?: string;
   data?: unknown;
 }): string {
-  return JSON.stringify(
-    {
-      provider: response.provider || 'unknown',
-      ...(typeof response.data === 'object' &&
-      response.data !== null &&
-      !Array.isArray(response.data)
-        ? (response.data as Record<string, unknown>)
-        : { data: response.data }),
-    },
-    null,
-    2,
-  );
+  const data =
+    response.data &&
+    typeof response.data === 'object' &&
+    !Array.isArray(response.data)
+      ? (response.data as Record<string, unknown>)
+      : {};
+  const results = Array.isArray(data.results) ? data.results : [];
+  if (results.length === 0) {
+    return typeof data.outcome === 'string' && data.outcome.trim()
+      ? data.outcome
+      : 'No relevant memories found.';
+  }
+  const shown = results.slice(0, 25);
+  const lines = shown.map((entry, index) => {
+    const rec =
+      entry && typeof entry === 'object'
+        ? (entry as Record<string, unknown>)
+        : {};
+    const item =
+      rec.item && typeof rec.item === 'object'
+        ? (rec.item as Record<string, unknown>)
+        : rec;
+    const value = [item.value, item.text, item.content, item.summary].find(
+      (candidate): candidate is string =>
+        typeof candidate === 'string' && candidate.trim().length > 0,
+    );
+    const key =
+      typeof item.key === 'string' && item.key.trim() ? `${item.key}: ` : '';
+    const body = (value ?? '(memory)')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240);
+    return `${index + 1}. ${key}${body}`;
+  });
+  const more =
+    results.length > shown.length
+      ? `\n…and ${results.length - shown.length} more.`
+      : '';
+  return `${[
+    `Found ${results.length} relevant ${results.length === 1 ? 'memory' : 'memories'}:`,
+    ...lines,
+  ].join('\n')}${more}`;
 }
 
 export function formatMemoryReviewPendingResponse(response: {
@@ -268,9 +298,6 @@ export function formatTaskFailureLines(
   fallbackError: string,
 ): string[] {
   const lines = [response.error || fallbackError];
-  if (response.code) {
-    lines.push(`code: ${response.code}`);
-  }
   if (response.details && response.details.length > 0) {
     lines.push(...response.details.map((item) => `- ${item}`));
   }

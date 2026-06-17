@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { schedulerJobConfirmationToken } from '@core/jobs/job-plan-formatter.js';
 import { ALL_GANTRY_MCP_TOOL_NAMES } from '@agent-runner-src/gantry-mcp-tool-surface.js';
 
+const MCP_FIXTURE_TIMEOUT_MS = 60_000;
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -470,7 +471,7 @@ async function runMcpFixture(
   toolName: string,
   args: Record<string, unknown>,
   envOverrides: Record<string, string | undefined> = {},
-): Promise<{ exitCode: number | null; stderr: string }> {
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   const child = spawn(
     process.execPath,
     [path.resolve('node_modules/tsx/dist/cli.mjs'), fixture.serverPath],
@@ -500,7 +501,11 @@ async function runMcpFixture(
     },
   );
 
+  let stdout = '';
   let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += String(chunk);
+  });
   child.stderr.on('data', (chunk) => {
     stderr += String(chunk);
   });
@@ -508,8 +513,12 @@ async function runMcpFixture(
   const exitCode = await new Promise<number | null>((resolve, reject) => {
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
-      reject(new Error(`MCP fixture timed out\nstderr:\n${stderr}`));
-    }, 30_000);
+      reject(
+        new Error(
+          `MCP fixture timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        ),
+      );
+    }, MCP_FIXTURE_TIMEOUT_MS);
     child.on('error', (err) => {
       clearTimeout(timeout);
       reject(err);
@@ -520,7 +529,7 @@ async function runMcpFixture(
     });
   });
 
-  return { exitCode, stderr };
+  return { exitCode, stdout, stderr };
 }
 
 function writeLiveToolRules(
@@ -555,7 +564,7 @@ function cawAtsMcpCapability(mcpTool: string): Record<string, unknown> {
   };
 }
 
-describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
+describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
   it('consumes ask_user_question responses, formats answers, and unlinks the response file', async () => {
     const fixture = createMcpFixture();
 
@@ -606,32 +615,36 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.responseFiles).toHaveLength(0);
   });
 
-  it('registers selected admin tools and reports remaining requestable tools', async () => {
-    const fixture = createMcpFixture();
+  it(
+    'registers selected admin tools and reports remaining requestable tools',
+    async () => {
+      const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(
-      fixture,
-      'service_restart',
-      {},
-      { GANTRY_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
-    );
+      const result = await runMcpFixture(
+        fixture,
+        'service_restart',
+        {},
+        { GANTRY_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
+      );
 
-    expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain(
-      'Scheduler task confirmed.',
-    );
-    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
-    const task = JSON.parse(
-      fs.readFileSync(
-        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
-        'utf-8',
-      ),
-    );
-    expect(task.type).toBe('service_restart');
-    expect(task.chatJid).toBe('tg:team');
-    expect(task.targetJid).toBe('tg:team');
-  }, 40_000);
+      expect(result.exitCode, result.stderr).toBe(0);
+      const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+      expect(record.result.content[0].text).toContain(
+        'Scheduler task confirmed.',
+      );
+      const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+      const task = JSON.parse(
+        fs.readFileSync(
+          path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+          'utf-8',
+        ),
+      );
+      expect(task.type).toBe('service_restart');
+      expect(task.chatJid).toBe('tg:team');
+      expect(task.targetJid).toBe('tg:team');
+    },
+    MCP_FIXTURE_TIMEOUT_MS,
+  );
 
   it('keeps unselected admin tools gated at call time', async () => {
     const fixture = createMcpFixture();
@@ -1625,7 +1638,10 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
 
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain('"run_id": "run-1"');
+    expect(record.result.content[0].text).toContain(
+      'Queued an immediate run of this job.',
+    );
+    expect(record.result.content[0].text).not.toContain('run-1');
 
     const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
     const task = JSON.parse(

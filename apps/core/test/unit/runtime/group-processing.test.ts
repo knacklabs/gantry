@@ -127,6 +127,28 @@ function makeMessage(overrides: Partial<NewMessage> = {}): NewMessage {
   };
 }
 
+function makePendingMessages(
+  count: number,
+  content: (index: number) => string,
+): NewMessage[] {
+  return Array.from({ length: count }, (_, index) =>
+    makeMessage({
+      id: String(index + 1),
+      content: content(index + 1),
+      timestamp: String(1_700_000_000 + index + 1),
+    }),
+  );
+}
+
+function mockPagedMessages(messages: NewMessage[]): void {
+  let offset = 0;
+  mockGetMessagesSince.mockImplementation((_chatJid, _cursor, limit = 50) => {
+    const batch = messages.slice(offset, offset + Number(limit));
+    offset += batch.length;
+    return batch;
+  });
+}
+
 function makeGroup(
   overrides: Partial<ConversationRoute> = {},
 ): ConversationRoute {
@@ -224,6 +246,7 @@ function makeDeps(
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
     queue: {
+      enqueueMessageCheck: vi.fn(),
       closeStdin: vi.fn(),
       notifyIdle: vi.fn(),
       registerProcess: vi.fn(),
@@ -368,6 +391,27 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
+    it('requeues when a handled command fills the bounded pending replay', async () => {
+      const messages = makePendingMessages(1_000, () => '/status');
+      const { deps } = setupHappyPath({ messages });
+      mockPagedMessages(messages);
+      mockHandleSessionCommand.mockResolvedValue({
+        handled: true,
+        success: true,
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      expect(deps.setCursor).not.toHaveBeenCalled();
+      expect(deps.saveState).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
     it('delegates to handleSessionCommand and returns false when handled but failed', async () => {
       const { deps } = setupHappyPath();
       mockHandleSessionCommand.mockResolvedValue({
@@ -393,34 +437,32 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent).toHaveBeenCalled();
     });
 
-    it('starts the run with all pending messages across fetch pages', async () => {
-      const messages = Array.from({ length: 52 }, (_, index) =>
-        makeMessage({
-          id: String(index + 1),
-          content: `message ${index + 1}`,
-          timestamp: `2024-01-01T00:00:${String(index + 1).padStart(
-            2,
-            '0',
-          )}.000Z`,
-        }),
+    it('starts the run with the bounded pending replay and requeues when more may remain', async () => {
+      const messages = makePendingMessages(
+        1_001,
+        (index) => `message ${index}`,
       );
       const { deps } = setupHappyPath({ messages });
-      mockGetMessagesSince
-        .mockResolvedValueOnce(messages.slice(0, 50))
-        .mockResolvedValueOnce(messages.slice(50));
+      mockPagedMessages(messages);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
 
       expect(result).toBe(true);
-      expect(mockGetMessagesSince).toHaveBeenCalledTimes(2);
-      expect(mockFormatMessages).toHaveBeenCalledWith(messages, 'UTC');
+      expect(mockGetMessagesSince).toHaveBeenCalledTimes(20);
+      expect(mockFormatMessages).toHaveBeenCalledWith(
+        messages.slice(0, 1_000),
+        'UTC',
+      );
       expect(mockSpawnAgent).toHaveBeenCalled();
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
       const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
         .calls;
       expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
-        timestamp: '2024-01-01T00:00:52.000Z',
-        id: '52',
+        timestamp: '1700001000',
+        id: '1000',
       });
     });
   });
@@ -443,6 +485,35 @@ describe('createGroupProcessor', () => {
       const result = await processGroupMessages('group1@g.us');
 
       expect(result).toBe(true);
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
+    it('requeues when a no-trigger replay fills the bounded pending replay', async () => {
+      const group = makeGroup({
+        requiresTrigger: true,
+        trigger: 'Andy',
+      });
+      const messages = makePendingMessages(1_000, () => 'no trigger here');
+      const { deps } = setupHappyPath({ group, messages });
+      mockPagedMessages(messages);
+      mockIsTriggerAllowed.mockReturnValue(true);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(setCursorCalls).toHaveLength(1);
+      expect(setCursorCalls[0][0]).toBe('group1@g.us');
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700001000',
+        id: '1000',
+      });
+      expect(deps.saveState).toHaveBeenCalled();
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 

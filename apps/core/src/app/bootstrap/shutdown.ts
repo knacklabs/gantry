@@ -27,7 +27,7 @@ export interface InstallShutdownHandlersOptions {
   /** Stop admitting NEW live turns (active turns keep running). */
   closeLiveTurnAdmission?: () => void;
   /** Stop the live admission loop so no new run rows are created. */
-  closeMessagePolling?: () => void;
+  closeMessagePolling?: (timeoutMs: number) => Promise<void> | void;
   closeLiveTurnAuthority?: () => Promise<void>;
   closeSettingsWatcher?: () => void;
   /** Release the live-recovery-coordinator lease EARLY so a successor can take over. */
@@ -89,7 +89,10 @@ export function installShutdownHandlers(
       'Failed to stop scheduler during drain',
     );
     options.closeLiveTurnAdmission?.();
-    options.closeMessagePolling?.();
+    await runStep(
+      () => options.closeMessagePolling?.(options.drainDeadlineMs),
+      'Failed to stop message polling during drain',
+    );
     await runStep(
       options.closeLiveTurnRecovery,
       'Failed to stop live-turn recovery during drain',

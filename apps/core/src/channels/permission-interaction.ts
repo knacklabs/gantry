@@ -28,6 +28,10 @@ import {
 } from '../domain/permission-decision.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 import {
+  formatPermissionAgentDisplayName,
+  permissionPromptTitle,
+} from './permission-agent-display.js';
+import {
   formatPermissionToolInputLines,
   runtimeDisplayCommand,
 } from './permission-tool-input-format.js';
@@ -152,7 +156,9 @@ export function formatPermissionPromptText(
     );
   }
   const label = permissionAccessLabel(request);
-  const lines = [`🔐 Allow ${label}?`];
+  const lines = [
+    `🔐 ${permissionPromptTitle(request.sourceAgentFolder, label)}`,
+  ];
   const inputLines = formatPermissionToolInputLines(
     request,
     sanitizePermissionText,
@@ -191,7 +197,7 @@ export function formatPermissionReceiptText(
   }
   if (decision.mode === 'allow_persistent_rule') {
     const agentName = request
-      ? formatAgentDisplayName(request.sourceAgentFolder)
+      ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
       : 'this agent';
     return limitPermissionMessage(
       `Allowed for future: ${summary}. Saved for ${agentName}. You can remove it from Agent Access.`,
@@ -229,7 +235,10 @@ export function buildPermissionPromptParts(
     const interaction = request.interaction;
     const rule = firstPersistentRule(request);
     const capabilityName = semanticCapabilityName(request, rule);
-    const title = `Allow ${capabilityName ?? permissionAccessLabel(request)}?`;
+    const title = permissionPromptTitle(
+      request.sourceAgentFolder,
+      capabilityName ?? permissionAccessLabel(request),
+    );
     const bodyLines: string[] = [];
     const accountLabel = request.toolInput?.accountLabel;
     if (typeof accountLabel === 'string' && accountLabel.trim()) {
@@ -270,7 +279,7 @@ export function buildPermissionPromptParts(
     const networkLine = semanticCapabilityNetworkLine(definition);
     if (networkLine) bodyLines.push(networkLine);
     return {
-      title: `Allow ${capabilityName}?`,
+      title: permissionPromptTitle(request.sourceAgentFolder, capabilityName),
       bodyLines,
       contextLines,
       replyInMinutes,
@@ -287,7 +296,12 @@ export function buildPermissionPromptParts(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
     );
   }
-  return { title: `Allow ${label}?`, bodyLines, contextLines, replyInMinutes };
+  return {
+    title: permissionPromptTitle(request.sourceAgentFolder, label),
+    bodyLines,
+    contextLines,
+    replyInMinutes,
+  };
 }
 
 function headTailTruncate(input: string, head: number, tail: number): string {
@@ -331,7 +345,7 @@ function formatPermissionContextLines(
     ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
     : 'agent chat';
   const lines = [
-    `Agent: ${formatAgentDisplayName(request.sourceAgentFolder)}`,
+    `Agent: ${formatPermissionAgentDisplayName(request.sourceAgentFolder)}`,
     `Context: ${context}`,
   ];
   if (requestHasThreadRoute(request)) {
@@ -339,25 +353,6 @@ function formatPermissionContextLines(
   }
   lines.push('The agent cannot approve this itself.');
   return lines;
-}
-
-function formatAgentDisplayName(sourceAgentFolder: string): string {
-  const sanitized = sanitizePermissionText(sourceAgentFolder, 120, 40).trim();
-  if (!sanitized) return 'this agent';
-  const withoutPrefix = sanitized.replace(/^agent:/i, '');
-  const words = withoutPrefix
-    .replaceAll(/[_-]+/g, ' ')
-    .replaceAll(/\s+/g, ' ')
-    .trim();
-  if (!words) return 'this agent';
-  return words
-    .split(' ')
-    .map((word) =>
-      /^[A-Z0-9]+$/.test(word)
-        ? word
-        : `${word.charAt(0).toUpperCase()}${word.slice(1)}`,
-    )
-    .join(' ');
 }
 
 function formatInteractionPermissionPrompt(
@@ -368,7 +363,10 @@ function formatInteractionPermissionPrompt(
   const interaction = request.interaction!;
   const rule = firstPersistentRule(request);
   const capabilityName = semanticCapabilityName(request, rule);
-  const title = `🔐 Allow ${capabilityName ?? permissionAccessLabel(request)}?`;
+  const title = `🔐 ${permissionPromptTitle(
+    request.sourceAgentFolder,
+    capabilityName ?? permissionAccessLabel(request),
+  )}`;
   const lines = [title];
   const accountLabel = request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
@@ -407,7 +405,9 @@ function formatSemanticPermissionPrompt(
   rule: string | undefined,
 ): string {
   const definition = semanticCapabilityDefinition(request, rule);
-  const lines = [`🔐 Allow ${capabilityName}?`];
+  const lines = [
+    `🔐 ${permissionPromptTitle(request.sourceAgentFolder, capabilityName)}`,
+  ];
   const accountLabel =
     definition?.accountLabel ?? request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {

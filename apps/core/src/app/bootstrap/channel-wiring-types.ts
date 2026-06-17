@@ -26,6 +26,7 @@ import type { logger } from '../../infrastructure/logging/logger.js';
 import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -108,6 +109,7 @@ export interface ChannelWiringDeps {
 }
 
 export interface ChannelWiring {
+  getRuntimeAppId: () => AppId;
   describeDestinationJid: (jid: string) => {
     providerId?: string;
     internal: boolean;
@@ -167,6 +169,7 @@ export interface ChannelWiring {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<void>;
   isControlApproverAllowed: (input: {
     conversationJid: string;
     userId: string;

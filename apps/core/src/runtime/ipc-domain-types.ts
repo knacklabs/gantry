@@ -15,6 +15,10 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../domain/ports/repositories.js';
+import type {
+  AgentTodoRender,
+  TaskLifecycleRepository,
+} from '../domain/ports/task-lifecycle.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { CredentialBrokerProfile } from '../domain/models/credentials.js';
 import type {
@@ -52,6 +56,7 @@ export interface IpcDeps {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+  renderAgentTodo?: (jid: string, render: AgentTodoRender) => Promise<void>;
   mcpHostnameLookup?: HostnameLookup;
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
@@ -68,6 +73,7 @@ export interface IpcDeps {
   }) => Promise<void>;
   getPermissionRepository?: () => PermissionRepository | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
+  getTaskLifecycleRepository?: () => TaskLifecycleRepository | undefined;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   getJobControl?: () => JobControlPort | undefined;
   mirrorAgentToolRulesToSettings?: (

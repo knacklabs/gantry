@@ -1,4 +1,10 @@
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '@anthropic-ai/claude-agent-sdk';
+
 import { composeSystemPromptAppend } from '../../../../runner/memory-boundary.js';
+import {
+  buildGantryAgentSystemPrompt,
+  type GantryAgentPromptMode,
+} from '../../../../runner/gantry-agent-system-prompt.js';
 import {
   resolveAgentPersona,
   type AgentPersona,
@@ -13,6 +19,7 @@ export function buildSystemPrompt(append?: string):
       append: string;
       excludeDynamicSections: boolean;
     }
+  | string[]
   | undefined {
   const trimmed = append?.trim();
   if (!trimmed) return undefined;
@@ -44,6 +51,29 @@ export function buildRunnerSystemPrompt(
   agentInput: AgentRunnerInput,
   memoryBlock: string,
 ): ReturnType<typeof buildSystemPrompt> {
+  if (!includeGitInstructionsForPersona(agentInput.persona)) {
+    const prompt = buildGantryAgentSystemPrompt({
+      runtimeProjection: 'native-tool-projection',
+      promptMode: agentInput.promptMode as GantryAgentPromptMode | undefined,
+      assistantName: agentInput.assistantName,
+      persona: agentInput.persona,
+      compiledSystemPrompt: agentInput.compiledSystemPrompt,
+      hasMemoryContext: Boolean(memoryBlock),
+      selectedToolRules: agentInput.allowedTools,
+      workspaceFolder: agentInput.workspaceFolder,
+      conversationId: agentInput.chatJid,
+      threadId: agentInput.threadId,
+      isScheduledJob: agentInput.isScheduledJob,
+      currentDateTimeIso: new Date().toISOString(),
+    });
+    return prompt.dynamicPrompt
+      ? [
+          prompt.staticPrompt,
+          SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+          prompt.dynamicPrompt,
+        ]
+      : [prompt.staticPrompt];
+  }
   return buildSystemPrompt(
     composeSystemPromptAppend(
       agentInput.compiledSystemPrompt,

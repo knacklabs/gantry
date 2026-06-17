@@ -17,6 +17,8 @@ export const LIVE_LATENCY_BENCHMARK_METRIC_NAMES = [
   'bridgeLagMs',
   'checkpointLoadMs',
   'checkpointWriteMs',
+  'providerSessionReadMs',
+  'providerSessionWriteMs',
   'asyncDelegationLaunchAckMs',
   'delegationProgressEventMs',
   'streamRejoinMs',
@@ -32,8 +34,11 @@ export const LIVE_LATENCY_BENCHMARK_METRIC_NAMES = [
   'sandboxStartMs',
   'sandboxFirstToolReadyMs',
   'modelConstructionMs',
-  'dbPoolWaitMs',
-  'lockWaitMs',
+  'poolCheckoutWaitMs',
+  'queryElapsedMs',
+  'transactionElapsedMs',
+  'pgLockWaitMs',
+  'liveAdmissionClaimMs',
   'notifyLagMs',
 ] as const;
 
@@ -45,8 +50,11 @@ export type LiveLatencyBenchmarkMetricSource = 'measured' | 'synthetic';
 export const LIVE_LATENCY_READINESS_REQUIRED_METRIC_NAMES = [
   'acceptedToFirstVisibleMs',
   'admissionLagMs',
-  'dbPoolWaitMs',
-  'lockWaitMs',
+  'poolCheckoutWaitMs',
+  'queryElapsedMs',
+  'transactionElapsedMs',
+  'pgLockWaitMs',
+  'liveAdmissionClaimMs',
   'mcpClientStartupMs',
   'toolListingFilteringMs',
   'permissionHitlSetupMs',
@@ -60,6 +68,8 @@ export type LiveLatencyReadinessRequiredMetricName =
 
 export type LiveLatencyBenchmarkMetricEvidenceSource =
   | 'benchmark_observed'
+  | 'pool_checkout_observed'
+  | 'pg_lock_observed'
   | 'runtime_origin'
   | 'runner_origin'
   | 'fixture_seeded'
@@ -71,6 +81,10 @@ export type LiveLatencyBenchmarkMetricEvidenceSources = Partial<
     LiveLatencyBenchmarkMetricEvidenceSource
   >
 >;
+
+export type LiveLatencyBenchmarkEvidenceSource =
+  | 'real_live_runner'
+  | 'synthetic_harness';
 
 export type LiveLatencyBenchmarkMetricValues = Partial<
   Record<LiveLatencyBenchmarkMetricName, number>
@@ -96,6 +110,7 @@ export interface LiveLatencyBenchmarkMetricSummary {
 export interface LiveLatencyBenchmarkReport {
   concurrency: number;
   sampleCount: number;
+  benchmarkEvidenceSource: LiveLatencyBenchmarkEvidenceSource;
   firstVisibleSloMs: number;
   passedFirstVisibleSlo: boolean;
   metrics: Record<
@@ -108,6 +123,7 @@ export interface LiveLatencyBenchmarkReport {
   deferredCount: number;
   degradedCount: number;
   failureCount: number;
+  backgroundClaimCount: number;
   readiness: LiveLatencyBenchmarkReadinessReport;
 }
 
@@ -118,7 +134,8 @@ export type LiveLatencyBenchmarkReadinessFailureReason =
   | 'first_visible_slo_failed'
   | 'benchmark_deferred'
   | 'benchmark_degraded'
-  | 'benchmark_failure';
+  | 'benchmark_failure'
+  | 'synthetic_benchmark';
 
 export interface LiveLatencyBenchmarkReadinessMetric {
   metricName: LiveLatencyReadinessRequiredMetricName;
@@ -155,6 +172,7 @@ export interface LiveLatencyBenchmarkReportArtifact {
 export interface LiveLatencyBenchmarkSummaryInput {
   concurrency: number;
   samples: LiveLatencyBenchmarkSample[];
+  benchmarkEvidenceSource?: LiveLatencyBenchmarkEvidenceSource;
   firstVisibleSloMs?: number;
   metricSources?: Partial<
     Record<LiveLatencyBenchmarkMetricName, LiveLatencyBenchmarkMetricSource>
@@ -162,10 +180,15 @@ export interface LiveLatencyBenchmarkSummaryInput {
   deferredCount?: number;
   degradedCount?: number;
   failureCount?: number;
+  backgroundClaimCount?: number;
 }
 
 export interface StartupDiagnosticToLiveLatencyMetricsOptions {
   acceptedToRunnerStartMs?: number;
+}
+
+interface StartupDiagnosticProjectionOptions extends StartupDiagnosticToLiveLatencyMetricsOptions {
+  evidenceMode?: LiveLatencyStartupDiagnosticEvidenceMode;
 }
 
 export interface LiveLatencyBenchmarkDiagnosticProjection {
@@ -185,8 +208,53 @@ export interface LiveLatencyStartupDiagnosticsFromRuntimeEventsInput {
   maxEvents?: number;
 }
 
+export type LiveLatencyStartupDiagnosticEvidenceMode =
+  | 'fixture_seeded'
+  | 'trusted_runtime_events';
+
+const TRUSTED_STARTUP_DIAGNOSTIC = Symbol('trustedStartupDiagnostic');
+
+export interface LiveLatencyStartupDiagnostic {
+  payload: Record<string, unknown>;
+  evidenceMode: 'trusted_runtime_events';
+  [TRUSTED_STARTUP_DIAGNOSTIC]: true;
+}
+
+export type LiveLatencyStartupDiagnosticInput =
+  | Record<string, unknown>
+  | LiveLatencyStartupDiagnostic;
+
+interface NormalizedStartupDiagnostic {
+  payload: Record<string, unknown>;
+  evidenceMode: LiveLatencyStartupDiagnosticEvidenceMode;
+}
+
+export interface LiveLatencyPostgresHotPathObserver {
+  measurePoolCheckoutWaitMs(): Promise<number>;
+  measurePgLockWaitMs(): Promise<number>;
+}
+
+export interface LiveLatencyPostgresHotPathPool {
+  connect(): Promise<{ release(): void }>;
+  query<T extends Record<string, unknown> = Record<string, unknown>>(
+    queryText: string,
+  ): Promise<{ rows: T[] }>;
+}
+
+export interface LiveLatencyProviderSessionOperationInput {
+  sampleId: string;
+}
+
+export interface LiveLatencyProviderSessionOperations {
+  read(input: LiveLatencyProviderSessionOperationInput): Promise<void>;
+  write(input: LiveLatencyProviderSessionOperationInput): Promise<void>;
+}
+
 export interface SyntheticLiveLatencyBenchmarkInput {
   liveAdmissions: LiveAdmissionWorkItemRepository;
+  appId?: string;
+  postgresHotPathObserver?: LiveLatencyPostgresHotPathObserver;
+  providerSessionOperations?: LiveLatencyProviderSessionOperations;
   concurrency?: number;
   workerCount?: number;
   claimBatchSize?: number;
@@ -195,8 +263,9 @@ export interface SyntheticLiveLatencyBenchmarkInput {
   benchmarkRunId?: string;
   startupDiagnosticsByItemId?: ReadonlyMap<
     string,
-    readonly Record<string, unknown>[]
+    readonly LiveLatencyStartupDiagnosticInput[]
   >;
+  maxBackgroundClaimCount?: number;
   reportArtifactPath?: string;
   syntheticLatenciesMs?: Partial<
     Record<LiveLatencyBenchmarkMetricName, number>
@@ -233,6 +302,8 @@ const DEFAULT_METRIC_SOURCES: Record<
   bridgeLagMs: 'synthetic',
   checkpointLoadMs: 'synthetic',
   checkpointWriteMs: 'synthetic',
+  providerSessionReadMs: 'synthetic',
+  providerSessionWriteMs: 'synthetic',
   asyncDelegationLaunchAckMs: 'synthetic',
   delegationProgressEventMs: 'synthetic',
   streamRejoinMs: 'synthetic',
@@ -248,8 +319,11 @@ const DEFAULT_METRIC_SOURCES: Record<
   sandboxStartMs: 'synthetic',
   sandboxFirstToolReadyMs: 'synthetic',
   modelConstructionMs: 'synthetic',
-  dbPoolWaitMs: 'measured',
-  lockWaitMs: 'measured',
+  poolCheckoutWaitMs: 'synthetic',
+  queryElapsedMs: 'measured',
+  transactionElapsedMs: 'measured',
+  pgLockWaitMs: 'synthetic',
+  liveAdmissionClaimMs: 'measured',
   notifyLagMs: 'synthetic',
 };
 
@@ -259,8 +333,11 @@ const LIVE_LATENCY_READINESS_ALLOWED_EVIDENCE_SOURCES: Record<
 > = {
   acceptedToFirstVisibleMs: ['runner_origin'],
   admissionLagMs: ['benchmark_observed'],
-  dbPoolWaitMs: ['benchmark_observed'],
-  lockWaitMs: ['benchmark_observed'],
+  poolCheckoutWaitMs: ['pool_checkout_observed'],
+  queryElapsedMs: ['benchmark_observed'],
+  transactionElapsedMs: ['benchmark_observed'],
+  pgLockWaitMs: ['pg_lock_observed'],
+  liveAdmissionClaimMs: ['benchmark_observed'],
   mcpClientStartupMs: ['runner_origin'],
   toolListingFilteringMs: ['runtime_origin'],
   permissionHitlSetupMs: ['runner_origin'],
@@ -325,13 +402,43 @@ function assignStartupDiagnosticMetric(
   projection: LiveLatencyBenchmarkDiagnosticProjection,
   metricName: LiveLatencyBenchmarkMetricName,
   value: unknown,
+  evidenceSource: LiveLatencyBenchmarkMetricEvidenceSource = 'fixture_seeded',
 ): void {
-  assignMeasuredMetric(projection, metricName, value, 'fixture_seeded');
+  assignMeasuredMetric(projection, metricName, value, evidenceSource);
+}
+
+function startupDiagnosticEvidenceSource(
+  metricName: LiveLatencyBenchmarkMetricName,
+  mode: LiveLatencyStartupDiagnosticEvidenceMode | undefined,
+): LiveLatencyBenchmarkMetricEvidenceSource {
+  if (mode !== 'trusted_runtime_events') return 'fixture_seeded';
+  return metricName === 'toolListingFilteringMs' ||
+    metricName === 'sandboxTemplateMs' ||
+    metricName === 'sandboxSpecMs'
+    ? 'runtime_origin'
+    : 'runner_origin';
+}
+
+function isTrustedStartupDiagnostic(
+  input: LiveLatencyStartupDiagnosticInput,
+): input is LiveLatencyStartupDiagnostic {
+  return (
+    (input as { [TRUSTED_STARTUP_DIAGNOSTIC]?: unknown })[
+      TRUSTED_STARTUP_DIAGNOSTIC
+    ] === true
+  );
 }
 
 export function startupDiagnosticToLiveLatencyMetrics(
   payload: Record<string, unknown>,
   options: StartupDiagnosticToLiveLatencyMetricsOptions = {},
+): LiveLatencyBenchmarkDiagnosticProjection {
+  return projectStartupDiagnosticToLiveLatencyMetrics(payload, options);
+}
+
+function projectStartupDiagnosticToLiveLatencyMetrics(
+  payload: Record<string, unknown>,
+  options: StartupDiagnosticProjectionOptions = {},
 ): LiveLatencyBenchmarkDiagnosticProjection {
   const projection: LiveLatencyBenchmarkDiagnosticProjection = {
     metrics: {},
@@ -347,11 +454,13 @@ export function startupDiagnosticToLiveLatencyMetrics(
     projection,
     'checkpointLoadMs',
     payload.checkpointLoadMs,
+    startupDiagnosticEvidenceSource('checkpointLoadMs', options.evidenceMode),
   );
   assignStartupDiagnosticMetric(
     projection,
     'checkpointWriteMs',
     payload.checkpointWriteMs,
+    startupDiagnosticEvidenceSource('checkpointWriteMs', options.evidenceMode),
   );
 
   if (phases) {
@@ -359,16 +468,28 @@ export function startupDiagnosticToLiveLatencyMetrics(
       projection,
       'modelConstructionMs',
       phases.modelBuildMs,
+      startupDiagnosticEvidenceSource(
+        'modelConstructionMs',
+        options.evidenceMode,
+      ),
     );
     assignStartupDiagnosticMetric(
       projection,
       'mcpClientStartupMs',
       phases.mcpConnectMs,
+      startupDiagnosticEvidenceSource(
+        'mcpClientStartupMs',
+        options.evidenceMode,
+      ),
     );
     assignStartupDiagnosticMetric(
       projection,
       'permissionHitlSetupMs',
       phases.permissionEnvMs,
+      startupDiagnosticEvidenceSource(
+        'permissionHitlSetupMs',
+        options.evidenceMode,
+      ),
     );
   }
 
@@ -377,16 +498,25 @@ export function startupDiagnosticToLiveLatencyMetrics(
       projection,
       'toolListingFilteringMs',
       hostPhases.mcpProjectionMs,
+      startupDiagnosticEvidenceSource(
+        'toolListingFilteringMs',
+        options.evidenceMode,
+      ),
     );
     assignStartupDiagnosticMetric(
       projection,
       'sandboxTemplateMs',
       hostPhases.sandboxTemplateMs,
+      startupDiagnosticEvidenceSource(
+        'sandboxTemplateMs',
+        options.evidenceMode,
+      ),
     );
     assignStartupDiagnosticMetric(
       projection,
       'sandboxSpecMs',
       hostPhases.sandboxSpecMs,
+      startupDiagnosticEvidenceSource('sandboxSpecMs', options.evidenceMode),
     );
   }
 
@@ -395,21 +525,31 @@ export function startupDiagnosticToLiveLatencyMetrics(
       projection,
       'sandboxStartMs',
       startupTiming.sandboxStartCallMs,
+      startupDiagnosticEvidenceSource('sandboxStartMs', options.evidenceMode),
     );
     assignStartupDiagnosticMetric(
       projection,
       'sandboxTemplateMs',
       startupTimingHostPhases?.sandboxTemplateMs,
+      startupDiagnosticEvidenceSource(
+        'sandboxTemplateMs',
+        options.evidenceMode,
+      ),
     );
     assignStartupDiagnosticMetric(
       projection,
       'sandboxSpecMs',
       startupTimingHostPhases?.sandboxSpecMs,
+      startupDiagnosticEvidenceSource('sandboxSpecMs', options.evidenceMode),
     );
     assignStartupDiagnosticMetric(
       projection,
       'toolListingFilteringMs',
       startupTimingHostPhases?.mcpProjectionMs,
+      startupDiagnosticEvidenceSource(
+        'toolListingFilteringMs',
+        options.evidenceMode,
+      ),
     );
   }
 
@@ -427,21 +567,50 @@ export function startupDiagnosticToLiveLatencyMetrics(
       projection,
       'acceptedToFirstVisibleMs',
       acceptedToRunnerStartMs + runnerFirstVisibleMs,
+      startupDiagnosticEvidenceSource(
+        'acceptedToFirstVisibleMs',
+        options.evidenceMode,
+      ),
     );
   }
 
   return projection;
 }
 
+function normalizeStartupDiagnosticInput(
+  input: LiveLatencyStartupDiagnosticInput,
+): NormalizedStartupDiagnostic {
+  if (isTrustedStartupDiagnostic(input)) {
+    return {
+      payload: input.payload,
+      evidenceMode: input.evidenceMode,
+    };
+  }
+  return {
+    payload: input as Record<string, unknown>,
+    evidenceMode: 'fixture_seeded',
+  };
+}
+
+function trustedRuntimeEventStartupDiagnostic(
+  payload: Record<string, unknown>,
+): LiveLatencyStartupDiagnostic {
+  return {
+    payload,
+    evidenceMode: 'trusted_runtime_events',
+    [TRUSTED_STARTUP_DIAGNOSTIC]: true,
+  };
+}
+
 export async function loadLiveLatencyStartupDiagnosticsFromRuntimeEvents(
   input: LiveLatencyStartupDiagnosticsFromRuntimeEventsInput,
-): Promise<Map<string, readonly Record<string, unknown>[]>> {
+): Promise<Map<string, readonly LiveLatencyStartupDiagnostic[]>> {
   const expectedRunIds = new Set(
     [...input.itemRunIdsByItemId.values()]
       .map((runId) => runId.trim())
       .filter((runId) => runId.length > 0),
   );
-  const diagnosticsByRunId = new Map<string, Record<string, unknown>[]>();
+  const diagnosticsByRunId = new Map<string, LiveLatencyStartupDiagnostic[]>();
   if (expectedRunIds.size === 0) return new Map();
 
   const pageLimit = Math.max(1, Math.min(input.pageLimit ?? 1_000, 5_000));
@@ -470,7 +639,7 @@ export async function loadLiveLatencyStartupDiagnosticsFromRuntimeEvents(
       const payload = readObject(event.payload);
       if (!payload) continue;
       const diagnostics = diagnosticsByRunId.get(runId) ?? [];
-      diagnostics.push(payload);
+      diagnostics.push(trustedRuntimeEventStartupDiagnostic(payload));
       diagnosticsByRunId.set(runId, diagnostics);
     }
     if (events.length < limit) break;
@@ -478,7 +647,7 @@ export async function loadLiveLatencyStartupDiagnosticsFromRuntimeEvents(
 
   const diagnosticsByItemId = new Map<
     string,
-    readonly Record<string, unknown>[]
+    readonly LiveLatencyStartupDiagnostic[]
   >();
   for (const [itemId, runId] of input.itemRunIdsByItemId.entries()) {
     const diagnostics = diagnosticsByRunId.get(runId);
@@ -608,6 +777,7 @@ function uniqueReasons(
 
 function summarizeReadiness(input: {
   samples: LiveLatencyBenchmarkSample[];
+  benchmarkEvidenceSource: LiveLatencyBenchmarkEvidenceSource;
   metrics: Record<
     LiveLatencyBenchmarkMetricName,
     LiveLatencyBenchmarkMetricSummary
@@ -667,6 +837,9 @@ function summarizeReadiness(input: {
   if (input.deferredCount > 0) globalFailureReasons.push('benchmark_deferred');
   if (input.degradedCount > 0) globalFailureReasons.push('benchmark_degraded');
   if (input.failureCount > 0) globalFailureReasons.push('benchmark_failure');
+  if (input.benchmarkEvidenceSource !== 'real_live_runner') {
+    globalFailureReasons.push('synthetic_benchmark');
+  }
 
   return {
     passed: failedMetricNames.length === 0 && globalFailureReasons.length === 0,
@@ -691,6 +864,8 @@ export function summarizeLiveLatencyBenchmark(
 ): LiveLatencyBenchmarkReport {
   const firstVisibleSloMs =
     input.firstVisibleSloMs ?? DEFAULT_FIRST_VISIBLE_SLO_MS;
+  const benchmarkEvidenceSource =
+    input.benchmarkEvidenceSource ?? 'real_live_runner';
   const metricSources = {
     ...DEFAULT_METRIC_SOURCES,
     ...(input.metricSources ?? {}),
@@ -728,9 +903,11 @@ export function summarizeLiveLatencyBenchmark(
   const deferredCount = input.deferredCount ?? 0;
   const degradedCount = input.degradedCount ?? 0;
   const failureCount = input.failureCount ?? 0;
+  const backgroundClaimCount = input.backgroundClaimCount ?? 0;
   return {
     concurrency: input.concurrency,
     sampleCount: input.samples.length,
+    benchmarkEvidenceSource,
     firstVisibleSloMs,
     passedFirstVisibleSlo,
     metrics,
@@ -740,8 +917,10 @@ export function summarizeLiveLatencyBenchmark(
     deferredCount,
     degradedCount,
     failureCount,
+    backgroundClaimCount,
     readiness: summarizeReadiness({
       samples: input.samples,
+      benchmarkEvidenceSource,
       metrics,
       syntheticMetricNames,
       passedFirstVisibleSlo,
@@ -791,6 +970,41 @@ function defaultSleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function createPostgresLiveLatencyHotPathObserver(
+  pool: LiveLatencyPostgresHotPathPool,
+  nowMs: () => number = Date.now,
+): LiveLatencyPostgresHotPathObserver {
+  return {
+    async measurePoolCheckoutWaitMs(): Promise<number> {
+      const startedAtMs = nowMs();
+      const client = await pool.connect();
+      try {
+        return nowMs() - startedAtMs;
+      } finally {
+        client.release();
+      }
+    },
+    async measurePgLockWaitMs(): Promise<number> {
+      const result = await pool.query<{ max_lock_wait_ms: number | string }>(
+        `SELECT COALESCE(
+           MAX(EXTRACT(EPOCH FROM (clock_timestamp() - locks.waitstart)) * 1000),
+           0
+         )::float AS max_lock_wait_ms
+         FROM pg_stat_activity AS activity
+         JOIN pg_locks AS locks ON locks.pid = activity.pid
+         WHERE activity.datname = current_database()
+           AND activity.wait_event_type = 'Lock'
+           AND activity.pid <> pg_backend_pid()
+           AND NOT locks.granted
+           AND locks.waitstart IS NOT NULL`,
+      );
+      return (
+        normalizeMetricValue(Number(result.rows[0]?.max_lock_wait_ms)) ?? 0
+      );
+    },
+  };
+}
+
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
@@ -823,6 +1037,7 @@ export async function runSyntheticLiveLatencyBenchmark(
   const runId = sanitizeRunId(
     input.benchmarkRunId ?? `live-latency-${process.pid}-${nowMs()}`,
   );
+  const appId = input.appId ?? 'default';
   const syntheticLatencies = input.syntheticLatenciesMs ?? {};
   const acceptedAtByItemId = new Map<string, number>();
   const samplesByItemId = new Map<string, LiveLatencyBenchmarkSample>();
@@ -830,9 +1045,11 @@ export async function runSyntheticLiveLatencyBenchmark(
     LiveLatencyBenchmarkMetricName,
     number
   >();
+  const maxBackgroundClaimCount = input.maxBackgroundClaimCount ?? 0;
   let failureCount = 0;
   let deferredCount = 0;
   let degradedCount = 0;
+  let backgroundClaimCount = 0;
 
   function recordMeasuredMetric(
     metricName: LiveLatencyBenchmarkMetricName,
@@ -850,7 +1067,7 @@ export async function runSyntheticLiveLatencyBenchmark(
       const enqueueStartedAtMs = nowMs();
       const result = await input.liveAdmissions.enqueueLiveAdmissionWorkItem({
         id: itemId,
-        appId: 'default',
+        appId,
         agentId: 'agent:live-latency-benchmark',
         agentSessionId: `session:${runId}:${index}`,
         conversationId: `app:live-latency-benchmark:${index}`,
@@ -872,11 +1089,11 @@ export async function runSyntheticLiveLatencyBenchmark(
       samplesByItemId.set(result.item.id, {
         id: result.item.id,
         metrics: {
-          dbPoolWaitMs: enqueueEndedAtMs - enqueueStartedAtMs,
+          queryElapsedMs: enqueueEndedAtMs - enqueueStartedAtMs,
           notifyLagMs: metricLatency(syntheticLatencies, 'notifyLagMs'),
         },
         metricEvidenceSources: {
-          dbPoolWaitMs: 'benchmark_observed',
+          queryElapsedMs: 'benchmark_observed',
           notifyLagMs: 'synthetic',
         },
       });
@@ -894,7 +1111,8 @@ export async function runSyntheticLiveLatencyBenchmark(
     const sample = samplesByItemId.get(inputItem.id);
     const acceptedAtMs = acceptedAtByItemId.get(inputItem.id);
     if (!sample || acceptedAtMs === undefined) {
-      failureCount += 1;
+      backgroundClaimCount += 1;
+      if (backgroundClaimCount > maxBackgroundClaimCount) failureCount += 1;
       return;
     }
 
@@ -905,8 +1123,11 @@ export async function runSyntheticLiveLatencyBenchmark(
       if (
         metricName === 'acceptedToFirstVisibleMs' ||
         metricName === 'admissionLagMs' ||
-        metricName === 'dbPoolWaitMs' ||
-        metricName === 'lockWaitMs'
+        metricName === 'poolCheckoutWaitMs' ||
+        metricName === 'queryElapsedMs' ||
+        metricName === 'transactionElapsedMs' ||
+        metricName === 'pgLockWaitMs' ||
+        metricName === 'liveAdmissionClaimMs'
       ) {
         continue;
       }
@@ -918,6 +1139,21 @@ export async function runSyntheticLiveLatencyBenchmark(
       sample.metricEvidenceSources[metricName] = 'synthetic';
     }
 
+    if (input.providerSessionOperations) {
+      const readStartedAtMs = nowMs();
+      await input.providerSessionOperations.read({ sampleId: inputItem.id });
+      sample.metrics.providerSessionReadMs = nowMs() - readStartedAtMs;
+      sample.metricEvidenceSources.providerSessionReadMs = 'benchmark_observed';
+      recordMeasuredMetric('providerSessionReadMs');
+
+      const writeStartedAtMs = nowMs();
+      await input.providerSessionOperations.write({ sampleId: inputItem.id });
+      sample.metrics.providerSessionWriteMs = nowMs() - writeStartedAtMs;
+      sample.metricEvidenceSources.providerSessionWriteMs =
+        'benchmark_observed';
+      recordMeasuredMetric('providerSessionWriteMs');
+    }
+
     const firstVisibleAtMs = nowMs() + syntheticStartupMs;
     sample.metrics.acceptedToFirstVisibleMs = firstVisibleAtMs - acceptedAtMs;
     sample.metrics.admissionLagMs = nowMs() - acceptedAtMs;
@@ -926,10 +1162,15 @@ export async function runSyntheticLiveLatencyBenchmark(
     sample.metricEvidenceSources.admissionLagMs = 'benchmark_observed';
     const diagnostics = input.startupDiagnosticsByItemId?.get(inputItem.id);
     const measuredMetricsForSample = new Set<LiveLatencyBenchmarkMetricName>();
-    for (const diagnostic of diagnostics ?? []) {
-      const projection = startupDiagnosticToLiveLatencyMetrics(diagnostic, {
-        acceptedToRunnerStartMs: sample.metrics.admissionLagMs,
-      });
+    for (const diagnosticInput of diagnostics ?? []) {
+      const diagnostic = normalizeStartupDiagnosticInput(diagnosticInput);
+      const projection = projectStartupDiagnosticToLiveLatencyMetrics(
+        diagnostic.payload,
+        {
+          acceptedToRunnerStartMs: sample.metrics.admissionLagMs,
+          evidenceMode: diagnostic.evidenceMode,
+        },
+      );
       Object.assign(sample.metrics, projection.metrics);
       sample.metricEvidenceSources = {
         ...(sample.metricEvidenceSources ?? {}),
@@ -955,9 +1196,10 @@ export async function runSyntheticLiveLatencyBenchmark(
       state: 'completed',
     });
     const settleEndedAtMs = nowMs();
-    sample.metrics.dbPoolWaitMs =
-      (sample.metrics.dbPoolWaitMs ?? 0) +
+    sample.metrics.queryElapsedMs =
+      (sample.metrics.queryElapsedMs ?? 0) +
       (settleEndedAtMs - settleStartedAtMs);
+    sample.metricEvidenceSources.queryElapsedMs = 'benchmark_observed';
     if (!settled) {
       failureCount += 1;
       return;
@@ -970,6 +1212,7 @@ export async function runSyntheticLiveLatencyBenchmark(
       const claimToken = `${runId}:worker:${workerIndex}:${nowMs()}`;
       const claimStartedAtMs = nowMs();
       const claimed = await input.liveAdmissions.claimLiveAdmissionWorkItems({
+        appId,
         workerInstanceId: `${runId}:worker:${workerIndex}`,
         claimToken,
         claimExpiresAt: toIso(nowMs() + claimTtlMs),
@@ -985,9 +1228,34 @@ export async function runSyntheticLiveLatencyBenchmark(
       for (const item of claimed) {
         const sample = samplesByItemId.get(item.id);
         if (sample) {
-          sample.metrics.lockWaitMs = claimEndedAtMs - claimStartedAtMs;
+          const observedPoolCheckoutWaitMs =
+            await input.postgresHotPathObserver?.measurePoolCheckoutWaitMs();
+          const observedPgLockWaitMs =
+            await input.postgresHotPathObserver?.measurePgLockWaitMs();
+          sample.metrics.liveAdmissionClaimMs =
+            claimEndedAtMs - claimStartedAtMs;
+          sample.metrics.transactionElapsedMs =
+            claimEndedAtMs - claimStartedAtMs;
+          if (observedPoolCheckoutWaitMs !== undefined) {
+            sample.metrics.poolCheckoutWaitMs = observedPoolCheckoutWaitMs;
+          }
+          if (observedPgLockWaitMs !== undefined) {
+            sample.metrics.pgLockWaitMs = observedPgLockWaitMs;
+          }
           sample.metricEvidenceSources ??= {};
-          sample.metricEvidenceSources.lockWaitMs = 'benchmark_observed';
+          sample.metricEvidenceSources.liveAdmissionClaimMs =
+            'benchmark_observed';
+          sample.metricEvidenceSources.transactionElapsedMs =
+            'benchmark_observed';
+          if (observedPoolCheckoutWaitMs !== undefined) {
+            sample.metricEvidenceSources.poolCheckoutWaitMs =
+              'pool_checkout_observed';
+            recordMeasuredMetric('poolCheckoutWaitMs');
+          }
+          if (observedPgLockWaitMs !== undefined) {
+            sample.metricEvidenceSources.pgLockWaitMs = 'pg_lock_observed';
+            recordMeasuredMetric('pgLockWaitMs');
+          }
         }
         await settleClaimedItem(item);
       }
@@ -1001,6 +1269,7 @@ export async function runSyntheticLiveLatencyBenchmark(
   const report = summarizeLiveLatencyBenchmark({
     concurrency,
     samples: [...samplesByItemId.values()],
+    benchmarkEvidenceSource: 'synthetic_harness',
     firstVisibleSloMs: input.firstVisibleSloMs,
     metricSources: Object.fromEntries(
       [...measuredMetricCounts.entries()]
@@ -1010,6 +1279,7 @@ export async function runSyntheticLiveLatencyBenchmark(
     deferredCount,
     degradedCount,
     failureCount,
+    backgroundClaimCount,
   });
   if (input.reportArtifactPath?.trim()) {
     await writeLiveLatencyBenchmarkReportArtifact({

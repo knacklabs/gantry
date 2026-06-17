@@ -98,6 +98,12 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         },
       ]);
     }
+    inline_keyboard.push([
+      {
+        text: '✏️ Other',
+        callback_data: `userq:other:${requestId}:${questionIndex}`,
+      },
+    ]);
     return { inline_keyboard };
   }
 
@@ -408,6 +414,61 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         'Failed to finalize Telegram user question prompt',
       );
     }
+  }
+
+  /**
+   * Correlate an inbound text reply to a pending "Other" free-text prompt.
+   * Returns true when the reply was consumed (handled or stale), false when it
+   * should fall through to normal message handling.
+   */
+  protected async tryResolveUserQuestionOtherReply(input: {
+    chatId: string;
+    replyToMessageId: number;
+    text: string;
+    userId: string;
+    answeredBy: string;
+  }): Promise<boolean> {
+    const key = `${input.chatId}:${input.replyToMessageId}`;
+    const entry = this.pendingUserQuestionOtherPrompts.get(key);
+    if (!entry) return false;
+    const pending = this.pendingUserQuestions.get(
+      this.pendingUserQuestionKey(entry.requestId, entry.questionIndex),
+    );
+    if (!pending) {
+      // The question already resolved or expired; consume the stale reply.
+      this.pendingUserQuestionOtherPrompts.delete(key);
+      return true;
+    }
+    const authorized = input.userId
+      ? await this.isTelegramApproverAuthorized(
+          pending.chatId,
+          input.userId,
+          pending.sourceAgentFolder,
+        )
+      : false;
+    if (!authorized) {
+      // Leave the prompt active so a control approver can still reply.
+      return false;
+    }
+    const answer = input.text.trim();
+    if (!answer) return false;
+    this.pendingUserQuestionOtherPrompts.delete(key);
+    const selection: string | string[] = pending.multiSelect
+      ? [
+          ...[...pending.selectedOptionIndexes]
+            .sort((a, b) => a - b)
+            .map((index) => pending.optionLabels[index])
+            .filter(Boolean),
+          answer,
+        ]
+      : answer;
+    await this.finalizeUserQuestionPrompt(
+      pending,
+      selection,
+      input.answeredBy,
+      'answered via Telegram',
+    );
+    return true;
   }
 
   protected startPolling(): void {

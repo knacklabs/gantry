@@ -415,7 +415,9 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('🔐 Allow Acme records append?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use Acme records append?',
+    );
     expect(text).toContain('Account: Acme tenant');
     expect(text).not.toContain('Access: Acme records append');
     expect(text).not.toContain(
@@ -479,7 +481,9 @@ describe('permission interaction', () => {
 
     const text = formatPermissionPromptText(request, 60_000);
 
-    expect(text.split('\n')[0]).toBe('🔐 Allow LinkedIn posting?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use LinkedIn posting?',
+    );
     expect(text).toContain('scheduled job');
     expect(text).toContain('Agent: Main Agent');
     expect(text).not.toContain(
@@ -586,7 +590,9 @@ describe('permission interaction', () => {
 
     const text = formatPermissionPromptText(request, 60_000);
 
-    expect(text.split('\n')[0]).toBe('🔐 Allow Acme records append?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use Acme records append?',
+    );
     expect(text).toContain('Agent: Main Agent');
     expect(text).toContain('agent chat');
     expect(text).not.toContain('Access: Acme records append');
@@ -716,7 +722,9 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use exact command access?',
+    );
     expect(text).not.toContain(
       'Request: Permission: Acme records append using acme',
     );
@@ -748,7 +756,9 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use exact command access?',
+    );
     expect(text).not.toContain('Request: Exact Command Access');
     expect(text).not.toContain('Reason: Contains shell expansion');
     expect(text).not.toContain('Details: Publish the LinkedIn post draft');
@@ -969,7 +979,7 @@ describe('permission interaction', () => {
     );
 
     expect(text).toMatchInlineSnapshot(`
-      "🔐 Allow exact command access?
+      "🔐 Allow Main Agent to use exact command access?
 
       Command:
       \`\`\`
@@ -1065,7 +1075,7 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text).toContain('Allow LinkedIn posting?');
+    expect(text).toContain('Allow Main Agent to use LinkedIn posting?');
     expect(text).toContain('Risk: Write');
   });
 
@@ -1096,8 +1106,10 @@ describe('permission interaction', () => {
       'allow_timed_grant',
       'cancel',
     ]);
-    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
-    expect(text).not.toContain('Allow LinkedIn posting?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use exact command access?',
+    );
+    expect(text).not.toContain('Allow Main Agent to use LinkedIn posting?');
     expect(text).not.toContain('future matching runs');
   });
 
@@ -1179,7 +1191,9 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text.split('\n')[0]).toBe('🔐 Allow exact command access?');
+    expect(text.split('\n')[0]).toBe(
+      '🔐 Allow Main Agent to use exact command access?',
+    );
     expect(text).toContain('Command:\n```');
     expect(text).toContain('acme publish draft-123');
     expect(text).not.toContain('```json');

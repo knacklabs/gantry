@@ -12,6 +12,7 @@ import type {
 import {
   LIVE_LATENCY_BENCHMARK_METRIC_NAMES,
   LIVE_LATENCY_READINESS_REQUIRED_METRIC_NAMES,
+  createPostgresLiveLatencyHotPathObserver,
   loadLiveLatencyStartupDiagnosticsFromRuntimeEvents,
   liveLatencyBenchmarkReportArtifactPath,
   runSyntheticLiveLatencyBenchmark,
@@ -48,8 +49,11 @@ function readinessEvidenceSources(
   return {
     acceptedToFirstVisibleMs: 'runner_origin',
     admissionLagMs: 'benchmark_observed',
-    dbPoolWaitMs: 'benchmark_observed',
-    lockWaitMs: 'benchmark_observed',
+    poolCheckoutWaitMs: 'pool_checkout_observed',
+    queryElapsedMs: 'benchmark_observed',
+    transactionElapsedMs: 'benchmark_observed',
+    pgLockWaitMs: 'pg_lock_observed',
+    liveAdmissionClaimMs: 'benchmark_observed',
     mcpClientStartupMs: 'runner_origin',
     toolListingFilteringMs: 'runtime_origin',
     permissionHitlSetupMs: 'runner_origin',
@@ -109,6 +113,7 @@ function createMemoryLiveAdmissions(): LiveAdmissionWorkItemRepository {
         claimExpiresAt: null,
         fencingVersion: 0,
         retryCount: 0,
+        failureCount: 0,
         deferUntil: null,
         deferredReason: null,
         createdAt: now,
@@ -124,6 +129,7 @@ function createMemoryLiveAdmissions(): LiveAdmissionWorkItemRepository {
       const now = input.now ?? new Date().toISOString();
       for (const item of items.values()) {
         if (claimed.length >= input.limit) break;
+        if (item.appId !== input.appId) continue;
         if (item.state !== 'queued') continue;
         const claimedItem: LiveAdmissionWorkItem = {
           ...item,
@@ -139,6 +145,9 @@ function createMemoryLiveAdmissions(): LiveAdmissionWorkItemRepository {
         claimed.push(claimedItem);
       }
       return claimed;
+    },
+    async renewLiveAdmissionWorkItemClaim() {
+      return true;
     },
     async deferLiveAdmissionWorkItem() {
       return false;
@@ -164,6 +173,38 @@ function createMemoryLiveAdmissions(): LiveAdmissionWorkItemRepository {
   };
 }
 
+function backgroundWorkItem(id: string): LiveAdmissionWorkItem {
+  return {
+    id,
+    appId: 'default',
+    agentId: null,
+    agentSessionId: null,
+    conversationId: 'background',
+    threadId: null,
+    queueJid: 'background',
+    messageId: `${id}:message`,
+    messageCursor: `${id}:cursor`,
+    senderUserId: null,
+    senderDisplayName: null,
+    idempotencyKey: `${id}:delivery`,
+    state: 'claimed',
+    sourceKind: 'message',
+    triggerDecision: {},
+    claimWorkerInstanceId: 'background-worker',
+    claimToken: 'background-token',
+    claimExpiresAt: '2999-01-01T00:00:00.000Z',
+    fencingVersion: 1,
+    retryCount: 1,
+    failureCount: 0,
+    deferUntil: null,
+    deferredReason: null,
+    createdAt: '2999-01-01T00:00:00.000Z',
+    updatedAt: '2999-01-01T00:00:00.000Z',
+    claimedAt: '2999-01-01T00:00:00.000Z',
+    endedAt: null,
+  };
+}
+
 describe('live latency benchmark harness', () => {
   it('locks the full launch benchmark metric set', () => {
     expect(LIVE_LATENCY_BENCHMARK_METRIC_NAMES).toEqual([
@@ -173,6 +214,8 @@ describe('live latency benchmark harness', () => {
       'bridgeLagMs',
       'checkpointLoadMs',
       'checkpointWriteMs',
+      'providerSessionReadMs',
+      'providerSessionWriteMs',
       'asyncDelegationLaunchAckMs',
       'delegationProgressEventMs',
       'streamRejoinMs',
@@ -188,8 +231,11 @@ describe('live latency benchmark harness', () => {
       'sandboxStartMs',
       'sandboxFirstToolReadyMs',
       'modelConstructionMs',
-      'dbPoolWaitMs',
-      'lockWaitMs',
+      'poolCheckoutWaitMs',
+      'queryElapsedMs',
+      'transactionElapsedMs',
+      'pgLockWaitMs',
+      'liveAdmissionClaimMs',
       'notifyLagMs',
     ]);
   });
@@ -452,6 +498,37 @@ describe('live latency benchmark harness', () => {
     ).toBe(1);
   });
 
+  it('requires dedicated evidence sources for pool checkout and Postgres lock waits', () => {
+    const report = summarizeLiveLatencyBenchmark({
+      concurrency: 1,
+      samples: [
+        sample(
+          'one',
+          {
+            ...completeMetrics(1),
+            acceptedToFirstVisibleMs: 42,
+          },
+          readinessEvidenceSources({
+            poolCheckoutWaitMs: 'benchmark_observed',
+            pgLockWaitMs: 'benchmark_observed',
+          }),
+        ),
+      ],
+      metricSources: measuredReadinessMetricSources(),
+    });
+
+    expect(report.readiness.passed).toBe(false);
+    expect(report.readiness.failedMetricNames).toEqual(
+      expect.arrayContaining(['poolCheckoutWaitMs', 'pgLockWaitMs']),
+    );
+    expect(report.readiness.metrics.poolCheckoutWaitMs.failureReasons).toEqual(
+      expect.arrayContaining(['untrusted_evidence_source']),
+    );
+    expect(report.readiness.metrics.pgLockWaitMs.failureReasons).toEqual(
+      expect.arrayContaining(['untrusted_evidence_source']),
+    );
+  });
+
   it('passes readiness only when all required metrics have trusted measured evidence', () => {
     const samples = Array.from({ length: 300 }, (_, index) =>
       sample(
@@ -479,6 +556,202 @@ describe('live latency benchmark harness', () => {
     expect(report.readiness.nonReadinessSyntheticMetricNames).toContain(
       'hydrationLagMs',
     );
+  });
+
+  it('maps repository timings without fabricating pool or lock wait', async () => {
+    let now = 1_000;
+    const report = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createMemoryLiveAdmissions(),
+      concurrency: 1,
+      workerCount: 1,
+      claimBatchSize: 1,
+      benchmarkRunId: 'db-taxonomy',
+      nowMs: () => {
+        now += 5;
+        return now;
+      },
+      sleepMs: async () => undefined,
+    });
+
+    expect(report.metrics.queryElapsedMs).toMatchObject({
+      count: 1,
+      missing: 0,
+      source: 'measured',
+    });
+    expect(report.metrics.transactionElapsedMs).toMatchObject({
+      count: 1,
+      missing: 0,
+      source: 'measured',
+    });
+    expect(report.metrics.liveAdmissionClaimMs).toMatchObject({
+      count: 1,
+      missing: 0,
+      source: 'measured',
+    });
+    expect(report.metrics.poolCheckoutWaitMs).toMatchObject({
+      count: 0,
+      missing: 1,
+      source: 'synthetic',
+    });
+    expect(report.metrics.pgLockWaitMs).toMatchObject({
+      count: 0,
+      missing: 1,
+      source: 'synthetic',
+    });
+    expect(
+      (report.metrics as Record<string, unknown>).dbPoolWaitMs,
+    ).toBeUndefined();
+    expect(
+      (report.metrics as Record<string, unknown>).lockWaitMs,
+    ).toBeUndefined();
+    expect(report.readiness.failedMetricNames).toEqual(
+      expect.arrayContaining(['poolCheckoutWaitMs', 'pgLockWaitMs']),
+    );
+  });
+
+  it('uses trusted Postgres hot-path observations when provided', async () => {
+    const measurePoolCheckoutWaitMs = vi.fn(async () => 7);
+    const measurePgLockWaitMs = vi.fn(async () => 0);
+    const report = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createMemoryLiveAdmissions(),
+      concurrency: 2,
+      workerCount: 1,
+      claimBatchSize: 2,
+      benchmarkRunId: 'db-observed',
+      postgresHotPathObserver: {
+        measurePoolCheckoutWaitMs,
+        measurePgLockWaitMs,
+      },
+      sleepMs: async () => undefined,
+    });
+
+    expect(report.metrics.poolCheckoutWaitMs).toMatchObject({
+      count: 2,
+      missing: 0,
+      p50: 7,
+      source: 'measured',
+    });
+    expect(report.metrics.pgLockWaitMs).toMatchObject({
+      count: 2,
+      missing: 0,
+      p50: 0,
+      source: 'measured',
+    });
+    expect(report.readiness.failedMetricNames).not.toContain(
+      'poolCheckoutWaitMs',
+    );
+    expect(report.readiness.failedMetricNames).not.toContain('pgLockWaitMs');
+    expect(measurePoolCheckoutWaitMs).toHaveBeenCalledTimes(2);
+    expect(measurePgLockWaitMs).toHaveBeenCalledTimes(2);
+  });
+
+  it('measures provider-session operations as benchmark-observed metrics', async () => {
+    let now = 100;
+    const read = vi.fn(async () => undefined);
+    const write = vi.fn(async () => undefined);
+    const report = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createMemoryLiveAdmissions(),
+      concurrency: 2,
+      workerCount: 1,
+      claimBatchSize: 2,
+      benchmarkRunId: 'provider-sessions',
+      providerSessionOperations: { read, write },
+      nowMs: () => {
+        now += 5;
+        return now;
+      },
+      sleepMs: async () => undefined,
+    });
+
+    expect(report.metrics.providerSessionReadMs).toMatchObject({
+      count: 2,
+      missing: 0,
+      p50: 5,
+      source: 'measured',
+    });
+    expect(report.metrics.providerSessionWriteMs).toMatchObject({
+      count: 2,
+      missing: 0,
+      p50: 5,
+      source: 'measured',
+    });
+    expect(report.measuredMetricNames).toContain('providerSessionReadMs');
+    expect(report.measuredMetricNames).toContain('providerSessionWriteMs');
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(read.mock.calls[0]?.[0]).toEqual({
+      sampleId: 'provider-sessions:admission:0',
+    });
+  });
+
+  it('counts seeded background claims and bounds any allowance', async () => {
+    function createLiveAdmissionsWithSeededBackgroundClaim() {
+      const liveAdmissions = createMemoryLiveAdmissions();
+      const claimSamples =
+        liveAdmissions.claimLiveAdmissionWorkItems.bind(liveAdmissions);
+      let returnedBackground = false;
+      liveAdmissions.claimLiveAdmissionWorkItems = async (input) => {
+        if (!returnedBackground) {
+          returnedBackground = true;
+          return [backgroundWorkItem('background')];
+        }
+        return claimSamples(input);
+      };
+      return liveAdmissions;
+    }
+
+    const failingReport = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createLiveAdmissionsWithSeededBackgroundClaim(),
+      concurrency: 1,
+      workerCount: 1,
+      claimBatchSize: 1,
+      benchmarkRunId: 'background-claims-disallowed',
+      sleepMs: async () => undefined,
+    });
+
+    expect(failingReport.sampleCount).toBe(1);
+    expect(failingReport.backgroundClaimCount).toBe(1);
+    expect(failingReport.failureCount).toBe(1);
+    expect(failingReport.readiness.failureReasons).toEqual(
+      expect.arrayContaining(['benchmark_failure']),
+    );
+
+    const rowVolumeReport = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createLiveAdmissionsWithSeededBackgroundClaim(),
+      concurrency: 1,
+      workerCount: 1,
+      claimBatchSize: 1,
+      benchmarkRunId: 'background-claims-bounded',
+      maxBackgroundClaimCount: 1,
+      sleepMs: async () => undefined,
+    });
+
+    expect(rowVolumeReport.sampleCount).toBe(1);
+    expect(rowVolumeReport.backgroundClaimCount).toBe(1);
+    expect(rowVolumeReport.failureCount).toBe(0);
+  });
+
+  it('measures pool checkout and sampled Postgres lock wait from a pool', async () => {
+    let now = 100;
+    const release = vi.fn();
+    const pool = {
+      connect: vi.fn(async () => {
+        now = 106;
+        return { release };
+      }),
+      query: vi.fn(async () => ({
+        rows: [{ max_lock_wait_ms: '3.6' }],
+      })),
+    };
+    const observer = createPostgresLiveLatencyHotPathObserver(pool, () => now);
+
+    await expect(observer.measurePoolCheckoutWaitMs()).resolves.toBe(6);
+    expect(release).toHaveBeenCalledOnce();
+    await expect(observer.measurePgLockWaitMs()).resolves.toBe(4);
+    expect(pool.query.mock.calls[0]?.[0]).toContain('pg_stat_activity');
+    expect(pool.query.mock.calls[0]?.[0]).toContain('pg_locks');
+    expect(pool.query.mock.calls[0]?.[0]).toContain('waitstart');
+    expect(pool.query.mock.calls[0]?.[0]).not.toContain('query_start');
   });
 
   it('keeps diagnostic-shaped fixture payloads out of readiness', async () => {
@@ -589,6 +862,124 @@ describe('live latency benchmark harness', () => {
     expect(report.readiness.metrics.mcpClientStartupMs.failureReasons).toEqual(
       expect.arrayContaining(['synthetic_metric', 'untrusted_evidence_source']),
     );
+  });
+
+  it('does not trust caller-supplied runtime-event annotations', async () => {
+    const report = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createMemoryLiveAdmissions(),
+      concurrency: 1,
+      workerCount: 1,
+      claimBatchSize: 1,
+      benchmarkRunId: 'caller-annotated',
+      startupDiagnosticsByItemId: new Map([
+        [
+          'caller-annotated:admission:0',
+          [
+            {
+              payload: {
+                provider: 'deepagents',
+                diagnostic: 'runner_startup',
+                firstVisibleOutputMs: 21,
+                phases: {
+                  modelBuildMs: 3,
+                  mcpConnectMs: 5,
+                  permissionEnvMs: 1,
+                },
+              },
+              evidenceMode: 'trusted_runtime_events',
+            },
+          ],
+        ],
+      ]),
+      sleepMs: async () => undefined,
+    });
+
+    expect(report.metrics.mcpClientStartupMs.source).toBe('synthetic');
+    expect(report.readiness.metrics.mcpClientStartupMs.failureReasons).toEqual(
+      expect.arrayContaining(['synthetic_metric', 'untrusted_evidence_source']),
+    );
+  });
+
+  it('uses loader-owned runtime-event annotations for startup readiness evidence', async () => {
+    const startupDiagnosticsByItemId =
+      await loadLiveLatencyStartupDiagnosticsFromRuntimeEvents({
+        runtimeEvents: {
+          listRuntimeEvents: vi.fn(async () => [
+            {
+              eventId: 1,
+              runId: 'agent-run:trusted-startup:0',
+              payload: {
+                provider: 'host',
+                diagnostic: 'host_startup_projection',
+                hostPhases: {
+                  mcpProjectionMs: 12,
+                  sandboxSpecMs: 4,
+                },
+              },
+            },
+            {
+              eventId: 2,
+              runId: 'agent-run:trusted-startup:0',
+              payload: {
+                provider: 'deepagents',
+                diagnostic: 'runner_startup',
+                firstVisibleOutputMs: 21,
+                phases: {
+                  modelBuildMs: 3,
+                  mcpConnectMs: 5,
+                  permissionEnvMs: 1,
+                },
+              },
+            },
+            {
+              eventId: 3,
+              runId: 'agent-run:trusted-startup:0',
+              payload: {
+                provider: 'host',
+                diagnostic: 'runner_process_timing',
+                startupTiming: {
+                  sandboxStartCallMs: 6,
+                },
+              },
+            },
+          ]),
+        } as never,
+        appId: 'default',
+        itemRunIdsByItemId: new Map([
+          ['trusted-startup:admission:0', 'agent-run:trusted-startup:0'],
+        ]),
+      });
+
+    const report = await runSyntheticLiveLatencyBenchmark({
+      liveAdmissions: createMemoryLiveAdmissions(),
+      concurrency: 1,
+      workerCount: 1,
+      claimBatchSize: 1,
+      benchmarkRunId: 'trusted-startup',
+      startupDiagnosticsByItemId,
+      postgresHotPathObserver: {
+        measurePoolCheckoutWaitMs: async () => 0,
+        measurePgLockWaitMs: async () => 0,
+      },
+      sleepMs: async () => undefined,
+    });
+
+    expect(report.readiness.passed).toBe(false);
+    expect(report.readiness.failedMetricNames).toEqual([]);
+    expect(report.readiness.failureReasons).toEqual(['synthetic_benchmark']);
+    expect(report.metrics.acceptedToFirstVisibleMs.source).toBe('measured');
+    expect(
+      report.readiness.metrics.acceptedToFirstVisibleMs.evidenceSourceCounts
+        .runner_origin,
+    ).toBe(1);
+    expect(
+      report.readiness.metrics.toolListingFilteringMs.evidenceSourceCounts
+        .runtime_origin,
+    ).toBe(1);
+    expect(
+      report.readiness.metrics.sandboxSpecMs.evidenceSourceCounts
+        .runtime_origin,
+    ).toBe(1);
   });
 
   it('fails readiness for deferred or degraded benchmark samples', () => {
@@ -732,6 +1123,31 @@ describe('live latency benchmark harness', () => {
     });
   });
 
+  it('maps Anthropic SDK runner startup timing into accepted-to-first-visible metrics', () => {
+    const projection = startupDiagnosticToLiveLatencyMetrics(
+      {
+        provider: ['anthropic', 'sdk'].join('_'),
+        diagnostic: 'runner_startup_timing',
+        sdkQueryPreparedMs: 2,
+        sdkQueryIteratorMs: 3,
+        providerSessionMs: 4,
+        firstVisibleOutputMs: 17,
+        firstResultMs: 23,
+      },
+      { acceptedToRunnerStartMs: 8 },
+    );
+
+    expect(projection.metrics).toMatchObject({
+      acceptedToFirstVisibleMs: 25,
+    });
+    expect(projection.metricSources).toMatchObject({
+      acceptedToFirstVisibleMs: 'measured',
+    });
+    expect(projection.metricEvidenceSources).toMatchObject({
+      acceptedToFirstVisibleMs: 'fixture_seeded',
+    });
+  });
+
   it('does not trust diagnostic shape as readiness evidence', () => {
     const projection = startupDiagnosticToLiveLatencyMetrics(
       {
@@ -798,11 +1214,14 @@ describe('live latency benchmark harness', () => {
       eventTypes: ['run.startup_diagnostic'],
       limit: 10,
     });
-    expect(diagnostics.get('item-one')).toEqual([
+    expect(diagnostics.get('item-one')).toMatchObject([
       {
-        provider: 'host',
-        diagnostic: 'host_startup_projection',
-        hostPhases: { mcpProjectionMs: 12 },
+        payload: {
+          provider: 'host',
+          diagnostic: 'host_startup_projection',
+          hostPhases: { mcpProjectionMs: 12 },
+        },
+        evidenceMode: 'trusted_runtime_events',
       },
     ]);
     expect(diagnostics.has('item-two')).toBe(false);

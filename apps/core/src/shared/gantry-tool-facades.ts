@@ -27,6 +27,13 @@ const PROVIDER_NATIVE_TOOL_REPLACEMENTS = new Map<string, string>([
   ['Write', 'FileWrite'],
   ['Bash', 'RunCommand(<argv pattern>)'],
   ['Agent', 'AgentDelegation'],
+  ['AskUserQuestion', 'mcp__gantry__ask_user_question'],
+  ['Task', 'AgentDelegation'],
+  ['TaskCreate', 'AgentDelegation'],
+  ['TaskGet', 'AgentDelegation'],
+  ['TaskList', 'AgentDelegation'],
+  ['TaskUpdate', 'AgentDelegation'],
+  ['TodoWrite', 'mcp__gantry__todo_update'],
 ]);
 
 const PROVIDER_NATIVE_EXACT_TOOL_NAMES = new Set([
@@ -54,8 +61,12 @@ const PROVIDER_NATIVE_EXACT_TOOL_NAMES = new Set([
   'SendMessage',
   'Skill',
   'Task',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
   'TaskOutput',
   'TaskStop',
+  'TaskUpdate',
   'TeamCreate',
   'TeamDelete',
   'ToolSearch',
@@ -82,7 +93,7 @@ export const DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION: GantryHarnessToolProjection
       FileRead: ['Read'],
       FileEdit: ['Edit', 'MultiEdit'],
       FileWrite: ['Write'],
-      AgentDelegation: ['Agent'],
+      AgentDelegation: [],
     },
     runCommandToolName: BASH_TOOL_NAME,
   };

@@ -40,7 +40,11 @@ describe('agent tool references', () => {
       'ToolSearch',
       'Skill',
       'Task',
+      'TaskCreate',
+      'TaskGet',
+      'TaskList',
       'TaskOutput',
+      'TaskUpdate',
       'TodoWrite',
     ]) {
       expect(validateReadableAgentToolRule(toolName)).toEqual({
@@ -66,7 +70,7 @@ describe('agent tool references', () => {
     });
     expect(validateReadableAgentToolRule('Task')).toEqual({
       ok: false,
-      reason: expect.not.stringContaining('AgentDelegation'),
+      reason: expect.stringContaining('AgentDelegation'),
     });
     expect(validateReadableAgentToolRule('RunCommand(npm test *)')).toEqual({
       ok: true,
@@ -141,10 +145,11 @@ describe('agent tool references', () => {
 
   it('renders every Gantry facade under the default harness projection', () => {
     // Authority invariant: a facade that exists as durable authority must
-    // project to at least one harness-native tool, otherwise selecting it
-    // would silently grant nothing. Guards against adding a facade without
-    // wiring it into the renderer projection.
+    // project to at least one harness-native tool unless it is explicitly
+    // implemented only through Gantry MCP wrappers. Guards against adding a
+    // facade without wiring it into the renderer projection.
     for (const facade of GANTRY_FACADE_EXACT_TOOL_NAMES) {
+      if (facade === 'AgentDelegation') continue;
       expect(
         projectGantryToolRuleForHarness(
           facade,
@@ -153,6 +158,12 @@ describe('agent tool references', () => {
         facade,
       ).not.toHaveLength(0);
     }
+    expect(
+      projectGantryToolRuleForHarness(
+        'AgentDelegation',
+        DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION,
+      ),
+    ).toEqual([]);
     expect(
       DEFAULT_GANTRY_HARNESS_TOOL_PROJECTION.runCommandToolName,
     ).toBeTruthy();

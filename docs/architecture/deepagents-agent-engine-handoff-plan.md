@@ -60,9 +60,9 @@ Full parity is blocked until all of these implementation slices are complete:
 - jobs and live turns using the same inheritance/resolution path;
 - DeepAgents delegation wrapper that maps `AgentDelegation` to raw `task` only
   after Gantry policy approval;
-- Gantry file facades for `FileSearch`, `FileRead`, `FileEdit`, and
-  `FileWrite`, including protected paths, symlink checks, sandbox enforcement,
-  audit, and receipt evidence;
+- production hardening around the landed Gantry web/file facade wrappers,
+  including sandbox readiness evidence, audit receipts, and final changed-file
+  evidence;
 - skills projected by reviewed ids/versions with scoped subagent tool sets;
 - stdio MCP fail-closed behavior, proxy/egress projection, and sandboxed MCP
   adapter execution before DeepAgents-visible MCP tools are enabled;
@@ -113,11 +113,11 @@ agents:
 
 Options:
 
-| Value | Label | Description |
-| --- | --- | --- |
-| `auto` | Auto | Gantry chooses the safest compatible harness for the selected model. |
-| `anthropic_sdk` | Anthropic SDK | Use the Claude Agent SDK for Claude-native execution. |
-| `deepagents` | DeepAgents | Use DeepAgents for advanced planning, skills, filesystem workflows, and internal delegation under Gantry permissions. |
+| Value           | Label         | Description                                                                                                           |
+| --------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `auto`          | Auto          | Gantry chooses the safest compatible harness for the selected model.                                                  |
+| `anthropic_sdk` | Anthropic SDK | Use the Claude Agent SDK for Claude-native execution.                                                                 |
+| `deepagents`    | DeepAgents    | Use DeepAgents for advanced planning, skills, filesystem workflows, and internal delegation under Gantry permissions. |
 
 Rules:
 
@@ -306,9 +306,11 @@ Required constraints:
 - File write/edit tools must produce durable changed-file evidence for the final
   receipt.
 
-Current-state note: this plan does not claim raw DeepAgents filesystem parity.
-Full parity requires Gantry facades, sandbox enforcement, protected-path checks,
-audit, and receipt evidence to be implemented and verified first.
+Current-state note: DeepAgents now projects Gantry-owned `WebSearch`,
+`WebRead`, `FileSearch`, `FileRead`, `FileEdit`, and `FileWrite` wrappers.
+Raw DeepAgents filesystem parity is still not a product contract; production
+parity requires sandbox readiness evidence, audit receipts, and final
+changed-file evidence to remain verified.
 
 ## Skills And Capability Projection
 
@@ -351,20 +353,20 @@ The matrix below describes the target implementation. It must not be read as
 current-state evidence until the matching work packets, cleanup searches, and
 verification gates pass.
 
-| Surface | Status | Reason |
-| --- | --- | --- |
-| Runtime behavior | Changed | Harness resolution becomes `agentHarness + modelAlias -> effective agentEngine + executionProviderId`, with DeepAgents accepted as a first-class explicit harness when compatible. |
-| `settings.yaml` | Changed | Adds non-secret `defaults.agent_harness` and `agents.<id>.agent_harness`; settings remains desired state. |
-| Postgres/runtime projection | Changed | Projects requested harness, effective engine, diagnostic provider id, and delegation/audit evidence into runtime state without making Postgres the durable settings source. |
-| Control API | Changed | Agent read/write surfaces accept `agentHarness`, expose read-only `agentEngine`, and keep `executionProviderId` read-only diagnostic. |
-| SDK/contracts | Changed | SDK types expose durable `agentHarness`, read-only effective `agentEngine`, compatibility errors, and evidence receipt shape. |
-| CLI | Changed | Setup, agent list/show/update, model preview/why, and doctor surfaces use `Execution harness` and `agent_harness`. |
-| Gantry MCP tools/admin skill | Changed | Settings/admin tools may request reviewed `agentHarness` updates; agents must not edit settings or DB directly. |
-| Channel adapters | Read-only/observable | Slack, Teams, Telegram, WhatsApp, Web, and App channels render the same approvals/receipts and gain no channel-specific authority. |
-| LLM/provider adapters | Changed | DeepAgents harness wiring changes model-gateway routing, MCP projection, credential projection, and adapter admission while keeping raw provider credentials hidden. |
-| Docs/prompts | Changed | DeepAgents docs and prompts must use `agentHarness`/`agent_harness`, internal subagents, and Gantry facade authority. |
-| Audit/events | Changed | Audit logs and runtime events include requested harness, effective engine, delegation, tools, approvals, sandbox, egress, and receipt evidence. |
-| Tests/verification | Changed | Adds resolver, projection, delegation-wrapper, raw-authority denial, file facade, skills, job/live, audit, and receipt coverage. |
+| Surface                      | Status               | Reason                                                                                                                                                                             |
+| ---------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime behavior             | Changed              | Harness resolution becomes `agentHarness + modelAlias -> effective agentEngine + executionProviderId`, with DeepAgents accepted as a first-class explicit harness when compatible. |
+| `settings.yaml`              | Changed              | Adds non-secret `defaults.agent_harness` and `agents.<id>.agent_harness`; settings remains desired state.                                                                          |
+| Postgres/runtime projection  | Changed              | Projects requested harness, effective engine, diagnostic provider id, and delegation/audit evidence into runtime state without making Postgres the durable settings source.        |
+| Control API                  | Changed              | Agent read/write surfaces accept `agentHarness`, expose read-only `agentEngine`, and keep `executionProviderId` read-only diagnostic.                                              |
+| SDK/contracts                | Changed              | SDK types expose durable `agentHarness`, read-only effective `agentEngine`, compatibility errors, and evidence receipt shape.                                                      |
+| CLI                          | Changed              | Setup, agent list/show/update, model preview/why, and doctor surfaces use `Execution harness` and `agent_harness`.                                                                 |
+| Gantry MCP tools/admin skill | Changed              | Settings/admin tools may request reviewed `agentHarness` updates; agents must not edit settings or DB directly.                                                                    |
+| Channel adapters             | Read-only/observable | Slack, Teams, Telegram, WhatsApp, Web, and App channels render the same approvals/receipts and gain no channel-specific authority.                                                 |
+| LLM/provider adapters        | Changed              | DeepAgents harness wiring changes model-gateway routing, MCP projection, credential projection, and adapter admission while keeping raw provider credentials hidden.               |
+| Docs/prompts                 | Changed              | DeepAgents docs and prompts must use `agentHarness`/`agent_harness`, internal subagents, and Gantry facade authority.                                                              |
+| Audit/events                 | Changed              | Audit logs and runtime events include requested harness, effective engine, delegation, tools, approvals, sandbox, egress, and receipt evidence.                                    |
+| Tests/verification           | Changed              | Adds resolver, projection, delegation-wrapper, raw-authority denial, file facade, skills, job/live, audit, and receipt coverage.                                                   |
 
 ## Capability-Driven Work Packets
 
@@ -492,7 +494,8 @@ Focused unit tests:
 - job/conversation inheritance with no job-level harness write;
 - DeepAgents adapter spawn receives only compatible model gateway env;
 - raw DeepAgents `task`, `write_todos`, filesystem tools, backends, and raw MCP
-  authority stay hidden until Gantry wrappers project them;
+  authority stay hidden; Gantry wrappers project public web/file capability
+  names instead;
 - `AgentDelegation` wrapper denies without invoking DeepAgents `task`;
 - allowed delegation invokes only host-resolved subagent definitions and records
   audit/runtime evidence;

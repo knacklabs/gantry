@@ -91,7 +91,7 @@ export class PostgresLiveAdmissionWakeupSource implements LiveAdmissionWakeupSou
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    const client = this.client ?? (await this.clientPromise?.catch(() => null));
+    const client = this.client;
     if (!client) return;
     try {
       await client.query(`UNLISTEN ${LIVE_ADMISSION_CHANNEL}`);

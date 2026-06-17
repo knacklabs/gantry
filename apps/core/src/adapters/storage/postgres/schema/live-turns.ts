@@ -67,6 +67,20 @@ export const liveTurnsPostgres = pgTable(
     ),
     runIdx: index('idx_live_turns_run').on(table.runId),
     stateIdx: index('idx_live_turns_state').on(table.state, table.updatedAt),
+    recoverableLeasedIdx: index('idx_live_turns_recoverable_leased')
+      .on(table.updatedAt, table.id, table.runId)
+      .where(
+        sql`${table.state} NOT IN ('completed', 'failed', 'timed_out')
+          AND ${table.runId} IS NOT NULL
+          AND ${table.leaseToken} IS NOT NULL
+          AND ${table.fencingVersion} IS NOT NULL`,
+      ),
+    recoverableUnleasedIdx: index('idx_live_turns_recoverable_unleased')
+      .on(table.updatedAt, table.id)
+      .where(
+        sql`${table.state} NOT IN ('completed', 'failed', 'timed_out')
+          AND ${table.leaseToken} IS NULL`,
+      ),
   }),
 );
 
@@ -147,6 +161,7 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     }),
     fencingVersion: integer('fencing_version').notNull().default(0),
     retryCount: integer('retry_count').notNull().default(0),
+    failureCount: integer('failure_count').notNull().default(0),
     deferUntil: timestamp('defer_until', {
       withTimezone: true,
       mode: 'string',
@@ -173,15 +188,24 @@ export const liveAdmissionWorkItemsPostgres = pgTable(
     idempotencyUnique: uniqueIndex(
       'uq_live_admission_work_items_idempotency',
     ).on(table.idempotencyKey),
-    dueIdx: index('idx_live_admission_work_items_due').on(
-      table.state,
-      table.deferUntil,
-      table.createdAt,
-    ),
-    claimExpiryIdx: index('idx_live_admission_work_items_claim_expiry').on(
-      table.state,
-      table.claimExpiresAt,
-    ),
+    queuedFifoIdx: index('idx_live_admission_work_items_queued_fifo')
+      .on(table.appId, table.createdAt, table.id)
+      .where(sql`${table.state} = 'queued'`),
+    deferredDueIdx: index('idx_live_admission_work_items_deferred_due')
+      .on(table.appId, table.deferUntil, table.createdAt, table.id)
+      .where(
+        sql`${table.state} = 'deferred' AND ${table.deferUntil} IS NOT NULL`,
+      ),
+    deferredNullFifoIdx: index(
+      'idx_live_admission_work_items_deferred_null_fifo',
+    )
+      .on(table.appId, table.createdAt, table.id)
+      .where(sql`${table.state} = 'deferred' AND ${table.deferUntil} IS NULL`),
+    claimedExpiredIdx: index('idx_live_admission_work_items_claimed_expired')
+      .on(table.appId, table.claimExpiresAt, table.createdAt, table.id)
+      .where(
+        sql`${table.state} = 'claimed' AND ${table.claimExpiresAt} IS NOT NULL`,
+      ),
     conversationIdx: index('idx_live_admission_work_items_conversation').on(
       table.appId,
       table.conversationId,

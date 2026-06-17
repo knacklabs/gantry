@@ -135,6 +135,10 @@ describe('effective enabled MCP tool projection', () => {
     // Safe baseline preserved.
     expect(enabled.has('send_message')).toBe(true);
     expect(enabled.has('ask_user_question')).toBe(true);
+    expect(enabled.has('todo_update')).toBe(true);
+    expect(enabled.has('delegate_task')).toBe(false);
+    expect(enabled.has('task_get')).toBe(false);
+    expect(enabled.has('task_cancel')).toBe(false);
     expect(enabled.has('memory_search')).toBe(true);
     expect(enabled.has('agent_profile_read')).toBe(true);
   });

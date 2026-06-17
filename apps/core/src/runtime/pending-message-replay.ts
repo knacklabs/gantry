@@ -13,25 +13,43 @@ export type GetMessagesSince = (
   options?: { threadId?: string | null },
 ) => Promise<NewMessage[]>;
 
+export interface PendingMessageReplay {
+  messages: NewMessage[];
+  hasMore: boolean;
+  cursorAfter: string | null;
+}
+
 export async function collectPendingMessagesSince(input: {
   getMessagesSince: GetMessagesSince;
   chatJid: string;
   sinceCursor: string;
   pageSize: number;
+  maxMessages?: number;
   options?: { threadId?: string | null };
-}): Promise<NewMessage[]> {
+}): Promise<PendingMessageReplay> {
   const pageSize = Math.max(1, Math.floor(input.pageSize));
+  const maxMessages = Math.max(
+    1,
+    Math.floor(input.maxMessages ?? input.pageSize),
+  );
   const messages: NewMessage[] = [];
   let cursor = input.sinceCursor;
 
-  for (;;) {
+  while (messages.length < maxMessages) {
+    const limit = Math.min(pageSize, maxMessages - messages.length);
     const batch = await input.getMessagesSince(
       input.chatJid,
       cursor,
-      pageSize,
+      limit,
       input.options,
     );
-    if (batch.length === 0) return messages;
+    if (batch.length === 0) {
+      return {
+        messages,
+        hasMore: false,
+        cursorAfter: messagesCursor(messages),
+      };
+    }
 
     messages.push(...batch);
     const nextCursor = encodeGroupMessageCursor(
@@ -42,20 +60,36 @@ export async function collectPendingMessagesSince(input: {
     }
     cursor = nextCursor;
 
-    if (batch.length < pageSize) return messages;
+    if (batch.length < limit) {
+      return { messages, hasMore: false, cursorAfter: cursor };
+    }
   }
+  return { messages, hasMore: true, cursorAfter: cursor };
 }
 
 export function buildPendingMessagesContinuationIdempotencyKey(input: {
   queueJid: string;
+  sinceCursor: string;
+  cursorAfter: string;
   messages: readonly Pick<NewMessage, 'id'>[];
 }): string {
   const hash = createHash('sha256');
   hash.update(input.queueJid);
+  hash.update('\0');
+  hash.update(input.sinceCursor);
+  hash.update('\0');
+  hash.update(input.cursorAfter);
   hash.update('\0');
   for (const message of input.messages) {
     hash.update(String(message.id));
     hash.update('\0');
   }
   return `continuation:${hash.digest('hex')}`;
+}
+
+function messagesCursor(messages: readonly NewMessage[]): string | null {
+  const lastMessage = messages[messages.length - 1];
+  return lastMessage
+    ? encodeGroupMessageCursor(toGroupMessageCursor(lastMessage))
+    : null;
 }

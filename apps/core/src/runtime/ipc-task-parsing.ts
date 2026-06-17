@@ -411,6 +411,9 @@ export function parseTaskIpcData(
   if (threadBinding.appId) {
     parsed.appId = threadBinding.appId;
   }
+  if (threadBinding.agentId) {
+    parsed.agentId = threadBinding.agentId;
+  }
   if (threadBinding.responseKeyId) {
     parsed.responseKeyId = threadBinding.responseKeyId;
   }
@@ -425,6 +428,15 @@ export function parseTaskIpcData(
   }
   if (statuses !== undefined) parsed.statuses = statuses;
   if (runId) parsed.runId = runId;
+  const runLeaseToken = toTrimmedString(raw.runLeaseToken, { maxLen: 255 });
+  if (runLeaseToken) parsed.runLeaseToken = runLeaseToken;
+  const runLeaseFencingVersion = toOptionalNumber(raw.runLeaseFencingVersion, {
+    min: 0,
+    max: Number.MAX_SAFE_INTEGER,
+  });
+  if (runLeaseFencingVersion !== undefined) {
+    parsed.runLeaseFencingVersion = Math.round(runLeaseFencingVersion);
+  }
   if (eventType) parsed.eventType = eventType;
   if (since) parsed.since = since;
   if (workspaceFolder) parsed.workspaceFolder = workspaceFolder;

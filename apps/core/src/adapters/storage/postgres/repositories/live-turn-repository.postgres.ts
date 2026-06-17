@@ -12,6 +12,7 @@ import {
 
 import type {
   LiveAdmissionWorkItem,
+  LiveAdmissionClaimInput,
   LiveAdmissionWorkItemEnqueueResult,
   LiveTurn,
   LiveTurnAgentRunCompletion,
@@ -36,6 +37,7 @@ import {
   claimLiveAdmissionWorkItems,
   deferLiveAdmissionWorkItem,
   enqueueLiveAdmissionWorkItem,
+  renewLiveAdmissionWorkItemClaim,
   settleLiveAdmissionWorkItem,
 } from './live-admission-work-item-repository.postgres.js';
 import { getOldestWaitingLiveAdmission as queryOldestWaitingLiveAdmission } from './live-waiting-admission-query.postgres.js';
@@ -50,6 +52,12 @@ import {
 } from './worker-coordination-lease.postgres.js';
 
 type LiveTurnRow = typeof pgSchema.liveTurnsPostgres.$inferSelect;
+type EnqueueLiveAdmissionWorkItemInput = Parameters<
+  LiveTurnCoordinationRepository['enqueueLiveAdmissionWorkItem']
+>[0];
+type RenewLiveAdmissionWorkItemClaimInput = Parameters<
+  LiveTurnCoordinationRepository['renewLiveAdmissionWorkItemClaim']
+>[0];
 
 const TERMINAL_STATES = [...LIVE_TURN_TERMINAL_STATES];
 
@@ -85,30 +93,22 @@ function toLiveTurn(row: LiveTurnRow): LiveTurn {
 export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepository {
   constructor(private readonly db: CanonicalDb) {}
 
-  async enqueueLiveAdmissionWorkItem(input: {
-    id: string;
-    appId: string;
-    agentSessionId?: string | null;
-    conversationId: string;
-    threadId?: string | null;
-    queueJid: string;
-    messageId: string;
-    messageCursor: string;
-    idempotencyKey: string;
-    triggerDecision?: Record<string, unknown>;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItemEnqueueResult> {
+  async enqueueLiveAdmissionWorkItem(
+    input: EnqueueLiveAdmissionWorkItemInput,
+  ): Promise<LiveAdmissionWorkItemEnqueueResult> {
     return enqueueLiveAdmissionWorkItem(this.db, input);
   }
 
-  async claimLiveAdmissionWorkItems(input: {
-    workerInstanceId: string;
-    claimToken: string;
-    claimExpiresAt: string;
-    limit: number;
-    now?: string;
-  }): Promise<LiveAdmissionWorkItem[]> {
+  async claimLiveAdmissionWorkItems(
+    input: LiveAdmissionClaimInput,
+  ): Promise<LiveAdmissionWorkItem[]> {
     return claimLiveAdmissionWorkItems(this.db, input);
+  }
+
+  async renewLiveAdmissionWorkItemClaim(
+    input: RenewLiveAdmissionWorkItemClaimInput,
+  ): Promise<boolean> {
+    return renewLiveAdmissionWorkItemClaim(this.db, input);
   }
 
   async deferLiveAdmissionWorkItem(input: {
@@ -117,6 +117,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     workerInstanceId: string;
     reason: 'queued_capacity' | 'listener_degraded' | 'retry';
     deferUntil: string;
+    countFailure?: boolean;
     now?: string;
   }): Promise<boolean> {
     return deferLiveAdmissionWorkItem(this.db, input);
@@ -519,38 +520,57 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     now?: string;
   }): Promise<LiveTurn[]> {
     const now = input.now ?? currentIso();
+    const limit = Math.max(1, Math.floor(input.limit));
+    const candidateLimit = limit * 4;
     const turns = pgSchema.liveTurnsPostgres;
     const leases = pgSchema.runLeasesPostgres;
-    const rows = await this.db
-      .select()
+    const lostOwnerCandidates = await this.db
+      .select({ id: turns.id, updatedAt: turns.updatedAt })
       .from(turns)
       .where(
         and(
           notInArray(turns.state, TERMINAL_STATES),
-          or(
-            // Owner lost: the turn has a run but no live lease for it.
-            and(
-              sql`${turns.runId} IS NOT NULL`,
-              sql`${turns.leaseToken} IS NOT NULL`,
-              sql`${turns.fencingVersion} IS NOT NULL`,
-              sql`NOT EXISTS (
+          // Owner lost: the turn has a run but no live lease for it.
+          sql`${turns.runId} IS NOT NULL`,
+          sql`${turns.leaseToken} IS NOT NULL`,
+          sql`${turns.fencingVersion} IS NOT NULL`,
+          sql`NOT EXISTS (
                 SELECT 1 FROM ${leases}
                 WHERE ${leases.runId} = ${turns.runId}
                   AND ${leases.status} = 'active'
                   AND ${leases.expiresAt} > ${now}
               )`,
-            ),
-            // Never leased: the claim crashed before lease attach.
-            and(
-              isNull(turns.leaseToken),
-              lte(turns.updatedAt, input.unleasedStaleBefore),
-            ),
-          ),
         ),
       )
       .orderBy(asc(turns.updatedAt))
-      .limit(Math.max(1, Math.floor(input.limit)));
-    return rows.map(toLiveTurn);
+      .limit(candidateLimit);
+    const unleasedCandidates = await this.db
+      .select({ id: turns.id, updatedAt: turns.updatedAt })
+      .from(turns)
+      .where(
+        and(
+          notInArray(turns.state, TERMINAL_STATES),
+          // Never leased: the claim crashed before lease attach.
+          isNull(turns.leaseToken),
+          lte(turns.updatedAt, input.unleasedStaleBefore),
+        ),
+      )
+      .orderBy(asc(turns.updatedAt))
+      .limit(candidateLimit);
+    const candidateIds = [...lostOwnerCandidates, ...unleasedCandidates]
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
+      .slice(0, limit)
+      .map((candidate) => candidate.id);
+    if (candidateIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(turns)
+      .where(inArray(turns.id, candidateIds));
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    return candidateIds
+      .map((id) => rowsById.get(id))
+      .filter((row): row is LiveTurnRow => row !== undefined)
+      .map(toLiveTurn);
   }
 
   async getOldestWaitingLiveAdmission(input: {

@@ -189,6 +189,10 @@ Use these Gantry tools for capability work:
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                   |
 | `ask_user_question`                | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons.                   |
+| `todo_update`                      | Publish/maintain a visible multi-step plan (item status: pending, inProgress, completed, blocked). Renders as one live, in-place list per channel. Display-only, non-authority state.                  |
+| `delegate_task`                    | Start bounded background work; requires the AgentDelegation capability. Non-blocking: returns a Gantry taskId and the result arrives asynchronously, so poll with `task_get` rather than waiting inline. |
+| `task_get`                         | Check status/result of a delegated background task by Gantry taskId, within the current run/conversation scope.                                 |
+| `task_cancel`                      | Cancel a non-terminal delegated task by Gantry taskId.                                                                                          |
 | `request_skill_install`            | Skill source installs such as `gantryhub:<slug>@<version>`; install/connect never creates risky action authority.                                    |
 | `request_skill_proposal`           | Agent-created or modified skill file bundles for review.                                                                                        |
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                             |
@@ -208,6 +212,14 @@ Permission selection:
   answer, multi-select when multiple answers are valid, and include concise
   option descriptions so Slack, Telegram, Teams, and Web/API can render native
   controls.
+- Use `delegate_task` (when AgentDelegation is granted) to offload isolated
+  exploration — research, reading across many files or sources, cross-checking —
+  and bounded independent subtasks, so intermediate detail stays out of the main
+  thread and you keep only the conclusion. Fan out several independent tasks and
+  gather each with `task_get`, then synthesize and verify the results yourself;
+  the coordinating agent owns the user-facing answer. It is background work (poll
+  with `task_get`, not inline). Never delegate risky execution, secret handling,
+  config/permission changes, or work needing tools the parent run cannot use.
 - Use `request_access` with `target.kind=run_command` and `temporaryOnly=true`
   when a scoped one-off exact-command fallback is needed and no reviewed
   capability fits, such as a bounded `Bash`-style command like `npm test *` or

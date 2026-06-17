@@ -143,6 +143,7 @@ export interface LiveAdmissionWorkItem {
   claimExpiresAt: string | null;
   fencingVersion: number;
   retryCount: number;
+  failureCount: number;
   deferUntil: string | null;
   deferredReason: string | null;
   createdAt: string;
@@ -169,6 +170,7 @@ export interface LiveAdmissionWakeupSource {
 }
 
 export interface LiveAdmissionClaimInput {
+  appId: string;
   workerInstanceId: string;
   claimToken: string;
   claimExpiresAt: string;
@@ -205,12 +207,20 @@ export interface LiveAdmissionWorkItemRepository {
   claimLiveAdmissionWorkItems(
     input: LiveAdmissionClaimInput,
   ): Promise<LiveAdmissionWorkItem[]>;
+  renewLiveAdmissionWorkItemClaim(input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    claimExpiresAt: string;
+    now?: string;
+  }): Promise<boolean>;
   deferLiveAdmissionWorkItem(input: {
     id: string;
     claimToken: string;
     workerInstanceId: string;
     reason: 'queued_capacity' | 'listener_degraded' | 'retry';
     deferUntil: string;
+    countFailure?: boolean;
     now?: string;
   }): Promise<boolean>;
   settleLiveAdmissionWorkItem(input: {

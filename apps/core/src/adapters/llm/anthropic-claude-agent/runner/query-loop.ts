@@ -64,6 +64,7 @@ import {
   decideClaudeSdkToolSearch,
   toolSearchStartupRuntimeEvent,
 } from './tool-search-decision.js';
+import { runnerStartupTimingRuntimeEvent } from './runner-startup-diagnostic.js';
 import { startRuntimeSignalPump } from '../../../../runner/runtime-signal-pump.js';
 import {
   buildTaskLifecycleRuntimeEvent,
@@ -385,6 +386,7 @@ export async function runQuery(
     workspaceFolder: workspaceFolder,
     threadId: agentInput.threadId,
     jobId: agentInput.jobId,
+    runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
     runId: agentInput.runId,
     runLeaseToken: agentInput.runLeaseToken,
     runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
@@ -412,8 +414,9 @@ export async function runQuery(
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
     isScheduledJob: agentInput.isScheduledJob,
   });
+  const sdkQueryPreparedMs = elapsedMs();
   log(
-    `SDK query prepared in ${elapsedMs()}ms ` +
+    `SDK query prepared in ${sdkQueryPreparedMs}ms ` +
       `(tools=${capabilities.availableTools.length} mcpServers=${Object.keys(capabilities.mcpServers ?? {}).length})`,
   );
   const toolSearchDecision = decideClaudeSdkToolSearch({
@@ -498,10 +501,45 @@ export async function runQuery(
       includePartialMessages: true,
     },
   });
-  log(`SDK query iterator created in ${elapsedMs()}ms`);
+  const sdkQueryIteratorMs = elapsedMs();
+  log(`SDK query iterator created in ${sdkQueryIteratorMs}ms`);
   try {
     let firstSdkMessageLogged = false;
     let firstTextDeltaLogged = false;
+    let firstSdkEventMs: number | undefined;
+    let providerSessionMs: number | undefined;
+    let firstVisibleOutputMs: number | undefined;
+    let firstResultMs: number | undefined;
+    let startupTimingDiagnosticEmitted = false;
+    const emitStartupTimingDiagnostic = () => {
+      if (startupTimingDiagnosticEmitted) return;
+      startupTimingDiagnosticEmitted = true;
+      writeOutput({
+        status: 'success',
+        result: null,
+        newSessionId,
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          runnerStartupTimingRuntimeEvent({
+            agentInput,
+            persistSdkSession,
+            resumedSession: persistSdkSession && Boolean(agentInput.sessionId),
+            sdkQueryPreparedMs,
+            sdkQueryIteratorMs,
+            firstSdkEventMs,
+            providerSessionMs,
+            firstVisibleOutputMs,
+            firstResultMs,
+            messageCount,
+            resultCount,
+            availableToolCount: capabilities.availableTools.length,
+            allowedToolCount: capabilities.allowedTools.length,
+            disallowedToolCount: capabilities.disallowedTools.length,
+            mcpServerCount: Object.keys(capabilities.mcpServers ?? {}).length,
+          }),
+        ],
+      });
+    };
     for await (const message of sdkQuery) {
       messageCount++;
       heartbeat.markActivity();
@@ -512,7 +550,8 @@ export async function runQuery(
       log(`[msg #${messageCount}] type=${msgType}`);
       if (!firstSdkMessageLogged) {
         firstSdkMessageLogged = true;
-        log(`First SDK message after ${elapsedMs()}ms`);
+        firstSdkEventMs = elapsedMs();
+        log(`First SDK message after ${firstSdkEventMs}ms`);
       }
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
@@ -520,8 +559,9 @@ export async function runQuery(
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         assertRequiredMcpServerReady(message);
+        providerSessionMs = elapsedMs();
         log(
-          `Session initialized after ${elapsedMs()}ms: provider resume handle received`,
+          `Session initialized after ${providerSessionMs}ms: provider resume handle received`,
         );
         writeOutput({
           status: 'success',
@@ -574,7 +614,8 @@ export async function runQuery(
           if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
             if (!firstTextDeltaLogged) {
               firstTextDeltaLogged = true;
-              log(`First SDK text delta after ${elapsedMs()}ms`);
+              firstVisibleOutputMs = elapsedMs();
+              log(`First SDK text delta after ${firstVisibleOutputMs}ms`);
             }
             sawPartialTextSinceLastResult = true;
             writeOutput({
@@ -582,19 +623,26 @@ export async function runQuery(
               result: delta.text,
               newSessionId,
             });
+            if (firstVisibleOutputMs !== undefined) {
+              emitStartupTimingDiagnostic();
+            }
           }
         }
       }
       if (message.type === 'result') {
         resultCount++;
         if (resultCount === 1) {
-          log(`First SDK result after ${elapsedMs()}ms`);
+          firstResultMs = elapsedMs();
+          log(`First SDK result after ${firstResultMs}ms`);
         }
         const textResult =
           'result' in message ? (message as { result?: string }).result : null;
         const resultFailure = sdkResultFailureMessage(message);
         if (resultFailure) {
           throw new Error(resultFailure);
+        }
+        if (!sawPartialTextSinceLastResult && textResult) {
+          firstVisibleOutputMs ??= firstResultMs;
         }
         log(
           `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
@@ -626,6 +674,7 @@ export async function runQuery(
               }
             : {}),
         });
+        emitStartupTimingDiagnostic();
         sawPartialTextSinceLastResult = false;
         steeringGate.markTurnBoundary();
       }

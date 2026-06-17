@@ -54,6 +54,7 @@ const TASK_EVENT_TYPE_BY_KIND: Record<TaskLifecycleEventKind, string> = {
   updated: RUNTIME_EVENT_TYPES.TASK_UPDATED,
   notification: RUNTIME_EVENT_TYPES.TASK_NOTIFICATION,
 };
+const TASK_LIFECYCLE_TEXT_MAX = 300;
 
 export function buildTaskLifecycleRuntimeEvent(
   context: TaskLifecycleContext,
@@ -88,10 +89,10 @@ function payloadFor(
     return {
       ...base,
       ...defined({
-        description: input.description,
-        subagentType: input.subagentType,
-        taskType: input.taskType,
-        workflowName: input.workflowName,
+        description: boundedText(input.description),
+        subagentType: boundedText(input.subagentType),
+        taskType: boundedText(input.taskType),
+        workflowName: boundedText(input.workflowName),
       }),
       skipTranscript: input.skipTranscript === true,
     };
@@ -100,10 +101,10 @@ function payloadFor(
     return {
       ...base,
       ...defined({
-        description: input.description,
-        subagentType: input.subagentType,
-        lastToolName: input.lastToolName,
-        summary: input.summary,
+        description: boundedText(input.description),
+        subagentType: boundedText(input.subagentType),
+        lastToolName: boundedText(input.lastToolName),
+        summary: boundedText(input.summary),
         usage: sanitizedUsage(input.usage),
       }),
     };
@@ -112,8 +113,8 @@ function payloadFor(
     return {
       ...base,
       patch: defined({
-        status: input.patch?.status,
-        description: input.patch?.description,
+        status: boundedText(input.patch?.status),
+        description: boundedText(input.patch?.description),
         endTime: input.patch?.endTime,
         totalPausedMs: input.patch?.totalPausedMs,
         isBackgrounded: input.patch?.isBackgrounded,
@@ -124,12 +125,19 @@ function payloadFor(
   return {
     ...base,
     ...defined({
-      status: input.status,
-      summary: input.summary,
+      status: boundedText(input.status),
+      summary: boundedText(input.summary),
       usage: sanitizedUsage(input.usage),
     }),
     skipTranscript: input.skipTranscript === true,
   };
+}
+
+function boundedText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  return value.length > TASK_LIFECYCLE_TEXT_MAX
+    ? value.slice(0, TASK_LIFECYCLE_TEXT_MAX)
+    : value;
 }
 
 function sanitizedUsage(

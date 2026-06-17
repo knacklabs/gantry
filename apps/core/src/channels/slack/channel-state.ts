@@ -129,6 +129,7 @@ export abstract class SlackChannelState {
   protected progressStateLoaded = false;
   protected pendingPermissionPrompts: PendingPermissionPromptMap = new Map();
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
+  protected pendingTodos = new Map<string, { channel: string; ts: string }>();
 
   constructor(botToken: string, appToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
@@ -226,6 +227,19 @@ export abstract class SlackChannelState {
         }),
       });
     }
+
+    elements.push({
+      type: 'button',
+      action_id: 'gantry_userq_other',
+      text: {
+        type: 'plain_text',
+        text: truncateSlackButtonText('✏️ Other…'),
+      },
+      value: encodeSlackActionValue({
+        requestId: pending.requestId,
+        questionIndex: pending.questionIndex,
+      }),
+    });
 
     return [
       {

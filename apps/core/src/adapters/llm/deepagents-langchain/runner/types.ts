@@ -1,6 +1,7 @@
 import type { AgentPersona } from '../../../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../../../shared/yolo-mode-policy.js';
 import type { DeepAgentSkillProjection } from '../../../../application/agent-execution/agent-execution-adapter.js';
+import type { GantryAgentPromptMode } from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeepAgentCheckpointerConfig } from './session-store.js';
 
 // Subset of the host AgentInput JSON that the DeepAgents (LangChain) runner
@@ -28,6 +29,7 @@ export interface DeepAgentRunnerInput {
   jobId?: string;
   runId?: string;
   assistantName?: string;
+  promptMode?: GantryAgentPromptMode;
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
   deepAgentCheckpointer?: DeepAgentCheckpointerConfig;

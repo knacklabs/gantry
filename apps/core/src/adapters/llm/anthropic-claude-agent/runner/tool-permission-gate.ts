@@ -44,11 +44,13 @@ import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { publicCapabilityAllowedToolRules } from '../../../../shared/agent-tool-references.js';
 import { stableTimedGrantKey } from './stable-timed-grant-key.js';
-type PermissionApprovalInput = Parameters<typeof requestPermissionApproval>[0];
-const WORKSPACE_FOLDER_KEY =
-  WORKSPACE_FOLDER_OPTION_KEY as keyof PermissionApprovalInput;
+type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
+const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
+const RAW_REQ =
+  /^(Agent|AskUserQuestion|Task(Create|Get|List|Update)?|TodoWrite)$/;
+
 interface CreateCanUseToolCallbackInput {
   agentInput: AgentRunnerInput;
   sdkEnv: Record<string, string | undefined>;
@@ -72,7 +74,6 @@ export function createCanUseToolCallback(
   const sdkSandboxNetworkGate = createSdkSandboxNetworkGate(input.agentInput);
   const timedGrantConversationJid = input.agentInput.chatJid;
   const skillActionCapabilities = readRunnerSkillActionCapabilities();
-
   const timedGrantKey = (principal: string): string =>
     stableTimedGrantKey({
       principal,
@@ -166,7 +167,6 @@ export function createCanUseToolCallback(
       interrupt: false,
     };
   };
-
   return async (toolName, rawToolInput, permissionOpts) => {
     input.recordToolActivity(toolName);
     emitJobToolActivity(
@@ -205,7 +205,7 @@ export function createCanUseToolCallback(
       const publicToolName = permissionRequestToolName(toolName);
       const attempt: AgentRunnerToolAttemptOutput = {
         runMode: 'prime',
-        requestedToolName: toolName,
+        requestedToolName: RAW_REQ.test(toolName) ? publicToolName : toolName,
         toolName: publicToolName,
         title: permissionOpts.title,
         displayName:
@@ -256,7 +256,6 @@ export function createCanUseToolCallback(
         interrupt: false,
       };
     }
-
     const trustInput = () =>
       applyBashTrustEnv(
         toolName,
@@ -511,7 +510,7 @@ export function createCanUseToolCallback(
           : ['allow_once', 'cancel'],
         threadId: input.agentInput.threadId,
         [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
-      } as unknown as PermissionApprovalInput);
+      } as unknown as ApprovalInput);
       if (decision.approved) {
         const persistentUpdates = persistentPermissionUpdates(decision);
         for (const rule of livePermissionRulesForUpdates(
@@ -654,7 +653,7 @@ export function createCanUseToolCallback(
         permissionPlan.semanticCapabilityDefinitions,
       threadId: input.agentInput.threadId,
       [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
-    } as unknown as PermissionApprovalInput);
+    } as unknown as ApprovalInput);
     if (decision.approved) {
       const persistentUpdates = persistentPermissionUpdates(decision);
       for (const rule of livePermissionRulesForUpdates(

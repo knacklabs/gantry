@@ -83,9 +83,19 @@ describe('durable access policy', () => {
   });
 
   it('still rejects provider-native exact tools after facade replacement', () => {
-    expect(validateDurableAccessRule('Read')).toMatchObject({ ok: false });
-    expect(validateDurableAccessRule('Write')).toMatchObject({ ok: false });
-    expect(validateDurableAccessRule('Task')).toMatchObject({ ok: false });
+    for (const rule of [
+      'Read',
+      'Write',
+      'Agent',
+      'Task',
+      'TaskCreate',
+      'TaskGet',
+      'TaskList',
+      'TaskUpdate',
+      'TodoWrite',
+    ]) {
+      expect(validateDurableAccessRule(rule)).toMatchObject({ ok: false });
+    }
   });
 
   it('requires trusted definitions for semantic capabilities', () => {

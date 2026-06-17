@@ -297,6 +297,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
       eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
       eq(pgSchema.agentMcpServerBindingsPostgres.status, 'active'),
+      eq(pgSchema.mcpServersPostgres.appId, input.appId),
       eq(pgSchema.mcpServersPostgres.status, 'active'),
     ];
     if (input.serverIds) {

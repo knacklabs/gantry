@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { nowMs, toIso } from '@core/shared/time/datetime.js';
 
 import {
@@ -70,6 +71,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
 
     const claimed = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
       workerInstanceId: 'worker-1',
       claimToken: 'claim-token-1',
       claimExpiresAt: toIso(nowMs() + 60_000),
@@ -86,6 +88,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
       claimToken: 'claim-token-1',
       fencingVersion: 1,
       retryCount: 1,
+      failureCount: 0,
     });
     expect(JSON.stringify(claimed)).not.toContain('hello');
     await expect(
@@ -110,6 +113,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
     await expect(
       liveTurns.claimLiveAdmissionWorkItems({
+        appId: base.appId,
         workerInstanceId: 'worker-2',
         claimToken: 'claim-token-2',
         claimExpiresAt: toIso(nowMs() + 60_000),
@@ -118,6 +122,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     ).resolves.toEqual([]);
 
     const reclaimed = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
       workerInstanceId: 'worker-2',
       claimToken: 'claim-token-2',
       claimExpiresAt: toIso(nowMs() + 60_000),
@@ -134,6 +139,132 @@ maybeDescribe('live admission work items (Postgres)', () => {
       deferredReason: null,
       fencingVersion: 2,
       retryCount: 2,
+      failureCount: 0,
+    });
+  });
+
+  it('counts real processing failures separately from claim attempts', async () => {
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'admission-failure-count',
+      ...base,
+      messageId: 'message:tg:live-admission:failure-count',
+      messageCursor: '2026-06-16T00:00:01.500Z::failure-count',
+      idempotencyKey: 'telegram:delivery:failure-count',
+      now: toIso(nowMs() - 8_000),
+    });
+    const [claimed] = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
+      workerInstanceId: 'worker-failure-count',
+      claimToken: 'claim-token-failure-count',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 1,
+    });
+    expect(claimed).toMatchObject({
+      id: 'admission-failure-count',
+      retryCount: 1,
+      failureCount: 0,
+    });
+
+    await expect(
+      liveTurns.deferLiveAdmissionWorkItem({
+        id: 'admission-failure-count',
+        claimToken: 'claim-token-failure-count',
+        workerInstanceId: 'worker-failure-count',
+        reason: 'listener_degraded',
+        deferUntil: toIso(nowMs() - 1_000),
+        countFailure: true,
+      }),
+    ).resolves.toBe(true);
+
+    const [reclaimed] = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
+      workerInstanceId: 'worker-failure-count-reclaim',
+      claimToken: 'claim-token-failure-count-reclaim',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 1,
+    });
+    expect(reclaimed).toMatchObject({
+      id: 'admission-failure-count',
+      retryCount: 2,
+      failureCount: 1,
+    });
+
+    await expect(
+      liveTurns.settleLiveAdmissionWorkItem({
+        id: 'admission-failure-count',
+        claimToken: 'claim-token-failure-count-reclaim',
+        workerInstanceId: 'worker-failure-count-reclaim',
+        state: 'completed',
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it('claims only work items for the requested app scope', async () => {
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'admission-other-app',
+      ...base,
+      appId: 'app-other',
+      messageId: 'message:tg:live-admission:other-app',
+      messageCursor: '2026-06-16T00:00:02.000Z::other-app',
+      idempotencyKey: 'telegram:delivery:other-app',
+      now: toIso(nowMs() - 7_000),
+    });
+
+    const claimed = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
+      workerInstanceId: 'worker-app-scope',
+      claimToken: 'claim-token-app-scope',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 10,
+    });
+
+    expect(claimed.map((item) => item.id)).not.toContain('admission-other-app');
+  });
+
+  it('renews a claim before another worker can reclaim an expired batch row', async () => {
+    await liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'admission-renew-expiry',
+      ...base,
+      messageId: 'message:tg:live-admission:renew-expiry',
+      messageCursor: '2026-06-16T00:00:02.500Z::renew-expiry',
+      idempotencyKey: 'telegram:delivery:renew-expiry',
+      now: toIso(nowMs() - 6_000),
+    });
+    const first = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
+      workerInstanceId: 'worker-renew-a',
+      claimToken: 'claim-token-renew-a',
+      claimExpiresAt: '2026-06-16T00:00:03.000Z',
+      limit: 1,
+      now: '2026-06-16T00:00:02.000Z',
+    });
+    expect(first.map((item) => item.id)).toEqual(['admission-renew-expiry']);
+
+    await expect(
+      liveTurns.renewLiveAdmissionWorkItemClaim({
+        id: 'admission-renew-expiry',
+        workerInstanceId: 'worker-renew-a',
+        claimToken: 'claim-token-renew-a',
+        claimExpiresAt: '2026-06-16T00:01:00.000Z',
+        now: '2026-06-16T00:00:02.500Z',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      liveTurns.claimLiveAdmissionWorkItems({
+        appId: base.appId,
+        workerInstanceId: 'worker-renew-b',
+        claimToken: 'claim-token-renew-b',
+        claimExpiresAt: '2026-06-16T00:02:00.000Z',
+        limit: 1,
+        now: '2026-06-16T00:00:04.000Z',
+      }),
+    ).resolves.toEqual([]);
+
+    await liveTurns.settleLiveAdmissionWorkItem({
+      id: 'admission-renew-expiry',
+      workerInstanceId: 'worker-renew-a',
+      claimToken: 'claim-token-renew-a',
+      state: 'completed',
     });
   });
 
@@ -172,12 +303,14 @@ maybeDescribe('live admission work items (Postgres)', () => {
 
     const [workerA, workerB] = await Promise.all([
       liveTurns.claimLiveAdmissionWorkItems({
+        appId: base.appId,
         workerInstanceId: 'worker-concurrent-a',
         claimToken: 'claim-token-concurrent-a',
         claimExpiresAt: toIso(nowMs() + 60_000),
         limit: 2,
       }),
       liveTurns.claimLiveAdmissionWorkItems({
+        appId: base.appId,
         workerInstanceId: 'worker-concurrent-b',
         claimToken: 'claim-token-concurrent-b',
         claimExpiresAt: toIso(nowMs() + 60_000),
@@ -201,6 +334,212 @@ maybeDescribe('live admission work items (Postgres)', () => {
         }),
       ).resolves.toBe(true);
     }
+  });
+
+  it('does not let branch preselection locks hide older concurrent candidates', async () => {
+    const createdAt = '2026-06-16T00:00:10.000Z';
+    const dueAt = '2000-01-01T00:00:00.000Z';
+    const now = '2026-06-16T00:01:00.000Z';
+    const ids = [
+      'admission-lock-queued',
+      'admission-lock-due-1',
+      'admission-lock-due-2',
+    ];
+    for (const [index, id] of ids.entries()) {
+      await liveTurns.enqueueLiveAdmissionWorkItem({
+        id,
+        ...base,
+        messageId: `message:tg:live-admission:${id}`,
+        messageCursor: `2026-06-16T00:00:10.000Z::${id}`,
+        idempotencyKey: `telegram:delivery:${id}`,
+        now: toIso(Date.parse(createdAt) + index),
+      });
+    }
+    await runtime.service.pool.query(
+      `UPDATE ${quotePostgresIdentifier(
+        runtime.schemaName,
+      )}.${quotePostgresIdentifier('live_admission_work_items')}
+       SET state = 'deferred',
+           defer_until = $1,
+           deferred_reason = 'retry',
+           updated_at = $2
+       WHERE id IN ($3, $4)`,
+      [dueAt, now, 'admission-lock-due-1', 'admission-lock-due-2'],
+    );
+
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    const held = await runtime.service.pool.connect();
+    try {
+      await held.query('BEGIN');
+      const first = await held.query<{ id: string }>(
+        `WITH queued AS (
+           SELECT id, created_at
+           FROM ${tableName}
+           WHERE state = 'queued'
+           ORDER BY created_at ASC, id ASC
+           LIMIT $2
+         ),
+         due_deferred AS (
+           SELECT id, created_at
+           FROM ${tableName}
+           WHERE state = 'deferred'
+             AND defer_until <= $1
+           ORDER BY defer_until ASC, created_at ASC, id ASC
+           LIMIT $2
+         ),
+         candidates AS (
+           SELECT id, created_at FROM queued
+           UNION ALL
+           SELECT id, created_at FROM due_deferred
+         )
+         SELECT id
+         FROM ${tableName}
+         INNER JOIN candidates USING (id)
+         WHERE state = 'queued'
+           OR (
+             state = 'deferred'
+             AND defer_until <= $1
+           )
+         ORDER BY candidates.created_at ASC, candidates.id ASC
+         LIMIT $2
+         FOR UPDATE SKIP LOCKED`,
+        [now, 1],
+      );
+      expect(first.rows.map((row) => row.id)).toEqual([
+        'admission-lock-queued',
+      ]);
+
+      const second = await liveTurns.claimLiveAdmissionWorkItems({
+        appId: base.appId,
+        workerInstanceId: 'worker-lock-probe',
+        claimToken: 'claim-token-lock-probe',
+        claimExpiresAt: toIso(nowMs() + 60_000),
+        limit: 1,
+        now,
+      });
+      expect(second.map((item) => item.id)).toEqual(['admission-lock-due-1']);
+    } finally {
+      await held.query('ROLLBACK').catch(() => undefined);
+      held.release();
+      await runtime.service.pool.query(
+        `UPDATE ${tableName}
+         SET state = 'completed',
+             ended_at = $1,
+             updated_at = $1
+         WHERE id = ANY($2::text[])`,
+        [now, ids],
+      );
+    }
+  });
+
+  it('keeps original message order for deferred retries inside the candidate window', async () => {
+    const ids = [
+      'admission-due-old-later-ready',
+      'admission-due-newer-earlier-ready',
+    ];
+    for (const [index, id] of ids.entries()) {
+      await liveTurns.enqueueLiveAdmissionWorkItem({
+        id,
+        ...base,
+        messageId: `message:tg:live-admission:${id}`,
+        messageCursor: `2026-06-16T00:00:20.000Z::${id}`,
+        idempotencyKey: `telegram:delivery:${id}`,
+        now: toIso(Date.parse('2026-06-16T00:00:20.000Z') + index),
+      });
+    }
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await runtime.service.pool.query(
+      `UPDATE ${tableName}
+       SET state = 'deferred',
+           defer_until = CASE
+             WHEN id = $1 THEN '2000-01-02T00:00:00.000Z'::timestamptz
+             ELSE '2000-01-01T00:00:00.000Z'::timestamptz
+           END,
+           deferred_reason = 'retry',
+           updated_at = '2026-06-16T00:00:30.000Z'::timestamptz
+       WHERE id = ANY($2::text[])`,
+      [ids[0], ids],
+    );
+
+    const claimed = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
+      workerInstanceId: 'worker-due-order',
+      claimToken: 'claim-token-due-order',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 1,
+      now: '2001-01-01T00:00:00.000Z',
+    });
+    expect(claimed.map((item) => item.id)).toEqual([
+      'admission-due-old-later-ready',
+    ]);
+
+    await runtime.service.pool.query(
+      `UPDATE ${tableName}
+       SET state = 'completed',
+           ended_at = '2026-06-16T00:00:31.000Z'::timestamptz,
+           updated_at = '2026-06-16T00:00:31.000Z'::timestamptz
+       WHERE id = ANY($1::text[])`,
+      [ids],
+    );
+  });
+
+  it('keeps original message order for expired claims inside the candidate window', async () => {
+    const ids = [
+      'admission-expired-old-later-expiry',
+      'admission-expired-newer-earlier-expiry',
+    ];
+    for (const [index, id] of ids.entries()) {
+      await liveTurns.enqueueLiveAdmissionWorkItem({
+        id,
+        ...base,
+        messageId: `message:tg:live-admission:${id}`,
+        messageCursor: `2026-06-16T00:00:40.000Z::${id}`,
+        idempotencyKey: `telegram:delivery:${id}`,
+        now: toIso(Date.parse('2026-06-16T00:00:40.000Z') + index),
+      });
+    }
+    const tableName = `${quotePostgresIdentifier(
+      runtime.schemaName,
+    )}.${quotePostgresIdentifier('live_admission_work_items')}`;
+    await runtime.service.pool.query(
+      `UPDATE ${tableName}
+       SET state = 'claimed',
+           claim_worker_instance_id = 'stale-worker',
+           claim_token = 'stale-token',
+           claim_expires_at = CASE
+             WHEN id = $1 THEN '2000-01-02T00:00:00.000Z'::timestamptz
+             ELSE '2000-01-01T00:00:00.000Z'::timestamptz
+           END,
+           claimed_at = '2026-06-16T00:00:41.000Z'::timestamptz,
+           updated_at = '2026-06-16T00:00:41.000Z'::timestamptz
+       WHERE id = ANY($2::text[])`,
+      [ids[0], ids],
+    );
+
+    const claimed = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
+      workerInstanceId: 'worker-expired-order',
+      claimToken: 'claim-token-expired-order',
+      claimExpiresAt: toIso(nowMs() + 60_000),
+      limit: 1,
+      now: '2001-01-01T00:00:00.000Z',
+    });
+    expect(claimed.map((item) => item.id)).toEqual([
+      'admission-expired-old-later-expiry',
+    ]);
+
+    await runtime.service.pool.query(
+      `UPDATE ${tableName}
+       SET state = 'completed',
+           ended_at = '2026-06-16T00:00:42.000Z'::timestamptz,
+           updated_at = '2026-06-16T00:00:42.000Z'::timestamptz
+       WHERE id = ANY($1::text[])`,
+      [ids],
+    );
   });
 
   it('stores an inbound message and live admission work item in one repository call', async () => {
@@ -266,6 +605,7 @@ maybeDescribe('live admission work items (Postgres)', () => {
     expect(replay?.item.id).toBe(result?.item.id);
 
     const claimed = await liveTurns.claimLiveAdmissionWorkItems({
+      appId: base.appId,
       workerInstanceId: 'worker-no-notify',
       claimToken: 'claim-token-no-notify',
       claimExpiresAt: toIso(nowMs() + 60_000),

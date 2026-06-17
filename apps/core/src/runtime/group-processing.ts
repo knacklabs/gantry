@@ -83,10 +83,10 @@ import { collectPendingMessagesSince } from './pending-message-replay.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const DEFAULT_TURN_APP_ID = 'default';
+const PENDING_MESSAGE_REPLAY_MAX_MESSAGES = MESSAGE_FETCH_PAGE_SIZE * 20;
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 type ActiveTurnUiCleanup = { token: symbol; cancel: () => void };
 const activeTurnUiCleanupByQueue = new Map<string, ActiveTurnUiCleanup>();
-
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -119,16 +119,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       return true;
     }
     const scopedQueue = options.queued === true || queueThreadId !== undefined;
-    const messageFilter = scopedQueue
-      ? { threadId: queueThreadId ?? null }
-      : undefined;
-    const missedMessages = await collectPendingMessagesSince({
-      getMessagesSince: ops().getMessagesSince,
-      chatJid,
-      sinceCursor: await deps.getCursor(queueJid),
-      pageSize: MESSAGE_FETCH_PAGE_SIZE,
-      options: messageFilter,
-    });
+    const { messages: missedMessages, hasMore: missedMessagesRemain } =
+      await collectPendingMessagesSince({
+        getMessagesSince: ops().getMessagesSince,
+        chatJid,
+        sinceCursor: await deps.getCursor(queueJid),
+        pageSize: MESSAGE_FETCH_PAGE_SIZE,
+        maxMessages: PENDING_MESSAGE_REPLAY_MAX_MESSAGES,
+        options: scopedQueue ? { threadId: queueThreadId ?? null } : undefined,
+      });
     if (missedMessages.length === 0) return true;
     const latestMessage = missedMessages[missedMessages.length - 1];
     const activeThreadId = firstThreadQueueId(
@@ -285,8 +284,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         ...senderCommandPolicy,
       },
     });
-    if (cmdResult.handled) return cmdResult.success;
-
+    if (cmdResult.handled) {
+      missedMessagesRemain && deps.queue.enqueueMessageCheck(queueJid);
+      return cmdResult.success;
+    }
     if (
       !groupTurnHasRequiredTrigger({
         group,
@@ -294,9 +295,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         triggerPattern: getTriggerPattern(group.trigger),
         messages: missedMessages,
       })
-    )
+    ) {
+      deps.setCursor(
+        queueJid,
+        encodeGroupMessageCursor(toGroupMessageCursor(latestMessage)),
+      );
+      await deps.saveState();
+      missedMessagesRemain && deps.queue.enqueueMessageCheck(queueJid);
       return true;
-
+    }
     const prompt = formatMessages(missedMessages, TIMEZONE);
     const recallQuery = buildMemoryRecallQueryFromMessages(missedMessages);
     const previousCursor = (await deps.getCursor(queueJid)) || '';
@@ -307,7 +314,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       ),
     );
     await deps.saveState();
-
     logger.info(
       { group: group.name, messageCount: missedMessages.length },
       'Processing messages',
@@ -330,7 +336,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }, IDLE_TIMEOUT);
     };
     resetIdleTimer();
-
     let typingActive = false;
     const setTypingState = (isTyping: boolean) => (
       (typingActive = isTyping),
@@ -657,7 +662,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         }
         resetIdleTimer();
       }
-
       if (result.interactionBoundary) {
         pendingIdleBoundary = true;
         await finalizeStreamingOutput('interaction-boundary', {
@@ -669,7 +673,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         awaitingResponseReceipt = true;
         resetIdleTimer();
       }
-
       if (isAgentTurnCompleteMarker(result)) {
         await finalizeStreamingOutput('success-marker');
         if (result.continuedByFollowup) {
@@ -683,7 +686,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await setTypingState(false);
         resetIdleTimer();
       }
-
       if (result.status === 'error') {
         hadError = true;
         await resumeActiveElapsed();
@@ -753,7 +755,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
       if (idleTimer) clearTimeout(idleTimer);
     }
-
     let resultOk = true;
     if (output === 'error' || hadError) {
       resultOk = await handleFailure({
@@ -816,6 +817,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendDoneProgress(finalProgressState);
     }
     await setTypingState(false);
+    resultOk &&
+      missedMessagesRemain &&
+      deps.queue.enqueueMessageCheck(queueJid);
     options?.onRunResult?.(output);
     return resultOk;
   }

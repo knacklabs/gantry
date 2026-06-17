@@ -18,6 +18,7 @@ import {
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
+import type { AgentTodoSink } from '../domain/ports/task-lifecycle.js';
 
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
@@ -51,7 +52,8 @@ export type ChannelAdapter = ChannelLifecyclePort &
       ProgressSink &
       GroupDiscoverySource &
       InteractionSurface &
-      PlanReviewSurface
+      PlanReviewSurface &
+      AgentTodoSink
   >;
 
 export type ChannelFactory = (

@@ -74,7 +74,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       const userQuestionMatch =
         TELEGRAM_USER_QUESTION_CALLBACK_PATTERN.exec(data);
       if (userQuestionMatch) {
-        const action = userQuestionMatch[1] as 'select' | 'done';
+        const action = userQuestionMatch[1] as 'select' | 'done' | 'other';
         const requestId = userQuestionMatch[2];
         const questionIndex = Number.parseInt(userQuestionMatch[3], 10);
         const optionIndex = userQuestionMatch[4]
@@ -144,6 +144,48 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             text: 'Only a conversation control approver can answer.',
             show_alert: true,
           });
+          return;
+        }
+        if (action === 'other') {
+          const threadId = (
+            ctx.callbackQuery?.message as
+              | { message_thread_id?: number }
+              | undefined
+          )?.message_thread_id;
+          let promptMessageId: number | undefined;
+          try {
+            const prompt = await ctx.api.sendMessage(
+              pending.chatId,
+              'Reply to this message with your answer.',
+              {
+                ...(typeof threadId === 'number'
+                  ? { message_thread_id: threadId }
+                  : {}),
+                reply_markup: {
+                  force_reply: true,
+                  input_field_placeholder: 'Type your answer…',
+                },
+              },
+            );
+            promptMessageId = prompt.message_id;
+          } catch (err) {
+            logger.debug(
+              { requestId, err: this.sanitizeErrorMessage(err) },
+              'Failed to send Telegram Other free-text prompt',
+            );
+          }
+          if (promptMessageId === undefined) {
+            await ctx.answerCallbackQuery({
+              text: 'Could not start a free-text reply.',
+              show_alert: true,
+            });
+            return;
+          }
+          this.pendingUserQuestionOtherPrompts.set(
+            `${pending.chatId}:${promptMessageId}`,
+            { requestId, questionIndex },
+          );
+          await ctx.answerCallbackQuery({ text: 'Reply with your answer.' });
           return;
         }
         const answeredBy =
@@ -417,6 +459,18 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           replyTo.from?.id?.toString() ||
           'Unknown'
         : undefined;
+
+      // A reply to an "Other" ForceReply prompt answers a pending question.
+      if (typeof replyTo?.message_id === 'number') {
+        const handledOther = await this.tryResolveUserQuestionOtherReply({
+          chatId: ctx.chat.id.toString(),
+          replyToMessageId: replyTo.message_id,
+          text: ctx.message.text,
+          userId: sender,
+          answeredBy: senderName,
+        });
+        if (handledOther) return;
+      }
 
       // Determine chat name
       const chatName =

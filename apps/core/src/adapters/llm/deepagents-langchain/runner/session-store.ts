@@ -89,11 +89,19 @@ export class DeepAgentSessionStore {
       connectionString: databaseUrl,
       max: RUNNER_CHECKPOINT_POOL_MAX_CONNECTIONS,
     });
-    return instrumentCheckpointSaver(
-      new PostgresSaver(pool, undefined, { schema }),
-      this.timing,
-    );
+    return createDeepAgentCheckpointSaverFromPool(pool, schema, this.timing);
   }
+}
+
+export function createDeepAgentCheckpointSaverFromPool(
+  pool: pg.Pool,
+  schema: string,
+  timing?: DeepAgentCheckpointTiming,
+): DeepAgentCheckpointSaver {
+  return instrumentCheckpointSaver(
+    new PostgresSaver(pool, undefined, { schema }),
+    timing,
+  );
 }
 
 export function isMissingDeepAgentSessionError(

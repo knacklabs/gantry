@@ -27,14 +27,16 @@ describe('startLiveExecutionServices', () => {
         setAgentCursor: vi.fn(),
         saveState: vi.fn(),
         queue: {
-          getPolicy: vi.fn(() => ({ maxMessageRuns: 3 })),
+          getPolicy: vi.fn(() => ({ maxMessageRuns: 3, maxRetries: 7 })),
           enqueueMessageCheck: vi.fn(() => true),
         },
       } as any,
+      appId: 'default',
       liveTurnAuthority: undefined,
       liveTurnLeaseDeps: {
         liveTurns: {
           claimLiveAdmissionWorkItems: vi.fn(),
+          renewLiveAdmissionWorkItemClaim: vi.fn(),
           deferLiveAdmissionWorkItem: vi.fn(),
           settleLiveAdmissionWorkItem: vi.fn(),
         },
@@ -67,6 +69,12 @@ describe('startLiveExecutionServices', () => {
     });
 
     expect(startLiveAdmissionWorkLoop).toHaveBeenCalledOnce();
+    expect(startLiveAdmissionWorkLoop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        maxRetryCount: 7,
+      }),
+    );
     expect(startMessagePollingLoop).not.toHaveBeenCalled();
     expect(registeredLoops).toHaveLength(1);
 

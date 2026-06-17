@@ -605,9 +605,7 @@ export class McpToolProxy {
     await client.connect(transport, { timeout: MCP_PROXY_TIMEOUT_MS });
     clientCache.set(cacheKey, {
       client,
-      idleTimer: setTimeout(() => {
-        void closeCachedClient(capability);
-      }, MCP_PROXY_CLIENT_IDLE_MS),
+      idleTimer: createClientIdleTimer(capability),
     });
     return client;
   }
@@ -673,9 +671,17 @@ function scheduleClientIdleClose(capability: MaterializedMcpCapability): void {
   const cached = clientCache.get(cacheKey);
   if (!cached) return;
   clearTimeout(cached.idleTimer);
-  cached.idleTimer = setTimeout(() => {
+  cached.idleTimer = createClientIdleTimer(capability);
+}
+
+function createClientIdleTimer(
+  capability: MaterializedMcpCapability,
+): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(() => {
     void closeCachedClient(capability);
   }, MCP_PROXY_CLIENT_IDLE_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return timer;
 }
 
 async function closeCachedClient(

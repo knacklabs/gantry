@@ -651,6 +651,143 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         answeredBy,
       );
     });
+    this.app.action('gantry_userq_other', async (args: any) => {
+      await args.ack();
+      const action = args.action as { value?: string };
+      const body = args.body as {
+        channel?: { id?: string };
+        user?: { id?: string };
+        trigger_id?: string;
+      };
+      const parsed = this.parseUserQuestionActionValue(action.value);
+      if (!parsed) return;
+      const triggerId = body.trigger_id;
+      if (!triggerId) return;
+      const key = this.pendingUserQuestionKey(
+        parsed.requestId,
+        parsed.questionIndex,
+      );
+      const pending = this.pendingUserQuestions.get(key);
+      const callbackChannelId = body.channel?.id || '';
+      const userId = body.user?.id || '';
+      if (!userId) return;
+      // Free-text "Other" only supports the in-memory pending question (the
+      // modal opens and submits within the same worker session); durable
+      // cross-restart free text is not modeled.
+      if (!pending || pending.settled) return;
+      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
+      if (
+        !(await this.canDecidePermission(
+          userId,
+          pending.sourceAgentFolder,
+          undefined,
+          `sl:${pending.channelId}`,
+        ))
+      ) {
+        try {
+          await this.app?.client.chat.postEphemeral({
+            channel: pending.channelId,
+            user: userId,
+            text: 'You are not allowed to answer this prompt.',
+          });
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      try {
+        await this.app?.client.views.open({
+          trigger_id: triggerId,
+          view: {
+            type: 'modal',
+            callback_id: 'gantry_userq_other_modal',
+            private_metadata: JSON.stringify({
+              requestId: parsed.requestId,
+              questionIndex: parsed.questionIndex,
+              channelId: pending.channelId,
+            }),
+            title: { type: 'plain_text', text: 'Your answer' },
+            submit: { type: 'plain_text', text: 'Submit' },
+            close: { type: 'plain_text', text: 'Cancel' },
+            blocks: [
+              {
+                type: 'input',
+                block_id: 'gantry_userq_other_block',
+                label: {
+                  type: 'plain_text',
+                  text: (pending.question.header || 'Your answer').slice(
+                    0,
+                    150,
+                  ),
+                },
+                element: {
+                  type: 'plain_text_input',
+                  action_id: 'gantry_userq_other_input',
+                  multiline: true,
+                  max_length: 3000,
+                  placeholder: {
+                    type: 'plain_text',
+                    text: 'Type your answer',
+                  },
+                },
+              },
+            ],
+          },
+        });
+      } catch (err) {
+        logger.debug({ err }, 'Failed to open Slack user-question Other modal');
+      }
+    });
+    this.app.view('gantry_userq_other_modal', async (args: any) => {
+      await args.ack();
+      const body = args.body as {
+        user?: { id?: string; name?: string; username?: string };
+      };
+      const view = args.view as {
+        private_metadata?: string;
+        state?: {
+          values?: Record<string, Record<string, { value?: string }>>;
+        };
+      };
+      let meta: {
+        requestId?: string;
+        questionIndex?: number;
+        channelId?: string;
+      } = {};
+      try {
+        meta = JSON.parse(view.private_metadata || '{}');
+      } catch {
+        return;
+      }
+      if (!meta.requestId || meta.questionIndex === undefined) return;
+      const text = (
+        view.state?.values?.['gantry_userq_other_block']?.[
+          'gantry_userq_other_input'
+        ]?.value || ''
+      ).trim();
+      if (!text) return;
+      const key = this.pendingUserQuestionKey(
+        meta.requestId,
+        meta.questionIndex,
+      );
+      const pending = this.pendingUserQuestions.get(key);
+      if (!pending || pending.settled) return;
+      const userId = body.user?.id || '';
+      const answeredBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      if (
+        userId &&
+        !(await this.canDecidePermission(
+          userId,
+          pending.sourceAgentFolder,
+          undefined,
+          `sl:${pending.channelId}`,
+        ))
+      ) {
+        return;
+      }
+      await this.finalizeUserQuestionPrompt(pending, text, answeredBy);
+    });
     this.app.action('gantry_message_action', async (args: any) => {
       await args.ack();
       const action = args.action as { value?: string };

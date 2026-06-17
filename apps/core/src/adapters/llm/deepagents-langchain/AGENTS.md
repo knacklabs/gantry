@@ -181,7 +181,13 @@ as the third-party MCP tools (pre-checks → `evaluateNeutralToolPolicy` → dur
 already-sandboxed runner (inherits OS protected-path denies + the runner's
 egress-proxy env). NEVER swap in a deepagents execution backend (it throws when
 `permissions` is combined with an execution backend, and does not enforce
-`permissions` on `execute`). `File*` tools are NOT projected yet (shell only).
+`permissions` on `execute`).
+
+Gantry-owned web/file facade tools live in `runner/gantry-facade-tools.ts`.
+They expose `WebSearch`, `WebRead`, `FileSearch`, `FileRead`, `FileEdit`, and
+`FileWrite` as public Gantry names, map each call through the same neutral
+policy/permission IPC path, and execute host web/file work without enabling raw
+DeepAgents filesystem tools.
 
 Skills decision: DeepAgents receives skills only from Gantry-reviewed selected
 skill artifacts. The host passes `skills: ["/skills/"]` and graph input `files`
@@ -306,11 +312,11 @@ newSessionId, sessionInit:true}` so the host persists the provider session
   backstop. `deepagents-raw-authority-denial.test.ts` asserts this against the
   ACTUAL `createDeepAgent` model surface (a fake model's `bindTools` captures the
   post-middleware tool list), with a negative control proving the baked-in tools
-  appear without the exclusion middleware. When `AgentDelegation` and Gantry file
-  facade wrappers land, raw DeepAgents names still stay hidden: delegation maps
-  to Gantry-owned `AgentDelegation`, and non-skill filesystem access maps to
-  `FileSearch`, `FileRead`, `FileEdit`, and `FileWrite` with protected-path,
-  symlink, sandbox, and audit enforcement.
+  appear without the exclusion middleware. When the `AgentDelegation` wrapper
+  lands, raw DeepAgents names still stay hidden: delegation maps to
+  Gantry-owned `AgentDelegation`, and non-skill web/filesystem access maps to
+  `WebSearch`, `WebRead`, `FileSearch`, `FileRead`, `FileEdit`, and
+  `FileWrite` with protected-path, symlink, sandbox, and audit enforcement.
 - Scheduled-job heartbeat parity (`runner/job-heartbeat.ts`): scheduled runs
   emit a `JOB_HEARTBEAT` runtime-event frame every 15s (same shape as the
   Anthropic `job-heartbeat.ts`) so the host idle-stall detection

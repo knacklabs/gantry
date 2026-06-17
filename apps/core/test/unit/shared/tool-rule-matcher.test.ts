@@ -27,7 +27,21 @@ describe('autonomous tool rule matcher', () => {
   });
 
   it('rejects provider-native exact names as durable autonomous rules', () => {
-    for (const rule of ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch']) {
+    for (const rule of [
+      'Agent',
+      'Task',
+      'TaskCreate',
+      'TaskGet',
+      'TaskList',
+      'TaskUpdate',
+      'TodoWrite',
+      'Read',
+      'Write',
+      'Edit',
+      'Glob',
+      'Grep',
+      'WebFetch',
+    ]) {
       expect(validateAutonomousToolRule(rule)).toMatchObject({
         ok: false,
         reason: expect.stringContaining('Provider-native SDK tools'),
@@ -594,7 +608,7 @@ describe('autonomous tool rule matcher', () => {
         rules: ['AgentDelegation'],
         toolName: 'Agent',
       }),
-    ).toMatchObject({ allowed: true });
+    ).toMatchObject({ allowed: false });
     expect(
       evaluateAutonomousToolUse({
         rules: ['AgentDelegation'],

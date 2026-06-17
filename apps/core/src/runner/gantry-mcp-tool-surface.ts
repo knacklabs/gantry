@@ -12,6 +12,7 @@ import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-reference
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'send_message',
   'ask_user_question',
+  'todo_update',
   'memory_search',
   'memory_save',
   'continuity_summary',
@@ -65,6 +66,12 @@ export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [
   'memory_review_decision',
 ] as const;
 
+export const DELEGATION_GANTRY_MCP_TOOL_NAMES = [
+  'delegate_task',
+  'task_get',
+  'task_cancel',
+] as const;
+
 const REVIEWER_MEMORY_REVIEW_GANTRY_MCP_TOOL_NAMES = [
   'memory_review_pending',
   'memory_review_decision',
@@ -110,6 +117,7 @@ export const DEFAULT_GANTRY_MCP_TOOL_NAMES = [
 export const ALL_GANTRY_MCP_TOOL_NAMES = [
   ...DEFAULT_GANTRY_MCP_TOOL_NAMES,
   ...GATED_GANTRY_MCP_TOOL_NAMES,
+  ...DELEGATION_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,
 ] as const;
@@ -143,6 +151,11 @@ export function selectedGantryMcpToolNames(
   }
   if (options.memoryReviewerIsControlApprover) {
     for (const toolName of REVIEWER_MEMORY_REVIEW_GANTRY_MCP_TOOL_NAMES) {
+      names.add(toolName);
+    }
+  }
+  if (configuredTools.some((tool) => tool.trim() === 'AgentDelegation')) {
+    for (const toolName of DELEGATION_GANTRY_MCP_TOOL_NAMES) {
       names.add(toolName);
     }
   }

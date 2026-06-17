@@ -11,8 +11,8 @@ import {
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 
 export interface LiveAdmissionWorkLoopHandle {
-  /** Stop the loop after the in-flight claim batch. */
-  stop: () => void;
+  /** Stop the loop after the in-flight item, releasing the rest of the claim batch. */
+  stop: (options?: { drainDeadlineMs?: number }) => Promise<void>;
   /** Wake the loop early; LISTEN/NOTIFY callers use this as a hint only. */
   trigger: () => void;
   /** Settles when the loop exits. */
@@ -21,12 +21,14 @@ export interface LiveAdmissionWorkLoopHandle {
 
 export interface StartLiveAdmissionWorkLoopInput {
   liveAdmissions: LiveAdmissionWorkItemRepository;
+  appId: string;
   workerInstanceId: string;
   messageLoopDeps: MessageLoopDeps;
   claimLimit?: number;
   claimTtlMs?: number;
   intervalMs?: number;
   maxBatchesPerWake?: number;
+  maxRetryCount?: number;
   warn: WarnLog;
 }
 
@@ -34,6 +36,7 @@ const DEFAULT_CLAIM_LIMIT = 25;
 const DEFAULT_CLAIM_TTL_MS = 30_000;
 const DEFAULT_INTERVAL_MS = 2_000;
 const DEFAULT_MAX_BATCHES_PER_WAKE = 10;
+const DEFAULT_MAX_RETRY_COUNT = 5;
 
 function deferReasonForResult(
   result: Exclude<MessageAdmissionProcessingResult, 'completed'>,
@@ -57,8 +60,10 @@ export function startLiveAdmissionWorkLoop(
   const intervalMs = input.intervalMs ?? DEFAULT_INTERVAL_MS;
   const maxBatchesPerWake =
     input.maxBatchesPerWake ?? DEFAULT_MAX_BATCHES_PER_WAKE;
+  const maxRetryCount = input.maxRetryCount ?? DEFAULT_MAX_RETRY_COUNT;
   let stopped = false;
   let cancelDelay: (() => void) | undefined;
+  const inFlightClaims = new Map<string, { claimToken: string }>();
 
   const deferClaim = async (
     itemId: string,
@@ -72,6 +77,7 @@ export function startLiveAdmissionWorkLoop(
       workerInstanceId: input.workerInstanceId,
       reason,
       deferUntil: toIso(nowMs() + deferDelayMs(result)),
+      countFailure: result !== 'queued_capacity',
     });
     if (!ok) {
       input.warn(
@@ -81,10 +87,78 @@ export function startLiveAdmissionWorkLoop(
     }
   };
 
+  const failClaim = async (
+    itemId: string,
+    claimToken: string,
+    reason: string,
+  ): Promise<void> => {
+    const ok = await input.liveAdmissions.settleLiveAdmissionWorkItem({
+      id: itemId,
+      claimToken,
+      workerInstanceId: input.workerInstanceId,
+      state: 'failed',
+    });
+    if (!ok) {
+      input.warn(
+        { itemId, reason },
+        'Failed to dead-letter live admission work item claim',
+      );
+    }
+  };
+
+  const shouldFailClaim = (
+    itemFailureCount: number,
+    result: Exclude<MessageAdmissionProcessingResult, 'completed'> | 'retry',
+  ): boolean =>
+    result !== 'queued_capacity' && itemFailureCount + 1 >= maxRetryCount;
+
+  const renewClaim = async (
+    itemId: string,
+    claimToken: string,
+  ): Promise<boolean> =>
+    input.liveAdmissions.renewLiveAdmissionWorkItemClaim({
+      id: itemId,
+      claimToken,
+      workerInstanceId: input.workerInstanceId,
+      claimExpiresAt: toIso(nowMs() + claimTtlMs),
+    });
+
+  const releaseInFlightClaims = async (): Promise<void> => {
+    const claims = [...inFlightClaims.entries()];
+    inFlightClaims.clear();
+    await Promise.all(
+      claims.map(([itemId, { claimToken }]) =>
+        input.liveAdmissions
+          .deferLiveAdmissionWorkItem({
+            id: itemId,
+            claimToken,
+            workerInstanceId: input.workerInstanceId,
+            reason: 'retry',
+            deferUntil: toIso(nowMs()),
+          })
+          .then((ok) => {
+            if (!ok) {
+              input.warn(
+                { itemId },
+                'Failed to release live admission claim during shutdown',
+              );
+            }
+          })
+          .catch((err) =>
+            input.warn(
+              { err, itemId },
+              'Failed to release live admission claim during shutdown',
+            ),
+          ),
+      ),
+    );
+  };
+
   const drainOnce = async (): Promise<void> => {
     for (let batch = 0; batch < maxBatchesPerWake && !stopped; batch++) {
       const claimToken = `live-admission:${input.workerInstanceId}:${randomUUID()}`;
       const claimed = await input.liveAdmissions.claimLiveAdmissionWorkItems({
+        appId: input.appId,
         workerInstanceId: input.workerInstanceId,
         claimToken,
         claimExpiresAt: toIso(nowMs() + claimTtlMs),
@@ -93,7 +167,22 @@ export function startLiveAdmissionWorkLoop(
       if (claimed.length === 0) return;
 
       for (const item of claimed) {
-        if (stopped) return;
+        inFlightClaims.set(item.id, { claimToken });
+      }
+      for (const item of claimed) {
+        if (stopped) {
+          await releaseInFlightClaims();
+          return;
+        }
+        if (!(await renewClaim(item.id, claimToken))) {
+          inFlightClaims.delete(item.id);
+          input.warn(
+            { itemId: item.id },
+            'Live admission work item claim was lost before processing',
+          );
+          continue;
+        }
+        inFlightClaims.delete(item.id);
         try {
           const result = await processLiveAdmissionWorkItem(
             input.messageLoopDeps,
@@ -114,13 +203,23 @@ export function startLiveAdmissionWorkLoop(
             }
             continue;
           }
+          if (shouldFailClaim(item.failureCount, result)) {
+            await failClaim(item.id, claimToken, result);
+            continue;
+          }
           await deferClaim(item.id, claimToken, result);
         } catch (err) {
           input.warn(
             { err, itemId: item.id },
             'Live admission work item processing failed; deferring retry',
           );
-          await deferClaim(item.id, claimToken, 'retry');
+          if (shouldFailClaim(item.failureCount, 'retry')) {
+            await failClaim(item.id, claimToken, 'retry');
+          } else {
+            await deferClaim(item.id, claimToken, 'retry');
+          }
+        } finally {
+          inFlightClaims.delete(item.id);
         }
       }
 
@@ -153,11 +252,38 @@ export function startLiveAdmissionWorkLoop(
     }
   })();
 
+  const stop = async (options?: {
+    drainDeadlineMs?: number;
+  }): Promise<void> => {
+    stopped = true;
+    cancelDelay?.();
+    const deadline = options?.drainDeadlineMs;
+    if (deadline === undefined) return;
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        done,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(
+            () => {
+              timedOut = true;
+              resolve();
+            },
+            Math.max(0, deadline),
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (timedOut) {
+      await releaseInFlightClaims();
+    }
+  };
+
   return {
-    stop: () => {
-      stopped = true;
-      cancelDelay?.();
-    },
+    stop,
     trigger: () => {
       cancelDelay?.();
     },

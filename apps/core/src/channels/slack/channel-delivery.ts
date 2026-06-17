@@ -45,6 +45,8 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import type { PendingUserQuestionState } from './channel-state.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
+import { buildAgentTodoBlocks } from './agent-todo-blocks.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
@@ -118,6 +120,49 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       log: logger,
       sendSnippetFallback: (fallback) => this.sendSnippetFallback(fallback),
     });
+  }
+
+  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
+    if (!this.app) return;
+    const parsed = this.parseJid(jid);
+    if (!parsed) return;
+    const blocks = buildAgentTodoBlocks(render);
+    const text = render.summary?.trim()
+      ? `📋 ${render.summary.trim()}`
+      : '📋 Plan';
+    const existing = this.pendingTodos.get(jid);
+    if (existing) {
+      try {
+        await this.app.client.chat.update({
+          channel: existing.channel,
+          ts: existing.ts,
+          text,
+          blocks: blocks as any,
+        });
+        return;
+      } catch (err) {
+        logger.debug(
+          { jid, err },
+          'Slack todo update failed; sending a fresh message',
+        );
+        this.pendingTodos.delete(jid);
+      }
+    }
+    try {
+      const result = (await this.app.client.chat.postMessage({
+        channel: parsed.channelId,
+        text,
+        blocks: blocks as any,
+      })) as { ts?: string };
+      if (result.ts) {
+        this.pendingTodos.set(jid, {
+          channel: parsed.channelId,
+          ts: result.ts,
+        });
+      }
+    } catch (err) {
+      logger.warn({ jid, err }, 'Failed to send Slack todo message');
+    }
   }
 
   async sendStreamingChunk(
@@ -451,7 +496,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!this.interactionCallbacksEnabled) {
       return {
         approved: false,
-        reason: 'Slack interaction callbacks are not available on this worker.',
+        reason: 'This Slack connection cannot collect approvals right now.',
       };
     }
     if (!this.app) {
@@ -460,13 +505,16 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
 
     const parsed = this.parseJid(jid);
     if (!parsed) {
-      return { approved: false, reason: 'Invalid Slack JID' };
+      return {
+        approved: false,
+        reason: 'This Slack conversation could not be identified.',
+      };
     }
 
     if (this.pendingPermissionPrompts.has(request.requestId)) {
       return {
         approved: false,
-        reason: `Duplicate pending request: ${request.requestId}`,
+        reason: 'This approval request is already awaiting a decision.',
       };
     }
 
@@ -521,8 +569,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       if (!messageTs) {
         return {
           approved: false,
-          reason:
-            'Slack did not return a message timestamp for approval prompt',
+          reason: 'Slack did not accept the approval prompt.',
         };
       }
 

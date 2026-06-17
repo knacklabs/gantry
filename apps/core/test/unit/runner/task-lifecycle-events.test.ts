@@ -87,6 +87,43 @@ describe('buildTaskLifecycleRuntimeEvent', () => {
     expect(JSON.stringify(event)).not.toContain('unknown');
   });
 
+  it('bounds persisted lifecycle text fields', () => {
+    const longText = 'x'.repeat(400);
+    const started = buildTaskLifecycleRuntimeEvent(context, {
+      kind: 'started',
+      taskId: 'task-1',
+      description: longText,
+    });
+    const progress = buildTaskLifecycleRuntimeEvent(context, {
+      kind: 'progress',
+      taskId: 'task-1',
+      lastToolName: longText,
+      summary: longText,
+    });
+    const updated = buildTaskLifecycleRuntimeEvent(context, {
+      kind: 'updated',
+      taskId: 'task-1',
+      patch: {
+        status: longText,
+        description: longText,
+      },
+    });
+
+    expect(started?.payload).toMatchObject({
+      description: 'x'.repeat(300),
+    });
+    expect(progress?.payload).toMatchObject({
+      lastToolName: 'x'.repeat(300),
+      summary: 'x'.repeat(300),
+    });
+    expect(updated?.payload).toMatchObject({
+      patch: {
+        status: 'x'.repeat(300),
+        description: 'x'.repeat(300),
+      },
+    });
+  });
+
   it('drops empty task ids so task.notification capability events stay distinct', () => {
     expect(
       buildTaskLifecycleRuntimeEvent(context, {

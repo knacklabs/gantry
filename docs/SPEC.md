@@ -678,6 +678,29 @@ Sessions enable conversation continuity from Gantry-owned Postgres state.
 12. Runtime advances cursor and stores Gantry-owned run/session events in Postgres
 ```
 
+### Runtime Event Observability
+
+Gantry stores runtime events as read-only evidence for SDK clients, webhooks,
+status views, and audits. Public run event history projects these records from
+`GET /v1/runs/:runId/events`; startup diagnostics use public run event
+`type: 'diagnostic'` and retain the source runtime event type in metadata.
+
+Current observable runtime event families include:
+
+- `task.started`, `task.progress`, and `task.updated` for provider-neutral task
+  lifecycle observations. Lifecycle payload text is bounded before persistence
+  and excludes raw prompts, output paths, provider handles, credentials, and
+  stack traces.
+- `mcp.tool_activity` for MCP proxy attempt, denial, success, and failure
+  evidence. Arguments and errors are summarized/redacted, and raw MCP tool
+  result values are not persisted in the activity event.
+- `run.startup_diagnostic` for count/timing startup diagnostics from host or
+  runner setup.
+
+Runtime events are observable-only. They must not decide permissions, selected
+capabilities, MCP activation, model routing, channel delivery, or worker
+ownership.
+
 ### Trigger Word Matching
 
 Messages must start with the trigger pattern (default: `@Andy`):

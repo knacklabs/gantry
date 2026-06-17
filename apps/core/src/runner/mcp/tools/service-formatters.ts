@@ -40,15 +40,9 @@ export function formatMcpListToolsResponse(
     ? ((data as Record<string, unknown>).servers as unknown[])
     : [];
   const metadata = data as Record<string, unknown>;
-  const serverName =
-    typeof metadata.serverName === 'string' ? metadata.serverName : undefined;
-  const query = typeof metadata.query === 'string' ? metadata.query : undefined;
-  const total = typeof metadata.total === 'number' ? metadata.total : undefined;
-  const limit = typeof metadata.limit === 'number' ? metadata.limit : undefined;
-  const cursor =
-    typeof metadata.cursor === 'string' ? metadata.cursor : undefined;
-  const nextCursor =
-    typeof metadata.nextCursor === 'string' ? metadata.nextCursor : undefined;
+  const hasMoreResults =
+    typeof metadata.nextCursor === 'string' &&
+    metadata.nextCursor.trim().length > 0;
   const deferredServers = Array.isArray(metadata.deferredServers)
     ? metadata.deferredServers.filter(
         (server): server is string => typeof server === 'string',
@@ -64,17 +58,6 @@ export function formatMcpListToolsResponse(
           SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
           UNREVIEWED_DISCOVERY_GUIDANCE,
         ];
-  const summary = [
-    serverName ? `serverName="${serverName}"` : undefined,
-    query ? `query="${query}"` : undefined,
-    typeof total === 'number' ? `total=${total}` : undefined,
-    typeof limit === 'number' ? `limit=${limit}` : undefined,
-    cursor ? `cursor=${cursor}` : undefined,
-    nextCursor ? `nextCursor=${nextCursor}` : undefined,
-  ].filter((item): item is string => Boolean(item));
-  if (summary.length > 0) {
-    lines.push(`Search page: ${summary.join(' ')}`);
-  }
   const diagnostics = formatMcpDiagnosticsLine(
     metadata.diagnostics,
     'MCP inventory timing',
@@ -88,7 +71,7 @@ export function formatMcpListToolsResponse(
     );
   }
   if (servers.length === 0) {
-    if (summary.length === 0 && deferredServers.length === 0) {
+    if (!hasMoreResults && deferredServers.length === 0) {
       return 'No MCP tools are available.';
     }
     lines.push('No MCP tools returned in this page.');
@@ -144,14 +127,9 @@ export function formatMcpListToolsResponse(
       }
     }
   }
-  if (nextCursor) {
-    const cursorArgs = [
-      serverName ? `serverName="${serverName}"` : undefined,
-      query ? `query="${query}"` : undefined,
-      `cursor="${nextCursor}"`,
-    ].filter((item): item is string => Boolean(item));
+  if (hasMoreResults) {
     lines.push(
-      `\nMore results: call mcp_list_tools with ${cursorArgs.join(' ')}.`,
+      '\nMore results are available; ask me to continue and I will fetch the next page.',
     );
   }
   return lines.join('\n');

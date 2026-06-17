@@ -160,6 +160,10 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/gantry-agent-system-prompt.ts'),
+    path.join(runnerDir, 'gantry-agent-system-prompt.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-boundary.ts'),
     path.join(runnerDir, 'memory-boundary.ts'),
   );
@@ -369,6 +373,8 @@ function createRunnerFixture(): {
 import fs from 'fs';
 import path from 'path';
 import { sign as cryptoSign } from 'crypto';
+
+export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY = '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1013,9 +1019,33 @@ describe('agent-runner IPC lifecycle', () => {
               anthropicBaseUrlKind: 'non_first_party',
             }),
           }),
+          expect.objectContaining({
+            eventType: 'run.startup_diagnostic',
+            payload: expect.objectContaining({
+              provider: ['anthropic', 'sdk'].join('_'),
+              diagnostic: 'runner_startup_timing',
+              persistSdkSession: true,
+              resumedSession: false,
+              sdkQueryPreparedMs: expect.any(Number),
+              sdkQueryIteratorMs: expect.any(Number),
+              firstSdkEventMs: expect.any(Number),
+              providerSessionMs: expect.any(Number),
+              firstVisibleOutputMs: expect.any(Number),
+              firstResultMs: expect.any(Number),
+              messageCount: 2,
+              resultCount: 1,
+              availableToolCount: expect.any(Number),
+              allowedToolCount: expect.any(Number),
+              disallowedToolCount: expect.any(Number),
+              mcpServerCount: expect.any(Number),
+            }),
+          }),
         ]),
       );
       expect(JSON.stringify(startupDiagnostics)).not.toContain('broker.local');
+      expect(JSON.stringify(startupDiagnostics)).not.toContain(
+        'runner-session-1',
+      );
       const gantryMcpServer = call?.mcpServers?.gantry as
         | { args?: string[] }
         | undefined;
@@ -1061,30 +1091,33 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'forces native Agent tool calls to run in background',
+    'routes native Agent attempts through AgentDelegation instead of auto-allowing',
     async () => {
       const fixture = createRunnerFixture();
 
       const result = await runRunner(fixture, baseInput(), {
-        TEST_AGENT_BACKGROUND_INPUT: '1',
+        TEST_PERMISSION_DECISION: 'deny',
+        TEST_PERMISSION_TOOL_NAME: 'Agent',
         TEST_EXIT_AFTER_QUERY: '1',
       });
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.permissionDecision).toMatchObject({
-        behavior: 'allow',
-        updatedInput: {
-          prompt: 'delegate',
-          run_in_background: true,
-        },
+      expect(call?.permissionRequest).toMatchObject({
+        toolName: 'AgentDelegation',
+        toolInput: { cmd: 'npm test', apiToken: 'secret-token' },
+      });
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'deny',
+        message: 'Permission denied: deny',
+        interrupt: false,
       });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
-    'records prime-mode native Agent attempts as background work',
+    'records prime-mode native Agent attempts as AgentDelegation requests',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1115,7 +1148,7 @@ describe('agent-runner IPC lifecycle', () => {
         expect.objectContaining({
           eventType: 'permission.requested',
           payload: expect.objectContaining({
-            requestedToolName: 'Agent',
+            requestedToolName: 'AgentDelegation',
             toolInput: {
               prompt: 'delegate',
               run_in_background: true,
@@ -1919,6 +1952,26 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.persistSession).toBe(true);
       expect(call?.resume).toBe('stale-sdk-session');
       expect(call?.resumeSessionAt).toBeUndefined();
+      const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
+        (output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(startupDiagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'run.startup_diagnostic',
+            payload: expect.objectContaining({
+              provider: ['anthropic', 'sdk'].join('_'),
+              diagnostic: 'runner_startup_timing',
+              persistSdkSession: true,
+              resumedSession: true,
+            }),
+          }),
+        ]),
+      );
+      expect(JSON.stringify(startupDiagnostics)).not.toContain(
+        'stale-sdk-session',
+      );
       expect(
         (call?.mcpServers?.gantry as { env?: Record<string, string> })?.env,
       ).toMatchObject({
@@ -2097,7 +2150,10 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.streamEnded).toBe(true);
-      expect(result.stdout.match(/---GANTRY_OUTPUT_START---/g)).toHaveLength(2);
+      const outputs = readRunnerOutputs(result.stdout);
+      expect(outputs.filter((output) => !output.runtimeEventOnly)).toHaveLength(
+        1,
+      );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

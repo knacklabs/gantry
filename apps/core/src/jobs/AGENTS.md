@@ -13,6 +13,10 @@
   the signed host IPC boundary. Do not open Postgres repositories, artifact
   stores, or runtime storage directly from the MCP subprocess; add a typed IPC
   handler and inject runtime stores through `IpcDeps`.
+- Agent task lifecycle IPC (`todo_update`, `delegate_task`, `task_get`,
+  `task_cancel`) must recheck same-conversation scope and the canonical
+  `AgentDelegation` rule at the parent boundary. MCP-side tool mounting is only
+  defense-in-depth.
 - Scheduler terminal notifications are user-facing lifecycle receipts. Format
   job reports, system maintenance results, and next-run times into readable
   product copy before delivery; never surface raw queue bookkeeping JSON,

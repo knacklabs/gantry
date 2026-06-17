@@ -561,6 +561,41 @@
       "when": 1777273800000,
       "tag": "0080_live_admission_work_items",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1777277400000,
+      "tag": "0081_live_admission_claim_branch_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1777281000000,
+      "tag": "0082_live_turn_recoverable_sweep_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1777284600000,
+      "tag": "0083_mcp_inventory_audit_hot_path_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1777288200000,
+      "tag": "0084_live_admission_failure_count",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1777291800000,
+      "tag": "0085_agent_task_lifecycle",
+      "breakpoints": true
     }
   ]
 }

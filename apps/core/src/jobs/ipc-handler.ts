@@ -3,6 +3,7 @@ import { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { adminTaskHandlers } from './ipc-admin-handlers.js';
 import { agentProfileTaskHandlers } from './ipc-agent-profile-handlers.js';
 import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
+import { agentTaskLifecycleHandlers } from './ipc-agent-task-lifecycle-handlers.js';
 import { schedulerCreateTaskHandlers } from './ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from './ipc-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
@@ -84,6 +85,7 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...adminTaskHandlers,
   ...agentProfileTaskHandlers,
   ...fileArtifactTaskHandlers,
+  ...agentTaskLifecycleHandlers,
 };
 
 export type { TaskIpcData } from './ipc-types.js';
@@ -144,6 +146,15 @@ export async function processTaskIpc(
           return undefined;
         }
       }),
+    getSkillRepository:
+      deps.getSkillRepository ??
+      (() => {
+        try {
+          return getRuntimeStorage().repositories.skills;
+        } catch {
+          return undefined;
+        }
+      }),
     getPermissionRepository:
       deps.getPermissionRepository ??
       (() => {
@@ -158,6 +169,15 @@ export async function processTaskIpc(
       (() => {
         try {
           return getRuntimeStorage().fileArtifacts;
+        } catch {
+          return undefined;
+        }
+      }),
+    getTaskLifecycleRepository:
+      deps.getTaskLifecycleRepository ??
+      (() => {
+        try {
+          return getRuntimeStorage().repositories.taskLifecycle;
         } catch {
           return undefined;
         }

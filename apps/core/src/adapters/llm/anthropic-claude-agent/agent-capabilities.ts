@@ -9,7 +9,7 @@ import {
 } from '../../../shared/admin-mcp-tools.js';
 import {
   BASELINE_GANTRY_MCP_TOOL_NAMES,
-  DEFAULT_GANTRY_MCP_TOOL_NAMES,
+  DELEGATION_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   gantryMcpToolNameFromFullName,
@@ -40,6 +40,7 @@ export interface AgentCapabilityContext {
   workspaceFolder: string;
   threadId?: string;
   jobId?: string;
+  runHandle?: string;
   runId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
@@ -113,18 +114,33 @@ const RUNNER_SUPPRESSED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
   'memory_dream',
   'memory_consolidate',
 ]);
+const DEFAULT_ALLOWED_GANTRY_MCP_TOOL_NAME_SET = new Set<string>([
+  ...BASELINE_GANTRY_MCP_TOOL_NAMES,
+  ...DELEGATION_GANTRY_MCP_TOOL_NAMES,
+]);
 
 function gantryMcpAllowedTools(input: {
+  configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
 }): string[] {
-  return BASELINE_GANTRY_MCP_TOOL_NAMES.filter(
-    (toolName) =>
-      input.hideAuthorityTools !== true ||
-      !NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAME_SET.has(toolName),
-  ).map(gantryMcpFullToolName);
+  const selectedNames = new Set(
+    selectedGantryMcpToolNames(input.configuredTools ?? [], {
+      excludeAuthorityTools: input.hideAuthorityTools === true,
+    }),
+  );
+  return [
+    ...BASELINE_GANTRY_MCP_TOOL_NAMES,
+    ...DELEGATION_GANTRY_MCP_TOOL_NAMES,
+  ]
+    .filter((toolName) => selectedNames.has(toolName))
+    .filter((toolName) =>
+      DEFAULT_ALLOWED_GANTRY_MCP_TOOL_NAME_SET.has(toolName),
+    )
+    .map(gantryMcpFullToolName);
 }
 
 function defaultAllowedTools(input: {
+  configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
@@ -180,10 +196,12 @@ const sdkToolsProvider: AgentCapabilityProvider = {
           ? [
               ...DEVELOPER_NATIVE_SDK_TOOLS,
               ...defaultAllowedTools({
+                configuredTools: ctx.configuredAllowedTools,
                 hideAuthorityTools: ctx.hideAuthorityTools,
               }),
             ]
           : defaultAllowedTools({
+              configuredTools: ctx.configuredAllowedTools,
               hideAuthorityTools: ctx.hideAuthorityTools,
             }),
       availableTools: baseAvailableTools,
@@ -209,6 +227,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       GANTRY_CHAT_JID: ctx.chatJid,
       GANTRY_WORKSPACE_KEY: ctx.workspaceFolder,
       GANTRY_THREAD_ID: ctx.threadId || '',
+      ...(ctx.runHandle ? { GANTRY_AGENT_RUN_HANDLE: ctx.runHandle } : {}),
       ...(ctx.jobId ? { GANTRY_JOB_ID: ctx.jobId } : {}),
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
       ...(ctx.runLeaseToken

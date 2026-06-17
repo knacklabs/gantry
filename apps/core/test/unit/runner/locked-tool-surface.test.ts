@@ -98,6 +98,27 @@ describe('locked tool surface mounting', () => {
     });
     expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
   });
+
+  it('mounts delegation wrappers only when AgentDelegation is selected', () => {
+    const defaultNames = selectedGantryMcpToolNames([]);
+    expect(defaultNames).toContain('todo_update');
+    expect(defaultNames).not.toContain('delegate_task');
+    expect(defaultNames).not.toContain('task_get');
+    expect(defaultNames).not.toContain('task_cancel');
+
+    const delegatedNames = selectedGantryMcpToolNames(['AgentDelegation']);
+    expect(delegatedNames).toContain('delegate_task');
+    expect(delegatedNames).toContain('task_get');
+    expect(delegatedNames).toContain('task_cancel');
+
+    const lockedNames = selectedGantryMcpToolNames(['AgentDelegation'], {
+      excludeAuthorityTools: true,
+    });
+    expect(lockedNames).toContain('todo_update');
+    expect(lockedNames).not.toContain('delegate_task');
+    expect(lockedNames).not.toContain('task_get');
+    expect(lockedNames).not.toContain('task_cancel');
+  });
 });
 
 describe('locked fail-closed env parsing', () => {

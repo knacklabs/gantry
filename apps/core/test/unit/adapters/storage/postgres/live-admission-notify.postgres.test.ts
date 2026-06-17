@@ -78,6 +78,28 @@ describe('live admission Postgres wakeups', () => {
     expect(client.release).toHaveBeenCalledOnce();
   });
 
+  it('does not reuse a pending LISTEN client after close wins the connect race', async () => {
+    const client = Object.assign(new EventEmitter(), {
+      query: vi.fn(async () => undefined),
+      release: vi.fn(),
+    });
+    let resolveConnect: (client: typeof client) => void = () => {};
+    const connect = vi.fn(
+      () =>
+        new Promise<typeof client>((resolve) => {
+          resolveConnect = resolve;
+        }),
+    );
+    const source = new PostgresLiveAdmissionWakeupSource({ connect } as any);
+
+    source.subscribe(vi.fn());
+    await source.close();
+    resolveConnect(client);
+
+    await vi.waitFor(() => expect(client.release).toHaveBeenCalledOnce());
+    expect(client.query).not.toHaveBeenCalled();
+  });
+
   it('wakes subscribers when the LISTEN client fails', async () => {
     const client = Object.assign(new EventEmitter(), {
       query: vi.fn(async () => undefined),

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type {
   LiveAdmissionWorkItem,
@@ -38,6 +38,7 @@ function toLiveAdmissionWorkItem(
     claimExpiresAt: row.claimExpiresAt,
     fencingVersion: row.fencingVersion,
     retryCount: row.retryCount,
+    failureCount: row.failureCount,
     deferUntil: row.deferUntil,
     deferredReason: row.deferredReason,
     createdAt: row.createdAt,
@@ -88,6 +89,7 @@ export async function enqueueLiveAdmissionWorkItem(
     claimExpiresAt: null,
     fencingVersion: 0,
     retryCount: 0,
+    failureCount: 0,
     deferUntil: null,
     deferredReason: null,
     createdAt: now,
@@ -116,6 +118,7 @@ export async function enqueueLiveAdmissionWorkItem(
 export async function claimLiveAdmissionWorkItems(
   db: CanonicalDb,
   input: {
+    appId: string;
     workerInstanceId: string;
     claimToken: string;
     claimExpiresAt: string;
@@ -125,29 +128,65 @@ export async function claimLiveAdmissionWorkItems(
 ): Promise<LiveAdmissionWorkItem[]> {
   const now = input.now ?? currentIso();
   const limit = Math.max(1, Math.floor(input.limit));
+  const candidateLimit = limit * 4;
   return db.transaction(async (tx) => {
     const items = pgSchema.liveAdmissionWorkItemsPostgres;
-    const candidates = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(
-        or(
-          eq(items.state, 'queued'),
-          and(
-            eq(items.state, 'deferred'),
-            or(isNull(items.deferUntil), lte(items.deferUntil, now)),
-          ),
-          and(
-            eq(items.state, 'claimed'),
-            sql`${items.claimExpiresAt} IS NOT NULL`,
-            lte(items.claimExpiresAt, now),
-          ),
-        ),
+    const candidates = await tx.execute<{ id: string }>(sql`
+      WITH queued AS (
+        SELECT ${items.id} AS id, ${items.createdAt} AS created_at
+        FROM ${items}
+        WHERE ${items.appId} = ${input.appId}
+          AND ${items.state} = 'queued'
+        ORDER BY ${items.createdAt} ASC, ${items.id} ASC
+        LIMIT ${candidateLimit}
+        FOR UPDATE SKIP LOCKED
+      ),
+      due_deferred AS (
+        SELECT ${items.id} AS id, ${items.createdAt} AS created_at
+        FROM ${items}
+        WHERE ${items.appId} = ${input.appId}
+          AND ${items.state} = 'deferred'
+          AND ${items.deferUntil} <= ${now}
+        ORDER BY ${items.deferUntil} ASC, ${items.createdAt} ASC, ${items.id} ASC
+        LIMIT ${candidateLimit}
+        FOR UPDATE SKIP LOCKED
+      ),
+      null_deferred AS (
+        SELECT ${items.id} AS id, ${items.createdAt} AS created_at
+        FROM ${items}
+        WHERE ${items.appId} = ${input.appId}
+          AND ${items.state} = 'deferred'
+          AND ${items.deferUntil} IS NULL
+        ORDER BY ${items.createdAt} ASC, ${items.id} ASC
+        LIMIT ${candidateLimit}
+        FOR UPDATE SKIP LOCKED
+      ),
+      expired_claimed AS (
+        SELECT ${items.id} AS id, ${items.createdAt} AS created_at
+        FROM ${items}
+        WHERE ${items.appId} = ${input.appId}
+          AND ${items.state} = 'claimed'
+          AND ${items.claimExpiresAt} IS NOT NULL
+          AND ${items.claimExpiresAt} <= ${now}
+        ORDER BY ${items.claimExpiresAt} ASC, ${items.createdAt} ASC, ${items.id} ASC
+        LIMIT ${candidateLimit}
+        FOR UPDATE SKIP LOCKED
+      ),
+      candidates AS (
+        SELECT id, created_at FROM queued
+        UNION ALL
+        SELECT id, created_at FROM due_deferred
+        UNION ALL
+        SELECT id, created_at FROM null_deferred
+        UNION ALL
+        SELECT id, created_at FROM expired_claimed
       )
-      .orderBy(asc(items.createdAt), asc(items.id))
-      .limit(limit)
-      .for('update', { skipLocked: true });
-    const ids = candidates.map((candidate) => candidate.id);
+      SELECT id
+      FROM candidates
+      ORDER BY created_at ASC, id ASC
+      LIMIT ${limit}
+    `);
+    const ids = candidates.rows.map((candidate) => candidate.id);
     if (ids.length === 0) return [];
     const rows = await tx
       .update(items)
@@ -173,6 +212,36 @@ export async function claimLiveAdmissionWorkItems(
   });
 }
 
+export async function renewLiveAdmissionWorkItemClaim(
+  db: CanonicalDb,
+  input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    claimExpiresAt: string;
+    now?: string;
+  },
+): Promise<boolean> {
+  const now = input.now ?? currentIso();
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db
+    .update(items)
+    .set({
+      claimExpiresAt: input.claimExpiresAt,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(items.id, input.id),
+        eq(items.state, 'claimed'),
+        eq(items.claimToken, input.claimToken),
+        eq(items.claimWorkerInstanceId, input.workerInstanceId),
+      ),
+    )
+    .returning({ id: items.id });
+  return rows.length > 0;
+}
+
 export async function deferLiveAdmissionWorkItem(
   db: CanonicalDb,
   input: {
@@ -181,6 +250,7 @@ export async function deferLiveAdmissionWorkItem(
     workerInstanceId: string;
     reason: 'queued_capacity' | 'listener_degraded' | 'retry';
     deferUntil: string;
+    countFailure?: boolean;
     now?: string;
   },
 ): Promise<boolean> {
@@ -193,6 +263,9 @@ export async function deferLiveAdmissionWorkItem(
       claimWorkerInstanceId: null,
       claimToken: null,
       claimExpiresAt: null,
+      failureCount: input.countFailure
+        ? sql`${items.failureCount} + 1`
+        : sql`${items.failureCount}`,
       deferUntil: input.deferUntil,
       deferredReason: input.reason,
       updatedAt: now,

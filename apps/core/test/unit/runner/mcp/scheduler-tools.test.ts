@@ -806,9 +806,7 @@ describe('scheduler MCP tools', () => {
           },
         },
       ]),
-    ).toContain(
-      '- job-1 | Follow up | Ready | Workspace: unknown | Agent: agent:main | Next: none',
-    );
+    ).toContain('- job-1 | Follow up | Ready | Next: none');
     expect(
       schedulerJobSummary({
         id: 'job-2',
@@ -879,10 +877,13 @@ describe('scheduler MCP tools', () => {
 
     expect(summary).toContain('Scheduler notification targets (1)');
     expect(summary).toContain('- here | Current conversation');
-    expect(summary).toContain(
-      'execution_context conversation_jid=tg:team thread_id=none workspace_key=team',
-    );
-    expect(summary).toContain('notification_routes 1 (primary:tg:team:none)');
+    // Raw conversation jids, thread ids, and workspace keys must not leak into
+    // user-facing text; only human labels and route names are shown.
+    expect(summary).not.toContain('conversation_jid=');
+    expect(summary).not.toContain('thread_id=');
+    expect(summary).not.toContain('workspace_key=');
+    expect(summary).toContain('notification_routes 1');
+    expect(summary).toContain('primary');
     expect(summary).not.toContain('Scheduler events');
   });
 
@@ -924,7 +925,7 @@ describe('scheduler MCP tools', () => {
     ]);
 
     expect(summary).toContain(
-      '- job-2 | Use browser when needed | Needs approval | Workspace: team-space | Agent: agent:main | Next: Approve Browser access, then resume the job.',
+      '- job-2 | Use browser when needed | Needs approval | Next: Approve Browser access, then resume the job.',
     );
     expect(summary).not.toContain('capabilities:');
     expect(summary).not.toContain('access:');
@@ -932,7 +933,7 @@ describe('scheduler MCP tools', () => {
     expect(summary).not.toContain('tools:');
   });
 
-  it('renders provider-neutral workspace and agent labels in the scheduler list line', async () => {
+  it('keeps workspace, agent, and raw conversation ids out of the scheduler list line', async () => {
     const { schedulerJobsSummary } =
       await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
 
@@ -954,8 +955,9 @@ describe('scheduler MCP tools', () => {
     const listLine = summary
       .split('\n')
       .find((line) => line.startsWith('- job-1'));
-    expect(listLine).toContain('Workspace: telegram-team');
-    expect(listLine).toContain('Agent: agent:main');
+    expect(listLine).toContain('Topic digest');
+    expect(listLine).not.toContain('telegram-team');
+    expect(listLine).not.toContain('agent:main');
     expect(listLine).not.toContain('tg:-100team');
   });
 

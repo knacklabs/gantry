@@ -338,6 +338,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   ) => Promise<NewMessage[]>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
+  enqueueMessageCheck?: (queueJid: string) => void;
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
@@ -345,7 +346,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     typeof routeScopeActiveLiveTurnAdmission
   >[0]['completeSessionAgentRun'];
 }): Promise<boolean> {
-  const messages = input.getMessagesSince
+  const replay = input.getMessagesSince
     ? await collectPendingMessagesSince({
         getMessagesSince: input.getMessagesSince,
         chatJid: input.chatJid,
@@ -354,12 +355,14 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
         options: { threadId: input.threadId },
       })
     : undefined;
-  return routeScopeActiveLiveTurnAdmission({
+  const messages = replay?.messages;
+  const routed = await routeScopeActiveLiveTurnAdmission({
     scope: input.scope,
     queueJid: input.queueJid,
     liveRunId: input.liveRunId,
     continuation: buildLiveTurnContinuation({
       queueJid: input.queueJid,
+      sinceCursor: input.replayCursor,
       messages,
       timezone: input.timezone,
       setAgentCursor: input.setAgentCursor,
@@ -368,4 +371,8 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     routeMessage: input.routeMessage,
     completeSessionAgentRun: input.completeSessionAgentRun,
   });
+  if (routed && replay?.hasMore) {
+    input.enqueueMessageCheck?.(input.queueJid);
+  }
+  return routed;
 }

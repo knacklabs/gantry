@@ -53,9 +53,10 @@ export const mcpServersPostgres = pgTable(
       table.appId,
       table.name,
     ),
-    appStatusIdx: index('idx_mcp_servers_app_status').on(
+    appStatusUpdatedIdx: index('idx_mcp_servers_app_status_updated').on(
       table.appId,
       table.status,
+      table.updatedAt.desc(),
     ),
   }),
 );
@@ -132,10 +133,9 @@ export const mcpServerAuditEventsPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    appServerIdx: index('idx_mcp_server_audit_events_app_server').on(
-      table.appId,
-      table.serverId,
-    ),
+    appServerCreatedIdx: index(
+      'idx_mcp_server_audit_events_app_server_created',
+    ).on(table.appId, table.serverId, table.createdAt.desc()),
     appCreatedIdx: index('idx_mcp_server_audit_events_app_created').on(
       table.appId,
       table.createdAt,

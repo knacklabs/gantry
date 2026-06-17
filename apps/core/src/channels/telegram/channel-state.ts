@@ -67,6 +67,16 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected pendingPermissionCallbackIds = new Map<string, string>();
   private permissionCallbackCounter = 0;
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
+  // Maps a ForceReply prompt (the "Other" free-text path) back to its question.
+  // Keyed by `${chatId}:${forceReplyMessageId}`.
+  protected pendingUserQuestionOtherPrompts = new Map<
+    string,
+    { requestId: string; questionIndex: number }
+  >();
+  protected pendingTodos = new Map<
+    string,
+    { chatId: string; messageId: number }
+  >();
   protected activeDraftStreams = new Map<string, ActiveDraftStreamState>();
   protected activeGroupStreams = new Map<string, ActiveGroupStreamState>();
   protected streamGenerationByJid = new Map<string, number>();
