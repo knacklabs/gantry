@@ -38,6 +38,10 @@ const runtimeSmokePath = path.join(
   process.cwd(),
   'scripts/boondi-runtime-smoke.mjs',
 );
+const latencyRunnerPath = path.join(
+  process.cwd(),
+  'scripts/measure-latency.mjs',
+);
 const runtimeStackPath = path.join(
   process.cwd(),
   'scripts/boondi-runtime-stack.sh',
@@ -626,6 +630,23 @@ describe('Boondi regression scenarios', () => {
     );
     expect(smoke).toContain(
       'workerInventory.instances.length < smokeEnv.expectedRuntimeInstances',
+    );
+  });
+
+  it('keeps the latency measurement summary output parseable', () => {
+    const latencyRunner = fs.readFileSync(latencyRunnerPath, 'utf-8');
+
+    expect(latencyRunner).not.toContain('console.log(\n  console.log(');
+    expect(latencyRunner).toContain("`\\n${pad('scenario', 28)}");
+  });
+
+  it('keeps latency slot isolation focused on live runtime turns', () => {
+    const latencyRunner = fs.readFileSync(latencyRunnerPath, 'utf-8');
+
+    expect(latencyRunner).toContain('function isLiveTurnRunnerCommand');
+    expect(latencyRunner).toContain("command.includes('/gantry-runner-test-')");
+    expect(latencyRunner).toContain(
+      '.filter(({ command }) => isLiveTurnRunnerCommand(command))',
     );
   });
 });

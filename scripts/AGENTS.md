@@ -65,3 +65,7 @@
   when measuring warm-follow-up retention. The short suite default intentionally
   frees active-run slots and will force delayed follow-ups onto SDK-session
   resume instead of the live `MessageStream` path.
+- `scripts/measure-latency.mjs` slot isolation should wait only for live
+  customer-turn runner processes. Ignore warm-pool workers and orphaned
+  `/gantry-runner-test-*` fixture runners; otherwise stale test children can
+  make a healthy local stack look like it has permanent queue pressure.

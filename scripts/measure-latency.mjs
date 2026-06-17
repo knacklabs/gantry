@@ -214,22 +214,31 @@ function activeRunnerPids() {
       .toString()
       .trim()
       .split('\n')
-      .filter(Boolean);
-    return pids.filter((pid) => !isWarmPoolWorkerPid(pid));
+      .filter(Boolean)
+      .map((pid) => ({ pid, command: commandForPid(pid) }))
+      .filter(({ command }) => isLiveTurnRunnerCommand(command));
+    return pids.map(({ pid }) => pid);
   } catch {
     return []; // pgrep exits 1 when nothing matches
   }
 }
 
-function isWarmPoolWorkerPid(pid) {
+function commandForPid(pid) {
   try {
-    const command = execFileSync('ps', ['-p', pid, '-o', 'command='], {
+    return execFileSync('ps', ['-p', pid, '-o', 'command='], {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).toString();
-    return command.includes('--gantry-warm-pool-worker=');
   } catch {
-    return false;
+    return '';
   }
+}
+
+function isLiveTurnRunnerCommand(command) {
+  return (
+    command.includes(RUNNER_PROC_PATTERN) &&
+    !command.includes('--gantry-warm-pool-worker=') &&
+    !command.includes('/gantry-runner-test-')
+  );
 }
 
 async function waitForSlotIsolation() {
@@ -572,17 +581,15 @@ async function main() {
       for (const scenario of scenarios) {
         const isolated = await waitForSlotIsolation();
         if (!isolated) {
-          bySid
-            .get(scenario.id)
-            .push({
-              scenario: scenario.id,
-              ok: false,
-              slotViolation: true,
-              totalMs: null,
-              stages: {},
-              rounds: [],
-              roundCount: 0,
-            });
+          bySid.get(scenario.id).push({
+            scenario: scenario.id,
+            ok: false,
+            slotViolation: true,
+            totalMs: null,
+            stages: {},
+            rounds: [],
+            roundCount: 0,
+          });
           console.log(`  ${scenario.id} SKIPPED (slot isolation not reached)`);
           continue;
         }

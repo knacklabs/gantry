@@ -771,28 +771,28 @@ Plan changes required before Phase 2:
 
 Switch audit:
 
-| Switch                              | Current owner                     | Status                         | Cleanup decision                                                                   |
-| ----------------------------------- | --------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------- |
-| `runtime.queue.max_message_runs`    | `settings.yaml`                   | Active                         | Keep.                                                                              |
-| `runtime.queue.max_job_runs`        | `settings.yaml`                   | Active                         | Keep.                                                                              |
-| `runtime.queue.max_retries`         | `settings.yaml`                   | Active                         | Keep.                                                                              |
-| `runtime.queue.base_retry_ms`       | `settings.yaml`                   | Active                         | Keep.                                                                              |
-| `runtime.warm_pool.enabled`         | `settings.yaml`                   | Active                         | Keep as desired-state owner.                                                       |
-| `runtime.warm_pool.size`            | `settings.yaml`                   | Active                         | Keep; later rename/extend to `available_size` only with parser/renderer migration. |
-| `runtime.warm_pool.idle_ttl_ms`     | `settings.yaml`                   | Active                         | Keep for generic warm-pool maintenance; separate from live runner retention.       |
-| `runtime.runner.idle_timeout_ms`    | `settings.yaml`                   | Active                         | Live runner stdin retention and hard-timeout backstop owner.                       |
-| `runtime.trace.payload_retention_ms` | `settings.yaml`                   | Active                         | Keep as exact trace payload retention owner; timing rows are preserved.            |
-| `runtime.trace.payload_cleanup_interval_ms` | `settings.yaml`           | Active                         | Keep as exact trace payload cleanup cadence owner.                                 |
-| `GANTRY_WARM_POOL`                  | none                              | Removed                        | Legacy env is ignored; use `runtime.warm_pool.enabled`.                            |
-| `GANTRY_WARM_POOL_CACHE_PROBE`      | none                              | Removed                        | Use `runtime.warm_pool.cache_prewarm_enabled` and `cache_prewarm_concurrency`.     |
-| `IDLE_TIMEOUT`                      | none                              | Removed                        | Legacy env is ignored; use `runtime.runner.idle_timeout_ms`.                       |
-| `GANTRY_FLOW_LOG`                   | `$GANTRY_HOME/.env` / process env | Active dev diagnostic          | Keep for Boondi E2E until trace/admin coverage fully replaces it.                  |
-| `GANTRY_TRACE_PAYLOADS`             | `$GANTRY_HOME/.env` / process env | Active dev diagnostic          | Keep as disabled-by-default exact payload capture gate; access/policy is now Control API/settings-owned. |
-| `GANTRY_OUTBOUND_DRYRUN`            | `$GANTRY_HOME/.env` / process env | Active dev safety gate         | Keep for local Boondi testing.                                                     |
-| `GANTRY_TEST_OPERATOR_PHONE`        | `$GANTRY_HOME/.env` / process env | Active dev safety scope        | Keep with outbound dry-run.                                                        |
-| `GANTRY_TEST_CALLER_IDENTITY_PHONE` | `$GANTRY_HOME/.env` / process env | Active Boondi harness override | Keep until test harness has a settings-owned alternative.                          |
-| `GANTRY_CHILD_RUNNER_FROM_SOURCE`   | `$GANTRY_HOME/.env` / process env | Active developer workflow      | Keep; not part of production routing/warm-pool ownership.                          |
-| `GANTRY_SPIKE_*`                    | none found                        | Removed                        | No action in this worktree.                                                        |
+| Switch                                      | Current owner                     | Status                         | Cleanup decision                                                                                         |
+| ------------------------------------------- | --------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `runtime.queue.max_message_runs`            | `settings.yaml`                   | Active                         | Keep.                                                                                                    |
+| `runtime.queue.max_job_runs`                | `settings.yaml`                   | Active                         | Keep.                                                                                                    |
+| `runtime.queue.max_retries`                 | `settings.yaml`                   | Active                         | Keep.                                                                                                    |
+| `runtime.queue.base_retry_ms`               | `settings.yaml`                   | Active                         | Keep.                                                                                                    |
+| `runtime.warm_pool.enabled`                 | `settings.yaml`                   | Active                         | Keep as desired-state owner.                                                                             |
+| `runtime.warm_pool.size`                    | `settings.yaml`                   | Active                         | Keep; later rename/extend to `available_size` only with parser/renderer migration.                       |
+| `runtime.warm_pool.idle_ttl_ms`             | `settings.yaml`                   | Active                         | Keep for generic warm-pool maintenance; separate from live runner retention.                             |
+| `runtime.runner.idle_timeout_ms`            | `settings.yaml`                   | Active                         | Live runner stdin retention and hard-timeout backstop owner.                                             |
+| `runtime.trace.payload_retention_ms`        | `settings.yaml`                   | Active                         | Keep as exact trace payload retention owner; timing rows are preserved.                                  |
+| `runtime.trace.payload_cleanup_interval_ms` | `settings.yaml`                   | Active                         | Keep as exact trace payload cleanup cadence owner.                                                       |
+| `GANTRY_WARM_POOL`                          | none                              | Removed                        | Legacy env is ignored; use `runtime.warm_pool.enabled`.                                                  |
+| `GANTRY_WARM_POOL_CACHE_PROBE`              | none                              | Removed                        | Use `runtime.warm_pool.cache_prewarm_enabled` and `cache_prewarm_concurrency`.                           |
+| `IDLE_TIMEOUT`                              | none                              | Removed                        | Legacy env is ignored; use `runtime.runner.idle_timeout_ms`.                                             |
+| `GANTRY_FLOW_LOG`                           | `$GANTRY_HOME/.env` / process env | Active dev diagnostic          | Keep for Boondi E2E until trace/admin coverage fully replaces it.                                        |
+| `GANTRY_TRACE_PAYLOADS`                     | `$GANTRY_HOME/.env` / process env | Active dev diagnostic          | Keep as disabled-by-default exact payload capture gate; access/policy is now Control API/settings-owned. |
+| `GANTRY_OUTBOUND_DRYRUN`                    | `$GANTRY_HOME/.env` / process env | Active dev safety gate         | Keep for local Boondi testing.                                                                           |
+| `GANTRY_TEST_OPERATOR_PHONE`                | `$GANTRY_HOME/.env` / process env | Active dev safety scope        | Keep with outbound dry-run.                                                                              |
+| `GANTRY_TEST_CALLER_IDENTITY_PHONE`         | `$GANTRY_HOME/.env` / process env | Active Boondi harness override | Keep until test harness has a settings-owned alternative.                                                |
+| `GANTRY_CHILD_RUNNER_FROM_SOURCE`           | `$GANTRY_HOME/.env` / process env | Active developer workflow      | Keep; not part of production routing/warm-pool ownership.                                                |
+| `GANTRY_SPIKE_*`                            | none found                        | Removed                        | No action in this worktree.                                                                              |
 
 Surface Impact Matrix for the next implementation slice:
 
@@ -2570,10 +2570,29 @@ Evidence:
     returned `ok: true`: Shopify primary, Shopify secondary, and CRM each had
     one guardrail event, one MCP request, one MCP response, one outbound dry-run
     event, and duplicate-inbound suppression.
+  - `scripts/measure-latency.mjs` now ignores warm-pool workers and orphaned
+    `/gantry-runner-test-*` fixture runners during slot isolation. The first
+    focused latency attempt against the healthy local stack skipped T3 because
+    stale test PID `27435` from `/var/folders/.../gantry-runner-test-*` was
+    incorrectly treated as active customer queue pressure; the corrected harness
+    limits isolation to live customer-turn runners.
+  - Focused latency measurement against the held local stack passed:
+    `GANTRY_DEV_LOG=/tmp/gantry-capture.log LATENCY_TURN_TIMEOUT_MS=180000 node scripts/measure-latency.mjs --samples 1 --only T3 --json /tmp/latency-suite-phase8-t3.json`
+    reported T3 product lookup `1/1`, total `8836ms`, guardrail pickup `38ms`,
+    MCP total `1055ms`, post-result tail `118ms`, two LLM rounds, first-round
+    cache write `6771`, and first-round cache read `3238`.
+  - Admin/API proof for the same `000000043` sample showed
+    `replySeconds: 8.836`, `latencyTotal: 8836`, and latency sections
+    `["queue","llm","gap","tool","llm","gap"]`. Direct Postgres trace
+    inspection showed only `144ms` total `gap` time and no `cache_prewarm` or
+    `startup` section in the customer reply trace. Flow logs also showed the
+    route warm-pool prewarm completed for `wa:000000043` before the customer
+    message was processed.
 Open follow-ups:
-  - Measure Boondi latency separately with `scripts/measure-latency.mjs` and
-    boondi-admin `replySeconds`; the broad regression harness is a correctness
-    gate for visible replies, routing, guardrails, privacy, and tool calls.
+  - Continue Boondi latency measurement with `scripts/measure-latency.mjs` and
+    boondi-admin `replySeconds` across the full T1-T5 matrix and multiple
+    samples; the broad regression harness remains a correctness gate for
+    visible replies, routing, guardrails, privacy, and tool calls.
   - Full Boondi semantic scenario gates are useful product regression checks,
     but they are not the current runtime-plumbing gate. For local server
     readiness, use the signed-webhook smoke plus MCP request/response evidence
