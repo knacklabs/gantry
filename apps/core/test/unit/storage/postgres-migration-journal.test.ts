@@ -168,6 +168,33 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain('draining_started_at timestamptz');
   });
 
+  it('registers runtime worker inventory snapshots as a per-instance read model', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0077_runtime_worker_inventory_snapshots',
+    );
+    expect(entry).toMatchObject({ idx: 77 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0077_runtime_worker_inventory_snapshots.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS runtime_worker_inventory_snapshots',
+    );
+    expect(migration).toContain('PRIMARY KEY (app_id, instance_id)');
+    expect(migration).toContain('warm_pool_json jsonb NOT NULL');
+    expect(migration).toContain('queue_json jsonb NOT NULL');
+    expect(migration).toContain('idx_runtime_worker_inventory_heartbeat');
+  });
+
   it('applies the memory schema migration on fresh databases', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',

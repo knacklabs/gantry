@@ -53,6 +53,9 @@ describe('installShutdownHandlers', () => {
         closeConversationWorkReconciler: vi.fn(() => {
           order.push('closeConversationWorkReconciler');
         }),
+        closeWorkerInventoryHeartbeat: vi.fn(() => {
+          order.push('closeWorkerInventoryHeartbeat');
+        }),
         releaseConversationOwnerLeases: vi.fn(async () => {
           order.push('releaseConversationOwnerLeases');
         }),
@@ -89,6 +92,7 @@ describe('installShutdownHandlers', () => {
     expect(order).toEqual([
       'log-signal',
       'closeConversationWorkReconciler',
+      'closeWorkerInventoryHeartbeat',
       'queue.shutdown',
       'releaseConversationOwnerLeases',
       'markConversationOwnerLeasesDraining',

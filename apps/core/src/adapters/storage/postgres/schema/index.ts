@@ -22,3 +22,4 @@ export * from './sandbox.js';
 export * from './sessions.js';
 export * from './skills.js';
 export * from './tools.js';
+export * from './runtime-worker-inventory.js';

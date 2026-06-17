@@ -16,6 +16,7 @@ import { RuntimeEventExchange } from '@core/application/runtime-events/runtime-e
 import { PostgresRuntimeEventNotifier } from '@core/adapters/storage/postgres/runtime-event-notifier.postgres.js';
 import { PostgresConversationWorkNotifier } from '@core/adapters/storage/postgres/conversation-work-notifier.postgres.js';
 import { PostgresConversationOwnerLeaseRepository } from '@core/adapters/storage/postgres/repositories/conversation-owner-lease-repository.postgres.js';
+import { PostgresWorkerInventorySnapshotRepository } from '@core/adapters/storage/postgres/repositories/worker-inventory-snapshot-repository.postgres.js';
 import {
   PostgresStorageService,
   quotePostgresIdentifier,
@@ -77,6 +78,8 @@ export async function createPostgresIntegrationRuntime(options?: {
   const conversationOwnerLeases = new PostgresConversationOwnerLeaseRepository(
     service.db,
   );
+  const workerInventorySnapshots =
+    new PostgresWorkerInventorySnapshotRepository(service.db);
   const runtimeEvents = new RuntimeEventExchange(
     repositories.runtimeEvents,
     runtimeEventNotifier,
@@ -111,6 +114,7 @@ export async function createPostgresIntegrationRuntime(options?: {
     runtimeEventNotifier,
     conversationWorkNotifier,
     conversationOwnerLeases,
+    workerInventorySnapshots,
     fileArtifacts,
     skillArtifacts,
   };

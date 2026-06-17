@@ -158,6 +158,7 @@ export function _setRuntimeRepositoriesForTest(
       close: async () => {},
     } as StorageRuntime['conversationWorkNotifier'],
     conversationOwnerLeases: {} as StorageRuntime['conversationOwnerLeases'],
+    workerInventorySnapshots: {} as StorageRuntime['workerInventorySnapshots'],
     fileArtifacts: {} as StorageRuntime['fileArtifacts'],
     skillArtifacts: {} as StorageRuntime['skillArtifacts'],
   };

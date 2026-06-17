@@ -221,6 +221,8 @@ export function startControlServer(input: {
         appId,
       }),
     sendConversationIngressProjection: input.sendConversationIngressProjection,
+    listWorkerInventorySnapshots: (listInput) =>
+      getRuntimeStorage().workerInventorySnapshots.listSnapshots(listInput),
     getBrowserStatus: input.getBrowserStatus,
     syncSettingsFromProjection: (appId: AppId) =>
       syncRuntimeSettingsFromProjection({

@@ -32,6 +32,7 @@ import { closeEgressGateways } from '../runtime/egress-gateway.js';
 import type { IpcSocketServerHandle } from '../runtime/ipc-socket-server.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import { startWarmPoolMaintenance } from '../runtime/warm-pool-maintenance.js';
+import { startWorkerInventoryHeartbeat } from '../runtime/worker-inventory-heartbeat.js';
 import { startConversationWorkDispatcher } from '../runtime/conversation-work-dispatcher.js';
 import { createConversationWorkClaimGate } from '../runtime/conversation-work-claim-gate.js';
 import {
@@ -232,6 +233,13 @@ export async function startGantryRuntime(
     idleTtlMs: getRuntimeWarmPoolConfig().idleTtlMs,
     logger,
   });
+  const workerInventoryHeartbeat = startWorkerInventoryHeartbeat({
+    appId: 'default',
+    getSnapshot: () => app.getWorkerInventorySnapshot(),
+    saveSnapshot: (input) =>
+      storage.workerInventorySnapshots.saveSnapshot(input),
+    logger,
+  });
   const browserToolModulePath = [
     '..',
     'adapters',
@@ -269,6 +277,7 @@ export async function startGantryRuntime(
       conversationWorkReconciler.close();
       conversationWorkDispatcher.close();
     },
+    closeWorkerInventoryHeartbeat: workerInventoryHeartbeat.close,
     releaseConversationOwnerLeases: async () => {
       await conversationWorkClaimGate.releaseTrackedLeases({
         releaseLease: (input) =>

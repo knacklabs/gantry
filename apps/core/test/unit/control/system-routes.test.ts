@@ -150,6 +150,57 @@ describe('system control routes', () => {
     });
   });
 
+  it('returns persisted worker inventory snapshots for all runtime instances', async () => {
+    const res = responseRecorder();
+    const persisted: WorkerInventorySnapshot[] = [
+      {
+        ...WORKER_SNAPSHOT,
+        instanceId: 'runtime:a',
+        hostname: 'host-a',
+        lastHeartbeatAt: '2026-06-17T00:00:05.000Z',
+      },
+      {
+        ...WORKER_SNAPSHOT,
+        instanceId: 'runtime:b',
+        hostname: 'host-b',
+        lastHeartbeatAt: '2026-06-16T23:58:00.000Z',
+        warmPool: {
+          ...WORKER_SNAPSHOT.warmPool,
+          genericAvailable: 9,
+        },
+      },
+    ];
+    const ctx = {
+      ...mockContext(),
+      listWorkerInventorySnapshots: vi.fn(async () => persisted),
+    } as ControlRouteContext & {
+      listWorkerInventorySnapshots: () => Promise<WorkerInventorySnapshot[]>;
+    };
+
+    const handled = await handleSystemRoutes(
+      request({ method: 'GET' }),
+      res,
+      ctx,
+      '/v1/runtime/workers',
+    );
+
+    expect(handled).toBe(true);
+    expect(ctx.listWorkerInventorySnapshots).toHaveBeenCalledWith({
+      appId: 'default',
+    });
+    expect(JSON.parse(res.body)).toMatchObject({
+      instances: [
+        { instanceId: 'runtime:a', health: 'healthy' },
+        { instanceId: 'runtime:b', health: 'stale' },
+      ],
+      healthyTotals: {
+        instances: 1,
+        warmPool: WORKER_SNAPSHOT.warmPool,
+        queue: WORKER_SNAPSHOT.queue,
+      },
+    });
+  });
+
   it('requires sessions:read to inspect runtime workers', async () => {
     const res = responseRecorder();
 

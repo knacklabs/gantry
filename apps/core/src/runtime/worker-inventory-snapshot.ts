@@ -1,48 +1,19 @@
-export type WorkerInventoryCachePrewarmStatus =
-  | 'pending'
-  | 'succeeded'
-  | 'skipped'
-  | 'failed';
+import type {
+  WorkerInventoryCachePrewarmSnapshot,
+  WorkerInventoryCacheShapeSnapshot,
+  WorkerInventoryQueueSnapshot,
+  WorkerInventorySnapshot,
+  WorkerInventoryWarmPoolSnapshot,
+} from '../domain/ports/worker-inventory-repository.js';
 
-export interface WorkerInventoryCachePrewarmSnapshot {
-  pending: number;
-  succeeded: number;
-  skipped: number;
-  failed: number;
-}
-
-export interface WorkerInventoryCacheShapeSnapshot {
-  cacheShapeKey: string;
-  status: WorkerInventoryCachePrewarmStatus;
-  workers: number;
-}
-
-export interface WorkerInventoryWarmPoolSnapshot {
-  availableTarget: number;
-  genericAvailable: number;
-  genericStarting: number;
-  boundActive: number;
-  boundIdle: number;
-  boundDraining: number;
-  maxBoundWorkers: number;
-  cachePrewarm: WorkerInventoryCachePrewarmSnapshot;
-  cacheShapes: WorkerInventoryCacheShapeSnapshot[];
-}
-
-export interface WorkerInventoryQueueSnapshot {
-  activeMessageRuns: number;
-  pendingConversationKeys: number;
-  maxMessageRuns: number;
-}
-
-export interface WorkerInventorySnapshot {
-  instanceId: string;
-  hostname: string;
-  startedAt: string;
-  lastHeartbeatAt: string;
-  warmPool: WorkerInventoryWarmPoolSnapshot;
-  queue: WorkerInventoryQueueSnapshot;
-}
+export type {
+  WorkerInventoryCachePrewarmSnapshot,
+  WorkerInventoryCachePrewarmStatus,
+  WorkerInventoryCacheShapeSnapshot,
+  WorkerInventoryQueueSnapshot,
+  WorkerInventorySnapshot,
+  WorkerInventoryWarmPoolSnapshot,
+} from '../domain/ports/worker-inventory-repository.js';
 
 export type WorkerInventoryHealth = 'healthy' | 'stale';
 

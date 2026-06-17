@@ -805,10 +805,10 @@ Surface Impact Matrix for the next implementation slice:
 Checkpoint:
 
 ```text
-Status: In progress
+Status: Completed
 Checkpoint owner: Codex
 Started: 2026-06-17T00:17:41Z
-Completed:
+Completed: 2026-06-17T18:05:00+05:30
 Evidence:
   - `apps/core/src/runtime/reply-trace.ts` now defines operational timeline
     kinds for webhook ACK, message persistence, dedupe, notify publish/receive,
@@ -830,6 +830,17 @@ Evidence:
   - Worker inventory now includes aggregate cache-prewarm visibility for the
     runtime-only path: status counts and cache-shape/status buckets are exposed
     without worker ids or exact prompt payloads.
+  - Worker inventory now persists a low-rate per-instance heartbeat read model
+    in Postgres through `runtime_worker_inventory_snapshots`, keyed by
+    `app_id + instance_id`. The read model stores only summary `warm_pool_json`
+    and `queue_json` payloads and remains observability-only.
+  - `startWorkerInventoryHeartbeat()` writes the local runtime snapshot
+    immediately and then at a bounded heartbeat interval. Shutdown stops the
+    heartbeat before storage closes.
+  - `GET /v1/runtime/workers` now reads all persisted snapshots for the
+    authenticated app when the repository is available and still falls back to
+    the local process snapshot for isolated tests/degraded diagnostics. Healthy
+    totals exclude stale instances using the existing summary classifier.
   - Red checks first:
     `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/reply-trace.test.ts --testNamePattern "operational pipeline"`
     failed because operational sections were ignored;
@@ -845,9 +856,17 @@ Evidence:
   - Green checks for cache visibility in worker inventory:
     `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/warm-pool-manager.test.ts --testNamePattern "cache prewarm status and shape"`;
     `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/runtime/worker-inventory-snapshot.test.ts apps/core/test/unit/bootstrap/runtime-app.test.ts apps/core/test/unit/control/system-routes.test.ts`.
+  - Green checks for persisted multi-instance worker inventory:
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/control/system-routes.test.ts apps/core/test/unit/runtime/worker-inventory-heartbeat.test.ts apps/core/test/unit/bootstrap/shutdown.test.ts`;
+    `npx vitest run -c vitest.unit.config.ts apps/core/test/unit/control/system-routes.test.ts apps/core/test/unit/runtime/worker-inventory-heartbeat.test.ts apps/core/test/unit/bootstrap/shutdown.test.ts apps/core/test/unit/storage/postgres-migration-journal.test.ts --testNamePattern "worker inventory|runtime workers|shutdown order|journal"`;
+    `npx tsc --noEmit --pretty false`;
+    `GANTRY_TEST_DATABASE_URL=postgres://gantry:gantry@127.0.0.1:55436/gantry_test npx vitest run -c vitest.integration.config.ts apps/core/test/integration/runtime-worker-inventory.postgres.integration.test.ts`
+    against disposable Docker Postgres with `vector` and `pg_trgm` extensions.
   - Hot-path impact: no new runtime work is added unless callers explicitly
     supply operational trace spans; trace save remains best-effort and payloads
-    remain gated by payload tracing.
+    remain gated by payload tracing. Worker inventory heartbeat adds one
+    per-instance summary write every 5 seconds by default, not one write per
+    worker transition.
 External/admin follow-ups completed in boondi-admin:
   - `/Users/caw-d/Desktop/boondi-admin/lib/types.ts` now accepts the operational
     section kinds emitted by the v2 Gantry timeline.
@@ -865,8 +884,8 @@ External/admin follow-ups completed in boondi-admin:
     focused browser E2E run on port 3107 for `e2e/latency-report.spec.ts`
     and `e2e/runtime-workers.spec.ts`.
 Remaining follow-ups:
-  - Worker inventory persistence/dashboard wiring is not implemented yet; the
-    current API reads the local instance only and does not write heartbeat rows.
+  - None for Phase 1. Exact payload audit, retention cleanup, and production
+    auth hardening remain tracked in Phase 7.
 ```
 
 #### Summary (plain English)

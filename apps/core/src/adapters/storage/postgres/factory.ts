@@ -35,9 +35,11 @@ import { RuntimeEventExchange } from '../../../application/runtime-events/runtim
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
 import { PostgresConversationWorkNotifier } from './conversation-work-notifier.postgres.js';
 import { PostgresConversationOwnerLeaseRepository } from './repositories/conversation-owner-lease-repository.postgres.js';
+import { PostgresWorkerInventorySnapshotRepository } from './repositories/worker-inventory-snapshot-repository.postgres.js';
 import type { AgentSession } from '../../../domain/sessions/sessions.js';
 import type { ConversationWorkNotificationPublisher } from '../../../domain/ports/conversation-work-notifier.js';
 import type { ConversationOwnerLeaseRepository } from '../../../domain/ports/conversation-owner-lease-repository.js';
+import type { WorkerInventorySnapshotRepository } from '../../../domain/ports/worker-inventory-repository.js';
 
 const FILE_ARTIFACTS_DIR_NAME = 'files';
 
@@ -61,6 +63,7 @@ export interface StorageRuntime {
     close: () => Promise<void>;
   };
   conversationOwnerLeases: ConversationOwnerLeaseRepository;
+  workerInventorySnapshots: WorkerInventorySnapshotRepository;
   fileArtifacts: FileArtifactStore;
   skillArtifacts: SkillArtifactStore;
 }
@@ -108,6 +111,8 @@ export function createStorageRuntime(
   const conversationOwnerLeases = new PostgresConversationOwnerLeaseRepository(
     service.db,
   );
+  const workerInventorySnapshots =
+    new PostgresWorkerInventorySnapshotRepository(service.db);
   const runtimeEvents = new RuntimeEventExchange(
     repositories.runtimeEvents,
     runtimeEventNotifier,
@@ -139,6 +144,7 @@ export function createStorageRuntime(
     runtimeEventNotifier,
     conversationWorkNotifier,
     conversationOwnerLeases,
+    workerInventorySnapshots,
     fileArtifacts,
     skillArtifacts,
   };

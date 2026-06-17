@@ -4,6 +4,7 @@ import type { RuntimeSettingsResponse } from '@gantry/contracts';
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
 import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { WorkerInventorySnapshot } from '../../domain/ports/worker-inventory-repository.js';
 import type {
   ModelCatalogEntry,
   ModelPresetId,
@@ -82,6 +83,9 @@ export type ControlRouteContext = {
     threadId: string | null;
     text: string;
   }) => Promise<void>;
+  listWorkerInventorySnapshots?: (input: {
+    appId: AppId;
+  }) => Promise<WorkerInventorySnapshot[]>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   syncSettingsFromProjection: (appId: AppId) => Promise<void>;
 };
