@@ -536,7 +536,11 @@ export async function startIpcSocketServer(
       request = parseMemoryIpcRequest(frame.payload, folder);
       assertBoundScopeMatches(
         conn.scope,
-        { threadId: request.context?.threadId },
+        {
+          threadId: request.context?.threadId,
+          appId: request.context?.appId,
+          agentId: request.context?.agentId,
+        },
         'memory IPC',
       );
     } catch (err) {

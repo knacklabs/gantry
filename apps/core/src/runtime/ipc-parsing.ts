@@ -50,6 +50,8 @@ export interface ParsedMemoryIpcRequest {
   allowedActions: readonly MemoryIpcAction[];
   context?: {
     threadId?: string;
+    appId?: string;
+    agentId?: string;
     chatJid?: string;
     userId?: string;
     defaultScope?: 'user' | 'group';
@@ -348,6 +350,8 @@ export function parseMemoryIpcRequest(
     authThreadId: threadId,
     chatJid,
     responseKeyId,
+    appId,
+    agentId,
     userId,
     defaultScope,
     reviewerIsControlApprover,
@@ -384,6 +388,8 @@ export function parseMemoryIpcRequest(
     ...(responseKeyId ? { responseKeyId } : {}),
     ...(Number.isFinite(deadlineAtMs) ? { deadlineAtMs } : {}),
     ...(threadId ||
+    appId ||
+    agentId ||
     chatJid ||
     userId ||
     defaultScope ||
@@ -391,6 +397,8 @@ export function parseMemoryIpcRequest(
       ? {
           context: {
             ...(threadId ? { threadId } : {}),
+            ...(appId ? { appId } : {}),
+            ...(agentId ? { agentId } : {}),
             ...(chatJid ? { chatJid } : {}),
             ...(userId ? { userId } : {}),
             ...(defaultScope ? { defaultScope } : {}),

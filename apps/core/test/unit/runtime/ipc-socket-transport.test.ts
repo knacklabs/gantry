@@ -371,6 +371,8 @@ function buildMemoryPayload(
     requestId: string;
     action?: string;
     threadId?: string;
+    appId?: string;
+    agentId?: string;
     payload?: Record<string, unknown>;
   },
 ): Record<string, unknown> {
@@ -381,6 +383,8 @@ function buildMemoryPayload(
     context: {
       chatJid: MEMORY_CHAT_JID,
       ...(opts.threadId ? { threadId: opts.threadId } : {}),
+      ...(opts.appId ? { appId: opts.appId } : {}),
+      ...(opts.agentId ? { agentId: opts.agentId } : {}),
       responseKeyId,
       defaultScope: MEMORY_DEFAULT_SCOPE,
       allowedActions: MEMORY_ALLOWED_ACTIONS,
@@ -1010,6 +1014,75 @@ describe('ipc-socket-server memory dispatch', () => {
       'memory-responses',
     );
     expect(fs.existsSync(path.join(responsesDir, 'mem-7.json'))).toBe(false);
+  });
+
+  it('M1b. memory req with bound app/agent scope is accepted', async () => {
+    const response: MemoryIpcResponse = {
+      ok: true,
+      requestId: 'mem-bound',
+      provider: 'postgres',
+      data: { saved: true },
+    };
+    processMemoryRequestMock.mockResolvedValue(response);
+
+    const handle = await startServer(buildDeps());
+    const responseAuth = makeAuth(FOLDER, THREAD_ID);
+    const boundHelloToken = computeIpcAuthToken(FOLDER, THREAD_ID, {
+      appId: 'default',
+      agentId: 'agent-a',
+    });
+    const memToken = memoryAuthToken(FOLDER, THREAD_ID);
+    const client = await connect(handle);
+    client.sendHello(
+      buildHelloPayload(boundHelloToken, {
+        folder: FOLDER,
+        threadId: THREAD_ID,
+        role: 'mcp',
+        appId: 'default',
+        agentId: 'agent-a',
+      }),
+      'hs-bound-memory',
+    );
+    const welcome = await client.waitForId('hs-bound-memory');
+    expect(welcome.ctrl).toBe('welcome');
+
+    client.sendReq(
+      'memory',
+      buildMemoryPayload(memToken, responseAuth.responseKeyId, {
+        requestId: 'mem-bound',
+        action: 'memory_save',
+        threadId: THREAD_ID,
+        appId: 'default',
+        agentId: 'agent-a',
+        payload: { text: 'remember this' },
+      }),
+      'req-mem-bound',
+    );
+
+    const resp = await client.waitForId('req-mem-bound');
+    expect(resp.type).toBe('resp');
+    expect(resp.channel).toBe('memory');
+    expect(resp.payload).toEqual(
+      expect.objectContaining({
+        ok: true,
+        requestId: 'mem-bound',
+        provider: 'postgres',
+      }),
+    );
+    expect(processMemoryRequestMock).toHaveBeenCalledTimes(1);
+    const [reqArg, folderArg] = processMemoryRequestMock.mock.calls[0];
+    expect(folderArg).toBe(FOLDER);
+    expect(reqArg).toEqual(
+      expect.objectContaining({
+        requestId: 'mem-bound',
+        action: 'memory_save',
+        context: expect.objectContaining({
+          threadId: THREAD_ID,
+          appId: 'default',
+          agentId: 'agent-a',
+        }),
+      }),
+    );
   });
 
   it('M2. forged memory req (wrong memory token) → {ok:false} reject, connection survives', async () => {

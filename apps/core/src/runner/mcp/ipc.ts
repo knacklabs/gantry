@@ -113,6 +113,8 @@ function buildSignedMemoryEnvelope(
     context: {
       chatJid: boundScope.chatJid,
       ...(boundScope.threadId ? { threadId: boundScope.threadId } : {}),
+      ...(appId ? { appId } : {}),
+      ...(agentId ? { agentId } : {}),
       ...(boundScope.memoryUserId ? { userId: boundScope.memoryUserId } : {}),
       ...(responseKeyId ? { responseKeyId } : {}),
       defaultScope: memoryDefaultScope,
