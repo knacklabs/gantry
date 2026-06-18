@@ -9,6 +9,9 @@ import {
 import {
   capabilityStatusText,
   chatJid,
+  jobRunId,
+  jobRunLeaseFencingVersion,
+  jobRunLeaseToken,
   lockedAccessPreset,
   TASKS_DIR,
   threadId,
@@ -181,6 +184,11 @@ export function registerMcpProxyTools(server: McpServer): void {
         type: 'mcp_call_tool',
         taskId,
         runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
+        ...(jobRunId ? { runId: jobRunId } : {}),
+        ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
+        ...(jobRunLeaseFencingVersion !== undefined
+          ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
+          : {}),
         targetJid: chatJid,
         chatJid,
         authThreadId: threadId,

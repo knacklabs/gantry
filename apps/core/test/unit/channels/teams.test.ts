@@ -135,6 +135,57 @@ describe('Teams Adaptive Card payloads', () => {
 });
 
 describe('TeamsChannel adapter scaffold', () => {
+  it('renders todo cards in the active Teams thread', async () => {
+    let messageCounter = 0;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ externalMessageId: 'teams-msg-1' })),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: `todo-${++messageCounter}`,
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect({ inbound: false });
+
+    await channel.renderAgentTodo('teams:19:abc@thread.v2', {
+      threadId: 'reply-a',
+      items: [{ id: '1', title: 'First', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('teams:19:abc@thread.v2', {
+      threadId: 'reply-b',
+      items: [{ id: '2', title: 'Second', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('teams:19:abc@thread.v2', {
+      threadId: 'reply-a',
+      items: [{ id: '1', title: 'First', status: 'completed' }],
+    });
+
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ threadId: 'reply-a' }),
+    );
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ threadId: 'reply-b' }),
+    );
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: 'todo-1',
+        threadId: 'reply-a',
+      }),
+    );
+  });
+
   it('normalizes inbound Teams SDK messages and sends outbound through the seam', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;

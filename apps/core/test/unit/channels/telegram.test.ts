@@ -323,6 +323,47 @@ describe('TelegramChannel', () => {
     vi.unstubAllGlobals();
   });
 
+  it('renders todo messages in the active Telegram topic', async () => {
+    const opts = createTestOpts();
+    const channel = new TelegramChannel('test-token', opts);
+    await channel.connect();
+    currentBot()
+      .api.sendMessage.mockResolvedValueOnce({ message_id: 101 })
+      .mockResolvedValueOnce({ message_id: 202 });
+
+    await channel.renderAgentTodo('tg:-100123', {
+      threadId: '42',
+      items: [{ id: '1', title: 'First', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('tg:-100123', {
+      threadId: '77',
+      items: [{ id: '2', title: 'Second', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('tg:-100123', {
+      threadId: '42',
+      items: [{ id: '1', title: 'First', status: 'completed' }],
+    });
+
+    expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+      1,
+      '-100123',
+      expect.any(String),
+      expect.objectContaining({ message_thread_id: 42 }),
+    );
+    expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+      2,
+      '-100123',
+      expect.any(String),
+      expect.objectContaining({ message_thread_id: 77 }),
+    );
+    expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+      '-100123',
+      101,
+      expect.any(String),
+      expect.any(Object),
+    );
+  });
+
   // --- Connection lifecycle ---
 
   describe('connection lifecycle', () => {

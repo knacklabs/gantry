@@ -71,6 +71,7 @@ function createMcpFixture(): {
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const jobsDir = path.join(root, 'jobs');
   const channelsDir = path.join(root, 'channels');
+  const applicationMcpDir = path.join(root, 'application', 'mcp');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const guidedActionsDir = path.join(root, 'application', 'guided-actions');
@@ -89,6 +90,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(jobsDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
+  fs.mkdirSync(applicationMcpDir, { recursive: true });
   fs.mkdirSync(guidedActionsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
@@ -163,6 +165,10 @@ function createMcpFixture(): {
       'apps/core/src/application/guided-actions/guided-action-service.ts',
     ),
     path.join(guidedActionsDir, 'guided-action-service.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/application/mcp/mcp-tool-output-bounds.ts'),
+    path.join(applicationMcpDir, 'mcp-tool-output-bounds.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
@@ -748,14 +754,23 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     );
   });
 
-  it('includes the current run handle on proxied MCP tool calls', async () => {
+  it('includes the current run fence on proxied MCP tool calls', async () => {
     const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(fixture, 'mcp_call_tool', {
-      serverName: 'github',
-      toolName: 'create_issue',
-      arguments: { title: 'Bug' },
-    });
+    const result = await runMcpFixture(
+      fixture,
+      'mcp_call_tool',
+      {
+        serverName: 'github',
+        toolName: 'create_issue',
+        arguments: { title: 'Bug' },
+      },
+      {
+        GANTRY_JOB_RUN_ID: 'job-run-1',
+        GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
+        GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
+      },
+    );
 
     expect(result.exitCode, result.stderr).toBe(0);
     const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
@@ -769,6 +784,9 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(task).toMatchObject({
       type: 'mcp_call_tool',
       runHandle: 'mcp-test-run',
+      runId: 'job-run-1',
+      runLeaseToken: 'lease-1',
+      runLeaseFencingVersion: 7,
       payload: {
         serverName: 'github',
         toolName: 'create_issue',

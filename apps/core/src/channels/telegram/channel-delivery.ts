@@ -698,7 +698,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     const chatId = jid.replace(/^tg:/, '');
     if (!chatId) return;
     const html = renderAgentTodoHtml(render);
-    const existing = this.pendingTodos.get(jid);
+    const threadId = render.threadId ?? undefined;
+    const todoKey = this.buildDraftStreamKey(jid, threadId);
+    const threadOpts = telegramThreadOptionsFromString(threadId);
+    const existing = this.pendingTodos.get(todoKey);
     if (existing) {
       try {
         await this.bot.api.editMessageText(
@@ -710,21 +713,26 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         return;
       } catch (err) {
         logger.debug(
-          { jid, err: this.sanitizeErrorMessage(err) },
+          {
+            jid,
+            threadId,
+            err: this.sanitizeErrorMessage(err),
+          },
           'Telegram todo edit failed; sending a fresh message',
         );
-        this.pendingTodos.delete(jid);
+        this.pendingTodos.delete(todoKey);
       }
     }
     try {
       const sent = await this.bot.api.sendMessage(chatId, html, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
+        ...threadOpts,
       });
-      this.pendingTodos.set(jid, { chatId, messageId: sent.message_id });
+      this.pendingTodos.set(todoKey, { chatId, messageId: sent.message_id });
     } catch (err) {
       logger.warn(
-        { jid, err: this.sanitizeErrorMessage(err) },
+        { jid, threadId, err: this.sanitizeErrorMessage(err) },
         'Failed to send Telegram todo message',
       );
     }

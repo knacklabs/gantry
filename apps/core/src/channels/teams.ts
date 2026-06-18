@@ -485,22 +485,24 @@ export class TeamsChannel implements ChannelAdapter {
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) return;
     const card = buildTeamsAgentTodoCard(render);
+    const todoKey = `${jid}:${render.threadId || ''}`;
 
-    const existing = this.pendingTodos.get(jid);
+    const existing = this.pendingTodos.get(todoKey);
     if (existing?.messageId && this.sdkClient.updateAdaptiveCard) {
       try {
         await this.sdkClient.updateAdaptiveCard({
           conversationId,
           messageId: existing.messageId,
           card,
+          ...(render.threadId ? { threadId: render.threadId } : {}),
         });
         return;
       } catch (err) {
         logger.debug(
-          { jid, err },
+          { jid, threadId: render.threadId, err },
           'Teams todo update failed; posting a fresh card',
         );
-        this.pendingTodos.delete(jid);
+        this.pendingTodos.delete(todoKey);
       }
     }
 
@@ -508,8 +510,9 @@ export class TeamsChannel implements ChannelAdapter {
       const result = await this.sdkClient.sendAdaptiveCard({
         conversationId,
         card,
+        ...(render.threadId ? { threadId: render.threadId } : {}),
       });
-      this.pendingTodos.set(jid, {
+      this.pendingTodos.set(todoKey, {
         conversationId,
         messageId: result.externalMessageId,
       });
@@ -522,7 +525,7 @@ export class TeamsChannel implements ChannelAdapter {
       this.sdkClient,
       conversationId,
       [`📋 ${title}`, ...agentTodoLines(render)].join('\n'),
-      {},
+      { ...(render.threadId ? { threadId: render.threadId } : {}) },
     );
   }
 

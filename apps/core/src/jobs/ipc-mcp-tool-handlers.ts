@@ -2,6 +2,7 @@ import path from 'path';
 
 import { publishInvalidMcpToolRequestAudit } from '../application/mcp/mcp-tool-audit.js';
 import type { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
+import { isActiveRunLeaseForInteraction } from '../application/interactions/pending-interaction-durability.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { TaskHandler } from './ipc-types.js';
@@ -194,6 +195,18 @@ function mcpCallToolHandler(
           : undefined,
         runHandle: data.runHandle,
       });
+      const activeLease = await isActiveRunLeaseForInteraction({
+        runId: data.runId,
+        runLeaseToken: data.runLeaseToken,
+        runLeaseFencingVersion: data.runLeaseFencingVersion,
+      });
+      if (!activeLease) {
+        reject(
+          'MCP tool call rejected because the run lease is no longer active.',
+          'stale_run_lease',
+        );
+        return;
+      }
       const result = await proxy.callTool({
         appId: data.appId as never,
         agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
