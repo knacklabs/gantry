@@ -1,4 +1,3 @@
-import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import { isIP } from 'node:net';
@@ -26,6 +25,12 @@ import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '../../../../runner/permission-ipc-client.js';
+import {
+  resolveExistingWorkspacePath,
+  resolveWritableWorkspacePath,
+  workspaceRoot,
+  writeFileNoFollow,
+} from './gantry-facade-file-safety.js';
 import type { ThirdPartyMcpGateConfig } from './third-party-mcp-gate.js';
 
 export const DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES =
@@ -431,101 +436,6 @@ function parseEditPatch(
     return null;
   }
   return null;
-}
-
-async function workspaceRoot(config: GantryFacadeToolsConfig): Promise<string> {
-  const configured =
-    config.cwd?.trim() ||
-    process.env.GANTRY_WORKSPACE_GROUP_DIR?.trim() ||
-    process.cwd();
-  return fs.realpath(configured);
-}
-
-async function resolveExistingWorkspacePath(
-  relativePath: string,
-  config: GantryFacadeToolsConfig,
-): Promise<string> {
-  const root = await workspaceRoot(config);
-  const candidate = path.resolve(root, relativePath);
-  ensureInsideRoot(root, candidate);
-  const real = await fs.realpath(candidate);
-  ensureInsideRoot(root, real);
-  return real;
-}
-
-async function resolveWritableWorkspacePath(
-  relativePath: string,
-  config: GantryFacadeToolsConfig,
-  toolName: 'FileWrite' | 'FileEdit',
-): Promise<string> {
-  const root = await workspaceRoot(config);
-  const candidate = path.resolve(root, relativePath);
-  ensureInsideRoot(root, candidate);
-  const existingTarget = await fs.lstat(candidate).catch(() => null);
-  if (existingTarget?.isSymbolicLink()) {
-    throw new Error(`${toolName} refuses to follow symlink targets.`);
-  }
-  if (!existingTarget && toolName === 'FileEdit') {
-    throw new Error('FileEdit target does not exist.');
-  }
-  if (existingTarget) {
-    await assertNoSymlinkPathComponents(root, candidate, toolName);
-    const real = await fs.realpath(candidate);
-    ensureInsideRoot(root, real);
-    return real;
-  }
-  const parent = path.dirname(candidate);
-  await fs.mkdir(parent, { recursive: true });
-  await assertNoSymlinkPathComponents(root, candidate, toolName);
-  const realParent = await fs.realpath(parent);
-  ensureInsideRoot(root, realParent);
-  return path.join(realParent, path.basename(candidate));
-}
-
-async function writeFileNoFollow(
-  target: string,
-  content: string,
-): Promise<void> {
-  const handle = await fs.open(
-    target,
-    fsConstants.O_WRONLY |
-      fsConstants.O_CREAT |
-      fsConstants.O_TRUNC |
-      fsConstants.O_NOFOLLOW,
-    0o666,
-  );
-  try {
-    await handle.writeFile(content, 'utf-8');
-  } finally {
-    await handle.close();
-  }
-}
-
-async function assertNoSymlinkPathComponents(
-  root: string,
-  target: string,
-  toolName: 'FileWrite' | 'FileEdit',
-): Promise<void> {
-  let current = root;
-  const relative = path.relative(root, target);
-  for (const part of relative.split(path.sep).filter(Boolean)) {
-    current = path.join(current, part);
-    const stat = await fs.lstat(current).catch(() => null);
-    if (stat?.isSymbolicLink()) {
-      throw new Error(`${toolName} refuses to follow symlink path components.`);
-    }
-  }
-}
-
-function ensureInsideRoot(root: string, target: string): void {
-  const relative = path.relative(root, target);
-  if (
-    relative === '' ||
-    (!relative.startsWith('..') && !path.isAbsolute(relative))
-  ) {
-    return;
-  }
-  throw new Error('File path escapes the Gantry workspace.');
 }
 
 async function walk(

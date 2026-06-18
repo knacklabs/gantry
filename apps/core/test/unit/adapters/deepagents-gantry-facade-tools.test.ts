@@ -270,11 +270,11 @@ describe('Gantry DeepAgents facade tools', () => {
 
     await expect(
       invoke(tools, 'FileWrite', {
-        path: 'link-dir/target.txt',
+        path: 'link-dir/newdir/target.txt',
         content: 'escape',
       }),
     ).rejects.toThrow('FileWrite refuses to follow symlink path components.');
-    expect(fs.existsSync(path.join(outside, 'target.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(outside, 'newdir'))).toBe(false);
   });
 
   it('searches paths and content without exposing raw glob/grep tools', async () => {
