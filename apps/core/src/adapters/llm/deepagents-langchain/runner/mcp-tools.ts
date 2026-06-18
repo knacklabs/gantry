@@ -130,6 +130,9 @@ export async function connectGantryAndThirdPartyMcpTools(
     gateContext: input.gate.gateContext,
     permissionEnv: input.gate.permissionEnv,
     lockedAccessPreset: input.gate.lockedAccessPreset,
+    filesystemToolsEnabled: shouldProjectGantryFilesystemTools({
+      filesystemEnabledEnv: process.env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED,
+    }),
     ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
   });
   const reservedToolNames = new Set<string>([
@@ -207,6 +210,12 @@ export function shouldProjectGantryShellTool(input: {
   return input.configuredAllowedTools.some((rule) =>
     isRunCommandToolRule(rule),
   );
+}
+
+export function shouldProjectGantryFilesystemTools(input: {
+  filesystemEnabledEnv: string | undefined;
+}): boolean {
+  return input.filesystemEnabledEnv === '1';
 }
 
 function projectGantryShellTool(

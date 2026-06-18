@@ -13,6 +13,7 @@ import type {
 } from '../shared/runner-sandbox-provider.js';
 import { projectSandboxRuntimeModelGatewayEnv } from './agent-spawn-runtime-policy.js';
 import {
+  deepAgentsFilesystemToolsEnabled,
   deepAgentsShellToolEnabled,
   type DeepAgentsShellFilesystemGuardInput,
 } from './deepagents-shell-filesystem-guard.js';
@@ -31,6 +32,14 @@ export function deepAgentsShellEnabledEnv(
 ): Record<string, string> {
   return deepAgentsShellToolEnabled(input)
     ? { GANTRY_DEEPAGENTS_SHELL_ENABLED: '1' }
+    : {};
+}
+
+export function deepAgentsFilesystemEnabledEnv(
+  input: DeepAgentsShellFilesystemGuardInput,
+): Record<string, string> {
+  return deepAgentsFilesystemToolsEnabled(input)
+    ? { GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED: '1' }
     : {};
 }
 

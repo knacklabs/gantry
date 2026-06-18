@@ -210,9 +210,17 @@ const todoUpdateHandler: TaskHandler = async (context) => {
       items,
       requestTaskId: context.data.taskId,
     })}`,
+    fence: fenceFromContext(context),
     fencingVersion: context.data.runLeaseFencingVersion ?? null,
     now: nowIso(),
   });
+  if (update.outcome === 'stale_fence') {
+    reject(
+      'Plan update rejected because the run lease is no longer active.',
+      'stale_fence',
+    );
+    return;
+  }
   // Best-effort live render to the originating channel; never fail the tool
   // response on a render error (the durable update already succeeded).
   if (context.deps.renderAgentTodo) {

@@ -771,6 +771,8 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
           workspaceFolder: 'group',
           chatJid: 'tg:group',
           sessionId,
+          memoryContextBlock:
+            '<gantry_memory_context trust="untrusted_data_only">fresh resumed memory</gantry_memory_context>',
         },
         temp,
         baseUrl: gateway.baseUrl,
@@ -795,6 +797,11 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
         (resumedStartupDiagnostic?.payload?.checkpointWriteCount as number) ??
           0,
       ).toBeGreaterThan(0);
+      expect(
+        gateway.requests.some((request) =>
+          request.body.includes('fresh resumed memory'),
+        ),
+      ).toBe(true);
     } finally {
       await gateway.close();
     }

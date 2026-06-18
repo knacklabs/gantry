@@ -164,7 +164,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
     checkpointer = agentInput.sessionId
       ? await store.load(agentInput.sessionId)
       : await store.create(sessionId);
-    let includeMemoryContext = !agentInput.sessionId;
+    let includeMemoryContext = true;
 
     // Emit the session id as soon as the resume is validated so the host
     // persists the provider session before the run completes (launchd restarts

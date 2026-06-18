@@ -51,6 +51,7 @@ function makeTools(
   root: string,
   rules: string[] = [],
   toolNetworkEnv?: Record<string, string>,
+  filesystemToolsEnabled = true,
 ) {
   return createGantryFacadeTools({
     workspaceFolder: 'main_agent',
@@ -60,6 +61,7 @@ function makeTools(
     gateContext: { conversationId: 'tg:group' },
     permissionEnv: PERMISSION_ENV,
     lockedAccessPreset: false,
+    filesystemToolsEnabled,
     cwd: root,
   });
 }
@@ -104,6 +106,14 @@ describe('Gantry DeepAgents facade tools', () => {
     ]) {
       expect(names).not.toContain(raw);
     }
+  });
+
+  it('drops File facades when the host did not enable filesystem projection', () => {
+    const root = makeRoot();
+    const names = makeTools(root, [], undefined, false)
+      .map((item) => item.name)
+      .sort();
+    expect(names).toEqual(['WebRead', 'WebSearch']);
   });
 
   it('passes raw JSON schemas to LangChain tools', () => {

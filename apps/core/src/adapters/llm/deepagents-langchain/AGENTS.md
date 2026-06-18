@@ -187,7 +187,12 @@ Gantry-owned web/file facade tools live in `runner/gantry-facade-tools.ts`.
 They expose `WebSearch`, `WebRead`, `FileSearch`, `FileRead`, `FileEdit`, and
 `FileWrite` as public Gantry names, map each call through the same neutral
 policy/permission IPC path, and execute host web/file work without enabling raw
-DeepAgents filesystem tools.
+DeepAgents filesystem tools. `WebSearch`/`WebRead` are always mounted by this
+runner, but `FileSearch`/`FileRead`/`FileEdit`/`FileWrite` may be mounted only
+when the host projects `GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED=1`, which is
+derived from the same DeepAgents shell/filesystem sandbox guard and is true only
+on the enforcing `sandbox_runtime` path. Under `direct`, File facades must stay
+unmounted even for runtime approval prompts.
 
 Skills decision: DeepAgents receives skills only from Gantry-reviewed selected
 skill artifacts. The host passes `skills: ["/skills/"]` and graph input `files`

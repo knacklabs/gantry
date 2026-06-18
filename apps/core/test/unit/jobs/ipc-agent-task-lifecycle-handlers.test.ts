@@ -187,6 +187,7 @@ describe('agent task lifecycle IPC handlers', () => {
             note: 'Checking surface',
           },
         ],
+        fence: { leaseToken: 'lease-1', fencingVersion: 7 },
         fencingVersion: 7,
       }),
     );
@@ -194,6 +195,44 @@ describe('agent task lifecycle IPC handlers', () => {
       ok: true,
       message: 'Plan updated.',
       data: { outcome: 'created', todoUpdateId: 'todo-1' },
+    });
+  });
+
+  it('rejects stale-fenced todo_update before channel render', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { agentTaskLifecycleHandlers, taskData } =
+      await loadTaskLifecycleHandlers(runtimeHome);
+    const recordTodoUpdate = vi.fn(async () => ({
+      outcome: 'stale_fence',
+    }));
+    const renderAgentTodo = vi.fn();
+
+    await agentTaskLifecycleHandlers.todo_update({
+      ...contextFor({
+        data: taskData('todo-stale', 'todo_update', {
+          items: [{ id: 'step-1', title: 'Validate', status: 'pending' }],
+        }),
+        taskLifecycleRepository: { recordTodoUpdate },
+      }),
+      deps: {
+        getTaskLifecycleRepository: () => ({ recordTodoUpdate }),
+        renderAgentTodo,
+      },
+    } as never);
+
+    expect(recordTodoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fence: { leaseToken: 'lease-1', fencingVersion: 7 },
+      }),
+    );
+    expect(renderAgentTodo).not.toHaveBeenCalled();
+    expect(readResponse(runtimeHome, 'todo-stale')).toMatchObject({
+      ok: false,
+      code: 'stale_fence',
+      error: 'Plan update rejected because the run lease is no longer active.',
     });
   });
 

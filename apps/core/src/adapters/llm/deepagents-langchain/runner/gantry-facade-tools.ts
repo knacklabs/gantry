@@ -34,6 +34,13 @@ export const DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES =
 
 type DeepAgentsFacadeToolName =
   (typeof DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES)[number];
+const DEEPAGENTS_FILESYSTEM_FACADE_TOOL_NAMES =
+  new Set<DeepAgentsFacadeToolName>([
+    'FileSearch',
+    'FileRead',
+    'FileEdit',
+    'FileWrite',
+  ]);
 
 export interface GantryFacadeToolsConfig {
   workspaceFolder: string;
@@ -43,6 +50,7 @@ export interface GantryFacadeToolsConfig {
   gateContext: ThirdPartyMcpGateConfig['gateContext'];
   permissionEnv: PermissionIpcRuntimeEnv;
   lockedAccessPreset: boolean;
+  filesystemToolsEnabled: boolean;
   cwd?: string;
 }
 
@@ -56,7 +64,11 @@ export function createGantryFacadeTools(
 ): StructuredToolInterface[] {
   const classifier = new ToolExecutionClassifier();
   const policy = new ToolExecutionPolicyService();
-  return DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES.map((toolName) =>
+  return DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES.filter(
+    (toolName) =>
+      config.filesystemToolsEnabled ||
+      !DEEPAGENTS_FILESYSTEM_FACADE_TOOL_NAMES.has(toolName),
+  ).map((toolName) =>
     createOneFacadeTool(toolName, config, classifier, policy),
   );
 }

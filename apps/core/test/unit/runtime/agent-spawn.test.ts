@@ -3726,6 +3726,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.NODE_USE_ENV_PROXY).toBe('1');
     expect(env.HTTP_PROXY).not.toContain('aoc_');
     expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBeUndefined();
+    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBeUndefined();
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
     expect(runnerInput.toolNetworkEnv.HTTP_PROXY).toBe(
       'http://127.0.0.1:18080/',
@@ -3743,6 +3744,33 @@ describe('agent-spawn timeout behavior', () => {
         ...testInput,
         model: 'gpt',
         toolPolicyRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+      },
+      () => {},
+      undefined,
+      {
+        executionAdapter: {
+          id: 'deepagents:langchain',
+          prepare: vi.fn(async () => {
+            throw new Error('should not prepare: guard must fire first');
+          }),
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('A9: blocks a deepagents filesystem run under direct mode with the enforcing-sandbox copy (FAIL CLOSED)', async () => {
+    const result = await spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        model: 'gpt',
+        toolPolicyRules: ['FileRead'],
       },
       () => {},
       undefined,
@@ -3821,6 +3849,48 @@ describe('agent-spawn timeout behavior', () => {
     const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
     const env = startInput.env as Record<string, string>;
     expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBe('1');
+    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBe('1');
+  });
+
+  it('projects deepagents filesystem facades under sandbox_runtime without enabling shell', async () => {
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+        egress: { denylist: [] },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'sandbox_runtime',
+          resourceLimits: { cpuSeconds: 0, memoryMb: 0, maxProcesses: 0 },
+        },
+      },
+    } as any);
+    const start = vi.fn(() => fakeProc as any);
+    const runnerSandboxProvider: RunnerSandboxProvider = {
+      id: 'sandbox_runtime',
+      enforcing: true,
+      start,
+    };
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      { ...testInput, model: 'gpt', toolPolicyRules: ['WebSearch'] },
+      () => {},
+      undefined,
+      {
+        runnerSandboxProvider,
+        executionAdapter: testDeepAgentsExecutionAdapter,
+      },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
+    const env = startInput.env as Record<string, string>;
+    expect(env.GANTRY_DEEPAGENTS_FILESYSTEM_ENABLED).toBe('1');
+    expect(env.GANTRY_DEEPAGENTS_SHELL_ENABLED).toBeUndefined();
   });
 
   it('returns error when execution adapter prepare rejects', async () => {

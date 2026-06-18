@@ -116,9 +116,13 @@ export interface TaskLifecycleRepository {
     summary?: string | null;
     items: AgentTodoItem[];
     idempotencyKey: string;
+    fence?: DelegatedTaskFence;
     fencingVersion?: number | null;
     now?: string;
-  }): Promise<{ outcome: 'created' | 'replayed'; update: AgentTodoUpdate }>;
+  }): Promise<
+    | { outcome: 'created' | 'replayed'; update: AgentTodoUpdate }
+    | { outcome: 'stale_fence' }
+  >;
 
   launchDelegatedTask(input: {
     id: string;

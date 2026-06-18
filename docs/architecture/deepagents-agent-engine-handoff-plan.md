@@ -83,10 +83,6 @@ Related lifecycle plan:
   that plan's durable lifecycle, permission, HITL, rejoin, receipt, sandbox,
   MCP, skill-scope, robustness, telemetry, and verification slices are
   implemented.
-- Larger future slices are tracked in
-  `docs/architecture/task-lifecycle-future-slices/` so they are not lost while
-  the immediate wrapper remains scoped to neutral `task.*` event
-  normalization.
 
 ## Exact UX Contract
 
@@ -298,8 +294,9 @@ Required constraints:
 - Resolve and validate paths through Gantry before open/write.
 - Canonicalize symlinks before policy decisions; deny symlink escapes.
 - Enforce protected read/write path policy before filesystem access.
-- Require an enforcing sandbox for production/remote DeepAgents file writes and
-  any run that combines file authority with shell/local CLI authority.
+- Mount DeepAgents File facades only when the host projects the enforcing
+  sandbox filesystem flag; under `direct`, File facades stay unavailable even for
+  runtime approval prompts.
 - Audit every file read/write/edit/search decision with the Gantry facade tool
   name, normalized path or artifact id, policy decision, sandbox provider,
   parent run id, and delegated subagent context when present.

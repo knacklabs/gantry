@@ -180,6 +180,34 @@ async function activeFenceExists(
   return rows.length > 0;
 }
 
+async function activeScopeFenceExists(
+  executor: CanonicalExecutor,
+  scope: DelegatedTaskScope,
+  fence: DelegatedTaskFence | undefined,
+  now: string,
+): Promise<boolean> {
+  const parentRunId = scopeParentRun(scope);
+  if (!parentRunId) return true;
+  if (!fence?.leaseToken || typeof fence.fencingVersion !== 'number') {
+    return false;
+  }
+  const leases = pgSchema.runLeasesPostgres;
+  const rows = await executor
+    .select({ runId: leases.runId })
+    .from(leases)
+    .where(
+      and(
+        eq(leases.runId, parentRunId),
+        eq(leases.leaseToken, fence.leaseToken),
+        eq(leases.fencingVersion, fence.fencingVersion),
+        eq(leases.status, 'active'),
+        gt(leases.expiresAt, now),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 export class PostgresTaskLifecycleRepository implements TaskLifecycleRepository {
   constructor(private readonly db: CanonicalDb) {}
 
@@ -187,6 +215,11 @@ export class PostgresTaskLifecycleRepository implements TaskLifecycleRepository 
     input: Parameters<TaskLifecycleRepository['recordTodoUpdate']>[0],
   ) {
     const now = input.now ?? currentIso();
+    if (
+      !(await activeScopeFenceExists(this.db, input.scope, input.fence, now))
+    ) {
+      return { outcome: 'stale_fence' as const };
+    }
     const table = pgSchema.agentTodoUpdatesPostgres;
     const insert = {
       id: input.id,
@@ -199,7 +232,8 @@ export class PostgresTaskLifecycleRepository implements TaskLifecycleRepository 
       runHandle: scopeRunHandle(input.scope),
       seq: 1,
       idempotencyKey: input.idempotencyKey,
-      fencingVersion: input.fencingVersion ?? null,
+      fencingVersion:
+        input.fence?.fencingVersion ?? input.fencingVersion ?? null,
       kind: 'todo_update',
       status: 'accepted',
       summary: input.summary?.trim() || null,

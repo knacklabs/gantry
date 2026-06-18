@@ -12,7 +12,10 @@ import {
   READONLY_SKILL_FILESYSTEM_DEEPAGENT_TOOL_NAMES,
   WRITE_FILESYSTEM_DEEPAGENT_TOOL_NAMES,
 } from '@core/adapters/llm/deepagents-langchain/runner/builtin-tool-exclusion.js';
-import { shouldProjectGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
+import {
+  shouldProjectGantryFilesystemTools,
+  shouldProjectGantryShellTool,
+} from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
 import {
   createGantryShellTool,
   GANTRY_SHELL_TOOL_NAME,
@@ -416,6 +419,26 @@ describe('DeepAgents raw authority denial', () => {
       ]) {
         expect(tool.name).not.toBe(collidingName);
       }
+    });
+  });
+
+  describe('Gantry filesystem facade projection', () => {
+    it('projects File facades only when the host filesystem flag is set', () => {
+      expect(
+        shouldProjectGantryFilesystemTools({
+          filesystemEnabledEnv: '1',
+        }),
+      ).toBe(true);
+      expect(
+        shouldProjectGantryFilesystemTools({
+          filesystemEnabledEnv: undefined,
+        }),
+      ).toBe(false);
+      expect(
+        shouldProjectGantryFilesystemTools({
+          filesystemEnabledEnv: '0',
+        }),
+      ).toBe(false);
     });
   });
 });

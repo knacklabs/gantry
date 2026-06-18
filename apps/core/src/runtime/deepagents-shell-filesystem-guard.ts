@@ -74,15 +74,21 @@ export function requestsShellAuthority(
   return (toolPolicyRules ?? []).some(ruleGrantsShellAuthority);
 }
 
+export function requestsFilesystemAuthority(
+  toolPolicyRules: readonly string[] | undefined,
+): boolean {
+  return (toolPolicyRules ?? []).some(ruleGrantsFilesystemAuthority);
+}
+
 // Whether any resolved tool-policy rule would enable shell or filesystem
 // authority for the run. Exported so callers can short-circuit before invoking
 // the guard (e.g. to skip work when no such authority is requested).
 export function requestsShellOrFilesystemAuthority(
   toolPolicyRules: readonly string[] | undefined,
 ): boolean {
-  return (toolPolicyRules ?? []).some(
-    (rule) =>
-      ruleGrantsShellAuthority(rule) || ruleGrantsFilesystemAuthority(rule),
+  return (
+    requestsShellAuthority(toolPolicyRules) ||
+    requestsFilesystemAuthority(toolPolicyRules)
   );
 }
 
@@ -156,5 +162,15 @@ export function deepAgentsShellToolEnabled(
 ): boolean {
   if (input.engine !== DEEPAGENTS_ENGINE) return false;
   if (!requestsShellAuthority(input.toolPolicyRules)) return false;
+  return deploymentCanEnforceShellSandbox(input);
+}
+
+// Whether the host should allow the runner to mount Gantry-owned File* facade
+// tools. Unlike shell, File* tools can be useful with only run-time approval, so
+// this depends on the enforcing sandbox path rather than preselected File* rules.
+export function deepAgentsFilesystemToolsEnabled(
+  input: DeepAgentsShellFilesystemGuardInput,
+): boolean {
+  if (input.engine !== DEEPAGENTS_ENGINE) return false;
   return deploymentCanEnforceShellSandbox(input);
 }

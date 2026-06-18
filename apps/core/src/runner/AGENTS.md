@@ -46,6 +46,10 @@
   approval, and persistent suggestions must list separate safe leaf rules
   instead of the compound command.
 - Native SDK `Agent` and `Task` tool calls are always background work. Force `run_in_background: true` in runner tool input before validation, permission checks, sandbox/network gates, and SDK allow responses; SDK `task_notification` system messages should be emitted as structured runtime events instead of log-only observations.
+- Delegation wrappers are authority surfaces. `delegate_task`, `task_get`, and
+  `task_cancel` must stay hidden whenever `excludeAuthorityTools` /
+  no-permission / locked-agent projection is active, even if
+  `AgentDelegation` appears in configured tools.
 - Durable file/web authority uses Gantry-owned facade names such as
   `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, `WebSearch`, and
   `WebRead`. The selected harness maps those names to provider-native tools

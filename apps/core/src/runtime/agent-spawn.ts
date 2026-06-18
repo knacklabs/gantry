@@ -87,6 +87,7 @@ import {
   cleanupRunnerMcpConfigFile,
   cleanupRunnerTempDir,
   buildSandboxRuntimeGatewayOptions,
+  deepAgentsFilesystemEnabledEnv,
   deepAgentsShellEnabledEnv,
   protectedWritePathsForOuterSandbox,
   sandboxRuntimeToolProcessEnv,
@@ -572,6 +573,12 @@ export async function spawnAgent(
       // DeepAgents shell-tool flag, derived from the pre-spawn guard inputs (see
       // deepAgentsShellEnabledEnv); only '1' on the allowed sandbox path.
       ...deepAgentsShellEnabledEnv({
+        engine: agentEngine,
+        toolPolicyRules: trustedToolPolicyRules,
+        securityEnv: process.env,
+        sandboxProvider: runnerSandboxProviderId,
+      }),
+      ...deepAgentsFilesystemEnabledEnv({
         engine: agentEngine,
         toolPolicyRules: trustedToolPolicyRules,
         securityEnv: process.env,

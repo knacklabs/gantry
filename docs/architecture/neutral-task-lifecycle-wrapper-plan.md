@@ -131,29 +131,21 @@ product capability:
 8. Structured outputs, telemetry, retries, timeouts, loop limits, frontend
    protocol adapters, and closeout verification.
 
-Detailed future plan files:
-
-- `docs/architecture/task-lifecycle-future-slices/01-durable-lifecycle-authority-plan.md`
-- `docs/architecture/task-lifecycle-future-slices/02-provider-delegation-projection-plan.md`
-- `docs/architecture/task-lifecycle-future-slices/03-live-ux-rejoin-receipts-plan.md`
-- `docs/architecture/task-lifecycle-future-slices/04-extension-scope-and-sandbox-plan.md`
-- `docs/architecture/task-lifecycle-future-slices/05-robustness-telemetry-closeout-plan.md`
-
 ### Surface Impact Matrix
 
-| Surface | Immediate wrapper | Full product lifecycle |
-| --- | --- | --- |
-| Runtime behavior | Changed. Runner frames use one neutral lifecycle builder. | Changed. Launch/check/update/cancel/list/progress/terminal lifecycle becomes durable and fenced. |
-| `settings.yaml` | Unchanged by design. The immediate wrapper has no selected capability, default, or profile setting. | Deferred. Delegation defaults and low-latency profile settings need separate product approval in future slices. |
-| Postgres/runtime projection | Read-only/observable. Existing `runtime_events` only. | Changed. Durable task lifecycle rows/read models are required for async state, cancellation, stale-write rejection, and rejoin. |
-| Control API | Unchanged by design. No immediate status, command, or receipt endpoint changes. | Changed. Future lifecycle status, rejoin cursors, receipts, and structured results require API projection. |
-| SDK/contracts | Unchanged by design. Public DTOs and provider contracts do not change for event normalization. | Changed. Public lifecycle, status, and structured-output DTOs are part of the full product surface. |
-| CLI | Unchanged by design. No immediate diagnostic or control command changes. | Deferred. Future status or diagnostic display needs a dedicated CLI surface decision. |
-| Gantry MCP tools/admin skill | Unchanged by design. The immediate wrapper adds no agent-facing tool authority. | Deferred. Future reviewed diagnostics or Gantry delegation tools need separate MCP/admin-tool approval. |
-| Channel/provider adapters | Provider adapters changed; channel adapters unchanged. | Provider adapters changed; channels render channel-neutral progress and receipts. |
-| Docs/prompts | Changed. Goal prompt references this plan. | Changed as each slice lands. |
-| Audit/events | Changed only by normalized event payloads. | Changed. Delegation attempts, denials, HITL, cancellation, stale-write rejection, and terminal evidence are auditable. |
-| Tests/verification | Changed. Focused unit and runner tests. | Changed. Unit, integration, Postgres, benchmark, cleanup, review, and functional checks. |
+| Surface                      | Immediate wrapper                                                                                   | Full product lifecycle                                                                                                          |
+| ---------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime behavior             | Changed. Runner frames use one neutral lifecycle builder.                                           | Changed. Launch/check/update/cancel/list/progress/terminal lifecycle becomes durable and fenced.                                |
+| `settings.yaml`              | Unchanged by design. The immediate wrapper has no selected capability, default, or profile setting. | Deferred. Delegation defaults and low-latency profile settings need separate product approval in future slices.                 |
+| Postgres/runtime projection  | Read-only/observable. Existing `runtime_events` only.                                               | Changed. Durable task lifecycle rows/read models are required for async state, cancellation, stale-write rejection, and rejoin. |
+| Control API                  | Unchanged by design. No immediate status, command, or receipt endpoint changes.                     | Changed. Future lifecycle status, rejoin cursors, receipts, and structured results require API projection.                      |
+| SDK/contracts                | Unchanged by design. Public DTOs and provider contracts do not change for event normalization.      | Changed. Public lifecycle, status, and structured-output DTOs are part of the full product surface.                             |
+| CLI                          | Unchanged by design. No immediate diagnostic or control command changes.                            | Deferred. Future status or diagnostic display needs a dedicated CLI surface decision.                                           |
+| Gantry MCP tools/admin skill | Unchanged by design. The immediate wrapper adds no agent-facing tool authority.                     | Deferred. Future reviewed diagnostics or Gantry delegation tools need separate MCP/admin-tool approval.                         |
+| Channel/provider adapters    | Provider adapters changed; channel adapters unchanged.                                              | Provider adapters changed; channels render channel-neutral progress and receipts.                                               |
+| Docs/prompts                 | Changed. Goal prompt references this plan.                                                          | Changed as each slice lands.                                                                                                    |
+| Audit/events                 | Changed only by normalized event payloads.                                                          | Changed. Delegation attempts, denials, HITL, cancellation, stale-write rejection, and terminal evidence are auditable.          |
+| Tests/verification           | Changed. Focused unit and runner tests.                                                             | Changed. Unit, integration, Postgres, benchmark, cleanup, review, and functional checks.                                        |
 
 ## 5. Task Decomposition
 
