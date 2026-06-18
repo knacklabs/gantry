@@ -50,6 +50,7 @@ export type RunnerAgentInput = Omit<AgentInput, 'toolPolicyRules'> & {
   deepAgentCheckpointer?: {
     databaseUrl: string;
     schema: string;
+    proxyUrl?: string;
   };
 };
 type WarnLogger = (metadata: Record<string, unknown>, message: string) => void;

@@ -140,32 +140,21 @@ maybeDescribe('Postgres task lifecycle repository', () => {
       task: { status: 'cancelled' },
     });
 
-    await repo.launchDelegatedTask({
-      id: 'task-stale-fence',
-      scope: {
-        ...baseScope,
-        parentRunId: 'run-with-missing-active-lease',
-        runHandle: 'run-stale',
-      },
-      idempotencyKey: 'delegate-key-stale',
-      capabilityScope: 'AgentDelegation',
-      fence: { leaseToken: 'lease-stale', fencingVersion: 9 },
-      title: 'Stale',
-      task: 'Should not be readable under a missing active lease',
-      expectedOutput: 'No output',
-      now,
-    });
-
     await expect(
-      repo.getDelegatedTask({
-        taskId: 'task-stale-fence',
+      repo.launchDelegatedTask({
+        id: 'task-stale-fence',
         scope: {
           ...baseScope,
           parentRunId: 'run-with-missing-active-lease',
           runHandle: 'run-stale',
         },
+        idempotencyKey: 'delegate-key-stale',
+        capabilityScope: 'AgentDelegation',
         fence: { leaseToken: 'lease-stale', fencingVersion: 9 },
-        now: '2026-06-17T00:03:00.000Z',
+        title: 'Stale',
+        task: 'Should not be readable under a missing active lease',
+        expectedOutput: 'No output',
+        now,
       }),
     ).resolves.toEqual({ outcome: 'stale_fence' });
   });

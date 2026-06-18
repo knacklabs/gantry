@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getProvider,
@@ -15,6 +15,7 @@ import {
   teamsConversationIdFromJid,
 } from '@core/channels/teams.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
+import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
@@ -24,6 +25,10 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
     error: vi.fn(),
   },
 }));
+
+afterEach(() => {
+  configurePendingInteractionDurability(null);
+});
 
 function makeOpts(): ChannelOpts {
   return {
@@ -626,6 +631,96 @@ describe('TeamsChannel adapter scaffold', () => {
       requestId: 'q-teams-1',
       answers: { 'Which environment?': 'production' },
       answeredBy: 'Team Admin',
+    });
+    expect(isControlApproverAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'teams',
+        conversationJid: 'teams:19:abc@thread.v2',
+        userId: 'teams-user-1',
+      }),
+    );
+  });
+
+  it('resolves durable Teams user-question answers after restart', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const isControlApproverAllowed = vi.fn(async () => true);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({ externalMessageId: 'teams-q-1' })),
+    };
+    const request = {
+      requestId: 'q-teams-restart',
+      sourceAgentFolder: 'teams_engineering',
+      targetJid: 'teams:19:abc@thread.v2',
+      questions: [
+        {
+          question: 'Which environment?',
+          header: 'Env',
+          multiSelect: false,
+          options: [
+            { label: 'staging', description: 'pre-prod' },
+            { label: 'production', description: 'live' },
+          ],
+        },
+      ],
+    };
+    const pending = {
+      id: 'pending-question-1',
+      appId: 'default',
+      runId: 'run-1',
+      kind: 'question',
+      status: 'pending',
+      payload: {
+        requestId: request.requestId,
+        sourceAgentFolder: request.sourceAgentFolder,
+        targetJid: request.targetJid,
+        request,
+      },
+      callbackRoute: null,
+      idempotencyKey: 'question:teams_engineering:q-teams-restart',
+      approverRef: null,
+      resolution: null,
+      createdAt: '2026-06-18T00:00:00.000Z',
+      expiresAt: '2026-06-19T00:00:00.000Z',
+      resolvedAt: null,
+    };
+    const repository = {
+      listPendingInteractions: vi.fn(async () => [pending]),
+      resolvePendingInteraction: vi.fn(async () => true),
+    };
+    configurePendingInteractionDurability({ repository: repository as never });
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), isControlApproverAllowed },
+      sdkClient,
+    );
+    await channel.connect();
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'gantry_userq',
+        requestId: 'q-teams-restart',
+        gantry_userq_choice_0: '1',
+        gantry_userq_other_0: '',
+      },
+    });
+
+    expect(repository.resolvePendingInteraction).toHaveBeenCalledWith({
+      idempotencyKey: 'question:teams_engineering:q-teams-restart',
+      status: 'resolved',
+      resolution: { answers: { 'Which environment?': 'production' } },
+      approverRef: 'Team Admin',
     });
     expect(isControlApproverAllowed).toHaveBeenCalledWith(
       expect.objectContaining({

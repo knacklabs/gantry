@@ -257,6 +257,11 @@ export class PostgresTaskLifecycleRepository implements TaskLifecycleRepository 
     input: Parameters<TaskLifecycleRepository['launchDelegatedTask']>[0],
   ) {
     const now = input.now ?? currentIso();
+    if (
+      !(await activeScopeFenceExists(this.db, input.scope, input.fence, now))
+    ) {
+      return { outcome: 'stale_fence' as const };
+    }
     const table = pgSchema.agentDelegatedTasksPostgres;
     const insert = {
       id: input.id,

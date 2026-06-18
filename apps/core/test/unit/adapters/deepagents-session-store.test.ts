@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 
 const pgMock = vi.hoisted(() => {
@@ -7,7 +8,7 @@ const pgMock = vi.hoisted(() => {
     static instances: MockPool[] = [];
     end = vi.fn(async () => undefined);
 
-    constructor(readonly options: { connectionString: string; max: number }) {
+    constructor(readonly options: Record<string, unknown>) {
       MockPool.instances.push(this);
     }
   }
@@ -103,6 +104,48 @@ describe('DeepAgentSessionStore', () => {
     expect(saver.serde).toBeUndefined();
     expect(saver.options).toEqual({ schema: checkpointConfig.schema });
     expect(saver.getTuple).not.toHaveBeenCalled();
+  });
+
+  it('opens proxied checkpointer streams with HTTP CONNECT', async () => {
+    let connectRequest = '';
+    const proxy = net.createServer((socket) => {
+      socket.once('data', (chunk) => {
+        connectRequest = chunk.toString('latin1');
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      });
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const address = proxy.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('proxy did not bind a TCP port');
+    }
+    try {
+      const store = new DeepAgentSessionStore({
+        ...checkpointConfig,
+        proxyUrl: `http://127.0.0.1:${address.port}/`,
+      });
+      await store.create('session-123');
+      const options = pgMock.MockPool.instances[0]?.options as {
+        stream?: () => {
+          connect: (port: number, host: string) => void;
+          destroy: () => void;
+          once: (event: string, listener: (...args: unknown[]) => void) => void;
+        };
+      };
+      const stream = options.stream?.();
+      if (!stream) throw new Error('expected proxied stream');
+      await new Promise<void>((resolve, reject) => {
+        stream.once('connect', resolve);
+        stream.once('error', reject);
+        stream.connect(6543, 'db.internal');
+      });
+
+      expect(connectRequest).toContain('CONNECT db.internal:6543 HTTP/1.1');
+      expect(connectRequest).toContain('Host: db.internal:6543');
+      stream?.destroy();
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+    }
   });
 
   it('loads a resumed session only when the checkpoint thread exists', async () => {

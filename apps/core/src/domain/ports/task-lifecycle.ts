@@ -137,7 +137,10 @@ export interface TaskLifecycleRepository {
     expectedOutput: string;
     context?: string | null;
     now?: string;
-  }): Promise<{ outcome: 'created' | 'replayed'; task: DelegatedTask }>;
+  }): Promise<
+    | { outcome: 'created' | 'replayed'; task: DelegatedTask }
+    | { outcome: 'stale_fence' }
+  >;
 
   getDelegatedTask(input: {
     taskId: string;

@@ -802,6 +802,32 @@ describe('McpToolProxy', () => {
     ).rejects.toThrow(/not approved for this agent/);
   });
 
+  it('does not describe tools outside the MCP source inventory scope', async () => {
+    vi.useFakeTimers();
+    const proxy = new McpToolProxy(
+      mcpRepository({
+        remote: true,
+        definitionAllowedToolPatterns: ['create_issue'],
+      }),
+      {
+        tools: emptyToolRepository(),
+        lookupHostname: vi.fn(async () => [
+          { address: '93.184.216.34', family: 4 as const },
+        ]),
+      },
+    );
+
+    await expect(
+      proxy.describeTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'search_repositories',
+      }),
+    ).rejects.toThrow(/not available from source inventory/);
+    expect(mcpSdkMocks.client.listTools).not.toHaveBeenCalled();
+  });
+
   it('does not fan out to every uncached MCP server without an explicit serverName', async () => {
     vi.useFakeTimers();
     const proxy = new McpToolProxy(multiMcpRepository(['github', 'linear']), {

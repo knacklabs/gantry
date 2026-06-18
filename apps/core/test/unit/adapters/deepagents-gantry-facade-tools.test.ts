@@ -153,6 +153,23 @@ describe('Gantry DeepAgents facade tools', () => {
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
   });
 
+  it('reads only a bounded prefix of oversized files', async () => {
+    const root = makeRoot();
+    fs.writeFileSync(
+      path.join(root, 'big.txt'),
+      `${'x'.repeat(1_000_000)}TAIL_MARKER`,
+      'utf-8',
+    );
+    const result = await invoke(makeTools(root, ['FileRead']), 'FileRead', {
+      path: 'big.txt',
+    });
+
+    expect(result).toContain('x'.repeat(100));
+    expect(result).toContain('[truncated 11 bytes before decoding]');
+    expect(result).not.toContain('TAIL_MARKER');
+    expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
+  });
+
   it('uses the public facade name in permission IPC when approval is required', async () => {
     requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
     const root = makeRoot();
@@ -218,6 +235,17 @@ describe('Gantry DeepAgents facade tools', () => {
     });
     const result = await invoke(tools, 'FileRead', { path: 'todo.txt' });
     expect(result).toBe('beta\n');
+  });
+
+  it('refuses FileEdit on oversized files before loading content', async () => {
+    const root = makeRoot();
+    fs.writeFileSync(path.join(root, 'big.txt'), 'a'.repeat(1_000_001));
+    const result = await invoke(makeTools(root, ['FileEdit']), 'FileEdit', {
+      path: 'big.txt',
+      patch: JSON.stringify({ oldText: 'a', newText: 'b' }),
+    });
+
+    expect(result).toBe('FileEdit refuses files larger than 1000000 bytes.');
   });
 
   it('refuses FileWrite through a workspace symlink target', async () => {

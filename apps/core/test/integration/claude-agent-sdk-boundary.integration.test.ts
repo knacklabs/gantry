@@ -659,12 +659,12 @@ describe('Claude Agent SDK boundary integration', () => {
       },
       { type: 'text', text: 'hello from Gantry' },
     ]);
-    expect(call?.options.systemPrompt.append).toContain(
-      'Gantry Durable Memory Boundary',
+    expect(call?.options.systemPrompt).toEqual(
+      expect.arrayContaining(['__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__']),
     );
-    expect(call?.options.systemPrompt.append).not.toContain(
-      'prior user preference',
-    );
+    const systemPromptText = JSON.stringify(call?.options.systemPrompt);
+    expect(systemPromptText).toContain('Gantry Durable Memory Boundary');
+    expect(systemPromptText).not.toContain('prior user preference');
   });
 
   it('passes an explicit empty SDK skills list when Gantry selected no skills', async () => {

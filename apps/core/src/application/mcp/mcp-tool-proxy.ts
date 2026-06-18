@@ -248,6 +248,12 @@ export class McpToolProxy {
         `MCP server is not approved for this agent: ${input.serverName}`,
       );
     }
+    if (!isSourceInventoryToolAllowed(capability, input.toolName)) {
+      throw new ApplicationError(
+        'NOT_FOUND',
+        `MCP tool is not available from source inventory: ${input.serverName}.${input.toolName}`,
+      );
+    }
     const cached = readCachedMcpToolDetail(input, capability, input.toolName);
     if (cached) {
       return {

@@ -16,7 +16,9 @@
 - Agent task lifecycle IPC (`todo_update`, `delegate_task`, `task_get`,
   `task_cancel`) must recheck same-conversation scope and the canonical
   `AgentDelegation` rule at the parent boundary. MCP-side tool mounting is only
-  defense-in-depth.
+  defense-in-depth. `delegate_task` must fail unavailable until a real executor
+  claims and runs delegated work; do not return success for a durable row that
+  no worker can complete.
 - Scheduler terminal notifications are user-facing lifecycle receipts. Format
   job reports, system maintenance results, and next-run times into readable
   product copy before delivery; never surface raw queue bookkeeping JSON,

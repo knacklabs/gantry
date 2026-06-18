@@ -264,7 +264,7 @@ describe('agent task lifecycle IPC handlers', () => {
     });
   });
 
-  it('denies delegate_task before repository launch when no Gantry executor is configured', async () => {
+  it('rejects delegate_task until a delegated-task executor is configured', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
@@ -277,7 +277,7 @@ describe('agent task lifecycle IPC handlers', () => {
 
     await agentTaskLifecycleHandlers.delegate_task(
       contextFor({
-        data: taskData('delegate-unavailable', 'delegate_task', {
+        data: taskData('delegate-created', 'delegate_task', {
           title: 'Research options',
           task: 'Compare options',
           expectedOutput: 'Decision notes',
@@ -289,11 +289,11 @@ describe('agent task lifecycle IPC handlers', () => {
     );
 
     expect(launchDelegatedTask).not.toHaveBeenCalled();
-    expect(readResponse(runtimeHome, 'delegate-unavailable')).toMatchObject({
+    expect(readResponse(runtimeHome, 'delegate-created')).toMatchObject({
       ok: false,
-      code: 'unavailable_in_mode',
+      code: 'unavailable',
       error:
-        'Agent delegation is unavailable in this mode because no Gantry delegation executor is configured.',
+        'Agent delegation is unavailable until Gantry has a delegated-task executor configured.',
     });
   });
 

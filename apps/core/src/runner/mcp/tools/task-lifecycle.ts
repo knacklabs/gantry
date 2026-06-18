@@ -78,10 +78,19 @@ async function submitTaskLifecycleRequest(input: {
     content: [
       {
         type: 'text' as const,
-        text: response.message || 'Done.',
+        text: formatSuccessfulTaskResponse(response),
       },
     ],
   };
+}
+
+function formatSuccessfulTaskResponse(response: {
+  message?: string;
+  data?: unknown;
+}): string {
+  const message = response.message || 'Done.';
+  if (response.data === undefined) return message;
+  return `${message}\n${JSON.stringify(response.data, null, 2)}`;
 }
 
 function delegationDeniedResult() {
@@ -90,6 +99,18 @@ function delegationDeniedResult() {
       {
         type: 'text' as const,
         text: 'Agent delegation is not approved for this agent.',
+      },
+    ],
+    isError: true,
+  };
+}
+
+function delegationUnavailableResult() {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: 'Agent delegation is unavailable until Gantry has a delegated-task executor configured.',
       },
     ],
     isError: true,
@@ -126,20 +147,9 @@ export function registerTaskLifecycleTools(server: McpServer): void {
       context: z.string().max(12000).optional(),
       timeoutMs: z.number().int().min(1000).max(3_600_000).optional(),
     },
-    async (args) => {
+    async () => {
       if (!hasAgentDelegation()) return delegationDeniedResult();
-      return submitTaskLifecycleRequest({
-        type: 'delegate_task',
-        payload: {
-          title: args.title,
-          task: args.task,
-          expectedOutput: args.expectedOutput,
-          ...(args.context ? { context: args.context } : {}),
-          ...(args.timeoutMs ? { timeoutMs: args.timeoutMs } : {}),
-        },
-        timeoutMessage: 'Delegated work request timed out.',
-        fallbackError: 'Delegated work request failed.',
-      });
+      return delegationUnavailableResult();
     },
   );
 

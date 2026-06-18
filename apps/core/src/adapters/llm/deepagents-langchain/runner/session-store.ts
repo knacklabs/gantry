@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import net from 'node:net';
+import { Duplex } from 'node:stream';
 import pg from 'pg';
 import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres';
 
@@ -18,6 +20,7 @@ export const MISSING_DEEPAGENTS_SESSION_MARKER =
 export interface DeepAgentCheckpointerConfig {
   databaseUrl: string;
   schema: string;
+  proxyUrl?: string;
 }
 
 export type DeepAgentCheckpointSaver = PostgresSaver;
@@ -85,12 +88,185 @@ export class DeepAgentSessionStore {
         'DeepAgents runner is missing Postgres checkpointer configuration for live session persistence.',
       );
     }
-    const pool = new pg.Pool({
+    const poolConfig: pg.PoolConfig = {
       connectionString: databaseUrl,
       max: RUNNER_CHECKPOINT_POOL_MAX_CONNECTIONS,
-    });
+    };
+    const proxyUrl = this.config.proxyUrl?.trim();
+    if (proxyUrl) {
+      // pg uses this factory instead of opening databaseUrl directly, so
+      // sandboxed runners reach private Postgres only through Gantry egress.
+      poolConfig.stream = () => new HttpConnectPostgresStream(proxyUrl);
+    }
+    const pool = new pg.Pool(poolConfig);
     return createDeepAgentCheckpointSaverFromPool(pool, schema, this.timing);
   }
+}
+
+class HttpConnectPostgresStream extends Duplex {
+  private readonly socket = new net.Socket();
+  private proxyBuffer = Buffer.alloc(0);
+  private connectedToTarget = false;
+  private connectCallback: (() => void) | undefined;
+  private readonly pendingWrites: Array<{
+    chunk: Buffer;
+    callback: (error?: Error | null) => void;
+  }> = [];
+
+  constructor(proxyUrl: string) {
+    super();
+    const proxy = parseHttpProxyUrl(proxyUrl);
+    this.socket.on('error', (error) => this.destroy(error));
+    this.socket.on('end', () => this.push(null));
+    this.socket.on('close', () => this.emit('close'));
+    this.socket.once('connect', () => {
+      this.socket.write(
+        [
+          `CONNECT ${this.targetAuthority} HTTP/1.1`,
+          `Host: ${this.targetAuthority}`,
+          '',
+          '',
+        ].join('\r\n'),
+      );
+    });
+    this.proxyHost = proxy.hostname;
+    this.proxyPort = Number(proxy.port || '80');
+  }
+
+  private readonly proxyHost: string;
+  private readonly proxyPort: number;
+  private targetAuthority = '';
+
+  connect(
+    portOrPath: number | string,
+    hostOrCallback?: string | (() => void),
+    callback?: () => void,
+  ): this {
+    if (typeof portOrPath !== 'number') {
+      this.destroy(new Error('Postgres proxy stream requires TCP host/port.'));
+      return this;
+    }
+    const host =
+      typeof hostOrCallback === 'string' ? hostOrCallback : 'localhost';
+    this.connectCallback =
+      typeof hostOrCallback === 'function' ? hostOrCallback : callback;
+    this.targetAuthority = postgresAuthority(host, portOrPath);
+    this.socket.on('data', this.handleProxyData);
+    this.socket.connect(this.proxyPort, this.proxyHost);
+    return this;
+  }
+
+  setNoDelay(noDelay?: boolean): this {
+    this.socket.setNoDelay(noDelay);
+    return this;
+  }
+
+  setKeepAlive(enable?: boolean, initialDelay?: number): this {
+    this.socket.setKeepAlive(enable, initialDelay);
+    return this;
+  }
+
+  ref(): this {
+    this.socket.ref();
+    return this;
+  }
+
+  unref(): this {
+    this.socket.unref();
+    return this;
+  }
+
+  _read(): void {
+    this.socket.resume();
+  }
+
+  _write(
+    chunk: Buffer | string,
+    encoding: BufferEncoding,
+    callback: (error?: Error | null) => void,
+  ): void {
+    if (!this.connectedToTarget) {
+      this.pendingWrites.push({
+        chunk: Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding),
+        callback,
+      });
+      return;
+    }
+    this.socket.write(chunk, encoding, callback);
+  }
+
+  _final(callback: (error?: Error | null) => void): void {
+    this.socket.end(callback);
+  }
+
+  _destroy(
+    error: Error | null,
+    callback: (error?: Error | null) => void,
+  ): void {
+    this.socket.destroy(error ?? undefined);
+    callback(error);
+  }
+
+  private readonly handleProxyData = (chunk: Buffer): void => {
+    this.proxyBuffer = Buffer.concat([this.proxyBuffer, chunk]);
+    const headerEnd = this.proxyBuffer.indexOf('\r\n\r\n');
+    if (headerEnd === -1) {
+      if (this.proxyBuffer.length > 8192) {
+        this.destroy(
+          new Error('Postgres proxy CONNECT response is too large.'),
+        );
+      }
+      return;
+    }
+    const header = this.proxyBuffer.subarray(0, headerEnd).toString('latin1');
+    const firstLine = header.split('\r\n')[0] ?? '';
+    if (!/^HTTP\/1\.[01] 2\d\d(?:\s|$)/.test(firstLine)) {
+      this.destroy(new Error(`Postgres proxy CONNECT failed: ${firstLine}`));
+      return;
+    }
+    const rest = this.proxyBuffer.subarray(headerEnd + 4);
+    this.proxyBuffer = Buffer.alloc(0);
+    this.socket.off('data', this.handleProxyData);
+    this.socket.on('data', this.forwardData);
+    this.connectedToTarget = true;
+    this.emit('connect');
+    this.connectCallback?.();
+    this.flushPendingWrites();
+    if (rest.length > 0) this.forwardData(rest);
+  };
+
+  private readonly forwardData = (chunk: Buffer): void => {
+    if (!this.push(chunk)) this.socket.pause();
+  };
+
+  private flushPendingWrites(): void {
+    for (const pending of this.pendingWrites.splice(0)) {
+      this.socket.write(pending.chunk, pending.callback);
+    }
+  }
+}
+
+function parseHttpProxyUrl(value: string): URL {
+  const parsed = new URL(value);
+  const host = parsed.hostname.toLowerCase();
+  if (
+    parsed.protocol !== 'http:' ||
+    !parsed.port ||
+    (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1')
+  ) {
+    throw new Error(
+      'DeepAgents checkpointer proxy must be a loopback http URL.',
+    );
+  }
+  return parsed;
+}
+
+function postgresAuthority(host: string, port: number): string {
+  const normalizedHost = host.replace(/^\[|\]$/g, '');
+  const authorityHost = normalizedHost.includes(':')
+    ? `[${normalizedHost}]`
+    : normalizedHost;
+  return `${authorityHost}:${port}`;
 }
 
 export function createDeepAgentCheckpointSaverFromPool(

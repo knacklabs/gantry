@@ -564,6 +564,48 @@ export async function resolveDurableQuestionInteractionByRequestId(input: {
   }
 }
 
+export async function resolveDurableQuestionAnswersByRequestId(input: {
+  requestId: string;
+  answers: Record<string, string | string[]>;
+  answeredBy?: string | null;
+  appId?: string | null;
+}): Promise<boolean> {
+  const active = backend;
+  if (!active) return false;
+  const appId = input.appId || DEFAULT_APP_ID;
+  try {
+    const pending = (
+      await active.repository.listPendingInteractions({ appId })
+    ).find(
+      (interaction) =>
+        interaction.kind === 'question' &&
+        interaction.status === 'pending' &&
+        interaction.payload?.requestId === input.requestId,
+    );
+    const sourceAgentFolder =
+      typeof pending?.payload?.sourceAgentFolder === 'string'
+        ? pending.payload.sourceAgentFolder
+        : null;
+    if (!pending || !sourceAgentFolder) return false;
+    return await resolvePendingInteractionRecord({
+      kind: 'question',
+      sourceAgentFolder,
+      requestId: input.requestId,
+      appId,
+      runId: pending.runId,
+      status: 'resolved',
+      resolution: { answers: input.answers },
+      approverRef: input.answeredBy ?? null,
+    });
+  } catch (err) {
+    active.warn?.(
+      { err, requestId: input.requestId },
+      'Failed to resolve durable question interaction answers',
+    );
+    return false;
+  }
+}
+
 export async function isActiveRunLeaseForInteraction(input: {
   runId?: string | null;
   runLeaseToken?: string | null;

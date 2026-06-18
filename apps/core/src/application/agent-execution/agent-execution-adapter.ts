@@ -139,6 +139,7 @@ export interface PreparedAgentExecution {
     deepAgentCheckpointer?: {
       databaseUrl: string;
       schema: string;
+      proxyUrl?: string;
     };
     deepAgentSkills?: DeepAgentSkillProjection;
   };

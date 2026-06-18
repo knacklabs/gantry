@@ -380,8 +380,24 @@ async function fileRead(
   config: GantryFacadeToolsConfig,
 ): Promise<string> {
   const target = await resolveExistingWorkspacePath(relativePath, config);
-  const text = await fs.readFile(target, 'utf-8');
-  return truncateText(text, MAX_TEXT_OUTPUT_CHARS);
+  const stat = await fs.stat(target);
+  if (stat.size <= MAX_SEARCH_FILE_BYTES) {
+    const text = await fs.readFile(target, 'utf-8');
+    return truncateText(text, MAX_TEXT_OUTPUT_CHARS);
+  }
+  const handle = await fs.open(target, 'r');
+  let text: string;
+  let bytesRead = 0;
+  try {
+    const buffer = Buffer.alloc(MAX_SEARCH_FILE_BYTES);
+    const read = await handle.read(buffer, 0, MAX_SEARCH_FILE_BYTES, 0);
+    bytesRead = read.bytesRead;
+    text = buffer.subarray(0, bytesRead).toString('utf-8');
+  } finally {
+    await handle.close();
+  }
+  const result = truncateText(text, MAX_TEXT_OUTPUT_CHARS);
+  return `${result}\n[truncated ${stat.size - bytesRead} bytes before decoding]`;
 }
 
 async function fileWrite(
@@ -408,6 +424,10 @@ async function fileEdit(
     config,
     'FileEdit',
   );
+  const stat = await fs.stat(target);
+  if (stat.size > MAX_SEARCH_FILE_BYTES) {
+    return `FileEdit refuses files larger than ${MAX_SEARCH_FILE_BYTES} bytes.`;
+  }
   const current = await fs.readFile(target, 'utf-8');
   const edit = parseEditPatch(patch);
   if (!edit) {

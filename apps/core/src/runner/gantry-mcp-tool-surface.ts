@@ -71,9 +71,6 @@ export const DELEGATION_GANTRY_MCP_TOOL_NAMES = [
   'task_get',
   'task_cancel',
 ] as const;
-const UNAVAILABLE_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(
-  DELEGATION_GANTRY_MCP_TOOL_NAMES,
-);
 
 const REVIEWER_MEMORY_REVIEW_GANTRY_MCP_TOOL_NAMES = [
   'memory_review_pending',
@@ -96,6 +93,9 @@ const NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(
 );
 
 const ADMIN_MCP_TOOL_NAME_SET = new Set<string>(ADMIN_MCP_TOOL_NAMES);
+const DELEGATION_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(
+  DELEGATION_GANTRY_MCP_TOOL_NAMES,
+);
 
 export function isAuthorityChangingGantryMcpToolName(value: string): boolean {
   return AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAME_SET.has(value);
@@ -162,8 +162,8 @@ export function selectedGantryMcpToolNames(
     const name = gantryMcpToolNameFromFullName(configuredTool);
     if (
       name &&
-      !UNAVAILABLE_GANTRY_MCP_TOOL_NAME_SET.has(name) &&
-      !(GATED_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(name)
+      !(GATED_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(name) &&
+      !DELEGATION_GANTRY_MCP_TOOL_NAME_SET.has(name)
     ) {
       names.add(name);
     }
@@ -232,7 +232,7 @@ export function parseEnabledGantryMcpToolNames(
     for (const item of parsed) {
       const toolName = typeof item === 'string' ? item.trim() : '';
       if (!ALL_GANTRY_MCP_TOOL_NAME_SET.has(toolName)) continue;
-      if (UNAVAILABLE_GANTRY_MCP_TOOL_NAME_SET.has(toolName)) continue;
+      if (DELEGATION_GANTRY_MCP_TOOL_NAME_SET.has(toolName)) continue;
       if (
         options.lockedPreset &&
         (NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAME_SET.has(toolName) ||

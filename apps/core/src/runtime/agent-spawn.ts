@@ -402,10 +402,8 @@ export async function spawnAgent(
     const checkpointerNetworkHost = databaseNetworkHostFromUrl(
       runnerInputPatch.deepAgentCheckpointer?.databaseUrl,
     );
-    const sandboxAllowedNetworkHosts = uniqueStrings([
-      ...sandboxAllowedNetworkHostsFromRuntimeAccess(effectiveRuntimeAccess),
-      ...(checkpointerNetworkHost ? [checkpointerNetworkHost] : []),
-    ]);
+    const sandboxAllowedNetworkHosts =
+      sandboxAllowedNetworkHostsFromRuntimeAccess(effectiveRuntimeAccess);
     const runtimeSandbox = getRuntimeSettingsForConfig().runtime.sandbox;
     const { runnerSandboxProviderId, sandboxWarmTemplate } =
       resolveRunnerSandboxStartup({
@@ -421,6 +419,17 @@ export async function spawnAgent(
     runnerInput.modelCredentialEnv = sandboxRuntimeGateway.modelCredentialEnv;
     runnerInputPatch.modelCredentialEnv =
       sandboxRuntimeGateway.modelCredentialEnv;
+    const egressAllowedNetworkHosts =
+      runnerSandboxProviderId === 'sandbox_runtime'
+        ? uniqueStrings(
+            sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts ??
+              sandboxAllowedNetworkHosts,
+          )
+        : sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts;
+    const egressAllowedPrivateNetworkHosts =
+      runnerSandboxProviderId === 'sandbox_runtime' && checkpointerNetworkHost
+        ? [checkpointerNetworkHost]
+        : undefined;
     egressGateway = await hostStartup.measureAsync('egressGatewayMs', () =>
       ensureEgressGateway({
         key: `${runnerAppId}:${input.agentId || group.folder}:${processName}`,
@@ -435,6 +444,12 @@ export async function spawnAgent(
         },
         networkAttribution,
         ...sandboxRuntimeGateway.gatewayOptions,
+        ...(egressAllowedNetworkHosts
+          ? { allowedNetworkHosts: egressAllowedNetworkHosts }
+          : {}),
+        ...(egressAllowedPrivateNetworkHosts
+          ? { allowedPrivateNetworkHosts: egressAllowedPrivateNetworkHosts }
+          : {}),
         ...(options?.mcpHostnameLookup
           ? { lookupHostname: options.mcpHostnameLookup }
           : {}),
@@ -473,7 +488,12 @@ export async function spawnAgent(
     }
     if (runnerInputPatch.deepAgentCheckpointer) {
       runnerInput.deepAgentCheckpointer =
-        runnerInputPatch.deepAgentCheckpointer;
+        runnerSandboxProviderId === 'sandbox_runtime'
+          ? {
+              ...runnerInputPatch.deepAgentCheckpointer,
+              proxyUrl: egressGateway.proxyUrl,
+            }
+          : runnerInputPatch.deepAgentCheckpointer;
     }
     runnerInput.deepAgentSkills = runnerInputPatch.deepAgentSkills;
     const localCliCredentialPaths = resolveHomeRelativePaths(
@@ -701,6 +721,10 @@ export async function spawnAgent(
       path.dirname(args[0] ?? hostRuntime.runnerDistDir),
     );
     hostStartup.finish('sandboxSpecMs', sandboxSpecStarted);
+    // Keep the DeepAgents checkpointer DB out of the sandbox's direct network
+    // allowlist. In sandbox_runtime, the child receives the checkpointer
+    // proxyUrl and pg opens the connection through the Gantry egress gateway
+    // instead; the gateway is what owns the private DB host authority.
     const finalAllowedNetworkHosts =
       sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts ??
       sandboxAllowedNetworkHosts;

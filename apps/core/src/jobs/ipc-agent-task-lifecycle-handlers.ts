@@ -262,11 +262,9 @@ const delegateTaskHandler: TaskHandler = async (context) => {
     );
     return;
   }
-  // No host worker currently claims delegated task rows; fail closed instead
-  // of persisting a running task that cannot complete.
   reject(
-    'Agent delegation is unavailable in this mode because no Gantry delegation executor is configured.',
-    'unavailable_in_mode',
+    'Agent delegation is unavailable until Gantry has a delegated-task executor configured.',
+    'unavailable',
   );
 };
 

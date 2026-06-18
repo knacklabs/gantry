@@ -99,7 +99,7 @@ describe('locked tool surface mounting', () => {
     expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
   });
 
-  it('keeps delegation wrappers hidden until a delegation executor is configured', () => {
+  it('withholds delegation wrappers until a delegated-task executor exists', () => {
     const defaultNames = selectedGantryMcpToolNames([]);
     expect(defaultNames).toContain('todo_update');
     expect(defaultNames).not.toContain('delegate_task');

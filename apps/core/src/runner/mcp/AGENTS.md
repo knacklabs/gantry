@@ -12,5 +12,6 @@
   current-run authority before every tool execution.
 - Agent planning/delegation tools are Gantry facades: `todo_update` is
   baseline non-authority state, while `delegate_task`, `task_get`, and
-  `task_cancel` mount only when the canonical `AgentDelegation` capability is
-  selected. Never expose provider-native task/todo/subagent tool names here.
+  `task_cancel` may mount only after both the canonical `AgentDelegation`
+  capability and a real Gantry delegated-task executor exist. Never expose
+  provider-native task/todo/subagent tool names here.

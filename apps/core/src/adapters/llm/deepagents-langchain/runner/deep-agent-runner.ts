@@ -53,7 +53,7 @@ const READONLY_SKILLS_FILESYSTEM: FilesystemPermission[] = [
 // Minimal structural view of the compiled DeepAgents graph the runner drives.
 interface DeepAgentGraph {
   streamEvents(
-    input: { messages: BaseMessage[]; files?: Record<string, FileData> },
+    input: { messages: BaseMessage[]; files?: Record<string, FileData | null> },
     options: {
       version: 'v2';
       signal?: AbortSignal;
@@ -209,15 +209,16 @@ export async function runDeepAgentTurn(input: {
     );
     const profile = readModelProfile(resolved.model);
 
+    const skillFilesUpdate = await buildSkillFilesUpdate({
+      checkpointer: input.checkpointer,
+      threadId: input.threadId,
+      currentFiles: hasProjectedSkills ? skillProjection?.files : undefined,
+    });
     const events = startupTiming.measure('streamIteratorMs', () =>
       agent.streamEvents(
         {
           messages: turnMessages,
-          ...(hasProjectedSkills
-            ? {
-                files: skillProjection?.files as Record<string, FileData>,
-              }
-            : {}),
+          ...(skillFilesUpdate ? { files: skillFilesUpdate } : {}),
         },
         {
           version: 'v2',
@@ -301,10 +302,46 @@ export async function runDeepAgentTurn(input: {
   }
 }
 
+async function buildSkillFilesUpdate(input: {
+  checkpointer?: DeepAgentCheckpointSaver;
+  threadId?: string;
+  currentFiles?: Record<string, FileData>;
+}): Promise<Record<string, FileData | null> | undefined> {
+  const update: Record<string, FileData | null> = {
+    ...(input.currentFiles ?? {}),
+  };
+  if (input.checkpointer && input.threadId) {
+    const tuple = await input.checkpointer.getTuple({
+      configurable: { thread_id: input.threadId },
+    });
+    for (const path of checkpointSkillFilePaths(tuple)) {
+      if (!(path in update)) update[path] = null;
+    }
+  }
+  return Object.keys(update).length > 0 ? update : undefined;
+}
+
+function checkpointSkillFilePaths(value: unknown): string[] {
+  const tuple = objectRecord(value);
+  const checkpoint = objectRecord(tuple?.checkpoint);
+  const channelValues =
+    objectRecord(checkpoint?.channel_values) ??
+    objectRecord(checkpoint?.channelValues);
+  const files = objectRecord(channelValues?.files);
+  return Object.keys(files ?? {}).filter((path) => path.startsWith('/skills/'));
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 // Exported for the memory-context placement test: the durable-memory block
 // (which already carries the host's `<gantry_memory_context
-// trust="untrusted_data_only">` framing) is injected exactly once as a leading
-// HumanMessage — model-visible prompt context, never system authority.
+// trust="untrusted_data_only">` framing) is injected as a leading HumanMessage
+// on fresh threads only. It is model-visible prompt context, never system
+// authority.
 export function buildTurnMessages(
   agentInput: DeepAgentRunnerInput,
   options: { includeMemoryContext?: boolean } = {},

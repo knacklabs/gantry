@@ -689,6 +689,8 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
           prompt: 'say hello',
           workspaceFolder: 'group',
           chatJid: 'tg:group',
+          memoryContextBlock:
+            '<gantry_memory_context trust="untrusted_data_only">initial memory</gantry_memory_context>',
         },
         temp,
         baseUrl: gateway.baseUrl,
@@ -738,6 +740,11 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
 
       // Env hygiene: only the run-scoped gateway token reaches the upstream.
       expect(gateway.requests.length).toBeGreaterThan(0);
+      expect(
+        gateway.requests.some((request) =>
+          request.body.includes('initial memory'),
+        ),
+      ).toBe(true);
       // The OpenAI SDK appends /chat/completions to the projected gateway
       // baseUrl (.../openai); the real Gantry gateway maps that to
       // api.openai.com/v1/chat/completions (proven in the gateway unit test).
@@ -801,7 +808,7 @@ maybeDescribe('DeepAgents (LangChain) runner boundary integration', () => {
         gateway.requests.some((request) =>
           request.body.includes('fresh resumed memory'),
         ),
-      ).toBe(true);
+      ).toBe(false);
     } finally {
       await gateway.close();
     }

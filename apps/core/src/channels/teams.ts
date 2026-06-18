@@ -15,7 +15,9 @@ import type {
 } from '../domain/ports/task-lifecycle.js';
 import {
   findDurablePermissionInteractionByRequestId,
+  findDurableQuestionInteractionByRequestId,
   resolveDurablePermissionInteractionByRequestId,
+  resolveDurableQuestionAnswersByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
@@ -125,6 +127,11 @@ interface PendingTeamsUserQuestion {
   timer: ReturnType<typeof setTimeout>;
   resolve: (response: UserQuestionResponse) => void;
   settled: boolean;
+}
+
+interface TeamsUserQuestionSubmit {
+  requestId: string;
+  values: Record<string, string>;
 }
 
 export interface TeamsChannelDependencies {
@@ -699,7 +706,16 @@ export class TeamsChannel implements ChannelAdapter {
     const submit = readTeamsUserQuestionSubmit(message.value);
     if (!submit) return false;
     const pending = this.pendingUserQuestions.get(submit.requestId);
-    if (!pending || pending.settled) return true;
+    if (!pending) {
+      await this.resolveDurableUserQuestionSubmit({
+        submit,
+        jid,
+        userId,
+        userName,
+      });
+      return true;
+    }
+    if (pending.settled) return true;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId || conversationId !== pending.conversationId) {
       await this.sendDeniedDecisionFeedback(
@@ -728,6 +744,43 @@ export class TeamsChannel implements ChannelAdapter {
       answeredBy: userName,
     });
     return true;
+  }
+
+  private async resolveDurableUserQuestionSubmit(input: {
+    submit: TeamsUserQuestionSubmit;
+    jid: string;
+    userId: string;
+    userName: string;
+  }): Promise<void> {
+    const conversationId = teamsConversationIdFromJid(input.jid);
+    if (!conversationId) return;
+    const durable = await findDurableQuestionInteractionByRequestId({
+      requestId: input.submit.requestId,
+    });
+    if (!durable || durable.targetJid !== input.jid || !durable.request) {
+      return;
+    }
+    const authorized = await this.canDecidePermission(
+      input.userId,
+      durable.sourceAgentFolder,
+      undefined,
+      input.jid,
+    );
+    if (!authorized) {
+      await this.sendDeniedDecisionFeedback(
+        conversationId,
+        'You are not allowed to answer this question.',
+      );
+      return;
+    }
+    await resolveDurableQuestionAnswersByRequestId({
+      requestId: input.submit.requestId,
+      answers: mapTeamsUserQuestionAnswers(
+        durable.request,
+        input.submit.values,
+      ),
+      answeredBy: input.userName,
+    });
   }
 
   private async resolvePendingUserQuestion(
@@ -942,10 +995,9 @@ function readTeamsPermissionDecision(value: unknown): {
   };
 }
 
-function readTeamsUserQuestionSubmit(value: unknown): {
-  requestId: string;
-  values: Record<string, string>;
-} | null {
+function readTeamsUserQuestionSubmit(
+  value: unknown,
+): TeamsUserQuestionSubmit | null {
   if (!value || typeof value !== 'object') return null;
   const top = value as Record<string, unknown>;
   const candidate =

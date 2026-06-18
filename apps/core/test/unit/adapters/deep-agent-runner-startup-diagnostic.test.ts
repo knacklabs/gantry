@@ -340,4 +340,53 @@ description: Use this skill for release notes.
       deepAgentSkillReadToolsEnabled: true,
     });
   });
+
+  it('tombstones checkpointed skill files when no skills are selected', async () => {
+    const { runDeepAgentTurn } =
+      await import('@core/adapters/llm/deepagents-langchain/runner/deep-agent-runner.js');
+    const previousFile = {
+      content: 'old skill',
+      mimeType: 'text/markdown',
+      created_at: '2026-06-16T00:00:00.000Z',
+      modified_at: '2026-06-16T00:00:00.000Z',
+    };
+    const checkpointer = {
+      getTuple: vi.fn(async () => ({
+        checkpoint: {
+          channel_values: {
+            files: {
+              '/skills/old/SKILL.md': previousFile,
+              '/scratch.txt': previousFile,
+            },
+          },
+        },
+      })),
+    };
+
+    await runDeepAgentTurn({
+      agentInput: input(),
+      provider: 'openai',
+      modelId: 'gpt-test',
+      newSessionId: 'session-one',
+      threadId: 'session-one',
+      checkpointer: checkpointer as never,
+      includeMemoryContext: false,
+      emit: () => {},
+    });
+
+    const graph = mocks.createDeepAgent.mock.results[0]?.value as {
+      streamEvents: ReturnType<typeof vi.fn>;
+    };
+    expect(graph.streamEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: {
+          '/skills/old/SKILL.md': null,
+        },
+      }),
+      expect.any(Object),
+    );
+    expect(
+      (graph.streamEvents.mock.calls[0]?.[0] as { files?: object }).files,
+    ).not.toHaveProperty('/scratch.txt');
+  });
 });

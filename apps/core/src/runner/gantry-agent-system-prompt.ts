@@ -186,7 +186,7 @@ function gantryControlSection(): string {
     '## Gantry Control',
     'Use send_message for channel-visible updates and ask_user_question for decision-blocking questions.',
     'Use request_access for reviewed semantic capabilities, Browser, exact Gantry admin tools, provider/channel permissions, or scoped RunCommand(<argv pattern>) fallback.',
-    'Use todo_update for visible task state. Use delegate_task/task_get/task_cancel only for Gantry-owned delegation; report delegated work only after delegate_task returns a taskId.',
+    'Use todo_update for visible task state. Use delegate_task/task_get/task_cancel only when Gantry mounts them with an executor; if unavailable, continue without delegation or request setup.',
   ].join('\n');
 }
 

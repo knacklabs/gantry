@@ -49,7 +49,9 @@
 - Delegation wrappers are authority surfaces. `delegate_task`, `task_get`, and
   `task_cancel` must stay hidden whenever `excludeAuthorityTools` /
   no-permission / locked-agent projection is active, even if
-  `AgentDelegation` appears in configured tools.
+  `AgentDelegation` appears in configured tools. They must also stay unmounted
+  until Gantry has a real delegated-task executor wired behind them; recording a
+  task row without an executor is not a valid delegation implementation.
 - Durable file/web authority uses Gantry-owned facade names such as
   `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, `WebSearch`, and
   `WebRead`. The selected harness maps those names to provider-native tools

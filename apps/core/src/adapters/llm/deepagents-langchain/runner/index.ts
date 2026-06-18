@@ -164,8 +164,9 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
     checkpointer = agentInput.sessionId
       ? await store.load(agentInput.sessionId)
       : await store.create(sessionId);
-    let includeMemoryContext = true;
-
+    // LangGraph checkpoints persist input messages. Seed memory only on fresh
+    // threads; resumed checkpoints already carry the earlier memory message.
+    let includeMemoryContext = !agentInput.sessionId;
     // Emit the session id as soon as the resume is validated so the host
     // persists the provider session before the run completes (launchd restarts
     // can kill an active run mid-stream). This is a standalone session-init
