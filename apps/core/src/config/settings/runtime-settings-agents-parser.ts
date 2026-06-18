@@ -1,4 +1,8 @@
 import { resolveModelSelectionForWorkload } from '../../shared/model-catalog.js';
+import {
+  isAgentHarness,
+  type AgentHarness,
+} from '../../shared/agent-engine.js';
 import { parseAgentPersona } from '../../shared/agent-persona.js';
 import { parseAgentRelationshipMode } from '../../shared/agent-relationship-mode.js';
 import type {
@@ -31,6 +35,19 @@ function parseBooleanValue(
   if (raw === undefined && fallback !== undefined) return fallback;
   if (typeof raw !== 'boolean') {
     throw new Error(`${pathPrefix} must be true/false`);
+  }
+  return raw;
+}
+
+function parseOptionalAgentHarnessValue(
+  raw: unknown,
+  pathPrefix: string,
+): AgentHarness | undefined {
+  if (raw === undefined) return undefined;
+  if (!isAgentHarness(raw)) {
+    throw new Error(
+      `${pathPrefix} must be one of auto, anthropic_sdk, or deepagents`,
+    );
   }
   return raw;
 }
@@ -407,13 +424,14 @@ export function parseConfiguredAgents(
         key !== 'added_at' &&
         key !== 'requires_trigger' &&
         key !== 'model' &&
+        key !== 'agent_harness' &&
         key !== 'one_time_job_default_model' &&
         key !== 'recurring_job_default_model' &&
         key !== 'bindings' &&
         key !== 'access'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, model, job model defaults, bindings, or access.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, model, agent_harness, job model defaults, bindings, or access.`,
         );
       }
     }
@@ -474,6 +492,10 @@ export function parseConfiguredAgents(
         `${pathPrefix}.relationship_mode`,
       ),
       model,
+      agentHarness: parseOptionalAgentHarnessValue(
+        map.agent_harness,
+        `${pathPrefix}.agent_harness`,
+      ),
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,
       bindings: parseConfiguredAgentBindings(

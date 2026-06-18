@@ -19,11 +19,13 @@ import {
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
+import { DEFAULT_TRIGGER, getTriggerPattern } from '../../config/index.js';
 import { buildPermissionReceiptBlocks } from './permission-blocks.js';
 import {
   SLACK_NATIVE_APPEND_MAX_LENGTH,
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
+import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
 import { nowIso } from '../../shared/time/datetime.js';
 const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
 const SLACK_RETRY_DELAY_MAX_MS = 5000;
@@ -84,7 +86,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       setTimeout(resolve, clampSlackRetryDelayMs(delayMs));
     });
   }
-  protected async ingestSlackMessage(event: SlackMessageLike): Promise<void> {
+  protected async ingestSlackMessage(
+    event: SlackMessageLike,
+    options: { forceOwnedTopLevel?: boolean } = {},
+  ): Promise<void> {
     if (!event.channel || !event.ts) return;
     if (event.bot_id) return;
     if (event.subtype && event.subtype !== 'file_share') return;
@@ -109,10 +114,25 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       return;
     }
     const enriched = await this.enrichMessage(jid, event);
-    const content = enriched.text;
+    const rawContent = enriched.text;
+    const content =
+      this.botUserId && group
+        ? rawContent.replace(
+            new RegExp(`^<@${this.botUserId}>\\s+`),
+            `${group.trigger?.trim() || DEFAULT_TRIGGER} `,
+          )
+        : rawContent;
     if (!content) return;
     const sender = event.user || 'unknown';
     const senderName = await this.resolveUserName(event.user);
+    const ownsTopLevelMessage =
+      Boolean(group) &&
+      (options.forceOwnedTopLevel ||
+        group.requiresTrigger === false ||
+        getTriggerPattern(group.trigger).test(content.trim()));
+    const threadId =
+      event.thread_ts ||
+      (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
     await this.opts.onMessage(jid, {
       id: event.ts,
       chat_jid: jid,
@@ -123,7 +143,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
       is_from_me: this.botUserId ? sender === this.botUserId : false,
       external_message_id: event.ts,
-      thread_id: event.thread_ts || undefined,
+      thread_id: threadId,
       attachments: enriched.attachments,
       reply_to_message_id:
         event.thread_ts && event.thread_ts !== event.ts
@@ -313,7 +333,9 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         await this.ingestSlackMessage(args.event as SlackMessageLike);
       });
       this.app.event('app_mention', async (args: any) => {
-        await this.ingestSlackMessage(args.event as SlackMessageLike);
+        await this.ingestSlackMessage(args.event as SlackMessageLike, {
+          forceOwnedTopLevel: true,
+        });
       });
       this.app.event('app_home_opened', async (args: any) => {
         const event = args.event as { user?: string };
@@ -401,7 +423,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         }
       });
     }
-    this.app.action('gantry_perm_decision', async (args: any) => {
+    const handlePermissionDecision = async (args: any) => {
       await args.ack();
       const body = args.body as {
         channel?: { id?: string };
@@ -514,7 +536,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       await this.resolvePermissionPrompt(payload.requestId, {
         ...decision,
       });
-    });
+    };
+    for (const actionId of SLACK_PERMISSION_DECISION_ACTION_IDS) {
+      this.app.action(actionId, handlePermissionDecision);
+    }
     this.app.action('gantry_userq_select', async (args: any) => {
       await args.ack();
       const action = args.action as { value?: string };

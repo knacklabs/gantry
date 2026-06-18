@@ -72,10 +72,10 @@ describe('agent credential service', () => {
 
   it('requests model credentials through route-scoped gateway binding', async () => {
     const getInjection = vi.fn(async () => ({
+      // OpenRouter projects the OpenAI-family gateway env (DeepAgents lane).
       env: {
-        ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/openrouter',
-        ANTHROPIC_API_KEY: 'gtw_test',
-        ANTHROPIC_AUTH_TOKEN: 'gtw_test',
+        OPENAI_BASE_URL: 'http://127.0.0.1:49231/openrouter',
+        OPENAI_API_KEY: 'gtw_test',
       },
       applied: true,
       brokerProfile: 'gantry' as const,

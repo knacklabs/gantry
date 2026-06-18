@@ -415,6 +415,7 @@ export async function handleJobRoutes(
         return mapManualJobToStored(job, jobMetadata, {
           detail: false,
           getDefaultModelConfig: ctx.getDefaultModelConfig,
+          getSelectedAgentHarness: ctx.getSelectedAgentHarness,
         });
       }),
     });
@@ -470,7 +471,10 @@ export async function handleJobRoutes(
             skillRepository: getRuntimeStorage().repositories.skills,
             appId: auth.appId,
           }),
-          { getDefaultModelConfig: ctx.getDefaultModelConfig },
+          {
+            getDefaultModelConfig: ctx.getDefaultModelConfig,
+            getSelectedAgentHarness: ctx.getSelectedAgentHarness,
+          },
         ),
       );
     } catch (error) {
@@ -556,7 +560,10 @@ export async function handleJobRoutes(
             skillRepository: getRuntimeStorage().repositories.skills,
             appId: auth.appId,
           }),
-          { getDefaultModelConfig: ctx.getDefaultModelConfig },
+          {
+            getDefaultModelConfig: ctx.getDefaultModelConfig,
+            getSelectedAgentHarness: ctx.getSelectedAgentHarness,
+          },
         ),
       );
     } catch (error) {

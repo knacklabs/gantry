@@ -11,6 +11,8 @@ const STUBBED_ENV_KEYS = [
   'GANTRY_DEPLOYMENT_MODE',
   'GANTRY_ADMIN_MCP_TOOLS_JSON',
   'GANTRY_MCP_TOOL_NAMES_JSON',
+  'GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON',
+  'GANTRY_SEMANTIC_CAPABILITIES_JSON',
   'GANTRY_SELECTED_SKILLS_JSON',
   'GANTRY_SELECTED_MCP_SERVERS_JSON',
   'GANTRY_CHAT_JID',
@@ -75,7 +77,10 @@ describe('capabilityStatusText access projection', () => {
     // Provisioned view stays intact.
     expect(text).toContain('- available: mcp__gantry__send_message');
     expect(text).toContain('- ready: skill:refunds');
-    expect(text).toContain('- ready: mcp:crm');
+    expect(text).toContain('- ready source: crm');
+    expect(text).toContain(
+      'use: mcp_list_tools with serverName="crm", then mcp_call_tool with serverName="crm"',
+    );
   });
 
   it('full agents keep the requestable access model and Tool Access view', async () => {
@@ -98,6 +103,55 @@ describe('capabilityStatusText access projection', () => {
     expect(text).toContain('- available: mcp__gantry__service_restart');
     expect(text).toContain('Tool Access:');
     expect(text).toContain('Scheduler monitoring:');
+  });
+
+  it('does not label requestable MCP capabilities as selected', async () => {
+    const semanticCapability = {
+      capabilityId: 'mcp.crm.lookup',
+      version: '1',
+      displayName: 'CRM lookup',
+      category: 'MCP',
+      risk: 'read',
+      can: 'Look up CRM records through the approved source.',
+      cannot: 'Call unapproved CRM tools.',
+      credentialSource: 'none',
+      implementationBindings: [
+        {
+          kind: 'mcp_tool',
+          mcpTool: 'mcp__crm__lookup_order',
+        },
+      ],
+    };
+    setRunnerEnv({
+      GANTRY_AGENT_ACCESS_PRESET: 'full',
+      GANTRY_SELECTED_MCP_SERVERS_JSON: JSON.stringify(['mcp:crm']),
+      GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([semanticCapability]),
+      GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify([]),
+    });
+    vi.resetModules();
+    const { capabilityStatusText } =
+      await import('@core/runner/mcp/context.js');
+
+    const unselectedText = capabilityStatusText();
+    expect(unselectedText).toContain('- ready source: crm');
+    expect(unselectedText).not.toContain(
+      'selected capabilities: mcp.crm.lookup',
+    );
+
+    setRunnerEnv({
+      GANTRY_AGENT_ACCESS_PRESET: 'full',
+      GANTRY_SELECTED_MCP_SERVERS_JSON: JSON.stringify(['mcp:crm']),
+      GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([semanticCapability]),
+      GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify([
+        'capability:mcp.crm.lookup',
+      ]),
+    });
+    vi.resetModules();
+    const selectedContext = await import('@core/runner/mcp/context.js');
+
+    expect(selectedContext.capabilityStatusText()).toContain(
+      'selected capabilities: mcp.crm.lookup',
+    );
   });
 });
 

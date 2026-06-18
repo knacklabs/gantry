@@ -3,6 +3,12 @@ import type {
   ModelResponseFamily,
   ModelWorkload,
 } from './model-catalog.js';
+import {
+  DEFAULT_AGENT_ENGINE,
+  DEEPAGENTS_ENGINE,
+  type AgentEngine,
+} from './agent-engine.js';
+import { OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS } from './model-provider-registry-openai-compatible.js';
 
 export type ModelCredentialPayload = Record<string, string>;
 
@@ -20,6 +26,7 @@ export type ModelGatewayAuthStrategy =
   | 'aws_bedrock_api_key'
   | 'aws_sigv4'
   | 'aws_sdk_default_chain'
+  | 'vertex_service_account'
   | 'azure_api_key'
   | 'azure_entra_default_credential';
 
@@ -46,10 +53,23 @@ export interface ModelGatewaySdkProjectionDefinition {
   credentialProvider: string;
 }
 
+export interface ModelGatewayResolvedUpstream {
+  origin: string;
+  pathPrefix: string;
+}
+
+export interface ModelGatewayUpstreamResolverInput {
+  authMode: string;
+  payload: ModelCredentialPayload;
+}
+
 export interface ModelGatewayDefinition {
   pathSegment: string;
   upstreamOrigin: string;
   upstreamPathPrefix: string;
+  upstreamResolver?: (
+    input: ModelGatewayUpstreamResolverInput,
+  ) => ModelGatewayResolvedUpstream;
   sdkProjection: ModelGatewaySdkProjectionDefinition;
 }
 
@@ -57,7 +77,7 @@ export type ModelProviderPromptCacheMode =
   | 'none'
   | 'anthropic_cache_control'
   | 'openai_automatic_prefix'
-  | 'openrouter_anthropic_cache_control';
+  | 'openrouter_automatic_prefix';
 
 export type ModelProviderResponseCacheMode =
   | 'none'
@@ -95,6 +115,16 @@ export interface ModelProviderCacheSupport {
   response: ModelProviderResponseCacheSupport;
 }
 
+// The execution route is derived from the provider, not chosen. Each provider
+// declares the single engine its models run on, the internal execution adapter
+// for that engine, and the credential modes that pairing supports. Resolution is
+// `modelAlias -> provider -> executionRoute`; there is no `agentEngine` input.
+export interface ModelExecutionRoute {
+  engine: AgentEngine;
+  executionProviderId: ModelExecutionProviderId;
+  supportedCredentialModes: readonly string[];
+}
+
 export interface ModelProviderDefinition {
   id: string;
   label: string;
@@ -106,7 +136,7 @@ export interface ModelProviderDefinition {
   credentialModes: readonly ModelCredentialModeDefinition[];
   gateway: ModelGatewayDefinition;
   cacheSupport: ModelProviderCacheSupport;
-  executionProviderIds: readonly ModelExecutionProviderId[];
+  executionRoute: ModelExecutionRoute;
 }
 
 export const MODEL_PROVIDER_DEFINITIONS = [
@@ -201,7 +231,13 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'normal_usage',
       },
     },
-    executionProviderIds: ['anthropic:claude-agent-sdk'],
+    // Claude is the Anthropic SDK lane: it is the only engine that supports
+    // Claude OAuth/subscription, and it also serves Claude API-key.
+    executionRoute: {
+      engine: DEFAULT_AGENT_ENGINE,
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      supportedCredentialModes: ['api_key', 'claude_code_oauth'],
+    },
   },
   {
     id: 'openrouter',
@@ -242,19 +278,25 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       pathSegment: 'openrouter',
       upstreamOrigin: 'https://openrouter.ai',
       upstreamPathPrefix: '/api',
+      // OpenRouter is the DeepAgents lane: it speaks chat/completions and
+      // projects the same loopback base-url + gtw_ token under the deepagents
+      // env names so ChatOpenRouter reads them. The upstream credential is still
+      // a bearer OpenRouter key.
       sdkProjection: {
-        baseUrlEnv: 'ANTHROPIC_BASE_URL',
-        tokenEnv: 'ANTHROPIC_API_KEY',
-        additionalTokenEnv: 'ANTHROPIC_AUTH_TOKEN',
-        credentialProviderEnvKey: 'ANTHROPIC_AUTH_TOKEN',
+        baseUrlEnv: 'OPENAI_BASE_URL',
+        tokenEnv: 'OPENAI_API_KEY',
+        credentialProviderEnvKey: 'OPENAI_API_KEY',
         credentialProvider: 'openrouter',
       },
     },
     cacheSupport: {
       prompt: {
-        mode: 'openrouter_anthropic_cache_control',
-        automatic: false,
-        requestControl: 'cache_control_blocks',
+        // Via chat/completions the usage is prefix-shaped; Kimi/Moonshot caches
+        // AUTOMATICALLY on the request prefix (no explicit cache_control
+        // breakpoints), read/written off prompt_tokens_details.*.
+        mode: 'openrouter_automatic_prefix',
+        automatic: true,
+        requestControl: 'provider_automatic_prefix',
         ttlOptions: ['5m', '1h'],
         minimumTokenThresholds: [
           { modelFamily: 'anthropic-compatible', tokens: 2048 },
@@ -281,16 +323,28 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'zero_usage_on_hit',
       },
     },
-    executionProviderIds: ['anthropic:claude-agent-sdk'],
+    // OpenRouter is the DeepAgents lane (was anthropic_sdk): the gateway
+    // sdkProjection + cacheSupport above are the deepagents-lane projection so
+    // ChatOpenRouter speaks chat/completions through the loopback gateway.
+    executionRoute: {
+      engine: DEEPAGENTS_ENGINE,
+      executionProviderId: 'deepagents:langchain',
+      supportedCredentialModes: ['api_key'],
+    },
   },
   {
     id: 'openai',
     label: 'OpenAI',
     executable: true,
-    modelRoute: false,
+    modelRoute: true,
     embeddingProvider: true,
     responseFamily: 'openai',
-    supportedWorkloads: [],
+    supportedWorkloads: [
+      'chat',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
     credentialModes: [
       {
         id: 'api_key',
@@ -312,27 +366,23 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       },
     ],
     gateway: {
-      pathSegment: ['open', 'ai'].join(''),
-      upstreamOrigin: `https://api.${['open', 'ai'].join('')}.com`,
+      pathSegment: 'openai',
+      upstreamOrigin: 'https://api.openai.com',
       upstreamPathPrefix: '',
       sdkProjection: {
-        baseUrlEnv: `${['OPEN', 'AI'].join('')}_BASE_URL`,
-        tokenEnv: `${['OPEN', 'AI'].join('')}_API_KEY`,
-        credentialProviderEnvKey: `${['OPEN', 'AI'].join('')}_API_KEY`,
+        baseUrlEnv: 'OPENAI_BASE_URL',
+        tokenEnv: 'OPENAI_API_KEY',
+        credentialProviderEnvKey: 'OPENAI_API_KEY',
         credentialProvider: 'native',
       },
     },
     cacheSupport: {
       prompt: {
-        mode: ['open', 'ai', '_automatic_prefix'].join(
-          '',
-        ) as ModelProviderPromptCacheMode,
+        mode: 'openai_automatic_prefix',
         automatic: true,
         requestControl: 'provider_automatic_prefix',
         ttlOptions: [],
-        minimumTokenThresholds: [
-          { modelFamily: ['open', 'ai'].join(''), tokens: 1024 },
-        ],
+        minimumTokenThresholds: [{ modelFamily: 'openai', tokens: 1024 }],
         usageFields: {
           readTokens: 'prompt_tokens_details.cached_tokens',
         },
@@ -346,8 +396,16 @@ export const MODEL_PROVIDER_DEFINITIONS = [
         usageBehavior: 'normal_usage',
       },
     },
-    executionProviderIds: [],
+    executionRoute: {
+      engine: DEEPAGENTS_ENGINE,
+      executionProviderId: 'deepagents:langchain',
+      supportedCredentialModes: ['api_key'],
+    },
   },
+  // Additional OpenAI-chat-completions-compatible providers on the DeepAgents
+  // engine. Defined in a sibling module to keep this file under its line
+  // budget; spread here so the registry stays the single source of truth.
+  ...OPENAI_COMPATIBLE_PROVIDER_DEFINITIONS,
 ] as const satisfies readonly ModelProviderDefinition[];
 
 const PROVIDER_BY_ID = indexProviderDefinitionsById(MODEL_PROVIDER_DEFINITIONS);
@@ -463,7 +521,9 @@ export function normalizeModelCredentialPayload(input: {
   for (const field of mode.fields) {
     const value = rawPayload[field.name];
     if (typeof value === 'string' && value.trim()) {
-      payload[field.name] = value.trim();
+      const normalized = value.trim();
+      validateCredentialFieldValue(provider, mode.id, field.name, normalized);
+      payload[field.name] = normalized;
       continue;
     }
     if (field.required) {
@@ -511,7 +571,9 @@ export function normalizePartialModelCredentialPayload(input: {
     if (typeof value !== 'string' || !value.trim()) {
       throw new Error(`Credential field ${key} must be a non-empty string.`);
     }
-    payload[key] = value.trim();
+    const normalized = value.trim();
+    validateCredentialFieldValue(provider, mode.id, key, normalized);
+    payload[key] = normalized;
   }
   return payload;
 }
@@ -562,4 +624,62 @@ function indexProviderDefinitionsByGatewayPath(
     indexed.set(path, provider);
   }
   return indexed;
+}
+
+const AWS_REGION_PATTERN = /^[a-z]{2}(?:-gov)?-[a-z0-9-]+-\d$/;
+const GOOGLE_VERTEX_LOCATION_PATTERN = /^global$/;
+const GOOGLE_PROJECT_PATTERN = /^(?:[a-z][a-z0-9-]{4,28}[a-z0-9]|\d{6,})$/;
+function validateCredentialFieldValue(
+  provider: ModelProviderDefinition,
+  modeId: string,
+  field: string,
+  value: string,
+): void {
+  if (provider.id === 'bedrock' && field === 'region') {
+    if (!AWS_REGION_PATTERN.test(value)) {
+      throw invalidCredentialField(provider.id, modeId, field);
+    }
+    return;
+  }
+  if (provider.id === 'vertex' && field === 'region') {
+    if (!GOOGLE_VERTEX_LOCATION_PATTERN.test(value)) {
+      throw invalidCredentialField(provider.id, modeId, field);
+    }
+    return;
+  }
+  if (provider.id === 'vertex' && field === 'projectId') {
+    if (!GOOGLE_PROJECT_PATTERN.test(value)) {
+      throw invalidCredentialField(provider.id, modeId, field);
+    }
+    return;
+  }
+  if (provider.id === 'vertex' && field === 'serviceAccountJson') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw invalidCredentialField(provider.id, modeId, field);
+    }
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      (parsed as { type?: unknown }).type !== 'service_account' ||
+      typeof (parsed as { project_id?: unknown }).project_id !== 'string' ||
+      typeof (parsed as { client_email?: unknown }).client_email !== 'string' ||
+      typeof (parsed as { private_key?: unknown }).private_key !== 'string'
+    ) {
+      throw invalidCredentialField(provider.id, modeId, field);
+    }
+  }
+}
+
+function invalidCredentialField(
+  providerId: string,
+  modeId: string,
+  field: string,
+): Error {
+  return new Error(
+    `Credential field ${field} is invalid for ${providerId} ${modeId}.`,
+  );
 }

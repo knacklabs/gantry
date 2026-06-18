@@ -1,5 +1,12 @@
 # DeepAgents Decoupling Goal Prompt
 
+> Status: superseded by implementation (2026-06-12). The per-agent agent-engine
+> decoupling described here shipped on `feature/deepagents-agent-engine`. For the
+> current contract see `docs/decisions/2026-06-12-agent-engine-selection.md`,
+> `docs/decisions/2026-05-01-model-catalog-and-cache-accounting.md`, and
+> `docs/architecture/deepagents-agent-engine-handoff-plan.md`. This prompt is kept
+> as the historical goal record; do not treat it as current guidance.
+
 Use this prompt after the citation-backed harness plan has been reviewed. It is
 for the implementation phase that makes Gantry's current Anthropic SDK runtime
 neutral enough to add DeepAgents as another harness.
@@ -12,9 +19,9 @@ This is an implementation goal. Make code, test, and docs changes as needed, but
 Current architectural decision:
 - Gantry remains authoritative for tools, permissions, capabilities, MCP bindings, skills, browser, sandbox, sessions, jobs, settings, audit, memory, and dreaming.
 - `anthropic:claude-agent-sdk` remains the native Claude OAuth/subscription lane.
-- `deepagents:langchain` is the intended default API-key harness lane for OpenAI API keys, Anthropic API keys, and future LangChain-compatible providers.
+- `deepagents:langchain` is the user-selectable API-key engine lane for supported OpenAI endpoint, Anthropic endpoint, and future LangChain-compatible provider routes.
 - Harness-specific tool names, callback types, settings files, skill formats, MCP config shapes, session ids, and backend tools are adapter-private runtime projections.
-- Model/harness selection stays alias-resolved through catalog fields such as `modelAlias`, `responseFamily`, diagnostic `modelRoute`, resolver-owned `executionProviderId`, and `credentialProfileRef`. Do not add public `job.harness`, job-level `executionProviderId`, or raw provider model IDs at public boundaries.
+- Model selection stays alias-first through `modelAlias`; harness selection is a per-agent `agentEngine` choice (`anthropic_sdk` or `deepagents`), and the resolver combines `agentEngine + modelAlias` into diagnostic `modelRoute`, read-only `executionProviderId`, and `credentialProfileRef`. Do not add public `job.harness`, job-level `agentEngine`, job-level `executionProviderId`, or raw provider model IDs at public boundaries.
 
 Mandatory process:
 1. Start by rereading the current repo truth:
@@ -45,7 +52,7 @@ Mandatory process:
 Bounded write scope:
 - Allowed: provider-neutral harness contracts, runtime projection modules, adapter boundary code, existing Anthropic adapter updates, model catalog/provider route plumbing, memory LLM port wiring, permission bridge extraction, skill/MCP/browser projection extraction, sandbox/egress provider-neutral naming, focused docs, focused tests.
 - Allowed only if required by real behavior: Postgres provider-session metadata fields or runtime event shape changes. Prefer existing neutral tables and JSON metadata where sufficient.
-- Not allowed in this goal: enabling a production DeepAgents runtime lane, adding public harness selectors, adding raw DeepAgents `.mcp.json` authority, adding raw `LocalShellBackend` or raw `execute` authority, adding DeepAgents skill names as durable skill identity, or moving Claude OAuth/subscription onto DeepAgents without official support.
+- Not allowed in this goal: enabling a production DeepAgents runtime lane, adding public job-level/raw harness selectors beyond per-agent `agentEngine`, adding raw DeepAgents `.mcp.json` authority, adding raw `LocalShellBackend` or raw `execute` authority, adding DeepAgents skill names as durable skill identity, or moving Claude OAuth/subscription onto DeepAgents without official support.
 
 Acceptance criteria:
 1. Execution adapter boundary:
@@ -56,7 +63,7 @@ Acceptance criteria:
 
 2. Model catalog and credentials:
    - Public model selection remains alias-first.
-   - Catalog entries resolve to `executionProviderId` through provider-neutral code.
+   - Catalog/model routing can resolve `agentEngine + modelAlias` to `executionProviderId` through provider-neutral code.
    - OpenAI API-key routing can be represented as an executable model route for a future `deepagents:langchain` adapter without accepting raw provider model IDs at public boundaries.
    - Claude OAuth/subscription models remain on `anthropic:claude-agent-sdk`.
    - Model credential env stays inside model-runtime projection only; approved tool subprocesses receive only provider-neutral `toolNetworkEnv`.

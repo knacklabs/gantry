@@ -14,6 +14,7 @@ import {
 } from '../config/settings/runtime-settings.js';
 import {
   DEFAULT_MODEL_PRESET_ID,
+  isModelPresetId,
   resolveModelSelectionForWorkload,
   type ModelPresetId,
 } from '../shared/model-catalog.js';
@@ -78,10 +79,17 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
   settings.storage.postgres.schema = input.postgresSchema?.trim() || 'gantry';
   const model = resolveOnboardingModel(input.modelAlias);
-  const preset = input.modelPreset ?? model.preset ?? DEFAULT_MODEL_PRESET_ID;
-  if (model.preset && model.preset !== preset) {
+  // The preset governs the memory/defaults cascade. A non-preset (DeepAgents-
+  // lane) chat model legitimately pairs with any preset, so only fall back to
+  // the model's provider as the preset when it is itself a preset id.
+  const modelPresetId =
+    model.preset && isModelPresetId(model.preset) ? model.preset : undefined;
+  const preset = input.modelPreset ?? modelPresetId ?? DEFAULT_MODEL_PRESET_ID;
+  // Only a cross-PRESET mismatch is an error (e.g. an OpenRouter model selected
+  // under the Anthropic preset); non-preset chat models pair with any preset.
+  if (modelPresetId && modelPresetId !== preset) {
     throw new Error(
-      `Selected model alias "${model.alias}" belongs to ${model.preset}, not ${preset}.`,
+      `Selected model alias "${model.alias}" belongs to ${modelPresetId}, not ${preset}.`,
     );
   }
   applyModelPreset(settings, preset);

@@ -1097,7 +1097,14 @@
     "rule": "provider_specific_path",
     "reason": "Exact shared model-catalog provider debt after removing the broad shared provider allowlist; capped so new provider-specific shared leakage fails.",
     "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
-    "maxViolations": 34
+    "maxViolations": 44
+  },
+  {
+    "file": "apps/core/src/shared/model-catalog-openai-compatible.ts",
+    "rule": "provider_specific_path",
+    "reason": "Sibling of model-catalog.ts holding the eight OpenAI-compatible DeepAgents-lane catalog entries (groq/deepseek/xai/together/fireworks/cerebras/perplexity/gemini); extracted to keep model-catalog.ts under its line budget. Same intentional provider-catalog debt, capped to its exact entry set.",
+    "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+    "maxViolations": 46
   },
   {
     "file": "apps/core/src/shared/model-cache-support.ts",
@@ -1111,7 +1118,14 @@
     "rule": "provider_specific_path",
     "reason": "The model provider registry is the intentional source of truth for provider definitions, credential modes, gateway behavior, and cache metadata until the architecture checker has first-class provider-registry ownership.",
     "removeByPhase": "provider-registry-boundary-rule",
-    "maxViolations": 32
+    "maxViolations": 41
+  },
+  {
+    "file": "apps/core/src/shared/model-provider-registry-openai-compatible.ts",
+    "rule": "provider_specific_path",
+    "reason": "Sibling of model-provider-registry.ts holding the eight OpenAI-compatible DeepAgents-lane provider definitions (groq/deepseek/xai/together/fireworks/cerebras/perplexity/gemini); extracted to keep model-provider-registry.ts under its line budget. Same intentional provider-registry source-of-truth debt, capped to its exact provider set.",
+    "removeByPhase": "provider-registry-boundary-rule",
+    "maxViolations": 22
   },
   {
     "file": "apps/core/src/platform/index.ts",
@@ -1179,6 +1193,13 @@
     "reason": "Anthropic memory LLM adapter reuses existing config and credential-broker access while direct SDK imports are moved out of memory; move credential runtime config behind an application port next.",
     "removeByPhase": "memory credential port cleanup",
     "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/adapters/llm/openai-memory/memory-gateway-injection.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "OpenAI-family memory LLM adapter reuses the same credential-broker runtime config as the Anthropic memory adapter to reach the Gantry model gateway; move credential runtime config behind an application port next.",
+    "removeByPhase": "memory credential port cleanup",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/memory/extractor-llm.ts",
@@ -1279,6 +1300,20 @@
     "maxViolations": 3
   },
   {
+    "file": "apps/core/src/cli/group-engine.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Group-engine CLI verb is a local admin adapter over settings.yaml desired-state writers and runtime settings types (mirrors group-access); capped at exact count until the agent-command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/cli/group-list.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Group-list CLI verb reads runtime settings to render each agent's effective engine; capped at exact count until the agent-command service is extracted.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/control/server/routes/system.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "System control routes read draining state, settings-load state, and config directly for /readyz, /metrics, and /v1/status; capped at exact count until readiness/draining are injected through ControlRouteContext.",
@@ -1365,6 +1400,27 @@
     "rule": "forbidden_import_by_layer",
     "reason": "Incoming external platform event route reads runtime signing and delivery configuration directly; capped to this one env access until external event settings are injected through route context.",
     "removeByPhase": "teams-external-platform-adapter-cleanup",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/shared/agent-engine.ts",
+    "rule": "provider_specific_path",
+    "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+    "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/shared/model-execution-route.ts",
+    "rule": "provider_specific_path",
+    "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+    "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+    "maxViolations": 4
+  },
+  {
+    "file": "packages/contracts/src/contract-primitives.ts",
+    "rule": "provider_specific_path",
+    "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+    "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
     "maxViolations": 1
   }
 ]

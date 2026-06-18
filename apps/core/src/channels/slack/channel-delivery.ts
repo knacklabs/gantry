@@ -25,6 +25,7 @@ import {
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 import { buildPermissionPromptContentBlocks } from './permission-blocks.js';
+import { slackPermissionDecisionActionId } from './permission-action-id.js';
 import {
   disconnectSlackDelivery,
   loadPersistedSlackProgress,
@@ -33,11 +34,9 @@ import {
   sendSlackMessage,
   sendSlackProgressUpdate,
   syncSlackGroups,
+  type SlackSnippetFallbackInput,
+  type SlackSnippetFallbackResult,
   waitForSlackUserQuestionSelection,
-} from './channel-delivery-helpers.js';
-import type {
-  SlackSnippetFallbackInput,
-  SlackSnippetFallbackResult,
 } from './channel-delivery-helpers.js';
 import { SlackChannelInteractions } from './channel-interactions.js';
 import {
@@ -47,6 +46,7 @@ import {
 } from './text-limits.js';
 import type { PendingUserQuestionState } from './channel-state.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { slackThreadTsFromThreadId } from './thread-ts.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   private interactionCallbacksEnabled = true;
@@ -481,7 +481,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       type: 'actions',
       elements: permissionDecisionOptions(request).map((mode) => ({
         type: 'button',
-        action_id: 'gantry_perm_decision',
+        action_id: slackPermissionDecisionActionId(mode),
         text: {
           type: 'plain_text',
           text: permissionButtonLabel(mode, request),
@@ -495,12 +495,13 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         }),
       })),
     };
-    const threadTs = request.threadId ? { thread_ts: request.threadId } : {};
+    const threadTs = slackThreadTsFromThreadId(request.threadId);
+    const threadPayload = threadTs ? { thread_ts: threadTs } : {};
     const postPrompt = (blocks: unknown[]) =>
       this.app!.client.chat.postMessage({
         channel: parsed.channelId,
         text: promptText,
-        ...threadTs,
+        ...threadPayload,
         blocks: blocks as any,
       }) as Promise<{ ts?: string }>;
     try {
@@ -623,15 +624,16 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           settled: false,
         };
 
-        const questionThreadTs = request.threadId
-          ? { thread_ts: request.threadId }
+        const questionThreadTs = slackThreadTsFromThreadId(request.threadId);
+        const questionThreadPayload = questionThreadTs
+          ? { thread_ts: questionThreadTs }
           : {};
         const fullBlocks = this.buildUserQuestionBlocks(pendingState);
         const postQuestion = (blocks: unknown[]) =>
           this.app!.client.chat.postMessage({
             channel: parsed.channelId,
             text: promptText,
-            ...questionThreadTs,
+            ...questionThreadPayload,
             blocks: blocks as any,
           }) as Promise<{ ts?: string }>;
         let sent: { ts?: string };

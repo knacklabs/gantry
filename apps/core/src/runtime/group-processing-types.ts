@@ -30,6 +30,7 @@ import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
+import type { FamilyOrderOverrides } from '../shared/model-families.js';
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
@@ -109,6 +110,7 @@ export interface GroupProcessingDeps {
     closeStdin: (chatJid: string) => void;
     notifyIdle: (chatJid: string) => void;
     stopGroup?: (chatJid: string) => boolean;
+    isShuttingDown?: () => boolean;
     registerProcess: (
       groupJid: string,
       proc: ChildProcess,
@@ -139,6 +141,11 @@ export interface GroupProcessingDeps {
   executionAdapter?: AgentExecutionAdapter;
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider: RunnerSandboxProvider;
+  // Configured Model Access providers for the app, used by live model-family
+  // failover to build the ordered candidate list. Optional: when absent (e.g. an
+  // injected test runner) failover degrades to a single candidate.
+  getConfiguredModelProviders?: (appId: string) => Promise<Set<string>>;
+  getModelFamilyOrder?: () => FamilyOrderOverrides | undefined;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
 }

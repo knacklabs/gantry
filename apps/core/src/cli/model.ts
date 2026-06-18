@@ -7,14 +7,24 @@ import {
   DEFAULT_SETUP_MODEL_ALIAS,
   getModelPreset,
   isModelPresetId,
-  listModelCatalogEntries,
   listModelPresets,
+  resolveModelSelection,
   resolveModelSelectionForWorkload,
-  type ModelCatalogEntry,
   type ModelPresetId,
   type ModelWorkload,
 } from '../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
+import {
+  isModelFamilyAlias,
+  resolveModelSelectionForWorkloadWithFamilies,
+} from '../shared/model-families.js';
+import { formatModelWhy } from '../shared/model-why-format.js';
+import {
+  familyOrderFromSettings,
+  fetchConfiguredProviders,
+  formatModelList,
+} from './model-list-format.js';
+import { providerLabel } from '../shared/model-catalog-availability.js';
 import {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
@@ -24,6 +34,7 @@ import {
 } from '../config/settings/runtime-settings.js';
 import { controlApiRequest } from './control-api.js';
 import type { ModelPreviewResponse } from './model-preview-types.js';
+import { formatPreviewWhy, parseAgentFlag } from './model-preview-format.js';
 type ModelCommandSettings = ReturnType<typeof ensureRuntimeSettings>;
 interface ModelCommandOptions {
   preflightPreset?: (
@@ -41,11 +52,13 @@ function usage(): string {
   gantry model status
   gantry model list [--preset ${presets}]
   gantry model chat|jobs|memory
-  gantry model set chat <alias>
-  gantry model set jobs inherit|<alias>
+  gantry model set chat <alias|family>
+  gantry model set jobs inherit|<alias|family>
   gantry model reset chat|jobs|memory
   gantry model why chat [group-scope|conversation-id]
   gantry model why jobs|memory|job <id>
+  gantry model why <alias|family>
+  gantry model why <alias> --agent <id>
   gantry model use-preset ${presets}
   gantry model doctor`;
 }
@@ -55,7 +68,11 @@ function presetFromSettings(settings: ModelCommandSettings): ModelPresetId {
     settings.agent.defaultModel || DEFAULT_SETUP_MODEL_ALIAS,
     'chat',
   );
-  return resolved.ok ? resolved.entry.modelRoute.id : DEFAULT_MODEL_PRESET_ID;
+  // modelRoute.id is the provider id, which is only a preset id for the
+  // anthropic/openrouter lanes. DeepAgents-lane providers (openai/groq/...) have
+  // no preset, so fall back to the default preset to avoid getModelPreset throws.
+  const providerId = resolved.ok ? resolved.entry.modelRoute.id : undefined;
+  return isModelPresetId(providerId) ? providerId : DEFAULT_MODEL_PRESET_ID;
 }
 
 function resolveSlot(alias: string, workload: ModelWorkload) {
@@ -79,7 +96,9 @@ async function preflightAliasPresets(input: {
   for (const { alias, workload } of input.aliases) {
     if (!alias) continue;
     const resolved = resolveModelSelectionForWorkload(alias, workload);
-    if (resolved.ok) presets.add(resolved.entry.modelRoute.id);
+    if (resolved.ok && isModelPresetId(resolved.entry.modelRoute.id)) {
+      presets.add(resolved.entry.modelRoute.id);
+    }
   }
   for (const preset of presets) {
     const result = await input.preflight(
@@ -92,6 +111,23 @@ async function preflightAliasPresets(input: {
     return false;
   }
   return true;
+}
+
+// Best-effort note when a freshly selected concrete non-preset model has no
+// active credential, so `set` surfaces the missing key immediately instead of
+// only at run time. Skips silently when the control API is unreachable (the
+// global `gantry doctor` credential check still catches it).
+async function noteUnconfiguredProvider(
+  runtimeHome: string,
+  alias: string,
+  providerId: string,
+): Promise<void> {
+  if (isModelFamilyAlias(alias) || isModelPresetId(providerId)) return;
+  const configured = await fetchConfiguredProviders(runtimeHome);
+  if (!configured || configured.has(providerId)) return;
+  console.warn(
+    `Note: ${alias} runs on the ${providerLabel(providerId)} provider, which has no active credential. Run \`gantry credentials model set ${providerId}\` to use it.`,
+  );
 }
 
 function chatAlias(settings: ModelCommandSettings): string {
@@ -107,57 +143,6 @@ function effectiveJobAlias(
       ? settings.agent.oneTimeJobDefaultModel
       : settings.agent.recurringJobDefaultModel;
   return explicit || chatAlias(settings);
-}
-
-function defaultsFor(settings: ModelCommandSettings) {
-  return {
-    chat: chatAlias(settings),
-    oneTime: settings.agent.oneTimeJobDefaultModel || undefined,
-    recurring: settings.agent.recurringJobDefaultModel || undefined,
-    memoryExtractor: settings.memory.llm.models.extractor || undefined,
-    memoryDreaming: settings.memory.llm.models.dreaming || undefined,
-    memoryConsolidation: settings.memory.llm.models.consolidation || undefined,
-  };
-}
-
-function aliasStatus(
-  alias: string,
-  entry: ModelCatalogEntry,
-  defaults: ReturnType<typeof defaultsFor>,
-): string {
-  const statuses: string[] = [
-    alias === entry.recommendedAlias ? 'recommended' : 'pinned',
-  ];
-  if (defaults.chat === alias) statuses.push('chat');
-  if (defaults.oneTime === alias) statuses.push('one-time jobs');
-  if (defaults.recurring === alias) statuses.push('recurring jobs');
-  if (defaults.memoryExtractor === alias) statuses.push('memory extractor');
-  if (defaults.memoryDreaming === alias) statuses.push('memory dreaming');
-  if (defaults.memoryConsolidation === alias)
-    statuses.push('memory consolidation');
-  return statuses.join(', ');
-}
-
-function formatModelList(
-  settings: ModelCommandSettings,
-  preset?: ModelPresetId,
-) {
-  const defaults = defaultsFor(settings);
-  const rows = [
-    'Available model aliases',
-    'Alias | Model | Response family | Route | Cache | Status',
-    '--- | --- | --- | --- | --- | ---',
-  ];
-  for (const entry of listModelCatalogEntries()) {
-    if (preset && entry.modelRoute.id !== preset) continue;
-    const cacheSupport = resolveModelCacheSupport(entry);
-    for (const alias of entry.aliases) {
-      rows.push(
-        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${cacheSupport.statusLabel} | ${aliasStatus(alias, entry, defaults)}`,
-      );
-    }
-  }
-  return rows.join('\n');
 }
 
 function formatAgentOverrides(settings: RuntimeSettings): string[] {
@@ -279,7 +264,11 @@ function selectedModelPresets(settings: ModelCommandSettings): ModelPresetId[] {
     },
   ]) {
     const resolved = resolveModelSelectionForWorkload(alias, workload);
-    if (resolved.ok) selected.add(resolved.entry.modelRoute.id);
+    // Only anthropic/openrouter provider ids are preset ids; DeepAgents-lane
+    // providers have no preset to preflight, so skip them here.
+    if (resolved.ok && isModelPresetId(resolved.entry.modelRoute.id)) {
+      selected.add(resolved.entry.modelRoute.id);
+    }
   }
   return [...selected].sort();
 }
@@ -361,40 +350,6 @@ function formatWhy(
   return undefined;
 }
 
-function formatPreviewWhy(preview: ModelPreviewResponse): string {
-  const selection = preview.selection;
-  const modelLabel = selection?.model?.displayName
-    ? `${selection.effectiveAlias ?? '(none)'} (${selection.model.displayName})`
-    : (selection?.effectiveAlias ?? '(none)');
-  const target = preview.jobId
-    ? `job ${preview.jobId}`
-    : preview.scope
-      ? `${preview.target ?? 'model'} ${preview.scope}`
-      : (preview.target ?? 'model');
-  const lines = [
-    `Why ${target} uses this model`,
-    `model: ${modelLabel}`,
-    `source: ${selection?.source ?? 'unknown'}`,
-    `mode: ${selection?.inherited ? 'inherited' : 'explicit'}`,
-  ];
-  if (selection?.model?.responseFamily)
-    lines.push(`response family: ${selection.model.responseFamily}`);
-  if (selection?.model?.modelRoute?.label)
-    lines.push(`route: ${selection.model.modelRoute.label}`);
-  if (selection?.model?.modelRoute?.metadata?.providerModelId) {
-    lines.push(
-      `provider model id: ${selection.model.modelRoute.metadata.providerModelId}`,
-    );
-  }
-  if (selection?.model?.cacheSupport?.statusLabel) {
-    lines.push(`cache: ${selection.model.cacheSupport.statusLabel}`);
-  }
-  if (preview.why?.length) {
-    lines.push(...preview.why.map((reason) => `reason: ${reason}`));
-  }
-  return lines.join('\n');
-}
-
 function parsePresetFlag(args: string[]): ModelPresetId | undefined {
   const value = args.find((arg) => arg.startsWith('--preset='));
   const preset = value
@@ -434,7 +389,13 @@ export async function runModelCommand(
   }
 
   if (action === 'list') {
-    console.log(formatModelList(settings, parsePresetFlag(args.slice(1))));
+    const configuredProviders = await fetchConfiguredProviders(runtimeHome);
+    console.log(
+      formatModelList(settings, parsePresetFlag(args.slice(1)), {
+        configuredProviders,
+        familyOrder: familyOrderFromSettings(settings),
+      }),
+    );
     return 0;
   }
 
@@ -444,8 +405,15 @@ export async function runModelCommand(
   }
 
   if (action === 'set') {
+    const familyOrder = familyOrderFromSettings(settings);
     if (target === 'chat' && alias) {
-      const resolved = resolveModelSelectionForWorkload(alias, 'chat');
+      // Family aliases (e.g. gpt-oss) are accepted and stored verbatim; the
+      // concrete provider is picked at spawn from the configured credential.
+      const resolved = resolveModelSelectionForWorkloadWithFamilies(
+        alias,
+        'chat',
+        familyOrder,
+      );
       if (!resolved.ok) {
         console.error(resolved.message);
         return 1;
@@ -464,6 +432,11 @@ export async function runModelCommand(
       settings.agent.defaultModel = resolved.alias;
       await persistSettings(previousSettings, settings);
       console.log(`chat: ${resolved.alias} (${resolved.entry.displayName})`);
+      await noteUnconfiguredProvider(
+        runtimeHome,
+        resolved.alias,
+        resolved.entry.modelRoute.id,
+      );
       return 0;
     }
     if (target === 'jobs' && alias) {
@@ -489,14 +462,19 @@ export async function runModelCommand(
         console.log(`recurring: inherits chat (${chatAlias(settings)})`);
         return 0;
       }
-      const oneTime = resolveModelSelectionForWorkload(alias, 'one_time_job');
+      const oneTime = resolveModelSelectionForWorkloadWithFamilies(
+        alias,
+        'one_time_job',
+        familyOrder,
+      );
       if (!oneTime.ok) {
         console.error(oneTime.message);
         return 1;
       }
-      const recurring = resolveModelSelectionForWorkload(
+      const recurring = resolveModelSelectionForWorkloadWithFamilies(
         alias,
         'recurring_job',
+        familyOrder,
       );
       if (!recurring.ok) {
         console.error(recurring.message);
@@ -522,6 +500,11 @@ export async function runModelCommand(
       console.log(`one-time: ${oneTime.alias} (${oneTime.entry.displayName})`);
       console.log(
         `recurring: ${recurring.alias} (${recurring.entry.displayName})`,
+      );
+      await noteUnconfiguredProvider(
+        runtimeHome,
+        oneTime.alias,
+        oneTime.entry.modelRoute.id,
       );
       return 0;
     }
@@ -588,6 +571,29 @@ export async function runModelCommand(
   }
 
   if (action === 'why') {
+    // `gantry model why <alias> --agent <id>` resolves a model alias against an
+    // agent's selected harness and shows the endpoint family, credential
+    // profile, agent harness, and diagnostic executionProviderId for the
+    // resolved route. Incompatibility surfaces the locked copy, not a stack.
+    const agentId = parseAgentFlag(args);
+    if (agentId !== undefined) {
+      if (!target || !agentId) {
+        console.error(usage());
+        return 1;
+      }
+      try {
+        const preview = (await controlApiRequest(runtimeHome, {
+          method: 'POST',
+          path: '/v1/models/preview',
+          body: { target: 'agent', agentId, modelAlias: target },
+        })) as ModelPreviewResponse;
+        console.log(formatPreviewWhy(preview));
+        return 0;
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
     if (target === 'chat' && alias) {
       try {
         const preview = (await controlApiRequest(runtimeHome, {
@@ -624,6 +630,26 @@ export async function runModelCommand(
         console.error(error instanceof Error ? error.message : String(error));
         return 1;
       }
+    }
+    // `gantry model why <alias|family>`: family-aware resolution preview. A
+    // family shows members in effective order, the provider it would resolve to
+    // for the configured set, and the reason; a concrete alias shows whether its
+    // provider key is configured. Degrades to no configured/needs-key line when
+    // the control API is unreachable.
+    if (
+      target &&
+      !alias &&
+      (isModelFamilyAlias(target) || resolveModelSelection(target).ok)
+    ) {
+      const configuredProviders = await fetchConfiguredProviders(runtimeHome);
+      console.log(
+        formatModelWhy({
+          value: target,
+          configuredProviders,
+          familyOrder: familyOrderFromSettings(settings),
+        }),
+      );
+      return 0;
     }
     const output = target ? formatWhy(settings, target) : undefined;
     if (!output) {

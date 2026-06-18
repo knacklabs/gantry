@@ -6,6 +6,7 @@ import { validatePostgresConnectionUrl } from '../../adapters/storage/postgres/u
 import { readEnvFile } from '../env/file.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
 import {
+  DEFAULT_SETUP_MODEL_ALIAS,
   resolveModelSelectionForWorkload,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
@@ -177,6 +178,20 @@ export function validateLoadedRuntimeSettings(
   }
 
   for (const [agentId, agent] of Object.entries(settings.agents)) {
+    const effectiveModel = (
+      agent.model ||
+      settings.agent.defaultModel ||
+      DEFAULT_SETUP_MODEL_ALIAS
+    ).trim();
+    const modelResolution = resolveModelSelectionForWorkload(
+      effectiveModel,
+      'chat',
+    );
+    if (!modelResolution.ok) {
+      details.push(
+        `agents.${agentId}.model is invalid: ${modelResolution.message}`,
+      );
+    }
     for (const capability of agent.capabilities) {
       const toolRule =
         capability.id === 'browser.use'

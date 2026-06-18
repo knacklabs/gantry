@@ -230,6 +230,73 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
     });
   });
 
+  it('a deepagents-engine scheduled run claims the lease before execution and fences terminal writes', async () => {
+    // Jobs inherit the bound agent's engine; the run persists the diagnostic
+    // executionProviderId for that engine. The lease/fence machinery is
+    // provider-neutral, so a deepagents:langchain run claims and fences exactly
+    // like the anthropic lane — this guards that parity and that job run detail
+    // derives the inherited engine read-only from the provider id.
+    await runtime.ops.upsertJob(makeJob('job-deepagents-engine'));
+    const claim = await runtime.ops.claimDueJobRunStart({
+      jobId: 'job-deepagents-engine',
+      runId: 'run-deepagents-engine',
+      executionProviderId: 'deepagents:langchain' as never,
+      workerInstanceId: 'w1',
+      scheduledFor: nowIso(),
+      startedAt: nowIso(),
+      retryCount: 0,
+      leaseExpiresAt: toIso(nowMs() + 60_000),
+      requireNextRun: false,
+    });
+    // Worker may not execute without a confirmed claim.
+    expect(claim).not.toBeNull();
+    expect(claim?.workerInstanceId).toBe('w1');
+
+    // A second worker cannot claim the same run (execution gated on the claim).
+    const contender = await coordination.claimRunLease({
+      runId: 'run-deepagents-engine',
+      jobId: 'job-deepagents-engine',
+      workerInstanceId: 'w2',
+      ttlMs: 60_000,
+    });
+    expect(contender).toBeNull();
+
+    // The persisted run exposes the inherited engine (derived) + diagnostic id.
+    await expect(
+      runtime.ops.getJobRunById('run-deepagents-engine'),
+    ).resolves.toMatchObject({
+      execution_provider_id: 'deepagents:langchain',
+      agent_engine: 'deepagents',
+    });
+
+    // Terminal writes are token-fenced: a stale/foreign token is dropped, the
+    // confirmed lease token settles.
+    await expect(
+      runtime.ops.settleJobRunLease({
+        runId: 'run-deepagents-engine',
+        leaseToken: 'stale-token',
+        outcome: 'completed',
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.ops.completeJobRunWithLease!({
+        runId: 'run-deepagents-engine',
+        leaseToken: claim!.leaseToken,
+        workerInstanceId: claim!.workerInstanceId,
+        fencingVersion: claim!.fencingVersion,
+        status: 'completed',
+        resultSummary: 'deepagents run done',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      runtime.ops.getJobRunById('run-deepagents-engine'),
+    ).resolves.toMatchObject({
+      status: 'completed',
+      result_summary: 'deepagents run done',
+      agent_engine: 'deepagents',
+    });
+  });
+
   it('run-only terminal finalization writes and settles in one lease-fenced step', async () => {
     await runtime.ops.upsertJob(makeJob('job-run-only-finalization'));
     await createRunForJob(

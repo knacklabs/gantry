@@ -38,6 +38,7 @@ async function loadRuntimeApp() {
     }),
     getRuntimeSkillArtifactStore: vi.fn(),
     getRuntimeStorage: vi.fn(),
+    getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
   }));
   return import('@core/app/bootstrap/runtime-app.js');
 }
@@ -71,6 +72,7 @@ async function loadRuntimeAppWithGroupProcessorSpy() {
     }),
     getRuntimeSkillArtifactStore: vi.fn(),
     getRuntimeStorage: vi.fn(),
+    getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
   }));
   const runtimeApp = await import('@core/app/bootstrap/runtime-app.js');
   return { ...runtimeApp, createGroupProcessor };
@@ -173,6 +175,29 @@ describe('runtime app credential binding', () => {
 
     expect(capturedDeps?.channelRuntime.supportsStreaming('tg:primary')).toBe(
       true,
+    );
+  });
+
+  it('preserves an explicit empty thread cursor for first-message retry', async () => {
+    const { createRuntimeApp } = await loadRuntimeApp();
+    const setRouterState = vi.fn(async () => undefined);
+    const app = createRuntimeApp({
+      opsRepository: {
+        setRouterState,
+        getLastBotMessageCursor: vi.fn(),
+      } as any,
+    });
+    const globalCursor =
+      '{"timestamp":"2026-06-04 05:44:24.529+00","id":"1780551864.529109"}';
+    const threadQueueJid = 'sl:C1234567890::thread:1780551797.956909';
+
+    app.setLastTimestamp(globalCursor);
+    app.setAgentCursor(threadQueueJid, '');
+
+    await expect(app.getOrRecoverCursor(threadQueueJid)).resolves.toBe('');
+    expect(setRouterState).not.toHaveBeenCalledWith(
+      'last_agent_timestamp',
+      expect.any(String),
     );
   });
 });

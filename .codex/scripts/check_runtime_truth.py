@@ -178,16 +178,27 @@ def _check_bundled_skill_claims() -> list[str]:
     session_commands = (
         REPO_ROOT / "apps" / "core" / "src" / "session" / "session-commands.ts"
     ).read_text(encoding="utf-8")
+    # /commands parsing may live in the sibling parse module after extraction;
+    # the handler + help stay in session-commands.ts.
+    session_command_parse_path = (
+        REPO_ROOT / "apps" / "core" / "src" / "session" / "session-command-parse.ts"
+    )
+    session_command_parse = (
+        session_command_parse_path.read_text(encoding="utf-8")
+        if session_command_parse_path.exists()
+        else ""
+    )
 
     required_readme_skills = ["`/commands`", "`gantry-admin`"]
     for skill in required_readme_skills:
         if skill not in readme:
             failures.append(f"README.md missing bundled skill entry {skill}")
 
-    if (
-        "kind: 'commands'" not in session_commands
-        or "formatSessionCommandsHelp" not in session_commands
-    ):
+    parses_commands = (
+        "kind: 'commands'" in session_commands
+        or "kind: 'commands'" in session_command_parse
+    )
+    if not parses_commands or "formatSessionCommandsHelp" not in session_commands:
         failures.append("apps/core/src/session/session-commands.ts missing host-managed /commands support")
 
     if commands_skill.exists():

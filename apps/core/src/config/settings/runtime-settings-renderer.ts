@@ -43,6 +43,10 @@ import type {
   RuntimeSettings,
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
+import {
+  renderLimitsSettingsYaml,
+  renderModelFamiliesYaml,
+} from './runtime-settings-optional-blocks-renderer.js';
 
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
 
@@ -62,6 +66,9 @@ function renderDefaultsYaml(
   lines.push(
     `  model: ${quoteYamlString(agent.defaultModel || SYSTEM_DEFAULT_MODEL_ALIAS)}`,
   );
+  if (agent.agentHarness !== 'auto') {
+    lines.push(`  agent_harness: ${quoteYamlString(agent.agentHarness)}`);
+  }
   if (agent.oneTimeJobDefaultModel || agent.recurringJobDefaultModel) {
     lines.push('  jobs:');
     if (agent.oneTimeJobDefaultModel) {
@@ -114,9 +121,8 @@ function renderMemorySettingsYaml(
   lines: string[],
   memory: RuntimeMemorySettings,
 ): void {
+  lines.push('memory:', `  enabled: ${memory.enabled ? 'true' : 'false'}`);
   lines.push(
-    'memory:',
-    `  enabled: ${memory.enabled ? 'true' : 'false'}`,
     '  embeddings:',
     `    enabled: ${memory.embeddings.enabled ? 'true' : 'false'}`,
     `    provider: ${memory.embeddings.provider}`,
@@ -213,6 +219,9 @@ function renderConfiguredAgentsYaml(
     }
     if (agent.model) {
       lines.push(`    model: ${quoteYamlString(agent.model)}`);
+    }
+    if (agent.agentHarness) {
+      lines.push(`    agent_harness: ${quoteYamlString(agent.agentHarness)}`);
     }
     if (agent.oneTimeJobDefaultModel) {
       lines.push(
@@ -701,6 +710,8 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   if (!isDefaultPermissionSettings(settings.permissions)) {
     renderPermissionSettingsYaml(lines, settings.permissions);
   }
+  renderLimitsSettingsYaml(lines, settings.limits);
+  renderModelFamiliesYaml(lines, settings.modelFamilies);
 
   return lines.join('\n');
 }

@@ -1059,25 +1059,27 @@ export async function startRuntimeServices(
     },
     // Waiting-status monitor (coordinator singleton): detects live messages
     // queued behind a saturated fleet and sends the visible status once per
-    // episode via the transient progress-update path. Only wired when a durable
-    // live-turn repository is available to query.
-    waitingStatus: liveTurns
-      ? {
-          start: () =>
-            startWaitingStatusMonitor({
-              liveTurns,
-              getConversationJids: () =>
-                Object.keys(app.getConversationRoutes()),
-              sendStatus: (conversationJid, text) =>
-                channelWiring.sendProgressUpdate(conversationJid, text),
-              warn: (context, message) =>
-                resolved.logger.warn(context, message),
-            }),
-          register: (monitor) => {
-            activeWaitingStatusMonitor = monitor;
-          },
-        }
-      : undefined,
+    // episode via the transient progress-update path. This is fleet-only UX:
+    // workstation recovery can replay old local backlog during startup, and a
+    // root-level "available worker" message is misleading there.
+    waitingStatus:
+      liveTurns && resolved.getDeploymentMode() === 'fleet'
+        ? {
+            start: () =>
+              startWaitingStatusMonitor({
+                liveTurns,
+                getConversationJids: () =>
+                  Object.keys(app.getConversationRoutes()),
+                sendStatus: (conversationJid, text) =>
+                  channelWiring.sendProgressUpdate(conversationJid, text),
+                warn: (context, message) =>
+                  resolved.logger.warn(context, message),
+              }),
+            register: (monitor) => {
+              activeWaitingStatusMonitor = monitor;
+            },
+          }
+        : undefined,
     onPollingCrash: (err) => {
       resolved.logger.fatal({ err }, 'Message loop crashed unexpectedly');
       resolved.exit(1);

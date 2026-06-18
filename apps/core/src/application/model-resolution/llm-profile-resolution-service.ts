@@ -8,6 +8,8 @@ import {
   type ModelRouteId,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
+import type { AgentEngine, AgentHarness } from '../../shared/agent-engine.js';
+import { resolveExecutionRoute } from '../../shared/model-execution-route.js';
 
 export interface ResolvedLlmProfile {
   profile: LlmProfile;
@@ -22,7 +24,11 @@ export interface ResolvedLlmProfile {
       providerModelId: string;
     };
   };
+  // Read-only diagnostics derived from the resolved model's provider: the engine
+  // its models run on and the internal execution adapter for that engine.
   executionProviderId: ModelExecutionProviderId;
+  agentEngine: AgentEngine;
+  supportedCredentialModes: readonly string[];
   credentialProfileRef: string;
   capabilities: ModelCapabilityDescriptor;
 }
@@ -31,7 +37,13 @@ export type LlmProfileResolution =
   | { ok: true; value: ResolvedLlmProfile }
   | {
       ok: false;
-      reason: 'empty' | 'unknown' | 'raw-provider-id' | 'unsupported-workload';
+      reason:
+        | 'empty'
+        | 'unknown'
+        | 'raw-provider-id'
+        | 'unsupported-workload'
+        | 'unknown-provider'
+        | 'incompatible-harness';
       message: string;
     };
 
@@ -39,6 +51,7 @@ export class LlmProfileResolutionService {
   resolve(input: {
     profile: LlmProfile;
     workload: ModelWorkload;
+    agentHarness?: AgentHarness;
   }): LlmProfileResolution {
     const resolved = resolveModelSelectionForWorkload(
       input.profile.modelAlias,
@@ -52,6 +65,18 @@ export class LlmProfileResolutionService {
         message: resolved.message,
       };
     }
+    const executionRoute = resolveExecutionRoute({
+      entry: resolved.entry,
+      agentHarness: input.agentHarness,
+    });
+    if (!executionRoute.ok) {
+      return {
+        ok: false,
+        reason: executionRoute.reason,
+        message: executionRoute.message,
+      };
+    }
+    const agentEngine = executionRoute.value.engine;
     const credentialProfileRef =
       input.profile.credentialProfileRef ?? resolved.entry.credentialProfileRef;
     return {
@@ -69,7 +94,9 @@ export class LlmProfileResolutionService {
             providerModelId: resolved.entry.modelRoute.providerModelId,
           },
         },
-        executionProviderId: resolved.entry.executionProviderId,
+        executionProviderId: executionRoute.value.executionProviderId,
+        agentEngine,
+        supportedCredentialModes: executionRoute.value.supportedCredentialModes,
         credentialProfileRef,
         capabilities: resolved.entry.capabilities,
       },

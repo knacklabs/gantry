@@ -17,6 +17,7 @@ import {
   configureDesiredSettingsStorageProvider,
   getControlEnvValue,
   getDefaultModelConfig,
+  getSelectedAgentHarness,
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
@@ -338,13 +339,20 @@ export function startControlServer(input: {
         appId,
       }),
     getActiveModelCredentialProviderIds: async (appId: AppId) => {
-      const credentials =
-        await getRuntimeStorage().repositories.modelCredentials.listModelCredentials(
-          { appId },
-        );
-      return credentials
-        .filter((credential) => credential.status === 'active')
-        .map((credential) => credential.providerId);
+      try {
+        const credentials =
+          await getRuntimeStorage().repositories.modelCredentials.listModelCredentials(
+            { appId },
+          );
+        return credentials
+          .filter((credential) => credential.status === 'active')
+          .map((credential) => credential.providerId);
+      } catch {
+        // Best-effort: availability reads (model catalog `available`, why/preview
+        // badges) must never fail the response on a credential-store error;
+        // degrade to "none configured".
+        return [];
+      }
     },
     countPendingAccessRequests: async (appId: AppId) =>
       getRuntimeStorage().repositories.pendingAccessRequests.countPendingAccessRequests(
@@ -370,6 +378,8 @@ export function startControlServer(input: {
         appId,
         reloadRuntimeState: () => input.app.loadState(),
       }),
+    getSelectedAgentHarness: (agentFolder?: string) =>
+      getSelectedAgentHarness(agentFolder),
   };
 
   const server = http.createServer(

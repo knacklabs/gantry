@@ -215,6 +215,7 @@ export async function exportCurrentDesiredState(input: {
       persona: existing?.persona ?? 'developer',
       relationshipMode: existing?.relationshipMode ?? 'personal',
       model: existing?.model,
+      agentHarness: existing?.agentHarness,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: existing?.bindings ?? {},
@@ -400,6 +401,7 @@ export async function exportCurrentDesiredState(input: {
         group.agentConfig?.relationshipMode ??
         'personal',
       model: existing?.model ?? group.agentConfig?.model,
+      agentHarness: existing?.agentHarness,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: {

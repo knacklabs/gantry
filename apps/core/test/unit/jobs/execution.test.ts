@@ -38,6 +38,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
     appendRunnerControlEvent: vi.fn(async () => 'persisted'),
     heartbeatRunLease: vi.fn(async () => true),
   }),
+  getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
 }));
 
 vi.mock('@core/jobs/worker-identity.js', () => ({
@@ -55,6 +56,11 @@ vi.mock('@core/jobs/system-jobs.js', () => ({
 }));
 
 const systemJobs = await import('@core/jobs/system-jobs.js');
+const runtimeStore =
+  await import('@core/adapters/storage/postgres/runtime-store.js');
+const getConfiguredModelProvidersForAppMock = vi.mocked(
+  runtimeStore.getConfiguredModelProvidersForApp,
+);
 const { runJob } = await import('@core/jobs/execution.js');
 const { evaluateJobReadiness } =
   await import('@core/application/jobs/job-readiness-service.js');
@@ -2534,5 +2540,136 @@ describe('jobs/execution', () => {
       null,
       expect.stringContaining('Sandbox startup failed'),
     );
+  });
+
+  describe('model-family runtime failover (Phase 3)', () => {
+    it('fails over to the next configured provider UNDER THE SAME lease', async () => {
+      const job = makeJob({ model: 'gpt-oss' });
+      const opsRepository = {
+        ...makeOpsRepository(job),
+        getAgentTurnContext: vi.fn(async () => ({
+          appId: 'default',
+          agentId: 'agent:scheduler_agent',
+          agentSessionId: 'agent-session:scheduler',
+        })),
+        createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+      };
+      // gpt-oss family: members groq-oss (groq) + cerebras. Both configured ->
+      // candidates [groq-oss, cerebras].
+      getConfiguredModelProvidersForAppMock.mockResolvedValue(
+        new Set(['groq', 'cerebras']),
+      );
+      const runAgent = vi
+        .fn()
+        // First candidate (groq-oss) returns a 401 before any streamed output.
+        .mockResolvedValueOnce({
+          status: 'error',
+          result: null,
+          error: 'API Error: 401 invalid api key',
+        })
+        // Second candidate (cerebras) succeeds.
+        .mockResolvedValueOnce({
+          status: 'success',
+          result: 'second provider reply',
+        });
+
+      await runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          runAgent: runAgent as never,
+          executionAdapter: {
+            id: 'anthropic:claude-agent-sdk',
+            prepare: vi.fn(),
+          } as never,
+        },
+        'tg:scheduler',
+      );
+
+      expect(runAgent).toHaveBeenCalledTimes(2);
+      expect(runAgent.mock.calls[0][1]).toMatchObject({ model: 'groq-oss' });
+      expect(runAgent.mock.calls[1][1]).toMatchObject({ model: 'cerebras' });
+      // SAME lease across both attempts: no re-claim, same lease token + fencing.
+      expect(opsRepository.claimDueJobRunStart).toHaveBeenCalledTimes(1);
+      expect(runAgent.mock.calls[0][1]).toMatchObject({
+        runLeaseToken: 'lease-token-1',
+        runLeaseFencingVersion: 1,
+      });
+      expect(runAgent.mock.calls[1][1]).toMatchObject({
+        runLeaseToken: 'lease-token-1',
+        runLeaseFencingVersion: 1,
+      });
+      // Terminal write is a single completed run under the same lease.
+      expect(opsRepository.completeJobRun).toHaveBeenCalledTimes(1);
+      expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+        expect.any(String),
+        'completed',
+        expect.stringContaining('second provider reply'),
+        null,
+      );
+      // The jobs lane emits RUN_FAILOVER for observability (parity with the live
+      // lane): from/to model captured, reason carries the eligibility-class error.
+      const failoverEvent = runtimeStoreMock.publish.mock.calls.find(
+        ([event]) => event?.eventType === 'run.failover',
+      )?.[0];
+      expect(failoverEvent).toBeDefined();
+      expect(failoverEvent?.payload).toMatchObject({
+        fromModel: 'groq-oss',
+        toModel: 'cerebras',
+      });
+      expect(String(failoverEvent?.payload?.reason)).toContain('401');
+    });
+
+    it('finalizes failed when every candidate fails (eligible errors, no stream)', async () => {
+      const job = makeJob({ model: 'gpt-oss' });
+      const opsRepository = {
+        ...makeOpsRepository(job),
+        getAgentTurnContext: vi.fn(async () => ({
+          appId: 'default',
+          agentId: 'agent:scheduler_agent',
+          agentSessionId: 'agent-session:scheduler',
+        })),
+        createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+      };
+      getConfiguredModelProvidersForAppMock.mockResolvedValue(
+        new Set(['groq', 'cerebras']),
+      );
+      const runAgent = vi.fn(async () => ({
+        status: 'error',
+        result: null,
+        error: 'API Error: 503 service unavailable',
+      }));
+
+      await runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          runAgent: runAgent as never,
+          executionAdapter: {
+            id: 'anthropic:claude-agent-sdk',
+            prepare: vi.fn(),
+          } as never,
+        },
+        'tg:scheduler',
+      );
+
+      // Both candidates attempted, then finalized failed (single terminal write).
+      expect(runAgent).toHaveBeenCalledTimes(2);
+      expect(opsRepository.completeJobRun).toHaveBeenCalledTimes(1);
+      expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+        expect.any(String),
+        'failed',
+        null,
+        expect.stringContaining('503'),
+      );
+    });
   });
 });

@@ -168,10 +168,12 @@ describe('importFleetSettingsRevision', () => {
     const settings = createDefaultRuntimeSettings();
     settings.runtime.deploymentMode = 'fleet';
     settings.agent.name = 'Agent "quoted" \\ path';
+    settings.agent.agentHarness = 'deepagents';
     settings.memory.llm.extractorMinConfidence = 0.73;
     settings.agents.researcher = {
       name: 'Researcher',
       folder: 'researcher',
+      agentHarness: 'anthropic_sdk',
       model: undefined,
       oneTimeJobDefaultModel: undefined,
       recurringJobDefaultModel: undefined,
@@ -194,6 +196,13 @@ describe('importFleetSettingsRevision', () => {
         '\\"',
       ),
     ).toBe(false);
+    expect((document.agent as Record<string, unknown>).agent_harness).toBe(
+      'deepagents',
+    );
+    expect(
+      (document.agents as Record<string, Record<string, unknown>>).researcher
+        .agent_harness,
+    ).toBe('anthropic_sdk');
     expect(
       (
         (document.memory as Record<string, unknown>).llm as Record<
@@ -210,9 +219,11 @@ describe('importFleetSettingsRevision', () => {
     ).toBe('locked');
     const restored = settingsFromRevisionDocument(document);
     expect(restored.agent.name).toBe(settings.agent.name);
+    expect(restored.agent.agentHarness).toBe('deepagents');
     expect(restored.memory.llm.extractorMinConfidence).toBe(0.73);
     expect(restored.runtime.deploymentMode).toBe('fleet');
     expect(restored.agents.researcher.accessPreset).toBe('locked');
+    expect(restored.agents.researcher.agentHarness).toBe('anthropic_sdk');
     expect(restored.agents.researcher.capabilities).toEqual([
       { id: 'browser.use', version: '1' },
     ]);

@@ -3,6 +3,8 @@ import type { AgentExecutionAdapterRegistry } from '../application/agent-executi
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { resolveConfiguredRuntimeExecutionProviderId } from '../runtime/execution-provider-id.js';
 import type { NormalizedModelUsage } from '../shared/model-catalog.js';
+import { resolveExecutionRoute } from '../shared/model-execution-route.js';
+import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
 import {
   modelUseKindForJobSchedule,
   resolveDefaultJobExecutionProviderId,
@@ -23,10 +25,21 @@ export function resolveJobExecutionProviderId(input: {
   executionAdapters?: Pick<AgentExecutionAdapterRegistry, 'list'>;
   fallbackForInjectedRunner?: boolean;
 }): ExecutionProviderId {
+  const resolution = input.resolvedModel.resolution;
+  let routed: ExecutionProviderId | undefined;
+  if (resolution?.ok) {
+    const route =
+      input.resolvedModel.routeResolution ??
+      resolveExecutionRoute({
+        entry: resolution.entry,
+        agentHarness: input.resolvedModel.agentHarness,
+      });
+    if (route.ok) {
+      routed = route.value.executionProviderId as ExecutionProviderId;
+    }
+  }
   return (
-    (input.resolvedModel.entry?.executionProviderId as
-      | ExecutionProviderId
-      | undefined) ??
+    routed ??
     resolveConfiguredRuntimeExecutionProviderId({
       executionAdapter: input.executionAdapter,
       executionAdapters: input.executionAdapters,
@@ -48,9 +61,43 @@ function modelAuditPayload(resolved: ResolvedJobModel) {
   };
 }
 
+// Resolved-run diagnostics for the scheduled lane: the inherited agent engine,
+// the endpoint family (responseFamily), and the diagnostic executionProviderId.
+// No secrets; credential mode and sandbox provider are added at the call site
+// where the bound credential and runner sandbox are known.
+function resolvedRunDiagnostics(resolved: ResolvedJobModel) {
+  const provider = resolved.entry
+    ? getModelProviderDefinition(resolved.entry.modelRoute.id)
+    : undefined;
+  let executionProviderId: string | null = null;
+  let supportedCredentialModes: readonly string[] = [];
+  if (resolved.resolution?.ok) {
+    const route =
+      resolved.routeResolution ??
+      resolveExecutionRoute({
+        entry: resolved.resolution.entry,
+        agentHarness: resolved.agentHarness,
+      });
+    if (route.ok) {
+      executionProviderId = route.value.executionProviderId;
+      supportedCredentialModes = route.value.supportedCredentialModes;
+    }
+  }
+  return {
+    agent_engine: resolved.agentEngine,
+    agent_harness: resolved.agentHarness,
+    response_family: provider?.responseFamily ?? null,
+    execution_provider_id: executionProviderId,
+    // Non-secret credential-mode metadata: which credential modes this resolved
+    // route accepts. The exact bound mode is enforced later at spawn.
+    supported_credential_modes: [...supportedCredentialModes],
+  };
+}
+
 export function jobStartedModelPayload(resolved: ResolvedJobModel) {
   return {
     ...modelAuditPayload(resolved),
+    ...resolvedRunDiagnostics(resolved),
     context_window_tokens: resolved.entry?.contextWindowTokens ?? null,
   };
 }

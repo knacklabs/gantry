@@ -20,3 +20,4 @@ Current decisions:
 - [0001 — Config Secret Source Boundary](./0001-config-secret-source-boundary.md)
 - [2026-04-17 — Settings And Runtime Truth](./2026-04-17-settings-runtime-truth.md)
 - [2026-04-21 — App-Wide Storage Backend Cutover](./2026-04-21-storage-backend-cutover.md)
+- [2026-06-12 — Agent Engine Selection](./2026-06-12-agent-engine-selection.md)

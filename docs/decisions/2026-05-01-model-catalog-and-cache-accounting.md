@@ -1,5 +1,13 @@
 # Model Catalog and Cache Accounting
 
+> **Status note (2026-06-14):** the model catalog and cache-accounting decision
+> remains useful, but all writable `agentEngine`, provider-derived-only, and
+> `agent_engine` selector language in this document is historical where it
+> conflicts with
+> [Agent Harness Selection](./2026-06-14-agent-harness-selection.md). The active
+> public contract is `agentHarness` (`agent_harness` in `settings.yaml`), while
+> `agentEngine` remains the effective read-only diagnostic.
+
 ## Context
 
 Gantry needs model selection to work the same way from chat commands, API/SDK
@@ -26,23 +34,50 @@ Catalog entries declare workload eligibility for chat, one-time jobs,
 recurring jobs, memory extraction, memory dreaming, and memory consolidation.
 A cataloged alias can still be rejected when it is not eligible for the
 requested workload. `/v1/models` exposes aliases, response family, diagnostic
-model route metadata, execution provider id, credential profile reference,
+model route metadata, per-engine execution routes, credential profile reference,
 capability descriptors, and supported workloads without exposing raw credential
 details or treating provider model IDs as selectors.
+
+Model selection resolves `modelAlias + agentEngine -> executionRoute`. The model
+alias chooses the model and its provider route fixes the endpoint family
+(`responseFamily`); the per-agent `agentEngine` chooses the harness adapter.
+Each provider route declares an `executionRoutes` array keyed by engine, with the
+endpoint family, credential modes, supported workloads, and the internal
+`executionProviderId`. A pairing whose provider route has no execution route for
+the selected engine is rejected before runner spawn rather than re-routed to a
+different engine.
+
+> Historical note: this 2026-06-13 provider-derived-only text is superseded by
+> `docs/decisions/2026-06-14-agent-harness-selection.md`. Its derivation rules
+> are now the behavior of `agentHarness: auto`. The cache-accounting parts of
+> this ADR are unchanged; only the public selector framing is superseded.
 
 Vocabulary:
 
 - `modelAlias`: the normal user-facing selector.
-- `responseFamily`: the canonical API shape, currently `anthropic` plus
-  schema-only `openai`.
+- `agentEngine`: the durable per-agent harness choice, `anthropic_sdk`
+  (Anthropic SDK, the Claude OAuth/subscription lane) or `deepagents`
+  (DeepAgents, the API-key engine). Jobs and conversations inherit the bound
+  agent's engine; there is no job- or conversation-level engine selector.
+- `responseFamily`: the canonical API shape, `anthropic` or `openai`.
 - `modelRoute`: diagnostic/source metadata such as Anthropic or OpenRouter,
   including metadata-only provider model IDs.
-- `executionProviderId`: the adapter projection id resolved by the runtime.
+- `executionProviderId`: the adapter projection id resolved by the runtime per
+  engine; read-only diagnostic.
 - `credentialProfileRef`: the model-access credential profile, currently
   `gantry-model-access`.
 - `capabilities`: observable support/readiness descriptors for streaming, tool
   use, MCP/browser/sandbox projection, session resume, thinking controls,
   token/cache accounting, and structured output.
+
+The Anthropic-family aliases run on either engine where the provider route
+declares both execution routes; OpenAI-endpoint chat models run on the
+`deepagents:langchain` lane only. For the DeepAgents lane, catalog entries
+declare identity and route only: context window, output limits, and capability
+flags are reported at runtime from the LangChain model profile, and pricing is
+intentionally not declared. Anthropic SDK plus an OpenAI-endpoint model, and
+DeepAgents plus Claude OAuth/subscription credentials, are both rejected before
+the run starts.
 
 Interactive model precedence is:
 
@@ -78,10 +113,11 @@ model defaults. Memory extraction, dreaming, and consolidation read the current
 validated settings at call time so new runs pick up model changes without a
 service restart.
 
-Catalog entries expose `responseFamily` as the canonical API shape, currently
-`anthropic` with `openai` reserved for schema-only future support. OpenRouter is
-route metadata on Anthropic-family aliases, not a core response family or
-execution provider selector.
+Catalog entries expose `responseFamily` as the canonical API shape, `anthropic`
+or `openai`. OpenAI-endpoint chat models are executable through the
+`deepagents:langchain` lane, not just schema. OpenRouter is route metadata on
+Anthropic-family aliases, not a core response family or execution provider
+selector.
 
 Provider-side cache support means upstream model-provider prompt or response
 caching that can reduce cost or latency. It does not mean Gantry caches
@@ -95,12 +131,20 @@ plus the selected catalog route, not from `responseFamily` alone. Job lifecycle
 events include the resolved catalog entry ID, alias, model source, cache policy,
 and token usage when the provider reports it.
 
+Memory LLM clients also normalize usage into the same input/output/cache
+read/cache write fields through `MemoryLlmQueryOpts.onUsage`;
+extraction/dreaming logs consume that callback.
+
 Provider cache behavior is intentionally provider-defined:
 
-- Anthropic prompt caching is explicit request shaping through
-  `cache_control` blocks. The Anthropic adapter lane owns those controls and
-  the normalized usage fields are `cache_creation_input_tokens` and
-  `cache_read_input_tokens`.
+- Anthropic prompt caching is explicit request shaping through Agent SDK
+  prompt-shaping options and, for lower-level content blocks such as memory LLM
+  user blocks, Anthropic `cache_control` blocks. The Anthropic adapter lane owns
+  those controls and the normalized usage fields are
+  `cache_creation_input_tokens` and `cache_read_input_tokens`.
+  Anthropic memory LLM queries keep extraction instructions in a cacheable SDK
+  system-prompt prefix and mark only static user prompt blocks with
+  `cache_control`; dynamic conversation evidence remains uncached user content.
 - OpenRouter prompt caching for Anthropic-compatible routes also uses
   Anthropic-style `cache_control` blocks. Normalized prompt-cache usage comes
   from `prompt_tokens_details.cached_tokens` and

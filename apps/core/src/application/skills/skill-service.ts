@@ -334,16 +334,6 @@ function normalizeRequiredEnvVars(values: string[]): string[] {
   return [...new Set(normalized)];
 }
 
-function skillDeclaredNameFromAssets(
-  assets: Array<{ path: string; content: Uint8Array }>,
-): string | undefined {
-  const skillMd = assets.find((asset) => asset.path === 'SKILL.md');
-  if (!skillMd) return undefined;
-  return cleanMetadataText(
-    parseSkillFrontmatter(Buffer.from(skillMd.content).toString('utf-8')).name,
-  );
-}
-
 function assertSkillMetadataCanBeMaterialized(input: {
   catalogName: string;
   declaredName?: string;

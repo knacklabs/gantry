@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createDefaultRuntimeSettings,
@@ -15,6 +15,7 @@ import {
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
+import { addActiveMcpSourcesToRuntimeSettings } from '@core/config/settings/restart-sync.js';
 import { runSettingsCommand } from '@core/cli/settings.js';
 
 function emptySources() {
@@ -22,6 +23,45 @@ function emptySources() {
 }
 
 describe('runtime settings', () => {
+  it('adds active MCP source refs before desired-state mirroring reconciles settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'ReAgent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [{ id: 'mcp.caw-ats.access', version: '1' }],
+    };
+
+    await addActiveMcpSourcesToRuntimeSettings({
+      settings,
+      agentFolder: 'main_agent',
+      appId: 'default' as never,
+      repositories: {
+        mcpServers: {
+          listAgentBindings: vi.fn(async () => [
+            {
+              appId: 'default',
+              agentId: 'agent:main_agent',
+              id: 'agent-mcp-binding:agent:main_agent:mcp:caw-ats',
+              serverId: 'mcp:caw-ats',
+              status: 'active',
+              required: false,
+              permissionPolicyIds: [],
+              allowedToolPatterns: ['ats_list_positions'],
+              createdAt: '2026-06-01T00:00:00.000Z',
+              updatedAt: '2026-06-01T00:00:00.000Z',
+            },
+          ]),
+        } as never,
+      },
+    });
+
+    expect(settings.agents.main_agent.sources.mcpServers).toEqual([
+      { id: 'mcp:caw-ats', tools: ['ats_list_positions'] },
+    ]);
+  });
+
   it('defaults, renders, and parses agent.name', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.agent.name).toBe('Default Agent');
@@ -32,6 +72,25 @@ describe('runtime settings', () => {
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.agent.name).toBe('Kai');
+  });
+
+  it('A7: parses numeric loopback gateway bind hosts', () => {
+    for (const host of ['127.0.0.1', '::1']) {
+      const parsed = parseRuntimeSettings(
+        `model_access:\n  gateway:\n    bind_host: '${host}'\n`,
+      );
+      expect(parsed.credentialBroker.gateway.bindHost).toBe(host);
+    }
+  });
+
+  it('A7: rejects a non-numeric gateway bind host (parity with the broker)', () => {
+    // The gateway broker only binds numeric loopback and crashes at startup
+    // otherwise; reject 'localhost' at config time with a clear error.
+    expect(() =>
+      parseRuntimeSettings(
+        `model_access:\n  gateway:\n    bind_host: localhost\n`,
+      ),
+    ).toThrow('must be a numeric loopback host: 127.0.0.1 or ::1');
   });
 
   it('defaults, renders, and parses job model defaults', () => {
@@ -123,6 +182,34 @@ describe('runtime settings', () => {
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.runtime.queue).toEqual(settings.runtime.queue);
+  });
+
+  it('defaults model_families to empty and omits the block when empty', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.modelFamilies).toEqual({});
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('model_families');
+    expect(parseRuntimeSettings(yaml).modelFamilies).toEqual({});
+  });
+
+  it('renders and round-trips a model_families order override', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.modelFamilies = {
+      'gpt-oss': ['cerebras', 'groq-oss'],
+      'llama-70b': ['together'],
+    };
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('model_families:');
+    expect(yaml).toContain('gpt-oss: ["cerebras","groq-oss"]');
+    expect(yaml).toContain('llama-70b: ["together"]');
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.modelFamilies).toEqual(settings.modelFamilies);
+  });
+
+  it('rejects a non-array model_families value', () => {
+    expect(() =>
+      parseRuntimeSettings('model_families:\n  gpt-oss: not-an-array\n'),
+    ).toThrow(/model_families\.gpt-oss must be a string array/);
   });
 
   it('keeps harness/provider internals out of the rendered settings.yaml', () => {
@@ -869,6 +956,74 @@ conversations:
       requiresTrigger: false,
       memoryScope: 'conversation',
     });
+  });
+
+  it('renders agent_harness and rejects the retired agent_engine key', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(renderRuntimeSettingsYaml(settings)).not.toContain('agent_engine');
+    expect(settings.agent.agentHarness).toBe('auto');
+
+    settings.agent.agentHarness = 'deepagents';
+    settings.agents.kai = {
+      name: 'Kai',
+      folder: 'kai',
+      agentHarness: 'anthropic_sdk',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('agent_harness: deepagents');
+    expect(rendered).toContain('agent_harness: anthropic_sdk');
+    const parsed = parseRuntimeSettings(rendered);
+    expect(parsed.agent.agentHarness).toBe('deepagents');
+    expect(parsed.agents.kai.agentHarness).toBe('anthropic_sdk');
+
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+  agent_engine: deepagents
+`),
+    ).toThrow('defaults.agent_engine is not supported');
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  kai:
+    name: Kai
+    agent_engine: deepagents
+    model: gpt
+`),
+    ).toThrow('agents.kai.agent_engine is not supported');
+  });
+
+  it('rejects the retired memory.engine key', () => {
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  engine: deepagents
+  embeddings:
+    enabled: false
+    provider: disabled
+`),
+    ).toThrow('memory.engine is not supported');
+  });
+
+  it('validates memory model validity (no engine/family pairing rule)', () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-settings-memory-engine-ok-'),
+    );
+    try {
+      const settings = createDefaultRuntimeSettings();
+      // An OpenAI-family memory model is valid; the engine derives from it.
+      settings.memory.llm.models.extractor = 'gpt';
+      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
+      const details = result.failure?.details ?? [];
+      expect(
+        details.some((d) => d.startsWith('memory.llm.models.extractor')),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
   });
 
   it('mirrors persistent permission grants into readable semantic, Browser, and scoped RunCommand tools', () => {

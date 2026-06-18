@@ -36,6 +36,10 @@ npm i -g @caw/gantry
 gantry
 ```
 
+The package is private. If a deployment host cannot access CAW's package
+registry, clone this repository on the host, run `npm ci && npm run build`, and
+use the built CLI entrypoint from that checkout instead of a global npm install.
+
 The first run is a guided CLI flow with a single path: runtime home, database, model access, channel connection, agent, conversation binding, then final doctor verification before the ready screen. Memory, the background service, and extra providers are optional and configured after the runtime is ready.
 
 ### NPM Install First-Run Flow
@@ -51,12 +55,34 @@ Then follow this order:
 2. Choose `Use local Postgres URL` if you started the provided Compose stack, or choose hosted/existing Postgres and paste those URLs.
 3. Connect Model Access once for agent, subagent, and scheduled job model calls. Gantry stores provider keys in encrypted Postgres rows and projects only loopback gateway tokens to the model SDK; agents select catalog model aliases and never receive database URLs or raw provider credentials.
 4. Choose your first channel (`Telegram` or `Slack`).
-5. Choose the default agent name and a main model alias. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`.
+5. Choose the default agent name, main model alias, and agent harness. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`. `agent_harness` accepts `auto`, `anthropic_sdk`, or `deepagents`; `auto` preserves provider-derived behavior.
 6. Follow the in-CLI channel guide, paste channel credentials, and pick a discovered Conversation. Channel IDs and runtime folders stay internal.
 7. Review the summary and choose `Create Runtime`; before this point Back, Resume Later, and Cancel are transactional. Setup writes config, binds that Conversation to the default Agent, and runs final doctor verification.
 8. On the ready screen, finish setup (the default exits cleanly) or choose `Start Gantry now` to begin listening immediately.
 
 Optional, post-ready: memory is on by default (`gantry memory ...` to adjust), install a background service with `gantry service install`, and add more providers with `gantry provider connect`.
+
+### Linux Host Prerequisites
+
+For Ubuntu EC2 and other Linux hosts, install the runtime prerequisites before
+building or starting Gantry:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl git libatomic1 bubblewrap socat ripgrep
+```
+
+Use Node `>=24 <26`. On small instances, add swap and build with a larger Node
+heap if TypeScript runs out of memory:
+
+```bash
+export NODE_OPTIONS=--max-old-space-size=1536
+npm run build
+```
+
+`sandbox_runtime` requires `bubblewrap`, `socat`, and `ripgrep`; `gantry doctor`
+fails closed when they are missing. `libatomic1` is required by newer Node
+Linux binaries on some minimal images.
 
 ### CLI Commands
 
@@ -204,23 +230,23 @@ reviewed Gantry MCP settings tools. Agents do not mutate it by themselves; they
 can request reviewed changes, and Gantry writes the file only after the
 appropriate user/admin approval.
 
-| Setting area                                   | Who changes it                              | Purpose                                                                                                                                                           |
-| ---------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defaults`                                     | User/admin                                  | Global agent name, default model, and job model defaults.                                                                                                         |
-| `providers`                                    | Setup or user/admin                         | Enable channel providers and point them at runtime secret env refs.                                                                                               |
-| `provider_connections`                         | Setup or advanced user/admin                | Explicit workspace/bot/tenant/provider connection records when compact provider settings are not enough.                                                          |
-| `conversations`                                | Setup or user/admin                         | Conversation ids, display names, sender policy, approvers, bound agent, trigger, and per-conversation model override.                                             |
-| `bindings`                                     | Advanced user/admin                         | Explicit route bindings when one compact `conversations.<id>.agent` field is not expressive enough.                                                               |
-| `agents.<id>.name`, `persona`, `model`, `jobs` | User/admin                                  | Agent identity and default model behavior.                                                                                                                        |
-| `agents.<id>.access.sources`                   | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                   |
-| `agents.<id>.access.selections`                | User/admin or approved access flow          | Durable allowed capability ids and versions. Agents request reviewed capability ids with `request_access target.kind=capability`; scoped `RunCommand` is the only raw fallback. |
-| `memory`                                       | User/admin                                  | Memory, embeddings, dreaming, LLM, and maintenance settings.                                                                                                      |
-| `permissions`                                  | User/admin                                  | YOLO-mode denylist additions and egress hostname denylist.                                                                                                        |
-| `browser`                                      | User/admin                                  | Browser usage policy and per-site limits.                                                                                                                         |
-| `runtime.queue`                                | User/admin                                  | Runtime concurrency and retry tuning. Restart after changing it.                                                                                                  |
-| `storage`                                      | Advanced user/admin                         | Postgres URL env key and schema. Secrets stay in `.env` or credential stores.                                                                                     |
-| `model_access`                                 | Advanced user/admin                         | Gantry model gateway enablement and loopback bind host. Model provider credentials stay in Credential Center.                                                     |
-| `desired_state`                                | Admin/export flow                           | Reconcile/export mode switch for settings-owned desired state.                                                                                                    |
+| Setting area                                                    | Who changes it                              | Purpose                                                                                                                                                                         |
+| --------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaults`                                                      | User/admin                                  | Global agent name, default model, and job model defaults.                                                                                                                       |
+| `providers`                                                     | Setup or user/admin                         | Enable channel providers and point them at runtime secret env refs.                                                                                                             |
+| `provider_connections`                                          | Setup or advanced user/admin                | Explicit workspace/bot/tenant/provider connection records when compact provider settings are not enough.                                                                        |
+| `conversations`                                                 | Setup or user/admin                         | Conversation ids, display names, sender policy, approvers, bound agent, trigger, and per-conversation model override.                                                           |
+| `bindings`                                                      | Advanced user/admin                         | Explicit route bindings when one compact `conversations.<id>.agent` field is not expressive enough.                                                                             |
+| `agents.<id>.name`, `persona`, `model`, `jobs`, `agent_harness` | User/admin                                  | Agent identity, default model, job model, and harness behavior.                                                                                                                 |
+| `agents.<id>.access.sources`                                    | User/admin or approved install/connect flow | Attached inventory such as skills, MCP servers, built-ins, adapters, and local CLIs. Sources are not authority.                                                                 |
+| `agents.<id>.access.selections`                                 | User/admin or approved access flow          | Durable allowed capability ids and versions. Agents request reviewed capability ids with `request_access target.kind=capability`; scoped `RunCommand` is the only raw fallback. |
+| `memory`                                                        | User/admin                                  | Memory, embeddings, dreaming, LLM, and maintenance settings.                                                                                                                    |
+| `permissions`                                                   | User/admin                                  | YOLO-mode denylist additions and egress hostname denylist.                                                                                                                      |
+| `browser`                                                       | User/admin                                  | Browser usage policy and per-site limits.                                                                                                                                       |
+| `runtime.queue`                                                 | User/admin                                  | Runtime concurrency and retry tuning. Restart after changing it.                                                                                                                |
+| `storage`                                                       | Advanced user/admin                         | Postgres URL env key and schema. Secrets stay in `.env` or credential stores.                                                                                                   |
+| `model_access`                                                  | Advanced user/admin                         | Gantry model gateway enablement and loopback bind host. Model provider credentials stay in Credential Center.                                                                   |
+| `desired_state`                                                 | Admin/export flow                           | Reconcile/export mode switch for settings-owned desired state.                                                                                                                  |
 
 Optional runtime queue tuning:
 
@@ -299,7 +325,52 @@ The Compose file hardcodes the local ports, schema names, and non-secret role na
 
 Gantry intentionally does not expose a destructive database-reset command in the runtime CLI. If you need to start over during development, stop Gantry, reset your local Postgres outside the agent-facing CLI, then run `gantry provider connect telegram` or `gantry provider connect slack` to re-register chats.
 
-For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste the Gantry-role URL with `sslmode=require` during setup.
+For hosted Postgres, use Neon, Supabase, or another provider that supports
+`vector` and `pg_trgm`, then paste the Gantry-role URL with `sslmode=require`
+during setup.
+
+Hosted Postgres checklist:
+
+1. Use a database endpoint reachable from the host. On IPv4-only EC2 hosts,
+   prefer your provider's IPv4-capable pooler endpoint if the direct database
+   hostname resolves only to IPv6.
+2. Enable required extensions in the target database:
+
+   ```sql
+   create extension if not exists vector;
+   create extension if not exists pg_trgm;
+   create extension if not exists pgcrypto with schema public;
+   ```
+
+3. Create a runtime role and schema owned by that role. Keep Gantry runtime
+   tables and pg-boss internals in schemas that the runtime role can create,
+   read, write, and migrate:
+
+   ```sql
+   create role gantry_app login password '<strong-password>';
+   create schema if not exists gantry authorization gantry_app;
+   create schema if not exists pgboss authorization gantry_app;
+   grant connect on database postgres to gantry_app;
+   grant usage, create on schema gantry to gantry_app;
+   grant usage, create on schema pgboss to gantry_app;
+   ```
+
+4. Use the runtime role URL with an explicit schema and SSL mode:
+
+   ```env
+   GANTRY_DATABASE_URL=postgresql://gantry_app:<password>@<host>:5432/postgres?schema=gantry&sslmode=require
+   ```
+
+5. If Node reports `self-signed certificate in certificate chain`, install the
+   provider CA bundle on the host and point Gantry at it:
+
+   ```env
+   NODE_EXTRA_CA_CERTS=/home/ubuntu/gantry/certs/provider-root-ca.pem
+   ```
+
+If the deployment contains another Gantry-adjacent service that also uses the
+same hosted Postgres database, give that service a separate database role and
+schema. Do not reuse the Gantry runtime role for independent services.
 
 ### Provider And Conversation Setup
 
@@ -317,6 +388,8 @@ Notes:
 - For Telegram groups, add the bot to the group and send a message before discovery; if Gantry must see every group message, make the bot an admin or disable Group Privacy in BotFather with `/setprivacy`.
 - `gantry provider connect telegram` auto-discovers recent chats and can register one without manual chat ID copy/paste. The human sender from the selected discovery message is added as a conversation approver, so `/new`, `/model`, `/dream`, and `/memory-status` work immediately.
 - Slack uses Socket Mode with `SLACK_BOT_TOKEN` (`xoxb-...`) and `SLACK_APP_TOKEN` (`xapp-...`); create a Slack app, add a bot user/scopes, enable Socket Mode, generate the app-level token, install/reinstall the app, then invite it to the target channel or DM it once.
+- Slack bot scopes for normal channel and DM operation are: `chat:write`, `app_mentions:read`, `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `mpim:read`, and `mpim:history`. Reinstall the Slack app after any scope change.
+- For Slack DMs, open the Slack app configuration, go to App Home, enable the Messages Tab, and enable the setting that lets users send messages from the messages tab. Without this, Slack can show "Sending messages to this app has been turned off" even when Socket Mode is connected.
 - `gantry provider connect slack` auto-discovers accessible conversations and can register one directly.
 - Slack tool permission approvals are deny-by-default until approvers are listed on the target conversation in `settings.yaml`. Guided setup asks for comma-separated Slack member IDs like `U0123456789`; these users must be members of that conversation to approve tool permissions and answer interactive prompts.
 - Slack UX uses native Slack surfaces (threads, streaming updates, actions).
@@ -603,17 +676,60 @@ Use these as standalone chat messages:
 
 ## Model Policy
 
-Gantry uses a provider-neutral catalog. Normal users choose providers and aliases; provider slugs and SDK environment variables are adapter details.
+Gantry uses a provider-neutral catalog. Normal users choose model aliases;
+provider slugs, SDK environment variables, and runner ids are adapter details.
+
+The public execution selector is `agentHarness` / `agent_harness`, with values
+`auto`, `anthropic_sdk`, and `deepagents`. `auto` chooses the compatible harness
+from the selected model provider: Claude/Anthropic models use
+`anthropic_sdk`, while OpenAI-compatible providers including OpenAI,
+OpenRouter, Bedrock, and Vertex use `deepagents` through the Gantry Model
+Gateway. Explicit incompatible harness/model pairings fail before runner spawn.
+
+Harness-selection work is documented in [Agent Harness Selection](docs/decisions/2026-06-14-agent-harness-selection.md)
+and the [DeepAgents handoff plan](docs/architecture/deepagents-agent-engine-handoff-plan.md).
+
+- `gantry agent list` and `gantry agent info <id>` display the selected
+  `agentHarness`; `gantry model why <alias> --agent <id>` shows the model
+  alias, response family, credential profile, selected harness, diagnostic
+  `modelRoute`, and internal diagnostic `executionProviderId`.
+- Claude OAuth/subscription credentials are Anthropic-SDK-only. A defensive
+  backstop at the credential boundary still guarantees those credentials never
+  reach the DeepAgents lane.
+- For DeepAgents-lane chat models, the catalog declares identity and route only;
+  the runner receives only a loopback gateway URL and `gtw_` token. Model
+  construction is library-driven: the DeepAgents runner builds OpenAI-compatible
+  providers via LangChain `initChatModel("openai:<id>", ...)` and uses
+  `@langchain/openrouter` `ChatOpenRouter` for OpenRouter, rather than exposing
+  raw provider credentials to the runner.
+- DeepAgents raw authority remains Gantry-owned and wrapped. Raw `execute`, raw
+  local filesystem access, raw `.mcp.json`, and raw provider credentials are not
+  exposed; tool use goes through Gantry facades, approvals, sandbox policy, and
+  audit.
+- DeepAgents subagents are internal execution primitives, not a user-facing
+  mission-control UI. Current runtime does not yet host-enforce the five-line
+  receipt until the receipt formatter/enforcer lands. The target DeepAgents
+  parity contract keeps approvals, final answers, audit/runtime detail, and
+  high-level evidence receipts in this exact format:
+
+  ```text
+  Completed: <short outcome>
+  Used: <tools/capabilities>
+  Changed: <files/accounts/channels or none>
+  Delegated: yes/no
+  Needs attention: <blocker or none>
+  ```
 
 - Anthropic preset: chat `opus`; job defaults inherit chat; memory uses preset-managed extractor `haiku`, dreaming `sonnet`, consolidation `sonnet`
 - OpenRouter preset: chat defaults to `kimi`; job defaults inherit chat; memory extractor, dreaming, and consolidation use `kimi`
-- Catalog choices: Anthropic `opus`, `opus-4.7`, `opus-4.6`, `sonnet`, `sonnet-4.6`, `haiku`, `haiku-4.5`; OpenRouter `kimi`, `kimi-k2.6`, `kimi-2.6`
+- Catalog choices include Anthropic `opus`/`sonnet`/`haiku`, OpenRouter `kimi`, OpenAI `gpt`, OpenAI-compatible providers such as `groq`, `deepseek`, and `gemini`, plus the region-aware Bedrock alias `bedrock-oss` and Vertex aliases `vertex` / `vertex-flash-3.5`.
 - Job defaults: `agent.one_time_job_default_model` and `agent.recurring_job_default_model` inherit `agent.default_model` when empty
 - Memory task defaults are preset-managed. Use `gantry model memory` to inspect them and `gantry model reset memory` or `PATCH /v1/models/defaults` with `memory: null` to reapply preset-managed defaults.
+- Memory (extraction, dreaming, consolidation) has no engine setting either (the retired `memory.engine` key is now rejected at settings validation). The memory transport lane is derived from the memory model's provider: an Anthropic memory model uses the Claude Agent SDK memory client; OpenAI and OpenRouter memory models use the OpenAI-compatible chat-completions memory client. Choose OpenAI/OpenRouter memory model aliases and memory runs with no Anthropic models. `gantry model memory` shows the derived `Memory engine: <label>`.
 - Use `gantry model chat|jobs|memory` and `gantry model why ...` to preview what will actually run before changing defaults. SDK and Control API callers use `client.models.defaults.get()`, `client.models.defaults.update()`, and `client.models.preview()` over `GET /v1/models/defaults`, `PATCH /v1/models/defaults`, and `POST /v1/models/preview`.
 - The generated agent SDK settings JSON includes `model` and `availableModels`; memory hooks are not installed in runtime materialization.
 
-The model catalog is centralized in `apps/core/src/shared/model-catalog.ts`. OpenRouter is selected by provider or catalog alias; the current adapter projects it through the Claude Agent SDK-compatible OpenRouter endpoint with brokered Model Access credentials.
+The model catalog is centralized in `apps/core/src/shared/model-catalog.ts`. OpenRouter is selected by provider or catalog alias and runs on the DeepAgents/OpenAI-compatible lane: `ChatOpenRouter` reaches OpenRouter via the brokered Gantry loopback gateway (`/v1/chat/completions`, bearer auth) with Model Access credentials. OpenRouter supports prompt caching — automatic-prefix providers such as Kimi cache without request shaping, and the runner accounts cache reads/writes from the streamed usage and uses sticky session routing so cache hits persist across turns.
 
 ## Project Layout
 

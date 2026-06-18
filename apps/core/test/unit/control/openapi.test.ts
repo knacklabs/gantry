@@ -250,6 +250,7 @@ function mockContext(): ControlRouteContext {
     countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
+    getSelectedAgentHarness: () => 'auto',
   };
 }
 
@@ -489,7 +490,7 @@ describe('control OpenAPI documentation', () => {
     expect(spec.components.schemas.Model).toMatchObject({
       properties: expect.objectContaining({
         responseFamily: { type: 'string' },
-        executionProviderId: { type: 'string' },
+        executionRoutes: expect.objectContaining({ type: 'array' }),
         credentialProfileRef: { type: 'string' },
         modelRoute: expect.objectContaining({
           type: 'object',
@@ -579,6 +580,28 @@ describe('control OpenAPI documentation', () => {
     expect(spec.paths['/v1/models/preview']?.post).toMatchObject({
       'x-gantry-required-scopes': ['sessions:read', 'jobs:read'],
     });
+    const harnessEnum = ['auto', 'anthropic_sdk', 'deepagents'];
+    expect(spec.components.schemas.Agent.required).toContain('agentHarness');
+    expect(spec.components.schemas.Agent.properties.agentHarness).toMatchObject(
+      {
+        type: 'string',
+        enum: harnessEnum,
+      },
+    );
+    expect(
+      spec.components.schemas.AgentUpdateRequest.properties.agentHarness,
+    ).toMatchObject({ type: 'string', enum: harnessEnum });
+    expect(
+      spec.components.schemas.ModelPreviewRequest.properties.target.enum,
+    ).toContain('agent');
+    expect(
+      spec.components.schemas.ModelPreviewResponse.properties,
+    ).toMatchObject({
+      agentHarness: { type: 'string', enum: harnessEnum },
+      credentialProfile: { type: 'string' },
+      executionProviderId: { type: 'string' },
+      incompatible: { type: 'string' },
+    });
     expect(
       spec.paths['/v1/guided-actions/execute']?.post.description,
     ).toContain('resume_job execution also requires jobs:write');
@@ -627,6 +650,27 @@ describe('control OpenAPI documentation', () => {
       spec.paths['/v1/agents']?.post.requestBody.content['application/json']
         .schema,
     ).toEqual({ $ref: '#/components/schemas/AgentCreateRequest' });
+    const createAgentRequest = spec.components.schemas.AgentCreateRequest;
+    const updateAgentRequest = spec.components.schemas.AgentUpdateRequest;
+    expect(createAgentRequest).toMatchObject({
+      required: ['appId', 'name'],
+      additionalProperties: false,
+    });
+    expect(Object.keys(createAgentRequest.properties).sort()).toEqual([
+      'agentHarness',
+      'appId',
+      'name',
+    ]);
+    expect(updateAgentRequest).toMatchObject({
+      additionalProperties: false,
+    });
+    expect(Object.keys(updateAgentRequest.properties).sort()).toEqual([
+      'agentHarness',
+      'name',
+      'status',
+    ]);
+    expect(createAgentRequest.properties).not.toHaveProperty('agentEngine');
+    expect(updateAgentRequest.properties).not.toHaveProperty('agentEngine');
     expect(
       spec.paths['/v1/provider-connections']?.post.requestBody.content[
         'application/json'

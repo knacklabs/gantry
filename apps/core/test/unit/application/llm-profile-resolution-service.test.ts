@@ -29,7 +29,9 @@ describe('LlmProfileResolutionService', () => {
         alias: 'kimi',
         runnerModel: 'moonshotai/kimi-k2.6',
         responseFamily: 'anthropic',
-        executionProviderId: 'anthropic:claude-agent-sdk',
+        // OpenRouter is now the DeepAgents lane; the engine is derived.
+        agentEngine: 'deepagents',
+        executionProviderId: 'deepagents:langchain',
         credentialProfileRef: 'gantry-model-access',
         modelRoute: {
           id: 'openrouter',

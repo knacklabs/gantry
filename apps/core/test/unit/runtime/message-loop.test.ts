@@ -367,6 +367,110 @@ describe('thread queue routing', () => {
     );
   });
 
+  it('allows untagged messages inside an already-started thread queue', async () => {
+    const msg = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'continue without trigger',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      thread_id: 'thread-a',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: 'thread-a',
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    mockGetNewMessages.mockReturnValueOnce({
+      messages: [msg],
+      newTimestamp: '2024-01-01T00:00:02.000Z',
+    });
+    mockGetMessagesSince.mockReturnValue([msg]);
+    mockGetTriggerPattern.mockReturnValue(/@Andy/i);
+
+    const sendMessage = vi.fn(() => true);
+    const deps = makeDeps({
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+      getOrRecoverCursor: (queueJid: string) =>
+        queueJid.includes('::thread:thread-a')
+          ? '2024-01-01T00:00:01.000Z'
+          : '2024-01-01T00:00:00.000Z',
+      queue: {
+        ...makeDeps().queue,
+        sendMessage,
+      },
+    });
+    const { runMessagePollingTick } =
+      await import('@core/runtime/message-loop.js');
+
+    await runMessagePollingTick(deps);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'group@g.us::thread:thread-a',
+      'formatted messages',
+      expect.objectContaining({
+        threadId: 'thread-a',
+        senderUserIds: ['user@s.whatsapp.net'],
+      }),
+    );
+  });
+
+  it('still requires a trigger for brand-new thread queues', async () => {
+    const msg = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'unrelated thread',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      thread_id: 'thread-a',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: 'thread-a',
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    mockGetNewMessages.mockReturnValueOnce({
+      messages: [msg],
+      newTimestamp: '2024-01-01T00:00:02.000Z',
+    });
+    mockGetTriggerPattern.mockReturnValue(/@Andy/i);
+
+    const sendMessage = vi.fn(() => true);
+    const deps = makeDeps({
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+      getOrRecoverCursor: (queueJid: string) =>
+        queueJid.includes('::thread:thread-a')
+          ? ''
+          : '2024-01-01T00:00:00.000Z',
+      queue: {
+        ...makeDeps().queue,
+        sendMessage,
+      },
+    });
+    const { runMessagePollingTick } =
+      await import('@core/runtime/message-loop.js');
+
+    await runMessagePollingTick(deps);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('passes the exact thread queue key to active control commands', async () => {
     const msg = {
       id: '1',

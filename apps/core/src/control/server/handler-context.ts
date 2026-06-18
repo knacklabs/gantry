@@ -14,6 +14,7 @@ import type {
   ModelPresetId,
   ModelWorkload,
 } from '../../shared/model-catalog.js';
+import type { AgentHarness } from '../../shared/agent-engine.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
@@ -116,6 +117,7 @@ export type ControlRouteContext = {
   }) => Promise<void>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   syncSettingsFromProjection: (appId: AppId) => Promise<void>;
+  getSelectedAgentHarness: (agentFolder?: string) => AgentHarness;
 };
 
 export function authorizeControlRequest(

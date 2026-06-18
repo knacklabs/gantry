@@ -183,7 +183,9 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 hideAuthorityTools: ctx.hideAuthorityTools,
               }),
             ]
-          : defaultAllowedTools({ hideAuthorityTools: ctx.hideAuthorityTools }),
+          : defaultAllowedTools({
+              hideAuthorityTools: ctx.hideAuthorityTools,
+            }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
     };

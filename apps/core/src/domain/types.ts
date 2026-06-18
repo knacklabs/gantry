@@ -249,6 +249,9 @@ export interface JobRun {
   short_id?: number | null;
   job_id: string;
   execution_provider_id: ExecutionProviderId;
+  // Inherited agent engine for this run, derived from execution_provider_id.
+  // Read-only diagnostic exposed in job run detail; jobs never select an engine.
+  agent_engine?: import('../shared/agent-engine.js').AgentEngine | null;
   provider_run_id?: string | null;
   provider_session_id?: string | null;
   worker_id?: string | null;

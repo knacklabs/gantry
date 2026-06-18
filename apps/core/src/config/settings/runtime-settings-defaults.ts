@@ -1,5 +1,6 @@
 import '../../channels/register-builtins.js';
 
+import { AUTO_AGENT_HARNESS } from '../../shared/agent-engine.js';
 import { DEFAULT_AGENT_NAME } from '../../shared/default-agent.js';
 import { listChannelProviders } from '../../channels/provider-registry.js';
 import {
@@ -92,6 +93,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
   const agent: RuntimeAgentSettings = {
     name: DEFAULT_AGENT_NAME,
     defaultModel: '',
+    agentHarness: AUTO_AGENT_HARNESS,
     oneTimeJobDefaultModel: '',
     recurringJobDefaultModel: '',
     sessions: {
@@ -194,6 +196,8 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     runtime,
     browser,
     permissions,
+    limits: { providers: {} },
+    modelFamilies: {},
   };
 }
 

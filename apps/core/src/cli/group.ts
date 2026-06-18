@@ -21,6 +21,8 @@ import {
 } from './main-agent.js';
 import { RuntimeGroupDb } from './runtime-group-db.js';
 import { runAccess } from './group-access.js';
+import { runHarness } from './group-harness.js';
+import { runList } from './group-list.js';
 import { runProfile } from './agent-profile.js';
 import { verifyTelegramChatAccess } from './telegram.js';
 import {
@@ -36,6 +38,7 @@ import {
   conversationIdsForProvider,
   ensureGroupFiles,
   findConversationIdForAgent,
+  formatAgentHarnessLine,
   isInteractiveTerminal,
   listGroupsWithJid,
   loadDatabase,
@@ -57,64 +60,6 @@ import { nowIso } from '../shared/time/datetime.js';
 
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
-
-async function runList(runtimeHome: string): Promise<number> {
-  let db: RuntimeGroupDb | null = null;
-  try {
-    db = await loadDatabase(runtimeHome);
-  } catch (err) {
-    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
-    return 1;
-  }
-
-  try {
-    let groups: Array<{ jid: string; group: ConversationRoute }>;
-    try {
-      groups = listGroupsWithJid(await db.getAllConversationRoutes());
-    } catch (err) {
-      p.log.error(
-        `Could not read registered groups from database. The DB may be corrupted. Details: ${errorMessage(err)}`,
-      );
-      return 1;
-    }
-
-    if (groups.length === 0) {
-      p.log.warn('No agents are registered in this runtime home.');
-      const connectCommands = getProviderIds().map(
-        (channel) => `\`gantry provider connect ${channel}\``,
-      );
-      p.log.info(
-        `Next action: run \`gantry agent add <chat-id>\` or ${connectCommands.join(' / ')}.`,
-      );
-      return 0;
-    }
-
-    const settings = loadRuntimeSettings(runtimeHome);
-    const defaultAgentName = defaultAgentNameFromSettings(settings);
-    const lines = [
-      'Registered agents:',
-      '',
-      'JID | Name | Folder | Trigger | Requires Trigger',
-    ];
-
-    for (const entry of groups) {
-      lines.push(
-        [
-          entry.jid,
-          displayAgentName(entry.group, defaultAgentName),
-          entry.group.folder,
-          entry.group.trigger,
-          entry.group.requiresTrigger === false ? 'no' : 'yes',
-        ].join(' | '),
-      );
-    }
-
-    console.log(lines.join('\n'));
-    return 0;
-  } finally {
-    await db?.close();
-  }
-}
 
 async function runInfo(
   runtimeHome: string,
@@ -172,6 +117,7 @@ async function runInfo(
       `Folder: ${found.group.folder}`,
       `Trigger: ${found.group.trigger}`,
       `Requires Trigger: ${found.group.requiresTrigger === false ? 'no' : 'yes'}`,
+      formatAgentHarnessLine(settings, found.group.folder),
       `Added At: ${found.group.added_at}`,
       '',
       formatAgentToolAccess(
@@ -813,6 +759,8 @@ export async function runAgentCommand(
       return runPolicyShow(runtimeHome, rest);
     case 'access':
       return runAccess(runtimeHome, rest);
+    case 'harness':
+      return runHarness(runtimeHome, rest);
     case 'profile':
       return runProfile(runtimeHome, rest);
     default:

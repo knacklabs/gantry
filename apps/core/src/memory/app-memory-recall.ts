@@ -305,10 +305,10 @@ export async function recordAppMemoryRecallEvents(
               to_jsonb(COALESCE((${items.sourceRefJson}->>'retrievalCount')::int, 0) + 1)
             ),
             '{totalScore}',
-            to_jsonb(COALESCE((${items.sourceRefJson}->>'totalScore')::double precision, 0) + (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END))
+            to_jsonb(COALESCE((${items.sourceRefJson}->>'totalScore')::double precision, 0) + (CASE ${sql.join(scoreCases, sql` `)} ELSE 0.0 END)::double precision)
           ),
           '{maxScore}',
-          to_jsonb(GREATEST(COALESCE((${items.sourceRefJson}->>'maxScore')::double precision, 0), (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END)))
+          to_jsonb(GREATEST(COALESCE((${items.sourceRefJson}->>'maxScore')::double precision, 0), (CASE ${sql.join(scoreCases, sql` `)} ELSE 0.0 END)::double precision))
         )`,
     })
     .where(sql`${idColumn} IN (${sql.join(ids, sql`, `)})`);

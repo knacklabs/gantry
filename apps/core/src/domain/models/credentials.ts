@@ -50,4 +50,8 @@ export interface AgentCredentialInjection {
   };
   applied: boolean;
   brokerProfile: CredentialBrokerProfile;
+  // Resolved credential auth mode for the bound model credential (e.g.
+  // `api_key`, `claude_code_oauth`), surfaced for engine/credential-mode guards
+  // that run pre-spawn. Never carries secret material.
+  brokerAuthMode?: string;
 }

@@ -21,6 +21,8 @@ import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
 
+export { formatAgentHarnessLine } from './group-engine.js';
+
 export function usage(): string {
   const channels = getProviderIds().join('|');
   return [
@@ -41,6 +43,7 @@ export function usage(): string {
     '  gantry agent access show <jid|folder>',
     '  gantry agent access apply <jid|folder> --file <path|->',
     '  gantry agent access preset <folder> <full|locked>',
+    '  gantry agent harness <jid|folder> <auto|anthropic_sdk|deepagents>',
     '  gantry agent profile list <jid|folder>',
     '  gantry agent profile read <jid|folder> <soul|agents>',
     '  gantry agent profile set <jid|folder> <soul|agents> --file <path|-> [--expect-version N]',

@@ -1,10 +1,16 @@
 # DeepAgents Harness Goal Prompt
 
+> Status: superseded by implementation (2026-06-12). The plan this prompt asks for
+> was produced as `docs/architecture/deepagents-agent-engine-handoff-plan.md` and
+> implemented on `feature/deepagents-agent-engine`. For the current locked
+> decisions see `docs/decisions/2026-06-12-agent-engine-selection.md`. This prompt
+> is kept as the historical goal record; do not treat it as current guidance.
+
 Use this prompt to create a citation-backed, decision-complete implementation
 plan before changing Gantry's agent execution architecture.
 
 ```text
-/goal Create a citation-backed, decision-complete implementation plan for evolving Gantry’s agent execution architecture so DeepAgents/LangChain can become the default API-key agent harness while retaining the existing Anthropic Claude Agent SDK lane for Claude OAuth/subscription-style auth.
+/goal Create a citation-backed, decision-complete implementation plan for evolving Gantry's agent execution architecture so users can choose a per-agent agent engine (`anthropic_sdk` or `deepagents`) while Gantry resolves model aliases to Anthropic or OpenAI endpoints based on the selected model provider.
 
 Do not implement code in this goal. Produce a detailed sequential plan only.
 
@@ -13,7 +19,7 @@ Context:
 - The target architecture is not “replace Anthropic SDK everywhere.”
 - The desired architecture is:
   1. Keep `anthropic:claude-agent-sdk` as the native Claude OAuth/subscription lane.
-  2. Add `deepagents:langchain` as the default API-key harness lane for OpenAI API key, Anthropic API key, and future LangChain-compatible providers.
+  2. Add `deepagents:langchain` as the API-key engine lane for supported OpenAI endpoint, Anthropic endpoint, and future LangChain-compatible provider routes.
   3. Keep Gantry as the authority for tools, permissions, capabilities, MCP bindings, skills, sandbox, browser, sessions, jobs, settings, and audit.
   4. Treat DeepAgents and Anthropic SDK tool names as adapter-private runtime projections.
 
@@ -52,7 +58,7 @@ Must inspect official docs:
 
 Output requirements:
 1. Start with a concise architecture decision:
-   - whether `deepagents:langchain` should be the default API-key harness,
+   - how the user-selected per-agent `agentEngine` should resolve to `deepagents:langchain` or `anthropic:claude-agent-sdk`,
    - whether `anthropic:claude-agent-sdk` remains as the Claude OAuth/subscription native lane,
    - what Gantry remains authoritative for.
 
@@ -76,14 +82,15 @@ Output requirements:
    - credential lanes for OpenAI API key, Anthropic API key, and Claude OAuth/subscription.
 
 4. Include a multi-file sequential implementation plan:
-   - Phase 1: decouple/reuse existing Anthropic-specific projection logic into provider-neutral Gantry harness contracts.
-   - Phase 2: add shared tool/capability projection for both Anthropic SDK and DeepAgents.
-   - Phase 3: add DeepAgents/LangChain execution adapter and runner.
-   - Phase 4: wire OpenAI and Anthropic API-key model catalog entries to `deepagents:langchain`.
-   - Phase 5: preserve Claude OAuth/subscription models on `anthropic:claude-agent-sdk`.
-   - Phase 6: add DeepAgents-backed MCP, skill, browser, sandbox, permission, audit, and session behavior through Gantry-owned wrappers only.
-   - Phase 7: backport useful DeepAgents-inspired shared features to Anthropic SDK lane where practical, such as provider-neutral todo/planning, context offloading, nested event streaming, and async subagent lifecycle via Gantry jobs.
-   - Phase 8: tests, docs, cleanup searches, and verification.
+   - Phase 1: add the public `agentEngine` settings/API/SDK/CLI contract without exposing raw `executionProviderId`.
+   - Phase 2: decouple/reuse existing Anthropic-specific projection logic into provider-neutral Gantry harness contracts.
+   - Phase 3: add shared tool/capability projection for both Anthropic SDK and DeepAgents.
+   - Phase 4: add DeepAgents/LangChain execution adapter and runner.
+   - Phase 5: wire OpenAI and Anthropic API-key model routes to `deepagents:langchain` while preserving invalid-combination rejections.
+   - Phase 6: preserve Claude OAuth/subscription models on `anthropic:claude-agent-sdk`.
+   - Phase 7: add DeepAgents-backed MCP, skill, browser, sandbox, permission, audit, and session behavior through Gantry-owned wrappers only.
+   - Phase 8: backport useful DeepAgents-inspired shared features to Anthropic SDK lane where practical, such as provider-neutral todo/planning, context offloading, nested event streaming, and async subagent lifecycle via Gantry jobs.
+   - Phase 9: tests, docs, cleanup searches, and verification.
 
 5. Include exact public API/interface/type changes:
    - new or changed execution provider IDs,
@@ -92,7 +99,7 @@ Output requirements:
    - runner input/output contracts,
    - session persistence semantics,
    - runtime event shape changes if any,
-   - settings/control API/CLI/MCP admin surface impacts.
+   - settings/control API/CLI/MCP admin surface impacts, including the per-agent `agentEngine` field.
 
 6. Include strict non-goals:
    - no DeepAgents `.mcp.json` as durable authority,

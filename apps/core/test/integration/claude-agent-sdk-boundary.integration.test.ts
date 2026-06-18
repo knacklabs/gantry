@@ -36,6 +36,18 @@ const sdkState = vi.hoisted(() => ({
     permissionDecision?: unknown;
   }>,
 }));
+const clockState = vi.hoisted(() => ({
+  nowMs: () => Date.now(),
+}));
+
+vi.mock('@core/shared/time/datetime.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/shared/time/datetime.js')>();
+  return {
+    ...actual,
+    nowMs: () => clockState.nowMs(),
+  };
+});
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: async function* ({
@@ -299,16 +311,62 @@ async function importRunQuery() {
   return await import('@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js');
 }
 
+function sdkProcessEnv(): Record<string, string | undefined> {
+  const configDirKey = ['CLAUDE', 'CONFIG', 'DIR'].join('_');
+  return { [configDirKey]: process.env[configDirKey] };
+}
+
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
   sdkState.mode = 'success';
   sdkState.calls.length = 0;
+  clockState.nowMs = () => Date.now();
   vi.unstubAllEnvs();
 });
 
 describe('Claude Agent SDK boundary integration', () => {
+  it('logs SDK startup timing with the shared clock helper', async () => {
+    sdkState.mode = 'partial-output';
+    const env = prepareRuntimeEnv();
+    const times = [
+      1_000, 1_000, 1_017, 1_023, 1_031, 1_037, 1_041, 1_047, 1_053, 1_059,
+    ];
+    clockState.nowMs = () => times.shift() ?? 1_059;
+    const stderr: string[] = [];
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((line) => {
+      stderr.push(String(line ?? ''));
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    expect(stderr).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('SDK query prepared in 17ms'),
+        expect.stringContaining('SDK query iterator created in 23ms'),
+        expect.stringContaining('First SDK message after 37ms'),
+        expect.stringContaining(
+          'Session initialized after 41ms: provider resume handle received',
+        ),
+        expect.stringContaining('First SDK text delta after 53ms'),
+        expect.stringContaining('First SDK result after 59ms'),
+      ]),
+    );
+  });
+
   it('emits SDK partial text deltas as channel-visible streaming chunks', async () => {
     sdkState.mode = 'partial-output';
     const env = prepareRuntimeEnv();
@@ -328,9 +386,25 @@ describe('Claude Agent SDK boundary integration', () => {
     const outputs = logSpy.mock.calls
       .map((call) => String(call[0] ?? ''))
       .filter((line) => line.startsWith('{'))
-      .map((line) => JSON.parse(line) as { result: string | null });
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            newSessionId?: string;
+            sessionInit?: boolean;
+          },
+      );
     logSpy.mockRestore();
 
+    expect(outputs[0]).toMatchObject({
+      result: null,
+      newSessionId: 'claude-session-boundary',
+    });
+    expect(outputs[0].sessionInit).toBeUndefined();
+    const firstVisibleIdx = outputs.findIndex(
+      (output) => typeof output.result === 'string' && output.result.length > 0,
+    );
+    expect(firstVisibleIdx).toBe(1);
     expect(outputs.map((output) => output.result)).toEqual([
       null,
       'Hello ',

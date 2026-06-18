@@ -1,11 +1,13 @@
-import { evaluateProtectedCapabilityToolUse } from '../../../../shared/tool-execution-policy-service.js';
+import { denyProtectedCapabilityToolUse as denyProtectedCapabilityToolUseCore } from '../../../../runner/tool-gate-core.js';
 
+// Thin SDK-side wrapper over the neutral runner tool-gate core. The decision
+// logic and deny copy are provider-neutral and shared with the DeepAgents lane;
+// the lane-specific concern here is just the (unused) SDK permission-opts arg
+// in the CanUseTool call site.
 export function denyProtectedCapabilityToolUse(
   toolName: string,
   input: unknown,
   _permissionOpts?: unknown,
 ): string | null {
-  const decision = evaluateProtectedCapabilityToolUse(toolName, input);
-  if (!decision) return null;
-  return `Denied by Gantry tool execution policy: ${decision.reason} ${decision.recoveryAction}`;
+  return denyProtectedCapabilityToolUseCore(toolName, input);
 }

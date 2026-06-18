@@ -215,6 +215,33 @@ The Phase-1 seam does **not** change when the harness is swapped, because the ho
 - Org mode must route `execute` back through Gantry's permission gate before exposing it.
 - This preserves the semantic-capability model and per-action audit where tenant risk exists.
 
+**Status (implemented):** the `deepagents:langchain` adapter never uses a
+deepagents execution backend. The runner uses the default `StateBackend` (no
+`execute`), deny-all filesystem permissions, and never `LocalShellBackend` /
+`FilesystemBackend`; the baked-in `task`/`write_todos`/filesystem tools stay
+excluded from the model surface. Shell execution is available ONLY through a
+Gantry-owned, policy-gated, sandbox-confined tool injected into `tools`:
+
+- `deepAgentsEnforcingSandboxGuard` (the single operative pre-spawn guard in
+  `apps/core/src/runtime/deepagents-shell-filesystem-guard.ts`) fails the spawn
+  closed when a DeepAgents run requests shell (`Bash`/`RunCommand`) or filesystem
+  (`FileRead`/`FileWrite`/`FileEdit`/`FileSearch`) authority that cannot be
+  confined — `direct` mode, or any production/remote posture without an enforcing
+  `sandbox_runtime` provider — with `DeepAgents requires an enforcing sandbox
+  before shell or filesystem tools can be enabled in this deployment mode.` Under
+  `sandbox_runtime` the guard returns null (allowed).
+- On the allowed path the host projects `GANTRY_DEEPAGENTS_SHELL_ENABLED='1'`
+  (derived from the SAME guard inputs via `deepAgentsShellEnabledEnv`). The runner
+  then injects a `RunCommand`-named LangChain tool (`gantry-shell-tool.ts`) ONLY
+  when that flag is set AND a resolved `RunCommand(...)` rule is present. The tool
+  shapes its `{ command }` input into a `Bash` policy request and runs the same
+  neutral gate the third-party MCP tools use (protected-capability/memory/yolo
+  pre-checks → `evaluateNeutralToolPolicy` → durable `requestPermissionApprovalViaIpc`).
+  Denied calls return the deny string to the model and never execute; allowed
+  calls `spawn` a child of the already-sandboxed runner, inheriting the OS
+  confinement (protected-path write denies) and the runner's egress-proxy env.
+  Filesystem (`File*`) tools are NOT projected in this phase (shell only).
+
 ---
 
 ## 7. Forward-compatibility with cloud / horizontal (LATER)

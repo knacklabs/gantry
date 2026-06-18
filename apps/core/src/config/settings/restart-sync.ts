@@ -12,7 +12,11 @@ import {
 } from './runtime-settings.js';
 import { normalizeConfiguredCapabilitiesInSettings } from './configured-capability-normalization.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
-import type { RuntimeSettings } from './runtime-settings-types.js';
+import { agentIdForFolder } from './desired-state-service-helpers.js';
+import type {
+  RuntimeConfiguredAgentSourceRef,
+  RuntimeSettings,
+} from './runtime-settings-types.js';
 
 export async function applyRuntimeSettingsDesiredState(input: {
   runtimeHome: string;
@@ -101,6 +105,12 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
     input.agentFolder,
     input.rules,
   );
+  await addActiveMcpSourcesToRuntimeSettings({
+    settings: nextSettings,
+    agentFolder: input.agentFolder,
+    repositories: input.repositories,
+    appId: input.appId ?? ('default' as AppId),
+  });
   await applyRuntimeSettingsDesiredState({
     runtimeHome: input.runtimeHome,
     settings: nextSettings,
@@ -110,6 +120,50 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
     appId: input.appId,
     reloadRuntimeState: input.reloadRuntimeState,
   });
+}
+
+export async function addActiveMcpSourcesToRuntimeSettings(input: {
+  settings: RuntimeSettings;
+  agentFolder: string;
+  repositories: Pick<SettingsDesiredStateRepositories, 'mcpServers'>;
+  appId: AppId;
+}): Promise<void> {
+  const folder = input.agentFolder.trim();
+  const agent = input.settings.agents[folder];
+  if (!agent) return;
+  const bindings = await input.repositories.mcpServers.listAgentBindings({
+    appId: input.appId,
+    agentId: agentIdForFolder(folder),
+    limit: 500,
+  });
+  const existing = new Map(
+    agent.sources.mcpServers.map((source) => [source.id, source]),
+  );
+  const next: RuntimeConfiguredAgentSourceRef[] = [...agent.sources.mcpServers];
+  for (const binding of bindings) {
+    if (binding.status !== 'active') continue;
+    const id = String(binding.serverId);
+    const existingSource = existing.get(id);
+    if (existingSource) {
+      if (
+        existingSource.tools?.length &&
+        binding.allowedToolPatterns.length > 0
+      ) {
+        existingSource.tools = [
+          ...new Set([...existingSource.tools, ...binding.allowedToolPatterns]),
+        ];
+      }
+      continue;
+    }
+    existing.set(id, { id });
+    next.push({
+      id,
+      ...(binding.allowedToolPatterns.length > 0
+        ? { tools: binding.allowedToolPatterns }
+        : {}),
+    });
+  }
+  agent.sources.mcpServers = next.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {

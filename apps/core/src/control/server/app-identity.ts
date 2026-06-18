@@ -96,6 +96,7 @@ export function mapManualJobToStored(
   options: {
     detail?: boolean;
     getDefaultModelConfig?: ControlRouteContext['getDefaultModelConfig'];
+    getSelectedAgentHarness?: ControlRouteContext['getSelectedAgentHarness'];
   } = { detail: true },
 ): Record<string, unknown> {
   const isManual = job.schedule_type === 'manual';
@@ -107,7 +108,8 @@ export function mapManualJobToStored(
     model: job.model ?? undefined,
     source: job.model ? 'job.model' : 'inherited',
   };
-  const resolvedModel = resolveJobModel(job, defaultConfig);
+  const agentHarness = options.getSelectedAgentHarness?.(job.workspace_key);
+  const resolvedModel = resolveJobModel(job, defaultConfig, agentHarness);
   const resolvedAlias = resolvedModel.resolution?.ok
     ? resolvedModel.resolution.alias
     : (resolvedModel.selectedModel ?? null);

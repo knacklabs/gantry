@@ -9,6 +9,7 @@ import {
 import {
   hostnameForNetwork,
   isIpAddress,
+  isLoopbackAddress,
   isPrivateNetworkAddress,
   type HostnameLookup,
 } from '../../domain/network/public-address-policy.js';
@@ -115,13 +116,15 @@ export function validateTransportConfig(
         'MCP server URL must not include credentials.',
       );
     }
-    if (url.protocol !== 'https:') {
+    const localLoopbackHttp =
+      url.protocol === 'http:' && isLoopbackAddress(url.hostname);
+    if (url.protocol !== 'https:' && !localLoopbackHttp) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'MCP server URL must use https.',
+        'MCP server URL must use https unless it targets a loopback IP over http.',
       );
     }
-    assertSafeRemoteMcpHostname(url.hostname);
+    if (!localLoopbackHttp) assertSafeRemoteMcpHostname(url.hostname);
     return;
   }
   if (config.transport === 'stdio_template') {

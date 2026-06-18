@@ -16,26 +16,32 @@
     "apps/core/src/channels/telegram/channel-connect.ts": 708,
     "apps/core/src/channels/telegram/channel-delivery.ts": 766,
     "apps/core/src/cli/group.ts": 824,
+    "apps/core/src/cli/model.ts": 723,
     "apps/core/src/config/settings/desired-state-service.ts": 820,
-    "apps/core/src/config/settings/runtime-settings-parser.ts": 1120,
+    "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
     "apps/core/src/application/jobs/job-readiness-service.ts": 754,
-    "apps/core/src/jobs/execution.ts": 772,
+    "apps/core/src/jobs/execution.ts": 822,
     "apps/core/src/jobs/ipc-admin-handlers.ts": 933,
     "apps/core/src/runner/mcp/tools/service.ts": 850,
-    "apps/core/src/runtime/agent-spawn.ts": 762,
+    "apps/core/src/runtime/agent-spawn.ts": 799,
     "apps/core/src/runtime/browser-capability.ts": 737,
-    "apps/core/src/runtime/group-processing.ts": 824,
+    "apps/core/src/runtime/group-agent-runner.ts": 720,
+    "apps/core/src/runtime/group-processing.ts": 828,
     "apps/core/src/runtime/group-queue.ts": 757,
     "apps/core/src/runtime/ipc-interaction-processing.ts": 865,
     "apps/core/src/runtime/ipc-parsing.ts": 764,
     "apps/core/src/runtime/ipc.ts": 833,
+    "apps/core/src/session/session-commands.ts": 710,
     "packages/sdk/src/index.ts": 711,
     "apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts": 725,
     "apps/core/src/adapters/storage/postgres/repositories/worker-coordination-repository.postgres.ts": 721,
     "apps/core/src/application/agents/prompt-profile-service.ts": 783,
     "apps/core/src/config/settings/runtime-settings-renderer.ts": 706,
     "apps/core/src/control/server/routes/external-platform-events.ts": 869,
-    "apps/core/src/control/server/routes/provider-conversation-routes.ts": 753
+    "apps/core/src/control/server/routes/provider-conversation-routes.ts": 753,
+    "apps/core/src/control/server/routes/models.ts": 714,
+    "apps/core/src/shared/model-catalog.ts": 770,
+    "apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts": 720
   },
   "layers": {
     "domain": {
@@ -205,7 +211,8 @@
     "packages/agent-gantry/src/adapters/teams"
   ],
   "approvedProviderBoundaryPaths": [
-    "apps/core/src/adapters/llm/anthropic-claude-agent"
+    "apps/core/src/adapters/llm/anthropic-claude-agent",
+    "apps/core/src/adapters/llm/deepagents-langchain"
   ],
   "providerImportSpecifiers": [
     "@anthropic-ai/sdk",
@@ -231,7 +238,8 @@
     "docker": "\\b(?:Docker|docker|docker-compose)\\b"
   },
   "riskyExecutionApprovedPaths": [
-    "apps/core/src/adapters/sandbox"
+    "apps/core/src/adapters/sandbox",
+    "apps/core/src/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.ts"
   ],
   "browserDefaultProfilePathPatterns": [
     "Google Chrome default profile",

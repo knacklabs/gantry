@@ -39,7 +39,10 @@ configureDesiredSettingsStorageProvider(async () => {
   } = await import('../adapters/storage/postgres/runtime-store.js');
   try {
     const storage = getRuntimeStorage();
-    return { ops: storage.ops, repositories: storage.repositories };
+    return {
+      ops: storage.ops,
+      repositories: storage.repositories,
+    };
   } catch {
     // CLI invocations usually run outside the runtime process.
   }

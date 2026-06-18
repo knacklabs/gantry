@@ -17,13 +17,15 @@ afterEach(() => {
 async function loadModelStep(selections: string[]) {
   const select = vi.fn(async () => selections.shift() ?? 'sonnet');
   const text = vi.fn(async () => 'Default Agent');
+  const note = vi.fn();
   vi.doMock('@clack/prompts', () => ({
     isCancel: () => false,
     select,
     text,
+    note,
   }));
   const { runModelStep } = await import('@core/cli/setup-flow-core-steps.js');
-  return { runModelStep, select };
+  return { runModelStep, select, note };
 }
 
 describe('setup model step', () => {
@@ -69,5 +71,30 @@ describe('setup model step', () => {
     expect(options.map((option: { value: string }) => option.value)).toContain(
       'kimi',
     );
+  });
+
+  it('offers non-preset (DeepAgents-lane) models and keeps the memory preset', async () => {
+    // Pick the Anthropic preset (memory cascade) but a non-preset chat model
+    // (gpt -> openai). The model offerings include non-preset providers, the
+    // chat selection is stored, the preset stays for memory, and a note is shown.
+    const { runModelStep, select, note } = await loadModelStep([
+      'anthropic',
+      'gpt',
+    ]);
+    const draft = makeDraft();
+
+    const action = await runModelStep(draft);
+
+    expect(action).toEqual({ type: 'next' });
+    expect(draft.selectedModel).toBe('gpt');
+    // Non-preset chat model does NOT change the memory/defaults preset.
+    expect(draft.modelPreset).toBe('anthropic');
+    // The model list now spans providers beyond the selected preset.
+    const options = select.mock.calls[1]?.[0]?.options ?? [];
+    expect(options.map((option: { value: string }) => option.value)).toContain(
+      'gpt',
+    );
+    // The user is told to configure the non-preset provider's credential.
+    expect(note).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,9 +1,15 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
-import { ASSISTANT_NAME, getEffectiveModelConfig } from '../config/index.js';
+import {
+  ASSISTANT_NAME,
+  getEffectiveModelConfig,
+  getRuntimeSettingsForConfig,
+  getSelectedAgentHarness,
+} from '../config/index.js';
 import type { Job } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
+  getConfiguredModelProvidersForApp,
   getRuntimeControlRepository,
   getRuntimeEventExchange,
   getWorkerCoordinationRepository,
@@ -16,6 +22,9 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
+import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
+import { runJobAgentWithFailover } from './execution-failover.js';
+import { publishRunFailoverEvent } from '../runtime/failover-candidate-loop.js';
 import { providerSessionExternalSessionId } from '../runtime/agent-output-provider-session.js';
 import {
   buildRuntimeRunOptions,
@@ -126,9 +135,21 @@ export async function runJob(
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
+  // Credential-driven model-family candidates for jobs, configured-first.
+  // candidates[0] resolves the model + claims the lease; the rest are failover
+  // targets used UNDER THE SAME lease if candidates[0] fails before output streams.
+  const jobFailoverCandidates = await resolveModelFamilyCandidatesForApp({
+    alias: currentJob.model || '',
+    appId: runtimeAppId,
+    listConfiguredProviders: getConfiguredModelProvidersForApp,
+    familyOrder: getRuntimeSettingsForConfig().modelFamilies,
+  });
+  const jobModelForResolution = jobFailoverCandidates[0] ?? '';
+  const agentHarness = getSelectedAgentHarness(execution.group.folder);
   const resolvedModel = resolveJobModel(
-    currentJob,
+    { ...currentJob, model: jobModelForResolution || currentJob.model },
     getEffectiveModelConfig(undefined, jobModelUseKind, execution.group.folder),
+    agentHarness,
   );
   const eventControl = getRuntimeControlRepository();
   const preflightAppSession = await resolveAppSessionForJob(
@@ -146,7 +167,9 @@ export async function runJob(
     publishRuntimeEvent,
   });
   if (pausedForSetup) return;
-  const executionProviderId = resolveJobExecutionProviderId({
+  // Mutable: a model-family failover reconciles this to the target provider for
+  // recorded metadata only; the claimed lease keeps its fencing version (no re-claim).
+  let executionProviderId = resolveJobExecutionProviderId({
     resolvedModel,
     executionAdapter: deps.executionAdapter,
     executionAdapters: deps.executionAdapters,
@@ -218,7 +241,10 @@ export async function runJob(
       ...jobStartedModelPayload(resolvedModel),
     });
     let result: string | null = null;
-    let error: string | null = null;
+    let error: string | null =
+      resolvedModel.routeResolution && !resolvedModel.routeResolution.ok
+        ? resolvedModel.routeResolution.message
+        : null;
     const diagnostics = createJobRunDiagnostics();
     let pausedForSetupDuringRun = false;
     let setupStateForSetupPause: NonNullable<Job['setup_state']> | undefined;
@@ -413,11 +439,43 @@ export async function runJob(
                   cause: 'job',
                 })
               : undefined;
-            const output = await (deps.runAgent ?? spawnAgent)(
-              execution.group,
-              {
+            const output = await runJobAgentWithFailover({
+              group: execution.group,
+              candidates: jobFailoverCandidates,
+              firstModel: resolvedModel.selectedModel,
+              spawn: deps.runAgent ?? spawnAgent,
+              runOptions,
+              fallbackProviderId: executionProviderId,
+              agentHarness,
+              hasStreamedOutput: () => hasStreamedResult,
+              // Same lease, no re-claim: reconcile recorded provider metadata,
+              // reset per-attempt error, emit RUN_FAILOVER (live-lane parity),
+              // return the prior provider.
+              onFailover: async (toProviderId, details) => {
+                const fromProviderId = executionProviderId;
+                executionProviderId = toProviderId;
+                error = null;
+                await updateRunProviderMetadata({
+                  providerRunId: null,
+                  providerSessionId: null,
+                });
+                publishRunFailoverEvent({
+                  publish: publishRuntimeEvent,
+                  appId: executionAppId,
+                  agentId: executionAgentId,
+                  runId,
+                  conversationId: execution.executionJid,
+                  threadId: execution.threadId || undefined,
+                  fromProvider: fromProviderId,
+                  family: execution.group.agentConfig?.model ?? null,
+                  details,
+                });
+                return fromProviderId;
+              },
+              log: (message) =>
+                logger.warn({ jobId: currentJob.id, runId }, message),
+              baseInput: {
                 prompt: currentJob.prompt,
-                model: resolvedModel.selectedModel,
                 workspaceFolder: execution.group.folder,
                 chatJid: execution.executionJid,
                 threadId: execution.threadId || undefined,
@@ -444,7 +502,7 @@ export async function runJob(
                 attachedMcpSourceIds,
                 semanticCapabilities,
               },
-              (proc, runHandle) => {
+              onProcess: (proc, runHandle) => {
                 void updateRunProviderMetadata({ providerRunId: runHandle });
                 deps.onProcess(
                   queueJid,
@@ -454,7 +512,7 @@ export async function runJob(
                   execution.stopAliasJids,
                 );
               },
-              async (streamedOutput: AgentOutput) => {
+              streamHandler: async (streamedOutput: AgentOutput) => {
                 for (const event of streamedOutput.runtimeEvents ?? []) {
                   const eventKey = runnerRuntimeEventKey(event);
                   if (eventKey) streamedRuntimeEventKeys.add(eventKey);
@@ -493,8 +551,7 @@ export async function runJob(
                   error = streamedOutput.error || 'Unknown error';
                 }
               },
-              runOptions,
-            );
+            });
             streamingFlusher.flush(true);
             await forwardRunnerRuntimeEvents({
               events: output.runtimeEvents?.filter((event) => {

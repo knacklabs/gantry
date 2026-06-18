@@ -6,7 +6,7 @@ import {
   IDLE_TIMEOUT,
   LOG_LEVEL,
 } from '../config/index.js';
-import { logger, redactString } from '../infrastructure/logging/logger.js';
+import { logger } from '../infrastructure/logging/logger.js';
 import { AgentOutput, RunnerProcessSpec } from './agent-spawn-types.js';
 import { activeRunStopWasRequested } from './group-queue-stop.js';
 import { formatDuration } from '../shared/human-format.js';
@@ -25,49 +25,19 @@ import {
   providerSessionExternalSessionId,
   runnerResultWithProviderSession,
 } from './agent-output-provider-session.js';
+import {
+  sanitizeRunnerLogText as sanitizeLogText,
+  stderrLooksLikeSandboxBlock,
+} from './agent-spawn-log-sanitization.js';
+import { createRunnerStartupTiming } from './agent-spawn-startup-timing.js';
 const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
 
-const SENSITIVE_TEXT_PATTERNS: RegExp[] = [
-  /\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|AUTH)[A-Z0-9_]*)\s*[:=]\s*([^\s"']+)/gi,
-  /\b(Bearer)\s+[A-Za-z0-9._\-~+/]+=*/gi,
-  /\bsk-[A-Za-z0-9_-]{16,}\b/g,
-  /\bsk-ant-[A-Za-z0-9_-]{16,}\b/g,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
-  /\b(AKIA|ASIA)[0-9A-Z]{16}\b/g,
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-];
-const SANDBOX_BLOCKED_PATTERNS: RegExp[] = [
-  /\bsandbox(?:-exec)?\b.*\bdeny/i,
-  /\bseatbelt\b/i,
-  /\bbubblewrap\b/i,
-  /\bbwrap\b/i,
-  /\bseccomp\b/i,
-  /\blandlock\b/i,
-  /\boperation not permitted\b/i,
-];
 const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
 type RunnerTimeoutReason = 'timeout' | 'scheduled_job_idle_stall';
 
 function formatResumeSessionStatus(sessionId?: string): string {
   return sessionId ? 'present' : 'none';
-}
-
-function sanitizeLogText(value: string, maxChars = 4000): string {
-  let text = redactString(value);
-  for (const pattern of SENSITIVE_TEXT_PATTERNS) {
-    text = text.replace(pattern, (_match, p1) => {
-      if (typeof p1 === 'string' && p1.length > 0) {
-        return `${p1}=[REDACTED]`;
-      }
-      return '[REDACTED]';
-    });
-  }
-  if (text.length > maxChars) {
-    return `${text.slice(0, maxChars)}...[truncated]`;
-  }
-  return text;
 }
 
 function parseBufferedRunnerOutput(stdout: string): AgentOutput {
@@ -96,10 +66,6 @@ function runnerContextPayload(input: RunnerProcessSpec['input']) {
     jobId: input.jobId,
     runId: input.runId,
   };
-}
-
-function stderrLooksLikeSandboxBlock(stderr: string): boolean {
-  return SANDBOX_BLOCKED_PATTERNS.some((pattern) => pattern.test(stderr));
 }
 
 export function executeRunnerProcess(
@@ -138,8 +104,14 @@ export function executeRunnerProcess(
       return;
     }
     let runner: ReturnType<RunnerSandboxProvider['start']>;
+    const startupTiming = createRunnerStartupTiming({
+      startTime,
+      nowMs: currentTimeMs,
+      hostPhases: spec.startupHostPhases,
+    });
     try {
       runner = sandboxProvider.start({ command, args, env, ...sandbox });
+      startupTiming.markSandboxStartReturned();
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       logger.error(
@@ -171,8 +143,10 @@ export function executeRunnerProcess(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    runner.stdin.write(JSON.stringify(input));
-    runner.stdin.end();
+    startupTiming.measureStdinWrite(() => {
+      runner.stdin.write(JSON.stringify(input));
+      runner.stdin.end();
+    });
 
     let parseBuffer = '';
     let parseBufferTruncated = false;
@@ -208,6 +182,7 @@ export function executeRunnerProcess(
     };
 
     runner.stdout.on('data', (data) => {
+      startupTiming.markFirstStdout();
       const chunk = data.toString();
 
       if (!stdoutTruncated) {
@@ -254,10 +229,15 @@ export function executeRunnerProcess(
 
           try {
             let parsed: AgentOutput = JSON.parse(jsonStr);
+            startupTiming.markFirstStructuredOutput();
+            if (isVisibleResultFrame(parsed)) {
+              startupTiming.markFirstVisibleOutput();
+            }
             const streamedProviderSessionId =
               providerSessionExternalSessionId(parsed);
             if (streamedProviderSessionId) {
               providerSessionExternalId = streamedProviderSessionId;
+              startupTiming.markProviderSession();
             }
             parsed = outputWithProviderSession(
               parsed,
@@ -315,6 +295,7 @@ export function executeRunnerProcess(
     });
 
     runner.stderr.on('data', (data) => {
+      startupTiming.markFirstStderr();
       const chunk = data.toString();
       const sanitizedChunkForLog = sanitizeLogText(
         chunk,
@@ -365,6 +346,9 @@ export function executeRunnerProcess(
             `Duration: ${formatDuration(duration)}`,
             `Exit Code: ${code}`,
             `Had Streaming Output: ${hadStreamingOutput}`,
+            ``,
+            `=== Startup Timing ===`,
+            ...startupTiming.lines(),
             ...(timeoutReason === 'scheduled_job_idle_stall'
               ? [
                   `Idle Timeout: ${formatDuration(scheduledJobIdleMs)}`,
@@ -396,6 +380,7 @@ export function executeRunnerProcess(
               processName,
               duration,
               code,
+              startupTiming: startupTiming.payload(),
               logFile: timeoutLog,
               ...runnerContextPayload(input),
             },
@@ -428,6 +413,7 @@ export function executeRunnerProcess(
             duration,
             code,
             hadStreamingOutput,
+            startupTiming: startupTiming.payload(),
             logFile: timeoutLog,
             timeoutReason,
             ...runnerContextPayload(input),
@@ -464,6 +450,9 @@ export function executeRunnerProcess(
         `Signal: ${signal ?? 'none'}`,
         `Stdout Truncated: ${stdoutTruncated}`,
         `Stderr Truncated: ${stderrTruncated}`,
+        ``,
+        `=== Startup Timing ===`,
+        ...startupTiming.lines(),
         ``,
       ];
 
@@ -535,6 +524,7 @@ export function executeRunnerProcess(
               group: group.name,
               duration,
               providerSessionCreated: !!providerSessionExternalId,
+              startupTiming: startupTiming.payload(),
               signal,
             },
             `${runnerLabel} closed after streamed output`,
@@ -557,6 +547,7 @@ export function executeRunnerProcess(
               duration,
               hadStreamingOutput,
               signal,
+              startupTiming: startupTiming.payload(),
               ...runnerContextPayload(input),
             },
             `${runnerLabel} stopped by request`,
@@ -589,6 +580,7 @@ export function executeRunnerProcess(
             group: group.name,
             code,
             duration,
+            startupTiming: startupTiming.payload(),
             stderr: sanitizedStderr,
             stdout: sanitizedStdout,
             logFile,
@@ -627,6 +619,7 @@ export function executeRunnerProcess(
               group: group.name,
               duration,
               providerSessionCreated: !!providerSessionExternalId,
+              startupTiming: startupTiming.payload(),
             },
             `${runnerLabel} completed (streaming mode)`,
           );
@@ -652,6 +645,7 @@ export function executeRunnerProcess(
             duration,
             status: output.status,
             hasResult: !!output.result,
+            startupTiming: startupTiming.payload(),
           },
           `${runnerLabel} completed`,
         );
@@ -691,4 +685,8 @@ export function executeRunnerProcess(
       });
     });
   });
+}
+
+function isVisibleResultFrame(output: AgentOutput): boolean {
+  return typeof output.result === 'string' && output.result.length > 0;
 }

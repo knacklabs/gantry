@@ -37,6 +37,31 @@ function readPath(input: unknown, path?: string): unknown {
   return cursor;
 }
 
+// Curated-static cost estimate for the raw-`usage` (DeepAgents/LangChain) lane,
+// which carries no SDK-reported cost. Returns undefined unless the resolved
+// catalog entry declares BOTH per-1M prices (so a missing/unverifiable price
+// stays undefined and renders as `—`, never a misleading 0). Cached-read tokens
+// are billed at the input price (NOT discounted): the chat-completions
+// `prompt_tokens` total already includes cached reads, and provider-specific
+// cache-discount multipliers are not in the catalog, so the simplest correct
+// estimate charges the full prompt at input price. The SDK lane keeps its own
+// SDK-reported cost (the modelUsage branch) and never reaches here.
+function estimateUsageCostUsd(
+  entry: ModelCatalogEntry | undefined,
+  inputTokens: number,
+  outputTokens: number,
+): number | undefined {
+  const inputUsd = entry?.inputUsdPerMillionTokens;
+  const outputUsd = entry?.outputUsdPerMillionTokens;
+  if (typeof inputUsd !== 'number' || typeof outputUsd !== 'number') {
+    return undefined;
+  }
+  return (
+    (inputTokens / 1_000_000) * inputUsd +
+    (outputTokens / 1_000_000) * outputUsd
+  );
+}
+
 export function normalizeModelUsage(input: {
   message: unknown;
   fallbackModel?: string;
@@ -164,6 +189,7 @@ export function normalizeModelUsage(input: {
       totalBillableInputTokens: supportsCacheAccounting
         ? Math.max(0, inputTokens - cacheReadTokens)
         : inputTokens,
+      estimatedCostUsd: estimateUsageCostUsd(entry, inputTokens, outputTokens),
       cacheProvider,
       cacheStatus: normalizeCacheStatus(
         cacheReadTokens,

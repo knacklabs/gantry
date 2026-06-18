@@ -14,6 +14,16 @@ import {
   type ModelWorkload,
 } from '../../../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
+import {
+  deriveAgentEngineForProvider,
+  executionRoutesForEntry,
+  memoryTransportLaneForModel,
+} from '../../../shared/model-execution-route.js';
+import {
+  agentEngineLabel,
+  DEFAULT_AGENT_ENGINE,
+} from '../../../shared/agent-engine.js';
+import { agentModelPreview } from './model-agent-preview.js';
 import { createJobManagementService } from './jobs.js';
 import {
   authorizeControlRequest,
@@ -24,6 +34,7 @@ import { authenticate, type ApiKeyRecord } from '../auth.js';
 
 function modelToResponse(
   entry: ReturnType<typeof listModelCatalogEntries>[number],
+  configuredProviders?: Set<string>,
 ) {
   return {
     id: entry.id,
@@ -31,7 +42,10 @@ function modelToResponse(
     aliases: entry.aliases,
     recommendedAlias: entry.recommendedAlias,
     responseFamily: entry.responseFamily,
-    executionProviderId: entry.executionProviderId,
+    // The engine + executionProviderId are derived from the provider. Surface
+    // the single derived route as a read-only diagnostic (one-element array for
+    // the stable response shape).
+    executionRoutes: executionRoutesForEntry(entry),
     credentialProfileRef: entry.credentialProfileRef,
     modelRoute: {
       id: entry.modelRoute.id,
@@ -49,6 +63,13 @@ function modelToResponse(
     cacheSupport: resolveModelCacheSupport(entry),
     supportsThinking: entry.supportsThinking,
     supportsTools: entry.supportsTools,
+    inputUsdPerMillionTokens: entry.inputUsdPerMillionTokens,
+    outputUsdPerMillionTokens: entry.outputUsdPerMillionTokens,
+    // Availability only when the list endpoint passes the configured set
+    // (modelRoute.id is the provider id the credential is keyed on).
+    ...(configuredProviders
+      ? { available: configuredProviders.has(entry.modelRoute.id) }
+      : {}),
     source: entry.source,
     experimental: entry.experimental === true,
   };
@@ -201,13 +222,13 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
 function presetFromDefaults(
   defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
 ): ModelPresetId {
-  return (
+  // Guard: a DeepAgents-lane provider id is not a preset; fall back to default.
+  const providerId =
     defaults.defaults.chat.modelEntry?.modelRoute.id ??
     defaults.defaults.oneTime.modelEntry?.modelRoute.id ??
     defaults.defaults.recurring.modelEntry?.modelRoute.id ??
-    defaults.defaults.memoryExtractor.modelEntry?.modelRoute.id ??
-    DEFAULT_MODEL_PRESET_ID
-  );
+    defaults.defaults.memoryExtractor.modelEntry?.modelRoute.id;
+  return isModelPresetId(providerId) ? providerId : DEFAULT_MODEL_PRESET_ID;
 }
 
 function providerForAlias(
@@ -216,10 +237,13 @@ function providerForAlias(
 ): ModelPresetId | undefined {
   if (typeof value !== 'string' || value === 'inherit') return undefined;
   const resolved = resolveModelSelectionForWorkload(value, workload);
-  return resolved.ok ? resolved.entry.modelRoute.id : undefined;
+  if (!resolved.ok) return undefined;
+  // DeepAgents-lane provider ids are not presets, so skip them in the loop.
+  const providerId = resolved.entry.modelRoute.id;
+  return isModelPresetId(providerId) ? providerId : undefined;
 }
 
-function providersSelectedByPatch(
+export function providersSelectedByPatch(
   body: Record<string, unknown>,
   defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
 ): ModelPresetId[] {
@@ -337,6 +361,50 @@ function authorizeModelPreviewRequest(
     'API key is missing required scope sessions:read or jobs:read',
   );
   return null;
+}
+
+// Memory preview: the memory engine and transport lane derived from the memory
+// model's provider/response family. The engine is no longer configured — it is
+// read-only and follows the model's provider.
+export function memoryModelPreview(
+  ctx: ControlRouteContext,
+  body: Record<string, unknown>,
+): ModelPreviewRouteResult {
+  const defaults = ctx.getModelDefaults().defaults;
+  const task =
+    body.task === 'dreaming' || body.task === 'consolidation'
+      ? body.task
+      : 'extractor';
+  const slot =
+    task === 'dreaming'
+      ? modelDefaultSlotToResponse(defaults.memoryDreaming)
+      : task === 'consolidation'
+        ? modelDefaultSlotToResponse(defaults.memoryConsolidation)
+        : modelDefaultSlotToResponse(defaults.memoryExtractor);
+  const responseFamily = slot.model?.responseFamily ?? null;
+  const engine = slot.model
+    ? deriveAgentEngineForProvider(slot.model.modelRoute.id)
+    : DEFAULT_AGENT_ENGINE;
+  const diagnosticLane = memoryTransportLaneForModel({
+    providerId: slot.model?.modelRoute.id ?? null,
+    responseFamily,
+  });
+  return {
+    ok: true,
+    body: {
+      target: 'memory',
+      task,
+      selection: slot,
+      engine,
+      engineLabel: agentEngineLabel(engine),
+      responseFamily,
+      diagnosticLane,
+      why: [
+        `memory ${task} uses preset-managed settings from ${slot.source}`,
+        `memory transport: ${agentEngineLabel(engine)}`,
+      ],
+    },
+  };
 }
 
 async function previewResponse(
@@ -494,33 +562,16 @@ async function previewResponse(
     };
   }
   if (target === 'memory') {
-    const task =
-      body.task === 'dreaming' || body.task === 'consolidation'
-        ? body.task
-        : 'extractor';
-    const slot =
-      task === 'dreaming'
-        ? modelDefaultSlotToResponse(defaults.memoryDreaming)
-        : task === 'consolidation'
-          ? modelDefaultSlotToResponse(defaults.memoryConsolidation)
-          : modelDefaultSlotToResponse(defaults.memoryExtractor);
-    return {
-      ok: true,
-      body: {
-        target,
-        task,
-        selection: slot,
-        why: [
-          `memory ${task} uses preset-managed settings from ${slot.source}`,
-        ],
-      },
-    };
+    return memoryModelPreview(ctx, body);
+  }
+  if (target === 'agent') {
+    return agentModelPreview(ctx, body);
   }
   return {
     ok: false,
     status: 400,
     code: 'INVALID_REQUEST',
-    message: 'target must be chat, jobs, job, or memory.',
+    message: 'target must be chat, jobs, job, agent, or memory.',
   };
 }
 
@@ -642,11 +693,17 @@ export async function handleModelRoutes(
   }
 
   if (req.method === 'GET') {
-    if (!authorizeControlRequest(req, res, ctx.keys, ['sessions:read'])) {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) {
       return true;
     }
+    const configuredProviders = new Set(
+      await ctx.getActiveModelCredentialProviderIds(auth.appId as AppId),
+    );
     sendJson(res, 200, {
-      models: listModelCatalogEntries().map(modelToResponse),
+      models: listModelCatalogEntries().map((entry) =>
+        modelToResponse(entry, configuredProviders),
+      ),
     });
     return true;
   }

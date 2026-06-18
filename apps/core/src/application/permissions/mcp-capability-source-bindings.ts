@@ -9,6 +9,11 @@ import {
   reviewedMcpToolPatterns,
 } from '../../shared/mcp-tool-scope.js';
 
+export interface AppliedMcpSourceBinding {
+  binding: AgentMcpServerBinding;
+  previous?: AgentMcpServerBinding;
+}
+
 export async function ensureMcpSourceBindingsForRules(input: {
   appId: AppId;
   agentId: AgentId;
@@ -16,7 +21,7 @@ export async function ensureMcpSourceBindingsForRules(input: {
   rules: readonly string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   timestamp: string;
-}): Promise<AgentMcpServerBinding[]> {
+}): Promise<AppliedMcpSourceBinding[]> {
   const requestedPatternsByServerName = mcpServerToolPatternsForRules({
     rules: input.rules,
     semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
@@ -32,54 +37,131 @@ export async function ensureMcpSourceBindingsForRules(input: {
   const existingByServerId = new Map(
     existingBindings.map((binding) => [binding.serverId, binding]),
   );
-  const activated: AgentMcpServerBinding[] = [];
-  for (const [serverName, requestedPatterns] of requestedPatternsByServerName) {
-    const server = await input.mcpServerRepository.getServerByName({
-      appId: input.appId,
-      name: serverName,
-    });
-    if (!server || server.status !== 'active') {
-      throw new Error(
-        `MCP source ${serverName} is not active for persistent MCP capability approval.`,
-      );
+  const activated: AppliedMcpSourceBinding[] = [];
+  try {
+    for (const [
+      serverName,
+      requestedPatterns,
+    ] of requestedPatternsByServerName) {
+      const server = await input.mcpServerRepository.getServerByName({
+        appId: input.appId,
+        name: serverName,
+      });
+      if (!server || server.status !== 'active') {
+        throw new Error(
+          `MCP source ${serverName} is not active for persistent MCP capability approval.`,
+        );
+      }
+      const existing = existingByServerId.get(server.id);
+      const definitionPatterns = reviewedMcpToolPatterns(server);
+      const requestedScope = normalizeMcpToolScope({
+        serverName: server.name,
+        requested: requestedPatterns,
+        definitionPatterns,
+      });
+      const allowedToolPatterns = mergeMcpToolPatterns({
+        existing:
+          existing?.status === 'active'
+            ? existing.allowedToolPatterns
+            : undefined,
+        requested: requestedScope,
+        serverName: server.name,
+        definitionPatterns,
+      });
+      if (
+        existing?.status === 'active' &&
+        mcpToolPatternsEqual(
+          existing.allowedToolPatterns ?? [],
+          allowedToolPatterns,
+        )
+      ) {
+        continue;
+      }
+      const binding: AgentMcpServerBinding = {
+        id: `agent-mcp-binding:${input.agentId}:${server.id}` as AgentMcpServerBinding['id'],
+        appId: input.appId,
+        agentId: input.agentId,
+        serverId: server.id,
+        status: 'active',
+        required: existing?.required ?? false,
+        permissionPolicyIds: existing?.permissionPolicyIds ?? [],
+        allowedToolPatterns,
+        createdAt: existing?.createdAt ?? (input.timestamp as never),
+        updatedAt: input.timestamp as never,
+      };
+      await input.mcpServerRepository.saveAgentBinding(binding);
+      activated.push({ binding, previous: existing });
+      await input.mcpServerRepository.appendAuditEvent({
+        id: `mcp-audit:${globalThis.crypto.randomUUID()}` as never,
+        appId: input.appId,
+        agentId: input.agentId,
+        serverId: server.id,
+        bindingId: binding.id,
+        eventType: 'bind',
+        reason: 'Activated by persistent MCP capability approval.',
+        metadata: {
+          capabilitySource: 'persistent_permission_approval',
+        },
+        createdAt: input.timestamp as never,
+      });
     }
-    const existing = existingByServerId.get(server.id);
-    if (existing?.status === 'active') continue;
-    const binding: AgentMcpServerBinding = {
-      id: `agent-mcp-binding:${input.agentId}:${server.id}` as AgentMcpServerBinding['id'],
+  } catch (err) {
+    await rollbackAppliedMcpSourceBindings({
       appId: input.appId,
       agentId: input.agentId,
-      serverId: server.id,
-      status: 'active',
-      required: existing?.required ?? false,
-      permissionPolicyIds: existing?.permissionPolicyIds ?? [],
-      allowedToolPatterns:
-        existing?.allowedToolPatterns ??
-        normalizeMcpToolScope({
-          serverName: server.name,
-          requested: requestedPatterns,
-          definitionPatterns: reviewedMcpToolPatterns(server),
-        }),
-      createdAt: existing?.createdAt ?? (input.timestamp as never),
-      updatedAt: input.timestamp as never,
-    };
-    await input.mcpServerRepository.saveAgentBinding(binding);
-    await input.mcpServerRepository.appendAuditEvent({
-      id: `mcp-audit:${globalThis.crypto.randomUUID()}` as never,
-      appId: input.appId,
-      agentId: input.agentId,
-      serverId: server.id,
-      bindingId: binding.id,
-      eventType: 'bind',
-      reason: 'Activated by persistent MCP capability approval.',
-      metadata: {
-        capabilitySource: 'persistent_permission_approval',
-      },
-      createdAt: input.timestamp as never,
+      mcpServerRepository: input.mcpServerRepository,
+      applied: activated,
+      timestamp: input.timestamp,
     });
-    activated.push(binding);
+    throw err;
   }
   return activated;
+}
+
+export async function rollbackAppliedMcpSourceBindings(input: {
+  appId: AppId;
+  agentId: AgentId;
+  mcpServerRepository?: McpServerRepository;
+  applied: readonly AppliedMcpSourceBinding[];
+  timestamp: string;
+}): Promise<void> {
+  await Promise.allSettled(
+    input.applied.map((applied) => {
+      if (applied.previous) {
+        return input.mcpServerRepository?.saveAgentBinding(applied.previous);
+      }
+      const binding = applied.binding;
+      return input.mcpServerRepository?.disableAgentBinding({
+        appId: input.appId,
+        agentId: input.agentId,
+        serverId: binding.serverId,
+        updatedAt: input.timestamp as never,
+      });
+    }),
+  );
+}
+
+function mergeMcpToolPatterns(input: {
+  existing: readonly string[] | undefined;
+  requested: readonly string[];
+  serverName: string;
+  definitionPatterns: readonly string[];
+}): string[] {
+  if (!input.existing) return [...input.requested];
+  if (input.existing.length === 0) return [];
+  return normalizeMcpToolScope({
+    serverName: input.serverName,
+    requested: [...input.existing, ...input.requested],
+    definitionPatterns: input.definitionPatterns,
+  });
+}
+
+function mcpToolPatternsEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function mcpServerToolPatternsForRules(input: {

@@ -36,10 +36,25 @@ describe('model CLI command', () => {
 
     const output = logSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Available model aliases');
-    expect(output).toContain('Alias | Model | Response family | Route');
+    // The Context column sits between Route and Cache; Cost follows Cache.
+    expect(output).toContain(
+      'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status',
+    );
+    // Curated prices render in the new Cost column.
+    expect(output).toMatch(
+      /groq \| Groq Llama 3\.3 70B[^\n]*\| \$0\.59\/\$0\.79 \|/,
+    );
     expect(output).toContain('opus-4.8 | Opus 4.8');
     expect(output).toContain('Opus 4.8');
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
+    // Curated windows render in the new Context column (Gemini Pro = 1.0M,
+    // Groq Llama = 131K).
+    expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);
+    expect(output).toMatch(/groq \| Groq Llama 3\.3 70B[^\n]*\| 131K \|/);
+    expect(output).toContain(
+      'Model families (provider auto-selected by configured key)',
+    );
+    expect(output).toContain('gpt-oss | GPT-OSS 120B | groq-oss > cerebras');
   });
 
   it('sets and resets chat and job defaults by alias', async () => {
@@ -72,6 +87,47 @@ describe('model CLI command', () => {
     settings = loadRuntimeSettings(runtimeHome);
     expect(settings.agent.oneTimeJobDefaultModel).toBe('');
     expect(settings.agent.recurringJobDefaultModel).toBe('');
+  });
+
+  it('accepts a model family alias for set chat and stores it verbatim', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const preflightPreset = vi.fn(async () => ({
+      ok: true,
+      status: 'pass' as const,
+      message: 'ok',
+    }));
+
+    await expect(
+      runModelCommand(runtimeHome, ['set', 'chat', 'gpt-oss'], {
+        preflightPreset,
+      }),
+    ).resolves.toBe(0);
+    expect(loadRuntimeSettings(runtimeHome).agent.defaultModel).toBe('gpt-oss');
+
+    await expect(
+      runModelCommand(runtimeHome, ['set', 'jobs', 'llama-70b'], {
+        preflightPreset,
+      }),
+    ).resolves.toBe(0);
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.agent.oneTimeJobDefaultModel).toBe('llama-70b');
+    expect(settings.agent.recurringJobDefaultModel).toBe('llama-70b');
+    logSpy.mockRestore();
+  });
+
+  it('shows family-aware why for an alias/family argument (no badges offline)', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await expect(
+      runModelCommand(runtimeHome, ['why', 'gpt-oss']),
+    ).resolves.toBe(0);
+    const output = logSpy.mock.calls.at(-1)?.[0] as string;
+    expect(output).toContain('Why model family gpt-oss');
+    // Offline (no control key): the configured/needs-key line is omitted.
+    expect(output).not.toContain('credential:');
+    logSpy.mockRestore();
   });
 
   it('preflights OpenRouter aliases before direct CLI writes', async () => {
@@ -109,6 +165,24 @@ describe('model CLI command', () => {
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
       'Preset preflight failed: missing OpenRouter token',
     );
+  });
+
+  it('does not preflight non-preset DeepAgents providers before direct CLI writes', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const preflightPreset = vi.fn(async () => ({
+      ok: false,
+      status: 'fail' as const,
+      message: 'should not run for openai',
+    }));
+
+    await expect(
+      runModelCommand(runtimeHome, ['set', 'chat', 'gpt'], {
+        preflightPreset,
+      }),
+    ).resolves.toBe(0);
+
+    expect(loadRuntimeSettings(runtimeHome).agent.defaultModel).toBe('gpt');
+    expect(preflightPreset).not.toHaveBeenCalled();
   });
 
   it('preflights Anthropic aliases before direct CLI writes', async () => {
@@ -270,5 +344,24 @@ describe('model CLI command', () => {
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
       'Preset preflight failed: missing OpenRouter token',
     );
+  });
+
+  it('renders status without throwing when chat is a DeepAgents model', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    // gpt resolves to the openai (DeepAgents-lane) provider, whose provider id
+    // is not a model preset; status must not crash resolving the preset.
+    settings.agent.defaultModel = 'gpt';
+    saveRuntimeSettings(runtimeHome, settings);
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await expect(runModelCommand(runtimeHome, ['status'])).resolves.toBe(0);
+
+    const output = logSpy.mock.calls.at(-1)?.[0] as string;
+    expect(output).toContain('Model status');
+    // The provider has no preset, so status falls back to the default preset.
+    expect(output).toContain('preset: anthropic (Anthropic)');
+    logSpy.mockRestore();
   });
 });

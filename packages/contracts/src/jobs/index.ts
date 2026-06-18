@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  AgentHarnessSchema,
   ContractMetadataSchema,
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
@@ -48,8 +49,11 @@ export const JobModelPreviewSchema = z
         label: z.string(),
       })
       .strict(),
-    contextWindowTokens: z.number().int().nonnegative(),
-    maxOutputTokens: z.number().int().nonnegative(),
+    // Optional: DeepAgents job-eligible models omit maxOutputTokens (and some
+    // omit contextWindowTokens); JSON.stringify drops the undefined fields, so
+    // these must be optional to parse valid job preview responses.
+    contextWindowTokens: z.number().int().nonnegative().optional(),
+    maxOutputTokens: z.number().int().nonnegative().optional(),
     cachePolicy: z.string(),
   })
   .strict();
@@ -437,7 +441,15 @@ export const ModelRecordSchema = z.object({
   aliases: z.array(z.string()),
   recommendedAlias: z.string(),
   responseFamily: z.string(),
-  executionProviderId: z.string(),
+  // Read-only route support: which public harness values can run this model.
+  executionRoutes: z.array(
+    z
+      .object({
+        harness: z.enum(['anthropic_sdk', 'deepagents']),
+        executionProviderId: z.string(),
+      })
+      .strict(),
+  ),
   credentialProfileRef: z.string(),
   modelRoute: z.object({
     id: z.string(),
@@ -472,13 +484,23 @@ export const ModelRecordSchema = z.object({
       'memory_consolidation',
     ]),
   ),
-  contextWindowTokens: z.number().int().nonnegative(),
-  maxOutputTokens: z.number().int().nonnegative(),
+  // Optional: deepagents-lane entries omit static limits/capability flags;
+  // those are reported at runtime from the engine's model profile.
+  contextWindowTokens: z.number().int().nonnegative().optional(),
+  maxOutputTokens: z.number().int().nonnegative().optional(),
   cacheMode: z.string(),
   cacheTokenFields: z.array(z.string()),
   cacheSupport: ModelCacheSupportSchema,
-  supportsThinking: z.boolean(),
-  supportsTools: z.boolean(),
+  supportsThinking: z.boolean().optional(),
+  supportsTools: z.boolean().optional(),
+  // Curated per-million-token pricing (USD). Optional: some entries carry no
+  // curated price (the library reports none), in which case the field is omitted.
+  inputUsdPerMillionTokens: z.number().nonnegative().optional(),
+  outputUsdPerMillionTokens: z.number().nonnegative().optional(),
+  // Credential-aware availability for the requesting app: true when the model's
+  // provider has an active Model Access credential. Omitted on responses that
+  // are not scoped to a configured-provider set (e.g. model embedded in a slot).
+  available: z.boolean().optional(),
   source: z.object({
     label: z.string(),
     url: z.string(),
@@ -565,6 +587,7 @@ export const ModelPreviewTargetSchema = z.enum([
   'chat',
   'jobs',
   'job',
+  'agent',
   'memory',
 ]);
 export type ModelPreviewTarget = z.infer<typeof ModelPreviewTargetSchema>;
@@ -573,6 +596,9 @@ export const ModelPreviewRequestSchema = z
   .object({
     target: ModelPreviewTargetSchema,
     jobId: z.string().optional(),
+    // target 'agent': resolve a model alias against the agent's derived engine.
+    agentId: z.string().optional(),
+    modelAlias: z.string().optional(),
     conversationJid: z.string().optional(),
     workspaceKey: z.string().optional(),
     kind: z.enum(['one-time', 'recurring']).optional(),
@@ -588,6 +614,14 @@ export const ModelPreviewResponseSchema = z
     scope: z.string().optional(),
     kind: z.enum(['one-time', 'recurring']).optional(),
     task: z.enum(['extractor', 'dreaming', 'consolidation']).optional(),
+    // Agent-only fields (target 'agent'): the selected harness and diagnostics
+    // for the resolved model. Optional so chat/job/memory previews still
+    // validate.
+    agentId: z.string().optional(),
+    agentHarness: AgentHarnessSchema.optional(),
+    credentialProfile: z.string().optional(),
+    executionProviderId: z.string().optional(),
+    incompatible: z.string().optional(),
     selection: ModelDefaultSlotSchema,
     why: z.array(z.string()),
   })

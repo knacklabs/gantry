@@ -48,11 +48,11 @@ curl --unix-socket ~/gantry/run/control.sock http://localhost/openapi.json
 Three unversioned operational endpoints exist for liveness, readiness, and
 metrics. They are **unauthenticated by design** and carry no `/v1` prefix:
 
-| Endpoint | Returns |
-|---|---|
-| `GET /healthz` | `200 {"status":"ok"}` — process is up. |
-| `GET /readyz` | `200` when DB-migrated, settings loaded, and not draining; `503` with `{ status, checks, failing }` while starting or draining. Carries a top-level `role` and role-specific checks (below). |
-| `GET /metrics` | Prometheus text exposition (`text/plain; version=0.0.4`). |
+| Endpoint       | Returns                                                                                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /healthz` | `200 {"status":"ok"}` — process is up.                                                                                                                                                       |
+| `GET /readyz`  | `200` when DB-migrated, settings loaded, and not draining; `503` with `{ status, checks, failing }` while starting or draining. Carries a top-level `role` and role-specific checks (below). |
+| `GET /metrics` | Prometheus text exposition (`text/plain; version=0.0.4`).                                                                                                                                    |
 
 They are internal-only and **must not be exposed on the public ALB listener**.
 In the fleet shape the ALB routes `/v1/*` to the control pool and `/webhooks/*`
@@ -658,8 +658,17 @@ reviewed Gantry MCP request tools to change authority.
 
 Use `client.models.list()` to inspect supported model aliases, response family,
 route metadata, capabilities, context windows, cache policy, and supported
-workloads. API job creation rejects raw provider model IDs unless they are
-registered catalog aliases.
+workloads. Each `ModelRecord` carries an `executionRoutes` array
+(`{ harness, executionProviderId }`) that is read-only diagnostic. The active
+API exposes `agentHarness` as the public selector and keeps
+`executionProviderId` internal/read-only diagnostic. The 2026-06-14 harness contract in
+[`docs/decisions/2026-06-14-agent-harness-selection.md`](../decisions/2026-06-14-agent-harness-selection.md)
+defines the agent-level `agentHarness` (`auto`, `anthropic_sdk`, or
+`deepagents`) and the `settings.yaml` key `agent_harness`. DeepAgents-lane entries omit the static
+`contextWindowTokens`/`maxOutputTokens` limits because those are reported at
+runtime from the engine's model profile.
+API job creation rejects raw provider model IDs unless they are registered
+catalog aliases.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
 job, and memory defaults. Use `client.models.defaults.update()` or
@@ -684,12 +693,23 @@ Access and are projected privately by the runtime adapter.
 Use `POST /v1/models/preview` for "why" checks before a run. `target: "chat"`
 can include `conversationJid` or `workspaceKey` to expose live session `/model`
 overrides; `target: "job"` with `jobId` distinguishes explicit job aliases from
-inherited defaults.
+inherited defaults. `target: "agent"` with `agentId` resolves a `modelAlias`
+against the selected `agentHarness` and returns `credentialProfile` plus
+diagnostic `executionProviderId`. Explicit harness/model incompatibility fails
+before runner spawn with
+`Model <alias> cannot run on <harness>. Choose Auto or a compatible model.`
+DeepAgents with Claude OAuth/subscription credentials fails with `DeepAgents cannot use Claude OAuth/subscription credentials. Choose Anthropic SDK or configure Claude API-key Model Access.`
 
 ```ts
 await client.models.preview({
   target: 'job',
   jobId,
+});
+
+await client.models.preview({
+  target: 'agent',
+  agentId,
+  modelAlias: 'opus',
 });
 
 await client.models.preview({
@@ -718,6 +738,19 @@ Read-only run event history is available over the control API:
 
 ```http
 GET /v1/runs/:runId/events
+```
+
+The current run event API exposes read-only runtime history, but Gantry does not
+yet host-enforce the five-line terminal evidence receipt until the receipt
+formatter/enforcer lands. The target terminal run and job evidence receipt uses
+this exact format:
+
+```text
+Completed: <short outcome>
+Used: <tools/capabilities>
+Changed: <files/accounts/channels or none>
+Delegated: yes/no
+Needs attention: <blocker or none>
 ```
 
 ## Providers And Conversations
@@ -819,6 +852,12 @@ the provider, conversation kind, display name, and current conversation
 approver user ids. Direct/private and group/channel approvals are configured
 through the conversation approver endpoints below; agents do not expose a
 separate direct-message policy API.
+
+`GET /v1/agents/:id`, `POST /v1/agents`, and `PATCH /v1/agents/:id` agent
+records expose durable `agentHarness` (`auto`, `anthropic_sdk`, or
+`deepagents`). `executionProviderId` stays internal/read-only diagnostic and
+must not be writable. Jobs and conversations inherit the bound agent's
+`agentHarness`; there is no job- or conversation-level harness selector.
 
 `GET /v1/conversations/:id/approvers` returns the Conversation approver list.
 `PUT /v1/conversations/:id/approvers` replaces it with

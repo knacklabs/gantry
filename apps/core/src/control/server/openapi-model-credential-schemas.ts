@@ -103,13 +103,13 @@ export const modelCredentialSchemas: Record<string, JsonSchema> = {
         type: 'string',
         example: 'api_key',
         description:
-          'Provider credential mode. Omit when the provider has one mode.',
+          'Provider credential mode id. Must be one of the provider credentialModes[].id returned by GET /v1/credentials/models. Omit when the provider has a single mode.',
       },
       payload: {
         type: 'object',
         additionalProperties: { type: 'string', writeOnly: true },
         description:
-          'Provider-specific credential payload. Stored encrypted; never returned by read APIs.',
+          'Credential fields for the chosen mode, keyed by the mode credentialModes[].fields[].name from GET /v1/credentials/models (e.g. {"apiKey":"..."} for api_key, {"oauthToken":"..."} for claude_code_oauth). Stored encrypted; never returned by read APIs.',
       },
     },
   },
@@ -122,7 +122,7 @@ export const modelCredentialSchemas: Record<string, JsonSchema> = {
         type: 'object',
         additionalProperties: { type: 'string', writeOnly: true },
         description:
-          'Provider-specific credential fields to rotate for the existing authMode. Stored encrypted; never returned by read APIs.',
+          'Credential fields to rotate for the existing authMode, keyed by the mode credentialModes[].fields[].name from GET /v1/credentials/models. Stored encrypted; never returned by read APIs.',
       },
     },
   },

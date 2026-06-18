@@ -83,6 +83,10 @@ export interface AgentExecutionCredentialProjection {
   credentialProviders: Partial<Record<string, AgentCredentialProvider>>;
   brokerProfile: string;
   brokerApplied: boolean;
+  // Resolved bound model-credential auth mode id when known. Execution adapters
+  // that gate on credential mode read this to enforce per-engine credential
+  // policy; adapters that do not gate on it ignore the field.
+  brokerAuthMode?: string;
   proxy?: {
     http?: string;
     https?: string;

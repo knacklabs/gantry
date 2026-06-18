@@ -244,6 +244,21 @@ describe('getTriggerPattern', () => {
     expect(pattern.test('@C.L.A.U.D.E hello')).toBe(true);
     expect(pattern.test('@CXLXAUXDXE hello')).toBe(false);
   });
+
+  it('matches Slack mention triggers after leading words', () => {
+    const pattern = getTriggerPattern('<@U0B70C5GFUH');
+
+    expect(pattern.test('hey <@U0B70C5GFUH> hello')).toBe(true);
+    expect(pattern.test('<@U0B70C5GFUH> hello')).toBe(true);
+    expect(pattern.test('hey @ReAgent hello')).toBe(false);
+  });
+
+  it('keeps non-Slack triggers anchored to the start', () => {
+    const pattern = getTriggerPattern('@ReAgent');
+
+    expect(pattern.test('@ReAgent hello')).toBe(true);
+    expect(pattern.test('hey @ReAgent hello')).toBe(false);
+  });
 });
 
 // --- Outbound formatting (internal tag stripping + prefix) ---

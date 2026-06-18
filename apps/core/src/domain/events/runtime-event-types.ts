@@ -37,6 +37,7 @@ export const RUNTIME_EVENT_TYPES = {
   EGRESS_CONNECT: 'egress.connect',
   SANDBOX_BLOCKED: 'sandbox.blocked',
   RUN_STARTED: 'run.started',
+  RUN_FAILOVER: 'run.failover',
   RUN_CANCELED: 'run.canceled',
   RUN_COMPLETED: 'run.completed',
   RUN_FAILED: 'run.failed',

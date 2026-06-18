@@ -4,12 +4,14 @@ import {
   type ModelRouteProviderId,
 } from './model-provider-registry.js';
 import { resolveModelCacheProvider } from './model-cache-support.js';
+import { buildOpenAiCompatibleCatalog } from './model-catalog-openai-compatible.js';
 
 export type ModelResponseFamily = string;
 export type ModelRouteId = ModelRouteProviderId;
 export type ModelPresetId = ModelRouteId;
 export type ModelExecutionProviderId =
   | 'anthropic:claude-agent-sdk'
+  | 'deepagents:langchain'
   | (string & {});
 
 export type ModelWorkload =
@@ -54,11 +56,15 @@ const CLAUDE_MODEL_IDS_SOURCE = {
   url: 'https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions',
   verifiedAt: '2026-05-21',
 };
+const OPENAI_MODELS_SOURCE = {
+  label: 'OpenAI models',
+  url: 'https://developers.openai.com/api/docs/models',
+  verifiedAt: '2026-06-14',
+};
 
 export interface ModelCatalogEntry {
   id: string;
   responseFamily: ModelResponseFamily;
-  executionProviderId: ModelExecutionProviderId;
   credentialProfileRef: string;
   modelRoute: {
     id: ModelRouteId;
@@ -74,14 +80,20 @@ export interface ModelCatalogEntry {
     url: string;
     verifiedAt: string;
   };
-  contextWindowTokens: number;
-  maxOutputTokens: number;
+  // Context-window/output limits and capability flags are optional: for the
+  // deepagents (LangChain) lane these are reported at runtime from the model
+  // profile (`model.profile.maxInputTokens`/`maxOutputTokens`/`toolCalling`/
+  // `reasoningOutput`), so SDK-lane entries declare them and deepagents-lane
+  // entries omit them. Pricing is never declared for the deepagents lane
+  // because LangChain/model-profile data carries no cost information.
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
   cacheMode: ModelCacheMode;
   cacheTokenFields: readonly string[];
-  supportsThinking: boolean;
-  supportsTools: boolean;
+  supportsThinking?: boolean;
+  supportsTools?: boolean;
   capabilities: ModelCapabilityDescriptor;
   supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
@@ -226,7 +238,7 @@ export function getModelPreset(presetId: ModelPresetId): ModelPreset {
   return preset;
 }
 
-function providerRoute(providerId: string, providerModelId: string) {
+export function providerRoute(providerId: string, providerModelId: string) {
   const id = normalizeModelRouteProviderId(providerId);
   const provider = getModelProviderDefinition(id);
   if (!provider?.modelRoute) {
@@ -243,7 +255,11 @@ function openRouterRoute(providerModelId: string) {
   return providerRoute('openrouter', providerModelId);
 }
 
-function executableModelEntry(input: {
+function openAiRoute(providerModelId: string) {
+  return providerRoute('openai', providerModelId);
+}
+
+export function executableModelEntry(input: {
   id: string;
   route: { id: ModelRouteId; label: string; providerModelId: string };
   displayName: string;
@@ -251,20 +267,19 @@ function executableModelEntry(input: {
   aliases: readonly string[];
   recommendedAlias: string;
   source: ModelCatalogEntry['source'];
-  contextWindowTokens: number;
-  maxOutputTokens: number;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
   cacheMode: ModelCacheMode;
   cacheTokenFields: readonly string[];
-  supportsThinking: boolean;
-  supportsTools: boolean;
+  supportsThinking?: boolean;
+  supportsTools?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
 }): ModelCatalogEntry {
   const provider = getModelProviderDefinition(input.route.id);
-  const executionProviderId = provider?.executionProviderIds[0];
-  if (!provider?.modelRoute || !executionProviderId) {
+  if (!provider?.modelRoute) {
     throw new Error(
       `Model catalog route ${input.route.id} is not executable in the provider registry.`,
     );
@@ -272,13 +287,12 @@ function executableModelEntry(input: {
   return {
     ...input,
     responseFamily: provider.responseFamily,
-    executionProviderId,
     credentialProfileRef: MODEL_RUNTIME_CREDENTIAL_PROFILE_REF,
     modelRoute: input.route,
     capabilities: {
       ...CURRENT_RESPONSE_FAMILY_CAPABILITIES,
-      thinking: input.supportsThinking,
-      toolUse: input.supportsTools,
+      thinking: input.supportsThinking ?? false,
+      toolUse: input.supportsTools ?? false,
       cacheAccounting: input.cacheMode !== 'none',
     },
   };
@@ -457,7 +471,78 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     ],
     experimental: true,
   }),
-] as const;
+  // These chat models run on the deepagents (LangChain) lane. REVERSAL of the
+  // earlier "limits intentionally omitted" stance: for ids the library does NOT
+  // recognize it reports an EMPTY profile ({}), so DeepAgents summarization falls
+  // back to a fixed 170k/6-message trigger (not the real window) and context-
+  // usage reads 0%. A curated `contextWindowTokens` is therefore REQUIRED on
+  // those ids; the host projects it into the runner profile's `maxInputTokens`
+  // (window-fraction compaction at 85% + correct context-usage %). The library
+  // profile is still PREFERRED when present: gpt-5.5/gpt-5.4 have a real profile
+  // (~1.05M) so they OMIT contextWindowTokens; gpt-5.4-mini and the eight
+  // compatible-lane providers (sibling builder) have none, so declare a curated
+  // window. Thinking/tool flags stay profile-reported; pricing stays omitted (no
+  // cost data in profiles); cacheMode/cacheTokenFields stay declared.
+  executableModelEntry({
+    id: 'openai:gpt-5.5',
+    route: openAiRoute('gpt-5.5'),
+    displayName: 'GPT-5.5',
+    runnerModel: 'gpt-5.5',
+    aliases: ['gpt', 'gpt-5.5'],
+    recommendedAlias: 'gpt',
+    source: OPENAI_MODELS_SOURCE,
+    cacheMode: 'openai-automatic-prompt',
+    cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+    supportedWorkloads: [
+      'chat',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
+    experimental: true,
+  }),
+  executableModelEntry({
+    id: 'openai:gpt-5.4',
+    route: openAiRoute('gpt-5.4'),
+    displayName: 'GPT-5.4',
+    runnerModel: 'gpt-5.4',
+    aliases: ['gpt-5.4'],
+    recommendedAlias: 'gpt-5.4',
+    source: OPENAI_MODELS_SOURCE,
+    cacheMode: 'openai-automatic-prompt',
+    cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+    supportedWorkloads: [
+      'chat',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
+    experimental: true,
+  }),
+  executableModelEntry({
+    id: 'openai:gpt-5.4-mini',
+    route: openAiRoute('gpt-5.4-mini'),
+    displayName: 'GPT-5.4 mini',
+    runnerModel: 'gpt-5.4-mini',
+    aliases: ['gpt-mini', 'gpt-5.4-mini'],
+    recommendedAlias: 'gpt-mini',
+    source: OPENAI_MODELS_SOURCE,
+    contextWindowTokens: 400_000, // no library profile; curated (see note above)
+    cacheMode: 'openai-automatic-prompt',
+    cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
+    supportedWorkloads: [
+      'chat',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
+    experimental: true,
+  }),
+  // Additional OpenAI-chat-completions-compatible providers on the deepagents
+  // lane. Built in a sibling module to keep this file under its line budget;
+  // the builder takes the local helpers so there is no import cycle back here.
+  ...buildOpenAiCompatibleCatalog({ executableModelEntry, providerRoute }),
+];
 
 validateModelCatalogProviderSupport(MODEL_CATALOG);
 
@@ -472,6 +557,7 @@ function looksLikeRawProviderModelId(input: string): boolean {
   const value = input.trim().toLowerCase();
   if (!value) return false;
   if (/^claude-[a-z0-9][a-z0-9._-]*$/.test(value)) return true;
+  if (/^[a-z0-9][a-z0-9._-]*\.[a-z0-9][a-z0-9._:-]*$/.test(value)) return true;
   return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/.test(value);
 }
 
@@ -483,11 +569,6 @@ function validateModelCatalogProviderSupport(
     if (!provider?.modelRoute) {
       throw new Error(
         `Model catalog entry ${entry.id} references unsupported provider route ${entry.modelRoute.id}.`,
-      );
-    }
-    if (!provider.executionProviderIds.includes(entry.executionProviderId)) {
-      throw new Error(
-        `Model catalog entry ${entry.id} uses execution provider ${entry.executionProviderId}, but ${provider.id} only supports ${provider.executionProviderIds.join(', ') || 'none'}.`,
       );
     }
     if (

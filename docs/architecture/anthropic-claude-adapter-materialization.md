@@ -54,10 +54,12 @@ The runtime-home Claude directory is not an enterprise runtime source of truth.
 agent config, LLM/provider profile, runtime settings, and provider-safe
 adapter options. It must not contain raw provider secrets.
 
-The materialized Claude settings do not install memory hooks. Fresh runs receive
-only durable Gantry memory as an untrusted first user-message prefix; active
-chat continuity comes from the live SDK streaming-input session. Claude hook
-output and provider JSONL transcripts are not runtime state.
+The materialized Claude settings do not install memory hooks. Fresh runs put the
+Gantry durable-memory boundary policy in the Agent SDK system prompt append with
+dynamic sections excluded; memory facts are passed as untrusted first
+user-message content. Active chat continuity comes from the live SDK
+streaming-input session. Claude hook output and provider JSONL transcripts are
+not runtime state.
 
 Claude settings are not permission policy. Host-side
 `ToolExecutionPolicyService`, permission policy, and sandbox policy remain

@@ -102,7 +102,7 @@ capabilities plus deterministic `canUseTool` enforcement.
 | `sandbox` | `SandboxSettings` | `undefined` | Sandbox behavior configuration |
 | `settingSources` | `SettingSource[]` | `[]` (none) | Which filesystem settings to load. Must include `'project'` to load CLAUDE.md |
 | `stderr` | `(data: string) => void` | `undefined` | Callback for stderr output |
-| `systemPrompt` | `string \| { type: 'preset'; preset: 'claude_code'; append?: string }` | `undefined` | System prompt. Use preset to get Claude Code's prompt, with optional `append` |
+| `systemPrompt` | `string \| string[] \| { type: 'preset'; preset: 'claude_code'; append?: string; excludeDynamicSections?: boolean }` | `undefined` | System prompt. Use preset to get Claude Code's prompt, with optional `append`; Gantry sets `excludeDynamicSections: true` on live Anthropic runs so cwd/git/auto-memory context stays out of the cached system-prompt prefix |
 | `tools` | `string[] \| { type: 'preset'; preset: 'claude_code' }` | `undefined` | Tool configuration |
 
 ### PermissionMode

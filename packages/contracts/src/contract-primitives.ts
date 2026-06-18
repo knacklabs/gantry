@@ -32,6 +32,16 @@ export const SchemaDescriptorSchema = z.object({
 });
 export type SchemaDescriptor = z.infer<typeof SchemaDescriptorSchema>;
 
+// Public agent-harness vocabulary. `auto` preserves provider-derived behavior;
+// explicit values are user intent and are validated against the selected model
+// before runner spawn.
+export const AgentHarnessSchema = z.enum([
+  'auto',
+  'anthropic_sdk',
+  'deepagents',
+]);
+export type AgentHarness = z.infer<typeof AgentHarnessSchema>;
+
 export const LlmProfileRefSchema = z.object({
   id: z.string().optional(),
   purpose: z.string().optional(),

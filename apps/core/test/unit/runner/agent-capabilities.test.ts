@@ -55,6 +55,15 @@ const DANGEROUS_DEFAULT_TOOLS = [
 ] as const;
 
 const UNAVAILABLE_DEFAULT_TOOLS = [
+  'Read',
+  'Glob',
+  'Grep',
+  'Bash',
+  'Write',
+  'Edit',
+  'LS',
+  'MultiEdit',
+  'NotebookEdit',
   'Browser',
   'Config',
   'AskUserQuestion',
@@ -68,6 +77,14 @@ const UNAVAILABLE_DEFAULT_TOOLS = [
 ] as const;
 
 const DEFAULT_AVAILABLE_TOOLS = [
+  'Agent',
+  'WebSearch',
+  'WebFetch',
+  'ToolSearch',
+  'Skill',
+] as const;
+
+const DEVELOPER_AVAILABLE_TOOLS = [
   'Read',
   'Glob',
   'Grep',
@@ -83,8 +100,6 @@ const DEFAULT_AVAILABLE_TOOLS = [
   'ToolSearch',
   'Skill',
 ] as const;
-
-const DEVELOPER_AVAILABLE_TOOLS = [...DEFAULT_AVAILABLE_TOOLS] as const;
 
 describe('agent capability composition', () => {
   it('uses exact safe defaults and gantry MCP server wiring', () => {
@@ -107,7 +122,7 @@ describe('agent capability composition', () => {
     });
 
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
-    expect(profile.availableTools).toEqual(DEFAULT_AVAILABLE_TOOLS);
+    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.disallowedTools).toEqual(
       expect.arrayContaining([
         'AskUserQuestion',
@@ -136,7 +151,7 @@ describe('agent capability composition', () => {
       'memory_review_decision',
     );
     for (const tool of UNAVAILABLE_DEFAULT_TOOLS) {
-      expect(profile.availableTools).not.toContain(tool);
+      expect(profile.allowedTools).not.toContain(tool);
     }
     expect(profile.permissionMode).toBe('default');
     expect(profile.alwaysAllowedTools).toEqual([]);
@@ -177,6 +192,83 @@ describe('agent capability composition', () => {
           '127.0.0.1,localhost,::1,github.com,.github.com,api.github.com,raw.githubusercontent.com,objects.githubusercontent.com,codeload.github.com',
       },
     });
+  });
+
+  it('keeps request_access visible when MCP access is only requestable', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      chatJid: 'sl:C0B3M99H1B6',
+      groupFolder: 'main_agent',
+      ipcDir: '/tmp/ipc/main_agent',
+      ipcAuthToken: 'token',
+      persona: 'operations',
+      semanticCapabilities: [
+        {
+          capabilityId: 'mcp.caw-ats.access',
+          version: '1',
+          displayName: 'caw-ats MCP access',
+          category: 'MCP',
+          risk: 'write',
+          can: 'Call approved tools on the caw-ats MCP server.',
+          cannot: 'Bypass Gantry capability review.',
+          credentialSource: 'none',
+          implementationBindings: [
+            {
+              kind: 'mcp_tool',
+              mcpTool: 'mcp__caw-ats__ats_list_positions',
+            },
+          ],
+          source: {
+            source: 'mcp',
+            serverName: 'caw-ats',
+            allowedToolPatterns: ['ats_list_positions'],
+          },
+        },
+      ],
+    });
+
+    expect(profile.allowedTools).toContain('mcp__gantry__request_access');
+    expect(profile.alwaysAllowedTools).not.toContain(
+      'mcp__gantry__request_access',
+    );
+    expect(profile.disallowedTools).not.toContain(
+      'mcp__gantry__request_access',
+    );
+    expect(
+      JSON.parse(
+        String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
+      ),
+    ).toContain('request_access');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
+  });
+
+  it('keeps request_access visible when an MCP source is attached for the run', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      chatJid: 'sl:C0B3M99H1B6',
+      groupFolder: 'main_agent',
+      ipcDir: '/tmp/ipc/main_agent',
+      ipcAuthToken: 'token',
+      persona: 'operations',
+      attachedMcpSourceIds: ['mcp:00dab2e4-3c5c-4d5c-b7f3-be05f2f38d49'],
+    });
+
+    expect(profile.allowedTools).toContain('mcp__gantry__request_access');
+    expect(profile.disallowedTools).not.toContain(
+      'mcp__gantry__request_access',
+    );
+    expect(
+      JSON.parse(
+        String(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON),
+      ),
+    ).toContain('request_access');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });
 
   it('projects the browser IPC token only when canonical Browser is selected', () => {
@@ -316,7 +408,7 @@ describe('agent capability composition', () => {
     });
 
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
-    expect(profile.availableTools).toEqual(DEFAULT_AVAILABLE_TOOLS);
+    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).toContain('Agent');
     expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
@@ -495,6 +587,8 @@ describe('agent capability composition', () => {
         'Bash',
       ]),
     );
+    expect(profile.availableTools).not.toContain('Glob');
+    expect(profile.availableTools).not.toContain('Grep');
     expect(profile.availableTools).not.toContain('Write');
     expect(profile.availableTools).not.toContain('Edit');
     expect(profile.availableTools).not.toContain('MultiEdit');

@@ -1,5 +1,6 @@
 const SLACK_THREAD_TS_PATTERN = /^\d{10,}\.\d+$/;
 const CANONICAL_SLACK_THREAD_PREFIX = 'thread:sl:';
+const LEGACY_CANONICAL_SLACK_THREAD_PREFIX = 'thread:slack:';
 
 export function slackThreadTsFromThreadId(
   threadId: string | null | undefined,
@@ -7,7 +8,12 @@ export function slackThreadTsFromThreadId(
   const normalized = threadId?.trim();
   if (!normalized) return undefined;
   if (SLACK_THREAD_TS_PATTERN.test(normalized)) return normalized;
-  if (!normalized.startsWith(CANONICAL_SLACK_THREAD_PREFIX)) return undefined;
+  if (
+    !normalized.startsWith(CANONICAL_SLACK_THREAD_PREFIX) &&
+    !normalized.startsWith(LEGACY_CANONICAL_SLACK_THREAD_PREFIX)
+  ) {
+    return undefined;
+  }
 
   const candidate = normalized.slice(normalized.lastIndexOf(':') + 1);
   return SLACK_THREAD_TS_PATTERN.test(candidate) ? candidate : undefined;

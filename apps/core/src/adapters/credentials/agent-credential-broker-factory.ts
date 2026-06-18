@@ -8,6 +8,13 @@ import type { ModelCredentialRepository } from '../../domain/ports/repositories.
 import type { CredentialBrokerProfile } from '../../domain/models/credentials.js';
 import { GantryModelGatewayBroker } from '../llm/anthropic-claude-agent/gantry-model-gateway.js';
 
+// Structural shape of the per-provider gateway rate caps the broker consumes.
+// Declared inline (not imported) so this factory adds no extra provider-named
+// import path; it is assignable from the runtime `limits` settings block.
+interface GatewayProviderRateLimits {
+  providers: Record<string, { requestsPerMinute: number }>;
+}
+
 export interface AgentCredentialBrokerFactoryOptions {
   mode: CredentialBrokerProfile;
   broker?: AgentCredentialBroker;
@@ -16,6 +23,9 @@ export interface AgentCredentialBrokerFactoryOptions {
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
+  // Live settings getter for per-provider gateway rate caps (so a reload applies
+  // without rebuilding the broker). Absent -> no caps.
+  limits?: () => GatewayProviderRateLimits;
 }
 
 export async function createAgentCredentialBroker(
@@ -31,6 +41,7 @@ export async function createAgentCredentialBroker(
   return new GantryModelGatewayBroker(options.modelCredentials, {
     bindHost: options.gatewayBindHost,
     audit: options.publishRuntimeEvent,
+    ...(options.limits ? { limits: options.limits } : {}),
   });
 }
 

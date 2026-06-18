@@ -59,7 +59,8 @@ function presetFromSettings(settings: RuntimeSettings): ModelPresetId {
     settings.agent.defaultModel,
     'chat',
   );
-  return resolved.ok ? resolved.entry.modelRoute.id : DEFAULT_MODEL_PRESET_ID;
+  const providerId = resolved.ok ? resolved.entry.modelRoute.id : undefined;
+  return isModelPresetId(providerId) ? providerId : DEFAULT_MODEL_PRESET_ID;
 }
 
 function modelDefaultSlot(input: {

@@ -21,6 +21,7 @@ import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
+import type { RunnerStartupHostPhaseTimings } from './agent-spawn-startup-timing.js';
 import type {
   RunnerSandboxProvider,
   RunnerSandboxSpawnInput,
@@ -67,6 +68,11 @@ export interface AgentOutput {
   result: string | null;
   providerSession?: AgentOutputProviderSession;
   newSessionId?: string;
+  // Standalone up-front session-id frame (lane-neutral). Excluded from
+  // isAgentTurnCompleteMarker so an early session-persistence frame is not
+  // mistaken for turn completion. The session id still persists via
+  // providerSessionExternalSessionId (reads newSessionId).
+  sessionInit?: boolean;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;
@@ -144,6 +150,7 @@ export interface RunnerProcessSpec {
   runnerLabel: string;
   processName: string;
   startTime: number;
+  startupHostPhases?: RunnerStartupHostPhaseTimings;
   logsDir: string;
   runtimeDetails: string[];
   sandbox: Omit<RunnerSandboxSpawnInput, 'command' | 'args' | 'env'>;

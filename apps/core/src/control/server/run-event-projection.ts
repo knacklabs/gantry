@@ -62,8 +62,19 @@ function enrichRunEventPayload(
   const shortId = numberOrString(source.short_id ?? source.shortId);
   const startedAt = stringValue(source.started_at ?? source.startedAt);
   const durationMs = numberValue(source.duration_ms ?? source.durationMs);
+  const {
+    agent_engine: _agentEngine,
+    agentEngine: _camelAgentEngine,
+    ...publicSource
+  } = source;
+  // Read-only run diagnostics: normalize executionProviderId into a stable
+  // snake_case shape. Internal agent_engine stays out of projected control API
+  // payloads so agentHarness remains the only public agent execution selector.
+  const executionProviderId = stringValue(
+    source.execution_provider_id ?? source.executionProviderId,
+  );
   return {
-    ...source,
+    ...publicSource,
     runId: stringValue(source.runId) ?? runId,
     short_id: shortId ?? undefined,
     run_short_id: shortId
@@ -77,6 +88,7 @@ function enrichRunEventPayload(
     duration_ms: durationMs ?? undefined,
     duration_text:
       durationMs === undefined ? undefined : formatDuration(durationMs),
+    execution_provider_id: executionProviderId ?? undefined,
   };
 }
 

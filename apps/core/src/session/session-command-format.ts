@@ -1,15 +1,16 @@
 import type { ThinkingOverride } from '../domain/types.js';
 import {
   findModelByRunnerModel,
-  type ModelDefaultAliases,
   type NormalizedModelUsage,
 } from '../shared/model-catalog.js';
 import {
   formatModelCatalog,
   formatModelDisplay,
   formatTokenCount,
+  type ModelCatalogFormatOptions,
 } from '../shared/model-catalog-format.js';
 import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
+export { formatModelWhy } from '../shared/model-why-format.js';
 import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 
 export interface MemoryStatusSnapshot {
@@ -218,8 +219,10 @@ export function formatCurrentModel(
   return 'Current model: CLI default (no explicit override).';
 }
 
-export function formatModelsList(defaults: ModelDefaultAliases = {}): string {
-  return formatModelCatalog(defaults);
+export function formatModelsList(
+  options: ModelCatalogFormatOptions = {},
+): string {
+  return formatModelCatalog(options);
 }
 
 function formatUsageLine(
@@ -321,7 +324,9 @@ export function formatModelStatus(
   if (entry) {
     lines.push(
       formatContextLine(snapshot, entry.contextWindowTokens),
-      `Max output: ${formatTokenCount(entry.maxOutputTokens)} tokens`,
+      typeof entry.maxOutputTokens === 'number'
+        ? `Max output: ${formatTokenCount(entry.maxOutputTokens)} tokens`
+        : 'Max output: reported at runtime',
       `Cache: ${resolveModelCacheSupport(entry).statusLabel}`,
     );
   } else {

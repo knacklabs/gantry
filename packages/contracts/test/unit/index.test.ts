@@ -6,7 +6,9 @@ import type {
 
 import {
   AgentCapabilitiesResponseSchema,
+  AgentHarnessSchema,
   AgentResponseSchema,
+  UpdateAgentRequestSchema,
   AgentConversationBindingRequestSchema,
   AgentConversationBindingListResponseSchema,
   AgentConversationBindingResponseSchema,
@@ -229,7 +231,12 @@ describe('contracts package', () => {
               aliases: ['kimi'],
               recommendedAlias: 'kimi',
               responseFamily: 'anthropic',
-              executionProviderId: 'anthropic:claude-agent-sdk',
+              executionRoutes: [
+                {
+                  harness: 'deepagents',
+                  executionProviderId: 'deepagents:langchain',
+                },
+              ],
               credentialProfileRef: 'gantry-model-access',
               modelRoute: {
                 id: 'openrouter',
@@ -383,6 +390,44 @@ describe('contracts package', () => {
         source: 'settings.yaml agents.<agent>.model',
       },
     });
+    // target 'agent' request round-trips agentId + modelAlias.
+    expect(
+      ModelPreviewRequestSchema.parse({
+        target: 'agent',
+        agentId: 'main_agent',
+        modelAlias: 'gpt',
+      }),
+    ).toEqual({
+      target: 'agent',
+      agentId: 'main_agent',
+      modelAlias: 'gpt',
+    });
+    // target 'agent' response carries the selected public harness diagnostics.
+    expect(
+      ModelPreviewResponseSchema.parse({
+        target: 'agent',
+        agentId: 'main_agent',
+        agentHarness: 'deepagents',
+        credentialProfile: 'openai',
+        executionProviderId: 'deepagents:langchain',
+        selection: {
+          configuredAlias: null,
+          effectiveAlias: 'gpt',
+          source: 'agent main_agent harness deepagents',
+          inherited: false,
+          workload: 'chat',
+          model: null,
+        },
+        why: [
+          'agent main_agent uses deepagents harness on the openai endpoint',
+        ],
+      }),
+    ).toMatchObject({
+      target: 'agent',
+      agentId: 'main_agent',
+      agentHarness: 'deepagents',
+      executionProviderId: 'deepagents:langchain',
+    });
     expect(
       CreateJobResponseSchema.parse({
         jobId: 'job-1',
@@ -412,6 +457,21 @@ describe('contracts package', () => {
     };
     expect(JobModelPreviewSchema.parse(jobModelPreview)).toEqual(
       jobModelPreview,
+    );
+    // DeepAgents job-eligible models omit maxOutputTokens (and some omit
+    // contextWindowTokens); JSON.stringify drops the undefined fields, so a
+    // preview without them must still parse.
+    const deepAgentsJobPreview = {
+      displayName: 'Groq Llama 3.3 70B Versatile',
+      responseFamily: 'openai',
+      modelRoute: {
+        id: 'groq',
+        label: 'Groq',
+      },
+      cachePolicy: 'openai-automatic-prompt',
+    };
+    expect(JobModelPreviewSchema.parse(deepAgentsJobPreview)).toEqual(
+      deepAgentsJobPreview,
     );
     expect(
       JobModelPreviewSchema.parse({
@@ -558,19 +618,90 @@ describe('contracts package', () => {
         appId: 'app-1',
         name: 'Operator',
         status: 'active',
+        agentHarness: 'deepagents',
         createdAt: iso,
         updatedAt: iso,
       }),
-    ).toMatchObject({ id: 'agent-1', appId: 'app-1' });
+    ).toMatchObject({
+      id: 'agent-1',
+      appId: 'app-1',
+      agentHarness: 'deepagents',
+    });
+    // agentHarness is a required public field on the response and is enum-bound.
+    expectInvalid(AgentResponseSchema, {
+      id: 'agent-1',
+      appId: 'app-1',
+      name: 'Operator',
+      status: 'active',
+      createdAt: iso,
+      updatedAt: iso,
+    });
+    expectInvalid(AgentResponseSchema, {
+      id: 'agent-1',
+      appId: 'app-1',
+      name: 'Operator',
+      status: 'active',
+      agentHarness: 'langchain',
+      createdAt: iso,
+      updatedAt: iso,
+    });
     expectInvalid(AgentResponseSchema, {
       id: 'agent-1',
       appId: 'app-1',
       name: 'Operator',
       status: 'bad',
+      agentHarness: 'deepagents',
       createdAt: iso,
       updatedAt: iso,
     });
+    expect(AgentHarnessSchema.options).toEqual([
+      'auto',
+      'anthropic_sdk',
+      'deepagents',
+    ]);
+    expect(
+      CreateAgentRequestSchema.parse({
+        appId: 'app-1',
+        name: 'Operator',
+        agentHarness: 'auto',
+      }),
+    ).toEqual({ appId: 'app-1', name: 'Operator', agentHarness: 'auto' });
+    expect(UpdateAgentRequestSchema.parse({ name: 'Operator' })).toEqual({
+      name: 'Operator',
+    });
+    expect(
+      UpdateAgentRequestSchema.parse({ agentHarness: 'anthropic_sdk' }),
+    ).toEqual({ agentHarness: 'anthropic_sdk' });
+    expect(UpdateAgentRequestSchema.parse({ status: 'active' })).toEqual({
+      status: 'active',
+    });
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
+    const forbiddenAgentRequestFields = [
+      'description',
+      'promptProfileRef',
+      'llmProfileId',
+      'toolIds',
+      'skillIds',
+      'permissionPolicyIds',
+      'sandboxProfileId',
+      'workspaceSnapshotId',
+      'runtimeLimits',
+      'metadata',
+      'agentEngine',
+      'executionProviderId',
+      'unexpectedField',
+    ];
+    for (const field of forbiddenAgentRequestFields) {
+      expectInvalid(CreateAgentRequestSchema, {
+        appId: 'app-1',
+        name: 'Operator',
+        [field]: 'deepagents',
+      });
+      expectInvalid(UpdateAgentRequestSchema, {
+        status: 'active',
+        [field]: 'deepagents',
+      });
+    }
     expect(
       ProviderSessionResponseSchema.parse({
         provider: 'anthropic:claude-agent-sdk',
@@ -1226,6 +1357,7 @@ describe('contracts package', () => {
             appId: 'app-1',
             name: 'Operator',
             status: 'active',
+            agentHarness: 'deepagents',
             createdAt: iso,
             updatedAt: iso,
           },

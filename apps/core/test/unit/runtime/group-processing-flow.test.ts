@@ -34,40 +34,40 @@ describe('handleFailure', () => {
     expect(input.deps.saveState).toHaveBeenCalledTimes(1);
   });
 
-  it('preserves an advanced first thread cursor to avoid restart replay loops', async () => {
+  it('rolls back first thread failures to the empty cursor for retry', async () => {
     const input = makeInput({
       queueJid: 'sl:C1234567890::thread:1711111111.000200',
       previousCursor: '',
     });
 
-    await expect(handleFailure(input)).resolves.toBe(true);
+    await expect(handleFailure(input)).resolves.toBe(false);
 
-    expect(input.deps.setCursor).not.toHaveBeenCalled();
-    expect(input.deps.saveState).not.toHaveBeenCalled();
+    expect(input.deps.setCursor).toHaveBeenCalledWith(
+      'sl:C1234567890::thread:1711111111.000200',
+      '',
+    );
+    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
     expect(input.logger.warn).toHaveBeenCalledWith(
-      {
-        group: 'Main Agent',
-        queueJid: 'sl:C1234567890::thread:1711111111.000200',
-      },
-      'Agent error on first thread message, preserving cursor to avoid replay loop',
+      { group: 'Main Agent' },
+      'Agent error, rolled back message cursor for retry',
     );
   });
 
-  it('preserves the cursor when a run fails during runtime shutdown', async () => {
+  it('rolls back no-output failures during runtime shutdown', async () => {
     const input = makeInput({
       isShuttingDown: () => true,
     });
 
-    await expect(handleFailure(input)).resolves.toBe(true);
+    await expect(handleFailure(input)).resolves.toBe(false);
 
-    expect(input.deps.setCursor).not.toHaveBeenCalled();
-    expect(input.deps.saveState).not.toHaveBeenCalled();
+    expect(input.deps.setCursor).toHaveBeenCalledWith(
+      'sl:C1234567890',
+      'prev-cursor',
+    );
+    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
     expect(input.logger.warn).toHaveBeenCalledWith(
-      {
-        group: 'Main Agent',
-        queueJid: 'sl:C1234567890',
-      },
-      'Agent error during runtime shutdown, preserving cursor to avoid restart replay',
+      { group: 'Main Agent' },
+      'Agent error, rolled back message cursor for retry',
     );
   });
 

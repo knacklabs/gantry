@@ -17,16 +17,25 @@ import type {
 } from '../../../domain/models/credentials.js';
 import type { ModelCredentialProvider } from '../../../domain/model-credentials/model-credentials.js';
 import {
+  applyRateCap,
+  GatewayRateLimiter,
+  type GatewayProviderRateLimits,
+} from './gantry-model-gateway-rate-limit.js';
+import {
   getModelProviderByGatewayPath,
   getModelProviderDefinition,
   getDefaultModelRouteProvider,
   listExecutableModelProviders,
   normalizeModelProviderId,
   resolveModelCredentialMode,
-  type ModelCredentialPayload,
   type ModelProviderDefinition,
 } from '../../../shared/model-provider-registry.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
+import {
+  assertProviderPathAllowed,
+  injectProviderAuth,
+  resolveGatewayUpstream,
+} from './gantry-model-gateway-routing.js';
 import {
   ALLOWED_GATEWAY_METHODS,
   DEFAULT_LOOPBACK_HOST,
@@ -84,6 +93,9 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
   private readonly audit?: (
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
+  // In-memory per-(app, provider) sliding-window rate limiter. The settings
+  // getter is read live so a reload applies without rebuilding the broker.
+  private readonly rateLimiter: GatewayRateLimiter;
 
   constructor(
     private readonly credentials: ModelCredentialRepository,
@@ -95,6 +107,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       requestBodyLimitBytes?: number;
       upstreamTimeoutMs?: number;
       audit?: (event: RuntimeEventPublishInput) => Promise<unknown> | unknown;
+      limits?: () => GatewayProviderRateLimits;
     } = {},
   ) {
     this.credentialService = new ModelCredentialService(credentials);
@@ -110,6 +123,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     this.upstreamTimeoutMs =
       options.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
     this.audit = options.audit;
+    this.rateLimiter = new GatewayRateLimiter(options.limits);
   }
 
   async getInjection(
@@ -172,6 +186,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       },
       applied: true,
       brokerProfile: 'gantry',
+      brokerAuthMode: credential.authMode,
     };
   }
 
@@ -251,6 +266,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     this.listenPromise = undefined;
     this.port = 0;
     this.tokens.clear();
+    this.rateLimiter.clear();
     if (this.tokenSweepTimer) {
       clearInterval(this.tokenSweepTimer);
       this.tokenSweepTimer = undefined;
@@ -375,20 +391,55 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       return;
     }
 
-    const upstreamUrl = buildConfinedUpstreamUrl(
-      provider,
-      pathParts,
-      parsedUrl.search,
-    );
-    assertProviderPathAllowed(provider, upstreamUrl.pathname);
-    const body = await readRequestBody(req, this.requestBodyLimitBytes);
-    const headers = sanitizeProxyHeaders(req.headers);
-    injectProviderAuth(
-      headers,
+    const upstream = resolveGatewayUpstream(
       provider,
       credential.authMode,
       credential.payload,
     );
+    const upstreamUrl = buildConfinedUpstreamUrl(
+      provider,
+      pathParts,
+      parsedUrl.search,
+      upstream,
+    );
+    assertProviderPathAllowed(
+      provider,
+      upstreamUrl.pathname,
+      upstream.pathPrefix,
+    );
+
+    // In-memory per-(app, provider) sliding-window rate cap. Enforced AFTER
+    // credential/path validation and BEFORE body read, auth injection, and
+    // upstream fetch, so a rejected request never triggers provider auth work.
+    // No DB, no usage-body parsing.
+    const rateLimited = await applyRateCap({
+      limiter: this.rateLimiter,
+      appId: tokenRecord.appId,
+      providerId,
+      audit: () =>
+        this.publishGatewayUseAudit(tokenRecord, {
+          outcome: 'rate_limited',
+          method: req.method ?? 'GET',
+          status: 429,
+        }),
+      reject: (limit) =>
+        sendGatewayJson(res, 429, {
+          error: `Rate limit: ${providerId} exceeded ${limit} requests/min for this app.`,
+        }),
+    });
+    if (rateLimited) return;
+
+    const body = await readRequestBody(req, this.requestBodyLimitBytes);
+    const headers = sanitizeProxyHeaders(req.headers);
+    await injectProviderAuth({
+      headers,
+      provider,
+      authMode: credential.authMode,
+      payload: credential.payload,
+      method: req.method ?? 'POST',
+      upstreamUrl,
+      body,
+    });
 
     const upstreamAbort = new AbortController();
     const timeout = setTimeout(
@@ -437,7 +488,11 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
   private async publishGatewayUseAudit(
     tokenRecord: GatewayTokenRecord,
     input: {
-      outcome: 'forwarded' | 'upstream_error' | 'credential_missing';
+      outcome:
+        | 'forwarded'
+        | 'upstream_error'
+        | 'credential_missing'
+        | 'rate_limited';
       method: string;
       status: number;
       upstreamHost?: string;
@@ -566,36 +621,6 @@ function requireBindingAppId(input: AgentCredentialBrokerInput): AppId {
   return input.binding.appId;
 }
 
-function assertProviderPathAllowed(
-  provider: ModelProviderDefinition,
-  upstreamPathname: string,
-): void {
-  const providerPath = stripUpstreamPathPrefix(
-    upstreamPathname,
-    provider.gateway.upstreamPathPrefix,
-  );
-  const allowed =
-    provider.id === 'openai'
-      ? providerPath === '/v1/embeddings'
-      : providerPath === '/v1/messages' ||
-        providerPath === '/v1/messages/count_tokens';
-  if (!allowed) {
-    throw new GatewayBadRequestError(
-      `Model gateway path is not allowed for ${provider.id}.`,
-    );
-  }
-}
-
-function stripUpstreamPathPrefix(pathname: string, prefix: string): string {
-  const normalizedPrefix = prefix.trim().replace(/\/+$/, '');
-  if (!normalizedPrefix) return pathname;
-  if (pathname === normalizedPrefix) return '/';
-  if (pathname.startsWith(`${normalizedPrefix}/`)) {
-    return pathname.slice(normalizedPrefix.length);
-  }
-  return pathname;
-}
-
 function projectGatewayTokenEnv(input: {
   provider: ModelProviderDefinition;
   baseUrl: string;
@@ -624,38 +649,4 @@ function projectedModelCredentialEnvKeys(): string[] {
       }),
     ]),
   ].sort();
-}
-
-function injectProviderAuth(
-  headers: Record<string, string>,
-  provider: ModelProviderDefinition,
-  authMode: string,
-  payload: ModelCredentialPayload,
-): void {
-  const auth = resolveModelCredentialMode(provider, authMode).gatewayAuth;
-  if (
-    auth.strategy !== 'bearer' &&
-    auth.strategy !== 'header' &&
-    auth.strategy !== 'claude_code_oauth'
-  ) {
-    throw new Error(
-      `Model gateway auth strategy ${auth.strategy} is not implemented for ${provider.id} ${authMode}.`,
-    );
-  }
-  if (!auth.field) {
-    throw new Error(
-      `Model gateway auth strategy ${auth.strategy} for ${provider.id} ${authMode} is missing a credential field.`,
-    );
-  }
-  const value = payload[auth.field];
-  if (!value) {
-    throw new Error(
-      `Model credential payload for ${provider.id} is missing ${auth.field}.`,
-    );
-  }
-  if (auth.strategy === 'bearer' || auth.strategy === 'claude_code_oauth') {
-    headers.authorization = `Bearer ${value}`;
-    return;
-  }
-  headers[auth.headerName ?? auth.field] = value;
 }

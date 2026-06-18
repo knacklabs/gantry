@@ -53,4 +53,35 @@ describe('run event projection', () => {
       duration_text: '2m 12s',
     });
   });
+
+  it('A8: strips internal agent_engine while surfacing execution_provider_id diagnostics', () => {
+    const projected = projectRuntimeEventToRunEvent({
+      ...event(RUNTIME_EVENT_TYPES.JOB_STARTED),
+      payload: {
+        agent_engine: 'deepagents',
+        execution_provider_id: 'deepagents:langchain',
+      },
+    });
+
+    expect(projected.payload).toMatchObject({
+      execution_provider_id: 'deepagents:langchain',
+    });
+    expect(projected.payload).not.toHaveProperty('agent_engine');
+  });
+
+  it('A8: strips camelCase agentEngine while normalizing executionProviderId', () => {
+    const projected = projectRuntimeEventToRunEvent({
+      ...event(RUNTIME_EVENT_TYPES.JOB_STARTED),
+      payload: {
+        agentEngine: 'deepagents',
+        executionProviderId: 'deepagents:langchain',
+      },
+    });
+
+    expect(projected.payload).toMatchObject({
+      execution_provider_id: 'deepagents:langchain',
+    });
+    expect(projected.payload).not.toHaveProperty('agentEngine');
+    expect(projected.payload).not.toHaveProperty('agent_engine');
+  });
 });

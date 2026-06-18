@@ -1,8 +1,12 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import {
+  query,
+  SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+} from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 
 import {
   getCredentialBrokerRuntimeConfig,
+  getRuntimeSettingsForConfig,
   type ClaudeAuthMode,
 } from '../../../config/index.js';
 import { getAgentCredentialInjection } from '../../../application/credentials/agent-credential-service.js';
@@ -50,6 +54,19 @@ export interface ClaudeUsage {
   output_tokens: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
+}
+
+interface SDKTextBlock {
+  type: 'text';
+  text: string;
+  cache_control?: { type: 'ephemeral' };
+}
+
+interface SDKUserMessage {
+  type: 'user';
+  message: { role: 'user'; content: string | SDKTextBlock[] };
+  parent_tool_use_id: null;
+  session_id: string;
 }
 
 export interface ClaudeAuthAvailability {
@@ -103,17 +120,99 @@ function readResultText(message: unknown): string {
   return typeof row.result === 'string' ? row.result : '';
 }
 
-function flattenPrompt(opts: ClaudeQueryOpts): string {
-  const parts: string[] = [];
-  if (opts.systemPrompt) {
-    parts.push(`System:\n${opts.systemPrompt}`);
+function numeric(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function optionalNumeric(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function readUsage(message: unknown): ClaudeUsage | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const row = message as {
+    type?: unknown;
+    usage?: Record<string, unknown>;
+    modelUsage?: Record<
+      string,
+      {
+        inputTokens?: unknown;
+        outputTokens?: unknown;
+        cacheReadInputTokens?: unknown;
+        cacheCreationInputTokens?: unknown;
+      }
+    >;
+  };
+  if (row.type !== 'result') return undefined;
+  if (row.usage && typeof row.usage === 'object') {
+    const usage: ClaudeUsage = {
+      input_tokens: numeric(row.usage.input_tokens),
+      output_tokens: numeric(row.usage.output_tokens),
+    };
+    const cacheRead = optionalNumeric(row.usage.cache_read_input_tokens);
+    const cacheWrite = optionalNumeric(row.usage.cache_creation_input_tokens);
+    if (cacheRead !== undefined) usage.cache_read_input_tokens = cacheRead;
+    if (cacheWrite !== undefined) {
+      usage.cache_creation_input_tokens = cacheWrite;
+    }
+    return usage;
   }
+  if (row.modelUsage && typeof row.modelUsage === 'object') {
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
+    for (const usage of Object.values(row.modelUsage)) {
+      inputTokens += numeric(usage.inputTokens);
+      outputTokens += numeric(usage.outputTokens);
+      cacheReadTokens += numeric(usage.cacheReadInputTokens);
+      cacheCreationTokens += numeric(usage.cacheCreationInputTokens);
+    }
+    return {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_read_input_tokens: cacheReadTokens,
+      cache_creation_input_tokens: cacheCreationTokens,
+    };
+  }
+  return undefined;
+}
+
+function buildCacheableSystemPrompt(
+  systemPrompt?: string,
+): string[] | undefined {
+  const trimmed = systemPrompt?.trim();
+  if (!trimmed) return undefined;
+  return [trimmed, SYSTEM_PROMPT_DYNAMIC_BOUNDARY];
+}
+
+function buildUserContent(opts: ClaudeQueryOpts): string | SDKTextBlock[] {
   if (opts.userBlocks?.length) {
-    parts.push(...opts.userBlocks.map((block) => block.text));
-  } else {
-    parts.push(opts.prompt);
+    return opts.userBlocks.map((block) => ({
+      type: 'text',
+      text: block.text,
+      ...(block.cacheStatic
+        ? { cache_control: { type: 'ephemeral' as const } }
+        : {}),
+    }));
   }
-  return parts.join('\n\n');
+  return opts.prompt;
+}
+
+async function* buildPrompt(
+  opts: ClaudeQueryOpts,
+): AsyncGenerator<SDKUserMessage> {
+  yield {
+    type: 'user',
+    message: {
+      role: 'user',
+      content: buildUserContent(opts),
+    },
+    parent_tool_use_id: null,
+    session_id: '',
+  };
 }
 
 async function resolveGantryMemoryInjection(
@@ -147,6 +246,9 @@ async function resolveGantryMemoryInjection(
     gatewayBindHost: brokerConfig.gatewayBindHost,
     publishRuntimeEvent: (event) =>
       getRuntimeStorage().runtimeEvents.publish(event),
+    // Honor per-provider rate caps for memory traffic, same getter runtime-app
+    // uses for the interactive broker. Without it the broker admits unlimited.
+    limits: () => getRuntimeSettingsForConfig().limits,
   }).catch((error) => {
     memoryCredentialBrokerPromise = undefined;
     throw error;
@@ -222,11 +324,12 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
       opts.signal?.addEventListener('abort', onAbort, { once: true });
     }
     const stream = query({
-      prompt: flattenPrompt(opts),
+      prompt: opts.userBlocks?.length ? buildPrompt(opts) : opts.prompt,
       options: {
         abortController,
         model: opts.model,
         maxTurns: 1,
+        systemPrompt: buildCacheableSystemPrompt(opts.systemPrompt),
         env: sdkEnv,
         settings: {
           autoMemoryEnabled: false,
@@ -239,11 +342,13 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
 
     let assistantText = '';
     let resultText = '';
+    let usage: ClaudeUsage | undefined;
 
     try {
       for await (const message of stream) {
         opts.signal?.throwIfAborted();
         assistantText += readAssistantText(message);
+        usage = readUsage(message) ?? usage;
         if (!resultText) {
           resultText = readResultText(message);
         }
@@ -252,6 +357,9 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
       opts.signal?.removeEventListener('abort', onAbort);
     }
     opts.signal?.throwIfAborted();
+    if (usage) {
+      opts.onUsage?.(usage);
+    }
 
     return (assistantText || resultText).trim();
   } finally {

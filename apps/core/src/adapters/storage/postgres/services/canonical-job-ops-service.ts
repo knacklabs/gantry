@@ -15,6 +15,10 @@ import {
   parseJson,
 } from '../repositories/canonical-graph-repository.postgres.js';
 import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
+import {
+  mapCanonicalJobEventRecord,
+  mapCanonicalRunRecord,
+} from './canonical-job-record-mappers.js';
 import type { RunLease } from '../../../../domain/ports/worker-coordination.js';
 import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
 // prettier-ignore
@@ -540,25 +544,7 @@ export class CanonicalJobOpsService {
   }
 
   private mapRun(row: CanonicalRunRecord): JobRun {
-    return {
-      run_id: row.id,
-      short_id: row.shortId,
-      job_id: row.jobId || '',
-      execution_provider_id: row.executionProviderId as ExecutionProviderId,
-      provider_run_id: row.providerRunId,
-      provider_session_id: row.providerSessionId,
-      worker_id: row.workerId,
-      lease_owner: row.leaseOwner,
-      lease_expires_at: row.leaseExpiresAt,
-      scheduled_for: row.createdAt,
-      started_at: row.startedAt || row.createdAt,
-      ended_at: row.endedAt,
-      status: row.status as JobRun['status'],
-      result_summary: row.resultSummary,
-      error_summary: row.errorSummary,
-      retry_count: 0,
-      notified_at: row.notifiedAt,
-    };
+    return mapCanonicalRunRecord(row);
   }
 
   private mapEvent(
@@ -566,15 +552,7 @@ export class CanonicalJobOpsService {
     index: number,
     fallbackJobId?: string,
   ): JobEvent {
-    const payload = parseJson<Partial<JobEvent>>(row.payloadJson, {});
-    return {
-      id: Number(row.id) || index + 1,
-      job_id: row.jobId || payload.job_id || fallbackJobId || '',
-      run_id: row.runId,
-      event_type: row.type,
-      payload: payload.payload ?? row.payloadJson,
-      created_at: row.createdAt,
-    };
+    return mapCanonicalJobEventRecord(row, index, fallbackJobId);
   }
 }
 

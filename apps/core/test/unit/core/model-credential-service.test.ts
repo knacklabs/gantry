@@ -179,6 +179,31 @@ describe('ModelCredentialService', () => {
     );
   });
 
+  it('reports only active providers via getConfiguredModelProviders', async () => {
+    const service = new ModelCredentialService(
+      new InMemoryModelCredentialRepository(),
+    );
+    await service.set({
+      appId,
+      providerId: 'groq',
+      authMode: 'api_key',
+      payload: { apiKey: 'gsk-test' },
+    });
+    await service.set({
+      appId,
+      providerId: 'cerebras',
+      authMode: 'api_key',
+      payload: { apiKey: 'csk-test' },
+    });
+    await service.disable({ appId, providerId: 'cerebras' });
+
+    const configured = await service.getConfiguredModelProviders({ appId });
+    expect(configured.has('groq')).toBe(true);
+    // Disabled credentials do not count as configured.
+    expect(configured.has('cerebras')).toBe(false);
+    expect(configured.has('together')).toBe(false);
+  });
+
   it('rejects unsupported providers and empty values', async () => {
     const service = new ModelCredentialService(
       new InMemoryModelCredentialRepository(),
@@ -200,6 +225,30 @@ describe('ModelCredentialService', () => {
       }),
     ).rejects.toThrow(
       'Credential field apiKey is required for anthropic api_key.',
+    );
+    await expect(
+      service.set({
+        appId,
+        providerId: 'bedrock',
+        authMode: 'bedrock_api_key',
+        payload: { region: 'us-east-1.example.com', apiKey: 'secret' },
+      }),
+    ).rejects.toThrow(
+      'Credential field region is invalid for bedrock bedrock_api_key.',
+    );
+    await expect(
+      service.set({
+        appId,
+        providerId: 'vertex',
+        authMode: 'service_account',
+        payload: {
+          region: 'global',
+          projectId: 'gantry-test',
+          serviceAccountJson: '{}',
+        },
+      }),
+    ).rejects.toThrow(
+      'Credential field serviceAccountJson is invalid for vertex service_account.',
     );
   });
 

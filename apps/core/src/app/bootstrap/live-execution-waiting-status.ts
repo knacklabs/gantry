@@ -22,7 +22,7 @@ import type { LiveTurnCoordinationRepository } from '../../domain/ports/live-tur
  */
 
 /** A live message waiting longer than this triggers the visible status. */
-export const WAITING_STATUS_THRESHOLD_MS = 15_000;
+export const WAITING_STATUS_THRESHOLD_MS = 30_000;
 
 /** How often the coordinator probes for waiting live admissions. */
 export const WAITING_STATUS_POLL_INTERVAL_MS = 5_000;

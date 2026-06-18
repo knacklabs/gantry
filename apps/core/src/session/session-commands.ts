@@ -1,15 +1,28 @@
 import type {
   MessageSendOptions,
   NewMessage,
-  ThinkingEffort,
   ThinkingOverride,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
+  extractSessionCommand,
+  isSessionCommandAllowed,
+  type AgentResult,
+} from './session-command-parse.js';
+export {
+  extractSessionCommand,
+  isSessionCommandAllowed,
+} from './session-command-parse.js';
+export type { AgentResult, SessionCommand } from './session-command-parse.js';
+import {
   findModelByRunnerModel,
-  resolveModelSelectionForWorkload,
   type ModelDefaultAliases,
 } from '../shared/model-catalog.js';
+import {
+  getModelFamily,
+  resolveModelSelectionForWorkloadWithFamilies,
+  type FamilyOrderOverrides,
+} from '../shared/model-families.js';
 import { formatModelDisplay } from '../shared/model-catalog-format.js';
 import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 import {
@@ -19,6 +32,7 @@ import {
   formatModelsList,
   formatModelStatus,
   formatMemoryStatus,
+  formatModelWhy,
   type BrowserStatusSnapshot,
   type MemoryStatusSnapshot,
 } from './session-command-format.js';
@@ -32,23 +46,6 @@ import {
   runNewSessionArchiveFinalizer,
   type PrepareSessionArchive,
 } from './session-new-archive.js';
-
-export type SessionCommand =
-  | { kind: 'commands'; raw: '/commands' }
-  | { kind: 'compact'; raw: '/compact' }
-  | { kind: 'new'; raw: '/new' }
-  | { kind: 'stop'; raw: '/stop' }
-  | { kind: 'dream'; raw: '/dream' }
-  | { kind: 'memory_status'; raw: '/memory-status' }
-  | { kind: 'models_list'; raw: '/models' }
-  | { kind: 'status'; raw: '/status' }
-  | { kind: 'save_procedure'; raw: string; title: string; body?: string }
-  | { kind: 'model_show'; raw: '/model' }
-  | { kind: 'model_set'; raw: string; value: string }
-  | { kind: 'model_default'; raw: '/model default' }
-  | { kind: 'thinking_show'; raw: '/thinking' }
-  | { kind: 'thinking_set'; raw: string; value: ThinkingOverride }
-  | { kind: 'thinking_default'; raw: '/thinking default' };
 
 interface DreamQueueResult {
   queued: boolean;
@@ -66,126 +63,6 @@ function isDreamQueueResult(value: unknown): value is DreamQueueResult {
   );
 }
 
-function parseThinkingCommand(text: string): SessionCommand | null {
-  if (text === '/thinking') return { kind: 'thinking_show', raw: '/thinking' };
-
-  const thinkingMatch = text.match(/^\/thinking\s+(.+)$/);
-  if (!thinkingMatch) return null;
-
-  const value = thinkingMatch[1].trim();
-  if (value === 'default') {
-    return { kind: 'thinking_default', raw: '/thinking default' };
-  }
-  if (value === 'off' || value === 'disabled') {
-    return {
-      kind: 'thinking_set',
-      raw: `/thinking ${value}`,
-      value: { mode: 'disabled' },
-    };
-  }
-  if (value === 'adaptive') {
-    return {
-      kind: 'thinking_set',
-      raw: '/thinking adaptive',
-      value: { mode: 'adaptive' },
-    };
-  }
-  if (value === 'enabled') {
-    return {
-      kind: 'thinking_set',
-      raw: '/thinking enabled',
-      value: { mode: 'enabled' },
-    };
-  }
-  const effortMatch = value.match(/^(low|medium|high|max)$/);
-  if (effortMatch) {
-    return {
-      kind: 'thinking_set',
-      raw: `/thinking ${effortMatch[1]}`,
-      value: { mode: 'adaptive', effort: effortMatch[1] as ThinkingEffort },
-    };
-  }
-  const enabledBudgetMatch = value.match(/^enabled\s+(\d+)$/);
-  if (enabledBudgetMatch) {
-    const budgetTokens = Number(enabledBudgetMatch[1]);
-    if (!Number.isSafeInteger(budgetTokens) || budgetTokens <= 0) return null;
-    return {
-      kind: 'thinking_set',
-      raw: `/thinking enabled ${budgetTokens}`,
-      value: { mode: 'enabled', budgetTokens },
-    };
-  }
-
-  return null;
-}
-
-export function extractSessionCommand(
-  content: string,
-  triggerPattern: RegExp,
-): SessionCommand | null {
-  let text = content.trim();
-  text = text.replace(triggerPattern, '').trim();
-  if (text === '/commands') return { kind: 'commands', raw: '/commands' };
-  if (text === '/compact') return { kind: 'compact', raw: '/compact' };
-  if (text === '/new') return { kind: 'new', raw: '/new' };
-  if (text === '/stop') return { kind: 'stop', raw: '/stop' };
-  if (text === '/dream') return { kind: 'dream', raw: '/dream' };
-  if (text === '/memory-status')
-    return { kind: 'memory_status', raw: '/memory-status' };
-  if (text === '/models') return { kind: 'models_list', raw: '/models' };
-  if (text === '/status') return { kind: 'status', raw: '/status' };
-  if (text === '/model') return { kind: 'model_show', raw: '/model' };
-  const saveProcedureMatch = text.match(
-    /^\/save-procedure(?:\s+"([^"\n]{1,80})"|\s+([^\n]{1,80}))(?:\n([\s\S]+))?$/,
-  );
-  if (saveProcedureMatch) {
-    const title = (saveProcedureMatch[1] || saveProcedureMatch[2] || '').trim();
-    const body = saveProcedureMatch[3]?.trim();
-    if (title) {
-      return {
-        kind: 'save_procedure',
-        raw: text,
-        title,
-        ...(body ? { body } : {}),
-      };
-    }
-  }
-
-  const modelMatch = text.match(/^\/model\s+(.+)$/);
-  if (modelMatch) {
-    const value = modelMatch[1].trim();
-    if (value === 'default') {
-      return { kind: 'model_default', raw: '/model default' };
-    }
-    return {
-      kind: 'model_set',
-      raw: `/model ${value}`,
-      value,
-    };
-  }
-
-  const thinking = parseThinkingCommand(text);
-  if (thinking) return thinking;
-
-  return null;
-}
-
-/**
- * Check if a session command sender is authorized.
- * Allowed only for trusted/admin sender (is_from_me) or explicit sender allowlist membership.
- */
-export function isSessionCommandAllowed(
-  isFromMe: boolean,
-  isSenderControlAllowlisted: boolean,
-): boolean {
-  return isFromMe || isSenderControlAllowlisted;
-}
-
-export interface AgentResult {
-  status: 'success' | 'error';
-  result?: string | object | null;
-}
-
 export interface SessionCommandDeps {
   sendMessage: (text: string, options?: MessageSendOptions) => Promise<void>;
   setTyping: (typing: boolean) => Promise<void>;
@@ -199,6 +76,12 @@ export interface SessionCommandDeps {
   formatMessages: (msgs: NewMessage[], timezone: string) => string;
   getDefaultModel: () => string | undefined;
   getJobModelDefaults?: () => ModelDefaultAliases;
+  // Provider/route ids with an ACTIVE Model Access credential for this app, used
+  // to badge /models and answer /model why. Optional + best-effort: when absent
+  // or it throws, the surfaces render without availability badges (graceful).
+  getConfiguredModelProviders?: () => Promise<Set<string>>;
+  // Optional settings-sourced family member-order override.
+  getModelFamilyOrder?: () => FamilyOrderOverrides | undefined;
   getGroupModelOverride: () => string | undefined;
   setGroupModelOverride: (value: string | undefined) => Promise<void> | void;
   getModelStatus?: () => RuntimeModelStatusSnapshot | undefined;
@@ -232,6 +115,24 @@ export interface SessionCommandDeps {
 }
 
 const MAX_MODEL_ERROR_MESSAGE_CHARS = 240;
+
+// Best-effort configured-provider set for /models + /model why availability
+// badges. Returns undefined (-> no badges, graceful) when the dep is absent or
+// throws, so a transient credential read never breaks a command.
+async function readConfiguredProviders(
+  deps: SessionCommandDeps,
+): Promise<Set<string> | undefined> {
+  if (!deps.getConfiguredModelProviders) return undefined;
+  try {
+    return await deps.getConfiguredModelProviders();
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Failed to read configured model providers for session command',
+    );
+    return undefined;
+  }
+}
 
 function resultToText(result: string | object | null | undefined): string {
   if (!result) return '';
@@ -558,10 +459,28 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'models_list') {
     deps.advanceCursor(cmdMsg);
+    const configuredProviders = await readConfiguredProviders(deps);
     await deps.sendMessage(
       formatModelsList({
-        chat: defaultModel,
-        ...(deps.getJobModelDefaults?.() ?? {}),
+        defaults: {
+          chat: defaultModel,
+          ...(deps.getJobModelDefaults?.() ?? {}),
+        },
+        configuredProviders,
+        familyOrder: deps.getModelFamilyOrder?.(),
+      }),
+    );
+    return { handled: true, success: true };
+  }
+
+  if (command.kind === 'model_why') {
+    deps.advanceCursor(cmdMsg);
+    const configuredProviders = await readConfiguredProviders(deps);
+    await deps.sendMessage(
+      formatModelWhy({
+        value: command.value,
+        configuredProviders,
+        familyOrder: deps.getModelFamilyOrder?.(),
       }),
     );
     return { handled: true, success: true };
@@ -591,7 +510,13 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'model_set') {
-    const resolved = resolveModelSelectionForWorkload(command.value, 'chat');
+    // Family aliases (e.g. gpt-oss) are accepted and stored verbatim; the
+    // concrete provider is picked at spawn from the configured credential.
+    const resolved = resolveModelSelectionForWorkloadWithFamilies(
+      command.value,
+      'chat',
+      deps.getModelFamilyOrder?.(),
+    );
     if (!resolved.ok) {
       deps.advanceCursor(cmdMsg);
       await deps.sendMessage(resolved.message);
@@ -617,9 +542,12 @@ export async function handleSessionCommand(opts: {
     }
 
     deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(
-      `Using ${findModelByRunnerModel(resolved.runnerModel)?.displayName ?? resolved.alias} for this session.`,
-    );
+    const family = getModelFamily(resolved.alias);
+    const selectionLabel = family
+      ? `${family.displayName} (provider auto-selected by configured key)`
+      : (findModelByRunnerModel(resolved.runnerModel)?.displayName ??
+        resolved.alias);
+    await deps.sendMessage(`Using ${selectionLabel} for this session.`);
     return { handled: true, success: true };
   }
 

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -117,6 +118,48 @@ describe('resolvePinnedPublicMcpAddress', () => {
 });
 
 describe('createGuardedMcpFetch', () => {
+  it('allows loopback HTTP MCP fetches without DNS pinning', async () => {
+    const server = http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"ok":true}');
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    try {
+      const address = server.address() as AddressInfo;
+      const lookupHostname = vi.fn(async () => {
+        throw new Error('loopback MCP fetch should not resolve DNS');
+      });
+      const response = await createGuardedMcpFetch({
+        allowLoopbackHttp: true,
+        lookupHostname,
+      })(`http://127.0.0.1:${address.port}/mcp`, {
+        method: 'POST',
+        body: '{}',
+        redirect: 'error',
+      });
+
+      await expect(response.text()).resolves.toBe('{"ok":true}');
+      expect(lookupHostname).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      );
+    }
+  });
+
+  it('rejects loopback pivots for remote-configured MCP transports', async () => {
+    const lookupHostname = vi.fn(async () => [
+      { address: '127.0.0.1', family: 4 as const },
+    ]);
+
+    await expect(
+      createGuardedMcpFetch({ lookupHostname })('http://127.0.0.1:8123/mcp'),
+    ).rejects.toThrow(/must be public and routable/);
+    expect(lookupHostname).not.toHaveBeenCalled();
+  });
+
   it('pins via DNS and fails closed on private resolution before any socket', async () => {
     const lookupHostname = vi.fn(async () => [
       { address: '127.0.0.1', family: 4 as const },
@@ -302,6 +345,45 @@ describe('assertMcpNetworkHostAllowed', () => {
 });
 
 describe('McpToolProxy', () => {
+  it('connects same-host loopback HTTP MCP sources without remote DNS validation', async () => {
+    vi.useFakeTimers();
+    const lookupHostname = vi.fn(async () => {
+      throw new Error('loopback MCP source should not resolve DNS');
+    });
+    const proxy = new McpToolProxy(
+      mcpRepository({
+        remote: true,
+        remoteUrl: 'http://127.0.0.1:3030/mcp',
+        networkHosts: ['127.0.0.1:3030'],
+      }),
+      {
+        tools: emptyToolRepository(),
+        lookupHostname,
+      },
+    );
+
+    await expect(
+      proxy.listTools({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+      }),
+    ).resolves.toEqual({
+      servers: [
+        {
+          name: 'github',
+          tools: [],
+        },
+      ],
+    });
+    expect(lookupHostname).not.toHaveBeenCalled();
+    expect(mcpSdkMocks.StreamableHTTPClientTransport).toHaveBeenCalledWith(
+      new URL('http://127.0.0.1:3030/mcp'),
+      expect.objectContaining({
+        fetch: expect.any(Function),
+      }),
+    );
+  });
+
   it('lists discovery-only MCP source tools without granting execution', async () => {
     vi.useFakeTimers();
     mcpSdkMocks.client.listTools.mockResolvedValueOnce({
@@ -341,7 +423,7 @@ describe('McpToolProxy', () => {
         serverName: 'github',
         toolName: 'search_repositories',
       }),
-    ).rejects.toThrow('MCP server is not approved for this agent: github');
+    ).rejects.toThrow(/not approved for this agent/);
   });
 
   it('does not let source-level tool patterns authorize unreviewed actions', async () => {
@@ -441,7 +523,9 @@ function mcpRepository(input?: {
   bindingAllowedToolPatterns?: string[];
   definitionAllowedToolPatterns?: string[];
   definitionAutoApproveToolPatterns?: string[];
+  networkHosts?: string[];
   remote?: boolean;
+  remoteUrl?: string;
 }) {
   const definition = {
     id: 'mcp:github',
@@ -454,7 +538,7 @@ function mcpRepository(input?: {
     config: input?.remote
       ? {
           transport: 'http',
-          url: 'https://api.github.com/mcp',
+          url: input.remoteUrl ?? 'https://api.github.com/mcp',
         }
       : {
           transport: 'stdio_template',
@@ -464,7 +548,7 @@ function mcpRepository(input?: {
     allowedToolPatterns: input?.definitionAllowedToolPatterns ?? ['*'],
     autoApproveToolPatterns: input?.definitionAutoApproveToolPatterns ?? ['*'],
     credentialRefs: [],
-    networkHosts: ['api.github.com:443'],
+    networkHosts: input?.networkHosts ?? ['api.github.com:443'],
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   };

@@ -23,6 +23,7 @@ import {
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { slackMessageActionBlocks } from './message-action-affordances.js';
+import { slackThreadTsFromThreadId } from './thread-ts.js';
 
 type SlackPostMessagePayload = {
   channel: string;
@@ -193,6 +194,7 @@ export async function sendSlackMessage(input: {
   );
   const warnings: string[] = [];
   if (parts.length > 1) warnings.push(`slack.message.chunked:${parts.length}`);
+  const threadTs = slackThreadTsFromThreadId(input.options.threadId);
 
   const externalMessageIds: string[] = [];
   let deliveredParts = 0;
@@ -208,9 +210,7 @@ export async function sendSlackMessage(input: {
         {
           channel: input.channelId,
           text: part,
-          ...(input.options.threadId
-            ? { thread_ts: input.options.threadId }
-            : {}),
+          ...(threadTs ? { thread_ts: threadTs } : {}),
           ...(actionBlocks ? { blocks: actionBlocks } : {}),
         },
         { jid: input.jid, part: partIndex + 1, totalParts: parts.length },
@@ -224,7 +224,7 @@ export async function sendSlackMessage(input: {
         const fallback = await input.sendSnippetFallback({
           channelId: input.channelId,
           text: formatted,
-          threadId: input.options.threadId,
+          threadId: threadTs,
           reason: 'payload_too_large',
         });
         if (fallback) {
@@ -263,9 +263,7 @@ export async function sendSlackMessage(input: {
                   providerPayload: {
                     provider: 'slack',
                     channelId: input.channelId,
-                    ...(input.options.threadId
-                      ? { threadId: input.options.threadId }
-                      : {}),
+                    ...(threadTs ? { threadId: threadTs } : {}),
                   },
                 },
               }
@@ -297,6 +295,7 @@ export async function sendSlackFallbackStreamParts(input: {
   log: SlackDeliveryLogger;
 }): Promise<void> {
   if (!input.app) throw new Error('Slack app not initialized');
+  const threadTs = slackThreadTsFromThreadId(input.state.threadId);
   let deliveredParts = 0;
   const visibleFallbackMessageIds = () =>
     input.state.fallbackMessageTs.filter(Boolean);
@@ -336,7 +335,7 @@ export async function sendSlackFallbackStreamParts(input: {
         {
           channel: input.state.channelId,
           text: part,
-          ...(input.state.threadId ? { thread_ts: input.state.threadId } : {}),
+          ...(threadTs ? { thread_ts: threadTs } : {}),
         },
         {
           jid: input.jid,
@@ -397,7 +396,7 @@ export async function sendSlackFallbackStreamParts(input: {
                     deliveredParts,
                     totalParts: totalChunks,
                     ...(input.state.threadId
-                      ? { threadId: input.state.threadId }
+                      ? { threadId: threadTs ?? input.state.threadId }
                       : {}),
                   },
                 },
@@ -451,6 +450,7 @@ export async function sendSlackProgressUpdate(input: {
   }
 
   let existing = input.activeProgress.get(input.key);
+  const threadTs = slackThreadTsFromThreadId(input.options.threadId);
   logger.info(
     {
       channelId: input.channelId,
@@ -513,11 +513,11 @@ export async function sendSlackProgressUpdate(input: {
     return;
   }
 
-  if (input.options.threadId) {
+  if (threadTs) {
     try {
       await input.app.client.apiCall('assistant.threads.setStatus', {
         channel_id: input.channelId,
-        thread_ts: input.options.threadId,
+        thread_ts: threadTs,
         status: trimmed,
       });
     } catch {
@@ -529,12 +529,12 @@ export async function sendSlackProgressUpdate(input: {
     const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
       text: trimmed,
-      ...(input.options.threadId ? { thread_ts: input.options.threadId } : {}),
+      ...(threadTs ? { thread_ts: threadTs } : {}),
     })) as { ts?: string };
     if (!input.options.done) {
       input.activeProgress.set(input.key, {
         channelId: input.channelId,
-        threadId: input.options.threadId,
+        threadId: threadTs,
         messageTs: sent.ts,
         lastText: trimmed,
         ...(input.options.generation !== undefined
@@ -590,10 +590,11 @@ export async function sendSlackProgressUpdate(input: {
       text: trimmed,
     });
   } else {
+    const existingThreadTs = slackThreadTsFromThreadId(existing.threadId);
     const sent = (await input.app.client.chat.postMessage({
       channel: existing.channelId,
       text: trimmed,
-      ...(existing.threadId ? { thread_ts: existing.threadId } : {}),
+      ...(existingThreadTs ? { thread_ts: existingThreadTs } : {}),
     })) as { ts?: string };
     existing.messageTs = sent.ts;
   }

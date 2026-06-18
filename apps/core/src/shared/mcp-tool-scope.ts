@@ -1,11 +1,13 @@
 export function reviewedMcpToolPatterns(input: {
-  allowedToolPatterns: readonly string[];
-  autoApproveToolPatterns: readonly string[];
+  allowedToolPatterns?: readonly string[];
+  autoApproveToolPatterns?: readonly string[];
 }): string[] {
+  const allowedToolPatterns = input.allowedToolPatterns ?? [];
+  const autoApproveToolPatterns = input.autoApproveToolPatterns ?? [];
   return [
-    ...(input.allowedToolPatterns.length > 0
-      ? input.allowedToolPatterns
-      : input.autoApproveToolPatterns),
+    ...(allowedToolPatterns.length > 0
+      ? allowedToolPatterns
+      : autoApproveToolPatterns),
   ];
 }
 
@@ -18,6 +20,11 @@ export function normalizeMcpToolScope(input: {
     ...new Set((input.requested ?? []).map((p) => p.trim()).filter(Boolean)),
   ];
   if (requested.length === 0) return [];
+  if (input.definitionPatterns.length === 0) {
+    throw new Error(
+      `MCP tool scope cannot be narrowed for ${input.serverName} because the server definition has no reviewed tools.`,
+    );
+  }
   for (const pattern of requested) {
     const covered = input.definitionPatterns.some(
       (allowed) =>

@@ -1735,6 +1735,15 @@ describe('SettingsDesiredStateService', () => {
 
   it('exports colliding conversation bindings without overwriting one another', async () => {
     const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      agentHarness: 'deepagents',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+      accessPreset: 'full',
+    };
     const service = new SettingsDesiredStateService({
       ops: makeOps({
         'tg abc': {
@@ -1760,6 +1769,7 @@ describe('SettingsDesiredStateService', () => {
 
     expect(bindingJids.sort()).toEqual(['tg abc', 'tg/abc']);
     expect(Object.keys(exported.agents.main_agent.bindings)).toHaveLength(2);
+    expect(exported.agents.main_agent.agentHarness).toBe('deepagents');
   });
 
   it('exports desired state with batched agent and conversation reads', async () => {
@@ -2006,6 +2016,7 @@ describe('SettingsDesiredStateService', () => {
       folder: 'side_agent',
       persona: 'research',
       model: 'sonnet',
+      agentHarness: 'deepagents',
       bindings: {},
       sources: {
         skills: [{ id: 'stale-skill' }],
@@ -2194,6 +2205,7 @@ describe('SettingsDesiredStateService', () => {
         name: 'Side',
         persona: 'research',
         model: 'sonnet',
+        agentHarness: 'deepagents',
         sources: {
           skills: [
             {

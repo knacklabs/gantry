@@ -3,7 +3,10 @@ import { timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import type { ModelProviderDefinition } from '../../../shared/model-provider-registry.js';
+import type {
+  ModelGatewayResolvedUpstream,
+  ModelProviderDefinition,
+} from '../../../shared/model-provider-registry.js';
 
 export const DEFAULT_LOOPBACK_HOST = '127.0.0.1';
 export const ALLOWED_GATEWAY_METHODS = new Set(['POST']);
@@ -23,6 +26,9 @@ const ALLOWED_REQUEST_HEADERS = new Set([
 const ALLOWED_RESPONSE_HEADERS = new Set([
   'cache-control',
   'content-type',
+  'x-amzn-requestid',
+  'x-amz-request-id',
+  'x-goog-request-id',
   'x-openrouter-cache-age',
   'x-openrouter-cache-status',
   'x-openrouter-cache-ttl',
@@ -50,6 +56,7 @@ export function buildConfinedUpstreamUrl(
   provider: ModelProviderDefinition,
   pathParts: string[],
   search: string,
+  upstream?: ModelGatewayResolvedUpstream,
 ): URL {
   const decodedParts = pathParts.map((part) => {
     try {
@@ -69,12 +76,15 @@ export function buildConfinedUpstreamUrl(
     );
   }
   const upstreamPath = `/${decodedParts.map(encodeURIComponent).join('/')}`;
-  const normalizedPrefix = normalizePathPrefix(
-    provider.gateway.upstreamPathPrefix,
-  );
+  const resolvedUpstream = upstream ?? {
+    origin: provider.gateway.upstreamOrigin,
+    pathPrefix: provider.gateway.upstreamPathPrefix,
+  };
+  const normalizedPrefix = normalizePathPrefix(resolvedUpstream.pathPrefix);
+  const upstreamOrigin = normalizeUpstreamOrigin(resolvedUpstream.origin);
   const upstreamUrl = new URL(
     `${normalizedPrefix}${upstreamPath}${search}`,
-    provider.gateway.upstreamOrigin,
+    upstreamOrigin,
   );
   const requiredPrefix = normalizedPrefix === '' ? '/' : `${normalizedPrefix}/`;
   if (
@@ -209,4 +219,24 @@ function normalizePathPrefix(prefix: string): string {
     throw new Error('Model gateway upstream path prefix is invalid.');
   }
   return `/${parts.map(encodeURIComponent).join('/')}`;
+}
+
+function normalizeUpstreamOrigin(origin: string): string {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    throw new Error('Model gateway upstream origin is invalid.');
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error('Model gateway upstream origin must be an HTTPS origin.');
+  }
+  return url.origin;
 }

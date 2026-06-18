@@ -7,6 +7,7 @@ export async function handleFailure(input: {
     setCursor: (chatJid: string, timestamp: string) => void;
     saveState: () => Promise<void> | void;
   };
+  isShuttingDown?: () => boolean;
   logger: {
     warn(payload: Record<string, unknown>, message: string): void;
   };

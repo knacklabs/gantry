@@ -106,6 +106,16 @@ vi.mock('@core/config/index.js', async () => {
     getRuntimeSettingsForConfig: vi.fn(() =>
       settingsModule.loadRuntimeSettings(runtimeHome),
     ),
+    getSelectedAgentHarness: vi.fn((agentFolder?: string) => {
+      const settings = settingsModule.loadRuntimeSettings(runtimeHome);
+      return (
+        (agentFolder
+          ? settings.agents?.[agentFolder]?.agentHarness
+          : undefined) ??
+        settings.agent.agentHarness ??
+        'auto'
+      );
+    }),
     getPublicRuntimeSettings: toPublic,
     configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
   };
@@ -1115,7 +1125,12 @@ describe('control server runtime hardening', () => {
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
             responseFamily: 'anthropic',
-            executionProviderId: 'anthropic:claude-agent-sdk',
+            executionRoutes: [
+              {
+                harness: 'deepagents',
+                executionProviderId: 'deepagents:langchain',
+              },
+            ],
             credentialProfileRef: 'gantry-model-access',
             modelRoute: {
               id: 'openrouter',
@@ -1133,6 +1148,12 @@ describe('control server runtime hardening', () => {
               'chat',
               'memory_extractor',
             ]),
+            // Cost is surfaced from the curated catalog pricing...
+            inputUsdPerMillionTokens: expect.any(Number),
+            outputUsdPerMillionTokens: expect.any(Number),
+            // ...and credential-aware availability is present on the list
+            // endpoint (false here: no OpenRouter credential configured).
+            available: false,
           }),
         ]),
       );

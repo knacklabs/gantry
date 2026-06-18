@@ -18,6 +18,7 @@ import type { RuntimeEventExchange } from '../../../application/runtime-events/r
 import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
 import type { WorkerCoordinationRepository } from '../../../domain/ports/worker-coordination.js';
 import { configurePendingInteractionDurability } from '../../../application/interactions/pending-interaction-durability.js';
+import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 
 let runtime: StorageRuntime | null = null;
@@ -98,6 +99,18 @@ export function getRuntimeEventExchange(): RuntimeEventExchange {
 
 export function getWorkerCoordinationRepository(): WorkerCoordinationRepository {
   return getRuntimeStorage().repositories.workerCoordination;
+}
+
+// Provider ids (route ids) with an ACTIVE configured Model Access credential for
+// an app. Source for credential-driven model-family provider selection at the
+// runtime spawn/job seams; resolved here so runtime callers do not reach into
+// the adapter layer themselves.
+export async function getConfiguredModelProvidersForApp(
+  appId: string,
+): Promise<Set<string>> {
+  return new ModelCredentialService(
+    getRuntimeStorage().repositories.modelCredentials,
+  ).getConfiguredModelProviders({ appId: appId as never });
 }
 
 export async function tryAcquireRuntimeAdvisoryLease(

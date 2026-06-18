@@ -1,4 +1,9 @@
 import {
+  AUTO_AGENT_HARNESS,
+  isAgentHarness,
+  type AgentHarness,
+} from '../../shared/agent-engine.js';
+import {
   getProvider,
   listChannelProviders,
   normalizeProviderId,
@@ -36,6 +41,8 @@ import type { ChatAllowlistEntry } from './sender-allowlist.js';
 import { parseMemorySettings } from './runtime-settings-memory-parser.js';
 import { parseBrowserSettings } from './runtime-settings-browser-parser.js';
 import { parsePermissionSettings } from './runtime-settings-permissions-parser.js';
+import { parseLimitsSettings } from './runtime-settings-limits-parser.js';
+import { parseModelFamilies } from './runtime-settings-model-families-parser.js';
 
 function parseStringArrayValue(raw: unknown, pathPrefix: string): string[] {
   if (!Array.isArray(raw)) {
@@ -51,6 +58,20 @@ function parseStringArrayValue(raw: unknown, pathPrefix: string): string[] {
       }),
     ),
   ];
+}
+
+function parseAgentHarnessValue(
+  raw: unknown,
+  pathPrefix: string,
+  fallback: AgentHarness = AUTO_AGENT_HARNESS,
+): AgentHarness {
+  if (raw === undefined) return fallback;
+  if (!isAgentHarness(raw)) {
+    throw new Error(
+      `${pathPrefix} must be one of auto, anthropic_sdk, or deepagents`,
+    );
+  }
+  return raw;
 }
 
 function parseOptionalStringValue(
@@ -570,11 +591,12 @@ function parseGatewayBindHost(raw: unknown): string {
     'model_access.gateway.bind_host',
     DEFAULT_MODEL_GATEWAY_BIND_HOST,
   ).toLowerCase();
-  if (value === '127.0.0.1' || value === 'localhost' || value === '::1') {
+  // Numeric loopback only: the gateway broker crashes at startup otherwise.
+  if (value === '127.0.0.1' || value === '::1') {
     return value;
   }
   throw new Error(
-    'model_access.gateway.bind_host must be a loopback host: 127.0.0.1, ::1, or localhost',
+    'model_access.gateway.bind_host must be a numeric loopback host: 127.0.0.1 or ::1.',
   );
 }
 
@@ -583,6 +605,7 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     return {
       name: DEFAULT_AGENT_NAME,
       defaultModel: '',
+      agentHarness: AUTO_AGENT_HARNESS,
       oneTimeJobDefaultModel: '',
       recurringJobDefaultModel: '',
       sessions: {
@@ -599,12 +622,13 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     if (
       key !== 'name' &&
       key !== 'default_model' &&
+      key !== 'agent_harness' &&
       key !== 'one_time_job_default_model' &&
       key !== 'recurring_job_default_model' &&
       key !== 'sessions'
     ) {
       throw new Error(
-        `agent.${key} is not supported. Configure agent.name, agent.default_model, agent.one_time_job_default_model, agent.recurring_job_default_model, or agent.sessions.*.`,
+        `agent.${key} is not supported. Configure agent.name, agent.default_model, agent.agent_harness, agent.one_time_job_default_model, agent.recurring_job_default_model, or agent.sessions.*.`,
       );
     }
   }
@@ -633,6 +657,10 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
         : typeof map.default_model === 'string'
           ? map.default_model.trim()
           : parseStringValue(map.default_model, 'agent.default_model'),
+    agentHarness: parseAgentHarnessValue(
+      map.agent_harness,
+      'agent.agent_harness',
+    ),
     oneTimeJobDefaultModel:
       map.one_time_job_default_model === undefined
         ? ''
@@ -1063,10 +1091,12 @@ export function parseRuntimeSettingsObject(
       key !== 'memory' &&
       key !== 'runtime' &&
       key !== 'browser' &&
-      key !== 'permissions'
+      key !== 'permissions' &&
+      key !== 'limits' &&
+      key !== 'model_families'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, agent, model_access, memory, runtime, browser, and permissions.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, and model_families.`,
       );
     }
   }
@@ -1100,6 +1130,8 @@ export function parseRuntimeSettingsObject(
   const runtime = parseRuntimeProcessSettings(root.runtime);
   const browser = parseBrowserSettings(root.browser);
   const permissions = parsePermissionSettings(root.permissions);
+  const limits = parseLimitsSettings(root.limits);
+  const modelFamilies = parseModelFamilies(root.model_families);
 
   return {
     desiredState,
@@ -1115,5 +1147,7 @@ export function parseRuntimeSettingsObject(
     runtime,
     browser,
     permissions,
+    limits,
+    modelFamilies,
   };
 }

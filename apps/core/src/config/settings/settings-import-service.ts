@@ -22,7 +22,7 @@ import {
  * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
  * Bump this whenever a settings-schema change would break older readers.
  */
-export const CURRENT_SETTINGS_READER_VERSION = 1;
+export const CURRENT_SETTINGS_READER_VERSION = 2;
 
 export interface SettingsImportValidationResult {
   ok: boolean;
@@ -188,6 +188,7 @@ export function settingsToRevisionDocument(
       persona: agent.persona,
       relationship_mode: agent.relationshipMode,
       model: agent.model,
+      agent_harness: agent.agentHarness,
       one_time_job_default_model: agent.oneTimeJobDefaultModel,
       recurring_job_default_model: agent.recurringJobDefaultModel,
       bindings: mapRecord(agent.bindings, snakeRecord),
@@ -210,6 +211,7 @@ export function settingsToRevisionDocument(
     agent: {
       name: settings.agent.name,
       default_model: settings.agent.defaultModel,
+      agent_harness: settings.agent.agentHarness,
       one_time_job_default_model: settings.agent.oneTimeJobDefaultModel,
       recurring_job_default_model: settings.agent.recurringJobDefaultModel,
       sessions: {

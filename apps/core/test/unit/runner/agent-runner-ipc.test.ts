@@ -46,6 +46,7 @@ interface RunnerRecord {
     persistSession?: boolean;
     resume?: unknown;
     resumeSessionAt?: unknown;
+    systemPromptExcludeDynamicSections?: boolean;
   }>;
 }
 
@@ -153,6 +154,10 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'memory-boundary.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/tool-gate-core.ts'),
+    path.join(runnerDir, 'tool-gate-core.ts'),
+  );
+  fs.copyFileSync(
     path.resolve(
       'apps/core/src/adapters/llm/anthropic-claude-agent/runner/message-stream.ts',
     ),
@@ -199,12 +204,30 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'model-provider-registry.ts'),
   );
   fs.copyFileSync(
+    path.resolve(
+      'apps/core/src/shared/model-provider-registry-openai-compatible.ts',
+    ),
+    path.join(sharedDir, 'model-provider-registry-openai-compatible.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-catalog-openai-compatible.ts'),
+    path.join(sharedDir, 'model-catalog-openai-compatible.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/agent-engine.ts'),
+    path.join(sharedDir, 'agent-engine.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-cache-support.ts'),
     path.join(sharedDir, 'model-cache-support.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-catalog-format.ts'),
     path.join(sharedDir, 'model-catalog-format.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-families.ts'),
+    path.join(sharedDir, 'model-families.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-usage.ts'),
@@ -391,6 +414,8 @@ export async function* query({ prompt, options }) {
     resume: options?.resume,
     resumeSessionAt: options?.resumeSessionAt,
     systemPromptAppend: options?.systemPrompt?.append,
+    systemPromptExcludeDynamicSections:
+      options?.systemPrompt?.excludeDynamicSections,
     closeExistsAtQueryStart: fs.existsSync(
       path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'),
     ),
@@ -746,6 +771,7 @@ async function runRunner(
   fixture: ReturnType<typeof createRunnerFixture>,
   input: Record<string, unknown>,
   extraEnv: Record<string, string> = {},
+  timeoutMs = 25_000,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   const child = spawn(
     process.execPath,
@@ -791,7 +817,7 @@ async function runRunner(
       reject(
         new Error(`runner timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`),
       );
-    }, 25_000);
+    }, timeoutMs);
     child.on('error', (err) => {
       clearTimeout(timeout);
       reject(err);
@@ -819,6 +845,11 @@ function readRunnerOutputs(stdout: string): Array<Record<string, unknown>> {
 }
 
 const RUNNER_IPC_TEST_TIMEOUT_MS = 35_000;
+// The heartbeat test observes a real 15s heartbeat interval after a cold tsx
+// runner boot, so it needs a wider per-spawn budget than the default 25s and a
+// matching vitest timeout above it.
+const HEARTBEAT_RUNNER_TIMEOUT_MS = 60_000;
+const HEARTBEAT_TEST_TIMEOUT_MS = 70_000;
 
 describe('agent-runner IPC lifecycle', () => {
   it(
@@ -1764,6 +1795,8 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.persistSession).toBe(false);
       expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
+      expect(call?.systemPromptAppend).toContain('compiled system profile');
+      expect(call?.systemPromptExcludeDynamicSections).toBe(true);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1803,6 +1836,12 @@ describe('agent-runner IPC lifecycle', () => {
           TEST_WAIT_FOR_HEARTBEAT: '1',
           TEST_EXIT_AFTER_QUERY: '1',
         },
+        // This spawn must cover cold tsx runner boot + the full 15s heartbeat
+        // interval + query completion. The default 25s spawn budget is too tight
+        // serially / under load (the heartbeat fires correctly but the spawn is
+        // SIGKILLed first), so give it a wider budget under a matching vitest
+        // timeout.
+        HEARTBEAT_RUNNER_TIMEOUT_MS,
       );
 
       expect(result.exitCode, result.stderr).toBe(0);
@@ -1812,7 +1851,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.stdout).toContain('"pendingPermissionRequests":0');
       expect(result.stdout).toContain('"totalToolCalls":0');
     },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
+    HEARTBEAT_TEST_TIMEOUT_MS,
   );
 
   it(

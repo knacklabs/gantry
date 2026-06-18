@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { nowIso } from '../../../shared/time/datetime.js';
 import {
   availableSemanticCapabilities,
+  attachedMcpSourceIds,
   capabilityStatusText,
   chatJid,
+  currentConfiguredAllowedTools,
   deploymentMode,
   isAdminMcpToolEnabled,
   lockedAccessPreset,
@@ -32,6 +34,7 @@ import {
   SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
   UNREVIEWED_DISCOVERY_GUIDANCE,
 } from '../../../shared/capability-guidance.js';
+import type { SemanticCapabilityDefinition } from '../../../shared/semantic-capabilities.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
@@ -161,6 +164,50 @@ export function registerServiceTools(server: McpServer): void {
   );
   registerAccessRequestTool(server, submitCapabilityReviewTask, {
     listCapabilities: () => availableSemanticCapabilities,
+    isCapabilitySelected: (capabilityId) =>
+      currentConfiguredAllowedTools().includes(`capability:${capabilityId}`),
+    validateRunCommandFallback: ({ argvPattern }) => {
+      const currentAllowedTools = currentConfiguredAllowedTools();
+      const selectedMcpCapabilities = availableSemanticCapabilities.filter(
+        (capability) =>
+          currentAllowedTools.includes(
+            `capability:${capability.capabilityId}`,
+          ) &&
+          capability.implementationBindings.some(
+            (binding) =>
+              binding.kind === 'mcp_tool' || Boolean(binding.mcpTool),
+          ),
+      );
+      const selectedMcpCapabilityIds = selectedMcpCapabilities
+        .map((capability) => capability.capabilityId)
+        .sort();
+      if (selectedMcpCapabilityIds.length === 0) return null;
+      const requestedPattern = normalizeMcpServerName(argvPattern);
+      const selectedMcpNames = [
+        ...new Set(
+          selectedMcpCapabilities.flatMap((capability) =>
+            mcpCapabilityNames(capability),
+          ),
+        ),
+      ].filter(Boolean);
+      const targetsSelectedMcp = selectedMcpNames.some((name) =>
+        requestedPattern.includes(name),
+      );
+      if (!targetsSelectedMcp) return null;
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: [
+              'RunCommand/Bash permission is not available as a fallback while MCP access is selected for this run.',
+              `Selected MCP capabilities: ${selectedMcpCapabilityIds.join(', ')}`,
+              'Use mcp_list_tools to inspect the ready source, then mcp_call_tool to call the approved action.',
+            ].join('\n'),
+          },
+        ],
+      };
+    },
   });
 
   server.tool(
@@ -215,6 +262,24 @@ export function registerServiceTools(server: McpServer): void {
         },
       );
       if (wrongLaneGuidance) return wrongLaneGuidance;
+      const existingSource = existingMcpSourceForRequest(args.name);
+      if (existingSource) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: [
+                `MCP source "${existingSource.serverName}" is already available for this run.`,
+                existingSource.selectedCapabilities.length
+                  ? `Selected capabilities: ${existingSource.selectedCapabilities.join(', ')}`
+                  : 'A matching MCP source is already attached.',
+                `Use mcp_list_tools with serverName="${existingSource.serverName}", then mcp_call_tool with serverName="${existingSource.serverName}" for approved actions.`,
+                'Do not request the same MCP source setup again unless a tool call reports access is missing or denied.',
+              ].join('\n'),
+            },
+          ],
+        };
+      }
       const taskId = makeIpcId('request-mcp');
       writeIpcFile(TASKS_DIR, {
         type: 'request_mcp_server',
@@ -520,6 +585,20 @@ The JID must be the current conversation. The folder name must be channel-prefix
   );
 }
 
+function mcpCapabilityNames(
+  capability: SemanticCapabilityDefinition,
+): string[] {
+  const names: string[] = [capability.capabilityId];
+  const sourceServerName = mcpSourceServerName(capability.source);
+  if (sourceServerName) names.push(sourceServerName);
+  for (const binding of capability.implementationBindings) {
+    if (binding.kind !== 'mcp_tool' && !binding.mcpTool) continue;
+    const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
+    if (match?.[1]) names.push(match[1]);
+  }
+  return names.map(normalizeMcpServerName).filter(Boolean);
+}
+
 function adminToolUnavailable(toolName: AdminMcpToolName): {
   content: { type: 'text'; text: string }[];
   isError: true;
@@ -593,6 +672,82 @@ function isBrowserWrongLaneText(value: string): boolean {
     compact === 'browserbackend' ||
     compact === 'browsercontrol'
   );
+}
+
+function existingMcpSourceForRequest(name: string):
+  | {
+      serverName: string;
+      selectedCapabilities: string[];
+    }
+  | undefined {
+  const requestedName = normalizeMcpServerName(name);
+  if (!requestedName) return undefined;
+
+  const attachedSourceName = attachedMcpSourceIds
+    .map(displayMcpSourceName)
+    .find((sourceName) => normalizeMcpServerName(sourceName) === requestedName);
+  if (attachedSourceName) {
+    return {
+      serverName: attachedSourceName,
+      selectedCapabilities:
+        selectedMcpCapabilitiesForSource(attachedSourceName),
+    };
+  }
+
+  const selectedCapabilities = selectedMcpCapabilitiesForSource(name);
+  if (selectedCapabilities.length > 0) {
+    return {
+      serverName: name.trim(),
+      selectedCapabilities,
+    };
+  }
+
+  return undefined;
+}
+
+function selectedMcpCapabilitiesForSource(serverName: string): string[] {
+  const requestedName = normalizeMcpServerName(serverName);
+  if (!requestedName) return [];
+  const currentAllowedTools = currentConfiguredAllowedTools();
+  return availableSemanticCapabilities
+    .filter((capability) => {
+      if (
+        !currentAllowedTools.includes(`capability:${capability.capabilityId}`)
+      ) {
+        return false;
+      }
+      const sourceServerName = mcpSourceServerName(capability.source);
+      if (normalizeMcpServerName(sourceServerName) === requestedName) {
+        return true;
+      }
+      return capability.implementationBindings.some((binding) => {
+        if (binding.kind !== 'mcp_tool' && !binding.mcpTool) return false;
+        const match = /^mcp__(.+?)__/.exec(binding.mcpTool ?? '');
+        return normalizeMcpServerName(match?.[1]) === requestedName;
+      });
+    })
+    .map((capability) => capability.capabilityId)
+    .sort();
+}
+
+function mcpSourceServerName(source: unknown): string | undefined {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return undefined;
+  }
+  const record = source as Record<string, unknown>;
+  if (record.source !== 'mcp') return undefined;
+  return typeof record.serverName === 'string' ? record.serverName : undefined;
+}
+
+function displayMcpSourceName(sourceId: string): string {
+  const normalized = sourceId.trim();
+  return normalized.startsWith('mcp:')
+    ? normalized.slice('mcp:'.length)
+    : normalized;
+}
+
+function normalizeMcpServerName(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
 }
 
 type CapabilityReviewToolName =

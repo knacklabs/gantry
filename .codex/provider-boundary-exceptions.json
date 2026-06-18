@@ -3,6 +3,22 @@
   "cleanupPlanId": "myclaw-architecture-gates-20260517-provider-boundary-sentinels",
   "exceptions": [
     {
+      "file": "apps/core/src/shared/agent-engine.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "packages/contracts/src/contract-primitives.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
       "file": "apps/core/src/adapters/storage/postgres/schema/agents.ts",
       "matches": {
         "default('anthropic')": 1
@@ -115,7 +131,7 @@
     {
       "file": "apps/core/test/unit/core/agent-credential-service.test.ts",
       "matches": {
-        "ANTHROPIC_": 7
+        "ANTHROPIC_": 4
       },
       "reason": "Existing Anthropic/Claude provider-boundary debt; this gate is count-exact so new leakage fails before the provider extraction cleanup.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
@@ -131,9 +147,10 @@
     {
       "file": "apps/core/src/shared/model-provider-registry.ts",
       "matches": {
-        "ANTHROPIC_": 7
+        "ANTHROPIC_": 3,
+        "anthropic_sdk": 1
       },
-      "reason": "The provider registry is the intentional source of truth for SDK projection env names while model runners still use the Anthropic-compatible execution adapter.",
+      "reason": "The provider registry is the intentional source of truth for the Anthropic provider's SDK projection env names (ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY) on the Claude SDK lane; OpenRouter now projects the OpenAI-family env.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
     },
     {
@@ -165,7 +182,8 @@
       "file": "apps/core/test/unit/runtime/agent-spawn.test.ts",
       "matches": {
         "ANTHROPIC_": 47,
-        "CLAUDE_CONFIG_DIR": 6
+        "CLAUDE_CONFIG_DIR": 6,
+        "anthropic_sdk": 1
       },
       "reason": "Runtime spawn tests assert the Anthropic-compatible SDK projection uses only loopback Gantry gateway URLs and gtw_ run tokens; this gate is count-exact so new provider credential leakage fails.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
@@ -184,6 +202,30 @@
         "provider: 'anthropic'": 2
       },
       "reason": "Existing Anthropic/Claude provider-boundary debt; this gate is count-exact so new leakage fails before the provider extraction cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/shared/agent-engine.test.ts",
+      "matches": {
+        "anthropic_sdk": 3
+      },
+      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/core/model-provider-registry.test.ts",
+      "matches": {
+        "anthropic_sdk": 2
+      },
+      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/jobs/model-resolution.test.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
     }
   ]

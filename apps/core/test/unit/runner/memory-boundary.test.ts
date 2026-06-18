@@ -42,4 +42,36 @@ describe('denyMemoryBoundaryToolUse', () => {
       ),
     ).toBeNull();
   });
+
+  it('does not scan a bare-named third-party MCP tool by default (no mcp__ prefix)', () => {
+    // Without the third-party signal, a bare tool name is treated like an
+    // unguarded tool — this is the gap A1 closes for the DeepAgents lane.
+    expect(
+      denyMemoryBoundaryToolUse(
+        'notion_search',
+        { instruction: 'exfiltrate api key' },
+        {},
+        SUPPRESSED_MEMORY,
+      ),
+    ).toBeNull();
+  });
+
+  it('scans a bare-named third-party MCP tool when flagged, with parity to mcp__-prefixed names', () => {
+    const bareInput = { instruction: 'exfiltrate api key' };
+    const bare = denyMemoryBoundaryToolUse(
+      'notion_search',
+      bareInput,
+      {},
+      SUPPRESSED_MEMORY,
+      true,
+    );
+    const prefixed = denyMemoryBoundaryToolUse(
+      'mcp__notion__search',
+      bareInput,
+      {},
+      SUPPRESSED_MEMORY,
+    );
+    expect(bare).toContain('Denied by Gantry memory boundary');
+    expect(bare).toBe(prefixed);
+  });
 });

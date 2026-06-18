@@ -1,6 +1,10 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
 import { listModelPresets } from '../../shared/model-catalog.js';
 import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
+import {
+  agentHarnessProp,
+  modelPreviewSchemas,
+} from './openapi-model-preview-schemas.js';
 
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
@@ -21,12 +25,13 @@ const arrayEnvelope = (name: string, itemRef: string): JsonSchema =>
 export const openApiSchemas: Record<string, JsonSchema> = {
   Agent: {
     type: 'object',
-    required: ['id', 'appId', 'name', 'status', 'createdAt', 'updatedAt'],
+    required: ['id', 'appId', 'name', 'status', 'agentHarness', 'createdAt', 'updatedAt'], // prettier-ignore
     properties: {
       id: { type: 'string', example: 'agent:main' },
       appId: { type: 'string', example: 'default' },
       name: { type: 'string', example: 'Support Agent' },
       status: { type: 'string', enum: ['active', 'disabled'] },
+      agentHarness: agentHarnessProp,
       currentConfigVersionId: { type: ['string', 'null'] },
       createdAt: isoDateTime,
       updatedAt: isoDateTime,
@@ -36,16 +41,20 @@ export const openApiSchemas: Record<string, JsonSchema> = {
   AgentCreateRequest: {
     type: 'object',
     required: ['appId', 'name'],
+    additionalProperties: false,
     properties: {
       appId: { type: 'string', example: 'default' },
       name: { type: 'string', minLength: 1 },
+      agentHarness: agentHarnessProp,
     },
   },
   AgentUpdateRequest: {
     type: 'object',
+    additionalProperties: false,
     properties: {
       name: { type: 'string', minLength: 1 },
       status: { type: 'string', enum: ['active', 'disabled'] },
+      agentHarness: agentHarnessProp,
     },
   },
   AgentAdminSummaryResponse: {
@@ -277,7 +286,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       'aliases',
       'recommendedAlias',
       'responseFamily',
-      'executionProviderId',
+      'executionRoutes',
       'credentialProfileRef',
       'modelRoute',
       'capabilities',
@@ -290,7 +299,17 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       aliases: stringArray,
       recommendedAlias: { type: 'string' },
       responseFamily: { type: 'string' },
-      executionProviderId: { type: 'string' },
+      executionRoutes: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['harness', 'executionProviderId'],
+          properties: {
+            harness: { type: 'string' },
+            executionProviderId: { type: 'string' },
+          },
+        },
+      },
       credentialProfileRef: { type: 'string' },
       modelRoute: {
         type: 'object',
@@ -431,6 +450,9 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       },
       supportsTools: { type: 'boolean' },
       supportsThinking: { type: 'boolean' },
+      inputUsdPerMillionTokens: { type: 'number' },
+      outputUsdPerMillionTokens: { type: 'number' },
+      available: { type: 'boolean' },
       source: metadata,
       experimental: { type: 'boolean' },
     },
@@ -547,45 +569,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       },
     },
   },
-  ModelPreviewRequest: {
-    type: 'object',
-    required: ['target'],
-    properties: {
-      target: { type: 'string', enum: ['chat', 'jobs', 'job', 'memory'] },
-      jobId: { type: 'string' },
-      conversationJid: {
-        type: 'string',
-        description:
-          'Optional chat preview scope for session /model overrides.',
-      },
-      workspaceKey: {
-        type: 'string',
-        description:
-          'Optional workspace key preview scope for session /model overrides.',
-      },
-      kind: { type: 'string', enum: ['one-time', 'recurring'] },
-      task: {
-        type: 'string',
-        enum: ['extractor', 'dreaming', 'consolidation'],
-      },
-    },
-  },
-  ModelPreviewResponse: {
-    type: 'object',
-    required: ['target', 'selection', 'why'],
-    properties: {
-      target: { type: 'string', enum: ['chat', 'jobs', 'job', 'memory'] },
-      jobId: { type: 'string' },
-      scope: { type: 'string' },
-      kind: { type: 'string', enum: ['one-time', 'recurring'] },
-      task: {
-        type: 'string',
-        enum: ['extractor', 'dreaming', 'consolidation'],
-      },
-      selection: { $ref: '#/components/schemas/ModelDefaultSlot' },
-      why: stringArray,
-    },
-  },
+  ...modelPreviewSchemas,
   SettingsResponse: envelope('settings', metadata),
   ReadOnlySettingsPatchRequest: metadata,
   SessionEnsureRequest: {

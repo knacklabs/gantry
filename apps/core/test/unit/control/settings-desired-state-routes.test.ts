@@ -343,5 +343,6 @@ function mockContext(
     countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
+    getSelectedAgentHarness: () => 'auto',
   };
 }

@@ -98,6 +98,19 @@ describe('extractSessionCommand', () => {
     });
   });
 
+  it('detects /model why <alias|family>', () => {
+    expect(extractSessionCommand('/model why gpt-oss', trigger)).toEqual({
+      kind: 'model_why',
+      raw: '/model why gpt-oss',
+      value: 'gpt-oss',
+    });
+    expect(extractSessionCommand('/model why opus', trigger)).toEqual({
+      kind: 'model_why',
+      raw: '/model why opus',
+      value: 'opus',
+    });
+  });
+
   it('detects bare /thinking', () => {
     expect(extractSessionCommand('/thinking', trigger)).toEqual({
       kind: 'thinking_show',
@@ -181,6 +194,28 @@ describe('extractSessionCommand', () => {
     });
   });
 
+  it('detects explicit mention-friendly !new alias for Slack', () => {
+    expect(extractSessionCommand('@Andy !new', trigger)).toEqual({
+      kind: 'new',
+      raw: '/new',
+    });
+    const slackTrigger = /(?:^|\s)<@U123BOT>?(?=\s|$|[,.!?;:])/i;
+    expect(extractSessionCommand('<@U123BOT> !new', slackTrigger)).toEqual({
+      kind: 'new',
+      raw: '/new',
+    });
+    expect(extractSessionCommand('<@UOTHER> !new', slackTrigger)).toBeNull();
+  });
+
+  it('does not treat natural new-session text as commands', () => {
+    expect(extractSessionCommand('@Andy new', trigger)).toBeNull();
+    expect(extractSessionCommand('@Andy new chat', trigger)).toBeNull();
+    expect(extractSessionCommand('@Andy reset chat', trigger)).toBeNull();
+    expect(extractSessionCommand('@Andy start fresh', trigger)).toBeNull();
+    expect(extractSessionCommand('new', trigger)).toBeNull();
+    expect(extractSessionCommand('!new', trigger)).toBeNull();
+  });
+
   it('rejects /new with extra text', () => {
     expect(extractSessionCommand('/new later', trigger)).toBeNull();
   });
@@ -200,6 +235,58 @@ describe('extractSessionCommand', () => {
     expect(extractSessionCommand('/memory-status', trigger)).toEqual({
       kind: 'memory_status',
       raw: '/memory-status',
+    });
+  });
+
+  it('detects mention-friendly utility aliases for Slack', () => {
+    expect(extractSessionCommand('@Andy !commands', trigger)).toEqual({
+      kind: 'commands',
+      raw: '/commands',
+    });
+    expect(extractSessionCommand('@Andy !help', trigger)).toEqual({
+      kind: 'commands',
+      raw: '/commands',
+    });
+    expect(extractSessionCommand('@Andy !status', trigger)).toEqual({
+      kind: 'status',
+      raw: '/status',
+    });
+    expect(extractSessionCommand('@Andy !memory-status', trigger)).toEqual({
+      kind: 'memory_status',
+      raw: '/memory-status',
+    });
+    expect(extractSessionCommand('@Andy !compact', trigger)).toEqual({
+      kind: 'compact',
+      raw: '/compact',
+    });
+    expect(extractSessionCommand('@Andy !stop', trigger)).toEqual({
+      kind: 'stop',
+      raw: '/stop',
+    });
+  });
+
+  it('detects mention-friendly model and thinking aliases for Slack', () => {
+    expect(extractSessionCommand('@Andy !models', trigger)).toEqual({
+      kind: 'models_list',
+      raw: '/models',
+    });
+    expect(extractSessionCommand('@Andy !model', trigger)).toEqual({
+      kind: 'model_show',
+      raw: '/model',
+    });
+    expect(extractSessionCommand('@Andy !model haiku', trigger)).toEqual({
+      kind: 'model_set',
+      raw: '/model haiku',
+      value: 'haiku',
+    });
+    expect(extractSessionCommand('@Andy !model default', trigger)).toEqual({
+      kind: 'model_default',
+      raw: '/model default',
+    });
+    expect(extractSessionCommand('@Andy !thinking high', trigger)).toEqual({
+      kind: 'thinking_set',
+      raw: '/thinking high',
+      value: { mode: 'adaptive', effort: 'high' },
     });
   });
 
@@ -312,7 +399,9 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('/commands - List available chat commands.'),
+      expect.stringContaining(
+        '/commands or !commands - List available chat commands.',
+      ),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('/model <alias>'),
@@ -966,6 +1055,28 @@ describe('handleSessionCommand', () => {
     );
   });
 
+  it('accepts a model family alias and stores the family alias verbatim', async () => {
+    const deps = makeDeps({ updateModelStatusSelection: vi.fn() });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/model gpt-oss')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    // The family alias is stored verbatim; the concrete provider is picked at
+    // spawn from the configured credential.
+    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('gpt-oss');
+    expect(deps.updateModelStatusSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ modelAlias: 'gpt-oss' }),
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Using GPT-OSS 120B (provider auto-selected by configured key) for this session.',
+    );
+  });
+
   it('fails /model when override persistence rejects', async () => {
     const deps = makeDeps({
       setGroupModelOverride: vi
@@ -1461,6 +1572,88 @@ describe('handleSessionCommand', () => {
     expect(sentMsg).toContain('chat default');
     expect(sentMsg).toContain('one-time default');
     expect(sentMsg).toContain('recurring default');
+    expect(sentMsg).toContain(
+      'Model families (provider auto-selected by configured key)',
+    );
+    expect(sentMsg).toContain('gpt-oss | GPT-OSS 120B | groq-oss > cerebras');
+  });
+
+  it('badges /models with the configured-provider set', async () => {
+    const deps = makeDeps({
+      getDefaultModel: vi.fn().mockReturnValue('opus'),
+      getConfiguredModelProviders: vi
+        .fn()
+        .mockResolvedValue(new Set(['cerebras'])),
+    });
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/models')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    expect(sentMsg).toContain('Availability');
+    expect(sentMsg).toContain('available via Cerebras');
+    expect(sentMsg).toContain('needs Anthropic key');
+  });
+
+  it('degrades /models to no badges when the configured set read throws', async () => {
+    const deps = makeDeps({
+      getDefaultModel: vi.fn().mockReturnValue('opus'),
+      getConfiguredModelProviders: vi
+        .fn()
+        .mockRejectedValue(new Error('db down')),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/models')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    expect(sentMsg).not.toContain('Availability');
+  });
+
+  it('answers /model why <family> with the resolved provider and reason', async () => {
+    const deps = makeDeps({
+      getConfiguredModelProviders: vi
+        .fn()
+        .mockResolvedValue(new Set(['cerebras'])),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/model why gpt-oss')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    expect(sentMsg).toContain('Why model family gpt-oss');
+    expect(sentMsg).toContain('gpt-oss → cerebras via Cerebras');
+  });
+
+  it('answers /model why <alias> with the configured/needs-key line', async () => {
+    const deps = makeDeps({
+      getConfiguredModelProviders: vi.fn().mockResolvedValue(new Set()),
+    });
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/model why opus')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    expect(sentMsg).toContain('Why model opus');
+    expect(sentMsg).toContain('needs Anthropic key');
   });
 
   it('shows /status with model and cache token accounting', async () => {

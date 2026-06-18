@@ -47,7 +47,7 @@ export interface CreateLoggerOptions {
 }
 
 const DEFAULT_REDACT_KEY_PATTERN =
-  /(token|secret|password|credential|api[_-]?key|authorization|auth|^(?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$)/i;
+  /(token|secret|password|credential|api[_-]?key|access[_-]?key|private[_-]?key|serviceAccountJson|authorization|auth|^(?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$)/i;
 const PROVIDER_SESSION_FIELD_NAMES =
   'sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id';
 const PROVIDER_SESSION_TEXT_PATTERNS: RegExp[] = [
@@ -68,11 +68,33 @@ const PROVIDER_SESSION_TEXT_PATTERNS: RegExp[] = [
     'gi',
   ),
 ];
+const CREDENTIAL_TEXT_FIELD_NAMES =
+  'accessKeyId|secretAccessKey|sessionToken|serviceAccountJson|private_key|privateKey';
+const CREDENTIAL_TEXT_PATTERNS: RegExp[] = [
+  new RegExp(`\\b(serviceAccountJson\\s*[:=]\\s*)(\\{[^\\r\\n]*\\})()`, 'gi'),
+  new RegExp(
+    `(["'](?:${CREDENTIAL_TEXT_FIELD_NAMES})["']\\s*:\\s*")([^"\\r\\n]*)(")`,
+    'gi',
+  ),
+  new RegExp(
+    `(["'](?:${CREDENTIAL_TEXT_FIELD_NAMES})["']\\s*:\\s*')([^'\\r\\n]*)(')`,
+    'gi',
+  ),
+  new RegExp(
+    `\\b((?:${CREDENTIAL_TEXT_FIELD_NAMES})\\s*[:=]\\s*)((?:"[^"\\r\\n]*"|'[^'\\r\\n]*'|[^\\s,}\\]]+))()`,
+    'gi',
+  ),
+];
 const SECRET_VALUE_PATTERNS: RegExp[] = [
   /\bclaude-session-[A-Za-z0-9._:-]+\b/g,
   /\bprovider-session:[A-Za-z0-9._:-]+\b/g,
+  /\bgtw_[A-Za-z0-9._-]+\b/g,
+  /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
   /\bsk-ant-[A-Za-z0-9._-]+\b/g,
   /\bsk-[A-Za-z0-9]{20,}\b/g,
+  /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/gi,
+  /"private_key"\s*:\s*"[^"]*"/gi,
+  /\bserviceAccountJson\s*=\s*\{[^\r\n]*\}/g,
   /\bxox[baprs]-[A-Za-z0-9-]+\b/g,
   /\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g,
   /\b(postgres(?:ql)?:\/\/)([^/\s:@]+):([^/\s@]+)@/gi,
@@ -122,6 +144,11 @@ function redactValue(value: unknown, depth: number): unknown {
 export function redactString(value: string): string {
   let out = value;
   for (const pattern of PROVIDER_SESSION_TEXT_PATTERNS) {
+    out = out.replace(pattern, (_match, prefix, _secret, suffix = '') => {
+      return `${prefix}[REDACTED]${suffix}`;
+    });
+  }
+  for (const pattern of CREDENTIAL_TEXT_PATTERNS) {
     out = out.replace(pattern, (_match, prefix, _secret, suffix = '') => {
       return `${prefix}[REDACTED]${suffix}`;
     });

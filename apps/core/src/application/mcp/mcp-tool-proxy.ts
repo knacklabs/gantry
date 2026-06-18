@@ -11,7 +11,7 @@ import type {
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import {
-  isIpAddress,
+  isLoopbackAddress,
   type HostnameLookup,
 } from '../../domain/network/public-address-policy.js';
 import { evaluateEgressDenylist } from '../../shared/egress-policy.js';
@@ -246,12 +246,16 @@ export class McpToolProxy {
   ): Promise<Transport> {
     const config = capability.config;
     if (config.type === 'http' || config.type === 'sse') {
-      await assertRemoteMcpDestinationPublic(
-        { transport: config.type, url: config.url, headers: config.headers },
-        this.options.lookupHostname,
-        { cache: this.options.dnsValidationCache },
-      );
+      if (!isLocalLoopbackHttpMcpUrl(new URL(config.url))) {
+        await assertRemoteMcpDestinationPublic(
+          { transport: config.type, url: config.url, headers: config.headers },
+          this.options.lookupHostname,
+          { cache: this.options.dnsValidationCache },
+        );
+      }
+      const allowLoopbackHttp = isLocalLoopbackHttpMcpUrl(new URL(config.url));
       const fetch = createGuardedMcpFetch({
+        allowLoopbackHttp,
         lookupHostname: this.options.lookupHostname,
         dnsValidationCache: this.options.dnsValidationCache,
       });
@@ -370,6 +374,10 @@ function defaultPortForProtocol(protocol: string): string {
   return protocol === 'http:' ? '80' : '443';
 }
 
+function isLocalLoopbackHttpMcpUrl(url: URL): boolean {
+  return url.protocol === 'http:' && isLoopbackAddress(url.hostname);
+}
+
 function mcpClientCacheKey(capability: MaterializedMcpCapability): string {
   return `${capability.name}:${JSON.stringify(capability.config)}`;
 }
@@ -396,12 +404,27 @@ async function closeCachedClient(
 }
 
 export function createGuardedMcpFetch(input: {
+  allowLoopbackHttp?: boolean;
   lookupHostname?: HostnameLookup;
   dnsValidationCache?: RemoteMcpDnsValidationCache;
 }): typeof fetch {
+  const remoteFetch = createDnsPinnedMcpFetch({
+    lookupHostname: input.lookupHostname,
+  });
   // Remote MCP transports use a DNS-pinned fetch: the hostname is resolved once,
   // validated public, and the connection is pinned to that address with TLS SNI
   // bound to the hostname. This replaces the earlier IP-literal-only fail-closed
   // path so hostname-based remote MCP servers work without a rebinding window.
-  return createDnsPinnedMcpFetch({ lookupHostname: input.lookupHostname });
+  return ((
+    url: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
+    const target = new URL(
+      typeof url === 'string' || url instanceof URL ? url : url.url,
+    );
+    if (input.allowLoopbackHttp && isLocalLoopbackHttpMcpUrl(target)) {
+      return fetch(url, init);
+    }
+    return remoteFetch(url, init);
+  }) as typeof fetch;
 }

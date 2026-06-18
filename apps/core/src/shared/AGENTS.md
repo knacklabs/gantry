@@ -29,9 +29,30 @@
 - Catalog response families are simple API-shape labels, currently `anthropic`
   and schema-only `openai`. OpenRouter belongs in `modelRoute` metadata and
   preset UX, not in `responseFamily` or raw user-facing model selectors.
+- `model-families.ts` is a SEPARATE selector namespace, not part of the catalog
+  `ALIAS_INDEX`. A family alias (e.g. `gpt-oss`, `llama-70b`) maps to ordered
+  EXISTING concrete catalog member aliases; the load-time guard throws if a
+  family alias collides with a catalog alias or a member is unknown. The pure
+  resolver (`resolveModelFamilyAlias`) takes an injected `isProviderConfigured`
+  predicate and never touches the repo/IO; it returns the first member whose
+  provider is configured, falling back to the first member (loud-failure path)
+  when none are. Credential-driven provider pick happens at the runtime spawn/job
+  seams via `rewriteModelFamilyAliasForApp`, sourced from the model credential
+  repo — do not push that lookup into the pure resolver.
 - Provider-side cache support belongs in provider registry metadata and
   route-aware model helpers. Do not add local semantic response caches,
   decrypted credential caches, or response-family-derived cache assumptions.
+- Curated context windows: deepagents-lane ids that LangChain has no built-in
+  profile for declare an OPTIONAL `contextWindowTokens` in `model-catalog.ts` /
+  `model-catalog-openai-compatible.ts` — the catalog is the source of truth for
+  window-aware compaction + context-usage reporting on those models (host
+  projects it to the runner profile's `maxInputTokens`). The library profile is
+  preferred when present (gpt-5.5/gpt-5.4 OMIT the field). Pricing stays omitted
+  (no cost data in model profiles). `formatContextWindow` (`model-catalog-format.ts`)
+  renders the `/models` + `gantry model list` Context column ("1.0M"/"131K"/"—").
+  Keep provider PROPER NOUNS (Gemini/Llama/OpenAI/Anthropic) OUT of comments in
+  these two catalog files: the provider-specific-path checker counts those bare
+  words and both files sit at their exact `maxViolations` cap.
 - Shared parsers used by both config and adapters belong in `shared/`, with
   config modules re-exporting them when needed. Adapters must not import from
   `config/` just to reuse parsing behavior.

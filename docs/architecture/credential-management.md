@@ -126,15 +126,67 @@ subagents, jobs, and memory workers select catalog model aliases only.
 Anthropic, OpenRouter, and OpenAI embedding credentials are configured once
 with `gantry credentials model set anthropic`,
 `gantry credentials model set openrouter`, or
-`gantry credentials model set openai` and then projected through the Gantry
+`gantry credentials model set openai`,
+`gantry credentials model set bedrock`, or
+`gantry credentials model set vertex` and then projected through the Gantry
 Model Gateway according to the selected model provider or embedding provider.
 Each provider exposes explicit credential modes through the control API as
 `credentialModes`; Anthropic supports `api_key` and `claude_code_oauth`, while
-OpenRouter and OpenAI currently use `api_key`. `PUT
+OpenRouter and OpenAI use `api_key`, Amazon Bedrock uses `bedrock_api_key`, and
+Google Vertex AI uses `service_account`. `PUT
 /v1/credentials/models/:providerId` replaces a credential and selects the auth
 mode, `PATCH` rotates fields for the existing auth mode, and all read/mutation
 responses return only redacted status, fingerprints, configured field names,
 and mode metadata.
+
+The active credential modes follow from the model's provider and selected
+agent harness. The agent harness contract is recorded in
+`docs/decisions/2026-06-14-agent-harness-selection.md`. `agentHarness` is
+durable user/admin intent with values `auto`, `anthropic_sdk`, and
+`deepagents`; in `settings.yaml`, the key is `agent_harness`. `auto` derives the
+internal execution lane from the model provider, while explicit
+`anthropic_sdk` or `deepagents` is honored only when the selected model is
+compatible and otherwise fails before runner spawn:
+
+| provider             | `auto` harness lane | compatible explicit `agentHarness` | credential modes                |
+| -------------------- | ------------------- | ---------------------------------- | ------------------------------- |
+| `anthropic` (Claude) | `anthropic_sdk`     | `anthropic_sdk`                    | `api_key` + `claude_code_oauth` |
+| `openai`             | `deepagents`        | `deepagents`                       | `api_key`                       |
+| `openrouter`         | `deepagents`        | `deepagents`                       | `api_key`                       |
+| `bedrock`            | `deepagents`        | `deepagents`                       | `bedrock_api_key`               |
+| `vertex`             | `deepagents`        | `deepagents`                       | `service_account`               |
+
+Anthropic SDK is the only Claude OAuth/subscription lane and also runs Anthropic
+API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI,
+OpenRouter, Bedrock, and Vertex routes through the Gantry Model Gateway and
+cannot use Claude OAuth/subscription credentials. Bedrock API-key mode forwards
+to the regional `bedrock-runtime.<region>.amazonaws.com/openai/v1` endpoint;
+AWS credentials, SigV4, and default-chain identity are deferred for a separate
+non-OpenAI Bedrock API-family lane. Vertex `service_account` mode mints a
+host-side OAuth token for the global Vertex OpenAI-compatible endpoint.
+Bedrock API keys, service-account JSON, and minted OAuth tokens are never
+projected to the runner.
+`agentHarness: auto` derives from the provider and explicit harness choices are validated before
+runner spawn so incompatible model/harness pairings fail before any model SDK
+process starts. A defensive backstop at the credential boundary still
+guarantees a Claude OAuth/subscription credential can only ever project to the
+Anthropic SDK lane; the DeepAgents lane fails closed if it ever resolves one
+(`DeepAgents cannot use Claude OAuth/subscription credentials. Choose Anthropic SDK or configure Claude API-key Model Access.`).
+DeepAgents runner authority remains Gantry-owned and wrapped: raw `execute`, raw
+local filesystem access, raw `.mcp.json`, and raw provider credentials are not
+projected to the runner.
+
+Host-side memory (extraction, dreaming, consolidation) has no engine selector
+either (the retired `memory.engine` key is rejected at settings validation). The
+memory transport lane is derived at query dispatch
+(`route-aware-memory-llm-client.ts`): an Anthropic-family memory model uses the
+Claude Agent SDK memory client; an OpenAI-family memory model uses the
+OpenAI-compatible direct chat-completions client. Provider takes precedence over
+the nominal family — OpenRouter's nominal response family is `anthropic`, but
+because it runs on the DeepAgents/OpenAI-compatible engine it dispatches to the
+OpenAI-compatible client (over the brokered OpenRouter gateway projection). A
+deployment that selects OpenAI/OpenRouter memory model aliases runs memory with no
+Anthropic models at all.
 
 Agents do not receive every raw secret value from Gantry. Runtime code projects
 only the selected capability's declared credential names. Attached skills do
@@ -165,29 +217,35 @@ Bash invocation, that command matches the reviewed local CLI command template,
 and the requested host matches the capability's declared host list.
 
 Raw provider credentials such as `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
-`OPENAI_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` must be configured through
-Gantry model credentials, never in Gantry `.env` or process env.
+`OPENAI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, Bedrock API keys, AWS access keys,
+and Vertex service-account JSON must be configured through Gantry model
+credentials, never in Gantry `.env` or process env.
 
 ## Common Key Placement
 
-| Value                                                         | Source                                                   |
-| ------------------------------------------------------------- | -------------------------------------------------------- |
-| `model_access.enabled`                                        | `settings.yaml` advanced override                        |
-| `model_access.gateway.bind_host`                              | `settings.yaml` advanced override                        |
-| `agent.name`                                                  | `settings.yaml`                                          |
-| `agent.default_model`                                         | `settings.yaml`                                          |
-| `agent.one_time_job_default_model`                            | `settings.yaml`                                          |
-| `agent.recurring_job_default_model`                           | `settings.yaml`                                          |
-| `memory.llm.models.*`                                         | `settings.yaml`                                          |
-| Conversation approvers                                        | `settings.yaml` and Postgres conversation approver rows  |
-| `storage.postgres.url_env`                                    | `settings.yaml` advanced override                        |
-| `GANTRY_DATABASE_URL`                                         | `RuntimeSecretProvider` / local `.env`                   |
-| `TELEGRAM_BOT_TOKEN`                                          | `RuntimeSecretProvider` / local `.env`                   |
-| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`                          | `RuntimeSecretProvider` / local `.env`                   |
-| `SECRET_ENCRYPTION_KEY`                                       | `RuntimeSecretProvider` / local `.env`                   |
-| Skill, MCP, and reviewed tool env vars                        | Gantry Credentials (`gantry credentials access ...`) |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | Gantry model credentials                                 |
-| `CLAUDE_CODE_OAUTH_TOKEN`                                     | Gantry model credentials                                 |
+| Value                                                         | Source                                                  |
+| ------------------------------------------------------------- | ------------------------------------------------------- |
+| `model_access.enabled`                                        | `settings.yaml` advanced override                       |
+| `model_access.gateway.bind_host`                              | `settings.yaml` advanced override                       |
+| `agent.name`                                                  | `settings.yaml`                                         |
+| `agent.default_model`                                         | `settings.yaml`                                         |
+| `agent.one_time_job_default_model`                            | `settings.yaml`                                         |
+| `agent.recurring_job_default_model`                           | `settings.yaml`                                         |
+| `memory.llm.models.*`                                         | `settings.yaml`                                         |
+| Conversation approvers                                        | `settings.yaml` and Postgres conversation approver rows |
+| `storage.postgres.url_env`                                    | `settings.yaml` advanced override                       |
+| `GANTRY_DATABASE_URL`                                         | `RuntimeSecretProvider` / local `.env`                  |
+| `TELEGRAM_BOT_TOKEN`                                          | `RuntimeSecretProvider` / local `.env`                  |
+| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`                          | `RuntimeSecretProvider` / local `.env`                  |
+| `SECRET_ENCRYPTION_KEY`                                       | `RuntimeSecretProvider` / local `.env`                  |
+| Skill, MCP, and reviewed tool env vars                        | Gantry Credentials (`gantry credentials access ...`)    |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | Gantry model credentials                                |
+| `CLAUDE_CODE_OAUTH_TOKEN`                                     | Gantry model credentials                                |
+
+Planned key placement after parser/API/CLI support lands:
+`defaults.agent_harness` and `agents.<id>.agent_harness` will live in
+`settings.yaml` as non-secret user/admin intent. They are not accepted by the
+current parser.
 
 Model env keys such as `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL`, and
 `ANTHROPIC_DEFAULT_*_MODEL` are child-process adapter projections. Gantry
@@ -221,7 +279,7 @@ the same `gcred:v2` metadata-bound envelope, stores the selected provider
 `authMode` as non-secret metadata, exposes redacted status through the Control
 API and
 `gantry credentials model status`, and serves per-run loopback HTTP endpoints
-for Anthropic, OpenRouter, and OpenAI embedding traffic.
+for Anthropic, OpenRouter, OpenAI embedding, Bedrock, and Vertex traffic.
 
 Provider credential shape is owned by the model provider registry. Each
 provider declares one or more credential modes with:
@@ -234,9 +292,15 @@ provider declares one or more credential modes with:
 
 OpenRouter and OpenAI each expose one `api_key` mode, so setup stays direct.
 Anthropic exposes `api_key` for direct API keys and `claude_code_oauth` for
-Claude Code subscription OAuth tokens. Providers that need more than one path,
-such as Azure Foundry or AWS Bedrock, add additional modes in the registry
-instead of adding CLI, API, storage, or gateway branches.
+Claude Code subscription OAuth tokens. Bedrock exposes `bedrock_api_key`
+(`region` + secret key) for the OpenAI-compatible Chat Completions route.
+AWS credential, SigV4, and default-chain modes require a separate Bedrock API
+family route and are not advertised as active support here. Vertex exposes
+`service_account` (`region`, `projectId`, and service-account JSON). The
+service account's owner `project_id` may differ from the target `projectId`
+when IAM allows that identity to call Vertex in the target project. Providers
+that need more than one path, such as Azure Foundry, add additional modes in
+the registry instead of adding CLI, API, storage, or gateway branches.
 
 All user-entered credential and provider configuration values stay in the
 encrypted structured payload. Read surfaces return only provider label, role,
@@ -262,23 +326,113 @@ Control API semantics:
 - `DELETE /v1/credentials/models/:providerId` disables active use without
   deleting the encrypted payload or metadata.
 
-Gateway auth strategies are fail-closed. Current `header`, `bearer`, and
-`claude_code_oauth` strategies inject Anthropic API-key, OpenRouter, OpenAI, and
-Claude Code OAuth credentials at the outbound provider boundary. Future
-strategies such as `aws_bedrock_api_key`, `aws_sigv4`,
+Gateway auth strategies are fail-closed. Current `header`, `bearer`,
+`claude_code_oauth`, `aws_bedrock_api_key`, `aws_sigv4`, and
+`vertex_service_account` strategies inject or mint credentials at the outbound
+provider boundary. `aws_sigv4` remains a host gateway strategy for future
+non-OpenAI Bedrock API-family work, but the active OpenAI-compatible Bedrock
+provider does not expose an `access_key` mode. Future strategies such as
 `aws_sdk_default_chain`, `azure_api_key`, and `azure_entra_default_credential`
 are distinct strategy slots; they must not fall through to generic header
-injection.
+injection. Runner-supplied provider auth headers are stripped before the
+gateway adds Bedrock or Vertex headers.
 
-AWS Bedrock API keys are bearer-token style Bedrock credentials. AWS
-IAM/SigV4/default-chain modes are request-signing or SDK-identity flows, not
-stored raw token fields. Azure OpenAI/Foundry API-key mode needs endpoint,
-deployment, and key fields; Azure Entra mode uses bearer tokens produced from
-local or hosted identity, so onboarding explains the required identity and runs
-readiness checks instead of asking for a token.
+AWS Bedrock API keys are bearer-token style Bedrock credentials. Static
+IAM/SigV4 mode for Bedrock's non-OpenAI APIs is deferred; it must not be
+treated as compatible with the OpenAI SDK Chat Completions route. Ambient AWS
+default-chain identity is also deferred. Azure OpenAI/Foundry API-key mode
+needs endpoint, deployment, and key fields; Azure Entra mode uses bearer tokens
+produced from local or hosted identity, so onboarding explains the required
+identity and runs readiness checks instead of asking for a token.
 
-For every model auth mode, the Claude SDK process receives `ANTHROPIC_BASE_URL`
-pointed at the loopback gateway and a short-lived `gtw_*` token. The gateway
+### Bedrock and Vertex first cut
+
+The current Bedrock and Vertex strategy is intentionally narrow:
+
+- Bedrock ships only the OpenAI-compatible `bedrock-oss` catalog alias, routed
+  to `openai.gpt-oss-120b-1:0` through Amazon Bedrock OpenAI Chat
+  Completions. That OpenAI-compatible route authenticates only with an Amazon
+  Bedrock API key and uses the regional
+  `bedrock-runtime.<region>.amazonaws.com/openai/v1` base URL. Claude on
+  Bedrock and AWS credentials/SigV4/default-chain authentication are deferred to
+  a separate non-OpenAI Bedrock API-family lane.
+- Vertex ships the `vertex` and `vertex-flash-3.5` aliases, routed to
+  `google/gemini-3.5-flash` through the Vertex OpenAI-compatible endpoint.
+  The current route accepts only `global`. Gantry's gateway uses the
+  documented OpenAI-library
+  `https://aiplatform.googleapis.com/v1`
+  `/projects/{project}/locations/{location}/endpoints/openapi/chat/completions`
+  path. Credentialed live smoke testing remains required before treating the
+  external endpoint choice as fully proven. Regional and multi-region Vertex
+  routing is deferred until explicitly implemented and verified; do not claim
+  `us` or `eu` support in the current OpenAI-compatible lane.
+  Older Vertex Flash 2.0 aliases are not valid because that model is
+  discontinued.
+- Vertex service-account JSON must have the expected service-account shape,
+  but the service-account owner `project_id` is not required to equal the
+  target Vertex `projectId`. If the uploaded JSON omits `token_uri`, Gantry
+  pins token exchange to `https://oauth2.googleapis.com/token`; if `token_uri`
+  is present with any other value, the gateway rejects the credential before
+  token minting.
+- The DeepAgents runner still receives only the loopback provider base URL and
+  a run-scoped `gtw_` token. Bedrock API keys, Vertex service-account JSON, and
+  minted OAuth tokens stay inside the host gateway.
+
+Example Control API payloads:
+
+```json
+{
+  "authMode": "bedrock_api_key",
+  "payload": {
+    "region": "us-east-1",
+    "apiKey": "bedrock-key"
+  }
+}
+```
+
+```json
+{
+  "authMode": "service_account",
+  "payload": {
+    "region": "global",
+    "projectId": "gantry-project",
+    "serviceAccountJson": "{\"type\":\"service_account\",\"project_id\":\"gantry-project\",\"client_email\":\"...\",\"private_key\":\"...\"}"
+  }
+}
+```
+
+Surface Impact Matrix:
+
+| surface                      | classification       | reason                                                                                                                                                 |
+| ---------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| runtime behavior             | Changed              | The model gateway resolves Bedrock/Vertex upstream origins dynamically from stored credential payloads and injects provider-specific auth host-side.   |
+| `settings.yaml`              | Unchanged by design  | Provider credentials, region, and project stay out of settings; users select existing catalog aliases through the existing model fields.               |
+| Postgres/runtime projection  | Changed              | Existing `model_credentials` rows now store Bedrock/Vertex auth mode plus encrypted structured payload fields.                                         |
+| control API                  | Changed              | Existing credential routes expose Bedrock/Vertex provider metadata, accepted auth modes, validation, and redacted status without a route-shape change. |
+| SDK/contracts                | Unchanged by design  | The runner contract remains provider id + provider model id + loopback gateway URL + `gtw_` token; raw provider secrets are not projected.             |
+| CLI                          | Changed              | Existing `gantry credentials model set/status` surfaces now display Bedrock/Vertex provider modes and field prompts from the registry.                 |
+| Gantry MCP tools/admin skill | Unchanged by design  | No new admin tool is introduced; existing approved settings/credential surfaces apply.                                                                 |
+| channel/provider adapters    | Read-only/observable | Channels render the same approvals/receipts and gain no channel-specific authority; model provider gateway behavior is covered under runtime behavior. |
+| docs/prompts                 | Changed              | README, credential architecture, and DeepAgents adapter instructions describe the bounded provider contract and deferred Claude-on-Bedrock path.       |
+| audit/events                 | Read-only/observable | Existing credential and gateway events carry the new provider ids and auth modes; no new event type is required.                                       |
+| tests/verification           | Changed              | Catalog, credential validation, gateway routing/auth, registry validation, and log-redaction tests cover the new provider paths and negative cases.    |
+
+Deferred decisions:
+
+- Bedrock Claude support requires official and live proof that the target model
+  supports Bedrock Chat Completions on the intended endpoint, or a separate
+  Bedrock Anthropic Messages/Converse runtime lane. It must not be represented
+  as OpenAI compatible without that proof.
+- Ambient AWS default-chain identity, Vertex ADC/workload identity, runtime
+  provider model discovery, regional model availability checks, and credentialed
+  Bedrock/Vertex live smoke automation are separate changes with their own
+  docs/tests.
+- Provider live smoke tests require real Bedrock and Vertex credentials. Local
+  verification can prove Gantry routing, credential containment, request
+  signing, and token minting behavior, but not external account entitlement.
+
+For every model auth mode, the selected model runner receives only its
+adapter-owned loopback gateway env and a short-lived `gtw_*` token. The gateway
 swaps that token for the stored provider credential only at the outbound
 provider boundary. Bash tools, MCP stdio subprocesses, browser tools, and skills
 do not receive model provider keys or provider OAuth tokens.

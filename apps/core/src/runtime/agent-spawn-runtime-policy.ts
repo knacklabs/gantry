@@ -9,6 +9,7 @@ import {
   reviewedExternalMcpToolNamesFromRuntimeAccess,
   type CapabilityRuntimeAccess,
 } from '../shared/capability-runtime-access.js';
+import { DEEPAGENTS_ENGINE, type AgentEngine } from '../shared/agent-engine.js';
 import { listExecutableModelProviders } from '../shared/model-provider-registry.js';
 import {
   filterMcpToolNamesBySourceScopes,
@@ -72,11 +73,26 @@ export interface ResolvedRunnerMcpProjection {
 
 export function validateRunnerAllowedTools(
   rules: readonly string[],
+  runtimeAccess: AgentInput['runtimeAccess'] = [],
 ): string | null {
   try {
+    const reviewedExternalMcpTools = new Set(
+      reviewedExternalMcpToolNamesFromRuntimeAccess(runtimeAccess),
+    );
+    const unreviewedExternalMcpTool = rules.find((rule) => {
+      const trimmed = rule.trim();
+      return (
+        /^mcp__(?!gantry__)[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/.test(trimmed) &&
+        !reviewedExternalMcpTools.has(trimmed)
+      );
+    });
+    if (unreviewedExternalMcpTool) {
+      return `Configured agent tool ${unreviewedExternalMcpTool} is invalid. Third-party MCP tool names must be projected from a reviewed semantic capability.`;
+    }
     validateAgentToolRuntimeRules({
       rules,
       errorSubject: 'Configured agent tool',
+      allowProjectedThirdPartyMcpTools: true,
     });
     return null;
   } catch (err) {
@@ -198,10 +214,13 @@ export function attachMcpSourceNetworkHosts(
   });
 }
 
-export function resolveRunnerMcpProjection(input: {
-  runtimeAccess: readonly CapabilityRuntimeAccess[];
-  mcpSourceRecords: readonly MaterializedMcpServer[];
-}): ResolvedRunnerMcpProjection {
+export function resolveRunnerMcpProjection(
+  agentEngine: AgentEngine,
+  input: {
+    runtimeAccess: readonly CapabilityRuntimeAccess[];
+    mcpSourceRecords: readonly MaterializedMcpServer[];
+  },
+): ResolvedRunnerMcpProjection {
   const mcpSourceScopes = input.mcpSourceRecords.map(
     ({ definition, binding }) => ({
       name: definition.name,
@@ -225,8 +244,8 @@ export function resolveRunnerMcpProjection(input: {
   );
   const directMcpSourceRecords = input.mcpSourceRecords.filter(
     ({ definition }) =>
-      definition.config.transport === 'stdio_template' &&
-      reviewedMcpServerNames.has(definition.name),
+      reviewedMcpServerNames.has(definition.name) &&
+      canProjectThirdPartyMcpSourceToRunner(definition, agentEngine),
   );
   const directMcpServerNames = new Set(
     directMcpSourceRecords.map(({ definition }) => definition.name),
@@ -242,6 +261,14 @@ export function resolveRunnerMcpProjection(input: {
       ({ definition }) => definition.id,
     ),
   };
+}
+
+function canProjectThirdPartyMcpSourceToRunner(
+  definition: MaterializedMcpServer['definition'],
+  agentEngine: AgentEngine,
+): boolean {
+  if (agentEngine === DEEPAGENTS_ENGINE) return false;
+  return definition.transport === 'stdio_template';
 }
 
 export function sandboxAllowedNetworkHostsFromRuntimeAccess(

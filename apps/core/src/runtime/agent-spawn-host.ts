@@ -56,6 +56,7 @@ export async function getHostRuntimeCredentialEnv(
   proxy?: AgentCredentialInjection['proxy'];
   brokerApplied: boolean;
   brokerProfile: CredentialBrokerProfile;
+  brokerAuthMode?: string;
   revoke?: () => Promise<void>;
 }> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
@@ -95,6 +96,9 @@ export async function getHostRuntimeCredentialEnv(
     ...(injection.proxy ? { proxy: injection.proxy } : {}),
     brokerApplied: injection.applied,
     brokerProfile: injection.brokerProfile,
+    ...(injection.brokerAuthMode
+      ? { brokerAuthMode: injection.brokerAuthMode }
+      : {}),
     ...(brokerConfig.mode === 'gantry' && broker?.revokeInjection
       ? {
           revoke: () =>

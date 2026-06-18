@@ -8,6 +8,7 @@ import {
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
 import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
+import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,7 @@ vi.mock('@core/config/index.js', () => ({
     },
   }),
   getDefaultModelConfig: () => ({ model: undefined }),
+  getSelectedAgentHarness: () => 'auto',
   getTriggerPattern: (trigger?: string) =>
     trigger ? new RegExp(`^@${trigger}\\b`, 'i') : /^@Andy\b/i,
 }));
@@ -105,6 +107,7 @@ const { createGroupProcessor } =
   await import('@core/runtime/group-processing.js');
 const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
   await import('@core/runtime/session-resume-runtime.js');
+const EMPTY_ACCESS_FINGERPRINT = buildProviderSessionAccessFingerprint({});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1000,6 +1003,7 @@ describe('createGroupProcessor', () => {
           agentSessionId: 'agent-session:1',
           providerSessionId: 'provider-session:1',
           externalSessionId: 'claude-session-1',
+          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
           memoryContextBlock:
             '<gantry_memory_context>memory</gantry_memory_context>',
         });
@@ -1027,6 +1031,57 @@ describe('createGroupProcessor', () => {
       });
     });
 
+    it('expires provider session resume when runtime access projection changes', async () => {
+      const agentOutput: AgentOutput = {
+        status: 'success',
+        result: 'fresh reply',
+        newSessionId: 'claude-session-fresh',
+      };
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group, agentOutput });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:old',
+          externalSessionId: 'claude-session-old',
+          providerSessionAccessFingerprint: 'provider-session-access:v1:stale',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:message-1');
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:old',
+        agentSessionId: 'agent-session:1',
+        provider: 'anthropic:claude-agent-sdk',
+        externalSessionId: 'claude-session-old',
+      });
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+      expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
+        agentSessionId: 'agent-session:1',
+        executionProviderId: 'anthropic:claude-agent-sdk',
+        providerSessionId: undefined,
+        cause: 'message',
+      });
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+        group.folder,
+        'claude-session-fresh',
+        null,
+        expect.objectContaining({
+          expectedAgentSessionId: 'agent-session:1',
+          accessFingerprint: expect.stringMatching(
+            /^provider-session-access:v1:/,
+          ),
+        }),
+      );
+    });
+
     it('expires a missing provider session and retries the turn without resume', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
@@ -1038,6 +1093,7 @@ describe('createGroupProcessor', () => {
           agentSessionId: 'agent-session:1',
           providerSessionId: 'provider-session:1',
           externalSessionId: 'claude-session-stale',
+          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
         });
       (deps.opsRepository as any).createSessionAgentRun = vi
         .fn()
@@ -1182,14 +1238,14 @@ describe('createGroupProcessor', () => {
         group.folder,
         'new-sess-123',
         null,
-        {
+        expect.objectContaining({
           executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: null,
-        },
+        }),
       );
       expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:1',
@@ -1250,14 +1306,14 @@ describe('createGroupProcessor', () => {
         group.folder,
         'streamed-sess',
         null,
-        {
+        expect.objectContaining({
           executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: null,
-        },
+        }),
       );
       expect(
         deps.opsRepository.updateAgentRunProviderMetadata,
@@ -1312,14 +1368,14 @@ describe('createGroupProcessor', () => {
         group.folder,
         'dm-sess-123',
         null,
-        {
+        expect.objectContaining({
           executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'sl:D123',
           conversationKind: 'dm',
           memoryUserId: 'sl:U123',
           expectedAgentSessionId: 'agent-session:dm',
           expectedAgentSessionResetAt: null,
-        },
+        }),
       );
     });
 
@@ -1451,6 +1507,22 @@ describe('createGroupProcessor', () => {
       vi.useRealTimers();
     });
 
+    it('closes stdin after IDLE_TIMEOUT ms even before agent output arrives', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const { deps } = setupHappyPath({ group, messages });
+
+      mockSpawnAgent.mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(1_800_000);
+        return { status: 'success', result: null } as AgentOutput;
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
+    });
+
     it('closes stdin after IDLE_TIMEOUT ms when agent produces output', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
@@ -1564,6 +1636,46 @@ describe('createGroupProcessor', () => {
             call[2]?.done === true,
         ),
       ).toBe(true);
+    });
+
+    it('does not post elapsed progress after visible output is already shown', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath({ group, messages });
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({
+            status: 'success',
+            result: 'Here are the project names.',
+          });
+          (channel.sendProgressUpdate as ReturnType<typeof vi.fn>).mockClear();
+          await vi.advanceTimersByTimeAsync(125_000);
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(
+        (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.some(
+          (call) =>
+            typeof call[1] === 'string' &&
+            call[1].startsWith('Still working ('),
+        ),
+      ).toBe(false);
     });
 
     it('resets elapsed progress when a continuation message starts a new visible turn', async () => {
@@ -2430,6 +2542,127 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({ done: true, generation: afterGeneration }),
       ]);
       expect(deps.queue.notifyIdle).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not mark progress done when a successful turn is waiting for user input', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({
+            status: 'success',
+            result: 'Which project should this position use?',
+          });
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            interactionBoundary: 'user_interaction',
+          });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const progressTexts = (
+        streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.map((call) => call[1]);
+      expect(progressTexts).toContain('Waiting for your response (0s).');
+      expect(
+        progressTexts.some(
+          (text) => typeof text === 'string' && text.startsWith('Done in '),
+        ),
+      ).toBe(false);
+    });
+
+    it('marks progress done after a plain final question turn', async () => {
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({
+            status: 'success',
+            result: 'Which project should this position use?',
+          });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Which project should this position use?',
+      );
+      const progressTexts = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.map((call) => call[1]);
+      expect(
+        progressTexts.some(
+          (text) => typeof text === 'string' && text.startsWith('Done in '),
+        ),
+      ).toBe(true);
+      expect(progressTexts).not.toContain('Waiting for your response (0s).');
+    });
+
+    it('marks progress done when a final question has examples after the question mark', async () => {
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({
+            status: 'success',
+            result:
+              'To get started, I need the role title — what position are you opening? (e.g., Backend Engineer, Product Manager, Data Analyst, etc.)',
+          });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const progressTexts = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.map((call) => call[1]);
+      expect(
+        progressTexts.some(
+          (text) => typeof text === 'string' && text.startsWith('Done in '),
+        ),
+      ).toBe(true);
+      expect(progressTexts).not.toContain('Waiting for your response (0s).');
     });
 
     it('excludes permission wait time from final elapsed progress', async () => {
@@ -4141,14 +4374,14 @@ describe('createGroupProcessor', () => {
         group.folder,
         'session-42',
         null,
-        {
+        expect.objectContaining({
           executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: null,
-        },
+        }),
       );
     });
 
@@ -4203,15 +4436,179 @@ describe('createGroupProcessor', () => {
         group.folder,
         'session-42',
         null,
-        {
+        expect.objectContaining({
           executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: '2026-05-11T00:00:00.000Z',
+        }),
+      );
+    });
+  });
+
+  // =======================================================================
+  // Model-family runtime failover (Phase 3)
+  // =======================================================================
+
+  describe('model-family runtime failover', () => {
+    // gpt-oss family: members groq-oss (provider groq) and cerebras (provider
+    // cerebras). With both configured, candidates = [groq-oss, cerebras].
+    function setupFamilyGroup() {
+      const group = makeGroup({
+        requiresTrigger: false,
+        agentConfig: { name: 'Andy', model: 'gpt-oss' },
+      });
+      const { deps } = setupHappyPath({ group });
+      deps.executionAdapters = createAgentExecutionAdapterRegistry([
+        deps.executionAdapter!,
+        {
+          id: 'deepagents:langchain',
+          isMissingProviderSessionError: vi.fn(() => false),
+          prepare: vi.fn(),
+        },
+      ]);
+      deps.getConfiguredModelProviders = vi.fn(
+        async () => new Set(['groq', 'cerebras']),
+      );
+      deps.getModelFamilyOrder = vi.fn(() => undefined);
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:family-1');
+      return { deps, group };
+    }
+
+    it('fails over to the next configured provider on a 401 before any output streamed', async () => {
+      const { deps } = setupFamilyGroup();
+      // First candidate (groq-oss) returns a 401 frame with NO streamed output;
+      // the second candidate (cerebras) succeeds.
+      mockSpawnAgent.mockImplementationOnce(async () => ({
+        status: 'error',
+        result: null,
+        error: 'API Error: 401 authentication_error invalid api key',
+      }));
+      mockSpawnAgent.mockImplementationOnce(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          const output: AgentOutput = {
+            status: 'success',
+            result: 'second provider reply',
+          };
+          await onOutput?.(output);
+          return output;
         },
       );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+      // First attempt used the first candidate model (groq-oss).
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        model: 'groq-oss',
+      });
+      // Second attempt used the NEXT candidate model (cerebras) and NO resume id.
+      expect(mockSpawnAgent.mock.calls[1][1]).toMatchObject({
+        model: 'cerebras',
+      });
+      expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+    });
+
+    it('uses the first concrete family candidate provider for turn context and run creation', async () => {
+      const { deps, group } = setupFamilyGroup();
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentFolder: group.folder,
+          executionProviderId: 'deepagents:langchain',
+          conversationJid: 'group1@g.us',
+        }),
+      );
+      expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
+        agentSessionId: 'agent-session:1',
+        executionProviderId: 'deepagents:langchain',
+        providerSessionId: undefined,
+        cause: 'message',
+      });
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        model: 'groq-oss',
+      });
+    });
+
+    it('does NOT fail over once visible output has streamed (safety boundary)', async () => {
+      const { deps } = setupFamilyGroup();
+      // First candidate streams a delta, THEN errors with a 401: no failover.
+      mockSpawnAgent.mockImplementationOnce(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'partial reply' });
+          return {
+            status: 'error',
+            result: null,
+            error: 'API Error: 401 invalid api key',
+          } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      // Only ONE spawn: a provider failing mid-stream must not re-run.
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT fail over on a non-eligible error (stopped by request)', async () => {
+      const { deps } = setupFamilyGroup();
+      mockSpawnAgent.mockImplementationOnce(async () => ({
+        status: 'error',
+        result: null,
+        error: 'Agent runner stopped by request',
+      }));
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not fail over when no model override is set (single candidate)', async () => {
+      // No agentConfig.model -> resolveTurnFailoverCandidates returns [] -> the
+      // run keeps exact pre-failover behavior (one spawn, no model passed).
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      deps.getConfiguredModelProviders = vi.fn(
+        async () => new Set(['groq', 'cerebras']),
+      );
+      mockSpawnAgent.mockImplementationOnce(async () => ({
+        status: 'error',
+        result: null,
+        error: 'API Error: 503 service unavailable',
+      }));
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('model');
     });
   });
 });

@@ -203,7 +203,12 @@ export interface ModelRecord {
   aliases: string[];
   recommendedAlias: string;
   responseFamily: string;
-  executionProviderId: string;
+  // Read-only support matrix: the public harness that can run this model and
+  // its internal execution provider diagnostic.
+  executionRoutes: Array<{
+    harness: string;
+    executionProviderId: string;
+  }>;
   credentialProfileRef: string;
   modelRoute: {
     id: string;
@@ -225,8 +230,10 @@ export interface ModelRecord {
     structuredOutput: boolean;
   };
   supportedWorkloads: ModelWorkload[];
-  contextWindowTokens: number;
-  maxOutputTokens: number;
+  // Optional: deepagents-lane entries omit static limits; reported at runtime
+  // from the engine's model profile.
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   cacheMode: string;
   cacheTokenFields: string[];
   cacheSupport: {
@@ -258,8 +265,17 @@ export interface ModelRecord {
     };
     tokenFields: string[];
   };
-  supportsThinking: boolean;
-  supportsTools: boolean;
+  supportsThinking?: boolean;
+  supportsTools?: boolean;
+  /** Curated per-million-token pricing (USD); omitted when no curated price. */
+  inputUsdPerMillionTokens?: number;
+  outputUsdPerMillionTokens?: number;
+  /**
+   * Credential-aware availability for the requesting app: true when the model's
+   * provider has an active Model Access credential. Present only on the model
+   * list endpoint; omitted when a model is embedded in a default slot.
+   */
+  available?: boolean;
   source: {
     label: string;
     url: string;
@@ -321,11 +337,14 @@ export interface ModelDefaultsPatchRequest {
   memory?: 'reset' | 'preset-managed' | null;
 }
 
-export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'memory';
+export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'agent' | 'memory';
 
 export interface ModelPreviewRequest {
   target: ModelPreviewTarget;
   jobId?: string;
+  // For target 'agent': resolve a model alias against the agent's engine.
+  agentId?: string;
+  modelAlias?: string;
   conversationJid?: string;
   workspaceKey?: string;
   kind?: 'one-time' | 'recurring';
@@ -335,9 +354,18 @@ export interface ModelPreviewRequest {
 export interface ModelPreviewResponse {
   target: ModelPreviewTarget;
   jobId?: string;
+  agentId?: string;
   scope?: string;
   kind?: 'one-time' | 'recurring';
   task?: 'extractor' | 'dreaming' | 'consolidation';
+  // Resolved-route diagnostics for target 'agent'. `agentHarness` is the public
+  // selected harness; `executionProviderId` is the internal read-only
+  // diagnostic; `incompatible` carries the locked plan copy when the
+  // model/harness pairing is unsupported.
+  agentHarness?: string;
+  credentialProfile?: string;
+  executionProviderId?: string;
+  incompatible?: string;
   selection: ModelDefaultSlot;
   why: string[];
 }
@@ -430,8 +458,10 @@ export interface JobModelPreview {
     id: string;
     label: string;
   };
-  contextWindowTokens: number;
-  maxOutputTokens: number;
+  // Optional: DeepAgents job-eligible models omit static limits (matching
+  // ModelRecord), so JSON.stringify drops them from valid job preview responses.
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   cachePolicy: string;
 }
 

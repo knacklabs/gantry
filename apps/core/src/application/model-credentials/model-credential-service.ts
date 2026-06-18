@@ -220,6 +220,20 @@ export class ModelCredentialService {
     return credential;
   }
 
+  // Provider ids (route ids) that currently have an ACTIVE configured
+  // credential for this app. Used to drive credential-based model-family
+  // provider selection at the spawn/job seams; only active credentials count.
+  async getConfiguredModelProviders(input: {
+    appId: AppId;
+  }): Promise<Set<string>> {
+    const credentials = await this.credentials.listModelCredentials(input);
+    return new Set(
+      credentials
+        .filter((credential) => credential.status === 'active')
+        .map((credential) => credential.providerId),
+    );
+  }
+
   private async publishAudit(input: RuntimeEventPublishInput): Promise<void> {
     if (!this.audit) return;
     await this.audit(input);

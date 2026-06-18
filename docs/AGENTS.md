@@ -27,19 +27,35 @@
 - Continuity docs must preserve the clean-cut contract: unsupported old continuity rows fail closed and are not imported, backfilled, or repaired.
 - Memory tool docs must keep `memory_save` limited to canonical direct-save kinds (`preference`, `decision`, `fact`, `correction`, `constraint`) and state that common/global writes require approved admin or service authority.
 - SDK docs must describe `sessions.sendMessage` as durable acceptance into the runtime event stream. Do not imply `accepted` or `acceptedEventId` means synchronous model completion or provider/channel delivery success.
-- Model docs must use alias-first vocabulary: `modelAlias`, `responseFamily`
-  (`anthropic` or `openai`), diagnostic `modelRoute`, `executionProviderId`,
-  `credentialProfileRef`, and capabilities. OpenRouter is route metadata, not a
-  response family or top-level provider selector.
-- Job model docs must keep harness selection alias-resolved. `job.model`,
-  one-time job defaults, and recurring job defaults are approved aliases; the
-  catalog `executionProviderId` chooses DeepAgents or Anthropic SDK. Do not
-  document or add public `job.harness` or job-level `executionProviderId`
-  selectors.
+- Model docs must use alias-first vocabulary and the live public harness
+  selector: `modelAlias`, durable `agentHarness` (`auto`, `anthropic_sdk`, or
+  `deepagents`), `responseFamily` (`anthropic` or `openai`), diagnostic
+  `modelRoute`, read-only `executionProviderId`, `credentialProfileRef`, and
+  capabilities. `settings.yaml` uses `agent_harness`. `auto` preserves
+  provider-derived behavior (Claude ->
+  `anthropic_sdk`; OpenAI/OpenRouter/Bedrock/Vertex/future OpenAI-compatible
+  providers -> `deepagents`); explicit `anthropic_sdk` or `deepagents` records
+  user intent and must fail before runner spawn when the selected model is
+  incompatible. OpenRouter is its own provider on the DeepAgents/OpenAI-compatible
+  lane, not route metadata on an Anthropic alias.
+- Job model docs must keep harness selection agent-owned. `job.model`, one-time
+  job defaults, and recurring job defaults are approved aliases. Jobs inherit
+  model aliases and the bound agent's `agentHarness`. Do not document or add
+  public `job.harness`, job-level `agentHarness`, job-level `agentEngine`, conversation-level
+  `agentHarness`, or job/conversation-level `executionProviderId` selectors.
 - DeepAgents or alternate-harness docs must keep provider-native tool names
   adapter-private. Gantry facade/tool names are the product contract, and docs
   should use the current singular `gantry model ...` CLI surface unless the plan
   explicitly introduces and verifies a CLI rename.
+- DeepAgents docs must keep subagents internal. Users see approvals, final
+  answer, evidence receipt, audit, and runtime detail; do not introduce a
+  user-facing subagent mission-control UI. Evidence receipts must use exact
+  lines `Completed: <short outcome>`, `Used: <tools/capabilities>`,
+  `Changed: <files/accounts/channels or none>`, `Delegated: yes/no`, and
+  `Needs attention: <blocker or none>`.
+- DeepAgents raw authority remains Gantry-owned and wrapped. Do not document raw
+  `execute`, raw local filesystem access, raw `.mcp.json`, or raw provider
+  credentials as possible user or agent authority.
 - Runtime scaling docs must treat `RunAdmissionQueue` as execution authority for
   `interactive`, `job`, and `delegation` model work. pg-boss is a scheduler
   trigger, `JobRun` is terminal evidence, and provider-native async subagent

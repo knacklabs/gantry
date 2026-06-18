@@ -177,6 +177,27 @@ describe('logger', () => {
     expect(redacted).toContain('token=[REDACTED]');
   });
 
+  it('redacts run-scoped gateway tokens (gtw_)', () => {
+    const input =
+      'projected OPENAI_API_KEY using token gtw_abc123.DEF-456_xyz for the run';
+    const redacted = redactString(input);
+    expect(redacted).not.toContain('gtw_abc123.DEF-456_xyz');
+    expect(redacted).toContain('[REDACTED]');
+  });
+
+  it('redacts AWS and service-account credential material', () => {
+    const input =
+      'accessKeyId=AKIAABCDEFGHIJKLMNOP secretAccessKey=camelsecret42 sessionToken=session-raw-token private_key=inline-key serviceAccountJson={"private_key":"-----BEGIN PRIVATE KEY-----\\nraw\\n-----END PRIVATE KEY-----"}';
+    const redacted = redactString(input);
+    expect(redacted).not.toContain('AKIAABCDEFGHIJKLMNOP');
+    expect(redacted).not.toContain('camelsecret42');
+    expect(redacted).not.toContain('session-raw-token');
+    expect(redacted).not.toContain('inline-key');
+    expect(redacted).not.toContain('raw');
+    expect(redacted).not.toContain('PRIVATE KEY');
+    expect(redacted).toContain('[REDACTED]');
+  });
+
   it('filters entries below configured level', () => {
     const records: LogRecord[] = [];
     const l = createLogger({

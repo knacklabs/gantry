@@ -45,7 +45,11 @@ export function createBotFrameworkTeamsTransport(
         response = await send(context);
       },
     );
-    return { accepted: true, statusCode: 202, body: response ?? null };
+    return {
+      accepted: true,
+      statusCode: 202,
+      body: teamsDeliveryReceiptBody(response, conversationId),
+    };
   }
 
   return {
@@ -115,7 +119,11 @@ export function createBotFrameworkTeamsTransport(
           sendActivity,
         );
       }
-      return { accepted: true, statusCode: 202, body: response ?? null };
+      return {
+        accepted: true,
+        statusCode: 202,
+        body: teamsDeliveryReceiptBody(response, reference.conversationId),
+      };
     },
     sendThreadReply: async (input) =>
       await sendToConversation(
@@ -153,6 +161,20 @@ export function createBotFrameworkTeamsTransport(
         },
       );
     },
+  };
+}
+
+function teamsDeliveryReceiptBody(
+  response: ResourceResponse | undefined,
+  conversationId: string,
+): Record<string, unknown> {
+  const activityId = response?.id ?? null;
+  return {
+    ...(response ? { resourceResponse: response } : {}),
+    id: activityId,
+    messageId: activityId,
+    activityId,
+    conversationId,
   };
 }
 

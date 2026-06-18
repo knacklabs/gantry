@@ -3,14 +3,25 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETUP_MODEL_ALIAS,
   findModelByRunnerModel,
+  listModelCatalogEntries,
   MEMORY_MODEL_DEFAULT_ALIASES,
   resolveModelSelection,
   resolveModelSelectionForWorkload,
   resolveRunnerModel,
 } from '@core/shared/model-catalog.js';
 import { resolveModelCacheSupport } from '@core/shared/model-cache-support.js';
-import { formatModelCatalog } from '@core/shared/model-catalog-format.js';
+import {
+  formatContextWindow,
+  formatCostPerMillion,
+  formatModelCatalog,
+} from '@core/shared/model-catalog-format.js';
 import { normalizeModelUsage } from '@core/shared/model-usage.js';
+
+function rowFor(text: string, alias: string): string {
+  const line = text.split('\n').find((row) => row.startsWith(`${alias} |`));
+  if (!line) throw new Error(`row for ${alias} not found`);
+  return line;
+}
 
 describe('model catalog resolution', () => {
   it('keeps versioned aliases pinned while short aliases stay recommended', () => {
@@ -37,6 +48,84 @@ describe('model catalog resolution', () => {
     });
     expect(findModelByRunnerModel('moonshotai/kimi-k2.6')).toMatchObject({
       recommendedAlias: 'kimi',
+    });
+  });
+
+  it('resolves OpenAI chat aliases on the openai response family', () => {
+    expect(resolveModelSelection('gpt')).toMatchObject({
+      ok: true,
+      alias: 'gpt',
+      runnerModel: 'gpt-5.5',
+    });
+    expect(resolveModelSelection('gpt-mini')).toMatchObject({
+      ok: true,
+      alias: 'gpt-mini',
+      runnerModel: 'gpt-5.4-mini',
+    });
+    expect(findModelByRunnerModel('gpt-5.5')?.responseFamily).toBe('openai');
+  });
+
+  it('resolves Bedrock and Vertex aliases through the DeepAgents lane', () => {
+    expect(resolveModelSelection('bedrock-oss')).toMatchObject({
+      ok: true,
+      alias: 'bedrock-oss',
+      runnerModel: 'openai.gpt-oss-120b-1:0',
+      entry: {
+        responseFamily: 'openai',
+        modelRoute: { id: 'bedrock' },
+      },
+    });
+    expect(resolveModelSelection('vertex')).toMatchObject({
+      ok: true,
+      alias: 'vertex',
+      runnerModel: 'google/gemini-3.5-flash',
+      entry: {
+        responseFamily: 'openai',
+        modelRoute: { id: 'vertex' },
+      },
+    });
+    expect(resolveModelSelection('bedrock-sonnet')).toMatchObject({
+      ok: false,
+      reason: 'unknown',
+    });
+  });
+
+  it('keeps Bedrock Anthropic models out of the OpenAI-compatible catalog', () => {
+    const bedrockEntries = listModelCatalogEntries().filter(
+      (entry) => entry.modelRoute.id === 'bedrock',
+    );
+    expect(bedrockEntries).not.toHaveLength(0);
+    expect(
+      bedrockEntries.map((entry) => entry.modelRoute.providerModelId),
+    ).not.toContain('us.anthropic.claude-sonnet-4-6');
+  });
+
+  it('scopes OpenAI chat models to chat and memory workloads, not jobs', () => {
+    expect(resolveModelSelectionForWorkload('gpt', 'chat')).toMatchObject({
+      ok: true,
+      alias: 'gpt',
+    });
+    // OpenAI gpt entries now declare the memory workloads so a zero-Anthropic
+    // deployment can select them for memory under the deepagents memory engine.
+    for (const workload of [
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ] as const) {
+      expect(resolveModelSelectionForWorkload('gpt', workload)).toMatchObject({
+        ok: true,
+        alias: 'gpt',
+      });
+      expect(
+        resolveModelSelectionForWorkload('gpt-mini', workload),
+      ).toMatchObject({ ok: true, alias: 'gpt-mini' });
+    }
+    // Jobs remain out of scope for OpenAI-lane chat models.
+    expect(
+      resolveModelSelectionForWorkload('gpt', 'one_time_job'),
+    ).toMatchObject({
+      ok: false,
+      reason: 'unsupported-workload',
     });
   });
 
@@ -74,6 +163,20 @@ describe('model catalog resolution', () => {
       ok: false,
       reason: 'raw-provider-id',
     });
+    expect(
+      resolveModelSelection('us.anthropic.claude-sonnet-4-6'),
+    ).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
+    expect(resolveModelSelection('google/gemini-3.5-flash')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
+    expect(resolveModelSelection('openai.gpt-oss-120b')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
   });
 
   it('enforces workload eligibility for catalog aliases', () => {
@@ -105,12 +208,14 @@ describe('model catalog resolution', () => {
 
   it('renders model catalog defaults across chat and scheduler lanes', () => {
     const output = formatModelCatalog({
-      chat: 'opus',
-      oneTime: 'sonnet',
-      recurring: 'kimi',
-      memoryExtractor: 'haiku',
-      memoryDreaming: 'sonnet',
-      memoryConsolidation: 'sonnet',
+      defaults: {
+        chat: 'opus',
+        oneTime: 'sonnet',
+        recurring: 'kimi',
+        memoryExtractor: 'haiku',
+        memoryDreaming: 'sonnet',
+        memoryConsolidation: 'sonnet',
+      },
     });
 
     expect(output).toContain('Supported model aliases');
@@ -121,6 +226,87 @@ describe('model catalog resolution', () => {
     expect(output).toContain('recurring default');
     expect(output).toContain('memory extractor');
     expect(output).toContain('OpenRouter');
+    // Model families section: provider auto-selected by configured key.
+    expect(output).toContain(
+      'Model families (provider auto-selected by configured key)',
+    );
+    expect(output).toContain('gpt-oss | GPT-OSS 120B | groq-oss > cerebras');
+    expect(output).toContain('llama-70b | Llama 3.3 70B | groq > together');
+  });
+
+  it('declares curated context windows for empty-profile deepagents models', () => {
+    // These ids have no built-in LangChain profile, so the catalog is the source
+    // of truth for the compaction window + context-usage reporting.
+    const curated: Array<[string, number]> = [
+      ['gemini-2.5-pro', 1_048_576],
+      ['gemini-2.5-flash', 1_048_576],
+      ['gemini-3.5-flash', 1_048_576],
+      ['llama-3.3-70b-versatile', 131_072],
+      ['llama-3.1-8b-instant', 131_072],
+      ['openai/gpt-oss-120b', 131_072],
+      ['deepseek-v4-pro', 1_048_576],
+      ['grok-4.3', 256_000],
+      ['grok-build-0.1', 256_000],
+      ['Qwen/Qwen3-235B-A22B-fp8-tput', 40_960],
+      ['accounts/fireworks/models/deepseek-v3p1', 163_840],
+      ['gpt-oss-120b', 131_072],
+      ['zai-glm-4.7', 131_072],
+      ['sonar-pro', 200_000],
+      ['sonar', 131_072],
+      ['gpt-5.4-mini', 400_000],
+      ['moonshotai/kimi-k2.6', 262_142],
+    ];
+    for (const [runnerModel, window] of curated) {
+      const entry = findModelByRunnerModel(runnerModel);
+      expect(entry, runnerModel).toBeDefined();
+      expect(entry?.contextWindowTokens, runnerModel).toBe(window);
+    }
+  });
+
+  it('omits contextWindowTokens for ids with a real library profile', () => {
+    // gpt-5.5/gpt-5.4 have a real LangChain profile, so the factory must use it
+    // (no curated override). The catalog must NOT declare a window for them.
+    expect(
+      findModelByRunnerModel('gpt-5.5')?.contextWindowTokens,
+    ).toBeUndefined();
+    expect(
+      findModelByRunnerModel('gpt-5.4')?.contextWindowTokens,
+    ).toBeUndefined();
+  });
+
+  it('renders a context-window column in the model catalog table', () => {
+    const output = formatModelCatalog({ defaults: { chat: 'opus' } });
+    // Header carries the Context + Cost columns; Gemini Pro shows the 1M window.
+    expect(output).toContain(
+      'Alias | Model | Response family | Route | Context | Cache | Cost (in/out per 1M) | Status',
+    );
+    expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);
+    expect(output).toMatch(/groq \| Groq Llama 3\.3 70B[^\n]*\| 131K \|/);
+  });
+
+  it('formats per-1M cost with trimmed trailing zeros', () => {
+    const groq = findModelByRunnerModel('llama-3.3-70b-versatile')!;
+    expect(formatCostPerMillion(groq)).toBe('$0.59/$0.79');
+    const gemini = findModelByRunnerModel('gemini-2.5-pro')!;
+    expect(formatCostPerMillion(gemini)).toBe('$1.25/$10');
+    // Omitted pricing renders as an em dash.
+    const cerebras = findModelByRunnerModel('gpt-oss-120b')!;
+    expect(formatCostPerMillion(cerebras)).toBe('—');
+  });
+
+  it('renders a Cost column with curated prices and "—" when omitted', () => {
+    const output = formatModelCatalog();
+    // Priced DeepAgents-lane providers show in/out per 1M.
+    expect(rowFor(output, 'groq')).toContain('$0.59/$0.79');
+    expect(rowFor(output, 'gemini')).toContain('$1.25/$10');
+    expect(rowFor(output, 'grok')).toContain('$1.25/$2.5');
+    // SDK-lane Anthropic alias carries its declared price too.
+    expect(rowFor(output, 'opus')).toContain('$5/$25');
+    // Omitted prices render as an em dash: Perplexity (hybrid per-request fee),
+    // Cerebras (subscription-only), Fireworks DeepSeek v3p1 (unverifiable band).
+    expect(rowFor(output, 'perplexity')).toContain('| — |');
+    expect(rowFor(output, 'cerebras')).toContain('| — |');
+    expect(rowFor(output, 'fireworks')).toContain('| — |');
   });
 
   it('derives cache support from provider metadata and model route', () => {
@@ -145,9 +331,10 @@ describe('model catalog resolution', () => {
       providerId: 'openrouter',
       cacheProvider: 'openrouter-provider',
       statusLabel:
-        'prompt cache supported/accounted; response cache available but disabled',
+        'automatic provider cache; response cache available but disabled',
       prompt: {
-        mode: 'openrouter_anthropic_cache_control',
+        mode: 'openrouter_automatic_prefix',
+        automatic: true,
         supported: true,
         accounted: true,
       },
@@ -309,6 +496,38 @@ describe('model usage normalization', () => {
     });
   });
 
+  it('estimates DeepAgents-lane cost from catalog price for the raw usage branch', () => {
+    // gemini-2.5-pro: $1.25/1M input, $10/1M output. The chat-completions usage
+    // shape carries no SDK cost, so the catalog price drives the estimate.
+    // Cached reads are billed at the input price (not discounted), so the full
+    // prompt_tokens count is charged at input.
+    const usage = normalizeModelUsage({
+      message: {
+        usage: {
+          prompt_tokens: 1_000_000,
+          completion_tokens: 500_000,
+          prompt_tokens_details: { cached_tokens: 400_000 },
+        },
+      },
+      fallbackModel: 'gemini-2.5-pro',
+    });
+    // 1.0M input * $1.25 + 0.5M output * $10 = 1.25 + 5 = $6.25.
+    expect(usage?.estimatedCostUsd).toBeCloseTo(6.25, 6);
+    expect(usage?.inputTokens).toBe(1_000_000);
+    expect(usage?.outputTokens).toBe(500_000);
+  });
+
+  it('leaves DeepAgents-lane cost undefined when the model has no curated price', () => {
+    // cerebras gpt-oss-120b omits pricing (subscription-only) -> no estimate.
+    const usage = normalizeModelUsage({
+      message: {
+        usage: { prompt_tokens: 1000, completion_tokens: 500 },
+      },
+      fallbackModel: 'gpt-oss-120b',
+    });
+    expect(usage?.estimatedCostUsd).toBeUndefined();
+  });
+
   it('marks cache as unsupported when provider metadata is unavailable', () => {
     const usage = normalizeModelUsage({
       message: {
@@ -351,5 +570,111 @@ describe('model usage normalization', () => {
       findModelByRunnerModel('moonshotai/kimi-k2.6')?.recommendedAlias,
     ).toBe('kimi');
     expect(findModelByRunnerModel('Kimi 2.6')?.recommendedAlias).toBe('kimi');
+  });
+
+  // memory === true: general instruct entries also serve the memory workloads.
+  // memory === false: search/answer entries keep chat + jobs only.
+  it.each([
+    ['groq', 'llama-3.3-70b-versatile', true],
+    ['groq-fast', 'llama-3.1-8b-instant', true],
+    ['groq-oss', 'openai/gpt-oss-120b', true],
+    ['deepseek', 'deepseek-v4-pro', true],
+    ['deepseek-fast', 'deepseek-v4-flash', true],
+    ['grok', 'grok-4.3', true],
+    ['grok-fast', 'grok-build-0.1', true],
+    ['together', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', true],
+    ['together-qwen', 'Qwen/Qwen3-235B-A22B-fp8-tput', true],
+    ['fireworks', 'accounts/fireworks/models/deepseek-v3p1', true],
+    [
+      'fireworks-fast',
+      'accounts/fireworks/models/llama-v3p1-8b-instruct',
+      true,
+    ],
+    ['cerebras', 'gpt-oss-120b', true],
+    ['cerebras-glm', 'zai-glm-4.7', true],
+    ['perplexity', 'sonar-pro', false],
+    ['perplexity-sonar', 'sonar', false],
+    ['gemini', 'gemini-2.5-pro', true],
+    ['gemini-flash', 'gemini-2.5-flash', true],
+    ['gemini-3-flash', 'gemini-3.5-flash', true],
+  ])(
+    'resolves the %s alias to its OpenAI-family runner model',
+    (alias, runnerModel, memory) => {
+      const resolved = resolveModelSelection(alias as string);
+      expect(resolved).toMatchObject({ ok: true, alias, runnerModel });
+      if (resolved.ok) {
+        expect(resolved.entry.responseFamily).toBe('openai');
+        expect(resolved.entry.experimental).toBe(true);
+        const expectedWorkloads = memory
+          ? [
+              'chat',
+              'one_time_job',
+              'recurring_job',
+              'memory_extractor',
+              'memory_dreaming',
+              'memory_consolidation',
+            ]
+          : ['chat', 'one_time_job', 'recurring_job'];
+        expect(resolved.entry.supportedWorkloads).toEqual(expectedWorkloads);
+        // The memory workloads must each resolve for memory-eligible entries and
+        // be rejected for the search/answer entries (perplexity).
+        for (const workload of [
+          'memory_extractor',
+          'memory_dreaming',
+          'memory_consolidation',
+        ] as const) {
+          const memoryResolved = resolveModelSelectionForWorkload(
+            alias as string,
+            workload,
+          );
+          if (memory) {
+            expect(memoryResolved.ok).toBe(true);
+          } else {
+            expect(memoryResolved).toMatchObject({
+              ok: false,
+              reason: 'unsupported-workload',
+            });
+          }
+        }
+      }
+    },
+  );
+
+  it('keeps the new provider friendly aliases collision-free with existing aliases', () => {
+    // Module load already throws on a duplicate alias (buildAliasIndex); this is
+    // a belt-and-suspenders check that the headline aliases stay distinct and do
+    // not shadow opus/sonnet/haiku/gpt/kimi.
+    const headline = [
+      'groq',
+      'deepseek',
+      'grok',
+      'together',
+      'fireworks',
+      'cerebras',
+      'perplexity',
+      'gemini',
+      'opus',
+      'sonnet',
+      'haiku',
+      'gpt',
+      'kimi',
+    ];
+    const runnerModels = headline.map(
+      (alias) =>
+        resolveModelSelection(alias).ok &&
+        (resolveModelSelection(alias) as { runnerModel: string }).runnerModel,
+    );
+    expect(new Set(runnerModels).size).toBe(headline.length);
+  });
+});
+
+describe('formatContextWindow', () => {
+  it('renders compact labels and a dash for unknown windows', () => {
+    expect(formatContextWindow(1_048_576)).toBe('1.0M');
+    expect(formatContextWindow(256_000)).toBe('256K');
+    expect(formatContextWindow(131_072)).toBe('131K');
+    expect(formatContextWindow(127_072)).toBe('127K');
+    expect(formatContextWindow(undefined)).toBe('—');
+    expect(formatContextWindow(0)).toBe('—');
   });
 });

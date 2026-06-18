@@ -183,5 +183,6 @@ function mockContext(scopes: Scope[] = ['agents:admin']): ControlRouteContext {
     countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
+    getSelectedAgentHarness: () => 'auto',
   };
 }

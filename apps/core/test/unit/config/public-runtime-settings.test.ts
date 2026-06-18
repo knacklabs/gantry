@@ -58,9 +58,11 @@ it('projects configured agent access using the public contract shape', async () 
   const runtimeSettings =
     await import('@core/config/settings/runtime-settings.js');
   const defaults = runtimeSettings.ensureRuntimeSettings(runtimeHome);
+  defaults.agent.agentHarness = 'deepagents';
   defaults.agents.support = {
     name: 'Support',
     folder: 'support',
+    agentHarness: 'anthropic_sdk',
     bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },
     capabilities: [],
@@ -70,6 +72,10 @@ it('projects configured agent access using the public contract shape', async () 
   const config = await import('@core/config/index.js');
 
   const publicAgent = config.getPublicRuntimeSettings().agents.support;
+  expect(config.getPublicRuntimeSettings().agent.agentHarness).toBe(
+    'deepagents',
+  );
+  expect(publicAgent.agentHarness).toBe('anthropic_sdk');
   expect(publicAgent.access).toEqual({ preset: 'locked' });
   expect(publicAgent).not.toHaveProperty('accessPreset');
 });
