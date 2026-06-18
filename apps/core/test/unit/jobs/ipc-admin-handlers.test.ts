@@ -1032,7 +1032,8 @@ describe('admin IPC handlers', () => {
       data: taskData('bad-mcp-call', {
         type: 'mcp_call_tool',
         chatJid: 'sl:C123',
-        runHandle: 'agent-run-1',
+        runId: 'agent-run-1',
+        runHandle: 'runner-handle-1',
         payload: {
           toolName: 'create_issue',
           arguments: 'token=secret-value',
@@ -1064,7 +1065,7 @@ describe('admin IPC handlers', () => {
         metadata: expect.objectContaining({
           toolName: 'create_issue',
           resultClass: 'invalid_request',
-          runHandle: 'agent-run-1',
+          runHandle: 'runner-handle-1',
           missingFields: ['serverName'],
           argumentSummary: expect.objectContaining({
             kind: 'string',

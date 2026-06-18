@@ -808,6 +808,7 @@ async function createMcpProxyForSourceGroup(input: {
   deps: Parameters<TaskHandler>[0]['deps'];
   ipcDir?: string;
   runHandle?: string;
+  runId?: string;
 }): Promise<McpToolProxy> {
   const storage = getRuntimeStorage();
   const credentialEnv = await resolveMcpCredentialEnvForAgent({
@@ -829,6 +830,7 @@ async function createMcpProxyForSourceGroup(input: {
     lookupHostname: input.deps.mcpHostnameLookup,
     egressDenylist: getRuntimeSettingsForConfig().permissions.egress.denylist,
     publishRuntimeEvent: input.deps.publishRuntimeEvent,
+    runId: input.runId,
     runHandle: input.runHandle,
   });
 }

@@ -18,6 +18,7 @@ type CreateMcpProxyForSourceGroup = (input: {
   deps: Parameters<TaskHandler>[0]['deps'];
   ipcDir?: string;
   runHandle?: string;
+  runId?: string;
 }) => Promise<McpToolProxy>;
 
 export function createMcpToolHandlers(
@@ -69,6 +70,7 @@ function mcpListToolsHandler(
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
           : undefined,
         runHandle: data.runHandle,
+        runId: data.runId,
       });
       const result = await proxy.listTools({
         appId: data.appId as never,
@@ -125,6 +127,7 @@ function mcpDescribeToolHandler(
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
           : undefined,
         runHandle: data.runHandle,
+        runId: data.runId,
       });
       const result = await proxy.describeTool({
         appId: data.appId as never,
@@ -197,6 +200,7 @@ function mcpCallToolHandler(
           ? path.join(context.ipcBaseDir, sourceAgentFolder)
           : undefined,
         runHandle: data.runHandle,
+        runId: data.runId,
       });
       const activeLease = await isActiveRunLeaseForInteraction({
         runId: data.runId,
@@ -243,6 +247,7 @@ async function auditInvalidMcpCallRequest(input: {
     publishRuntimeEvent: input.deps.publishRuntimeEvent,
     appId: input.data.appId as never,
     agentId: agentIdForMcpTask(input.data, input.sourceAgentFolder),
+    ...(input.data.runId ? { runId: input.data.runId } : {}),
     ...(input.data.runHandle ? { runHandle: input.data.runHandle } : {}),
     ...(input.callInput.serverName
       ? { serverName: input.callInput.serverName }

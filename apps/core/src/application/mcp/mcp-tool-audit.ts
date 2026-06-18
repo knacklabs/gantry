@@ -54,6 +54,7 @@ export async function publishInvalidMcpToolRequestAudit(input: {
   ) => Promise<unknown> | unknown;
   appId: AppId;
   agentId: AgentId;
+  runId?: string;
   runHandle?: string;
   serverName?: string;
   toolName?: string;
@@ -92,7 +93,7 @@ export async function publishInvalidMcpToolRequestAudit(input: {
     await input.publishRuntimeEvent({
       appId: input.appId,
       agentId: input.agentId,
-      ...(input.runHandle ? { runId: input.runHandle as AgentRunId } : {}),
+      ...(input.runId ? { runId: input.runId as AgentRunId } : {}),
       eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
       actor: 'mcp-tool-handler',
       responseMode: 'none',

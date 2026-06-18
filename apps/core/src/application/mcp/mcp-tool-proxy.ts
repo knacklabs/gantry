@@ -100,6 +100,7 @@ export class McpToolProxy {
       publishRuntimeEvent?: (
         event: RuntimeEventPublishInput,
       ) => Promise<unknown> | unknown;
+      runId?: string;
       runHandle?: string;
     },
   ) {}
@@ -510,8 +511,8 @@ export class McpToolProxy {
       await this.options.publishRuntimeEvent({
         appId: input.input.appId,
         agentId: input.input.agentId,
-        ...(this.options.runHandle
-          ? { runId: this.options.runHandle as AgentRunId }
+        ...(this.options.runId
+          ? { runId: this.options.runId as AgentRunId }
           : {}),
         eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
         actor: 'mcp-tool-proxy',

@@ -1134,6 +1134,7 @@ describe('McpToolProxy', () => {
           { address: '93.184.216.34', family: 4 as const },
         ]),
         publishRuntimeEvent,
+        runId: 'agent-run-1',
         runHandle: 'run-1',
       },
     );
@@ -1159,7 +1160,7 @@ describe('McpToolProxy', () => {
       expect.objectContaining({
         appId: 'app-one',
         agentId: 'agent-one',
-        runId: 'run-1',
+        runId: 'agent-run-1',
         eventType: RUNTIME_EVENT_TYPES.MCP_TOOL_ACTIVITY,
         actor: 'mcp-tool-proxy',
         responseMode: 'none',
@@ -1288,6 +1289,7 @@ describe('McpToolProxy', () => {
           { address: '93.184.216.34', family: 4 as const },
         ]),
         publishRuntimeEvent,
+        runId: 'agent-run-1',
         runHandle: 'run-1',
       },
     );
