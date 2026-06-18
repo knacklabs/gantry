@@ -508,6 +508,63 @@ describe('createChannelWiring', () => {
     expect(storeMessage).toHaveBeenCalledWith(msg);
   });
 
+  it('stores inbound messages with durable live admission when supported', async () => {
+    const app = makeApp({
+      'tg:123': {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '@Main',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessage = vi.fn(async () => {});
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
+
+    const wiring = createChannelWiring(app, {
+      appId: 'app-one' as never,
+      providerIds: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
+      opsRepository: {
+        storeMessage,
+        storeMessageWithLiveAdmission,
+      } as any,
+      shouldDropMessage: vi.fn(() => false),
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const msg = {
+      id: 'm-live-admission',
+      chat_jid: 'tg:123',
+      sender: 'user-1',
+      sender_name: 'User',
+      content: 'normal message',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+
+    await onMessage?.('tg:123', msg);
+
+    expect(storeMessage).not.toHaveBeenCalled();
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(msg, {
+      appId: 'app-one',
+      agentId: 'main_agent',
+      triggerDecision: {
+        source: 'channel_persistence',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+  });
+
   it('waits for queue capacity when message persistence queue is full', async () => {
     const app = makeApp({
       'tg:123': { name: 'Main', folder: 'main' },

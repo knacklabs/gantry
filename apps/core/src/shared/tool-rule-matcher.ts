@@ -42,7 +42,7 @@ const EXACT_GANTRY_TOOL_RUNTIME_MATCHES: Record<string, readonly string[]> = {
   FileRead: ['Read'],
   FileEdit: ['Edit', 'MultiEdit'],
   FileWrite: ['Write'],
-  AgentDelegation: ['Agent'],
+  AgentDelegation: [],
 };
 
 const REGISTERED_DURABLE_EXACT_TOOLS = new Set(['Browser']);

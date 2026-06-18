@@ -56,3 +56,8 @@
 - Shared parsers used by both config and adapters belong in `shared/`, with
   config modules re-exporting them when needed. Adapters must not import from
   `config/` just to reuse parsing behavior.
+- Provider-native task/todo/delegation names (`Agent`, `Task*`, `TodoWrite`,
+  DeepAgents task/todo/async task tools) are not durable authority. Shared tool
+  rule matching must keep canonical `AgentDelegation` separate from raw
+  provider projections unless a Gantry-owned wrapper explicitly performs the
+  provider call after policy and lifecycle checks.

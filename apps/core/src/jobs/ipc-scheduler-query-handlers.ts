@@ -10,11 +10,9 @@ import { mapApplicationError } from './ipc-application-error.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
-import {
-  appIdFromConversationJid,
-  resolveCanonicalAppSessionForOrigin,
-} from '../application/jobs/job-management-helpers.js';
+import { resolveCanonicalAppSessionForOrigin } from '../application/jobs/job-management-helpers.js';
 import { normalizeOptional } from '../application/jobs/job-management-access.js';
+import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
 const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;

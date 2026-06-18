@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   LIVE_RECOVERY_COORDINATOR_LEASE_KEY,
   routeScopeActiveLiveTurnAdmission,
+  routeScopeActiveLiveTurnAdmissionFromCursor,
   startLiveRecoveryCoordinatorLeaseAcquisition,
 } from '@core/app/bootstrap/live-recovery-coordinator.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
@@ -346,5 +347,52 @@ describe('live-turn host lease acquisition', () => {
         status: 'canceled',
       }),
     );
+  });
+
+  it('requeues scope-active pending messages when replay fills the page', async () => {
+    const enqueueMessageCheck = vi.fn();
+    const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
+    const setAgentCursor = vi.fn();
+    const saveState = vi.fn();
+    const getMessagesSince = vi.fn(async () => [
+      {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'first',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        message_id: 'msg-1',
+        reply_to_message_id: null,
+        reply_to_content: null,
+        sender_name: 'Ravi',
+      },
+    ]);
+
+    await expect(
+      routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope: {
+          appId: 'app:test',
+          agentSessionId: 'session-1',
+          conversationId: 'chat-1',
+          threadId: null,
+        },
+        queueJid: 'chat-1',
+        liveRunId: 'run-active',
+        chatJid: 'chat-1',
+        threadId: null,
+        replayCursor: '2024-01-01T00:00:00.000Z::0',
+        messageFetchPageSize: 1,
+        timezone: 'UTC',
+        getMessagesSince,
+        setAgentCursor,
+        saveState,
+        enqueueMessageCheck,
+        routeMessage,
+      }),
+    ).resolves.toBe(true);
+
+    expect(routeMessage).toHaveBeenCalledOnce();
+    expect(enqueueMessageCheck).toHaveBeenCalledWith('chat-1');
   });
 });

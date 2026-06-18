@@ -11,7 +11,7 @@ import {
   UserQuestionResponse,
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
-
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { TelegramChannelConnect } from './channel-connect.js';
 import {
   TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS,
@@ -27,15 +27,9 @@ import {
 } from './channel-shared.js';
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
-
-const TELEGRAM_ESCAPED_MARKDOWN_V2_CHAR_PATTERN =
-  /\\([_*~[\]()`>#+\-=|{}.!\\])/g;
-
-function unescapeTelegramEscapedMarkdownV2(text: string): string {
-  if (!text) return text;
-  return text.replace(TELEGRAM_ESCAPED_MARKDOWN_V2_CHAR_PATTERN, '$1');
-}
-
+import { renderTelegramAgentTodo } from './agent-todo-delivery.js';
+import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
+import { sendTelegramTyping } from './typing-indicator.js';
 export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   async sendMessage(
     jid: string,
@@ -512,8 +506,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (!this.interactionCallbacksEnabled) {
       return {
         approved: false,
-        reason:
-          'Telegram interaction callbacks are not available on this worker.',
+        reason: 'This Telegram connection cannot collect approvals right now.',
       };
     }
     if (!this.bot) {
@@ -521,12 +514,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     }
     const chatId = jid.replace(/^tg:/, '');
     if (!chatId) {
-      return { approved: false, reason: 'Invalid Telegram chat ID' };
+      return {
+        approved: false,
+        reason: 'This Telegram conversation could not be identified.',
+      };
     }
     if (this.pendingPermissionPrompts.has(request.requestId)) {
       return {
         approved: false,
-        reason: `Duplicate pending request: ${request.requestId}`,
+        reason: 'This approval request is already awaiting a decision.',
       };
     }
 
@@ -665,11 +661,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         }
 
         if (selection.answeredBy) answeredBy = selection.answeredBy;
-        if (Array.isArray(selection.selected)) {
-          answers[question.question] = selection.selected;
-        } else {
-          answers[question.question] = selection.selected;
-        }
+        answers[question.question] = selection.selected;
       } catch (err) {
         logger.warn(
           {
@@ -689,14 +681,25 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     };
   }
 
+  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
+    if (!this.bot) return;
+    const threadId = render.threadId ?? undefined;
+    await renderTelegramAgentTodo({
+      api: this.bot.api,
+      jid,
+      render,
+      todoKey: this.buildDraftStreamKey(jid, threadId),
+      pendingTodos: this.pendingTodos,
+      sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
+    });
+  }
+
   isConnected(): boolean {
     return this.bot !== null;
   }
-
   ownsJid(jid: string): boolean {
     return jid.startsWith('tg:');
   }
-
   resetStreaming(jid: string): void {
     this.sealStreamingGenerationOnReset(jid);
     this.clearStreamingStateForJid(jid);
@@ -753,12 +756,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    if (!this.bot || !isTyping) return;
-    try {
-      const numericId = jid.replace(/^tg:/, '');
-      await this.bot.api.sendChatAction(numericId, 'typing');
-    } catch (err) {
-      logger.debug({ jid, err }, 'Failed to send Telegram typing indicator');
-    }
+    await sendTelegramTyping({ bot: this.bot, jid, isTyping });
   }
 }

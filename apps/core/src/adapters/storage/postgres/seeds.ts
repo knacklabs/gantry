@@ -275,7 +275,7 @@ function gantryFacadeDescription(name: GantryFacadeExactToolName): string {
     case 'FileWrite':
       return 'Create or replace one exact safe relative workspace file path.';
     case 'AgentDelegation':
-      return 'Delegate work to a subagent through the selected execution harness.';
+      return 'Delegate work through Gantry-owned task lifecycle wrappers.';
   }
 }
 

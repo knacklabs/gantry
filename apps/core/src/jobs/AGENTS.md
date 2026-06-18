@@ -13,6 +13,11 @@
   the signed host IPC boundary. Do not open Postgres repositories, artifact
   stores, or runtime storage directly from the MCP subprocess; add a typed IPC
   handler and inject runtime stores through `IpcDeps`.
+- Agent task lifecycle IPC currently owns `todo_update` only as an ephemeral
+  channel render signal. Do not add Postgres lifecycle rows for display-only
+  todo state, and do not add `delegate_task`, `task_get`, or `task_cancel`
+  handlers until a real delegated executor can claim, run, and finish the work;
+  dormant unavailable handlers are not a product surface.
 - Scheduler terminal notifications are user-facing lifecycle receipts. Format
   job reports, system maintenance results, and next-run times into readable
   product copy before delivery; never surface raw queue bookkeeping JSON,
@@ -36,6 +41,10 @@
   then give one next action only when needed. Keep raw tool ids, task ids,
   queue diagnostics, exact repair commands, and logs in details/audit paths
   instead of the primary channel message.
+- Runner startup diagnostics (`run.startup_diagnostic`) are details/audit data
+  for operators. Scheduled jobs may forward and summarize them into terminal
+  run diagnostics, but notification copy must not dump raw timing payloads,
+  prompts, URLs, tokens, tool args, or queue bookkeeping.
 - Memory dreaming job notifications must keep pending memory reviews visible
   and actionable with user-facing review guidance, even when the dream run times
   out or fails after creating review rows. Keep raw tool ids such as

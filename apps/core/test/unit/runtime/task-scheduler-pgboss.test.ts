@@ -612,9 +612,10 @@ describe('PgBossSchedulerEngine', () => {
   });
 
   it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
+    const acquireRunSlot = vi.fn(async () => true);
     configureRunSlotBackend({
       repository: {
-        acquireRunSlot: vi.fn(async () => true),
+        acquireRunSlot,
         renewRunSlot: vi.fn(async () => true),
         releaseRunSlot: vi.fn(async () => undefined),
       },
@@ -661,6 +662,15 @@ describe('PgBossSchedulerEngine', () => {
       expect.any(Object),
       '__scheduler__:tg:team:job-1',
       { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
+    );
+    expect(acquireRunSlot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capacity: 4,
+        slotKey: 'tg:team',
+      }),
+    );
+    expect(acquireRunSlot.mock.calls[0]?.[0].slotKey).not.toMatch(
+      /^live:messages:/,
     );
     expect(requestSync).toHaveBeenCalledWith();
   });

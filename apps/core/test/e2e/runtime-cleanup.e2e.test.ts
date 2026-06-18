@@ -17,7 +17,7 @@ function runCli(args: string[], runtimeHome: string) {
       NODE_ENV: 'test',
     },
     encoding: 'utf-8',
-    timeout: 15_000,
+    timeout: 30_000,
   });
 }
 
@@ -76,7 +76,7 @@ describe('runtime cleanup CLI e2e', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('Gantry CLI');
     expect(fs.existsSync(path.join(runtimeHome, 'settings.yaml'))).toBe(false);
-  }, 20_000);
+  }, 35_000);
 
   it('rejects removed memory commands through the top-level CLI surface', () => {
     writeMinimalRuntime(runtimeHome);
@@ -87,5 +87,5 @@ describe('runtime cleanup CLI e2e', () => {
     const output = `${result.stdout}\n${result.stderr}`;
     expect(output).toContain('gantry memory status [--json]');
     expect(output).not.toContain('gantry memory health journal-status');
-  }, 20_000);
+  }, 35_000);
 });

@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest';
 import {
   DEEPAGENTS_ENFORCING_SANDBOX_REQUIRED_MESSAGE,
   deepAgentsEnforcingSandboxGuard,
+  deepAgentsFilesystemToolsEnabled,
   deepAgentsShellFilesystemGuard,
   deepAgentsShellToolEnabled,
+  requestsFilesystemAuthority,
   requestsShellAuthority,
   requestsShellOrFilesystemAuthority,
 } from '@core/runtime/deepagents-shell-filesystem-guard.js';
@@ -58,6 +60,18 @@ describe('deepAgentsShellFilesystemGuard', () => {
       expect(requestsShellAuthority(['FileWrite'])).toBe(false);
       expect(requestsShellAuthority(['FileRead', 'WebSearch'])).toBe(false);
       expect(requestsShellAuthority([])).toBe(false);
+    });
+  });
+
+  describe('requestsFilesystemAuthority', () => {
+    it('matches filesystem authority but not shell-only or web authority', () => {
+      expect(requestsFilesystemAuthority(['FileWrite'])).toBe(true);
+      expect(requestsFilesystemAuthority(['FileRead', 'WebSearch'])).toBe(true);
+      expect(requestsFilesystemAuthority(['Read'])).toBe(true);
+      expect(requestsFilesystemAuthority(['Grep'])).toBe(true);
+      expect(requestsFilesystemAuthority(['RunCommand(npm test)'])).toBe(false);
+      expect(requestsFilesystemAuthority(['WebSearch'])).toBe(false);
+      expect(requestsFilesystemAuthority([])).toBe(false);
     });
   });
 
@@ -239,6 +253,41 @@ describe('deepAgentsShellFilesystemGuard', () => {
         deepAgentsShellToolEnabled({
           engine: DEEPAGENTS_ENGINE,
           toolPolicyRules: ['WebSearch'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBe(false);
+    });
+  });
+
+  describe('deepAgentsFilesystemToolsEnabled (host projection flag)', () => {
+    it('true for deepagents under sandbox_runtime even without preselected File rules', () => {
+      expect(
+        deepAgentsFilesystemToolsEnabled({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['WebSearch'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'sandbox_runtime',
+        }),
+      ).toBe(true);
+    });
+
+    it('false under direct mode', () => {
+      expect(
+        deepAgentsFilesystemToolsEnabled({
+          engine: DEEPAGENTS_ENGINE,
+          toolPolicyRules: ['FileRead'],
+          securityEnv: SAFE_LOCAL_ENV,
+          sandboxProvider: 'direct',
+        }),
+      ).toBe(false);
+    });
+
+    it('false for the default (Anthropic SDK) engine', () => {
+      expect(
+        deepAgentsFilesystemToolsEnabled({
+          engine: DEFAULT_AGENT_ENGINE,
+          toolPolicyRules: ['FileRead'],
           securityEnv: SAFE_LOCAL_ENV,
           sandboxProvider: 'sandbox_runtime',
         }),

@@ -17,6 +17,7 @@ import {
   ArtifactClaudeSkillSource,
   BundledGantrySkillSource,
   CompositeSkillSource,
+  RUNTIME_GANTRY_BROWSER_SKILL_ID,
   RuntimeInstalledGantryBrowserSkillSource,
   type SkillSource,
 } from './claude-skill-materializer.js';
@@ -75,6 +76,7 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
         'Anthropic execution adapter runner path escaped the Gantry package root.',
       );
     }
+    const selectedSkillIds = this.selectedSkillIds(input);
     const skillSources = this.skillSources(input, packageRoot);
     const materialization = await materializeClaudeRuntime({
       groupDir: input.groupDir,
@@ -85,6 +87,7 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
       runtimeSettingsPath: RUNTIME_SETTINGS_PATH,
       managedSkillArtifactRoots: [path.join(ARTIFACTS_DIR, 'skills')],
       skillSource: new CompositeSkillSource(skillSources),
+      enabledSkillIds: selectedSkillIds,
       settings: {
         model: input.effectiveModel,
       },
@@ -116,9 +119,7 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
       env[ANTHROPIC_MODEL_ENV] = input.effectiveModel;
       env[GANTRY_EFFECTIVE_MODEL_SOURCE_ENV] = 'runtime';
     }
-    const attachedSkillSourceIds = input.input.attachedSkillSourceIds
-      ? new Set(input.input.attachedSkillSourceIds)
-      : undefined;
+    const attachedSkillSourceIds = new Set(selectedSkillIds);
     const skillActionDefinitions = (materialization.materializedSkills ?? [])
       .filter(
         (skill) =>
@@ -202,6 +203,14 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
       );
     }
     return skillSources;
+  }
+
+  private selectedSkillIds(input: AgentExecutionAdapterPrepareInput): string[] {
+    const selected = new Set(input.input.attachedSkillSourceIds ?? []);
+    if (input.browserIpcEnabled) {
+      selected.add(RUNTIME_GANTRY_BROWSER_SKILL_ID);
+    }
+    return [...selected].sort();
   }
 
   private validateCredentialProjection(

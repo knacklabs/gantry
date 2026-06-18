@@ -5,10 +5,17 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createBuiltinToolExclusionMiddleware,
+  EXCLUDED_ASYNC_SUBAGENT_DEEPAGENT_TOOL_NAMES,
   EXCLUDED_BUILTIN_DEEPAGENT_TOOL_NAMES,
   EXCLUDED_FILESYSTEM_DEEPAGENT_TOOL_NAMES,
+  EXCLUDED_RAW_DEEPAGENT_TOOL_NAMES,
+  READONLY_SKILL_FILESYSTEM_DEEPAGENT_TOOL_NAMES,
+  WRITE_FILESYSTEM_DEEPAGENT_TOOL_NAMES,
 } from '@core/adapters/llm/deepagents-langchain/runner/builtin-tool-exclusion.js';
-import { shouldProjectGantryShellTool } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
+import {
+  shouldProjectGantryFilesystemTools,
+  shouldProjectGantryShellTool,
+} from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
 import {
   createGantryShellTool,
   GANTRY_SHELL_TOOL_NAME,
@@ -86,7 +93,7 @@ function readDirFilesRecursive(dir: string): string[] {
 }
 
 describe('DeepAgents raw authority denial', () => {
-  it('excludes task, write_todos, and the six filesystem tools from the model-visible surface', async () => {
+  it('excludes raw built-in and async delegation tools from the model-visible surface', async () => {
     const middleware = createBuiltinToolExclusionMiddleware() as unknown as {
       name: string;
       wrapModelCall: (
@@ -102,6 +109,11 @@ describe('DeepAgents raw authority denial', () => {
         tools: [
           { name: 'task' },
           { name: 'write_todos' },
+          { name: 'start_async_task' },
+          { name: 'check_async_task' },
+          { name: 'update_async_task' },
+          { name: 'cancel_async_task' },
+          { name: 'list_async_tasks' },
           { name: 'ls' },
           { name: 'read_file' },
           { name: 'write_file' },
@@ -127,6 +139,11 @@ describe('DeepAgents raw authority denial', () => {
     for (const denied of [
       'task',
       'write_todos',
+      'start_async_task',
+      'check_async_task',
+      'update_async_task',
+      'cancel_async_task',
+      'list_async_tasks',
       'ls',
       'read_file',
       'write_file',
@@ -138,7 +155,7 @@ describe('DeepAgents raw authority denial', () => {
     }
   });
 
-  it('lists task, write_todos, and the filesystem tools as excluded builtin tool names', () => {
+  it('lists raw DeepAgents tool names as excluded by category', () => {
     expect([...EXCLUDED_BUILTIN_DEEPAGENT_TOOL_NAMES].sort()).toEqual([
       'edit_file',
       'glob',
@@ -149,6 +166,28 @@ describe('DeepAgents raw authority denial', () => {
       'write_file',
       'write_todos',
     ]);
+    expect([...EXCLUDED_ASYNC_SUBAGENT_DEEPAGENT_TOOL_NAMES].sort()).toEqual([
+      'cancel_async_task',
+      'check_async_task',
+      'list_async_tasks',
+      'start_async_task',
+      'update_async_task',
+    ]);
+    expect([...EXCLUDED_RAW_DEEPAGENT_TOOL_NAMES].sort()).toEqual([
+      'cancel_async_task',
+      'check_async_task',
+      'edit_file',
+      'glob',
+      'grep',
+      'list_async_tasks',
+      'ls',
+      'read_file',
+      'start_async_task',
+      'task',
+      'update_async_task',
+      'write_file',
+      'write_todos',
+    ]);
     expect([...EXCLUDED_FILESYSTEM_DEEPAGENT_TOOL_NAMES].sort()).toEqual([
       'edit_file',
       'glob',
@@ -156,6 +195,60 @@ describe('DeepAgents raw authority denial', () => {
       'ls',
       'read_file',
       'write_file',
+    ]);
+    expect([...READONLY_SKILL_FILESYSTEM_DEEPAGENT_TOOL_NAMES].sort()).toEqual([
+      'glob',
+      'grep',
+      'ls',
+      'read_file',
+    ]);
+    expect([...WRITE_FILESYSTEM_DEEPAGENT_TOOL_NAMES].sort()).toEqual([
+      'edit_file',
+      'write_file',
+    ]);
+  });
+
+  it('exposes only read-only filesystem tools when reviewed skill files are projected', async () => {
+    const middleware = createBuiltinToolExclusionMiddleware({
+      exposeSkillReadTools: true,
+    }) as unknown as {
+      wrapModelCall: (
+        request: { tools: Array<{ name: string }> },
+        handler: (r: { tools: Array<{ name: string }> }) => Promise<unknown>,
+      ) => Promise<unknown>;
+    };
+    let seen: Array<{ name: string }> = [];
+    await middleware.wrapModelCall(
+      {
+        tools: [
+          { name: 'task' },
+          { name: 'write_todos' },
+          { name: 'start_async_task' },
+          { name: 'check_async_task' },
+          { name: 'update_async_task' },
+          { name: 'cancel_async_task' },
+          { name: 'list_async_tasks' },
+          { name: 'ls' },
+          { name: 'read_file' },
+          { name: 'write_file' },
+          { name: 'edit_file' },
+          { name: 'glob' },
+          { name: 'grep' },
+          { name: 'send_message' },
+        ],
+      },
+      async (request) => {
+        seen = request.tools;
+        return { result: [] };
+      },
+    );
+
+    expect(seen.map((tool) => tool.name).sort()).toEqual([
+      'glob',
+      'grep',
+      'ls',
+      'read_file',
+      'send_message',
     ]);
   });
 
@@ -219,14 +312,14 @@ describe('DeepAgents raw authority denial', () => {
     );
     const text = fs.readFileSync(runnerFile, 'utf-8');
     // The import statement and createDeepAgent backend must be StateBackend only.
-    expect(text).toContain('new StateBackend()');
+    expect(text).toMatch(/new\s+StateBackend\([^)]*\)/);
     expect(text).not.toMatch(/new\s+LocalShellBackend/);
     expect(text).not.toMatch(/new\s+FilesystemBackend/);
     expect(text).not.toMatch(/import\s*\{[^}]*LocalShellBackend[^}]*\}/);
     expect(text).not.toMatch(/import\s*\{[^}]*FilesystemBackend[^}]*\}/);
   });
 
-  it('keeps a deny-all filesystem permission block on the agent', () => {
+  it('keeps fail-closed filesystem permissions on the agent', () => {
     const runnerFile = path.join(
       DEEPAGENTS_DIR,
       'runner',
@@ -236,7 +329,9 @@ describe('DeepAgents raw authority denial', () => {
     expect(text).toMatch(/operations:\s*\['read',\s*'write'\]/);
     expect(text).toMatch(/paths:\s*\['\/\*\*'\]/);
     expect(text).toMatch(/mode:\s*'deny'/);
-    expect(text).toContain('permissions: DENY_ALL_FILESYSTEM');
+    expect(text).toContain('DENY_ALL_FILESYSTEM');
+    expect(text).toContain('READONLY_SKILLS_FILESYSTEM');
+    expect(text).toContain("paths: ['/skills', '/skills/**']");
   });
 
   it('reads no .mcp.json anywhere in the DeepAgents adapter directory', () => {
@@ -324,6 +419,26 @@ describe('DeepAgents raw authority denial', () => {
       ]) {
         expect(tool.name).not.toBe(collidingName);
       }
+    });
+  });
+
+  describe('Gantry filesystem facade projection', () => {
+    it('projects File facades only when the host filesystem flag is set', () => {
+      expect(
+        shouldProjectGantryFilesystemTools({
+          filesystemEnabledEnv: '1',
+        }),
+      ).toBe(true);
+      expect(
+        shouldProjectGantryFilesystemTools({
+          filesystemEnabledEnv: undefined,
+        }),
+      ).toBe(false);
+      expect(
+        shouldProjectGantryFilesystemTools({
+          filesystemEnabledEnv: '0',
+        }),
+      ).toBe(false);
     });
   });
 });

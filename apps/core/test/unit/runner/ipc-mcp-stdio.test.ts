@@ -3,13 +3,19 @@ import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { generateKeyPairSync } from 'crypto';
+import { fileURLToPath } from 'url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { schedulerJobConfirmationToken } from '@core/jobs/job-plan-formatter.js';
 import { ALL_GANTRY_MCP_TOOL_NAMES } from '@agent-runner-src/gantry-mcp-tool-surface.js';
 
+const MCP_FIXTURE_TIMEOUT_MS = 60_000;
 const tempRoots: string[] = [];
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../..',
+);
 
 afterEach(() => {
   for (const root of tempRoots.splice(0)) {
@@ -34,7 +40,24 @@ function symlinkPackage(
     ...packageName.split('/'),
   );
   fs.mkdirSync(path.dirname(packagePath), { recursive: true });
-  fs.symlinkSync(path.resolve(target), packagePath, 'dir');
+  fs.symlinkSync(
+    path.isAbsolute(target) ? target : path.join(repoRoot, target),
+    packagePath,
+    'dir',
+  );
+}
+
+function copyBuiltContractsPackage(root: string): void {
+  const packagePath = path.join(root, 'node_modules', '@gantry', 'contracts');
+  fs.mkdirSync(packagePath, { recursive: true });
+  fs.copyFileSync(
+    path.join(repoRoot, 'packages/contracts/package.json'),
+    path.join(packagePath, 'package.json'),
+  );
+  copyDirectory(
+    path.join(repoRoot, 'packages/contracts/dist'),
+    path.join(packagePath, 'dist'),
+  );
 }
 
 function copyDirectory(source: string, destination: string): void {
@@ -70,6 +93,7 @@ function createMcpFixture(): {
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const jobsDir = path.join(root, 'jobs');
   const channelsDir = path.join(root, 'channels');
+  const applicationMcpDir = path.join(root, 'application', 'mcp');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const guidedActionsDir = path.join(root, 'application', 'guided-actions');
@@ -88,6 +112,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(jobsDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
+  fs.mkdirSync(applicationMcpDir, { recursive: true });
   fs.mkdirSync(guidedActionsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
@@ -164,6 +189,10 @@ function createMcpFixture(): {
     path.join(guidedActionsDir, 'guided-action-service.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/application/mcp/mcp-tool-output-bounds.ts'),
+    path.join(applicationMcpDir, 'mcp-tool-output-bounds.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
     path.join(sharedDir, 'admin-mcp-tools.ts'),
   );
@@ -228,6 +257,10 @@ function createMcpFixture(): {
     path.join(runnerDir, 'memory-timeouts.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/ipc-response-wait.ts'),
+    path.join(runnerDir, 'ipc-response-wait.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
@@ -265,7 +298,7 @@ function createMcpFixture(): {
   );
   symlinkPackage(root, 'zod', 'node_modules/zod');
   symlinkPackage(root, 'cron-parser', 'node_modules/cron-parser');
-  symlinkPackage(root, '@gantry/contracts', 'packages/contracts');
+  copyBuiltContractsPackage(root);
 
   fs.writeFileSync(
     path.join(sdkRoot, 'package.json'),
@@ -466,10 +499,10 @@ async function runMcpFixture(
   toolName: string,
   args: Record<string, unknown>,
   envOverrides: Record<string, string | undefined> = {},
-): Promise<{ exitCode: number | null; stderr: string }> {
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   const child = spawn(
     process.execPath,
-    [path.resolve('node_modules/tsx/dist/cli.mjs'), fixture.serverPath],
+    [path.join(repoRoot, 'node_modules/tsx/dist/cli.mjs'), fixture.serverPath],
     {
       cwd: fixture.root,
       env: {
@@ -496,7 +529,11 @@ async function runMcpFixture(
     },
   );
 
+  let stdout = '';
   let stderr = '';
+  child.stdout.on('data', (chunk) => {
+    stdout += String(chunk);
+  });
   child.stderr.on('data', (chunk) => {
     stderr += String(chunk);
   });
@@ -504,8 +541,12 @@ async function runMcpFixture(
   const exitCode = await new Promise<number | null>((resolve, reject) => {
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
-      reject(new Error(`MCP fixture timed out\nstderr:\n${stderr}`));
-    }, 30_000);
+      reject(
+        new Error(
+          `MCP fixture timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        ),
+      );
+    }, MCP_FIXTURE_TIMEOUT_MS);
     child.on('error', (err) => {
       clearTimeout(timeout);
       reject(err);
@@ -516,7 +557,7 @@ async function runMcpFixture(
     });
   });
 
-  return { exitCode, stderr };
+  return { exitCode, stdout, stderr };
 }
 
 function writeLiveToolRules(
@@ -551,7 +592,7 @@ function cawAtsMcpCapability(mcpTool: string): Record<string, unknown> {
   };
 }
 
-describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
+describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
   it('consumes ask_user_question responses, formats answers, and unlinks the response file', async () => {
     const fixture = createMcpFixture();
 
@@ -602,32 +643,36 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.responseFiles).toHaveLength(0);
   });
 
-  it('registers selected admin tools and reports remaining requestable tools', async () => {
-    const fixture = createMcpFixture();
+  it(
+    'registers selected admin tools and reports remaining requestable tools',
+    async () => {
+      const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(
-      fixture,
-      'service_restart',
-      {},
-      { GANTRY_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
-    );
+      const result = await runMcpFixture(
+        fixture,
+        'service_restart',
+        {},
+        { GANTRY_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
+      );
 
-    expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain(
-      'Scheduler task confirmed.',
-    );
-    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
-    const task = JSON.parse(
-      fs.readFileSync(
-        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
-        'utf-8',
-      ),
-    );
-    expect(task.type).toBe('service_restart');
-    expect(task.chatJid).toBe('tg:team');
-    expect(task.targetJid).toBe('tg:team');
-  }, 40_000);
+      expect(result.exitCode, result.stderr).toBe(0);
+      const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+      expect(record.result.content[0].text).toContain(
+        'Scheduler task confirmed.',
+      );
+      const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+      const task = JSON.parse(
+        fs.readFileSync(
+          path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+          'utf-8',
+        ),
+      );
+      expect(task.type).toBe('service_restart');
+      expect(task.chatJid).toBe('tg:team');
+      expect(task.targetJid).toBe('tg:team');
+    },
+    MCP_FIXTURE_TIMEOUT_MS,
+  );
 
   it('keeps unselected admin tools gated at call time', async () => {
     const fixture = createMcpFixture();
@@ -731,14 +776,23 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     );
   });
 
-  it('includes the current run handle on proxied MCP tool calls', async () => {
+  it('includes the current run fence on proxied MCP tool calls', async () => {
     const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(fixture, 'mcp_call_tool', {
-      serverName: 'github',
-      toolName: 'create_issue',
-      arguments: { title: 'Bug' },
-    });
+    const result = await runMcpFixture(
+      fixture,
+      'mcp_call_tool',
+      {
+        serverName: 'github',
+        toolName: 'create_issue',
+        arguments: { title: 'Bug' },
+      },
+      {
+        GANTRY_JOB_RUN_ID: 'job-run-1',
+        GANTRY_JOB_RUN_LEASE_TOKEN: 'lease-1',
+        GANTRY_JOB_RUN_LEASE_FENCING_VERSION: '7',
+      },
+    );
 
     expect(result.exitCode, result.stderr).toBe(0);
     const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
@@ -752,12 +806,42 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(task).toMatchObject({
       type: 'mcp_call_tool',
       runHandle: 'mcp-test-run',
+      runId: 'job-run-1',
+      runLeaseToken: 'lease-1',
+      runLeaseFencingVersion: 7,
       payload: {
         serverName: 'github',
         toolName: 'create_issue',
         arguments: { title: 'Bug' },
       },
     });
+  });
+
+  it('writes MCP tool detail requests through IPC without execution arguments', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'mcp_describe_tool', {
+      serverName: 'github',
+      toolName: 'create_issue',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'mcp_describe_tool',
+      payload: {
+        serverName: 'github',
+        toolName: 'create_issue',
+      },
+    });
+    expect(task.runHandle).toBeUndefined();
   });
 
   it('keeps default first-party MCP tools registered despite stale runner projection', async () => {
@@ -1166,7 +1250,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'use: mcp_list_tools with serverName="caw-ats", then mcp_call_tool with serverName="caw-ats"',
+      'use: mcp_list_tools with serverName="caw-ats", mcp_describe_tool for one tool schema if needed, then mcp_call_tool with serverName="caw-ats"',
     );
     expect(record.result.content[0].text).toContain(
       'Do not request the same MCP capability again',
@@ -1308,7 +1392,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'use mcp_list_tools to inspect the ready source, then mcp_call_tool',
+      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1339,7 +1423,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'already selected for this run',
     );
     expect(record.result.content[0].text).toContain(
-      'use mcp_list_tools to inspect the ready source, then mcp_call_tool',
+      'use mcp_list_tools to inspect the ready source, mcp_describe_tool for one tool schema if needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1380,7 +1464,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Selected capabilities: mcp.caw-ats.access',
     );
     expect(record.result.content[0].text).toContain(
-      'Use mcp_list_tools with serverName="caw-ats", then mcp_call_tool',
+      'Use mcp_list_tools with serverName="caw-ats", mcp_describe_tool when schema is needed, then mcp_call_tool',
     );
     const taskDir = path.join(fixture.ipcDir, 'tasks');
     expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
@@ -1594,7 +1678,10 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
 
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain('"run_id": "run-1"');
+    expect(record.result.content[0].text).toContain(
+      'Queued an immediate run of this job.',
+    );
+    expect(record.result.content[0].text).not.toContain('run-1');
 
     const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
     const task = JSON.parse(

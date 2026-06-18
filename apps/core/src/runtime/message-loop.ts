@@ -1,6 +1,7 @@
 import {
   getTriggerPattern,
   MAX_MESSAGES_PER_PROMPT,
+  MESSAGE_FETCH_PAGE_SIZE,
   POLL_INTERVAL,
   TIMEZONE,
 } from '../config/index.js';
@@ -15,6 +16,7 @@ import {
   ConversationRoute,
 } from '../domain/types.js';
 import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
+import type { LiveAdmissionWorkItem } from '../domain/ports/live-turns.js';
 import { formatMessages } from '../messaging/router.js';
 import {
   isSenderControlAllowed,
@@ -31,6 +33,10 @@ import {
   makeThreadQueueKey,
   parseThreadQueueKey,
 } from '../shared/thread-queue-key.js';
+import {
+  buildPendingMessagesContinuationIdempotencyKey,
+  collectPendingMessagesSince,
+} from './pending-message-replay.js';
 import { resolveNonSelfSenderIds } from './session-resume-runtime.js';
 
 export interface MessageLoopDeps {
@@ -58,7 +64,9 @@ export interface MessageLoopDeps {
         cursorAfter?: string;
       },
     ) => boolean | Promise<boolean>;
-    enqueueMessageCheck: (chatJid: string) => void;
+    enqueueMessageCheck: (
+      chatJid: string,
+    ) => void | boolean | Promise<void | boolean>;
     closeStdin: (chatJid: string) => void | Promise<void>;
     stopGroup?: (chatJid: string) => boolean | Promise<boolean>;
   };
@@ -71,6 +79,11 @@ export interface MessageLoopDeps {
   }) => Promise<boolean> | boolean;
   opsRepository?: RuntimeMessageRepository;
 }
+
+export type MessageAdmissionProcessingResult =
+  | 'completed'
+  | 'queued_capacity'
+  | 'listener_degraded';
 
 function resolveMessageRepository(
   deps: MessageLoopDeps,
@@ -85,6 +98,203 @@ function saveStateBestEffort(deps: MessageLoopDeps, chatJid: string): void {
   Promise.resolve(deps.saveState()).catch((err) =>
     logger.warn({ chatJid, err }, 'Failed to persist message cursor state'),
   );
+}
+
+async function enqueueMessageCheck(
+  deps: MessageLoopDeps,
+  queueJid: string,
+): Promise<MessageAdmissionProcessingResult> {
+  const accepted = await deps.queue.enqueueMessageCheck(queueJid);
+  return accepted === false ? 'queued_capacity' : 'completed';
+}
+
+async function processQueueMessages(
+  deps: MessageLoopDeps,
+  queueJid: string,
+  groupMessages: NewMessage[],
+  preloadedInitialReplay?: {
+    messages: NewMessage[];
+    hasMore: boolean;
+    cursorAfter: string | null;
+  },
+): Promise<MessageAdmissionProcessingResult> {
+  const opsRepository = resolveMessageRepository(deps);
+  const conversationRoutes = deps.getConversationRoutes();
+  const { chatJid, threadId } = parseThreadQueueKey(queueJid);
+  const group = conversationRoutes[chatJid];
+  if (!group) return 'listener_degraded';
+
+  if (!deps.hasChannel(chatJid)) {
+    logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
+    return 'listener_degraded';
+  }
+
+  const triggerPattern = getTriggerPattern(group.trigger);
+  const loopCmdMsg = groupMessages.find(
+    (m) => extractSessionCommand(m.content, triggerPattern) !== null,
+  );
+  const recoveredCursor = await deps.getOrRecoverCursor(queueJid);
+
+  if (loopCmdMsg) {
+    const loopCommand = extractSessionCommand(
+      loopCmdMsg.content,
+      triggerPattern,
+    );
+    const controlAllowlistCfg = loadSenderControlAllowlist();
+    if (
+      isSessionCommandAllowed(
+        loopCmdMsg.is_from_me === true,
+        isSenderControlAllowed(
+          chatJid,
+          loopCmdMsg.sender,
+          controlAllowlistCfg,
+          group.folder,
+        ),
+      )
+    ) {
+      if (loopCommand && deps.handleActiveControlCommand) {
+        const handled = await deps.handleActiveControlCommand({
+          chatJid,
+          queueJid,
+          group,
+          message: loopCmdMsg,
+          command: loopCommand,
+        });
+        if (handled) {
+          if (preloadedInitialReplay?.hasMore) {
+            return enqueueMessageCheck(deps, queueJid);
+          }
+          return 'completed';
+        }
+      }
+      if (loopCommand?.kind === 'stop') {
+        await deps.queue.stopGroup?.(queueJid);
+      } else {
+        await deps.queue.closeStdin(queueJid);
+      }
+    }
+    return enqueueMessageCheck(deps, queueJid);
+  }
+
+  const replay =
+    preloadedInitialReplay ??
+    (await collectPendingMessagesSince({
+      getMessagesSince: opsRepository.getMessagesSince,
+      chatJid,
+      sinceCursor: recoveredCursor,
+      pageSize: MESSAGE_FETCH_PAGE_SIZE,
+      maxMessages: MAX_MESSAGES_PER_PROMPT,
+      options: { threadId: threadId ?? null },
+    }));
+  let initialBatch = replay.messages;
+  if (initialBatch.length === 0) {
+    initialBatch = groupMessages;
+  }
+
+  const needsTrigger = group.requiresTrigger !== false;
+  if (needsTrigger) {
+    const allowlistCfg = loadSenderAllowlist();
+    const hasTrigger = initialBatch.some(
+      (m) =>
+        triggerPattern.test(m.content.trim()) &&
+        (m.is_from_me ||
+          isTriggerAllowed(chatJid, m.sender, allowlistCfg, group.folder)),
+    );
+    const isContinuationThread =
+      threadId !== undefined && recoveredCursor.trim().length > 0;
+    if (!hasTrigger && !isContinuationThread) {
+      const lastMessage = initialBatch[initialBatch.length - 1];
+      const cursorAfter = replay.cursorAfter
+        ? replay.cursorAfter
+        : lastMessage
+          ? encodeGroupMessageCursor(toGroupMessageCursor(lastMessage))
+          : null;
+      if (cursorAfter) {
+        deps.setAgentCursor(queueJid, cursorAfter);
+        saveStateBestEffort(deps, chatJid);
+      }
+      if (replay.hasMore) {
+        return enqueueMessageCheck(deps, queueJid);
+      }
+      return 'completed';
+    }
+  }
+
+  if (initialBatch.length === 0) return 'completed';
+
+  const formatted = formatMessages(initialBatch, TIMEZONE);
+  const senderUserIds = resolveNonSelfSenderIds(initialBatch);
+  const cursorAfter = encodeGroupMessageCursor(
+    toGroupMessageCursor(initialBatch[initialBatch.length - 1]),
+  );
+
+  if (
+    !(await deps.queue.sendMessage(queueJid, formatted, {
+      threadId,
+      senderUserIds,
+      idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
+        queueJid,
+        sinceCursor: recoveredCursor,
+        cursorAfter,
+        messages: initialBatch,
+      }),
+      cursorAfter,
+    }))
+  ) {
+    return enqueueMessageCheck(deps, queueJid);
+  }
+
+  logger.debug(
+    { chatJid, count: initialBatch.length },
+    'Piped messages to active agent run',
+  );
+  deps.setAgentCursor(queueJid, cursorAfter);
+  saveStateBestEffort(deps, chatJid);
+  if (replay.hasMore) {
+    return enqueueMessageCheck(deps, queueJid);
+  }
+  deps
+    .setTyping(chatJid, true)
+    .catch((err: unknown) =>
+      logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
+    );
+  return 'completed';
+}
+
+export async function processLiveAdmissionWorkItem(
+  deps: MessageLoopDeps,
+  item: LiveAdmissionWorkItem,
+): Promise<MessageAdmissionProcessingResult> {
+  const opsRepository = resolveMessageRepository(deps);
+  const { chatJid, threadId } = parseThreadQueueKey(item.queueJid);
+  if (
+    chatJid !== item.conversationId ||
+    (threadId ?? null) !== (item.threadId ?? null)
+  ) {
+    logger.warn(
+      {
+        itemId: item.id,
+        queueJid: item.queueJid,
+        conversationId: item.conversationId,
+        threadId: item.threadId,
+      },
+      'Live admission work item queue identity mismatch',
+    );
+    return 'listener_degraded';
+  }
+
+  const recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
+  const replay = await collectPendingMessagesSince({
+    getMessagesSince: opsRepository.getMessagesSince,
+    chatJid,
+    sinceCursor: recoveredCursor,
+    pageSize: MESSAGE_FETCH_PAGE_SIZE,
+    maxMessages: MAX_MESSAGES_PER_PROMPT,
+    options: { threadId: threadId ?? null },
+  });
+  const messages = replay.messages;
+  if (messages.length === 0) return 'completed';
+  return processQueueMessages(deps, item.queueJid, messages, replay);
 }
 
 export async function runMessagePollingTick(
@@ -124,150 +334,7 @@ export async function runMessagePollingTick(
       }
 
       for (const [queueJid, groupMessages] of messagesByGroup) {
-        const { chatJid, threadId } = parseThreadQueueKey(queueJid);
-        const group = conversationRoutes[chatJid];
-        if (!group) continue;
-
-        if (!deps.hasChannel(chatJid)) {
-          logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
-          continue;
-        }
-
-        const triggerPattern = getTriggerPattern(group.trigger);
-        const loopCmdMsg = groupMessages.find(
-          (m) => extractSessionCommand(m.content, triggerPattern) !== null,
-        );
-        const recoveredCursor = await deps.getOrRecoverCursor(queueJid);
-
-        if (loopCmdMsg) {
-          const loopCommand = extractSessionCommand(
-            loopCmdMsg.content,
-            triggerPattern,
-          );
-          const controlAllowlistCfg = loadSenderControlAllowlist();
-          if (
-            isSessionCommandAllowed(
-              loopCmdMsg.is_from_me === true,
-              isSenderControlAllowed(
-                chatJid,
-                loopCmdMsg.sender,
-                controlAllowlistCfg,
-                group.folder,
-              ),
-            )
-          ) {
-            if (loopCommand && deps.handleActiveControlCommand) {
-              const handled = await deps.handleActiveControlCommand({
-                chatJid,
-                queueJid,
-                group,
-                message: loopCmdMsg,
-                command: loopCommand,
-              });
-              if (handled) {
-                continue;
-              }
-            }
-            if (loopCommand?.kind === 'stop') {
-              await deps.queue.stopGroup?.(queueJid);
-            } else {
-              await deps.queue.closeStdin(queueJid);
-            }
-          }
-          deps.queue.enqueueMessageCheck(queueJid);
-          continue;
-        }
-
-        const needsTrigger = group.requiresTrigger !== false;
-        if (needsTrigger) {
-          const allowlistCfg = loadSenderAllowlist();
-          const hasTrigger = groupMessages.some(
-            (m) =>
-              triggerPattern.test(m.content.trim()) &&
-              (m.is_from_me ||
-                isTriggerAllowed(
-                  chatJid,
-                  m.sender,
-                  allowlistCfg,
-                  group.folder,
-                )),
-          );
-          const isContinuationThread =
-            threadId !== undefined && recoveredCursor.trim().length > 0;
-          if (!hasTrigger && !isContinuationThread) continue;
-        }
-
-        let initialBatch = await opsRepository.getMessagesSince(
-          chatJid,
-          recoveredCursor,
-          MAX_MESSAGES_PER_PROMPT,
-          { threadId: threadId ?? null },
-        );
-        if (initialBatch.length === 0) {
-          initialBatch = groupMessages;
-        }
-
-        let pipedAny = false;
-        let shouldEnqueueMessageCheck = false;
-        let nextBatch: NewMessage[] | null = initialBatch;
-
-        while (nextBatch && nextBatch.length > 0) {
-          const messagesToSend = nextBatch;
-          const formatted = formatMessages(messagesToSend, TIMEZONE);
-          const senderUserIds = resolveNonSelfSenderIds(messagesToSend);
-
-          if (
-            !(await deps.queue.sendMessage(queueJid, formatted, {
-              threadId,
-              senderUserIds,
-              idempotencyKey: `continuation:${queueJid}:${messagesToSend
-                .map((message) => message.id)
-                .join(',')}`,
-              cursorAfter: encodeGroupMessageCursor(
-                toGroupMessageCursor(messagesToSend[messagesToSend.length - 1]),
-              ),
-            }))
-          ) {
-            shouldEnqueueMessageCheck = true;
-            break;
-          }
-
-          pipedAny = true;
-          logger.debug(
-            { chatJid, count: messagesToSend.length },
-            'Piped messages to active agent run',
-          );
-          deps.setAgentCursor(
-            queueJid,
-            encodeGroupMessageCursor(
-              toGroupMessageCursor(messagesToSend[messagesToSend.length - 1]),
-            ),
-          );
-          saveStateBestEffort(deps, chatJid);
-
-          if (messagesToSend.length < MAX_MESSAGES_PER_PROMPT) {
-            break;
-          }
-
-          nextBatch = await opsRepository.getMessagesSince(
-            chatJid,
-            await deps.getOrRecoverCursor(queueJid),
-            MAX_MESSAGES_PER_PROMPT,
-            { threadId: threadId ?? null },
-          );
-        }
-
-        if (pipedAny) {
-          deps
-            .setTyping(chatJid, true)
-            .catch((err: unknown) =>
-              logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-            );
-        }
-
-        if (!pipedAny || shouldEnqueueMessageCheck) {
-          deps.queue.enqueueMessageCheck(queueJid);
-        }
+        await processQueueMessages(deps, queueJid, groupMessages);
       }
     }
   } catch (err) {
@@ -277,20 +344,18 @@ export async function runMessagePollingTick(
 
 export interface MessagePollingLoopHandle {
   /** Stop the loop after the in-flight tick; cancels the pending poll delay. */
-  stop: () => void;
+  stop: (_options?: { drainDeadlineMs?: number }) => void;
   /** Settles when the loop exits (only rejects on an unexpected crash). */
   done: Promise<void>;
 }
 
 /**
- * Start the live message polling loop. The loop runs on EVERY live-capable
- * worker (distributed admission); it is not gated by any lease. Duplicate run
- * admission across the fleet is prevented downstream by the durable
- * per-scope claim (`uq_live_turns_active_scope`) plus idempotent continuation
- * commands — the losing poller routes its message to the durable owner instead
- * of starting a second run. Role gating happens in the bootstrap caller
- * (runtime-services gates this loop on `liveExecution`). The returned handle
- * stops the loop for graceful drain.
+ * Start the legacy route-wide live message polling loop. Production live
+ * workers with durable live-admission claims use the queue-scoped admission work
+ * loop instead; this poller remains for single-process/test embeddings and
+ * fallback runtimes that do not expose durable admission claims. Role gating
+ * happens in the bootstrap caller. The returned handle stops the loop for
+ * graceful drain.
  */
 export function startMessagePollingLoop(
   deps: MessageLoopDeps,
@@ -333,14 +398,15 @@ export async function recoverPendingMessages(
 
     for (const threadId of await opsRepository.getMessageThreadIds(chatJid)) {
       const queueJid = makeThreadQueueKey(chatJid, threadId);
-      const pending = await opsRepository.getMessagesSince(
+      const pending = await collectPendingMessagesSince({
+        getMessagesSince: opsRepository.getMessagesSince,
         chatJid,
-        await deps.getOrRecoverCursor(queueJid),
-        MAX_MESSAGES_PER_PROMPT,
-        { threadId },
-      );
-      if (pending.length > 0) {
-        pendingCount += pending.length;
+        sinceCursor: await deps.getOrRecoverCursor(queueJid),
+        pageSize: MESSAGE_FETCH_PAGE_SIZE,
+        options: { threadId },
+      });
+      if (pending.messages.length > 0) {
+        pendingCount += pending.messages.length;
         queuedThreads.add(queueJid);
       }
     }

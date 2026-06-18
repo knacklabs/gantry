@@ -22,7 +22,7 @@ describe('DeepAgents memory context placement', () => {
   it('injects the trust-scoped memory block exactly once as a model-visible user message', () => {
     const messages = buildTurnMessages(
       input({ memoryContextBlock: MEMORY_BLOCK }),
-      [],
+      { includeMemoryContext: true },
     );
     const serialized = messages.map((message) => String(message.content));
     const occurrences = serialized.filter((content) =>
@@ -43,12 +43,24 @@ describe('DeepAgents memory context placement', () => {
   });
 
   it('does not inject a memory message when no memory block is present', () => {
-    const messages = buildTurnMessages(input(), []);
+    const messages = buildTurnMessages(input(), { includeMemoryContext: true });
     const serialized = messages.map((message) => String(message.content));
     expect(
       serialized.some((content) => content.includes('gantry_memory_context')),
     ).toBe(false);
     expect(messages).toHaveLength(1);
+  });
+
+  it('can omit the memory block when LangGraph checkpoint state already carries it', () => {
+    const messages = buildTurnMessages(
+      input({ memoryContextBlock: MEMORY_BLOCK }),
+      { includeMemoryContext: false },
+    );
+    const serialized = messages.map((message) => String(message.content));
+    expect(
+      serialized.some((content) => content.includes('gantry_memory_context')),
+    ).toBe(false);
+    expect(serialized).toEqual(['what units should I use?']);
   });
 
   it('adds the durable-memory boundary policy to the system prompt (framing, not the tag)', () => {

@@ -1,47 +1,9 @@
 import type { RuntimePermissionSettings } from './runtime-settings-types.js';
 import { validateEgressDenylistPattern } from '../../shared/egress-policy.js';
-
-function parseBooleanValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback: boolean,
-): boolean {
-  if (raw === undefined) return fallback;
-  if (typeof raw !== 'boolean') {
-    throw new Error(`${pathPrefix} must be true/false`);
-  }
-  return raw;
-}
-
-function parseStringArrayValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback: string[],
-  validateItem?: (value: string) => string | void,
-): string[] {
-  if (raw === undefined) return fallback;
-  if (!Array.isArray(raw)) {
-    throw new Error(`${pathPrefix} must be a string array`);
-  }
-  return [
-    ...new Set(
-      raw.map((item, index) => {
-        if (typeof item !== 'string' || item.trim().length === 0) {
-          throw new Error(`${pathPrefix}[${index}] must be a non-empty string`);
-        }
-        const value = item.trim();
-        try {
-          return validateItem?.(value) ?? value;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          throw new Error(`${pathPrefix}[${index}] ${message}`, {
-            cause: err,
-          });
-        }
-      }),
-    ),
-  ];
-}
+import {
+  parseBooleanValue,
+  parseStringArrayValue,
+} from './runtime-settings-parse-primitives.js';
 
 export function parsePermissionSettings(
   raw: unknown,

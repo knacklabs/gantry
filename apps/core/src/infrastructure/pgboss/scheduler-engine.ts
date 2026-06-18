@@ -492,6 +492,7 @@ export class PgBossSchedulerEngine {
   private async processBossJobs(
     jobs: PgBossJob<SchedulerDispatchPayload>[],
   ): Promise<void> {
+    const maxParallelJobRuns = getRuntimeQueueConfig().maxJobRuns;
     for (const bossJob of jobs) {
       const payload = bossJob.data;
       if (!payload?.jobId) continue;
@@ -501,7 +502,10 @@ export class PgBossSchedulerEngine {
       // claim. Requeue its delivery and skip runJob so no retry budget burns.
       if (await this.requeuedIneligibleDelivery(current, payload)) continue;
       const queueJid = schedulerQueueJid(current.workspace_key, current.id);
-      const releaseSlot = await tryAcquireRunSlot(current.workspace_key);
+      const releaseSlot = await tryAcquireRunSlot(
+        current.workspace_key,
+        maxParallelJobRuns,
+      );
       if (!releaseSlot) {
         await this.requeueRunSlotBlockedDelivery(current, payload);
         continue;

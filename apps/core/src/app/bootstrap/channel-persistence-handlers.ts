@@ -104,7 +104,26 @@ export function createChannelPersistenceHandlers({
 
       const persistMessage = async () => {
         try {
-          await ops().storeMessage(msg);
+          const route = groupsByChat[chatJid];
+          const repository = ops();
+          const shouldEnqueueLiveAdmission =
+            route && !msg.is_from_me && !msg.is_bot_message;
+          if (
+            shouldEnqueueLiveAdmission &&
+            repository.storeMessageWithLiveAdmission
+          ) {
+            await repository.storeMessageWithLiveAdmission(msg, {
+              appId: resolved.appId,
+              agentId: route.folder,
+              triggerDecision: {
+                source: 'channel_persistence',
+                requiresTrigger: route.requiresTrigger !== false,
+                conversationKind: route.conversationKind ?? null,
+              },
+            });
+            return;
+          }
+          await repository.storeMessage(msg);
         } catch (err) {
           resolved.logger.error({ err, chatJid }, 'Failed to store message');
           throw err;

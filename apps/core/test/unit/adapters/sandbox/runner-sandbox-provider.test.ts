@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DirectRunnerSandboxProvider,
+  buildSandboxRuntimeWarmTemplate,
   createRunnerSandboxProvider,
 } from '@core/adapters/sandbox/runner-sandbox-provider.js';
 
@@ -85,6 +86,12 @@ describe('runner sandbox provider', () => {
   it('keeps direct execution in the sandbox adapter', () => {
     const provider = new DirectRunnerSandboxProvider();
 
+    expect(provider.warmTemplate()).toEqual({
+      available: false,
+      cacheHit: false,
+      authorityFree: true,
+    });
+
     provider.start(baseInput);
 
     expect(spawn).toHaveBeenCalledWith('/usr/bin/node', ['runner.js'], {
@@ -92,6 +99,56 @@ describe('runner sandbox provider', () => {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { PATH: '/usr/bin' },
     });
+  });
+
+  it('keeps the sandbox-runtime warm template authority-free', () => {
+    const provider = createRunnerSandboxProvider({
+      provider: 'sandbox_runtime',
+      resourceLimits: {
+        cpuSeconds: 0,
+        memoryMb: 0,
+        maxProcesses: 0,
+      },
+    });
+
+    const status = provider.warmTemplate?.();
+    const cachedStatus = provider.warmTemplate?.();
+    const template = buildSandboxRuntimeWarmTemplate();
+    const serialized = JSON.stringify(template);
+
+    expect(status).toMatchObject({
+      available: true,
+      authorityFree: true,
+    });
+    expect(cachedStatus).toMatchObject({
+      available: true,
+      cacheHit: true,
+      authorityFree: true,
+    });
+    expect(template.authorityFree).toBe(true);
+    expect(template.network).toEqual({
+      deniedDomains: [],
+      allowLocalBinding: false,
+    });
+    for (const forbidden of [
+      '/work/agent',
+      'api.example.com',
+      '127.0.0.1',
+      '18789',
+      'GANTRY',
+      'API_KEY',
+      'TOKEN',
+      'credentialRef',
+      'transient',
+      'grant',
+      'lease',
+      'mcp',
+      'browser',
+      'session',
+      'workspace',
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
   });
 
   it('wraps runner execution with sandbox runtime config', () => {

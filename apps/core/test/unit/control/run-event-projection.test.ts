@@ -32,6 +32,11 @@ describe('run event projection', () => {
       projectRuntimeEventToRunEvent(event(RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED))
         .type,
     ).toBe('failed');
+    expect(
+      projectRuntimeEventToRunEvent(
+        event(RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC),
+      ).type,
+    ).toBe('diagnostic');
   });
 
   it('adds human-readable run fields to payloads', () => {

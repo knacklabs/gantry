@@ -1,4 +1,6 @@
 import type { UserQuestionRequest } from '../../domain/types.js';
+import type { AgentTodoItem } from '../../domain/ports/task-lifecycle.js';
+import { formatAgentTodoLine } from '../agent-todo-render.js';
 import {
   PERMISSION_GLYPH,
   type PermissionPromptParts,
@@ -113,4 +115,37 @@ export function renderUserQuestionPromptHtml(
     lines.push('', '<i>Select one or more, then tap Done.</i>');
   }
   return lines.join('\n');
+}
+
+// Telegram messages cap at 4096 chars; keep a margin for the header and tags.
+const AGENT_TODO_MAX_LENGTH = 3800;
+
+/**
+ * Render an agent todo/plan as a single Telegram HTML message: a bold title
+ * plus an expandable blockquote of status lines. Long lists are truncated with
+ * a trailing "… (N more)" so the message stays within the length limit.
+ */
+export function renderAgentTodoHtml(render: {
+  summary: string | null;
+  items: AgentTodoItem[];
+}): string {
+  const title = render.summary?.trim()
+    ? escapeTelegramHtml(render.summary.trim())
+    : '📋 Plan';
+  const header = `<b>${title}</b>`;
+  const lines: string[] = [];
+  let used = header.length + 35; // header + blockquote tags + "(N more)" margin
+  let dropped = 0;
+  for (let index = 0; index < render.items.length; index += 1) {
+    const item = render.items[index];
+    const line = formatAgentTodoLine(item, escapeTelegramHtml);
+    if (used + line.length + 1 > AGENT_TODO_MAX_LENGTH) {
+      dropped = render.items.length - index;
+      break;
+    }
+    lines.push(line);
+    used += line.length + 1;
+  }
+  if (dropped > 0) lines.push(`… (${dropped} more)`);
+  return `${header}\n<blockquote expandable>${lines.join('\n')}</blockquote>`;
 }

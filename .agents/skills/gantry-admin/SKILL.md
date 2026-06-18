@@ -189,6 +189,7 @@ Use these Gantry tools for capability work:
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                   |
 | `ask_user_question`                | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons.                   |
+| `todo_update`                      | Publish/maintain a visible multi-step plan (item status: pending, inProgress, completed, blocked). Renders as one live, in-place list per channel. Display-only, non-authority state.                  |
 | `request_skill_install`            | Skill source installs such as `gantryhub:<slug>@<version>`; install/connect never creates risky action authority.                                    |
 | `request_skill_proposal`           | Agent-created or modified skill file bundles for review.                                                                                        |
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                             |

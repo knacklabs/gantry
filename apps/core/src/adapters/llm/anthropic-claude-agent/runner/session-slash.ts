@@ -7,10 +7,7 @@ import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
 } from '../native-sdk-skills.js';
-import {
-  buildSystemPrompt,
-  includeGitInstructionsForPersona,
-} from './system-prompt.js';
+import { buildSystemPrompt } from './system-prompt.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
@@ -63,10 +60,16 @@ export async function runSessionSlashCommand(
   let hadError = false;
   let resultEmitted = false;
   let errorMessage: string | undefined;
-  const systemPrompt = buildSystemPrompt(opts.systemPromptAppend);
+  const systemPrompt = buildSystemPrompt({
+    assistantName: opts.assistantName,
+    persona: opts.persona,
+    compiledSystemPrompt: opts.systemPromptAppend,
+  });
   const isolatedSdkEnv: Record<string, string | undefined> = {
     ...opts.sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   };
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
@@ -87,9 +90,7 @@ export async function runSessionSlashCommand(
         systemPrompt,
         settings: {
           autoMemoryEnabled: false,
-          includeGitInstructions: includeGitInstructionsForPersona(
-            opts.persona,
-          ),
+          includeGitInstructions: false,
           skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
         },
         skills: [],
@@ -103,7 +104,8 @@ export async function runSessionSlashCommand(
           behavior: 'deny' as const,
           message: 'Session slash commands cannot use tools.',
         }),
-        settingSources: ['user'] as const,
+        settingSources: [] as const,
+        strictMcpConfig: true,
       },
     })) {
       const msgType =

@@ -50,6 +50,7 @@ vi.mock('@core/shared/time/datetime.js', async (importOriginal) => {
 });
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  SYSTEM_PROMPT_DYNAMIC_BOUNDARY: '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__',
   query: async function* ({
     prompt,
     options,
@@ -377,7 +378,7 @@ describe('Claude Agent SDK boundary integration', () => {
       'hello from Gantry',
       env.mcpServerPath,
       runnerInput(),
-      { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
+      sdkProcessEnv(),
       'sonnet',
       undefined,
       undefined,
@@ -392,6 +393,11 @@ describe('Claude Agent SDK boundary integration', () => {
             result: string | null;
             newSessionId?: string;
             sessionInit?: boolean;
+            runtimeEventOnly?: boolean;
+            runtimeEvents?: Array<{
+              eventType?: string;
+              payload?: Record<string, unknown>;
+            }>;
           },
       );
     logSpy.mockRestore();
@@ -399,18 +405,46 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(outputs[0]).toMatchObject({
       result: null,
       newSessionId: 'claude-session-boundary',
+      runtimeEvents: [
+        expect.objectContaining({
+          eventType: 'run.startup_diagnostic',
+          payload: expect.objectContaining({
+            diagnostic: 'tool_search',
+            enableToolSearch: 'auto:10',
+            reason: 'official_auto_threshold',
+          }),
+        }),
+      ],
     });
     expect(outputs[0].sessionInit).toBeUndefined();
     const firstVisibleIdx = outputs.findIndex(
       (output) => typeof output.result === 'string' && output.result.length > 0,
     );
     expect(firstVisibleIdx).toBe(1);
-    expect(outputs.map((output) => output.result)).toEqual([
-      null,
+    const userVisibleOutputs = outputs.filter(
+      (output) => !output.runtimeEventOnly,
+    );
+    expect(userVisibleOutputs.map((output) => output.result)).toEqual([
       'Hello ',
       'world',
       null,
     ]);
+    expect(outputs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runtimeEventOnly: true,
+          runtimeEvents: [
+            expect.objectContaining({
+              eventType: 'run.startup_diagnostic',
+              payload: expect.objectContaining({
+                diagnostic: 'runner_startup_timing',
+                firstVisibleOutputMs: expect.any(Number),
+              }),
+            }),
+          ],
+        }),
+      ]),
+    );
   });
 
   it('passes hermetic Gantry capabilities and settings into the Claude SDK', async () => {
@@ -436,10 +470,14 @@ describe('Claude Agent SDK boundary integration', () => {
       model: 'sonnet',
       cwd: path.join(env.root, 'workspace', 'group'),
       permissionMode: 'default',
-      settingSources: ['user'],
+      settingSources: [],
+      strictMcpConfig: true,
       skills: ['gantry-admin', 'gantry-browser', 'linkedin-posting'],
       includePartialMessages: true,
     });
+    expect(call?.options.env.ENABLE_TOOL_SEARCH).toBe('auto:10');
+    expect(call?.options.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+    expect(call?.options.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     expect(call?.options.allowedTools).toEqual(
       expect.arrayContaining([
         'Read',
@@ -447,15 +485,30 @@ describe('Claude Agent SDK boundary integration', () => {
         'Grep',
         'mcp__gantry__send_message',
         'mcp__gantry__ask_user_question',
+        'mcp__gantry__todo_update',
         'mcp__gantry__request_skill_install',
         'mcp__gantry__request_skill_proposal',
         'mcp__gantry__request_skill_dependency_install',
         'mcp__gantry__request_mcp_server',
         'mcp__gantry__request_access',
         'mcp__gantry__mcp_list_tools',
+        'mcp__gantry__mcp_describe_tool',
         'mcp__gantry__mcp_call_tool',
-        'Agent',
         'Skill',
+      ]),
+    );
+    expect(call?.options.allowedTools).not.toEqual(
+      expect.arrayContaining([
+        'Agent',
+        'Task',
+        'TaskCreate',
+        'TaskGet',
+        'TaskList',
+        'TaskUpdate',
+        'TodoWrite',
+        'mcp__gantry__delegate_task',
+        'mcp__gantry__task_get',
+        'mcp__gantry__task_cancel',
       ]),
     );
     expect(call?.options.tools).toEqual(
@@ -469,7 +522,6 @@ describe('Claude Agent SDK boundary integration', () => {
         'LS',
         'MultiEdit',
         'NotebookEdit',
-        'Agent',
         'WebSearch',
         'WebFetch',
         'ToolSearch',
@@ -480,8 +532,15 @@ describe('Claude Agent SDK boundary integration', () => {
       expect.arrayContaining([
         'AskUserQuestion',
         'SendMessage',
+        'Agent',
+        'Task',
+        'TaskCreate',
+        'TaskGet',
+        'TaskList',
+        'TaskUpdate',
         'TaskOutput',
         'TaskStop',
+        'TodoWrite',
         'EnterWorktree',
         'ExitWorktree',
         'Browser',
@@ -492,8 +551,15 @@ describe('Claude Agent SDK boundary integration', () => {
         'AskUserQuestion',
         'SendMessage',
         'CronCreate',
+        'Agent',
+        'Task',
+        'TaskCreate',
+        'TaskGet',
+        'TaskList',
+        'TaskUpdate',
         'TaskOutput',
         'TaskStop',
+        'TodoWrite',
         'EnterWorktree',
         'ExitWorktree',
       ]),
@@ -551,6 +617,9 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(call?.options.env).toEqual({
       CLAUDE_CONFIG_DIR: path.join(env.root, 'claude-config'),
       ...SDK_NATIVE_SKILL_DISABLE_ENV,
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+      ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
+      ENABLE_TOOL_SEARCH: 'auto:10',
     });
     expect(call?.options.env).not.toHaveProperty(
       'GANTRY_MEMORY_IPC_ACTIONS_JSON',
@@ -590,12 +659,37 @@ describe('Claude Agent SDK boundary integration', () => {
       },
       { type: 'text', text: 'hello from Gantry' },
     ]);
-    expect(call?.options.systemPrompt.append).toContain(
-      'Gantry Durable Memory Boundary',
+    expect(call?.options.systemPrompt).toEqual(
+      expect.arrayContaining(['__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__']),
     );
-    expect(call?.options.systemPrompt.append).not.toContain(
-      'prior user preference',
+    const systemPromptText = JSON.stringify(call?.options.systemPrompt);
+    expect(systemPromptText).toContain('Gantry Durable Memory Boundary');
+    expect(systemPromptText).not.toContain('prior user preference');
+  });
+
+  it('passes an explicit empty SDK skills list when Gantry selected no skills', async () => {
+    const env = prepareRuntimeEnv();
+    vi.stubEnv(GANTRY_CLAUDE_SDK_SKILLS_ENV, JSON.stringify([]));
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
+      'sonnet',
+      undefined,
+      undefined,
     );
+
+    const call = sdkState.calls[0];
+    expect(call?.options).toMatchObject({
+      settingSources: [],
+      strictMcpConfig: true,
+      skills: [],
+    });
+    expect(call?.options.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+    expect(call?.options.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
   });
 
   it('fails closed when Claude init reports the required Gantry MCP server is unavailable', async () => {

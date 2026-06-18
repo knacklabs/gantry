@@ -11,11 +11,13 @@ import {
 } from 'drizzle-orm';
 
 import type {
+  LiveAdmissionWorkItem,
+  LiveAdmissionClaimInput,
+  LiveAdmissionWorkItemEnqueueResult,
   LiveTurn,
   LiveTurnAgentRunCompletion,
   LiveTurnCommand,
   LiveTurnCommandAppendResult,
-  LiveTurnCommandStatus,
   LiveTurnCommandType,
   LiveTurnCoordinationRepository,
   LiveTurnLeaseFence,
@@ -32,12 +34,30 @@ import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { activeRunLeaseFence } from './run-lease-fence.postgres.js';
 import {
+  claimLiveAdmissionWorkItems,
+  deferLiveAdmissionWorkItem,
+  enqueueLiveAdmissionWorkItem,
+  renewLiveAdmissionWorkItemClaim,
+  settleLiveAdmissionWorkItem,
+} from './live-admission-work-item-repository.postgres.js';
+import { getOldestWaitingLiveAdmission as queryOldestWaitingLiveAdmission } from './live-waiting-admission-query.postgres.js';
+import {
+  findLiveTurnCommandByIdempotencyKey,
+  toLiveTurnCommand,
+  type LiveTurnCommandRow,
+} from './live-turn-command-row.postgres.js';
+import {
   isUniqueViolation,
   settleRunLeaseTx,
 } from './worker-coordination-lease.postgres.js';
 
 type LiveTurnRow = typeof pgSchema.liveTurnsPostgres.$inferSelect;
-type LiveTurnCommandRow = typeof pgSchema.liveTurnCommandsPostgres.$inferSelect;
+type EnqueueLiveAdmissionWorkItemInput = Parameters<
+  LiveTurnCoordinationRepository['enqueueLiveAdmissionWorkItem']
+>[0];
+type RenewLiveAdmissionWorkItemClaimInput = Parameters<
+  LiveTurnCoordinationRepository['renewLiveAdmissionWorkItemClaim']
+>[0];
 
 const TERMINAL_STATES = [...LIVE_TURN_TERMINAL_STATES];
 
@@ -70,27 +90,51 @@ function toLiveTurn(row: LiveTurnRow): LiveTurn {
   };
 }
 
-function toLiveTurnCommand(row: LiveTurnCommandRow): LiveTurnCommand {
-  return {
-    id: row.id,
-    liveTurnId: row.liveTurnId,
-    scopeKey: row.scopeKey,
-    commandType: row.commandType as LiveTurnCommandType,
-    seq: row.seq,
-    idempotencyKey: row.idempotencyKey,
-    payload: (row.payloadJson ?? {}) as Record<string, unknown>,
-    status: row.status as LiveTurnCommandStatus,
-    fencingVersion: row.fencingVersion,
-    createdByWorkerId: row.createdByWorkerId,
-    appliedByWorkerId: row.appliedByWorkerId,
-    rejectedReason: row.rejectedReason,
-    createdAt: row.createdAt,
-    appliedAt: row.appliedAt,
-  };
-}
-
 export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepository {
   constructor(private readonly db: CanonicalDb) {}
+
+  async enqueueLiveAdmissionWorkItem(
+    input: EnqueueLiveAdmissionWorkItemInput,
+  ): Promise<LiveAdmissionWorkItemEnqueueResult> {
+    return enqueueLiveAdmissionWorkItem(this.db, input);
+  }
+
+  async claimLiveAdmissionWorkItems(
+    input: LiveAdmissionClaimInput,
+  ): Promise<LiveAdmissionWorkItem[]> {
+    return claimLiveAdmissionWorkItems(this.db, input);
+  }
+
+  async renewLiveAdmissionWorkItemClaim(
+    input: RenewLiveAdmissionWorkItemClaimInput,
+  ): Promise<boolean> {
+    return renewLiveAdmissionWorkItemClaim(this.db, input);
+  }
+
+  async deferLiveAdmissionWorkItem(input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    reason: 'queued_capacity' | 'listener_degraded' | 'retry';
+    deferUntil: string;
+    countFailure?: boolean;
+    now?: string;
+  }): Promise<boolean> {
+    return deferLiveAdmissionWorkItem(this.db, input);
+  }
+
+  async settleLiveAdmissionWorkItem(input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    state: Extract<
+      LiveAdmissionWorkItem['state'],
+      'completed' | 'failed' | 'canceled'
+    >;
+    now?: string;
+  }): Promise<boolean> {
+    return settleLiveAdmissionWorkItem(this.db, input);
+  }
 
   async claimLiveTurn(input: {
     id: string;
@@ -476,38 +520,57 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     now?: string;
   }): Promise<LiveTurn[]> {
     const now = input.now ?? currentIso();
+    const limit = Math.max(1, Math.floor(input.limit));
+    const candidateLimit = limit * 4;
     const turns = pgSchema.liveTurnsPostgres;
     const leases = pgSchema.runLeasesPostgres;
-    const rows = await this.db
-      .select()
+    const lostOwnerCandidates = await this.db
+      .select({ id: turns.id, updatedAt: turns.updatedAt })
       .from(turns)
       .where(
         and(
           notInArray(turns.state, TERMINAL_STATES),
-          or(
-            // Owner lost: the turn has a run but no live lease for it.
-            and(
-              sql`${turns.runId} IS NOT NULL`,
-              sql`${turns.leaseToken} IS NOT NULL`,
-              sql`${turns.fencingVersion} IS NOT NULL`,
-              sql`NOT EXISTS (
+          // Owner lost: the turn has a run but no live lease for it.
+          sql`${turns.runId} IS NOT NULL`,
+          sql`${turns.leaseToken} IS NOT NULL`,
+          sql`${turns.fencingVersion} IS NOT NULL`,
+          sql`NOT EXISTS (
                 SELECT 1 FROM ${leases}
                 WHERE ${leases.runId} = ${turns.runId}
                   AND ${leases.status} = 'active'
                   AND ${leases.expiresAt} > ${now}
               )`,
-            ),
-            // Never leased: the claim crashed before lease attach.
-            and(
-              isNull(turns.leaseToken),
-              lte(turns.updatedAt, input.unleasedStaleBefore),
-            ),
-          ),
         ),
       )
       .orderBy(asc(turns.updatedAt))
-      .limit(Math.max(1, Math.floor(input.limit)));
-    return rows.map(toLiveTurn);
+      .limit(candidateLimit);
+    const unleasedCandidates = await this.db
+      .select({ id: turns.id, updatedAt: turns.updatedAt })
+      .from(turns)
+      .where(
+        and(
+          notInArray(turns.state, TERMINAL_STATES),
+          // Never leased: the claim crashed before lease attach.
+          isNull(turns.leaseToken),
+          lte(turns.updatedAt, input.unleasedStaleBefore),
+        ),
+      )
+      .orderBy(asc(turns.updatedAt))
+      .limit(candidateLimit);
+    const candidateIds = [...lostOwnerCandidates, ...unleasedCandidates]
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
+      .slice(0, limit)
+      .map((candidate) => candidate.id);
+    if (candidateIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(turns)
+      .where(inArray(turns.id, candidateIds));
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    return candidateIds
+      .map((id) => rowsById.get(id))
+      .filter((row): row is LiveTurnRow => row !== undefined)
+      .map(toLiveTurn);
   }
 
   async getOldestWaitingLiveAdmission(input: {
@@ -519,51 +582,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     waitingSince: string;
     ageSeconds: number;
   } | null> {
-    if (input.conversationJids.length === 0) return null;
-    const now = input.now ?? currentIso();
-    // messages.conversation_id is `conversation:<jid>`; live_turns.conversation_id
-    // is the raw jid. A message waits when no non-terminal turn covers its
-    // conversation AND it arrived after the conversation's latest turn
-    // high-water mark (terminal turns bound by ended_at: continuations handled
-    // mid-turn are newer than created_at yet covered). Conversation-level on
-    // purpose — reverse-parsing canonical thread ids is fragile.
-    const prefixed = sql.join(
-      input.conversationJids.map((jid) => sql`${`conversation:${jid}`}`),
-      sql`, `,
-    );
-    const result = await this.db.execute<{
-      conversation_id: string;
-      waiting_since: string;
-      age_seconds: number;
-    }>(sql`
-      SELECT m.conversation_id,
-             m.created_at AS waiting_since,
-             floor(extract(epoch FROM (${now}::timestamptz - m.created_at)))::int AS age_seconds
-      FROM messages m
-      WHERE m.conversation_id IN (${prefixed})
-        AND m.direction = 'inbound'
-        AND NOT EXISTS (
-          SELECT 1 FROM live_turns lt
-          WHERE 'conversation:' || lt.conversation_id = m.conversation_id
-            AND lt.state NOT IN ('completed', 'failed', 'timed_out')
-        )
-        AND m.created_at > COALESCE(
-          (SELECT max(COALESCE(lt2.ended_at, lt2.updated_at, lt2.created_at))
-           FROM live_turns lt2
-           WHERE 'conversation:' || lt2.conversation_id = m.conversation_id),
-          '-infinity'::timestamptz
-        )
-      ORDER BY m.created_at ASC
-      LIMIT 1
-    `);
-    const row = result.rows[0];
-    if (!row) return null;
-    return {
-      conversationJid: row.conversation_id.replace(/^conversation:/, ''),
-      threadId: null,
-      waitingSince: String(row.waiting_since),
-      ageSeconds: Number(row.age_seconds) || 0,
-    };
+    return queryOldestWaitingLiveAdmission(this.db, input);
   }
 
   async appendLiveTurnCommand(input: {
@@ -576,7 +595,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
     now?: string;
   }): Promise<LiveTurnCommandAppendResult> {
     const now = input.now ?? currentIso();
-    const existing = await this.findCommandByIdempotencyKey({
+    const existing = await findLiveTurnCommandByIdempotencyKey(this.db, {
       liveTurnId: input.liveTurnId,
       idempotencyKey: input.idempotencyKey,
     });
@@ -629,7 +648,7 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
       // transaction back (including the seq bump) via the unique index;
       // return the winner's command.
       if (!isUniqueViolation(err)) throw err;
-      const winner = await this.findCommandByIdempotencyKey({
+      const winner = await findLiveTurnCommandByIdempotencyKey(this.db, {
         liveTurnId: input.liveTurnId,
         idempotencyKey: input.idempotencyKey,
       });
@@ -747,24 +766,5 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
       )
       .returning({ id: commands.id });
     return rows.length > 0;
-  }
-
-  private async findCommandByIdempotencyKey(input: {
-    liveTurnId: string;
-    idempotencyKey: string;
-  }): Promise<LiveTurnCommand | null> {
-    const commands = pgSchema.liveTurnCommandsPostgres;
-    const rows = await this.db
-      .select()
-      .from(commands)
-      .where(
-        and(
-          eq(commands.liveTurnId, input.liveTurnId),
-          eq(commands.idempotencyKey, input.idempotencyKey),
-        ),
-      )
-      .limit(1);
-    const row = rows[0];
-    return row ? toLiveTurnCommand(row) : null;
   }
 }

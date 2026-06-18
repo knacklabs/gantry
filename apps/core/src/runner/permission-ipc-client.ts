@@ -2,16 +2,17 @@ import fs from 'fs';
 import path from 'path';
 import { createHmac, randomUUID, verify as cryptoVerify } from 'node:crypto';
 
-import { nowIso, nowMs, sleep } from '../shared/time/datetime.js';
+import { nowIso, nowMs } from '../shared/time/datetime.js';
 import { formatDuration } from '../shared/human-format.js';
 import { isPlainObject } from '../shared/object.js';
 import { persistentPermissionUpdates } from '../shared/permission-tool-rules.js';
 import { canonicalJson } from '../shared/canonical-json.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
+import { waitForIpcResponseFile } from './ipc-response-wait.js';
 
 // Provider-neutral file-IPC permission-approval client. Writes a signed
 // permission-request JSON under <workspaceIpcDir>/permission-requests/<id>.json
-// and polls <workspaceIpcDir>/permission-responses/ for the host's signed
+// and waits on <workspaceIpcDir>/permission-responses/ for the host's signed
 // decision. The HOST side (apps/core/src/runtime/ipc.ts) watches these dirs and
 // creates the durable `pending_interactions` row (idempotency-keyed) BEFORE the
 // provider prompt renders — so any runner that writes this file inherits the
@@ -176,16 +177,13 @@ export async function requestPermissionApprovalViaIpc(
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
     const deadline = nowMs() + env.permissionRequestTimeoutMs;
-    while (nowMs() < deadline) {
-      if (fs.existsSync(responsePath)) {
-        return readPermissionResponse({
-          responsePath,
-          requestId,
-          responseNonce,
-          verifyKey: env.ipcResponseVerifyKey,
-        });
-      }
-      await sleep(100);
+    if (await waitForIpcResponseFile({ responsePath, deadlineMs: deadline })) {
+      return readPermissionResponse({
+        responsePath,
+        requestId,
+        responseNonce,
+        verifyKey: env.ipcResponseVerifyKey,
+      });
     }
     return {
       approved: false,

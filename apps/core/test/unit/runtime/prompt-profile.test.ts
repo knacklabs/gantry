@@ -241,6 +241,11 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('request_access target.kind=capability');
     expect(prompt).toContain('Credential Center');
     expect(prompt).toContain('admin_permission_list');
+    expect(prompt).toContain('pending -> inProgress -> completed');
+    expect(prompt).toContain(
+      'Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
+    );
+    expect(prompt).not.toContain('pending -> in_progress -> completed');
 
     // No stale tool names leak into the compiled prompt.
     for (const stale of [
@@ -369,7 +374,7 @@ describe('PromptProfileService', () => {
       'mcp_list_tools and used through mcp_call_tool',
     );
     expect(prompt).toContain(
-      'When capability_status shows an MCP source as ready, inspect it with mcp_list_tools and call approved actions with mcp_call_tool instead of requesting the same access again',
+      'When capability_status shows an MCP source as ready, inspect it with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, and call approved actions with mcp_call_tool instead of requesting the same access again',
     );
     expect(prompt).toContain(
       'instead of requesting the same access again or using command/browser fallback',

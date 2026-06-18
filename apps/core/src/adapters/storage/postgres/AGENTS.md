@@ -67,3 +67,6 @@
   provider-native rows such as `Read`, `Write`, `Bash`, `Agent`, `Glob`,
   `Grep`, or `WebFetch`; those belong inside execution adapter per-run harness
   projections.
+- Display-only agent todo state is not Postgres lifecycle state. Do not add
+  `todo_update` tables, delegated-task tables, provider task id correlation, or
+  read/cancel indexes until a real delegated executor and read model exist.

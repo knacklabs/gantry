@@ -8,6 +8,9 @@ import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-reference
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
   RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+  RUNTIME_EVENT_TYPES.TASK_STARTED,
+  RUNTIME_EVENT_TYPES.TASK_PROGRESS,
+  RUNTIME_EVENT_TYPES.TASK_UPDATED,
   RUNTIME_EVENT_TYPES.TASK_NOTIFICATION,
   RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
   RUNTIME_EVENT_TYPES.PERMISSION_ALLOWED,
@@ -17,6 +20,7 @@ export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
   RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
   RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
+  RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC,
 ]);
 
 export interface JobRunDiagnostics {
@@ -32,6 +36,7 @@ export interface JobRunDiagnostics {
     mode: string;
     recoveryAction?: string;
   }>;
+  startupDiagnostics: Record<string, unknown>[];
   latestStreamedOutputChars: number;
   totalStreamedOutputChars: number;
   lastActivityAt?: string;
@@ -103,6 +108,7 @@ export function createJobRunDiagnostics(): JobRunDiagnostics {
     totalToolCalls: 0,
     browserActivityCount: 0,
     transientPermissionApprovals: [],
+    startupDiagnostics: [],
     latestStreamedOutputChars: 0,
     totalStreamedOutputChars: 0,
   };
@@ -130,6 +136,10 @@ export function updateDiagnosticsFromRuntimeEvent(
       numberValue(payload.totalToolCalls) ?? diagnostics.totalToolCalls;
     diagnostics.lastActivityAt =
       stringValue(payload.lastActivityAt) ?? diagnostics.lastActivityAt;
+    return;
+  }
+  if (eventType === RUNTIME_EVENT_TYPES.RUN_STARTUP_DIAGNOSTIC) {
+    diagnostics.startupDiagnostics.push(startupDiagnosticSummary(payload));
     return;
   }
   if (eventType !== RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY) return;
@@ -243,6 +253,7 @@ export function terminalDiagnosticsPayload(
     pending_permission_count: diagnostics.pendingPermissionRequests,
     pending_permission_tools: diagnostics.pendingPermissionToolNames,
     transient_permission_approvals: diagnostics.transientPermissionApprovals,
+    startup_diagnostics: diagnostics.startupDiagnostics,
     total_tool_calls: diagnostics.totalToolCalls,
     browser_activity_count: diagnostics.browserActivityCount,
     latest_streamed_output_chars: diagnostics.latestStreamedOutputChars,
@@ -261,6 +272,9 @@ export function formatTerminalDiagnostics(
   return [
     `lastTool=${diagnostics.lastTool ?? diagnostics.currentTool ?? 'none'}`,
     `pendingPermissions=${diagnostics.pendingPermissionRequests} (${pendingTools})`,
+    diagnostics.startupDiagnostics.length
+      ? `startupDiagnostics=${diagnostics.startupDiagnostics.length}`
+      : undefined,
     `totalToolCalls=${diagnostics.totalToolCalls}`,
     `browserActivity=${diagnostics.browserActivityCount}`,
     `latestStreamedOutputChars=${diagnostics.latestStreamedOutputChars}`,
@@ -305,6 +319,56 @@ function stringArrayValue(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
+}
+
+const STARTUP_DIAGNOSTIC_STRING_KEYS = new Set([
+  'provider',
+  'diagnostic',
+  'agentEngine',
+  'executionProviderId',
+  'execution_provider_id',
+  'modelProvider',
+  'modelId',
+  'endpointFamily',
+  'enableToolSearch',
+  'reason',
+  'anthropicBaseUrlKind',
+  'cacheMode',
+]);
+
+function startupDiagnosticSummary(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  return summarizeStartupDiagnosticRecord(payload, 0);
+}
+
+function summarizeStartupDiagnosticRecord(
+  source: Record<string, unknown>,
+  depth: number,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    const summarized = summarizeStartupDiagnosticValue(key, value, depth);
+    if (summarized !== undefined) out[key] = summarized;
+  }
+  return out;
+}
+
+function summarizeStartupDiagnosticValue(
+  key: string,
+  value: unknown,
+  depth: number,
+): unknown {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string' && STARTUP_DIAGNOSTIC_STRING_KEYS.has(key)) {
+    return value.slice(0, 200);
+  }
+  if (isRecord(value) && depth < 4) {
+    const summarized = summarizeStartupDiagnosticRecord(value, depth + 1);
+    return Object.keys(summarized).length > 0 ? summarized : undefined;
+  }
+  return undefined;
 }
 
 function isBrowserToolActivity(payload: Record<string, unknown>): boolean {

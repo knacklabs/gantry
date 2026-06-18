@@ -6,6 +6,7 @@ import { registerMessagingTools } from './tools/messaging.js';
 import { registerProfileTools } from './tools/profile.js';
 import { registerSchedulerTools } from './tools/scheduler.js';
 import { registerServiceTools } from './tools/service.js';
+import { registerTaskLifecycleTools } from './tools/task-lifecycle.js';
 import {
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   parseEnabledGantryMcpToolNames,
@@ -78,6 +79,7 @@ export function createGantryMcpServer(): McpServer {
 
   registerMessagingTools(filteredServer);
   registerSchedulerTools(filteredServer);
+  registerTaskLifecycleTools(filteredServer);
   registerMemoryTools(filteredServer);
   registerBrowserTools(filteredServer);
   registerFileTools(filteredServer);

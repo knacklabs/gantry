@@ -11,6 +11,9 @@ import {
   parseSessionScopeKey,
 } from './app-memory-session-scope.js';
 
+type HydrationMode = 'first_visible' | 'full';
+const FIRST_VISIBLE_STATEMENT_TIMEOUT_MS = 250;
+
 function directUserCandidates(session: AgentSession): string[] {
   const sessionScope = parseSessionScopeKey({ session });
   const sessionUserId = session.userId?.trim();
@@ -50,7 +53,12 @@ function resolveSessionHydrationScopes(input: {
 async function loadScopedMemoryRows(
   memoryService: AppMemoryService,
   scope: AppMemorySearchInput,
-  input: { limit: number; query?: string },
+  input: {
+    limit: number;
+    query?: string;
+    hydrationMode?: HydrationMode;
+    statementTimeoutMs?: number;
+  },
 ) {
   const rows: Awaited<ReturnType<typeof memoryService.list>> = [];
   const seenIds = new Set<string>();
@@ -66,22 +74,46 @@ async function loadScopedMemoryRows(
     }
   };
   const query = input.query?.trim();
+  const readOptions = hydrationReadOptions(input);
   if (query) {
-    const searchRows = await memoryService.searchForHydrationReadOnly({
+    const searchInput = {
       ...scope,
       query,
       limit: input.limit,
-    });
+    };
+    const searchRows = readOptions
+      ? await memoryService.searchForHydrationReadOnly(searchInput, {
+          ...readOptions,
+          ...(input.hydrationMode === 'first_visible'
+            ? { allowEmbeddings: false }
+            : {}),
+        })
+      : await memoryService.searchForHydrationReadOnly(searchInput);
     pushRows(searchRows.map((result) => result.item));
   }
   if (rows.length < input.limit) {
-    const listRows = await memoryService.listForHydrationReadOnly({
+    const listInput = {
       ...scope,
       limit: input.limit,
-    });
+    };
+    const listRows = readOptions
+      ? await memoryService.listForHydrationReadOnly(listInput, readOptions)
+      : await memoryService.listForHydrationReadOnly(listInput);
     pushRows(listRows);
   }
   return rows;
+}
+
+function hydrationReadOptions(input: {
+  hydrationMode?: HydrationMode;
+  statementTimeoutMs?: number;
+}): { statementTimeoutMs: number } | undefined {
+  const statementTimeoutMs =
+    input.statementTimeoutMs ??
+    (input.hydrationMode === 'first_visible'
+      ? FIRST_VISIBLE_STATEMENT_TIMEOUT_MS
+      : undefined);
+  return statementTimeoutMs ? { statementTimeoutMs } : undefined;
 }
 
 function itemMatchesHydrationScope(
@@ -101,6 +133,8 @@ export async function loadSessionAppMemoryItems(input: {
   limit: number;
   conversationKind?: string;
   query?: string;
+  hydrationMode?: HydrationMode;
+  statementTimeoutMs?: number;
 }): Promise<
   Array<{
     id: string;
@@ -119,6 +153,8 @@ export async function loadSessionAppMemoryItems(input: {
     const nextRows = await loadScopedMemoryRows(memoryService, scope, {
       limit: Math.max(1, input.limit - rows.length),
       query: input.query,
+      hydrationMode: input.hydrationMode,
+      statementTimeoutMs: input.statementTimeoutMs,
     });
     for (const row of nextRows) {
       if (seenIds.has(row.id)) continue;

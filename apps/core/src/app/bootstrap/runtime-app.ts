@@ -3,6 +3,7 @@ import {
   getCredentialBrokerRuntimeConfig,
   getRuntimeQueueConfig,
   getRuntimeSettingsForConfig,
+  getSelectedAgentHarness,
 } from '../../config/index.js';
 import {
   createAgentCredentialBroker,
@@ -518,6 +519,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     opsRepository: options.opsRepository,
     getRuntimeRepository: ops,
     queue: {
+      enqueueMessageCheck: (chatJid) => queue.enqueueMessageCheck(chatJid),
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
       notifyIdle: (chatJid) => queue.notifyIdle(chatJid),
       stopGroup: (chatJid) => queue.stopGroup(chatJid),
@@ -560,6 +562,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     runnerSandboxProvider,
     getConfiguredModelProviders: getConfiguredModelProvidersForApp,
     getModelFamilyOrder: () => getRuntimeSettingsForConfig().modelFamilies,
+    getSelectedAgentHarness,
   });
 
   return {

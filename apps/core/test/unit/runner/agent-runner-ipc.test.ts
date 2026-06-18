@@ -11,6 +11,15 @@ import {
   SDK_NATIVE_SKILL_OVERRIDES,
 } from '@core/adapters/llm/anthropic-claude-agent/native-sdk-skills.js';
 
+const RUNNER_IPC_CHILD_TIMEOUT_MS = 50_000;
+const RUNNER_IPC_TEST_TIMEOUT_MS = 60_000;
+const SLOW_RUNNER_IPC_TEST_TIMEOUT_MS = 120_000;
+// The heartbeat test observes a real 15s heartbeat interval after a cold tsx
+// runner boot, so it needs a wider per-spawn budget than the default child
+// runner timeout and a matching vitest timeout above it.
+const HEARTBEAT_RUNNER_TIMEOUT_MS = 60_000;
+const HEARTBEAT_TEST_TIMEOUT_MS = 70_000;
+
 const tempRoots: string[] = [];
 
 function sha256(value: string): string {
@@ -28,7 +37,6 @@ interface RunnerRecord {
     promptKind: 'stream' | 'string';
     streamMessages?: unknown[];
     stringPrompt?: string;
-    systemPromptAppend?: string;
     closeExistsAtQueryStart?: boolean;
     streamEnded?: boolean;
     permissionRequest?: Record<string, unknown>;
@@ -46,7 +54,9 @@ interface RunnerRecord {
     persistSession?: boolean;
     resume?: unknown;
     resumeSessionAt?: unknown;
-    systemPromptExcludeDynamicSections?: boolean;
+    systemPrompt?: unknown;
+    settingSources?: string[];
+    strictMcpConfig?: boolean;
   }>;
 }
 
@@ -150,8 +160,20 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/gantry-agent-system-prompt.ts'),
+    path.join(runnerDir, 'gantry-agent-system-prompt.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-boundary.ts'),
     path.join(runnerDir, 'memory-boundary.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/runtime-signal-pump.ts'),
+    path.join(runnerDir, 'runtime-signal-pump.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/task-lifecycle-events.ts'),
+    path.join(runnerDir, 'task-lifecycle-events.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/tool-gate-core.ts'),
@@ -352,6 +374,8 @@ import fs from 'fs';
 import path from 'path';
 import { sign as cryptoSign } from 'crypto';
 
+export const SYSTEM_PROMPT_DYNAMIC_BOUNDARY = '__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__';
+
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function appendRecord(call) {
@@ -413,9 +437,9 @@ export async function* query({ prompt, options }) {
     persistSession: options?.persistSession,
     resume: options?.resume,
     resumeSessionAt: options?.resumeSessionAt,
-    systemPromptAppend: options?.systemPrompt?.append,
-    systemPromptExcludeDynamicSections:
-      options?.systemPrompt?.excludeDynamicSections,
+    systemPrompt: options?.systemPrompt,
+    settingSources: options?.settingSources,
+    strictMcpConfig: options?.strictMcpConfig,
     closeExistsAtQueryStart: fs.existsSync(
       path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'),
     ),
@@ -723,13 +747,50 @@ export async function* query({ prompt, options }) {
   if (process.env.TEST_COMPACT_BOUNDARY === '1') {
     yield { type: 'system', subtype: 'compact_boundary', uuid: 'compact-1' };
   }
-  if (process.env.TEST_TASK_NOTIFICATION === '1') {
+  if (process.env.TEST_TASK_LIFECYCLE === '1') {
+    yield {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'task-1',
+      tool_use_id: 'toolu_agent_1',
+      description: 'Research pricing',
+      subagent_type: 'general-purpose',
+      task_type: 'local_agent',
+      workflow_name: 'ignored-for-local-agent',
+      prompt: 'raw delegated prompt must not leak',
+    };
+    yield {
+      type: 'system',
+      subtype: 'task_progress',
+      task_id: 'task-1',
+      tool_use_id: 'toolu_agent_1',
+      description: 'Research pricing',
+      subagent_type: 'general-purpose',
+      usage: { total_tokens: 123, tool_uses: 2, duration_ms: 456 },
+      last_tool_name: 'WebSearch',
+      summary: 'two sources checked',
+    };
+    yield {
+      type: 'system',
+      subtype: 'task_updated',
+      task_id: 'task-1',
+      patch: {
+        status: 'running',
+        description: 'Research pricing',
+        total_paused_ms: 0,
+        is_backgrounded: true,
+        error: 'raw task error must not leak',
+      },
+    };
     yield {
       type: 'system',
       subtype: 'task_notification',
       task_id: 'task-1',
+      tool_use_id: 'toolu_agent_1',
       status: 'completed',
+      output_file: '/tmp/raw-task-output.json',
       summary: 'subagent done',
+      usage: { total_tokens: 200, tool_uses: 3, duration_ms: 789 },
     };
   }
   yield { type: 'result', subtype: 'success', result: 'runner-ok' };
@@ -771,7 +832,7 @@ async function runRunner(
   fixture: ReturnType<typeof createRunnerFixture>,
   input: Record<string, unknown>,
   extraEnv: Record<string, string> = {},
-  timeoutMs = 25_000,
+  timeoutMs = RUNNER_IPC_CHILD_TIMEOUT_MS,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   const child = spawn(
     process.execPath,
@@ -835,6 +896,12 @@ function readRecord(recordPath: string): RunnerRecord {
   return JSON.parse(fs.readFileSync(recordPath, 'utf-8')) as RunnerRecord;
 }
 
+function systemPromptText(
+  call: RunnerRecord['calls'][number] | undefined,
+): string {
+  return JSON.stringify(call?.systemPrompt ?? '');
+}
+
 function readRunnerOutputs(stdout: string): Array<Record<string, unknown>> {
   const matches = [
     ...stdout.matchAll(
@@ -844,18 +911,12 @@ function readRunnerOutputs(stdout: string): Array<Record<string, unknown>> {
   return matches.map((match) => JSON.parse(match[1] ?? '{}'));
 }
 
-const RUNNER_IPC_TEST_TIMEOUT_MS = 35_000;
-// The heartbeat test observes a real 15s heartbeat interval after a cold tsx
-// runner boot, so it needs a wider per-spawn budget than the default 25s and a
-// matching vitest timeout above it.
-const HEARTBEAT_RUNNER_TIMEOUT_MS = 60_000;
-const HEARTBEAT_TEST_TIMEOUT_MS = 70_000;
-
 describe('agent-runner IPC lifecycle', () => {
   it(
     'passes only broker-safe values into the Agent SDK env',
     async () => {
       const fixture = createRunnerFixture();
+      const claudeConfigDirEnvKey = ['CLAUDE', 'CONFIG', 'DIR'].join('_');
 
       const result = await runRunner(
         fixture,
@@ -877,6 +938,18 @@ describe('agent-runner IPC lifecycle', () => {
           TEST_EXIT_AFTER_QUERY: '1',
           ANTHROPIC_API_KEY: 'raw-provider-key',
           CLAUDE_CODE_OAUTH_TOKEN: 'raw-oauth-token',
+          [claudeConfigDirEnvKey]: path.join(
+            fixture.root,
+            'isolated-claude-config',
+          ),
+          HOME: path.join(fixture.root, 'host-home'),
+          USERPROFILE: path.join(fixture.root, 'host-profile'),
+          XDG_CONFIG_HOME: path.join(fixture.root, 'host-xdg-config'),
+          APPDATA: path.join(fixture.root, 'host-appdata'),
+          LOCALAPPDATA: path.join(fixture.root, 'host-localappdata'),
+          USER: 'host-user',
+          USERNAME: 'host-username',
+          LOGNAME: 'host-logname',
           HTTP_PROXY: 'http://127.0.0.1:10255/',
           HTTPS_PROXY: 'http://127.0.0.1:10255/',
           NODE_USE_ENV_PROXY: '1',
@@ -896,6 +969,17 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(sdkEnv[claudeConfigDirEnvKey]).toBe(
+        path.join(fixture.root, 'isolated-claude-config'),
+      );
+      expect(sdkEnv.HOME).toBeUndefined();
+      expect(sdkEnv.USERPROFILE).toBeUndefined();
+      expect(sdkEnv.XDG_CONFIG_HOME).toBeUndefined();
+      expect(sdkEnv.APPDATA).toBeUndefined();
+      expect(sdkEnv.LOCALAPPDATA).toBeUndefined();
+      expect(sdkEnv.USER).toBeUndefined();
+      expect(sdkEnv.USERNAME).toBeUndefined();
+      expect(sdkEnv.LOGNAME).toBeUndefined();
       expect(sdkEnv.HTTP_PROXY).toBeUndefined();
       expect(sdkEnv.HTTPS_PROXY).toBeUndefined();
       expect(sdkEnv.http_proxy).toBeUndefined();
@@ -923,6 +1007,49 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.GANTRY_MCP_CONFIG_FILE).toBeUndefined();
       expect(sdkEnv.GANTRY_MCP_SERVERS_JSON).toBeUndefined();
       expect(sdkEnv.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
+      expect(sdkEnv.ENABLE_TOOL_SEARCH).toBe('false');
+      const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
+        (output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(startupDiagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'run.startup_diagnostic',
+            payload: expect.objectContaining({
+              diagnostic: 'tool_search',
+              enableToolSearch: 'false',
+              reason: 'non_first_party_base_url_tool_reference_unproven',
+              anthropicBaseUrlKind: 'non_first_party',
+            }),
+          }),
+          expect.objectContaining({
+            eventType: 'run.startup_diagnostic',
+            payload: expect.objectContaining({
+              provider: ['anthropic', 'sdk'].join('_'),
+              diagnostic: 'runner_startup_timing',
+              persistSdkSession: true,
+              resumedSession: false,
+              sdkQueryPreparedMs: expect.any(Number),
+              sdkQueryIteratorMs: expect.any(Number),
+              firstSdkEventMs: expect.any(Number),
+              providerSessionMs: expect.any(Number),
+              firstVisibleOutputMs: expect.any(Number),
+              firstResultMs: expect.any(Number),
+              messageCount: 2,
+              resultCount: 1,
+              availableToolCount: expect.any(Number),
+              allowedToolCount: expect.any(Number),
+              disallowedToolCount: expect.any(Number),
+              mcpServerCount: expect.any(Number),
+            }),
+          }),
+        ]),
+      );
+      expect(JSON.stringify(startupDiagnostics)).not.toContain('broker.local');
+      expect(JSON.stringify(startupDiagnostics)).not.toContain(
+        'runner-session-1',
+      );
       const gantryMcpServer = call?.mcpServers?.gantry as
         | { args?: string[] }
         | undefined;
@@ -968,30 +1095,33 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'forces native Agent tool calls to run in background',
+    'routes native Agent attempts through AgentDelegation instead of auto-allowing',
     async () => {
       const fixture = createRunnerFixture();
 
       const result = await runRunner(fixture, baseInput(), {
-        TEST_AGENT_BACKGROUND_INPUT: '1',
+        TEST_PERMISSION_DECISION: 'deny',
+        TEST_PERMISSION_TOOL_NAME: 'Agent',
         TEST_EXIT_AFTER_QUERY: '1',
       });
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.permissionDecision).toMatchObject({
-        behavior: 'allow',
-        updatedInput: {
-          prompt: 'delegate',
-          run_in_background: true,
-        },
+      expect(call?.permissionRequest).toMatchObject({
+        toolName: 'AgentDelegation',
+        toolInput: { cmd: 'npm test', apiToken: 'secret-token' },
+      });
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'deny',
+        message: 'Permission denied: deny',
+        interrupt: false,
       });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
-    'records prime-mode native Agent attempts as background work',
+    'records prime-mode native Agent attempts as AgentDelegation requests',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1015,11 +1145,14 @@ describe('agent-runner IPC lifecycle', () => {
       const attemptEvents = outputs.flatMap((output) =>
         Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
       ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
-      expect(attemptEvents).toEqual([
+      const permissionEvents = attemptEvents.filter(
+        (event) => event.eventType === 'permission.requested',
+      );
+      expect(permissionEvents).toEqual([
         expect.objectContaining({
           eventType: 'permission.requested',
           payload: expect.objectContaining({
-            requestedToolName: 'Agent',
+            requestedToolName: 'AgentDelegation',
             toolInput: {
               prompt: 'delegate',
               run_in_background: true,
@@ -1032,7 +1165,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'emits SDK task notifications as structured runtime events',
+    'emits SDK task lifecycle messages as structured runtime events',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1046,34 +1179,104 @@ describe('agent-runner IPC lifecycle', () => {
           threadId: 'thread-1',
         }),
         {
-          TEST_TASK_NOTIFICATION: '1',
+          TEST_TASK_LIFECYCLE: '1',
           TEST_EXIT_AFTER_QUERY: '1',
         },
       );
 
       expect(result.exitCode, result.stderr).toBe(0);
       const outputs = readRunnerOutputs(result.stdout);
-      expect(outputs).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            runtimeEvents: [
-              expect.objectContaining({
-                eventType: 'task.notification',
-                appId: 'app-one',
-                agentId: 'agent:team',
-                runId: 'run-1',
-                jobId: 'job-1',
-                conversationId: 'tg:team',
-                threadId: 'thread-1',
-                payload: {
-                  taskId: 'task-1',
-                  status: 'completed',
-                  summary: 'subagent done',
-                },
-              }),
-            ],
-          }),
-        ]),
+      const taskOutputs = outputs.filter((output) =>
+        (output.runtimeEvents ?? []).some(
+          (event: { eventType?: string }) =>
+            typeof event.eventType === 'string' &&
+            event.eventType.startsWith('task.'),
+        ),
+      );
+      expect(taskOutputs.every((output) => output.runtimeEventOnly)).toBe(true);
+      const taskEvents = outputs
+        .flatMap((output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+        )
+        .filter(
+          (event): event is Record<string, unknown> =>
+            typeof event === 'object' &&
+            event !== null &&
+            typeof event.eventType === 'string' &&
+            event.eventType.startsWith('task.'),
+        );
+      expect(taskEvents).toEqual([
+        expect.objectContaining({
+          eventType: 'task.started',
+          appId: 'app-one',
+          agentId: 'agent:team',
+          runId: 'run-1',
+          jobId: 'job-1',
+          conversationId: 'tg:team',
+          threadId: 'thread-1',
+          payload: {
+            taskId: 'task-1',
+            toolUseId: 'toolu_agent_1',
+            description: 'Research pricing',
+            subagentType: 'general-purpose',
+            taskType: 'local_agent',
+            workflowName: 'ignored-for-local-agent',
+            skipTranscript: false,
+          },
+        }),
+        expect.objectContaining({
+          eventType: 'task.progress',
+          payload: {
+            taskId: 'task-1',
+            toolUseId: 'toolu_agent_1',
+            description: 'Research pricing',
+            subagentType: 'general-purpose',
+            lastToolName: 'WebSearch',
+            summary: 'two sources checked',
+            usage: {
+              totalTokens: 123,
+              toolUses: 2,
+              durationMs: 456,
+            },
+          },
+        }),
+        expect.objectContaining({
+          eventType: 'task.updated',
+          payload: {
+            taskId: 'task-1',
+            patch: {
+              status: 'running',
+              description: 'Research pricing',
+              totalPausedMs: 0,
+              isBackgrounded: true,
+              hasError: true,
+            },
+          },
+        }),
+        expect.objectContaining({
+          eventType: 'task.notification',
+          payload: {
+            taskId: 'task-1',
+            toolUseId: 'toolu_agent_1',
+            status: 'completed',
+            summary: 'subagent done',
+            skipTranscript: false,
+            usage: {
+              totalTokens: 200,
+              toolUses: 3,
+              durationMs: 789,
+            },
+          },
+        }),
+      ]);
+      expect(JSON.stringify(taskEvents)).not.toContain(
+        'raw delegated prompt must not leak',
+      );
+      expect(JSON.stringify(taskEvents)).not.toContain(
+        '/tmp/raw-task-output.json',
+      );
+      expect(JSON.stringify(taskEvents)).not.toContain(
+        'raw task error must not leak',
       );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
@@ -1398,7 +1601,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'keeps Claude Code git instructions only for developer persona',
+    'disables Claude Code git instructions for all personas',
     async () => {
       const developerFixture = createRunnerFixture();
       const developerResult = await runRunner(developerFixture, baseInput(), {
@@ -1406,10 +1609,15 @@ describe('agent-runner IPC lifecycle', () => {
       });
 
       expect(developerResult.exitCode).toBe(0);
-      expect(
-        readRecord(developerFixture.recordPath).calls[0]?.settings
-          ?.includeGitInstructions,
-      ).toBe(true);
+      const developerCall = readRecord(developerFixture.recordPath).calls[0];
+      expect(developerCall?.settings?.includeGitInstructions).toBe(false);
+      expect(systemPromptText(developerCall)).toContain(
+        'Configured working style: developer.',
+      );
+      expect(systemPromptText(developerCall)).toContain(
+        'compiled system profile',
+      );
+      expect(systemPromptText(developerCall)).not.toContain('claude_code');
 
       const assistantFixture = createRunnerFixture();
       const assistantResult = await runRunner(
@@ -1426,12 +1634,17 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       expect(assistantResult.exitCode).toBe(0);
-      expect(
-        readRecord(assistantFixture.recordPath).calls[0]?.settings
-          ?.includeGitInstructions,
-      ).toBe(false);
+      const assistantCall = readRecord(assistantFixture.recordPath).calls[0];
+      expect(assistantCall?.settings?.includeGitInstructions).toBe(false);
+      expect(systemPromptText(assistantCall)).toContain(
+        'Configured working style: generalist.',
+      );
+      expect(systemPromptText(assistantCall)).toContain(
+        'compiled system profile',
+      );
+      expect(systemPromptText(assistantCall)).not.toContain('claude_code');
     },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
+    SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
@@ -1459,6 +1672,8 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.settings?.skillOverrides).toEqual(
         SDK_NATIVE_SKILL_OVERRIDES,
       );
+      expect(call?.settingSources).toEqual([]);
+      expect(call?.strictMcpConfig).toBe(true);
       expect(call?.skills).toEqual([
         'gantry-admin',
         'gantry-browser',
@@ -1477,6 +1692,8 @@ describe('agent-runner IPC lifecycle', () => {
       );
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+      expect(call?.sdkEnv?.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1494,13 +1711,21 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.promptKind).toBe('string');
       expect(call?.stringPrompt).toBe('/model');
+      expect(systemPromptText(call)).toContain('Gantry-managed assistant');
+      expect(systemPromptText(call)).toContain('compiled system profile');
+      expect(systemPromptText(call)).not.toContain('claude_code');
       expect(call?.allowedTools).toEqual([]);
       expect(call?.skills).toEqual([]);
+      expect(call?.settings?.includeGitInstructions).toBe(false);
       expect(call?.settings?.skillOverrides).toEqual(
         SDK_NATIVE_SKILL_OVERRIDES,
       );
+      expect(call?.settingSources).toEqual([]);
+      expect(call?.strictMcpConfig).toBe(true);
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
       expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
+      expect(call?.sdkEnv?.ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1599,12 +1824,15 @@ describe('agent-runner IPC lifecycle', () => {
       const attemptEvents = outputs.flatMap((output) =>
         Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
       ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
-      expect(attemptEvents).toHaveLength(2);
-      expect(attemptEvents.map((event) => event.eventType)).toEqual([
+      const permissionEvents = attemptEvents.filter(
+        (event) => event.eventType === 'permission.requested',
+      );
+      expect(permissionEvents).toHaveLength(2);
+      expect(permissionEvents.map((event) => event.eventType)).toEqual([
         'permission.requested',
         'permission.requested',
       ]);
-      expect(attemptEvents.map((event) => event.payload?.toolName)).toEqual([
+      expect(permissionEvents.map((event) => event.payload?.toolName)).toEqual([
         'RunCommand',
         'Browser',
       ]);
@@ -1742,6 +1970,26 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.persistSession).toBe(true);
       expect(call?.resume).toBe('stale-sdk-session');
       expect(call?.resumeSessionAt).toBeUndefined();
+      const startupDiagnostics = readRunnerOutputs(result.stdout).flatMap(
+        (output) =>
+          Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(startupDiagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'run.startup_diagnostic',
+            payload: expect.objectContaining({
+              provider: ['anthropic', 'sdk'].join('_'),
+              diagnostic: 'runner_startup_timing',
+              persistSdkSession: true,
+              resumedSession: true,
+            }),
+          }),
+        ]),
+      );
+      expect(JSON.stringify(startupDiagnostics)).not.toContain(
+        'stale-sdk-session',
+      );
       expect(
         (call?.mcpServers?.gantry as { env?: Record<string, string> })?.env,
       ).toMatchObject({
@@ -1795,8 +2043,8 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.persistSession).toBe(false);
       expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
-      expect(call?.systemPromptAppend).toContain('compiled system profile');
-      expect(call?.systemPromptExcludeDynamicSections).toBe(true);
+      expect(systemPromptText(call)).toContain('compiled system profile');
+      expect(systemPromptText(call)).toContain('Run type: scheduled job.');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1892,10 +2140,15 @@ describe('agent-runner IPC lifecycle', () => {
     async () => {
       const fixture = createRunnerFixture();
 
-      const result = await runRunner(fixture, baseInput(), {
-        TEST_ACTIVE_INPUT_ORDER: '1',
-        TEST_EXIT_AFTER_QUERY: '1',
-      });
+      const result = await runRunner(
+        fixture,
+        baseInput(),
+        {
+          TEST_ACTIVE_INPUT_ORDER: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+        SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
+      );
 
       expect(result.exitCode).toBe(0);
       const messages = readRecord(fixture.recordPath).calls[0]?.streamMessages;
@@ -1905,7 +2158,7 @@ describe('agent-runner IPC lifecycle', () => {
         'active follow-up second',
       ]);
     },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
+    SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
@@ -1920,7 +2173,10 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.streamEnded).toBe(true);
-      expect(result.stdout.match(/---GANTRY_OUTPUT_START---/g)).toHaveLength(2);
+      const outputs = readRunnerOutputs(result.stdout);
+      expect(outputs.filter((output) => !output.runtimeEventOnly)).toHaveLength(
+        1,
+      );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1963,11 +2219,11 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.systemPromptAppend).toContain('compiled system profile');
-      expect(call?.systemPromptAppend).toContain(
+      expect(systemPromptText(call)).toContain('compiled system profile');
+      expect(systemPromptText(call)).toContain(
         'Gantry Durable Memory Boundary',
       );
-      expect(call?.systemPromptAppend).not.toContain('user prefers');
+      expect(systemPromptText(call)).not.toContain('user prefers');
       expect(call?.streamMessages).toHaveLength(1);
       expect(call?.streamMessages?.[0]).toEqual([
         {

@@ -15,8 +15,9 @@ const mockFormatMessages = vi.fn();
 
 vi.mock('@core/config/index.js', () => ({
   getTriggerPattern: (...args: unknown[]) => mockGetTriggerPattern(...args),
+  MAX_MESSAGES_PER_PROMPT: 10,
   POLL_INTERVAL: 100,
-  MAX_MESSAGES_PER_PROMPT: 50,
+  MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
 }));
 vi.mock('@core/platform/sender-allowlist.js', () => ({
@@ -43,7 +44,11 @@ import {
   MessageLoopDeps,
   recoverPendingMessages,
 } from '@core/runtime/message-loop.js';
-import { decodeGroupMessageCursor } from '@core/shared/message-cursor.js';
+import {
+  decodeGroupMessageCursor,
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '@core/shared/message-cursor.js';
 import { ConversationRoute } from '@core/domain/types.js';
 
 function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
@@ -124,6 +129,22 @@ function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
     ...overrides,
   };
   return deps;
+}
+
+function makePendingMessage(index: number) {
+  const timestamp = new Date(Date.UTC(2024, 0, 1, 0, 0, index)).toISOString();
+  return {
+    id: String(index),
+    chat_jid: 'group@g.us',
+    sender: `user-${index}@s.whatsapp.net`,
+    content: `message ${index}`,
+    timestamp,
+    is_from_me: false,
+    message_id: `msg-${index}`,
+    reply_to_message_id: null,
+    reply_to_content: null,
+    sender_name: `User ${index}`,
+  };
 }
 
 beforeEach(() => {
@@ -255,6 +276,338 @@ describe('recoverPendingMessages', () => {
 });
 
 describe('thread queue routing', () => {
+  it('processes a durable live admission item without route-wide message polling', async () => {
+    const msg = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'hello',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: null,
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    mockGetMessagesSince.mockReturnValueOnce([msg]);
+    const enqueued: string[] = [];
+    const deps = makeDeps({
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: () => false,
+        enqueueMessageCheck: (queueJid: string) => {
+          enqueued.push(queueJid);
+          return true;
+        },
+      },
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1',
+        messageCursor: '2024-01-01T00:00:01.000Z::1',
+        senderUserId: 'user@s.whatsapp.net',
+        senderDisplayName: 'User',
+        idempotencyKey: 'provider:msg-1',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        failureCount: 0,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:01.000Z',
+        updatedAt: '2024-01-01T00:00:01.000Z',
+        claimedAt: '2024-01-01T00:00:01.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(mockGetNewMessages).not.toHaveBeenCalled();
+    expect(mockGetMessagesSince).toHaveBeenCalledOnce();
+    expect(enqueued).toEqual(['group@g.us']);
+  });
+
+  it('routes one bounded durable pending-message window and schedules the next pass', async () => {
+    const messages = Array.from({ length: 1_001 }, (_, index) =>
+      makePendingMessage(index + 1),
+    );
+    let offset = 0;
+    mockGetMessagesSince.mockImplementation((_chatJid, _cursor, limit = 50) => {
+      const batch = messages.slice(offset, offset + Number(limit));
+      offset += batch.length;
+      return batch;
+    });
+    const sendMessage = vi.fn(() => true);
+    const deps = makeDeps();
+    deps.queue.sendMessage = sendMessage;
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1001',
+        messageCursor: '2024-01-01T00:16:41.000Z::1001',
+        senderUserId: 'user-1001@s.whatsapp.net',
+        senderDisplayName: 'User 51',
+        idempotencyKey: 'provider:msg-51',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        failureCount: 0,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:51.000Z',
+        updatedAt: '2024-01-01T00:00:51.000Z',
+        claimedAt: '2024-01-01T00:00:51.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(mockGetMessagesSince).toHaveBeenCalledTimes(1);
+    expect(mockFormatMessages).toHaveBeenCalledWith(
+      messages.slice(0, 10),
+      'UTC',
+    );
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage.mock.calls[0][2]).toMatchObject({
+      cursorAfter: JSON.stringify({
+        timestamp: '2024-01-01T00:00:10.000Z',
+        id: '10',
+      }),
+    });
+    expect(deps.cursors['group@g.us']).toBe(
+      JSON.stringify({
+        timestamp: '2024-01-01T00:00:10.000Z',
+        id: '10',
+      }),
+    );
+    expect(deps.enqueued).toEqual(['group@g.us']);
+  });
+
+  it('advances handled command replay windows before requeueing', async () => {
+    const messages = Array.from({ length: 1_001 }, (_, index) =>
+      makePendingMessage(index + 1),
+    );
+    messages[0] = { ...messages[0], content: '@Andy /stop' };
+    let offset = 0;
+    mockGetMessagesSince.mockImplementation((_chatJid, _cursor, limit = 50) => {
+      const batch = messages.slice(offset, offset + Number(limit));
+      offset += batch.length;
+      return batch;
+    });
+    mockExtractSessionCommand.mockImplementation((content: string) =>
+      content.includes('/stop') ? { kind: 'stop', raw: '/stop' } : null,
+    );
+    mockIsSessionCommandAllowed.mockReturnValue(true);
+    mockIsSenderControlAllowed.mockReturnValue(true);
+    const saveState = vi.fn();
+    const handleActiveControlCommand = vi.fn(async (args) => {
+      deps.setAgentCursor(
+        args.queueJid,
+        encodeGroupMessageCursor(toGroupMessageCursor(args.message)),
+      );
+      await saveState();
+      return true;
+    });
+    const deps = makeDeps({
+      handleActiveControlCommand,
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1001',
+        messageCursor: '2024-01-01T00:16:41.000Z::1001',
+        senderUserId: 'user-1001@s.whatsapp.net',
+        senderDisplayName: 'User 51',
+        idempotencyKey: 'provider:msg-51',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        failureCount: 0,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:51.000Z',
+        updatedAt: '2024-01-01T00:00:51.000Z',
+        claimedAt: '2024-01-01T00:00:51.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(handleActiveControlCommand).toHaveBeenCalledOnce();
+    expect(decodeGroupMessageCursor(deps.cursors['group@g.us'])).toEqual({
+      timestamp: '2024-01-01T00:00:01.000Z',
+      id: '1',
+    });
+    expect(saveState).toHaveBeenCalledOnce();
+    expect(deps.enqueued).toEqual(['group@g.us']);
+  });
+
+  it('advances ignored no-trigger replay windows before requeueing', async () => {
+    const messages = Array.from({ length: 1_000 }, (_, index) => ({
+      ...makePendingMessage(index + 1),
+      content: 'no trigger here',
+    }));
+    let offset = 0;
+    mockGetMessagesSince.mockImplementation((_chatJid, _cursor, limit = 50) => {
+      const batch = messages.slice(offset, offset + Number(limit));
+      offset += batch.length;
+      return batch;
+    });
+    const saveState = vi.fn();
+    const deps = makeDeps({
+      saveState,
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1000',
+        messageCursor: '2024-01-01T00:16:40.000Z::1000',
+        senderUserId: 'user-1000@s.whatsapp.net',
+        senderDisplayName: 'User 1000',
+        idempotencyKey: 'provider:msg-1000',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        failureCount: 0,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:51.000Z',
+        updatedAt: '2024-01-01T00:00:51.000Z',
+        claimedAt: '2024-01-01T00:00:51.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(mockGetMessagesSince).toHaveBeenCalledTimes(1);
+    expect(deps.sentTo).toHaveLength(0);
+    expect(deps.enqueued).toEqual(['group@g.us']);
+    expect(decodeGroupMessageCursor(deps.cursors['group@g.us'])).toEqual({
+      timestamp: '2024-01-01T00:00:10.000Z',
+      id: '10',
+    });
+    expect(saveState).toHaveBeenCalledOnce();
+  });
+
+  it('defers durable live admission when the message queue rejects capacity', async () => {
+    const msg = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'hello',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: null,
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    mockGetMessagesSince.mockReturnValueOnce([msg]);
+    const deps = makeDeps({
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: () => false,
+        enqueueMessageCheck: () => false,
+      },
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-1',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: null,
+        queueJid: 'group@g.us',
+        messageId: 'message:group@g.us:1',
+        messageCursor: '2024-01-01T00:00:01.000Z::1',
+        senderUserId: 'user@s.whatsapp.net',
+        senderDisplayName: 'User',
+        idempotencyKey: 'provider:msg-1',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        failureCount: 0,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:01.000Z',
+        updatedAt: '2024-01-01T00:00:01.000Z',
+        claimedAt: '2024-01-01T00:00:01.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('queued_capacity');
+  });
+
   it('enqueues separate queue keys for Slack/Telegram thread messages', async () => {
     const threadA = {
       id: 1,
@@ -361,10 +714,68 @@ describe('thread queue routing', () => {
       {
         threadId: undefined,
         senderUserIds: ['sl:UADMIN', 'sl:UOTHER'],
-        idempotencyKey: 'continuation:group@g.us:1,2',
+        idempotencyKey: expect.stringMatching(/^continuation:[a-f0-9]{64}$/),
         cursorAfter: expect.any(String),
       },
     );
+  });
+
+  it('checks the replay window for triggers before advancing a stale cursor', async () => {
+    const trigger = {
+      id: '2',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: '@Andy please handle this',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      is_from_me: false,
+      message_id: 'msg-2',
+      reply_to_message_id: null,
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    const latest = {
+      ...trigger,
+      id: '3',
+      content: 'additional context',
+      timestamp: '2024-01-01T00:00:03.000Z',
+      message_id: 'msg-3',
+    };
+    mockGetNewMessages.mockReturnValueOnce({
+      messages: [latest],
+      newTimestamp: '2024-01-01T00:00:03.000Z',
+    });
+    mockGetMessagesSince.mockReturnValueOnce([trigger, latest]);
+    mockGetTriggerPattern.mockReturnValue(/^@Andy\b/i);
+
+    const sendMessage = vi.fn(() => true);
+    const deps = makeDeps({
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+      getOrRecoverCursor: () => '2024-01-01T00:00:00.000Z',
+      queue: {
+        ...makeDeps().queue,
+        sendMessage,
+      },
+    });
+    const { runMessagePollingTick } =
+      await import('@core/runtime/message-loop.js');
+
+    await runMessagePollingTick(deps);
+
+    expect(mockGetMessagesSince).toHaveBeenCalledOnce();
+    expect(mockFormatMessages).toHaveBeenCalledWith([trigger, latest], 'UTC');
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(decodeGroupMessageCursor(deps.cursors['group@g.us'])).toEqual({
+      timestamp: '2024-01-01T00:00:03.000Z',
+      id: '3',
+    });
   });
 
   it('allows untagged messages inside an already-started thread queue', async () => {

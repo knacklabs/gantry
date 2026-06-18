@@ -27,7 +27,7 @@ const commandRequest: PermissionApprovalRequest = {
 describe('buildPermissionPromptParts', () => {
   it('splits a command prompt into title, fenced body, and context', () => {
     const parts = buildPermissionPromptParts(commandRequest, 60_000);
-    expect(parts.title).toBe('Allow exact command access?');
+    expect(parts.title).toBe('Allow Main Agent to use exact command access?');
     expect(parts.bodyLines).toContain('Command:');
     expect(parts.bodyLines).toContain('npm test');
     expect(parts.bodyLines).toContain('```');
@@ -264,7 +264,7 @@ describe('buildPermissionPromptParts', () => {
       },
       60_000,
     );
-    expect(parts.title).toBe('Allow Acme records append?');
+    expect(parts.title).toBe('Allow Main Agent to use Acme records append?');
     expect(parts.bodyLines).toContain('Risk: Write');
   });
 });
@@ -310,7 +310,7 @@ describe('Telegram HTML rendering', () => {
       buildPermissionPromptParts(commandRequest, 60_000),
     );
     expect(html).toContain(
-      `<b>${PERMISSION_GLYPH} Allow exact command access?</b>`,
+      `<b>${PERMISSION_GLYPH} Allow Main Agent to use exact command access?</b>`,
     );
     expect(html).toContain('<pre>npm test</pre>');
     expect(html).not.toContain('```');
@@ -378,7 +378,7 @@ describe('Slack permission blocks', () => {
     ) as Array<Record<string, any>>;
     expect(blocks[0].type).toBe('header');
     expect(blocks[0].text.text).toBe(
-      `${PERMISSION_GLYPH} Allow exact command access?`,
+      `${PERMISSION_GLYPH} Allow Main Agent to use exact command access?`,
     );
     expect(blocks.some((b) => b.type === 'section')).toBe(true);
     const context = blocks.find((b) => b.type === 'context');

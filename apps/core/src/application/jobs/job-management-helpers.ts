@@ -1,4 +1,5 @@
 import type { Job, JobScheduleType } from '../../domain/types.js';
+import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
 import type {
@@ -39,18 +40,6 @@ export interface JobNotificationRouteApprovalDeps {
   approveJobNotificationRoutes?: (
     input: JobNotificationRouteApprovalRequest,
   ) => Promise<JobNotificationRouteApprovalDecision>;
-}
-
-export function appIdFromConversationJid(
-  conversationJid: string,
-): string | null {
-  if (!conversationJid.startsWith('app:')) return null;
-  const rest = conversationJid.slice('app:'.length);
-  const delimiterIndex = rest.indexOf(':');
-  if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
-    return null;
-  }
-  return rest.slice(0, delimiterIndex);
 }
 
 export async function resolveCanonicalAppSessionForOrigin(input: {

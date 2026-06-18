@@ -5,209 +5,81 @@ import type {
   NewMessage,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  UserQuestionRequest,
+  UserQuestionResponse,
 } from '../domain/types.js';
-import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
+import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import {
   findDurablePermissionInteractionByRequestId,
+  findDurableQuestionInteractionByRequestId,
   resolveDurablePermissionInteractionByRequestId,
+  resolveDurableQuestionAnswersByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import {
   decisionForMode,
-  formatPermissionPromptText,
   formatPermissionReceiptText,
   normalizePermissionAction,
-  permissionButtonLabel,
   permissionDecisionOptions,
 } from './permission-interaction.js';
 import { sendTeamsTextMessage } from './teams-delivery.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { readTeamsPermissionDecision } from './teams-permission-submit.js';
+import {
+  TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
+  agentTodoLines,
+  buildTeamsAgentTodoCard,
+  buildTeamsApprovalAdaptiveCard,
+  buildTeamsUserQuestionCard,
+  buildTeamsUserQuestionReceiptCard,
+  type TeamsAdaptiveCardPayload,
+} from './teams-cards.js';
+import {
+  formatTeamsUserQuestionReceipt,
+  mapTeamsUserQuestionAnswers,
+  readTeamsUserQuestionSubmit,
+  type TeamsUserQuestionSubmit,
+} from './teams-user-question.js';
+import {
+  isTeamsJid,
+  normalizeTeamsJid,
+  readTeamsCredentials,
+  teamsConversationIdFromJid,
+  type PendingTeamsPermissionPrompt,
+  type PendingTeamsUserQuestion,
+  type TeamsChannelCredentials,
+  type TeamsChannelDependencies,
+  type TeamsChannelOpts,
+  type TeamsInboundMessage,
+  type TeamsSdkClient,
+} from './teams-types.js';
 
-export const TEAMS_JID_PREFIX = 'teams:';
-export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
-  'application/vnd.microsoft.card.adaptive';
+export {
+  TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
+  buildTeamsAgentTodoCard,
+  buildTeamsApprovalAdaptiveCard,
+  buildTeamsApprovalDescriptorPayload,
+  buildTeamsUserQuestionCard,
+  buildTeamsUserQuestionReceiptCard,
+  type TeamsAdaptiveCardAction,
+  type TeamsAdaptiveCardDescriptorPayload,
+  type TeamsAdaptiveCardPayload,
+  type TeamsAdaptiveCardSubmitAction,
+} from './teams-cards.js';
+export {
+  TEAMS_JID_PREFIX,
+  isTeamsJid,
+  normalizeTeamsJid,
+  teamsConversationIdFromJid,
+  type TeamsChannelCredentials,
+  type TeamsChannelDependencies,
+  type TeamsInboundMessage,
+  type TeamsSdkClient,
+} from './teams-types.js';
 
-export interface TeamsChannelCredentials {
-  clientId: string;
-  clientSecret: string;
-  tenantId: string;
-}
-
-// Keep Microsoft SDK shapes behind this adapter-owned interface so domain,
-// application, and tests do not depend on Bot Framework or Graph SDK types.
-export interface TeamsInboundMessage {
-  conversationId: string;
-  id?: string;
-  text?: string;
-  name?: string;
-  value?: unknown;
-  from?: {
-    id?: string;
-    name?: string;
-  };
-  senderId?: string;
-  senderName?: string;
-  timestamp?: string;
-  threadId?: string;
-  replyToId?: string;
-  conversationName?: string;
-  conversationType?: string;
-}
-
-export interface TeamsSdkStartInput {
-  credentials: TeamsChannelCredentials;
-  onMessage: (message: TeamsInboundMessage) => Promise<void>;
-}
-
-export interface TeamsSdkSendResult {
-  externalMessageId?: string;
-}
-
-export interface TeamsSdkOutboundMessage {
-  conversationId: string;
-  text: string;
-  threadId?: string;
-}
-
-export interface TeamsSdkAdaptiveCardMessage {
-  conversationId: string;
-  card: TeamsAdaptiveCardPayload;
-  threadId?: string;
-}
-
-export interface TeamsSdkClient {
-  start(input: TeamsSdkStartInput): Promise<void>;
-  stop(): Promise<void>;
-  sendMessage(input: TeamsSdkOutboundMessage): Promise<TeamsSdkSendResult>;
-  sendAdaptiveCard?(
-    input: TeamsSdkAdaptiveCardMessage,
-  ): Promise<TeamsSdkSendResult>;
-}
-
-interface PendingTeamsPermissionPrompt {
-  conversationId: string;
-  sourceAgentFolder: string;
-  decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
-  approvalContextJid?: string;
-  request: PermissionApprovalRequest;
-  threadId?: string;
-  timer: ReturnType<typeof setTimeout>;
-  resolve: (decision: PermissionApprovalDecision) => void;
-  settled: boolean;
-}
-
-export interface TeamsChannelDependencies {
-  sdkClient?: TeamsSdkClient;
-  credentials?: TeamsChannelCredentials;
-}
 const TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
-export interface TeamsAdaptiveCardAction {
-  type: 'Action.Execute';
-  title: string;
-  verb: string;
-  data: {
-    action: 'permission_decision';
-    requestId: string;
-    decision: string;
-    sourceAgentFolder: string;
-    targetJid?: string;
-    threadId?: string;
-  };
-}
-export interface TeamsAdaptiveCardPayload {
-  $schema: 'http://adaptivecards.io/schemas/adaptive-card.json';
-  type: 'AdaptiveCard';
-  version: '1.5';
-  body: Array<Record<string, unknown>>;
-  actions: TeamsAdaptiveCardAction[];
-}
-export interface TeamsAdaptiveCardDescriptorPayload {
-  attachments: [
-    {
-      contentType: typeof TEAMS_ADAPTIVE_CARD_CONTENT_TYPE;
-      content: TeamsAdaptiveCardPayload;
-    },
-  ];
-}
-export function normalizeTeamsJid(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  const conversationId = trimmed.startsWith(TEAMS_JID_PREFIX)
-    ? trimmed.slice(TEAMS_JID_PREFIX.length).trim()
-    : trimmed;
-  return conversationId ? `${TEAMS_JID_PREFIX}${conversationId}` : null;
-}
-
-export function isTeamsJid(input: string): boolean {
-  return teamsConversationIdFromJid(input) !== null;
-}
-
-export function teamsConversationIdFromJid(jid: string): string | null {
-  const trimmed = jid.trim();
-  if (!trimmed.startsWith(TEAMS_JID_PREFIX)) return null;
-  const conversationId = trimmed.slice(TEAMS_JID_PREFIX.length).trim();
-  return conversationId || null;
-}
-
-export function buildTeamsApprovalAdaptiveCard(
-  request: PermissionApprovalRequest,
-): TeamsAdaptiveCardPayload {
-  const promptText = formatPermissionPromptText(
-    request,
-    TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS,
-  );
-  const body: Array<Record<string, unknown>> = [
-    {
-      type: 'TextBlock',
-      size: 'Medium',
-      weight: 'Bolder',
-      text: 'Permission request',
-      wrap: true,
-    },
-    {
-      type: 'TextBlock',
-      text: promptText,
-      wrap: true,
-    },
-  ];
-
-  return {
-    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
-    type: 'AdaptiveCard',
-    version: '1.5',
-    body,
-    actions: permissionDecisionOptions(request).map((mode) => ({
-      type: 'Action.Execute',
-      title: permissionButtonLabel(mode, request),
-      verb:
-        mode === 'cancel'
-          ? 'gantry.permission.cancel'
-          : 'gantry.permission.allow',
-      data: {
-        action: 'permission_decision',
-        requestId: request.requestId,
-        decision: mode,
-        sourceAgentFolder: request.sourceAgentFolder,
-        targetJid: request.targetJid,
-        threadId: request.threadId,
-      },
-    })),
-  };
-}
-
-export function buildTeamsApprovalDescriptorPayload(
-  request: PermissionApprovalRequest,
-): TeamsAdaptiveCardDescriptorPayload {
-  return {
-    attachments: [
-      {
-        contentType: TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
-        content: buildTeamsApprovalAdaptiveCard(request),
-      },
-    ],
-  };
-}
+const TEAMS_USER_QUESTION_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
@@ -218,13 +90,18 @@ export class TeamsChannel implements ChannelAdapter {
     string,
     PendingTeamsPermissionPrompt
   >();
+  private readonly pendingTodos = new Map<
+    string,
+    { conversationId: string; messageId?: string }
+  >();
+  private readonly pendingUserQuestions = new Map<
+    string,
+    PendingTeamsUserQuestion
+  >();
 
   constructor(
     private readonly credentials: TeamsChannelCredentials,
-    private readonly opts: Pick<
-      ChannelOpts,
-      'onMessage' | 'onChatMetadata' | 'isControlApproverAllowed'
-    >,
+    private readonly opts: TeamsChannelOpts,
     private readonly sdkClient: TeamsSdkClient,
   ) {}
 
@@ -247,7 +124,15 @@ export class TeamsChannel implements ChannelAdapter {
         if (!jid) return;
         const sender = message.senderId || message.from?.id || 'unknown';
         const senderName = message.senderName || message.from?.name || sender;
-        await this.handlePermissionDecision(message, jid, sender, senderName);
+        const handledPermission = await this.handlePermissionDecision(
+          message,
+          jid,
+          sender,
+          senderName,
+        );
+        if (!handledPermission) {
+          await this.handleUserQuestionSubmit(message, jid, sender, senderName);
+        }
       },
     });
     this.connected = true;
@@ -273,6 +158,13 @@ export class TeamsChannel implements ChannelAdapter {
         reason: 'Teams channel disconnected',
       });
     }
+    for (const requestId of this.pendingUserQuestions.keys()) {
+      await this.resolvePendingUserQuestion(requestId, {
+        requestId,
+        answers: {},
+        answeredBy: 'system',
+      });
+    }
     this.connected = false;
     this.outboundReady = false;
   }
@@ -292,6 +184,55 @@ export class TeamsChannel implements ChannelAdapter {
     return sendTeamsTextMessage(this.sdkClient, conversationId, text, options);
   }
 
+  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
+    if (!this.outboundReady) return;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return;
+    const card = buildTeamsAgentTodoCard(render);
+    const todoKey = `${jid}:${render.threadId || ''}`;
+
+    const existing = this.pendingTodos.get(todoKey);
+    if (existing?.messageId && this.sdkClient.updateAdaptiveCard) {
+      try {
+        await this.sdkClient.updateAdaptiveCard({
+          conversationId,
+          messageId: existing.messageId,
+          card,
+          ...(render.threadId ? { threadId: render.threadId } : {}),
+        });
+        return;
+      } catch (err) {
+        logger.debug(
+          { jid, threadId: render.threadId, err },
+          'Teams todo update failed; posting a fresh card',
+        );
+        this.pendingTodos.delete(todoKey);
+      }
+    }
+
+    if (this.sdkClient.sendAdaptiveCard) {
+      const result = await this.sdkClient.sendAdaptiveCard({
+        conversationId,
+        card,
+        ...(render.threadId ? { threadId: render.threadId } : {}),
+      });
+      this.pendingTodos.set(todoKey, {
+        conversationId,
+        messageId: result.externalMessageId,
+      });
+      return;
+    }
+
+    // No Adaptive Card support on this client: plain-text plan fallback.
+    const title = render.summary?.trim() ? render.summary.trim() : 'Plan';
+    await sendTeamsTextMessage(
+      this.sdkClient,
+      conversationId,
+      [`📋 ${title}`, ...agentTodoLines(render)].join('\n'),
+      { ...(render.threadId ? { threadId: render.threadId } : {}) },
+    );
+  }
+
   async ingestMessage(message: TeamsInboundMessage): Promise<void> {
     const jid = normalizeTeamsJid(message.conversationId);
     if (!jid) return;
@@ -300,6 +241,9 @@ export class TeamsChannel implements ChannelAdapter {
     const sender = message.senderId || message.from?.id || 'unknown';
     const senderName = message.senderName || message.from?.name || sender;
     if (await this.handlePermissionDecision(message, jid, sender, senderName)) {
+      return;
+    }
+    if (await this.handleUserQuestionSubmit(message, jid, sender, senderName)) {
       return;
     }
 
@@ -340,18 +284,22 @@ export class TeamsChannel implements ChannelAdapter {
     }
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) {
-      return { approved: false, reason: 'Invalid Teams JID' };
+      return {
+        approved: false,
+        reason: 'This Teams conversation could not be identified.',
+      };
     }
     if (!this.sdkClient.sendAdaptiveCard) {
       return {
         approved: false,
-        reason: 'Teams SDK client cannot send Adaptive Cards',
+        reason:
+          'This Teams conversation cannot display approval cards right now.',
       };
     }
     if (this.pendingPermissionPrompts.has(request.requestId)) {
       return {
         approved: false,
-        reason: `Duplicate pending request: ${request.requestId}`,
+        reason: 'This approval request is already awaiting a decision.',
       };
     }
 
@@ -391,6 +339,187 @@ export class TeamsChannel implements ChannelAdapter {
         approved: false,
         reason: 'Failed to send approval prompt to Teams',
       };
+    }
+  }
+
+  async requestUserAnswer(
+    jid: string,
+    request: UserQuestionRequest,
+  ): Promise<UserQuestionResponse> {
+    const emptyResponse: UserQuestionResponse = {
+      requestId: request.requestId,
+      answers: {},
+    };
+    if (!this.connected) return { ...emptyResponse, answeredBy: 'system' };
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return emptyResponse;
+    if (!this.sdkClient.sendAdaptiveCard) return emptyResponse;
+    if (!request.questions.length) return emptyResponse;
+    if (this.pendingUserQuestions.has(request.requestId)) return emptyResponse;
+
+    const questionRequest = { ...request, targetJid: request.targetJid ?? jid };
+    try {
+      const sent = await this.sdkClient.sendAdaptiveCard({
+        conversationId,
+        card: buildTeamsUserQuestionCard(questionRequest),
+        ...(request.threadId ? { threadId: request.threadId } : {}),
+      });
+      return await new Promise<UserQuestionResponse>((resolve) => {
+        const timer = setTimeout(() => {
+          void this.resolvePendingUserQuestion(request.requestId, {
+            requestId: request.requestId,
+            answers: {},
+            answeredBy: 'system',
+          });
+        }, TEAMS_USER_QUESTION_TIMEOUT_MS);
+        this.pendingUserQuestions.set(request.requestId, {
+          conversationId,
+          sourceAgentFolder: request.sourceAgentFolder,
+          request: questionRequest,
+          threadId: request.threadId,
+          timer,
+          resolve,
+          settled: false,
+          ...(sent?.externalMessageId
+            ? { messageId: sent.externalMessageId }
+            : {}),
+        });
+      });
+    } catch (err) {
+      logger.error(
+        { jid, requestId: request.requestId, err },
+        'Failed to send Teams user question prompt',
+      );
+      return emptyResponse;
+    }
+  }
+
+  private async handleUserQuestionSubmit(
+    message: TeamsInboundMessage,
+    jid: string,
+    userId: string,
+    userName: string,
+  ): Promise<boolean> {
+    const submit = readTeamsUserQuestionSubmit(message.value);
+    if (!submit) return false;
+    const pending = this.pendingUserQuestions.get(submit.requestId);
+    if (!pending) {
+      await this.resolveDurableUserQuestionSubmit({
+        submit,
+        jid,
+        userId,
+        userName,
+      });
+      return true;
+    }
+    if (pending.settled) return true;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId || conversationId !== pending.conversationId) {
+      await this.sendDeniedDecisionFeedback(
+        conversationId || teamsConversationIdFromJid(jid),
+        'This question belongs to a different chat.',
+      );
+      return true;
+    }
+    const authorized = await this.canDecidePermission(
+      userId,
+      pending.sourceAgentFolder,
+      undefined,
+      jid,
+    );
+    if (!authorized) {
+      await this.sendDeniedDecisionFeedback(
+        conversationId,
+        'You are not allowed to answer this question.',
+      );
+      return true;
+    }
+    const answers = mapTeamsUserQuestionAnswers(pending.request, submit.values);
+    await this.resolvePendingUserQuestion(submit.requestId, {
+      requestId: submit.requestId,
+      answers,
+      answeredBy: userName,
+    });
+    return true;
+  }
+
+  private async resolveDurableUserQuestionSubmit(input: {
+    submit: TeamsUserQuestionSubmit;
+    jid: string;
+    userId: string;
+    userName: string;
+  }): Promise<void> {
+    const conversationId = teamsConversationIdFromJid(input.jid);
+    if (!conversationId) return;
+    const durable = await findDurableQuestionInteractionByRequestId({
+      requestId: input.submit.requestId,
+    });
+    if (!durable || durable.targetJid !== input.jid || !durable.request) {
+      return;
+    }
+    const authorized = await this.canDecidePermission(
+      input.userId,
+      durable.sourceAgentFolder,
+      undefined,
+      input.jid,
+    );
+    if (!authorized) {
+      await this.sendDeniedDecisionFeedback(
+        conversationId,
+        'You are not allowed to answer this question.',
+      );
+      return;
+    }
+    await resolveDurableQuestionAnswersByRequestId({
+      requestId: input.submit.requestId,
+      answers: mapTeamsUserQuestionAnswers(
+        durable.request,
+        input.submit.values,
+      ),
+      answeredBy: input.userName,
+    });
+  }
+
+  private async resolvePendingUserQuestion(
+    requestId: string,
+    response: UserQuestionResponse,
+  ): Promise<void> {
+    const pending = this.pendingUserQuestions.get(requestId);
+    if (!pending || pending.settled) return;
+    pending.settled = true;
+    this.pendingUserQuestions.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(response);
+    const answered = Object.keys(response.answers).length > 0;
+    const receiptText = answered
+      ? formatTeamsUserQuestionReceipt(pending.request, response)
+      : 'No answer was recorded for the question.';
+    if (this.sdkClient.updateAdaptiveCard && pending.messageId) {
+      try {
+        await this.sdkClient.updateAdaptiveCard({
+          conversationId: pending.conversationId,
+          messageId: pending.messageId,
+          card: buildTeamsUserQuestionReceiptCard(receiptText),
+        });
+        return;
+      } catch (err) {
+        logger.debug(
+          { requestId, err },
+          'Teams user question receipt card update failed; sending text',
+        );
+      }
+    }
+    try {
+      await this.sdkClient.sendMessage({
+        conversationId: pending.conversationId,
+        text: receiptText,
+        ...(pending.threadId ? { threadId: pending.threadId } : {}),
+      });
+    } catch (err) {
+      logger.debug(
+        { requestId, err },
+        'Failed to send Teams user question receipt',
+      );
     }
   }
 
@@ -532,37 +661,6 @@ export class TeamsChannel implements ChannelAdapter {
   }
 }
 
-function readTeamsPermissionDecision(value: unknown): {
-  requestId: string;
-  decision: string;
-} | null {
-  if (!value || typeof value !== 'object') return null;
-  const payload = value as {
-    action?: unknown;
-    requestId?: unknown;
-    decision?: unknown;
-    data?: unknown;
-  };
-  const candidate =
-    payload.action === 'permission_decision'
-      ? payload
-      : payload.data && typeof payload.data === 'object'
-        ? (payload.data as typeof payload)
-        : null;
-  if (!candidate || candidate.action !== 'permission_decision') return null;
-  if (typeof candidate.requestId !== 'string') return null;
-  if (
-    typeof candidate.decision !== 'string' ||
-    !normalizePermissionAction(candidate.decision)
-  ) {
-    return null;
-  }
-  return {
-    requestId: candidate.requestId,
-    decision: candidate.decision,
-  };
-}
-
 export function createTeamsChannel(
   opts: ChannelOpts,
   deps: TeamsChannelDependencies = {},
@@ -584,20 +682,6 @@ export function createTeamsChannel(
     return null;
   }
   return new TeamsChannel(credentials, opts, sdkClient);
-}
-
-function readTeamsCredentials(
-  secrets?: RuntimeSecretProvider,
-): TeamsChannelCredentials | null {
-  if (!secrets) return null;
-  const clientId =
-    secrets.getOptionalSecret({ env: 'TEAMS_CLIENT_ID' })?.trim() || '';
-  const clientSecret =
-    secrets.getOptionalSecret({ env: 'TEAMS_CLIENT_SECRET' })?.trim() || '';
-  const tenantId =
-    secrets.getOptionalSecret({ env: 'TEAMS_TENANT_ID' })?.trim() || '';
-  if (!clientId || !clientSecret || !tenantId) return null;
-  return { clientId, clientSecret, tenantId };
 }
 
 function createMicrosoftTeamsSdkClient(

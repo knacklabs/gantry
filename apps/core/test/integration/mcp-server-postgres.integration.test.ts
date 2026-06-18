@@ -72,23 +72,27 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         agentId: 'agent:one' as never,
         credentialEnv: { LINEAR_TOKEN_REF: 'broker-safe-linear-token' },
       });
-      expect(materialized).toEqual([
-        {
-          name: 'linear',
-          config: {
-            type: 'stdio',
-            command: 'npx',
-            args: ['-y', '@modelcontextprotocol/server-linear'],
-            env: { LINEAR_TOKEN: 'broker-safe-linear-token' },
-          },
-          allowedToolNames: ['mcp__linear__search_issues'],
-          allowedToolPatterns: ['search_issues'],
-          autoApproveToolNames: ['mcp__linear__search_issues'],
-          autoApproveToolPatterns: ['search_issues'],
-          networkHosts: [],
-          required: false,
+      expect(materialized).toHaveLength(1);
+      expect(materialized[0]).toMatchObject({
+        name: 'linear',
+        serverId: created.id,
+        bindingId: expect.stringContaining(
+          `agent-mcp-binding:agent:one:${created.id}`,
+        ),
+        sourceRevision: expect.stringContaining(created.id),
+        config: {
+          type: 'stdio',
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-linear'],
+          env: { LINEAR_TOKEN: 'broker-safe-linear-token' },
         },
-      ]);
+        allowedToolNames: ['mcp__linear__search_issues'],
+        allowedToolPatterns: ['search_issues'],
+        autoApproveToolNames: ['mcp__linear__search_issues'],
+        autoApproveToolPatterns: ['search_issues'],
+        networkHosts: [],
+        required: false,
+      });
 
       const second = await service.connectServer({
         appId: 'app-one' as never,
@@ -105,6 +109,37 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         appId: 'app-one' as never,
         agentId: 'agent:one' as never,
         serverId: second.id,
+      });
+      const appTwoNow = new Date().toISOString();
+      await runtime.repositories.apps.saveApp({
+        id: 'app-two' as never,
+        slug: 'app-two',
+        name: 'App Two',
+        status: 'active',
+        createdAt: appTwoNow,
+        updatedAt: appTwoNow,
+      });
+      const otherAppServer = await service.connectServer({
+        appId: 'app-two' as never,
+        name: 'other_app_server',
+        transportConfig: {
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-other'],
+        },
+        sandboxProfileId: 'sandbox:mcp-other',
+      });
+      await runtime.repositories.mcpServers.saveAgentBinding({
+        id: `agent-mcp-binding:agent:one:${otherAppServer.id}` as never,
+        appId: 'app-one' as never,
+        agentId: 'agent:one' as never,
+        serverId: otherAppServer.id,
+        status: 'active',
+        required: false,
+        permissionPolicyIds: [],
+        allowedToolPatterns: [],
+        createdAt: appTwoNow as never,
+        updatedAt: appTwoNow as never,
       });
 
       await expect(
@@ -124,6 +159,13 @@ describe.runIf(hasPostgresIntegrationDatabase)(
           definition: expect.objectContaining({ id: created.id }),
         }),
       ]);
+      await expect(
+        runtime.repositories.mcpServers.listMaterializedServersForAgent({
+          appId: 'app-one' as never,
+          agentId: 'agent:one' as never,
+          serverIds: [otherAppServer.id],
+        }),
+      ).resolves.toEqual([]);
       await expect(
         service.materializeForAgent({
           appId: 'app-one' as never,

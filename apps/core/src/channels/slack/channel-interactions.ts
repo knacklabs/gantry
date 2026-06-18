@@ -2,9 +2,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  type MessageActionAffordanceKind,
 } from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import {
   findDurablePermissionInteractionByRequestId,
   findDurableQuestionInteractionByRequestId,
@@ -19,73 +17,26 @@ import {
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
-import { DEFAULT_TRIGGER, getTriggerPattern } from '../../config/index.js';
 import { buildPermissionReceiptBlocks } from './permission-blocks.js';
+import {
+  buildTriggerPattern,
+  triggerForRoute,
+} from '../../shared/trigger-pattern.js';
 import {
   SLACK_NATIVE_APPEND_MAX_LENGTH,
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
 import { nowIso } from '../../shared/time/datetime.js';
-const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
-const SLACK_RETRY_DELAY_MAX_MS = 5000;
-const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
-  'scheduler_run_now',
-  'scheduler_pause_job',
-  'scheduler_open',
-]);
-function clampSlackRetryDelayMs(delayMs: number): number {
-  if (!Number.isFinite(delayMs) || delayMs <= 0) {
-    return SLACK_RETRY_DELAY_FALLBACK_MS;
-  }
-  return Math.min(SLACK_RETRY_DELAY_MAX_MS, Math.max(1, Math.round(delayMs)));
-}
+import {
+  tryNativeStreamAppend,
+  tryNativeStreamStart,
+  tryNativeStreamStop,
+} from './native-stream.js';
+import { registerSlackMessageActionHandler } from './channel-message-action-handler.js';
+import { registerSlackUtilityHandlers } from './channel-utility-handlers.js';
+
 export abstract class SlackChannelInteractions extends SlackChannelState {
-  private rateLimitRetryDelayMs(input: unknown): number | null {
-    const candidate = input as {
-      retry_after?: unknown;
-      retryAfter?: unknown;
-      data?: { retry_after?: unknown; retryAfter?: unknown };
-      headers?: { retry_after?: unknown; retryAfter?: unknown };
-      status?: unknown;
-      statusCode?: unknown;
-      code?: unknown;
-      error?: unknown;
-    };
-    const values = [
-      candidate.retry_after,
-      candidate.retryAfter,
-      candidate.data?.retry_after,
-      candidate.data?.retryAfter,
-      candidate.headers?.retry_after,
-      candidate.headers?.retryAfter,
-    ];
-    for (const value of values) {
-      if (typeof value === 'number' && value > 0) {
-        return clampSlackRetryDelayMs(value * 1000);
-      }
-      if (typeof value === 'string') {
-        const parsed = Number.parseFloat(value);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return clampSlackRetryDelayMs(parsed * 1000);
-        }
-      }
-    }
-    if (
-      candidate.status === 429 ||
-      candidate.statusCode === 429 ||
-      candidate.code === 429 ||
-      candidate.error === 'ratelimited'
-    ) {
-      return SLACK_RETRY_DELAY_FALLBACK_MS;
-    }
-    return null;
-  }
-  private async waitForRetry(delayMs: number): Promise<void> {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, clampSlackRetryDelayMs(delayMs));
-    });
-  }
   protected async ingestSlackMessage(
     event: SlackMessageLike,
     options: { forceOwnedTopLevel?: boolean } = {},
@@ -119,7 +70,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       this.botUserId && group
         ? rawContent.replace(
             new RegExp(`^<@${this.botUserId}>\\s+`),
-            `${group.trigger?.trim() || DEFAULT_TRIGGER} `,
+            `${triggerForRoute(group)} `,
           )
         : rawContent;
     if (!content) return;
@@ -129,7 +80,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       Boolean(group) &&
       (options.forceOwnedTopLevel ||
         group.requiresTrigger === false ||
-        getTriggerPattern(group.trigger).test(content.trim()));
+        buildTriggerPattern(triggerForRoute(group)).test(content.trim()));
     const threadId =
       event.thread_ts ||
       (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
@@ -156,121 +107,20 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     threadId: string | undefined,
     text: string,
   ): Promise<string | undefined> {
-    if (!this.app) return undefined;
-    try {
-      const result = (await this.app.client.apiCall('chat.startStream', {
-        channel: channelId,
-        ...(threadId ? { thread_ts: threadId } : {}),
-        markdown_text: text,
-      })) as { ok?: boolean; ts?: string; stream_ts?: string };
-      if (!result.ok) return undefined;
-      return result.stream_ts || result.ts;
-    } catch {
-      return undefined;
-    }
+    return tryNativeStreamStart({ app: this.app, channelId, threadId, text });
   }
   protected async tryNativeStreamAppend(
     channelId: string,
     streamTs: string,
     text: string,
   ): Promise<{ completed: boolean; sentPrefix: string }> {
-    if (!this.app || !text.trim()) {
-      return { completed: true, sentPrefix: '' };
-    }
-    const chunks = splitSlackTextByCodeUnits(
-      text,
-      SLACK_NATIVE_APPEND_MAX_LENGTH,
-    );
-    if (chunks.length > 1) {
-      logger.warn(
-        {
-          channelId,
-          streamTs,
-          parts: chunks.length,
-          limit: SLACK_NATIVE_APPEND_MAX_LENGTH,
-        },
-        'Slack streaming append split to respect payload limits',
-      );
-    }
-    let sentPrefix = '';
-    let appendedChunks = 0;
-    for (const chunk of chunks) {
-      let appended = false;
-      let lastFailure: unknown;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          const result = (await this.app.client.apiCall('chat.appendStream', {
-            channel: channelId,
-            ts: streamTs,
-            markdown_text: chunk,
-          })) as { ok?: boolean; error?: string; retry_after?: number };
-          if (result.ok === true) {
-            appended = true;
-            break;
-          }
-          const retryDelayMs = this.rateLimitRetryDelayMs(result);
-          if (retryDelayMs === null || attempt >= 2) {
-            lastFailure = result;
-            break;
-          }
-          logger.warn(
-            { channelId, streamTs, attempt: attempt + 1, retryDelayMs },
-            'Slack append stream rate-limited; retrying',
-          );
-          await this.waitForRetry(retryDelayMs);
-        } catch (err) {
-          const retryDelayMs = this.rateLimitRetryDelayMs(err);
-          if (retryDelayMs === null || attempt >= 2) {
-            lastFailure = err;
-            break;
-          }
-          logger.warn(
-            { channelId, streamTs, attempt: attempt + 1, retryDelayMs },
-            'Slack append stream errored with rate limit; retrying',
-          );
-          await this.waitForRetry(retryDelayMs);
-        }
-      }
-      if (!appended) {
-        if (appendedChunks > 0) {
-          const partial = new PartialMessageDeliveryError({
-            cause:
-              lastFailure ?? new Error('Slack native stream append failed'),
-            deliveredChunks: appendedChunks,
-            name: 'PartialSlackNativeStreamAppendDeliveryError',
-            message: `Slack native stream append partially delivered (${appendedChunks}/${chunks.length} chunks)`,
-            totalChunks: chunks.length,
-          });
-          Object.assign(partial, {
-            provider: 'slack',
-            deliveredParts: appendedChunks,
-            totalParts: chunks.length,
-            sentPrefix,
-            warnings: ['slack.native_stream_append_partial_delivery'],
-          });
-          throw partial;
-        }
-        return { completed: false, sentPrefix };
-      }
-      sentPrefix += chunk;
-      appendedChunks += 1;
-    }
-    return { completed: true, sentPrefix };
+    return tryNativeStreamAppend({ app: this.app, channelId, streamTs, text });
   }
   protected async tryNativeStreamStop(
     channelId: string,
     streamTs: string,
   ): Promise<boolean> {
-    if (!this.app) return true;
-    try {
-      const result = (await this.app.client.apiCall('chat.stopStream', {
-        channel: channelId,
-        ts: streamTs,
-      })) as { ok?: boolean };
-      return result.ok === true;
-    } catch {
-      return false;
-    }
+    return tryNativeStreamStop({ app: this.app, channelId, streamTs });
   }
   protected async canDecidePermission(
     userId: string,
@@ -337,91 +187,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           forceOwnedTopLevel: true,
         });
       });
-      this.app.event('app_home_opened', async (args: any) => {
-        const event = args.event as { user?: string };
-        if (!event.user) return;
-        const blocks: Array<Record<string, unknown>> = [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Gantry Slack Channel*\\nUse threaded replies for the best agent UX.',
-            },
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: 'Use `gantry agent add sl:<channel-id>` to bind additional Slack chats.',
-            },
-          },
-        ];
-        try {
-          await this.app?.client.views.publish({
-            user_id: event.user,
-            view: {
-              type: 'home',
-              blocks: blocks as any,
-            },
-          });
-        } catch (err) {
-          logger.debug({ err }, 'Failed to publish Slack App Home');
-        }
-      });
-      this.app.shortcut('gantry_open_home', async (args: any) => {
-        await args.ack();
-        const triggerId = args.shortcut?.trigger_id as string | undefined;
-        if (!triggerId) return;
-        try {
-          await this.app?.client.views.open({
-            trigger_id: triggerId,
-            view: {
-              type: 'modal',
-              title: {
-                type: 'plain_text',
-                text: 'Gantry',
-              },
-              close: {
-                type: 'plain_text',
-                text: 'Close',
-              },
-              blocks: [
-                {
-                  type: 'section',
-                  text: {
-                    type: 'mrkdwn',
-                    text: 'Use `gantry agent add sl:<channel-id>` to bind new Slack chats.',
-                  },
-                },
-              ],
-            },
-          });
-        } catch (err) {
-          logger.debug({ err }, 'Failed to open Slack shortcut modal');
-        }
-      });
-      this.app.shortcut('gantry_reply_with_context', async (args: any) => {
-        await args.ack();
-        const shortcut = args.shortcut as {
-          channel?: { id?: string };
-          message?: { thread_ts?: string; ts?: string };
-          user?: { id?: string };
-        };
-        const channelId = shortcut.channel?.id;
-        const userId = shortcut.user?.id;
-        if (!channelId || !userId) return;
-        try {
-          await this.app?.client.chat.postEphemeral({
-            channel: channelId,
-            user: userId,
-            text: shortcut.message?.thread_ts
-              ? 'Reply in this thread to continue with Gantry context.'
-              : 'Start a thread first, then reply to keep context grouped.',
-          });
-        } catch (err) {
-          logger.debug({ err }, 'Failed to respond to Slack message shortcut');
-        }
-      });
+      registerSlackUtilityHandlers(this.app);
     }
     const handlePermissionDecision = async (args: any) => {
       await args.ack();
@@ -692,46 +458,143 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         answeredBy,
       );
     });
-    this.app.action('gantry_message_action', async (args: any) => {
+    this.app.action('gantry_userq_other', async (args: any) => {
       await args.ack();
       const action = args.action as { value?: string };
       const body = args.body as {
         channel?: { id?: string };
         user?: { id?: string };
+        trigger_id?: string;
       };
-      let payload:
-        | {
-            kind?: unknown;
-            jobId?: unknown;
-          }
-        | undefined;
+      const parsed = this.parseUserQuestionActionValue(action.value);
+      if (!parsed) return;
+      const triggerId = body.trigger_id;
+      if (!triggerId) return;
+      const key = this.pendingUserQuestionKey(
+        parsed.requestId,
+        parsed.questionIndex,
+      );
+      const pending = this.pendingUserQuestions.get(key);
+      const callbackChannelId = body.channel?.id || '';
+      const userId = body.user?.id || '';
+      if (!userId) return;
+      // Free-text "Other" only supports the in-memory pending question (the
+      // modal opens and submits within the same worker session); durable
+      // cross-restart free text is not modeled.
+      if (!pending || pending.settled) return;
+      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
+      if (
+        !(await this.canDecidePermission(
+          userId,
+          pending.sourceAgentFolder,
+          undefined,
+          `sl:${pending.channelId}`,
+        ))
+      ) {
+        try {
+          await this.app?.client.chat.postEphemeral({
+            channel: pending.channelId,
+            user: userId,
+            text: 'You are not allowed to answer this prompt.',
+          });
+        } catch {
+          // ignore
+        }
+        return;
+      }
       try {
-        payload = action.value ? JSON.parse(action.value) : undefined;
+        await this.app?.client.views.open({
+          trigger_id: triggerId,
+          view: {
+            type: 'modal',
+            callback_id: 'gantry_userq_other_modal',
+            private_metadata: JSON.stringify({
+              requestId: parsed.requestId,
+              questionIndex: parsed.questionIndex,
+              channelId: pending.channelId,
+            }),
+            title: { type: 'plain_text', text: 'Your answer' },
+            submit: { type: 'plain_text', text: 'Submit' },
+            close: { type: 'plain_text', text: 'Cancel' },
+            blocks: [
+              {
+                type: 'input',
+                block_id: 'gantry_userq_other_block',
+                label: {
+                  type: 'plain_text',
+                  text: (pending.question.header || 'Your answer').slice(
+                    0,
+                    150,
+                  ),
+                },
+                element: {
+                  type: 'plain_text_input',
+                  action_id: 'gantry_userq_other_input',
+                  multiline: true,
+                  max_length: 3000,
+                  placeholder: {
+                    type: 'plain_text',
+                    text: 'Type your answer',
+                  },
+                },
+              },
+            ],
+          },
+        });
+      } catch (err) {
+        logger.debug({ err }, 'Failed to open Slack user-question Other modal');
+      }
+    });
+    this.app.view('gantry_userq_other_modal', async (args: any) => {
+      await args.ack();
+      const body = args.body as {
+        user?: { id?: string; name?: string; username?: string };
+      };
+      const view = args.view as {
+        private_metadata?: string;
+        state?: {
+          values?: Record<string, Record<string, { value?: string }>>;
+        };
+      };
+      let meta: {
+        requestId?: string;
+        questionIndex?: number;
+        channelId?: string;
+      } = {};
+      try {
+        meta = JSON.parse(view.private_metadata || '{}');
       } catch {
         return;
       }
+      if (!meta.requestId || meta.questionIndex === undefined) return;
+      const text = (
+        view.state?.values?.['gantry_userq_other_block']?.[
+          'gantry_userq_other_input'
+        ]?.value || ''
+      ).trim();
+      if (!text) return;
+      const key = this.pendingUserQuestionKey(
+        meta.requestId,
+        meta.questionIndex,
+      );
+      const pending = this.pendingUserQuestions.get(key);
+      if (!pending || pending.settled) return;
+      const userId = body.user?.id || '';
+      const answeredBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
       if (
-        !payload ||
-        typeof payload.kind !== 'string' ||
-        !SCHEDULER_MESSAGE_ACTION_KINDS.has(
-          payload.kind as MessageActionAffordanceKind,
-        ) ||
-        typeof payload.jobId !== 'string' ||
-        payload.jobId.trim().length === 0 ||
-        !body.channel?.id ||
-        !body.user?.id
+        userId &&
+        !(await this.canDecidePermission(
+          userId,
+          pending.sourceAgentFolder,
+          undefined,
+          `sl:${pending.channelId}`,
+        ))
       ) {
         return;
       }
-      try {
-        await this.app?.client.chat.postEphemeral({
-          channel: body.channel.id,
-          user: body.user.id,
-          text: 'Scheduler action buttons are visible hints only in this channel. Open the scheduler surface or use scheduler tools to run this action.',
-        });
-      } catch {
-        // ignore callback feedback failures
-      }
+      await this.finalizeUserQuestionPrompt(pending, text, answeredBy);
     });
+    registerSlackMessageActionHandler(this.app);
   }
 }

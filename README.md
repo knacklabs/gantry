@@ -409,6 +409,7 @@ Skills, MCP servers, SDK tools, host tools, browser tools, local CLIs, and chann
 - `request_mcp_server`
 - `request_access`
 - `mcp_list_tools`
+- `mcp_describe_tool`
 - `mcp_call_tool`
 - `settings_desired_state`
 - `request_settings_update`
@@ -686,8 +687,7 @@ from the selected model provider: Claude/Anthropic models use
 OpenRouter, Bedrock, and Vertex use `deepagents` through the Gantry Model
 Gateway. Explicit incompatible harness/model pairings fail before runner spawn.
 
-Harness-selection work is documented in [Agent Harness Selection](docs/decisions/2026-06-14-agent-harness-selection.md)
-and the [DeepAgents handoff plan](docs/architecture/deepagents-agent-engine-handoff-plan.md).
+Harness-selection work is documented in [Agent Harness Selection](docs/decisions/2026-06-14-agent-harness-selection.md).
 
 - `gantry agent list` and `gantry agent info <id>` display the selected
   `agentHarness`; `gantry model why <alias> --agent <id>` shows the model

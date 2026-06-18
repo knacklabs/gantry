@@ -10,12 +10,53 @@ import type {
   RunnerSandboxProviderSelection,
   RunnerSandboxResourceLimits,
   RunnerSandboxSpawnInput,
+  RunnerSandboxWarmTemplateStatus,
 } from '../../shared/runner-sandbox-provider.js';
 
 interface PreparedCommand {
   command: string;
   args: string[];
 }
+
+export interface SandboxRuntimeWarmTemplate {
+  readonly authorityFree: true;
+  readonly network: {
+    readonly deniedDomains: readonly string[];
+    readonly allowLocalBinding: false;
+  };
+  readonly filesystem: {
+    readonly homeSecretDenySuffixes: readonly string[];
+    readonly cwdEnvDenyFilename: '.env';
+    readonly usesUidScopedToolTemp: boolean;
+  };
+  readonly enableWeakerNetworkIsolation?: true;
+}
+
+const HOME_SECRET_DENY_SUFFIXES = [
+  '.ssh',
+  '.aws',
+  '.gnupg',
+  '.azure',
+  '.claude',
+  '.codex',
+  '.anthropic',
+  '.config/gh',
+  '.config/github-copilot',
+  '.config/codex',
+  '.config/gcloud',
+  '.kube',
+  '.docker',
+  '.npmrc',
+  '.pypirc',
+  '.netrc',
+  '.git-credentials',
+  '.env',
+] as const;
+
+let cachedSandboxRuntimeWarmTemplate:
+  | Readonly<SandboxRuntimeWarmTemplate>
+  | undefined;
+let cachedSandboxRuntimeCli: string | undefined;
 
 export function createRunnerSandboxProvider(
   settings: RunnerSandboxProviderSelection,
@@ -38,6 +79,14 @@ export class DirectRunnerSandboxProvider implements RunnerSandboxProvider {
     },
   ) {}
 
+  warmTemplate(): RunnerSandboxWarmTemplateStatus {
+    return {
+      available: false,
+      cacheHit: false,
+      authorityFree: true,
+    };
+  }
+
   start(input: RunnerSandboxSpawnInput) {
     const prepared = applyResourceLimits(
       input.command,
@@ -57,6 +106,10 @@ class SandboxRuntimeRunnerSandboxProvider implements RunnerSandboxProvider {
   readonly enforcing = true;
 
   constructor(private readonly resourceLimits: RunnerSandboxResourceLimits) {}
+
+  warmTemplate(): RunnerSandboxWarmTemplateStatus {
+    return sandboxRuntimeWarmTemplateStatus();
+  }
 
   start(input: RunnerSandboxSpawnInput) {
     if (process.platform === 'win32') {
@@ -107,6 +160,37 @@ class SandboxRuntimeRunnerSandboxProvider implements RunnerSandboxProvider {
   }
 }
 
+export function buildSandboxRuntimeWarmTemplate(): Readonly<SandboxRuntimeWarmTemplate> {
+  if (!cachedSandboxRuntimeWarmTemplate) {
+    cachedSandboxRuntimeWarmTemplate = Object.freeze({
+      authorityFree: true,
+      network: Object.freeze({
+        deniedDomains: Object.freeze([]),
+        allowLocalBinding: false,
+      }),
+      filesystem: Object.freeze({
+        homeSecretDenySuffixes: Object.freeze([...HOME_SECRET_DENY_SUFFIXES]),
+        cwdEnvDenyFilename: '.env',
+        usesUidScopedToolTemp: process.platform === 'darwin',
+      }),
+      ...(process.platform === 'darwin'
+        ? { enableWeakerNetworkIsolation: true as const }
+        : {}),
+    });
+  }
+  return cachedSandboxRuntimeWarmTemplate;
+}
+
+function sandboxRuntimeWarmTemplateStatus(): RunnerSandboxWarmTemplateStatus {
+  const cacheHit = cachedSandboxRuntimeWarmTemplate !== undefined;
+  buildSandboxRuntimeWarmTemplate();
+  return {
+    available: true,
+    cacheHit,
+    authorityFree: true,
+  };
+}
+
 function applyResourceLimits(
   command: string,
   args: string[],
@@ -143,6 +227,7 @@ function applyResourceLimits(
 }
 
 function buildSandboxRuntimeConfig(input: RunnerSandboxSpawnInput) {
+  const template = buildSandboxRuntimeWarmTemplate();
   const denyRead = uniquePaths([
     ...siblingReadDenyPaths(input),
     ...defaultReadDenyPaths(input),
@@ -150,15 +235,15 @@ function buildSandboxRuntimeConfig(input: RunnerSandboxSpawnInput) {
   ]);
   return {
     network: {
+      deniedDomains: [...template.network.deniedDomains],
+      allowLocalBinding: template.network.allowLocalBinding,
       allowedDomains:
         input.sandboxProfile.network === 'required'
           ? sandboxAllowedDomainsFromHosts(input.allowedNetworkHosts)
           : [],
-      deniedDomains: [],
       ...(input.sandboxProfile.network === 'required'
         ? egressProxyConfig(input.egressProxyUrl)
         : {}),
-      allowLocalBinding: false,
     },
     filesystem: {
       denyRead,
@@ -179,7 +264,7 @@ function buildSandboxRuntimeConfig(input: RunnerSandboxSpawnInput) {
         ...input.protectedWritePaths,
       ]),
     },
-    ...(process.platform === 'darwin'
+    ...(template.enableWeakerNetworkIsolation
       ? { enableWeakerNetworkIsolation: true }
       : {}),
   };
@@ -210,7 +295,9 @@ function isSafeSiblingDenyRoot(root: string): boolean {
 }
 
 function defaultToolTempWriteAllowPaths(): string[] {
-  if (process.platform !== 'darwin') return [];
+  if (!buildSandboxRuntimeWarmTemplate().filesystem.usesUidScopedToolTemp) {
+    return [];
+  }
   const uid = process.getuid?.();
   if (uid === undefined) return [];
   return [`/tmp/claude-${uid}`, `/private/tmp/claude-${uid}`];
@@ -340,26 +427,9 @@ function defaultWriteDenyPaths(input: RunnerSandboxSpawnInput): string[] {
 
 function homeSecretReadDenyPaths(home: string): string[] {
   if (!home || home === '/') return [];
-  return [
-    '.ssh',
-    '.aws',
-    '.gnupg',
-    '.azure',
-    '.claude',
-    '.codex',
-    '.anthropic',
-    '.config/gh',
-    '.config/github-copilot',
-    '.config/codex',
-    '.config/gcloud',
-    '.kube',
-    '.docker',
-    '.npmrc',
-    '.pypirc',
-    '.netrc',
-    '.git-credentials',
-    '.env',
-  ].map((item) => path.join(home, item));
+  return buildSandboxRuntimeWarmTemplate().filesystem.homeSecretDenySuffixes.map(
+    (item) => path.join(home, item),
+  );
 }
 
 function defaultReadAllowPaths(
@@ -537,7 +607,9 @@ function uniquePaths(paths: readonly string[]): string[] {
 }
 
 function resolveSandboxRuntimeCli(): string {
+  if (cachedSandboxRuntimeCli) return cachedSandboxRuntimeCli;
   const require = createRequire(import.meta.url);
   const pkgPath = require.resolve('@anthropic-ai/sandbox-runtime/package.json');
-  return path.join(path.dirname(pkgPath), 'dist', 'cli.js');
+  cachedSandboxRuntimeCli = path.join(path.dirname(pkgPath), 'dist', 'cli.js');
+  return cachedSandboxRuntimeCli;
 }

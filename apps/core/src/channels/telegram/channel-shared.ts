@@ -33,7 +33,7 @@ export const TELEGRAM_USER_QUESTION_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 export const TELEGRAM_PERMISSION_CALLBACK_PATTERN =
   /^perm:(allow_once|allow_persistent_rule|allow_timed_grant|cancel):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
 export const TELEGRAM_USER_QUESTION_CALLBACK_PATTERN =
-  /^userq:(select|done):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127}):(\d+)(?::(\d+))?$/;
+  /^userq:(select|done|other):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127}):(\d+)(?::(\d+))?$/;
 export const TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN =
   /^dl:(retry|logs|pause|open)$/;
 

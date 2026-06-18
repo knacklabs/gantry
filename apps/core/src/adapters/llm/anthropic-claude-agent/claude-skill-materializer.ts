@@ -10,6 +10,12 @@ import {
   sanitizeSkillDirectoryName,
   type SkillActionPermission,
 } from '../../../domain/skills/skill-action-permissions.js';
+import {
+  normalizeSkillAssetPath,
+  readSkillFrontmatterName,
+  readSkillMdAssetText,
+  writeSkillAssets,
+} from '../skill-artifact-helpers.js';
 import { isClaudeNativeReservedSkillName } from './native-sdk-skills.js';
 
 export interface ClaudeSkillSourceItem {
@@ -212,7 +218,7 @@ export async function materializeClaudeSkills(input: {
         targetName,
         skillText: readSkillMdAssetText(skill.assets),
       });
-      writeAssets(skill.assets, targetDir);
+      writeSkillAssets(skill.assets, targetDir);
     } else if (skill.sourceDir) {
       const sourceDir = path.resolve(skill.sourceDir);
       const skillFile = path.join(sourceDir, 'SKILL.md');
@@ -235,7 +241,7 @@ function isValidAssetSkill(
   assets: Array<{ path: string; content: Uint8Array }>,
 ): boolean {
   try {
-    const paths = assets.map((asset) => normalizeAssetPath(asset.path));
+    const paths = assets.map((asset) => normalizeSkillAssetPath(asset.path));
     return paths.includes('SKILL.md');
   } catch (error) {
     if (
@@ -262,18 +268,6 @@ function copyDirRecursive(src: string, dst: string): void {
   }
 }
 
-function readSkillMdAssetText(
-  assets: Array<{ path: string; content: Uint8Array }>,
-): string {
-  const skillMd = assets.find(
-    (asset) => normalizeAssetPath(asset.path) === 'SKILL.md',
-  );
-  if (!skillMd) {
-    throw new Error('Skill asset bundle must include SKILL.md.');
-  }
-  return Buffer.from(skillMd.content).toString('utf-8');
-}
-
 function assertSkillFileNameMatchesMaterializedName(input: {
   skillName: string;
   targetName: string;
@@ -292,54 +286,4 @@ function assertSkillFileNameMatchesMaterializedName(input: {
       `Skill "${input.skillName}" declares SDK skill name "${frontmatterName}" but materializes as "${input.targetName}". Keep the SKILL.md name aligned with the Gantry skill name.`,
     );
   }
-}
-
-function readSkillFrontmatterName(content: string): string | undefined {
-  if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) {
-    return undefined;
-  }
-  const normalized = content.replace(/\r\n/g, '\n');
-  const end = normalized.indexOf('\n---', 4);
-  if (end < 0) return undefined;
-  for (const line of normalized.slice(4, end).split('\n')) {
-    const match = /^name:\s*(.*)$/.exec(line);
-    if (!match) continue;
-    const name = match[1].replace(/^['"]|['"]$/g, '').trim();
-    return name || undefined;
-  }
-  return undefined;
-}
-
-function writeAssets(
-  assets: Array<{ path: string; content: Uint8Array }>,
-  targetDir: string,
-): void {
-  const root = path.resolve(targetDir);
-  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
-  for (const asset of assets) {
-    const relative = normalizeAssetPath(asset.path);
-    const target = path.resolve(root, relative);
-    if (target !== root && !target.startsWith(`${root}${path.sep}`)) continue;
-    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(target, Buffer.from(asset.content), { mode: 0o600 });
-  }
-}
-
-function normalizeAssetPath(value: string): string {
-  const normalized = value.replace(/\\/g, '/');
-  const parts = normalized.split('/');
-  if (
-    !normalized ||
-    normalized.startsWith('/') ||
-    /^[A-Za-z]:\//.test(normalized) ||
-    path.posix.isAbsolute(normalized) ||
-    normalized.includes('\0') ||
-    parts.some(
-      (part) =>
-        part === '..' || part === '.' || part === '' || part.startsWith('.'),
-    )
-  ) {
-    throw new Error(`Invalid skill asset path: ${value}`);
-  }
-  return parts.join('/');
 }

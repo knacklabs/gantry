@@ -3,12 +3,14 @@ import { defineConfig } from 'vitest/config';
 
 interface VitestConfigOptions {
   include: string[];
+  exclude?: string[];
   withCoverage?: boolean;
 }
 
 export function makeVitestConfig(options: VitestConfigOptions) {
-  const { include, withCoverage = false } = options;
+  const { exclude, include, withCoverage = false } = options;
   const testConfig: {
+    exclude?: string[];
     include: string[];
     setupFiles?: string[];
     testTimeout?: number;
@@ -20,6 +22,7 @@ export function makeVitestConfig(options: VitestConfigOptions) {
       exclude: string[];
     };
   } = {
+    exclude,
     include,
     setupFiles: ['apps/core/test/setup/runtime-env.ts'],
     testTimeout: 30_000,

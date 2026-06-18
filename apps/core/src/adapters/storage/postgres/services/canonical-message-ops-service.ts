@@ -1,4 +1,8 @@
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
+import type {
+  LiveAdmissionWorkItemEnqueueResult,
+  LiveAdmissionWorkItemNotifier,
+} from '../../../../domain/ports/live-turns.js';
 import {
   decodeGlobalMessageCursor,
   decodeGroupMessageCursor,
@@ -7,6 +11,7 @@ import {
 } from '../../../../shared/message-cursor.js';
 import type {
   CanonicalOpsMessageRow,
+  MessageLiveAdmissionInput,
   PostgresCanonicalMessageRepository,
 } from '../repositories/canonical-message-repository.postgres.js';
 
@@ -26,10 +31,27 @@ function parseJson<T>(value: unknown, fallback: T): T {
 export class CanonicalMessageOpsService {
   constructor(
     private readonly repository: PostgresCanonicalMessageRepository,
+    private readonly liveAdmissionNotifier?: LiveAdmissionWorkItemNotifier,
   ) {}
 
   async storeMessage(msg: NewMessage): Promise<void> {
     await this.repository.saveMessage(msg);
+  }
+
+  async storeMessageWithLiveAdmission(
+    msg: NewMessage,
+    admission: MessageLiveAdmissionInput,
+  ): Promise<LiveAdmissionWorkItemEnqueueResult | undefined> {
+    const result = await this.repository.saveMessage(msg, {
+      liveAdmission: admission,
+    });
+    if (result) {
+      await this.liveAdmissionNotifier?.notifyLiveAdmissionWorkItem({
+        appId: result.item.appId,
+        workItemId: result.item.id,
+      });
+    }
+    return result;
   }
 
   async getNewMessages(

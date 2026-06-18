@@ -1120,4 +1120,108 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain("target_json - 'requiredTools'");
     expect(migration).toContain("'{toolAccessRequirements}'");
   });
+
+  it('registers live admission work-item migration and branch indexes', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const workItems = journal.entries.find(
+      (entry) => entry.tag === '0080_live_admission_work_items',
+    );
+    expect(workItems).toMatchObject({ idx: 80 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0080_live_admission_work_items.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('"failure_count" integer DEFAULT 0 NOT NULL');
+    expect(migration).toContain(
+      'CREATE INDEX "idx_live_admission_work_items_queued_fifo"',
+    );
+    expect(migration).toContain(
+      'ON "live_admission_work_items" ("app_id", "created_at", "id")',
+    );
+    expect(migration).toContain(`WHERE "state" = 'queued'`);
+    expect(migration).toContain(
+      'CREATE INDEX "idx_live_admission_work_items_deferred_due"',
+    );
+    expect(migration).toContain(
+      'ON "live_admission_work_items" ("app_id", "defer_until", "created_at", "id")',
+    );
+    expect(migration).toContain(`WHERE "state" = 'deferred'`);
+    expect(migration).toContain('AND "defer_until" IS NOT NULL');
+    expect(migration).toContain(
+      'CREATE INDEX "idx_live_admission_work_items_claimed_expired"',
+    );
+    expect(migration).toContain(
+      'CREATE INDEX "idx_live_admission_work_items_deferred_null_fifo"',
+    );
+    expect(migration).toContain('AND "defer_until" IS NULL');
+    expect(migration).toContain(
+      'ON "live_admission_work_items" ("app_id", "claim_expires_at", "created_at", "id")',
+    );
+    expect(migration).toContain(`WHERE "state" = 'claimed'`);
+    expect(migration).toContain('AND "claim_expires_at" IS NOT NULL');
+
+    const schema = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/live-turns.ts',
+      ),
+      'utf8',
+    );
+    expect(schema).toContain('idx_live_admission_work_items_queued_fifo');
+    expect(schema).toContain('idx_live_admission_work_items_deferred_due');
+    expect(schema).toContain(
+      'idx_live_admission_work_items_deferred_null_fifo',
+    );
+    expect(schema).toContain('idx_live_admission_work_items_claimed_expired');
+  });
+
+  it('registers live turn recoverable sweep index migration and schema', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const recoverableIndexes = journal.entries.find(
+      (entry) => entry.tag === '0082_live_turn_recoverable_sweep_indexes',
+    );
+    expect(recoverableIndexes).toMatchObject({ idx: 82 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0082_live_turn_recoverable_sweep_indexes.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain(
+      'CREATE INDEX "idx_live_turns_recoverable_leased"',
+    );
+    expect(migration).toContain(
+      'ON "live_turns" ("updated_at", "id", "run_id")',
+    );
+    expect(migration).toContain('"run_id" IS NOT NULL');
+    expect(migration).toContain('"lease_token" IS NOT NULL');
+    expect(migration).toContain('"fencing_version" IS NOT NULL');
+    expect(migration).toContain(
+      'CREATE INDEX "idx_live_turns_recoverable_unleased"',
+    );
+    expect(migration).toContain('ON "live_turns" ("updated_at", "id")');
+    expect(migration).toContain('"lease_token" IS NULL');
+
+    const schema = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/live-turns.ts',
+      ),
+      'utf8',
+    );
+    expect(schema).toContain('idx_live_turns_recoverable_leased');
+    expect(schema).toContain('idx_live_turns_recoverable_unleased');
+  });
 });

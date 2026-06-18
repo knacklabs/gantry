@@ -3,6 +3,7 @@ import path from 'path';
 
 import { DEFAULT_AGENT_NAME } from '../shared/default-agent.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+export { defaultTriggerForAgentName } from '../shared/trigger-pattern.js';
 
 export const DEFAULT_AGENT_CLI_NAME = DEFAULT_AGENT_NAME;
 export const DEFAULT_AGENT_FOLDER = 'main_agent';
@@ -15,10 +16,6 @@ export function defaultAgentNameFromSettings(settings: {
   agent: { name?: string };
 }): string {
   return normalizeDefaultAgentName(settings.agent.name);
-}
-
-export function defaultTriggerForAgentName(agentName: string): string {
-  return `@${normalizeDefaultAgentName(agentName)}`;
 }
 
 export function allocateDefaultAgentFolder(

@@ -67,6 +67,20 @@ export const liveTurnsPostgres = pgTable(
     ),
     runIdx: index('idx_live_turns_run').on(table.runId),
     stateIdx: index('idx_live_turns_state').on(table.state, table.updatedAt),
+    recoverableLeasedIdx: index('idx_live_turns_recoverable_leased')
+      .on(table.updatedAt, table.id, table.runId)
+      .where(
+        sql`${table.state} NOT IN ('completed', 'failed', 'timed_out')
+          AND ${table.runId} IS NOT NULL
+          AND ${table.leaseToken} IS NOT NULL
+          AND ${table.fencingVersion} IS NOT NULL`,
+      ),
+    recoverableUnleasedIdx: index('idx_live_turns_recoverable_unleased')
+      .on(table.updatedAt, table.id)
+      .where(
+        sql`${table.state} NOT IN ('completed', 'failed', 'timed_out')
+          AND ${table.leaseToken} IS NULL`,
+      ),
   }),
 );
 
@@ -114,5 +128,83 @@ export const liveTurnCommandsPostgres = pgTable(
     pendingIdx: index('idx_live_turn_commands_pending')
       .on(table.liveTurnId, table.seq)
       .where(sql`${table.status} = 'pending'`),
+  }),
+);
+
+export const liveAdmissionWorkItemsPostgres = pgTable(
+  'live_admission_work_items',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id').notNull(),
+    agentId: text('agent_id'),
+    agentSessionId: text('agent_session_id'),
+    conversationId: text('conversation_id').notNull(),
+    threadId: text('thread_id'),
+    queueJid: text('queue_jid').notNull(),
+    messageId: text('message_id').notNull(),
+    messageCursor: text('message_cursor').notNull(),
+    senderUserId: text('sender_user_id'),
+    senderDisplayName: text('sender_display_name'),
+    idempotencyKey: text('idempotency_key').notNull(),
+    // state is application-constrained to:
+    // queued | claimed | deferred | completed | failed | canceled.
+    state: text('state').notNull().default('queued'),
+    sourceKind: text('source_kind').notNull().default('message'),
+    triggerDecisionJson: jsonb('trigger_decision_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    claimWorkerInstanceId: text('claim_worker_instance_id'),
+    claimToken: text('claim_token'),
+    claimExpiresAt: timestamp('claim_expires_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    fencingVersion: integer('fencing_version').notNull().default(0),
+    retryCount: integer('retry_count').notNull().default(0),
+    failureCount: integer('failure_count').notNull().default(0),
+    deferUntil: timestamp('defer_until', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    deferredReason: text('deferred_reason'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    claimedAt: timestamp('claimed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    endedAt: timestamp('ended_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex(
+      'uq_live_admission_work_items_idempotency',
+    ).on(table.idempotencyKey),
+    queuedFifoIdx: index('idx_live_admission_work_items_queued_fifo')
+      .on(table.appId, table.createdAt, table.id)
+      .where(sql`${table.state} = 'queued'`),
+    deferredDueIdx: index('idx_live_admission_work_items_deferred_due')
+      .on(table.appId, table.deferUntil, table.createdAt, table.id)
+      .where(
+        sql`${table.state} = 'deferred' AND ${table.deferUntil} IS NOT NULL`,
+      ),
+    deferredNullFifoIdx: index(
+      'idx_live_admission_work_items_deferred_null_fifo',
+    )
+      .on(table.appId, table.createdAt, table.id)
+      .where(sql`${table.state} = 'deferred' AND ${table.deferUntil} IS NULL`),
+    claimedExpiredIdx: index('idx_live_admission_work_items_claimed_expired')
+      .on(table.appId, table.claimExpiresAt, table.createdAt, table.id)
+      .where(
+        sql`${table.state} = 'claimed' AND ${table.claimExpiresAt} IS NOT NULL`,
+      ),
   }),
 );

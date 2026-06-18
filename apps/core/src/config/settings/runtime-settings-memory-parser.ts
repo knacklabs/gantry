@@ -15,6 +15,12 @@ import {
   getDefaultMemoryBackfillSettings,
   getPresetManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
+import {
+  parseBooleanValue,
+  parseNonNegativeIntegerValue,
+  parsePositiveIntegerValue,
+  parseStringValue,
+} from './runtime-settings-parse-primitives.js';
 import type {
   EmbeddingProviderName,
   MemoryBackfillMode,
@@ -93,42 +99,6 @@ function parseBackfillSettings(
   };
 }
 
-function parseStringValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback?: string,
-): string {
-  if (raw === undefined && fallback !== undefined) return fallback;
-  if (typeof raw !== 'string' || raw.trim().length === 0) {
-    throw new Error(`${pathPrefix} must be a non-empty string`);
-  }
-  return raw.trim();
-}
-
-function parseBooleanValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback?: boolean,
-): boolean {
-  if (raw === undefined && fallback !== undefined) return fallback;
-  if (typeof raw !== 'boolean') {
-    throw new Error(`${pathPrefix} must be true/false`);
-  }
-  return raw;
-}
-
-function parsePositiveIntegerValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback: number,
-): number {
-  if (raw === undefined) return fallback;
-  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw <= 0) {
-    throw new Error(`${pathPrefix} must be a positive integer`);
-  }
-  return raw;
-}
-
 function parseEmbeddingDimensions(raw: unknown): number {
   const dimensions = parsePositiveIntegerValue(
     raw,
@@ -141,18 +111,6 @@ function parseEmbeddingDimensions(raw: unknown): number {
     );
   }
   return dimensions;
-}
-
-function parseNonNegativeIntegerValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback: number,
-): number {
-  if (raw === undefined) return fallback;
-  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
-    throw new Error(`${pathPrefix} must be a non-negative integer`);
-  }
-  return raw;
 }
 
 function parseConfidenceValue(

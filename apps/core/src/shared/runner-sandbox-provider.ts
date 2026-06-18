@@ -48,8 +48,15 @@ export interface RunnerSandboxSpawnInput {
   principal: RunnerSandboxPrincipal;
 }
 
+export interface RunnerSandboxWarmTemplateStatus {
+  available: boolean;
+  cacheHit: boolean;
+  authorityFree: boolean;
+}
+
 export interface RunnerSandboxProvider {
   readonly id: RunnerSandboxProviderId;
   readonly enforcing: boolean;
+  warmTemplate?(): RunnerSandboxWarmTemplateStatus;
   start(input: RunnerSandboxSpawnInput): ChildProcessWithoutNullStreams;
 }

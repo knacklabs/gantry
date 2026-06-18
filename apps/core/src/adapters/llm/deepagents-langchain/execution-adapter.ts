@@ -10,11 +10,12 @@ import type {
 import { projectDeepAgentModelCredentialEnv } from './model-credential-env.js';
 import { validateDeepAgentCredentialProjection } from './credential-validation.js';
 import { isMissingDeepAgentSessionError } from './runner/session-store.js';
+import { ensureDeepAgentsCheckpointSchema } from './checkpoint-setup.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
+import { resolveDeepAgentSkillProjection } from './skill-projection.js';
 
 const GANTRY_DEEPAGENTS_MODEL_ID_ENV = 'GANTRY_DEEPAGENTS_MODEL_ID';
 const GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV = 'GANTRY_DEEPAGENTS_MODEL_PROVIDER';
-const GANTRY_DEEPAGENTS_SESSIONS_DIR_ENV = 'GANTRY_DEEPAGENTS_SESSIONS_DIR';
 const GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL_ENV =
   'GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL';
 // Curated context window for empty-profile models (see model-catalog.ts). The
@@ -41,6 +42,13 @@ function cachePromptControlMode(
     default:
       return 'none';
   }
+}
+
+export function deepAgentsCheckpointSchema(storageSchema: string): string {
+  const suffix = '_deepagents';
+  const maxBaseLength = 63 - suffix.length;
+  const base = storageSchema.slice(0, maxBaseLength);
+  return `${base}${suffix}`;
 }
 
 export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapter {
@@ -84,23 +92,21 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
       );
     }
 
-    // Adapter-owned runtime config dir holds the adapter-private session
-    // projection (LangChain message history) under the per-group .llm-runtime.
+    // Adapter-owned runtime config dir is retained for sandbox/read path parity.
+    // Live continuity is not file-backed: the runner uses LangGraph's official
+    // PostgresSaver keyed by the Gantry provider session id.
     const runtimeConfigDir = path.join(
       input.groupDir,
       '.llm-runtime',
       'deepagents',
     );
-    const sessionsDir = path.join(runtimeConfigDir, 'sessions');
-    fs.mkdirSync(sessionsDir, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(runtimeConfigDir, { recursive: true, mode: 0o700 });
 
     const modelCredentialEnv = projectDeepAgentModelCredentialEnv(
       input.modelCredentialProjection.env,
     );
 
-    const env: NodeJS.ProcessEnv = {
-      [GANTRY_DEEPAGENTS_SESSIONS_DIR_ENV]: sessionsDir,
-    };
+    const env: NodeJS.ProcessEnv = {};
     if (input.effectiveModel) {
       env[GANTRY_DEEPAGENTS_MODEL_ID_ENV] = input.effectiveModel;
     }
@@ -134,6 +140,35 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
     if (Object.keys(modelCredentialEnv).length > 0) {
       runnerInputPatch.modelCredentialEnv = modelCredentialEnv;
     }
+    if (!input.input.isScheduledJob) {
+      const postgresUrl = input.runtimeStorage?.postgresUrl?.trim() ?? '';
+      const postgresUrlEnv =
+        input.runtimeStorage?.postgresUrlEnv ?? 'GANTRY_DATABASE_URL';
+      const postgresSchema = input.runtimeStorage?.postgresSchema ?? 'gantry';
+      if (!postgresUrl) {
+        throw new Error(
+          `DeepAgents live sessions require runtime Postgres storage. Set ${postgresUrlEnv} before using DeepAgents live turns.`,
+        );
+      }
+      const checkpointSchema = deepAgentsCheckpointSchema(postgresSchema);
+      await ensureDeepAgentsCheckpointSchema({
+        databaseUrl: postgresUrl,
+        schema: checkpointSchema,
+      });
+      runnerInputPatch.deepAgentCheckpointer = {
+        databaseUrl: postgresUrl,
+        schema: checkpointSchema,
+      };
+    }
+    const deepAgentSkills = await resolveDeepAgentSkillProjection({
+      selectedSkillIds: input.input.attachedSkillSourceIds,
+      skillRepository: input.options?.skillRepository,
+      skillArtifactStore: input.options?.skillArtifactStore,
+      skillContext: input.options?.skillContext,
+    });
+    if (deepAgentSkills) {
+      runnerInputPatch.deepAgentSkills = deepAgentSkills;
+    }
     runnerInputPatch.semanticCapabilities =
       input.input.semanticCapabilities ?? [];
 
@@ -152,6 +187,7 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
         `executionProvider=${this.id}`,
         `runner=${runnerPath}`,
         `configDir=${runtimeConfigDir}`,
+        `checkpointSchema=${deepAgentsCheckpointSchema(input.runtimeStorage?.postgresSchema ?? 'gantry')}`,
       ],
       cleanup: () => {
         /* retain session projection across live turns; no per-run temp to clean */

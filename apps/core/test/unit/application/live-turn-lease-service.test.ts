@@ -126,6 +126,33 @@ describe('claimLiveTurnExecution', () => {
     expect(liveTurns.turns.has('turn-2')).toBe(false);
   });
 
+  it('claims live capacity even when the matching job workspace slot is full', async () => {
+    const { deps, coordination } = makeDeps();
+    await coordination.acquireRunSlot({
+      slotKey: 'tg:team',
+      holderId: 'job-holder',
+      capacity: 1,
+      ttlMs: 60_000,
+      runId: 'job-run',
+      workerInstanceId: 'job-worker',
+    });
+
+    const result = await claimLiveTurnExecution({
+      deps,
+      turnId: 'turn-1',
+      scope: makeScope({ conversationId: 'tg:team' }),
+      runId: 'live-run',
+      slotCapacity: 1,
+      leaseTtlMs: 60_000,
+    });
+
+    expect(result.outcome).toBe('claimed');
+    expect(coordination.slotHolders('tg:team')).toEqual(['job-holder']);
+    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([
+      liveTurnSlotHolderId('turn-1', 1),
+    ]);
+  });
+
   it('unwinds slot and turn when the lease cannot be claimed', async () => {
     const { deps, liveTurns, coordination } = makeDeps();
     // Pre-claim the run's lease so the turn claim succeeds but the lease

@@ -12,6 +12,7 @@ const HOST_PHASE_LABELS = {
   runnerEnvMs: 'Runner Env',
   selectedSkillEnvMs: 'Selected Skill Env',
   mcpConfigMs: 'MCP Config',
+  sandboxTemplateMs: 'Sandbox Template',
   sandboxSpecMs: 'Sandbox Spec',
 } as const;
 

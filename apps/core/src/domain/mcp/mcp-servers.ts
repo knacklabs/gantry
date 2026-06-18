@@ -87,7 +87,8 @@ export type McpServerAuditEventType =
   | 'materialize'
   | 'startup_failure'
   | 'permission_allow'
-  | 'permission_deny';
+  | 'permission_deny'
+  | 'tool_activity';
 
 export interface McpServerAuditEvent {
   id: McpServerAuditEventId;

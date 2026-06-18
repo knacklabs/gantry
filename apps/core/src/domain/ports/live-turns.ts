@@ -108,6 +108,133 @@ export interface LiveTurnCommand {
   appliedAt: string | null;
 }
 
+export type LiveAdmissionWorkItemState =
+  | 'queued'
+  | 'claimed'
+  | 'deferred'
+  | 'completed'
+  | 'failed'
+  | 'canceled';
+
+export const LIVE_ADMISSION_TERMINAL_STATES = [
+  'completed',
+  'failed',
+  'canceled',
+] as const satisfies readonly LiveAdmissionWorkItemState[];
+
+export interface LiveAdmissionWorkItem {
+  id: string;
+  appId: string;
+  agentId: string | null;
+  agentSessionId: string | null;
+  conversationId: string;
+  threadId: string | null;
+  queueJid: string;
+  messageId: string;
+  messageCursor: string;
+  senderUserId: string | null;
+  senderDisplayName: string | null;
+  idempotencyKey: string;
+  state: LiveAdmissionWorkItemState;
+  sourceKind: 'message';
+  triggerDecision: Record<string, unknown>;
+  claimWorkerInstanceId: string | null;
+  claimToken: string | null;
+  claimExpiresAt: string | null;
+  fencingVersion: number;
+  retryCount: number;
+  failureCount: number;
+  deferUntil: string | null;
+  deferredReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  claimedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface LiveAdmissionWorkItemEnqueueResult {
+  outcome: 'enqueued' | 'replayed';
+  item: LiveAdmissionWorkItem;
+}
+
+export interface LiveAdmissionWorkItemNotifier {
+  notifyLiveAdmissionWorkItem(input: {
+    appId: string;
+    workItemId: string;
+  }): Promise<void>;
+}
+
+export interface LiveAdmissionWakeupSource {
+  subscribe(listener: () => void): () => void;
+  close(): Promise<void>;
+}
+
+export interface LiveAdmissionClaimInput {
+  appId: string;
+  workerInstanceId: string;
+  claimToken: string;
+  claimExpiresAt: string;
+  limit: number;
+  now?: string;
+}
+
+export interface LiveAdmissionWorkItemRepository {
+  /**
+   * Durable message-backed admission. The idempotency key is provider delivery
+   * identity; replaying a webhook/socket event returns the existing row instead
+   * of creating a second live turn candidate.
+   */
+  enqueueLiveAdmissionWorkItem(input: {
+    id: string;
+    appId: string;
+    agentId?: string | null;
+    agentSessionId?: string | null;
+    conversationId: string;
+    threadId?: string | null;
+    queueJid: string;
+    messageId: string;
+    messageCursor: string;
+    senderUserId?: string | null;
+    senderDisplayName?: string | null;
+    idempotencyKey: string;
+    triggerDecision?: Record<string, unknown>;
+    now?: string;
+  }): Promise<LiveAdmissionWorkItemEnqueueResult>;
+  /**
+   * Transactionally claims due rows. NOTIFY payloads are only wakeups; workers
+   * recover missed or coalesced wakeups by calling this against durable rows.
+   */
+  claimLiveAdmissionWorkItems(
+    input: LiveAdmissionClaimInput,
+  ): Promise<LiveAdmissionWorkItem[]>;
+  renewLiveAdmissionWorkItemClaim(input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    claimExpiresAt: string;
+    now?: string;
+  }): Promise<boolean>;
+  deferLiveAdmissionWorkItem(input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    reason: 'queued_capacity' | 'listener_degraded' | 'retry';
+    deferUntil: string;
+    countFailure?: boolean;
+    now?: string;
+  }): Promise<boolean>;
+  settleLiveAdmissionWorkItem(input: {
+    id: string;
+    claimToken: string;
+    workerInstanceId: string;
+    state: Extract<
+      LiveAdmissionWorkItemState,
+      'completed' | 'failed' | 'canceled'
+    >;
+    now?: string;
+  }): Promise<boolean>;
+}
+
 export interface LiveTurnCommandAppendResult {
   // 'appended' persisted a new command; 'replayed' returned the existing
   // command for a reused idempotency key; 'rejected' means the turn is
@@ -310,4 +437,7 @@ export interface LiveTurnCommandRepository {
 }
 
 export interface LiveTurnCoordinationRepository
-  extends LiveTurnRepository, LiveTurnCommandRepository {}
+  extends
+    LiveTurnRepository,
+    LiveTurnCommandRepository,
+    LiveAdmissionWorkItemRepository {}

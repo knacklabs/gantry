@@ -273,6 +273,7 @@ export async function startGantryRuntime(
         getWorkerCoordinationRepository: () =>
           storage.repositories.workerCoordination,
         getLiveTurnRepository: () => storage.repositories.liveTurns,
+        getLiveAdmissionWakeupSource: () => storage.liveAdmissionWakeupSource,
         getRuntimeDependencyRepository: () =>
           storage.repositories.runtimeDependencies,
         publishRuntimeEvent: async (event) => {

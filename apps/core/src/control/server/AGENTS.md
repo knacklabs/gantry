@@ -12,6 +12,10 @@
 - Model responses expose `responseFamily`, `modelRoute`, readiness, and
   capability descriptors. Keep raw provider model IDs under diagnostic
   `modelRoute.metadata`; do not reintroduce top-level provider slug fields.
+- Run-event projections may classify runtime diagnostics for operators, but
+  they must not turn diagnostic payloads into authority, routing, or setup
+  decisions. Keep secret/prompt redaction at the event producer or aggregator
+  boundary before exposing details through control routes.
 - Production or non-loopback TCP control startup must require strong keyed
   `GANTRY_CONTROL_API_KEYS_JSON` records. Do not add a remote auto-accept path;
   approval shortcuts are local-development-only and must fail closed remotely.

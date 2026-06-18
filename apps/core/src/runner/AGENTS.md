@@ -46,6 +46,10 @@
   approval, and persistent suggestions must list separate safe leaf rules
   instead of the compound command.
 - Native SDK `Agent` and `Task` tool calls are always background work. Force `run_in_background: true` in runner tool input before validation, permission checks, sandbox/network gates, and SDK allow responses; SDK `task_notification` system messages should be emitted as structured runtime events instead of log-only observations.
+- Delegation wrappers are authority surfaces. Do not mount `delegate_task`,
+  `task_get`, or `task_cancel` until Gantry has a real delegated-task executor
+  wired behind them; dormant unavailable handlers and task rows without an
+  executor are not a valid delegation implementation.
 - Durable file/web authority uses Gantry-owned facade names such as
   `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, `WebSearch`, and
   `WebRead`. The selected harness maps those names to provider-native tools
@@ -66,3 +70,10 @@
   requested", "installed", "available now", or "needs setup"; do not echo
   selected-skill lists, internal MCP tool ids, task ids, or raw status blocks
   unless the user asks for technical details.
+- Runner-side file IPC response waits should use `waitForIpcResponseFile` so
+  response files can wake the runner through `fs.watch` while retaining bounded
+  polling as a fallback. Do not add new raw sleep/poll loops for signed
+  permission, memory, browser, or task response files.
+- Live runner signal drains should use the shared `RuntimeSignalPump` so
+  follow-up messages, `_close`, and interaction-boundary files wake the active
+  run through `fs.watch`; fallback polling is only missed-event recovery.

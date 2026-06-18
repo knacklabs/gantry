@@ -1,7 +1,12 @@
 import {
   drainIpcInput,
+  interactiveIpcInputDir,
   shouldClose,
 } from '../../../../runner/runner-ipc-input.js';
+import {
+  startRuntimeSignalPump,
+  type RuntimeSignalPumpDeps,
+} from '../../../../runner/runtime-signal-pump.js';
 
 // Live-turn control parity for the DeepAgents lane. Mirrors the Anthropic
 // runner's in-flight signal handling (query-loop.ts pollRuntimeSignalsDuringQuery):
@@ -40,13 +45,13 @@ export interface DeepAgentLiveControl {
 export function startDeepAgentLiveControl(options?: {
   pollMs?: number;
   log?: (message: string) => void;
+  deps?: RuntimeSignalPumpDeps;
 }): DeepAgentLiveControl {
   const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
   const log = options?.log;
   const controller = new AbortController();
   const buffered: string[] = [];
   let closedFlag = false;
-  let stopped = false;
 
   // One drain+close-check pass over the IPC-input dir. Returns true if a close
   // sentinel was observed (so the caller stops scheduling). Shared by the poll
@@ -63,7 +68,6 @@ export function startDeepAgentLiveControl(options?: {
         closedFlag = true;
         log?.('Close sentinel detected during turn; aborting LangGraph stream');
         controller.abort();
-        stopped = true;
         return true;
       }
     } catch (err) {
@@ -74,20 +78,24 @@ export function startDeepAgentLiveControl(options?: {
     return false;
   };
 
-  const poll = () => {
-    if (stopped) return;
-    if (drainOnce()) return;
-    schedule();
-  };
-
-  const timers: ReturnType<typeof setTimeout>[] = [];
-  const schedule = () => {
-    if (stopped) return;
-    const timer = setTimeout(poll, pollMs);
-    timer.unref?.();
-    timers.push(timer);
-  };
-  schedule();
+  const signalPump = startRuntimeSignalPump({
+    inputDir: interactiveIpcInputDir(),
+    fallbackPollMs: pollMs,
+    processSignals: () => !drainOnce(),
+    deps: {
+      ...options?.deps,
+      onWatchError: (input) => {
+        options?.deps?.onWatchError?.(input);
+        log?.(
+          `live-control watch failed for ${input.dir}: ${
+            input.error instanceof Error
+              ? input.error.message
+              : String(input.error)
+          }; using fallback poll`,
+        );
+      },
+    },
+  });
 
   return {
     signal: controller.signal,
@@ -100,8 +108,7 @@ export function startDeepAgentLiveControl(options?: {
       drainOnce();
     },
     stop: () => {
-      stopped = true;
-      for (const timer of timers) clearTimeout(timer);
+      signalPump.stop();
     },
   };
 }

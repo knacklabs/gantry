@@ -203,6 +203,13 @@
     "maxViolations": 2
   },
   {
+    "file": "apps/core/src/cli/group-harness.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Local CLI agent-harness administration follows existing CLI settings-persistence adapters; capped so additional config imports fail until CLI settings writes are ported.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/cli/group-helpers.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1067,6 +1074,13 @@
     "removeByPhase": "canonical-boundary-cleanup-phase"
   },
   {
+    "file": "apps/core/src/application/mcp/mcp-output-schema-validator.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "MCP outputSchema validation uses the installed JSON Schema validator until MCP proxy execution is split behind an adapter-owned validation port; capped to the single validator import.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/application/mcp/mcp-tool-proxy.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Current MCP proxy owns direct MCP SDK transport calls until the MCP proxy is split behind an adapter port; capped so additional SDK imports fail.",
@@ -1375,12 +1389,5 @@
     "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
     "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
     "maxViolations": 4
-  },
-  {
-    "file": "packages/contracts/src/contract-primitives.ts",
-    "rule": "provider_specific_path",
-    "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
-    "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
-    "maxViolations": 1
   }
 ]

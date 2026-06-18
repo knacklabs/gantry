@@ -110,6 +110,9 @@ export async function handleSystemRoutes(
       role: ctx.processRole,
       liveExecutionEnabled: ctx.liveExecution,
       currentWorkerInstanceId: () => ctx.currentWorkerInstanceId?.() ?? null,
+      liveCapacityLimit: () => ctx.liveCapacityLimit?.() ?? 0,
+      jobCapacityLimit: () =>
+        getRuntimeSettingsForConfig().runtime.queue.maxJobRuns,
       oldestWaitingLiveAdmissionSeconds: () =>
         ctx.oldestWaitingLiveAdmissionSeconds?.() ?? 0,
     };

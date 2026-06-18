@@ -14,8 +14,8 @@ import type {
 /**
  * Live lease lifecycle on top of the durable live-turn contract. Reuses the
  * job-worker primitives: run_leases is the fencing authority (live leases
- * carry jobId = null) and run_slots bounds cluster-wide live message
- * concurrency instead of process-local counters.
+ * carry jobId = null) and per-worker run_slots bound live message concurrency
+ * instead of process-local counters.
  */
 
 /**

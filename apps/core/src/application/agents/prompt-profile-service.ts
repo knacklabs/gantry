@@ -1,3 +1,4 @@
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { FileArtifactNotFoundError } from '../../domain/file-artifacts/file-artifact.js';
 import { PROMPT_PROFILE_VIRTUAL_SCOPE } from '../../domain/file-artifacts/protected-virtual-path.js';
 import type { FileArtifactStore } from '../../domain/ports/file-artifact-store.js';
@@ -11,6 +12,7 @@ import {
   type AgentRelationshipMode,
 } from '../../shared/agent-relationship-mode.js';
 import { PROACTIVE_RECOMMENDATION_GUIDANCE } from '../../shared/capability-guidance.js';
+import { isValidPromptAgentFolder } from './prompt-profile-folder.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
@@ -29,9 +31,6 @@ const PERSONA_SOURCE = 'gantry://persona';
 const CAPABILITY_GUIDANCE_SOURCE = 'gantry://capability-guidance';
 const OPERATING_GUIDANCE_SOURCE = 'gantry://operating-guidance';
 const AGENT_INSTRUCTIONS_SOURCE = 'gantry://agent-instructions';
-const AGENT_FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-const RESERVED_AGENT_FOLDERS = new Set(['global', 'shared']);
-
 export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   Record<PromptSectionName, number>
 > = {
@@ -82,30 +81,30 @@ function personaPrompt(
       return [
         '# Generalist persona',
         '- Help with planning, reminders, coordination, lightweight research, and cross-functional workflows.',
-        '- Use generic Agent delegation for isolated research, summarization, comparison, planning, or second-pass review when it reduces clutter for the user.',
+        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Avoid developer, repository, shell, Git, deployment, PR, and runtime-admin assumptions unless the user explicitly asks and host capabilities allow it.',
       ].join('\n');
     case 'sales':
       return [
         '# Sales persona',
         '- Help with customer context, account follow-up, scheduling, messaging, and approved CRM-backed workflows.',
-        '- Use generic Agent delegation for bounded account research, meeting prep, follow-up critique, or synthesis; keep customer-facing output owned by the coordinating agent.',
+        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
       ].join('\n');
     case 'marketing':
       return [
         '# Marketing persona',
         '- Help with campaign context, messaging, content review, research, and approved analytics/content workflows.',
-        '- Use generic Agent delegation for audience research, copy critique, channel comparison, and campaign synthesis; do not delegate brand judgment blindly.',
+        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
       ].join('\n');
     case 'operations':
       return [
         '# Operations persona',
         '- Help with coordination, runbook-style status, scheduling, messaging, and approved operational workflows.',
-        '- Use generic Agent delegation for runbook checks, status summarization, incident context gathering, and blocker analysis.',
+        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- If an approved operational source is already connected or capability_status shows it as ready, use the approved tools directly; do not tell the user approval is needed unless the tool response says access is missing or denied.',
-        '- When the user names an external operational source, inspect connected MCP sources with mcp_list_tools before saying the source is unavailable or asking for another access path.',
+        '- When the user names an external operational source, inspect connected MCP sources with mcp_list_tools and fetch one-tool details with mcp_describe_tool when schema is needed before saying the source is unavailable or asking for another access path.',
         '- When listing operational choices for a human, prefer concise channel-native bullets with display names only.',
         '- Do not show internal ids, codes, UUIDs, raw table-like fields, or tool payload fields unless the user explicitly asks for technical details or the identifier is the only human-usable label.',
         '- After creating or updating an external record, include the returned deep link when the tool provides one. If no deep link is available, include the best available listing or fallback link from the tool response.',
@@ -119,14 +118,14 @@ function personaPrompt(
       return [
         '# Research persona',
         '- Help with browsing, source-backed research, comparison, synthesis, and citations.',
-        '- Use generic Agent delegation for source finding, cross-checking, citation review, and synthesis critique.',
+        '- Do not use raw harness subagents; Gantry delegation is unavailable until a delegated-task executor is mounted.',
         '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
       ].join('\n');
     case 'developer':
     default:
       return [
         '# Developer persona',
-        '- Help with code, architecture, tests, review, local workspace context, and safe generic Agent delegation when available.',
+        '- Help with code, architecture, tests, review, and local workspace context.',
         '- Use developer tools only when the current request needs them and host permissions allow them.',
       ].join('\n');
   }
@@ -136,21 +135,22 @@ function capabilityGuidancePrompt(
   persona: AgentPersona,
   accessPreset: PromptAccessPreset,
 ): string {
-  const locked = accessPreset === 'locked';
   const baseline = [
     '# Capability guidance',
-    locked
+    accessPreset === 'locked'
       ? '- Memory is baseline for every persona. Browser control is available only when Gantry-owned browser_* tools are present.'
       : '- Memory is baseline for every persona. Browser control is available only when the canonical Browser capability is selected, through Gantry-owned browser_* tools.',
     '- Memory tools store durable evidence only; temporary task state does not belong in memory.',
-    '- Generic Agent delegation is available for bounded subtasks. Write a clear prompt with goal, context, constraints, and expected output.',
+    '- Use todo_update for any multi-step task: publish a short plan and keep it current as items move pending -> inProgress -> completed. It renders as one live, in-place list per channel, so do not restate the same progress in separate messages. It is display-only, non-authority state and does not grant tools or trigger work.',
+    '- Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
+    '- Final answers that used delegation must include exactly: Completed: <short outcome>, Used: <tools/capabilities>, Changed: <files/accounts/channels or none>, Delegated: yes, Needs attention: <blocker or none>.',
     '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
   ];
   if (persona === 'developer') {
     baseline.push(
-      locked
-        ? '- Developer capabilities may include workspace read/search and delegation.'
-        : '- Developer capabilities may include workspace read/search and delegation. Shell, file writes, Git, PR, deploy, and runtime-admin actions still require explicit capability or permission.',
+      accessPreset === 'locked'
+        ? '- Developer capabilities may include workspace read/search.'
+        : '- Developer capabilities may include workspace read/search. Shell, file writes, Git, PR, deploy, and runtime-admin actions still require explicit capability or permission.',
     );
   } else {
     baseline.push(
@@ -194,14 +194,14 @@ const OPERATING_GUIDANCE_HEAD = [
   '## Tool Use',
   '- Use memory tools for durable memory, not for temporary notes.',
   '- If memory is missing, stale, or uncertain, say so directly.',
-  '- Use send_message for progress updates and ask_user_question for structured choices.',
+  '- Use send_message for progress updates and ask_user_question for genuine either/or decisions the user must make: 2-4 short options (1-5 words), set single- or multi-select intentionally. It renders as native buttons, cards, or inline keyboards per channel. Use a normal message for open-ended input the agent can act on directly.',
 ];
 
 const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
-  '- When capability_status shows an MCP source as ready, inspect it with mcp_list_tools and call approved actions with mcp_call_tool instead of requesting the same access again.',
+  '- When capability_status shows an MCP source as ready, inspect it with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, and call approved actions with mcp_call_tool instead of requesting the same access again.',
   '- If a ready MCP source has the needed action, use that source instead of requesting the same access again or using command/browser fallback.',
-  '- Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names; inspect connected sources with mcp_list_tools and call approved actions via mcp_call_tool.',
+  '- Do not infer a third-party MCP source is unavailable only because its raw tools are not direct SDK tool names; inspect connected sources with mcp_list_tools, fetch detail with mcp_describe_tool when needed, and call approved actions via mcp_call_tool.',
   '- Source setup, MCP tool lists, CLI help, skill text, and adapter discovery are inventory only. Durable authority is the reviewed action capability granted to this agent.',
   '- Use request_access target.kind=capability for durable reviewed access.',
   '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',
@@ -311,16 +311,6 @@ function renderSection(section: PromptSection): string {
     section.content,
     `[[/${section.name}]]`,
   ].join('\n');
-}
-
-function isValidPromptAgentFolder(agentFolder: string): boolean {
-  if (!agentFolder) return false;
-  if (agentFolder !== agentFolder.trim()) return false;
-  if (!AGENT_FOLDER_PATTERN.test(agentFolder)) return false;
-  if (agentFolder.includes('/') || agentFolder.includes('\\')) return false;
-  if (agentFolder.includes('..')) return false;
-  if (RESERVED_AGENT_FOLDERS.has(agentFolder.toLowerCase())) return false;
-  return true;
 }
 
 export class PromptProfileService {
@@ -669,9 +659,8 @@ export class PromptProfileService {
   }
 }
 
-export function promptProfileAgentIdForFolder(agentFolder: string): string {
-  return `agent:${agentFolder}`;
-}
+export const promptProfileAgentIdForFolder = (agentFolder: string): string =>
+  agentIdForFolder(agentFolder);
 
 export function defaultAgentsPromptMarkdown(
   agentName: string,
@@ -690,7 +679,7 @@ export function defaultAgentsPromptMarkdown(
           // No scheduler line: scheduler_* tools are not mounted for locked
           // agents, so the default profile must not describe them.
           'How you get things done:',
-          '- Use send_message for progress and ask_user_question for structured choices.',
+          '- Use send_message for progress and ask_user_question for genuine either/or decisions the user must make; it renders as native buttons, cards, or inline keyboards per channel.',
           '- Work only with the tools and knowledge currently available in this session.',
           '',
           'When something blocks you:',
@@ -700,7 +689,7 @@ export function defaultAgentsPromptMarkdown(
         ]
       : [
           'How you get things done:',
-          '- Use send_message for progress and ask_user_question for structured choices.',
+          '- Use send_message for progress and ask_user_question for genuine either/or decisions the user must make; it renders as native buttons, cards, or inline keyboards per channel.',
           '- Request reviewed access with request_access (target.kind=capability for durable access; target.kind=run_command with temporaryOnly for a scoped one-off command).',
           '- Add capabilities with request_skill_install, request_skill_proposal, request_skill_dependency_install, or request_mcp_server; bind and restart with register_agent and service_restart.',
           '- Manage recurring work with the scheduler_* tools (for example scheduler_upsert_job, scheduler_run_now, scheduler_list_jobs).',

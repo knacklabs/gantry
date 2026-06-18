@@ -1,9 +1,3 @@
-import https from 'https';
-
-import { Bot } from 'grammy';
-import { autoRetry } from '@grammyjs/auto-retry';
-import { stream, streamApi } from '@grammyjs/stream';
-
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../../config/index.js';
 import {
   findDurablePermissionInteractionByRequestId,
@@ -24,8 +18,12 @@ import {
   TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN,
   TELEGRAM_USER_QUESTION_CALLBACK_PATTERN,
   TelegramContext,
-  escapeTelegramMarkdownV2Literal,
 } from './channel-shared.js';
+import {
+  createTelegramBotRuntime,
+  registerTelegramBotCommands,
+} from './bot-setup.js';
+import { registerTelegramMediaHandlers } from './media-ingestion.js';
 
 const TELEGRAM_BOT_COMMANDS = new Set(['chatid', 'ping']);
 
@@ -37,34 +35,10 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
     this.interactionCallbacksEnabled =
       options.interactionCallbacks ?? options.inbound !== false;
     this.clearPollingRetryTimer();
-    this.bot = new Bot<TelegramContext>(this.botToken, {
-      client: {
-        baseFetchConfig: { agent: https.globalAgent, compress: true },
-      },
-    });
-    this.bot.api.config.use(autoRetry());
-    this.bot.use(stream());
-    this.draftStreamApi = streamApi(this.bot.api.raw);
-
-    // Command to get chat ID (useful for registration)
-    this.bot.command('chatid', (ctx) => {
-      const chatId = ctx.chat.id;
-      const chatType = ctx.chat.type;
-      const chatName =
-        chatType === 'private'
-          ? ctx.from?.first_name || 'Private'
-          : (ctx.chat as any).title || 'Unknown';
-
-      ctx.reply(
-        `Chat ID: \`tg:${escapeTelegramMarkdownV2Literal(String(chatId))}\`\nName: ${escapeTelegramMarkdownV2Literal(chatName)}\nType: ${escapeTelegramMarkdownV2Literal(chatType)}`,
-        { parse_mode: 'MarkdownV2' },
-      );
-    });
-
-    // Command to check bot status
-    this.bot.command('ping', (ctx) => {
-      ctx.reply(`${ASSISTANT_NAME} is online.`);
-    });
+    const runtime = createTelegramBotRuntime(this.botToken);
+    this.bot = runtime.bot;
+    this.draftStreamApi = runtime.draftStreamApi;
+    registerTelegramBotCommands(this.bot, ASSISTANT_NAME);
 
     this.bot.on('callback_query:data', async (ctx: any) => {
       const data =
@@ -74,7 +48,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       const userQuestionMatch =
         TELEGRAM_USER_QUESTION_CALLBACK_PATTERN.exec(data);
       if (userQuestionMatch) {
-        const action = userQuestionMatch[1] as 'select' | 'done';
+        const action = userQuestionMatch[1] as 'select' | 'done' | 'other';
         const requestId = userQuestionMatch[2];
         const questionIndex = Number.parseInt(userQuestionMatch[3], 10);
         const optionIndex = userQuestionMatch[4]
@@ -83,7 +57,10 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         const key = this.pendingUserQuestionKey(requestId, questionIndex);
         const pending = this.pendingUserQuestions.get(key);
         if (!pending) {
-          const callbackChatId = ctx.chat?.id?.toString() || '';
+          const callbackChatId =
+            ctx.callbackQuery?.message?.chat?.id?.toString() ||
+            ctx.chat?.id?.toString() ||
+            '';
           const userId = ctx.from?.id?.toString() || '';
           const durable = await findDurableQuestionInteractionByRequestId({
             requestId,
@@ -98,6 +75,48 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             ));
           const answeredBy =
             ctx.from?.first_name || ctx.from?.username || userId || 'unknown';
+          if (authorized && action === 'other') {
+            const threadId = (
+              ctx.callbackQuery?.message as
+                | { message_thread_id?: number }
+                | undefined
+            )?.message_thread_id;
+            let promptMessageId: number | undefined;
+            try {
+              const prompt = await ctx.api.sendMessage(
+                callbackChatId,
+                'Reply to this message with your answer.',
+                {
+                  ...(typeof threadId === 'number'
+                    ? { message_thread_id: threadId }
+                    : {}),
+                  reply_markup: {
+                    force_reply: true,
+                    input_field_placeholder: 'Type your answer…',
+                  },
+                },
+              );
+              promptMessageId = prompt.message_id;
+            } catch (err) {
+              logger.debug(
+                { requestId, err: this.sanitizeErrorMessage(err) },
+                'Failed to send Telegram durable Other free-text prompt',
+              );
+            }
+            if (promptMessageId === undefined) {
+              await ctx.answerCallbackQuery({
+                text: 'Could not start a free-text reply.',
+                show_alert: true,
+              });
+              return;
+            }
+            this.pendingUserQuestionOtherPrompts.set(
+              `${callbackChatId}:${promptMessageId}`,
+              { requestId, questionIndex },
+            );
+            await ctx.answerCallbackQuery({ text: 'Reply with your answer.' });
+            return;
+          }
           const resolved =
             authorized &&
             (action === 'done' ||
@@ -144,6 +163,48 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             text: 'Only a conversation control approver can answer.',
             show_alert: true,
           });
+          return;
+        }
+        if (action === 'other') {
+          const threadId = (
+            ctx.callbackQuery?.message as
+              | { message_thread_id?: number }
+              | undefined
+          )?.message_thread_id;
+          let promptMessageId: number | undefined;
+          try {
+            const prompt = await ctx.api.sendMessage(
+              pending.chatId,
+              'Reply to this message with your answer.',
+              {
+                ...(typeof threadId === 'number'
+                  ? { message_thread_id: threadId }
+                  : {}),
+                reply_markup: {
+                  force_reply: true,
+                  input_field_placeholder: 'Type your answer…',
+                },
+              },
+            );
+            promptMessageId = prompt.message_id;
+          } catch (err) {
+            logger.debug(
+              { requestId, err: this.sanitizeErrorMessage(err) },
+              'Failed to send Telegram Other free-text prompt',
+            );
+          }
+          if (promptMessageId === undefined) {
+            await ctx.answerCallbackQuery({
+              text: 'Could not start a free-text reply.',
+              show_alert: true,
+            });
+            return;
+          }
+          this.pendingUserQuestionOtherPrompts.set(
+            `${pending.chatId}:${promptMessageId}`,
+            { requestId, questionIndex },
+          );
+          await ctx.answerCallbackQuery({ text: 'Reply with your answer.' });
           return;
         }
         const answeredBy =
@@ -418,6 +479,18 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           'Unknown'
         : undefined;
 
+      // A reply to an "Other" ForceReply prompt answers a pending question.
+      if (typeof replyTo?.message_id === 'number') {
+        const handledOther = await this.tryResolveUserQuestionOtherReply({
+          chatId: ctx.chat.id.toString(),
+          replyToMessageId: replyTo.message_id,
+          text: ctx.message.text,
+          userId: sender,
+          answeredBy: senderName,
+        });
+        if (handledOther) return;
+      }
+
       // Determine chat name
       const chatName =
         ctx.chat.type === 'private'
@@ -487,212 +560,13 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       );
     });
 
-    // Handle non-text messages: download files when possible, fall back to placeholders.
-    const storeMedia = async (
-      ctx: any,
-      placeholder: string,
-      opts?: { fileId?: string; filename?: string },
-    ) => {
-      const chatJid = `tg:${ctx.chat.id}`;
-      const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const isGroup =
-        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
-      await this.opts.onChatMetadata(
-        chatJid,
-        timestamp,
-        undefined,
-        'telegram',
-        isGroup,
-      );
-
-      const routeGroups = this.opts.conversationRoutes;
-      let groups = routeGroups();
-      if (!isGroup && !groups[chatJid]) {
-        await this.opts.ensureMessageRoute?.(chatJid, {
-          id: ctx.message.message_id.toString(),
-          chat_jid: chatJid,
-          provider: 'telegram',
-          sender: ctx.from?.id?.toString() || '',
-          sender_name:
-            ctx.from?.first_name ||
-            ctx.from?.username ||
-            ctx.from?.id?.toString() ||
-            'Unknown',
-          content: placeholder,
-          timestamp,
-          is_from_me: false,
-          external_message_id: ctx.message.message_id.toString(),
-          thread_id: ctx.message.message_thread_id
-            ? ctx.message.message_thread_id.toString()
-            : undefined,
-        });
-        groups = routeGroups();
-      }
-
-      const group = groups[chatJid];
-      if (!group && isGroup) return;
-
-      const senderName =
-        ctx.from?.first_name ||
-        ctx.from?.username ||
-        ctx.from?.id?.toString() ||
-        'Unknown';
-      const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
-
-      const deliver = async (
-        content: string,
-        attachment?: {
-          kind: 'image' | 'file' | 'audio' | 'video' | 'other';
-          externalId?: string;
-          storageRef?: string;
-        },
-      ) => {
-        const threadId = ctx.message.message_thread_id;
-        const msgId = ctx.message.message_id.toString();
-        await this.opts.onMessage(chatJid, {
-          id: msgId,
-          chat_jid: chatJid,
-          provider: 'telegram',
-          sender: ctx.from?.id?.toString() || '',
-          sender_name: senderName,
-          content,
-          timestamp,
-          is_from_me: false,
-          external_message_id: msgId,
-          thread_id: threadId ? threadId.toString() : undefined,
-          attachments: attachment
-            ? [
-                {
-                  id: `telegram-attachment:${chatJid}:${msgId}`,
-                  kind: attachment.kind,
-                  externalId: attachment.externalId,
-                  storageRef: attachment.storageRef,
-                },
-              ]
-            : undefined,
-        });
-      };
-
-      // If we have a file_id, attempt to download; deliver asynchronously
-      if (opts?.fileId && group) {
-        const msgId = ctx.message.message_id.toString();
-        const filename =
-          opts.filename ||
-          `${placeholder.replace(/[[\] ]/g, '').toLowerCase()}_${msgId}`;
-        const downloaded = await this.downloadFile(
-          opts.fileId,
-          group.folder,
-          filename,
-        );
-        const kind =
-          placeholder === '[Photo]'
-            ? 'image'
-            : placeholder === '[Video]'
-              ? 'video'
-              : placeholder === '[Voice message]' || placeholder === '[Audio]'
-                ? 'audio'
-                : 'file';
-        if (downloaded) {
-          await deliver(`${placeholder} (${downloaded.storageRef})${caption}`, {
-            kind,
-            externalId: opts.fileId,
-            storageRef: downloaded.storageRef,
-          });
-        } else {
-          await deliver(`${placeholder}${caption}`, {
-            kind,
-            externalId: opts.fileId,
-          });
-        }
-        return;
-      }
-
-      await deliver(`${placeholder}${caption}`);
-    };
-
-    const enqueueMediaStore = async (
-      ctx: any,
-      placeholder: string,
-      opts?: { fileId?: string; filename?: string },
-    ): Promise<void> => {
-      const task = async () => {
-        try {
-          await storeMedia(ctx, placeholder, opts);
-        } catch (err) {
-          logger.error(
-            { err: this.sanitizeErrorMessage(err) },
-            'Telegram media ingestion failed',
-          );
-        }
-      };
-      const admitted = this.mediaIngestionQueue.enqueue(task);
-      if (admitted) return;
-
-      logger.warn(
-        {
-          chatId: ctx.chat?.id?.toString(),
-          messageId: ctx.message?.message_id?.toString(),
-        },
-        'Telegram media ingestion queue full; waiting to enqueue media event',
-      );
-      const queued = await this.mediaIngestionQueue.enqueueWhenAvailable(task);
-      if (!queued) {
-        logger.error(
-          {
-            chatId: ctx.chat?.id?.toString(),
-            messageId: ctx.message?.message_id?.toString(),
-            queueSize: this.mediaIngestionQueue.size(),
-          },
-          'Telegram media ingestion backlog full; media event was not admitted',
-        );
-      }
-    };
-
-    this.bot.on('message:photo', async (ctx) => {
-      // Telegram sends multiple sizes; last is largest
-      const photos = ctx.message.photo;
-      const largest = photos?.[photos.length - 1];
-      await enqueueMediaStore(ctx, '[Photo]', {
-        fileId: largest?.file_id,
-        filename: `photo_${ctx.message.message_id}`,
-      });
-    });
-    this.bot.on('message:video', async (ctx) => {
-      await enqueueMediaStore(ctx, '[Video]', {
-        fileId: ctx.message.video?.file_id,
-        filename: `video_${ctx.message.message_id}`,
-      });
-    });
-    this.bot.on('message:voice', async (ctx) => {
-      await enqueueMediaStore(ctx, '[Voice message]', {
-        fileId: ctx.message.voice?.file_id,
-        filename: `voice_${ctx.message.message_id}`,
-      });
-    });
-    this.bot.on('message:audio', async (ctx) => {
-      const name =
-        ctx.message.audio?.file_name || `audio_${ctx.message.message_id}`;
-      await enqueueMediaStore(ctx, '[Audio]', {
-        fileId: ctx.message.audio?.file_id,
-        filename: name,
-      });
-    });
-    this.bot.on('message:document', async (ctx) => {
-      const name = ctx.message.document?.file_name || 'file';
-      await enqueueMediaStore(ctx, `[Document: ${name}]`, {
-        fileId: ctx.message.document?.file_id,
-        filename: name,
-      });
-    });
-    this.bot.on('message:sticker', async (ctx) => {
-      const emoji = ctx.message.sticker?.emoji || '';
-      await enqueueMediaStore(ctx, `[Sticker ${emoji}]`);
-    });
-    this.bot.on('message:location', async (ctx) => {
-      await enqueueMediaStore(ctx, '[Location]');
-    });
-    this.bot.on('message:contact', async (ctx) => {
-      await enqueueMediaStore(ctx, '[Contact]');
+    registerTelegramMediaHandlers({
+      bot: this.bot,
+      opts: this.opts,
+      mediaIngestionQueue: this.mediaIngestionQueue,
+      downloadFile: (fileId, folder, filename) =>
+        this.downloadFile(fileId, folder, filename),
+      sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
     });
 
     // Handle errors gracefully

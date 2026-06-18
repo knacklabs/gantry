@@ -4,12 +4,15 @@ import {
   getOldestWaitingLiveAdmissionSeconds,
   shutdownLiveTurnAuthority,
   startRuntimeServices,
+  stopMessagePollingLoop,
   stopLiveTurnRecoveryLoop,
 } from '@core/app/bootstrap/runtime-services.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { ChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { runBoundedOutboundDeliveryRecovery } from '@core/jobs/outbound-delivery-recovery.js';
+import { stopWorkerHeartbeat } from '@core/jobs/worker-identity.js';
+import { buildPendingMessagesContinuationIdempotencyKey } from '@core/runtime/pending-message-replay.js';
 import {
   FakeCoordination,
   FakeLiveTurns,
@@ -75,6 +78,7 @@ function makeChannelWiring(): ChannelWiring {
     __permit: 'recovery',
   }));
   return {
+    getRuntimeAppId: vi.fn(() => 'default' as never),
     describeDestinationJid: vi.fn((jid: string) => {
       if (jid.startsWith('sl:'))
         return {
@@ -228,6 +232,69 @@ describe('startRuntimeServices', () => {
     expect(recoverPendingMessages).not.toHaveBeenCalled();
     expect(startMessagePollingLoop).not.toHaveBeenCalled();
     expect(app.queue.setProcessMessagesFn).toHaveBeenCalledOnce();
+  });
+
+  it('claims live admission work for the channel wiring app scope', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    (channelWiring.getRuntimeAppId as ReturnType<typeof vi.fn>).mockReturnValue(
+      'app-one',
+    );
+    const claimLiveAdmissionWorkItems = vi.fn(async () => []);
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+        jobExecution: false,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getWorkerCoordinationRepository: vi.fn(
+          () =>
+            ({
+              registerWorker: vi.fn(async () => undefined),
+              heartbeatWorker: vi.fn(async () => true),
+            }) as any,
+        ),
+        getLiveTurnRepository: vi.fn(
+          () =>
+            ({
+              claimLiveAdmissionWorkItems,
+              renewLiveAdmissionWorkItemClaim: vi.fn(async () => true),
+              deferLiveAdmissionWorkItem: vi.fn(async () => true),
+              settleLiveAdmissionWorkItem: vi.fn(async () => true),
+              listRecoverableLiveTurns: vi.fn(async () => []),
+            }) as any,
+        ),
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(() => ({
+          stop: vi.fn(),
+          done: Promise.resolve(),
+        })) as any,
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          fatal: vi.fn(),
+        },
+        exit: vi.fn() as any,
+      },
+    );
+
+    await vi.waitFor(() =>
+      expect(claimLiveAdmissionWorkItems).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: 'app-one' }),
+      ),
+    );
+
+    await stopMessagePollingLoop(0);
+    stopLiveTurnRecoveryLoop();
+    await shutdownLiveTurnAuthority();
+    stopWorkerHeartbeat();
   });
 
   it('does not start the scheduler loop when the role has no job execution', async () => {
@@ -785,7 +852,15 @@ describe('startRuntimeServices', () => {
         expect.objectContaining({
           liveTurnId: 'turn-existing',
           commandType: 'continuation',
-          idempotencyKey: 'continuation:tg:primary:msg-follow-up',
+          idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
+            queueJid: 'tg:primary',
+            sinceCursor: '',
+            cursorAfter: JSON.stringify({
+              timestamp: 'cursor-after-follow-up',
+              id: 'msg-follow-up',
+            }),
+            messages: [{ id: 'msg-follow-up' }],
+          }),
           payload: expect.objectContaining({
             text: expect.stringContaining('same follow-up'),
           }),

@@ -925,6 +925,81 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('auto-denies native Agent tools for a locked agent without prompting', async () => {
+    const canUseTool = makeCallback({
+      capabilities: {
+        allowedTools: [],
+        alwaysAllowedTools: [],
+        permissionMode: 'deny',
+      } as never,
+    });
+
+    const decision = await canUseTool(
+      'Agent',
+      { prompt: 'summarize this run' },
+      makePermissionOptions({ displayName: 'Agent' }) as never,
+    );
+
+    expect(decision).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        interrupt: false,
+        message: expect.stringContaining('capability not provisioned'),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-allow native Agent without the Gantry wrapper path', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: 'Delegation executor unavailable.',
+      decidedBy: 'user',
+    });
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: undefined,
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: ['AgentDelegation'],
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+      } as never,
+      capabilities: {
+        allowedTools: ['AgentDelegation'],
+        alwaysAllowedTools: [],
+        permissionMode: 'default',
+      } as never,
+    });
+
+    const decision = await canUseTool(
+      'Agent',
+      { prompt: 'summarize this run' },
+      makePermissionOptions({ displayName: 'Agent' }) as never,
+    );
+
+    expect(decision).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        message: expect.stringContaining('Delegation executor unavailable.'),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'AgentDelegation',
+        displayName: 'AgentDelegation',
+      }),
+    );
+  });
+
   it('still allows pre-provisioned tools for a locked agent', async () => {
     const canUseTool = makeCallback({
       agentInput: {

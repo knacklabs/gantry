@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   SANDBOX_RUNTIME_MODEL_GATEWAY_HOST,
+  databaseNetworkHostFromUrl,
   loopbackAuthorityFromUrl,
+  pickPreparedExecutionEnv,
   projectSandboxRuntimeModelGatewayEnv,
   resolveRunnerMcpProjection,
 } from '@core/runtime/agent-spawn-runtime-policy.js';
@@ -79,6 +81,19 @@ describe('agent spawn runtime policy', () => {
     );
   });
 
+  it('normalizes Postgres database URLs into sandbox network hosts', () => {
+    expect(
+      databaseNetworkHostFromUrl('postgres://gantry:test@db.internal/gantry'),
+    ).toBe('db.internal:5432');
+    expect(
+      databaseNetworkHostFromUrl(
+        'postgresql://gantry:test@[2001:db8::1]:6543/gantry',
+      ),
+    ).toBe('[2001:db8::1]:6543');
+    expect(databaseNetworkHostFromUrl('https://db.internal')).toBeUndefined();
+    expect(databaseNetworkHostFromUrl('not a url')).toBeUndefined();
+  });
+
   it('rewrites loopback model gateway env to a sandbox proxy-visible alias', () => {
     const projection = projectSandboxRuntimeModelGatewayEnv({
       [envKey('BASE_URL')]: 'http://127.0.0.1:4567/anthropic',
@@ -99,6 +114,24 @@ describe('agent spawn runtime policy', () => {
         connectHost: '127.0.0.1',
       },
     ]);
+  });
+
+  it('passes non-secret DeepAgents prepared env to the runner', () => {
+    expect(
+      pickPreparedExecutionEnv({
+        GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
+        GANTRY_DEEPAGENTS_MODEL_PROVIDER: 'openai',
+        GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL: 'automatic',
+        GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS: '400000',
+        GANTRY_DEEPAGENTS_CHECKPOINT_DATABASE_URL:
+          'postgres://secret@localhost/db',
+      }),
+    ).toEqual({
+      GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
+      GANTRY_DEEPAGENTS_MODEL_PROVIDER: 'openai',
+      GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL: 'automatic',
+      GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS: '400000',
+    });
   });
 
   it('does not project reviewed third-party MCP sources for DeepAgents', () => {

@@ -11,9 +11,10 @@ export const ADMIN_MCP_TOOL_NAMES = [
 export type AdminMcpToolName = (typeof ADMIN_MCP_TOOL_NAMES)[number];
 
 // Authority-changing Gantry tools let an agent request new install/setup/access
-// authority for itself. The canonical names live here (provider-neutral shared
-// layer) so config-layer access policy can consume them without importing the
-// runner adapter; the runner re-exports them as the agent-facing source of truth.
+// authority. The canonical names live here
+// (provider-neutral shared layer) so config-layer access policy can consume
+// them without importing the runner adapter; the runner re-exports them as the
+// agent-facing source of truth.
 export const AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES = [
   'request_skill_install',
   'request_skill_proposal',

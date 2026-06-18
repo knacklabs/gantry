@@ -193,6 +193,7 @@ export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
   runtime = null;
   configurePendingInteractionDurability(null);
+  await existing?.liveAdmissionWakeupSource.close();
   await existing?.runtimeEventNotifier.close();
   await existing?.service.close();
 }
@@ -233,6 +234,10 @@ export function _setRuntimeRepositoriesForTest(
     runtimeEventNotifier: {
       close: async () => {},
     } as StorageRuntime['runtimeEventNotifier'],
+    liveAdmissionWakeupSource: {
+      subscribe: () => () => {},
+      close: async () => {},
+    },
     fileArtifacts: {} as StorageRuntime['fileArtifacts'],
     skillArtifacts: {} as StorageRuntime['skillArtifacts'],
     browserProfileSnapshots: {} as StorageRuntime['browserProfileSnapshots'],

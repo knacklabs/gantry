@@ -49,6 +49,7 @@ vi.mock('@slack/bolt', () => ({
     eventHandlers = new Map<string, ((args: any) => Promise<void>)[]>();
     shortcutHandlers = new Map<string, (args: any) => Promise<void>>();
     actionHandlers = new Map<string, (args: any) => Promise<void>>();
+    viewHandlers = new Map<string, (args: any) => Promise<void>>();
     errorHandler: ((err: Error) => Promise<void>) | null = null;
 
     client = {
@@ -104,6 +105,10 @@ vi.mock('@slack/bolt', () => ({
 
     action(name: string, handler: (args: any) => Promise<void>) {
       this.actionHandlers.set(name, handler);
+    }
+
+    view(name: string, handler: (args: any) => Promise<void>) {
+      this.viewHandlers.set(name, handler);
     }
 
     error(handler: (err: Error) => Promise<void>) {
@@ -347,7 +352,7 @@ describe('Slack channel', () => {
       expect.objectContaining({
         external_message_id: '1710000000.000100',
         thread_id: '1710000000.000100',
-        content: '@bot list projects',
+        content: '@Ops list projects',
         reply_to_message_id: undefined,
       }),
     );
@@ -646,6 +651,58 @@ describe('Slack channel', () => {
         channel: 'C1234567890',
         text: 'hello',
         thread_ts: '1710000000.000111',
+      }),
+    );
+  });
+
+  it('renders Slack todo plans inside their source thread', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+    const postMessage = vi.mocked(appRef.current.client.chat.postMessage);
+    const update = vi.mocked(appRef.current.client.chat.update);
+    postMessage.mockClear();
+    update.mockClear();
+    postMessage
+      .mockResolvedValueOnce({ ok: true, ts: '1710000000.100201' })
+      .mockResolvedValueOnce({ ok: true, ts: '1710000000.100202' });
+
+    await channel.renderAgentTodo('sl:C1234567890', {
+      threadId: '1710000000.000111',
+      summary: 'Thread one',
+      items: [{ id: 'a', title: 'A', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('sl:C1234567890', {
+      threadId: '1710000000.000222',
+      summary: 'Thread two',
+      items: [{ id: 'b', title: 'B', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('sl:C1234567890', {
+      threadId: '1710000000.000111',
+      summary: 'Thread one updated',
+      items: [{ id: 'a', title: 'A', status: 'completed' }],
+    });
+
+    expect(postMessage).toHaveBeenCalledTimes(2);
+    expect(postMessage.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        thread_ts: '1710000000.000111',
+      }),
+    );
+    expect(postMessage.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        thread_ts: '1710000000.000222',
+      }),
+    );
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        ts: '1710000000.100201',
       }),
     );
   });
@@ -1596,6 +1653,81 @@ describe('Slack channel', () => {
     const answer = await answerPromise;
     expect(ack).toHaveBeenCalledTimes(1);
     expect(answer.answers).toEqual({ 'Preferred option?': 'Beta' });
+    expect(answer.answeredBy).toBe('Alice');
+  });
+
+  it('resolves Slack user question from the Other free-text modal', async () => {
+    defaultSlackPermissionApproverIds.add('U123');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+      requestId: 'userq-other-1',
+      sourceAgentFolder: 'slack_main',
+      questions: [
+        {
+          header: 'Pick one',
+          question: 'Preferred option?',
+          options: [
+            { label: 'Alpha', description: 'First option' },
+            { label: 'Beta', description: 'Second option' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+    await flushSlackPromptRegistration();
+
+    const otherHandler =
+      appRef.current.actionHandlers.get('gantry_userq_other');
+    expect(otherHandler).toBeTypeOf('function');
+    const ack = vi.fn().mockResolvedValue(undefined);
+    await otherHandler?.({
+      ack,
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+        trigger_id: 'trigger-123',
+      },
+      action: {
+        value: JSON.stringify({ requestId: 'userq-other-1', questionIndex: 0 }),
+      },
+    });
+    expect(appRef.current.client.views.open).toHaveBeenCalledTimes(1);
+    const openCall = vi
+      .mocked(appRef.current.client.views.open)
+      .mock.calls.at(-1)?.[0] as any;
+    expect(openCall?.trigger_id).toBe('trigger-123');
+    expect(openCall?.view?.callback_id).toBe('gantry_userq_other_modal');
+
+    const viewHandler = appRef.current.viewHandlers.get(
+      'gantry_userq_other_modal',
+    );
+    expect(viewHandler).toBeTypeOf('function');
+    const viewAck = vi.fn().mockResolvedValue(undefined);
+    await viewHandler?.({
+      ack: viewAck,
+      body: { user: { id: 'U123', name: 'Alice' } },
+      view: {
+        private_metadata: openCall?.view?.private_metadata,
+        state: {
+          values: {
+            gantry_userq_other_block: {
+              gantry_userq_other_input: { value: 'My custom answer' },
+            },
+          },
+        },
+      },
+    });
+
+    const answer = await answerPromise;
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(viewAck).toHaveBeenCalledTimes(1);
+    expect(answer.answers).toEqual({ 'Preferred option?': 'My custom answer' });
     expect(answer.answeredBy).toBe('Alice');
   });
 

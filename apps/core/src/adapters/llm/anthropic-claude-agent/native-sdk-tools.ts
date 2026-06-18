@@ -1,5 +1,4 @@
 export const SAFE_NATIVE_SDK_TOOLS = [
-  'Agent',
   'WebSearch',
   'WebFetch',
   'ToolSearch',
@@ -24,6 +23,7 @@ export const AVAILABLE_NATIVE_SDK_TOOLS = [
 ] as const;
 
 export const UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS = [
+  'Agent',
   'AskUserQuestion',
   'SendMessage',
   'CronCreate',
@@ -33,8 +33,13 @@ export const UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS = [
   'PushNotification',
   'TeamCreate',
   'TeamDelete',
+  'Task',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
   'TaskOutput',
   'TaskStop',
+  'TaskUpdate',
   'EnterPlanMode',
   'ExitPlanMode',
   'EnterWorktree',

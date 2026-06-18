@@ -312,6 +312,7 @@ export class AppMemoryService {
 
   async listForHydrationReadOnly(
     input: AppMemorySearchInput = {},
+    options: { signal?: AbortSignal; statementTimeoutMs?: number } = {},
   ): Promise<AppMemoryItem[]> {
     if (!this.isEnabled()) return [];
     const rows = await queryAppMemoryItems(
@@ -319,19 +320,34 @@ export class AppMemoryService {
       input,
       false,
       APP_MEMORY_RECALL_DEPS,
+      {
+        signal: options.signal,
+        statementTimeoutMs: options.statementTimeoutMs,
+      },
     );
     return toAppMemoryItems(rows);
   }
 
   async searchForHydrationReadOnly(
     input: AppMemorySearchInput = {},
+    options: {
+      signal?: AbortSignal;
+      statementTimeoutMs?: number;
+      allowEmbeddings?: boolean;
+    } = {},
   ): Promise<AppMemorySearchResult[]> {
     if (!this.isEnabled()) return [];
     const rows = await queryAppMemoryItems(
       this.db,
       input,
       true,
-      this.recallDeps(input),
+      options.allowEmbeddings === false
+        ? APP_MEMORY_RECALL_DEPS
+        : this.recallDeps(input),
+      {
+        signal: options.signal,
+        statementTimeoutMs: options.statementTimeoutMs,
+      },
     );
     return toAppMemorySearchResults(rows);
   }

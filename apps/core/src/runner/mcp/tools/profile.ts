@@ -47,7 +47,24 @@ export function registerProfileTools(server: McpServer): void {
           true,
         );
       }
-      return textResult(JSON.stringify(response.data ?? { ok: true }));
+      const profileData =
+        response.data && typeof response.data === 'object'
+          ? (response.data as Record<string, unknown>)
+          : {};
+      const profileContent =
+        typeof profileData.content === 'string' ? profileData.content : '';
+      const profileVersion =
+        typeof profileData.version === 'number'
+          ? profileData.version
+          : undefined;
+      if (profileVersion !== undefined) {
+        return textResult(
+          `Profile (version ${profileVersion}):\n\n${profileContent}`,
+        );
+      }
+      return textResult(
+        profileContent || response.message || 'Profile read complete.',
+      );
     },
   );
 

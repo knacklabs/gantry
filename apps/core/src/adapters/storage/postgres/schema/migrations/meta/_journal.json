@@ -554,6 +554,27 @@
       "when": 1777270200000,
       "tag": "0079_browser_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1777273800000,
+      "tag": "0080_live_admission_work_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1777281000000,
+      "tag": "0082_live_turn_recoverable_sweep_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1777284600000,
+      "tag": "0083_mcp_inventory_audit_hot_path_indexes",
+      "breakpoints": true
     }
   ]
 }

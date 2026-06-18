@@ -12,6 +12,7 @@ import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-reference
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'send_message',
   'ask_user_question',
+  'todo_update',
   'memory_search',
   'memory_save',
   'continuity_summary',
@@ -25,6 +26,7 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'agent_profile_read',
   'request_agent_profile_update',
   'mcp_list_tools',
+  'mcp_describe_tool',
   'mcp_call_tool',
 ] as const;
 
@@ -84,7 +86,6 @@ const NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAME_SET = new Set<string>(
 );
 
 const ADMIN_MCP_TOOL_NAME_SET = new Set<string>(ADMIN_MCP_TOOL_NAMES);
-
 export function isAuthorityChangingGantryMcpToolName(value: string): boolean {
   return AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAME_SET.has(value);
 }

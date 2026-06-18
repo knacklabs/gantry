@@ -37,6 +37,7 @@ import { ConversationAdministrationService } from '../../application/provider-co
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
 import type { AppId } from '../../domain/app/app.js';
 import {
+  asAgentTodoSurface,
   asGroupDiscoverySource,
   asPermissionApprovalSurface,
   asProgressSink,
@@ -60,6 +61,7 @@ import type {
 import { AsyncTaskQueue } from './async-task-queue.js';
 import { createChannelPersistenceHandlers } from './channel-persistence-handlers.js';
 import {
+  createAgentTodoRenderer,
   createPermissionApprovalRequester,
   createUserQuestionResponder,
 } from './channel-wiring-interactions.js';
@@ -72,6 +74,7 @@ import { createConversationOutboundProjection } from './conversation-outbound-pr
 import { sanitizeRetryTailForCanonicalDestination } from './runtime-services-destination-hints.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
+import { authorizeConversationApprover } from './channel-wiring-approver.js';
 export type { ChannelWiring } from './channel-wiring-types.js';
 
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
@@ -116,45 +119,35 @@ export function createChannelWiring(
   function findBoundChannel(jid: string): ChannelAdapter | undefined {
     return findChannel(connectedChannels, jid);
   }
-  async function authorizeConversationApprover(input: {
+  const isControlApproverAllowed = (input: {
     providerId: string;
     conversationJid: string;
     userId: string;
     sourceAgentFolder: string;
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
-  }): Promise<boolean> {
-    if (input.decisionPolicy && input.decisionPolicy !== 'same_channel') {
-      return false;
-    }
-    try {
-      const repositories = getRuntimeStorage().repositories;
-      const service = new ConversationAdministrationService(
-        {
-          providerConnections: repositories.providerConnections,
-          conversations: repositories.conversations,
-        },
-        new RuntimeSecretConversationMembershipValidator(
-          new EnvRuntimeSecretProvider(),
-        ),
-      );
-      return await service.isControlApproverAllowed({
-        appId: resolved.appId,
-        providerId: input.providerId as never,
-        conversationJid: input.conversationJid,
-        userId: input.userId,
-      });
-    } catch (err) {
-      resolved.logger.warn(
-        {
-          err,
-          providerId: input.providerId,
-          sourceAgentFolder: input.sourceAgentFolder,
-        },
-        'Conversation approver lookup failed',
-      );
-      return false;
-    }
-  }
+  }): Promise<boolean> =>
+    authorizeConversationApprover({
+      ...input,
+      logger: resolved.logger,
+      lookup: async () => {
+        const repositories = getRuntimeStorage().repositories;
+        const service = new ConversationAdministrationService(
+          {
+            providerConnections: repositories.providerConnections,
+            conversations: repositories.conversations,
+          },
+          new RuntimeSecretConversationMembershipValidator(
+            new EnvRuntimeSecretProvider(),
+          ),
+        );
+        return service.isControlApproverAllowed({
+          appId: resolved.appId,
+          providerId: input.providerId as never,
+          conversationJid: input.conversationJid,
+          userId: input.userId,
+        });
+      },
+    });
 
   const requestPermissionApproval = createPermissionApprovalRequester({
     findBoundChannel,
@@ -166,6 +159,12 @@ export function createChannelWiring(
     findBoundChannel,
     asUserQuestionSurface: (channel) =>
       asUserQuestionSurface(channel as ChannelAdapter),
+    logger: resolved.logger,
+  });
+  const agentTodoRenderer = createAgentTodoRenderer({
+    findBoundChannel,
+    asAgentTodoSurface: (channel) =>
+      asAgentTodoSurface(channel as ChannelAdapter),
     logger: resolved.logger,
   });
   const channelOpts = {
@@ -181,7 +180,7 @@ export function createChannelWiring(
       tryAcquire: tryAcquireRuntimeAdvisoryLease,
     },
     runtimeSecrets: resolved.runtimeSecrets,
-    isControlApproverAllowed: authorizeConversationApprover,
+    isControlApproverAllowed,
   };
 
   async function connectEnabledChannels(
@@ -728,8 +727,8 @@ export function createChannelWiring(
     connectedChannelLeases.length = 0;
     userQuestionResponder.clear();
   }
-
   return {
+    getRuntimeAppId: () => resolved.appId,
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,
@@ -748,11 +747,12 @@ export function createChannelWiring(
     syncGroups,
     requestPermissionApproval,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
+    renderAgentTodo: agentTodoRenderer,
     disconnectChannels,
     isControlApproverAllowed: (input) => {
       const providerId = providerIdForJid(input.conversationJid, '');
       return providerId
-        ? authorizeConversationApprover({ ...input, providerId })
+        ? isControlApproverAllowed({ ...input, providerId })
         : Promise.resolve(false);
     },
   };

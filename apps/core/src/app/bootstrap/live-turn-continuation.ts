@@ -5,6 +5,7 @@ import type {
   LiveTurnLeaseFence,
 } from '../../domain/ports/live-turns.js';
 import { formatMessages } from '../../messaging/router.js';
+import { buildPendingMessagesContinuationIdempotencyKey } from '../../runtime/pending-message-replay.js';
 import { resolveNonSelfSenderIds } from '../../runtime/session-resume-runtime.js';
 import {
   encodeGroupMessageCursor,
@@ -13,6 +14,7 @@ import {
 
 export function buildLiveTurnContinuation(input: {
   queueJid: string;
+  sinceCursor?: string;
   messages: readonly NewMessage[] | undefined;
   timezone: string;
   onRouted?: () => Promise<void> | void;
@@ -34,9 +36,12 @@ export function buildLiveTurnContinuation(input: {
   return {
     text: formatMessages(messages, input.timezone),
     senderUserIds: resolveNonSelfSenderIds(messages),
-    idempotencyKey: `continuation:${input.queueJid}:${messages
-      .map((message) => message.id)
-      .join(',')}`,
+    idempotencyKey: buildPendingMessagesContinuationIdempotencyKey({
+      queueJid: input.queueJid,
+      sinceCursor: input.sinceCursor ?? '',
+      cursorAfter,
+      messages,
+    }),
     cursorAfter,
     onRouted:
       input.onRouted ??

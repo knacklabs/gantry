@@ -29,17 +29,19 @@ import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
   allowedOuterSandboxClaudeExecutable,
   discoverAdditionalDirectories,
-  IPC_POLL_MS,
+  IPC_INPUT_DIR,
+  IPC_INTERACTION_BOUNDARY_DIR,
+  RUNTIME_SIGNAL_FALLBACK_POLL_MS,
   resolveClaudeCodeExecutableFromPath,
   WORKSPACE_GROUP_DIR,
 } from './runtime-env.js';
 import {
   buildRunnerSystemPrompt,
-  includeGitInstructionsForPersona,
   readMemoryContextBlock,
 } from './system-prompt.js';
 import type {
   AgentRunnerInput,
+  AgentRunnerRuntimeEventOutput,
   AgentRunnerToolAttemptOutput,
 } from './types.js';
 import { normalizeModelUsage } from '../../../../shared/model-usage.js';
@@ -56,8 +58,18 @@ import {
 import { startJobHeartbeat } from './job-heartbeat.js';
 import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
-import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
+import {
+  decideClaudeSdkToolSearch,
+  toolSearchStartupRuntimeEvent,
+} from './tool-search-decision.js';
+import { runnerStartupTimingRuntimeEvent } from './runner-startup-diagnostic.js';
+import { startRuntimeSignalPump } from '../../../../runner/runtime-signal-pump.js';
+import {
+  buildTaskLifecycleRuntimeEvent,
+  type TaskLifecycleEventInput,
+  type TaskLifecycleUsageInput,
+} from '../../../../runner/task-lifecycle-events.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
@@ -121,6 +133,121 @@ function sdkResultFailureMessage(message: unknown): string | null {
   return null;
 }
 
+function stringField(
+  value: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const field = value[key];
+  return typeof field === 'string' && field.trim().length > 0
+    ? field
+    : undefined;
+}
+
+function finiteNumberField(
+  value: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const field = value[key];
+  return typeof field === 'number' && Number.isFinite(field)
+    ? field
+    : undefined;
+}
+
+function taskUsagePayload(value: unknown): TaskLifecycleUsageInput | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const usage = value as Record<string, unknown>;
+  const out: TaskLifecycleUsageInput = {};
+  const totalTokens = finiteNumberField(usage, 'total_tokens');
+  const toolUses = finiteNumberField(usage, 'tool_uses');
+  const durationMs = finiteNumberField(usage, 'duration_ms');
+  if (totalTokens !== undefined) out.totalTokens = totalTokens;
+  if (toolUses !== undefined) out.toolUses = toolUses;
+  if (durationMs !== undefined) out.durationMs = durationMs;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function taskRuntimeEvent(
+  agentInput: AgentRunnerInput,
+  message: Record<string, unknown>,
+): AgentRunnerRuntimeEventOutput | null {
+  const taskId = stringField(message, 'task_id');
+  if (!taskId) return null;
+  const toolUseId = stringField(message, 'tool_use_id');
+  const context = {
+    appId: agentInput.appId,
+    agentId: agentInput.agentId,
+    runId: agentInput.runId,
+    jobId: agentInput.jobId,
+    conversationId: agentInput.chatJid,
+    threadId: agentInput.threadId,
+    actor: 'sdk',
+  };
+  let input: TaskLifecycleEventInput | null = null;
+
+  if (message.subtype === 'task_started') {
+    input = {
+      kind: 'started',
+      taskId,
+      toolUseId,
+      description: stringField(message, 'description'),
+      subagentType: stringField(message, 'subagent_type'),
+      taskType: stringField(message, 'task_type'),
+      workflowName: stringField(message, 'workflow_name'),
+      skipTranscript: message.skip_transcript === true,
+    };
+  }
+
+  if (message.subtype === 'task_progress') {
+    input = {
+      kind: 'progress',
+      taskId,
+      toolUseId,
+      description: stringField(message, 'description'),
+      subagentType: stringField(message, 'subagent_type'),
+      lastToolName: stringField(message, 'last_tool_name'),
+      summary: stringField(message, 'summary'),
+      usage: taskUsagePayload(message.usage),
+    };
+  }
+
+  if (message.subtype === 'task_updated') {
+    const patch =
+      message.patch && typeof message.patch === 'object'
+        ? (message.patch as Record<string, unknown>)
+        : {};
+    input = {
+      kind: 'updated',
+      taskId,
+      toolUseId,
+      patch: {
+        status: stringField(patch, 'status'),
+        description: stringField(patch, 'description'),
+        endTime: finiteNumberField(patch, 'end_time'),
+        totalPausedMs: finiteNumberField(patch, 'total_paused_ms'),
+        isBackgrounded:
+          typeof patch.is_backgrounded === 'boolean'
+            ? patch.is_backgrounded
+            : undefined,
+        hasError: typeof patch.error === 'string' && patch.error.length > 0,
+      },
+    };
+  }
+
+  if (message.subtype === 'task_notification') {
+    input = {
+      kind: 'notification',
+      taskId,
+      toolUseId,
+      status: stringField(message, 'status'),
+      summary: stringField(message, 'summary'),
+      skipTranscript: message.skip_transcript === true,
+      usage: taskUsagePayload(message.usage),
+    };
+  }
+
+  return input ? buildTaskLifecycleRuntimeEvent(context, input) : null;
+}
+
 export async function runQuery(
   prompt: string,
   mcpServerPath: string,
@@ -161,8 +288,8 @@ export async function runQuery(
       interactionBoundary: 'user_interaction',
     });
   };
-  const pollRuntimeSignalsDuringQuery = () => {
-    if (!ipcPolling) return;
+  const processRuntimeSignalsDuringQuery = (): boolean => {
+    if (!ipcPolling) return false;
     const interactionBoundaries = drainInteractionBoundaries();
     for (let i = 0; i < interactionBoundaries; i += 1) {
       emitInteractionBoundary();
@@ -173,7 +300,7 @@ export async function runQuery(
       steeringGate.close();
       stream.end();
       ipcPolling = false;
-      return;
+      return false;
     }
     if (enableIpcFollowups) {
       const messages = drainIpcInput();
@@ -186,9 +313,21 @@ export async function runQuery(
         }
       }
     }
-    setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
+    return true;
   };
-  setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
+  const runtimeSignalPump = startRuntimeSignalPump({
+    inputDir: IPC_INPUT_DIR,
+    interactionBoundaryDir: IPC_INTERACTION_BOUNDARY_DIR,
+    fallbackPollMs: RUNTIME_SIGNAL_FALLBACK_POLL_MS,
+    processSignals: processRuntimeSignalsDuringQuery,
+    deps: {
+      onWatchError: ({ dir, error }) => {
+        log(
+          `Runtime signal watch failed for ${dir}: ${error instanceof Error ? error.message : String(error)}; using fallback poll`,
+        );
+      },
+    },
+  });
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
@@ -229,6 +368,8 @@ export async function runQuery(
   const isolatedSdkEnv: Record<string, string | undefined> = {
     ...sdkEnv,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
+    ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   };
   const claudeCodeExecutable =
     process.env.GANTRY_SANDBOX_RUNTIME_PROXY === '1'
@@ -244,6 +385,7 @@ export async function runQuery(
     workspaceFolder: workspaceFolder,
     threadId: agentInput.threadId,
     jobId: agentInput.jobId,
+    runHandle: process.env.GANTRY_AGENT_RUN_HANDLE,
     runId: agentInput.runId,
     runLeaseToken: agentInput.runLeaseToken,
     runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
@@ -271,9 +413,23 @@ export async function runQuery(
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
     isScheduledJob: agentInput.isScheduledJob,
   });
+  const sdkQueryPreparedMs = elapsedMs();
   log(
-    `SDK query prepared in ${elapsedMs()}ms ` +
+    `SDK query prepared in ${sdkQueryPreparedMs}ms ` +
       `(tools=${capabilities.availableTools.length} mcpServers=${Object.keys(capabilities.mcpServers ?? {}).length})`,
+  );
+  const toolSearchDecision = decideClaudeSdkToolSearch({
+    sdkEnv: isolatedSdkEnv,
+    availableTools: capabilities.availableTools,
+    allowedTools: capabilities.allowedTools,
+    disallowedTools: capabilities.disallowedTools,
+    mcpServers: capabilities.mcpServers,
+  });
+  isolatedSdkEnv.ENABLE_TOOL_SEARCH = toolSearchDecision.enableToolSearch;
+  log(
+    `SDK ToolSearch ${toolSearchDecision.enableToolSearch} ` +
+      `(reason=${toolSearchDecision.reason} tools=${toolSearchDecision.availableToolCount} ` +
+      `mcpServers=${toolSearchDecision.mcpServerCount} bytes=${toolSearchDecision.serializedToolConfigBytes})`,
   );
   const sdkQuery = query({
     prompt: stream,
@@ -291,9 +447,7 @@ export async function runQuery(
       systemPrompt,
       settings: {
         autoMemoryEnabled: false,
-        includeGitInstructions: includeGitInstructionsForPersona(
-          agentInput.persona,
-        ),
+        includeGitInstructions: false,
         skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
       },
       skills: enabledSdkSkills,
@@ -338,15 +492,51 @@ export async function runQuery(
         recordToolActivity: (toolName) =>
           heartbeat.recordToolActivity(toolName),
       }),
-      settingSources: ['user'],
+      settingSources: [],
       mcpServers: capabilities.mcpServers,
+      strictMcpConfig: true,
       includePartialMessages: true,
     },
   });
-  log(`SDK query iterator created in ${elapsedMs()}ms`);
+  const sdkQueryIteratorMs = elapsedMs();
+  log(`SDK query iterator created in ${sdkQueryIteratorMs}ms`);
   try {
     let firstSdkMessageLogged = false;
     let firstTextDeltaLogged = false;
+    let firstSdkEventMs: number | undefined;
+    let providerSessionMs: number | undefined;
+    let firstVisibleOutputMs: number | undefined;
+    let firstResultMs: number | undefined;
+    let startupTimingDiagnosticEmitted = false;
+    const emitStartupTimingDiagnostic = () => {
+      if (startupTimingDiagnosticEmitted) return;
+      startupTimingDiagnosticEmitted = true;
+      writeOutput({
+        status: 'success',
+        result: null,
+        newSessionId,
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          runnerStartupTimingRuntimeEvent({
+            agentInput,
+            persistSdkSession,
+            resumedSession: persistSdkSession && Boolean(agentInput.sessionId),
+            sdkQueryPreparedMs,
+            sdkQueryIteratorMs,
+            firstSdkEventMs,
+            providerSessionMs,
+            firstVisibleOutputMs,
+            firstResultMs,
+            messageCount,
+            resultCount,
+            availableToolCount: capabilities.availableTools.length,
+            allowedToolCount: capabilities.allowedTools.length,
+            disallowedToolCount: capabilities.disallowedTools.length,
+            mcpServerCount: Object.keys(capabilities.mcpServers ?? {}).length,
+          }),
+        ],
+      });
+    };
     for await (const message of sdkQuery) {
       messageCount++;
       heartbeat.markActivity();
@@ -357,7 +547,8 @@ export async function runQuery(
       log(`[msg #${messageCount}] type=${msgType}`);
       if (!firstSdkMessageLogged) {
         firstSdkMessageLogged = true;
-        log(`First SDK message after ${elapsedMs()}ms`);
+        firstSdkEventMs = elapsedMs();
+        log(`First SDK message after ${firstSdkEventMs}ms`);
       }
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
@@ -365,13 +556,21 @@ export async function runQuery(
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         assertRequiredMcpServerReady(message);
+        providerSessionMs = elapsedMs();
         log(
-          `Session initialized after ${elapsedMs()}ms: provider resume handle received`,
+          `Session initialized after ${providerSessionMs}ms: provider resume handle received`,
         );
         writeOutput({
           status: 'success',
           result: null,
           newSessionId,
+          runtimeEventOnly: true,
+          runtimeEvents: [
+            toolSearchStartupRuntimeEvent({
+              agentInput,
+              decision: toolSearchDecision,
+            }),
+          ],
         });
       }
       if (
@@ -386,38 +585,18 @@ export async function runQuery(
           compactBoundary: true,
         });
       }
-      if (
-        message.type === 'system' &&
-        (message as { subtype?: string }).subtype === 'task_notification'
-      ) {
-        const tn = message as {
-          task_id: string;
-          status: string;
-          summary: string;
-        };
-        log(
-          `Task notification: task=${tn.task_id} status=${tn.status} summary=${tn.summary}`,
-        );
+      const taskEvent =
+        message.type === 'system'
+          ? taskRuntimeEvent(agentInput, message as Record<string, unknown>)
+          : null;
+      if (taskEvent) {
+        const payload = taskEvent.payload as Record<string, unknown>;
+        log(`Task event: type=${taskEvent.eventType} task=${payload.taskId}`);
         writeOutput({
           status: 'success',
           result: null,
-          runtimeEvents: [
-            {
-              appId: agentInput.appId,
-              agentId: agentInput.agentId,
-              runId: agentInput.runId,
-              jobId: agentInput.jobId,
-              conversationId: agentInput.chatJid,
-              threadId: agentInput.threadId,
-              actor: 'sdk',
-              eventType: RUNTIME_EVENT_TYPES.TASK_NOTIFICATION,
-              payload: {
-                taskId: tn.task_id,
-                status: tn.status,
-                summary: tn.summary,
-              },
-            },
-          ],
+          runtimeEventOnly: true,
+          runtimeEvents: [taskEvent],
         });
       }
       if (message.type === 'stream_event') {
@@ -432,7 +611,8 @@ export async function runQuery(
           if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
             if (!firstTextDeltaLogged) {
               firstTextDeltaLogged = true;
-              log(`First SDK text delta after ${elapsedMs()}ms`);
+              firstVisibleOutputMs = elapsedMs();
+              log(`First SDK text delta after ${firstVisibleOutputMs}ms`);
             }
             sawPartialTextSinceLastResult = true;
             writeOutput({
@@ -440,19 +620,26 @@ export async function runQuery(
               result: delta.text,
               newSessionId,
             });
+            if (firstVisibleOutputMs !== undefined) {
+              emitStartupTimingDiagnostic();
+            }
           }
         }
       }
       if (message.type === 'result') {
         resultCount++;
         if (resultCount === 1) {
-          log(`First SDK result after ${elapsedMs()}ms`);
+          firstResultMs = elapsedMs();
+          log(`First SDK result after ${firstResultMs}ms`);
         }
         const textResult =
           'result' in message ? (message as { result?: string }).result : null;
         const resultFailure = sdkResultFailureMessage(message);
         if (resultFailure) {
           throw new Error(resultFailure);
+        }
+        if (!sawPartialTextSinceLastResult && textResult) {
+          firstVisibleOutputMs ??= firstResultMs;
         }
         log(
           `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
@@ -484,12 +671,14 @@ export async function runQuery(
               }
             : {}),
         });
+        emitStartupTimingDiagnostic();
         sawPartialTextSinceLastResult = false;
         steeringGate.markTurnBoundary();
       }
     }
   } finally {
     ipcPolling = false;
+    runtimeSignalPump.stop();
     heartbeat.stop();
     steeringGate.close();
   }

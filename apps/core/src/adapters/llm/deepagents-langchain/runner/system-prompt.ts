@@ -1,4 +1,7 @@
-import { composeSystemPromptAppend } from '../../../../runner/memory-boundary.js';
+import {
+  buildGantryAgentSystemPrompt,
+  type GantryAgentPromptMode,
+} from '../../../../runner/gantry-agent-system-prompt.js';
 import type { DeepAgentRunnerInput } from './types.js';
 
 // Composes the DeepAgents `systemPrompt` from the same provider-neutral
@@ -12,10 +15,20 @@ export function composeDeepAgentSystemPrompt(
   input: DeepAgentRunnerInput,
 ): string | undefined {
   const memoryBlock = readMemoryContextBlock(input);
-  return composeSystemPromptAppend(
-    input.compiledSystemPrompt,
-    Boolean(memoryBlock),
-  );
+  return buildGantryAgentSystemPrompt({
+    runtimeProjection: 'wrapped-tool-projection',
+    promptMode: input.promptMode as GantryAgentPromptMode | undefined,
+    assistantName: input.assistantName,
+    persona: input.persona,
+    compiledSystemPrompt: input.compiledSystemPrompt,
+    hasMemoryContext: Boolean(memoryBlock),
+    selectedToolRules: input.allowedTools,
+    workspaceFolder: input.workspaceFolder,
+    conversationId: input.chatJid,
+    threadId: input.threadId,
+    isScheduledJob: input.isScheduledJob,
+    currentDateTimeIso: new Date().toISOString(),
+  }).prompt;
 }
 
 export function readMemoryContextBlock(input: DeepAgentRunnerInput): string {

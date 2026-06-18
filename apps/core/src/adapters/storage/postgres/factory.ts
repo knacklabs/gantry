@@ -44,6 +44,11 @@ import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
 import type { AgentSession } from '../../../domain/sessions/sessions.js';
+import {
+  PostgresLiveAdmissionNotifier,
+  PostgresLiveAdmissionWakeupSource,
+} from './live-admission-notify.postgres.js';
+import type { LiveAdmissionWakeupSource } from '../../../domain/ports/live-turns.js';
 
 const FILE_ARTIFACTS_DIR_NAME = 'files';
 
@@ -61,6 +66,7 @@ export interface StorageRuntime {
   repositories: PostgresDomainRepositoryBundle;
   runtimeEvents: RuntimeEventExchange;
   runtimeEventNotifier: PostgresRuntimeEventNotifier;
+  liveAdmissionWakeupSource: LiveAdmissionWakeupSource;
   fileArtifacts: FileArtifactStore;
   skillArtifacts: SkillArtifactStore;
   browserProfileSnapshots: BrowserProfileSnapshotRepository;
@@ -103,6 +109,10 @@ export function createStorageRuntime(
     service.pool,
   );
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
+  const liveAdmissionNotifier = new PostgresLiveAdmissionNotifier(service.pool);
+  const liveAdmissionWakeupSource = new PostgresLiveAdmissionWakeupSource(
+    service.pool,
+  );
   const runtimeEvents = new RuntimeEventExchange(
     repositories.runtimeEvents,
     runtimeEventNotifier,
@@ -112,6 +122,7 @@ export function createStorageRuntime(
     service.db,
     {
       runtimeEvents,
+      liveAdmissionNotifier,
       sessions: {
         ...sessionSettings,
         loadAppMemoryItems: options.loadSessionAppMemoryItems,
@@ -135,6 +146,7 @@ export function createStorageRuntime(
     repositories,
     runtimeEvents,
     runtimeEventNotifier,
+    liveAdmissionWakeupSource,
     fileArtifacts,
     skillArtifacts,
     browserProfileSnapshots,

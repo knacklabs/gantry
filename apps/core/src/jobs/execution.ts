@@ -9,9 +9,9 @@ import {
 import type { Job } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
-  getConfiguredModelProvidersForApp,
   getRuntimeControlRepository,
   getRuntimeEventExchange,
+  getConfiguredModelProvidersForApp,
   getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
@@ -135,9 +135,6 @@ export async function runJob(
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
-  // Credential-driven model-family candidates for jobs, configured-first.
-  // candidates[0] resolves the model + claims the lease; the rest are failover
-  // targets used UNDER THE SAME lease if candidates[0] fails before output streams.
   const jobFailoverCandidates = await resolveModelFamilyCandidatesForApp({
     alias: currentJob.model || '',
     appId: runtimeAppId,
@@ -167,8 +164,6 @@ export async function runJob(
     publishRuntimeEvent,
   });
   if (pausedForSetup) return;
-  // Mutable: a model-family failover reconciles this to the target provider for
-  // recorded metadata only; the claimed lease keeps its fencing version (no re-claim).
   let executionProviderId = resolveJobExecutionProviderId({
     resolvedModel,
     executionAdapter: deps.executionAdapter,
@@ -370,10 +365,6 @@ export async function runJob(
             toolPolicy.effectiveAllowedTools,
           );
           const toolAccessRequirementPreflight =
-            // splitAccessRequirements throws on malformed stored requirements;
-            // this is safe only because the readiness preflight (which pauses
-            // malformed jobs for setup) already validated the same requirements
-            // earlier in this run. Do not move/remove that preflight.
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(
                 currentJob.access_requirements,
@@ -448,9 +439,6 @@ export async function runJob(
               fallbackProviderId: executionProviderId,
               agentHarness,
               hasStreamedOutput: () => hasStreamedResult,
-              // Same lease, no re-claim: reconcile recorded provider metadata,
-              // reset per-attempt error, emit RUN_FAILOVER (live-lane parity),
-              // return the prior provider.
               onFailover: async (toProviderId, details) => {
                 const fromProviderId = executionProviderId;
                 executionProviderId = toProviderId;

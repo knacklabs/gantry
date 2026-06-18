@@ -41,7 +41,7 @@ export const PERMISSION_REQUEST_TIMEOUT_MS = getPermissionTimeoutMs(
   JOB_ID ? 'autonomous' : 'interactive',
 );
 export const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
-export const IPC_POLL_MS = 500;
+export const RUNTIME_SIGNAL_FALLBACK_POLL_MS = 500;
 
 function copyPlaceholderEnv(
   target: Record<string, string | undefined>,

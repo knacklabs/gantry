@@ -19,7 +19,8 @@ vi.mock('@core/config/index.js', () => ({
   ASSISTANT_NAME: 'Andy',
   IDLE_TIMEOUT: 1_800_000,
   MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
-  MAX_MESSAGES_PER_PROMPT: 50,
+  MAX_MESSAGES_PER_PROMPT: 10,
+  MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
   getRuntimeSettingsForConfig: () => ({
     memory: {
@@ -36,13 +37,15 @@ vi.mock('@core/config/index.js', () => ({
     trigger ? new RegExp(`^@${trigger}\\b`, 'i') : /^@Andy\b/i,
 }));
 
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  },
+  logger: mockLogger,
+  redactString: (value: string) => value,
 }));
 
 const mockRunDreamingSweep = vi.fn();
@@ -125,6 +128,28 @@ function makeMessage(overrides: Partial<NewMessage> = {}): NewMessage {
     is_bot_message: false,
     ...overrides,
   };
+}
+
+function makePendingMessages(
+  count: number,
+  content: (index: number) => string,
+): NewMessage[] {
+  return Array.from({ length: count }, (_, index) =>
+    makeMessage({
+      id: String(index + 1),
+      content: content(index + 1),
+      timestamp: String(1_700_000_000 + index + 1),
+    }),
+  );
+}
+
+function mockPagedMessages(messages: NewMessage[]): void {
+  let offset = 0;
+  mockGetMessagesSince.mockImplementation((_chatJid, _cursor, limit = 50) => {
+    const batch = messages.slice(offset, offset + Number(limit));
+    offset += batch.length;
+    return batch;
+  });
 }
 
 function makeGroup(
@@ -219,10 +244,12 @@ function makeDeps(
       enforcing: false,
       start: vi.fn(),
     },
+    getSelectedAgentHarness: vi.fn(() => 'auto'),
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
     queue: {
+      enqueueMessageCheck: vi.fn(),
       closeStdin: vi.fn(),
       notifyIdle: vi.fn(),
       registerProcess: vi.fn(),
@@ -367,6 +394,27 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
+    it('requeues when a handled command fills the bounded pending replay', async () => {
+      const messages = makePendingMessages(1_000, () => '/status');
+      const { deps } = setupHappyPath({ messages });
+      mockPagedMessages(messages);
+      mockHandleSessionCommand.mockResolvedValue({
+        handled: true,
+        success: true,
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      expect(deps.setCursor).not.toHaveBeenCalled();
+      expect(deps.saveState).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
     it('delegates to handleSessionCommand and returns false when handled but failed', async () => {
       const { deps } = setupHappyPath();
       mockHandleSessionCommand.mockResolvedValue({
@@ -391,6 +439,35 @@ describe('createGroupProcessor', () => {
       expect(result).toBe(true);
       expect(mockSpawnAgent).toHaveBeenCalled();
     });
+
+    it('starts the run with the bounded pending replay and requeues when more may remain', async () => {
+      const messages = makePendingMessages(
+        1_001,
+        (index) => `message ${index}`,
+      );
+      const { deps } = setupHappyPath({ messages });
+      mockPagedMessages(messages);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(mockGetMessagesSince).toHaveBeenCalledTimes(1);
+      expect(mockFormatMessages).toHaveBeenCalledWith(
+        messages.slice(0, 10),
+        'UTC',
+      );
+      expect(mockSpawnAgent).toHaveBeenCalled();
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700000010',
+        id: '10',
+      });
+    });
   });
 
   // =======================================================================
@@ -411,6 +488,35 @@ describe('createGroupProcessor', () => {
       const result = await processGroupMessages('group1@g.us');
 
       expect(result).toBe(true);
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
+    it('requeues when a no-trigger replay fills the bounded pending replay', async () => {
+      const group = makeGroup({
+        requiresTrigger: true,
+        trigger: 'Andy',
+      });
+      const messages = makePendingMessages(1_000, () => 'no trigger here');
+      const { deps } = setupHappyPath({ group, messages });
+      mockPagedMessages(messages);
+      mockIsTriggerAllowed.mockReturnValue(true);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(setCursorCalls).toHaveLength(1);
+      expect(setCursorCalls[0][0]).toBe('group1@g.us');
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700000010',
+        id: '10',
+      });
+      expect(deps.saveState).toHaveBeenCalled();
       expect(mockSpawnAgent).not.toHaveBeenCalled();
     });
 
@@ -955,35 +1061,26 @@ describe('createGroupProcessor', () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
       const { deps } = setupHappyPath({ group, messages });
-      const consoleError = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => undefined);
 
-      try {
-        mockSpawnAgent.mockRejectedValue(new Error('spawn failed'));
-        (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
-          'prev-cursor',
-        );
+      mockSpawnAgent.mockRejectedValue(new Error('spawn failed'));
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
 
-        const { processGroupMessages } = createGroupProcessor(deps);
-        const result = await processGroupMessages('group1@g.us');
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
 
-        // runAgent catches the error and returns 'error', no output was sent
-        expect(result).toBe(false);
-        expect(consoleError).toHaveBeenCalledWith(
-          'Agent error',
-          expect.objectContaining({
-            err: expect.objectContaining({
-              type: 'Error',
-              name: 'Error',
-              message: 'spawn failed',
-              stack: expect.stringContaining('spawn failed'),
-            }),
+      // runAgent catches the error and returns 'error', no output was sent.
+      expect(result).toBe(false);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          group: 'TestGroup',
+          err: expect.objectContaining({
+            message: 'spawn failed',
           }),
-        );
-      } finally {
-        consoleError.mockRestore();
-      }
+        }),
+        'Agent error',
+      );
     });
   });
 
@@ -1029,6 +1126,121 @@ describe('createGroupProcessor', () => {
           id: 'anthropic:claude-agent-sdk',
         }),
       });
+    });
+
+    it('adds selected skill metadata to runtime context without injecting full skill bodies', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const skillRepository = {
+        getSkill: vi.fn(async () => ({
+          id: 'skill:release-writer',
+          appId: 'app:test',
+          agentId: 'agent:test',
+          name: 'release-writer',
+          description: 'Use for drafting release notes.',
+          source: 'admin_uploaded',
+          status: 'installed',
+          promptRefs: [],
+          toolIds: [],
+          workflowRefs: [],
+          storage: {
+            storageType: 'local-filesystem',
+            storageRef: 'skills/release-writer',
+            contentHash: 'sha256-release-writer',
+            sizeBytes: 1024,
+          },
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+        })),
+        listAgentSkillBindings: vi.fn(async () => [
+          {
+            id: 'binding:release-writer',
+            appId: 'app:test',
+            agentId: 'agent:test',
+            skillId: 'skill:release-writer',
+            status: 'active',
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+          },
+        ]),
+        listEnabledSkillsForAgent: vi.fn(async () => [
+          {
+            id: 'skill:release-writer',
+            appId: 'app:test',
+            agentId: 'agent:test',
+            name: 'release-writer',
+            description: 'Use for drafting release notes.',
+            source: 'admin_uploaded',
+            status: 'installed',
+            promptRefs: [],
+            toolIds: [],
+            workflowRefs: [],
+            storage: {
+              storageType: 'local-filesystem',
+              storageRef: 'skills/release-writer',
+              contentHash: 'sha256-release-writer',
+              sizeBytes: 1024,
+            },
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+          },
+        ]),
+      };
+      const skillArtifactStore = {
+        getSkillArtifact: vi.fn(async () => ({
+          assets: [
+            {
+              path: 'SKILL.md',
+              content: Buffer.from(
+                [
+                  '---',
+                  'name: release-writer',
+                  'description: Use for drafting release notes.',
+                  '---',
+                  '# Release Writer',
+                  'FULL BODY INSTRUCTIONS MUST NOT BE INJECTED',
+                ].join('\n'),
+              ),
+            },
+          ],
+        })),
+      };
+      const { deps } = setupHappyPath({ group });
+      deps.getSkillRepository = vi.fn(() => skillRepository as never);
+      deps.getSkillArtifactStore = vi.fn(() => skillArtifactStore as never);
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          externalSessionId: 'claude-session-1',
+          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+          memoryContextBlock:
+            '<gantry_memory_context>memory</gantry_memory_context>',
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const memoryContextBlock = mockSpawnAgent.mock.calls[0][1]
+        .memoryContextBlock as string;
+      expect(skillRepository.listEnabledSkillsForAgent).toHaveBeenCalledWith({
+        appId: 'app:test',
+        agentId: 'agent:test',
+      });
+      expect(skillArtifactStore.getSkillArtifact).not.toHaveBeenCalled();
+      expect(memoryContextBlock).toContain(
+        '<gantry_memory_context>memory</gantry_memory_context>',
+      );
+      expect(memoryContextBlock).toContain(
+        'release-writer (skill:release-writer)',
+      );
+      expect(memoryContextBlock).toContain('revision: sha256-release-writer');
+      expect(memoryContextBlock).not.toContain('```markdown');
+      expect(memoryContextBlock).not.toContain(
+        'FULL BODY INSTRUCTIONS MUST NOT BE INJECTED',
+      );
     });
 
     it('expires provider session resume when runtime access projection changes', async () => {
@@ -3593,12 +3805,14 @@ describe('createGroupProcessor', () => {
       expect(
         (deps.opsRepository as any).getAgentTurnContext,
       ).toHaveBeenCalledWith({
+        appId: 'default',
         agentFolder: 'my-group',
         executionProviderId: 'anthropic:claude-agent-sdk',
         conversationJid: 'group1@g.us',
         threadId: null,
         conversationKind: 'channel',
         memoryUserId: 'user1@s.whatsapp.net',
+        hydrationMode: 'first_visible',
         query: 'hello',
       });
     });
@@ -4066,7 +4280,10 @@ describe('createGroupProcessor', () => {
       expect(deps.clearSession).toHaveBeenCalledWith(
         'grp-folder',
         undefined,
-        expect.objectContaining({ conversationJid: 'group1@g.us' }),
+        expect.objectContaining({
+          appId: 'default',
+          conversationJid: 'group1@g.us',
+        }),
       );
     });
 
@@ -4547,6 +4764,40 @@ describe('createGroupProcessor', () => {
       });
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         model: 'groq-oss',
+      });
+    });
+
+    it('resolves family candidates from the app-session scope instead of default', async () => {
+      const { deps, group } = setupFamilyGroup();
+      const conversationJid = 'app:tenant:support';
+      mockGetMessagesSince.mockReturnValue([
+        makeMessage({ chat_jid: conversationJid }),
+      ]);
+      deps.getConfiguredModelProviders = vi.fn(async (appId: string) =>
+        appId === 'tenant' ? new Set(['cerebras']) : new Set(['groq']),
+      );
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'tenant',
+          agentId: 'agent:tenant',
+          agentSessionId: 'agent-session:tenant',
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages(conversationJid)).resolves.toBe(true);
+
+      expect(deps.getConfiguredModelProviders).toHaveBeenCalledWith('tenant');
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'tenant',
+          agentFolder: group.folder,
+          conversationJid,
+        }),
+      );
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        appId: 'tenant',
+        model: 'cerebras',
       });
     });
 

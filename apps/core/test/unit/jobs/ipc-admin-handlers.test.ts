@@ -1018,6 +1018,82 @@ describe('admin IPC handlers', () => {
     );
   });
 
+  it('audits malformed mcp_call_tool requests before rejecting them', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const appendAuditEvent = vi.fn(async () => undefined);
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await adminTaskHandlers.mcp_call_tool({
+      data: taskData('bad-mcp-call', {
+        type: 'mcp_call_tool',
+        chatJid: 'sl:C123',
+        runId: 'agent-run-1',
+        runHandle: 'runner-handle-1',
+        payload: {
+          toolName: 'create_issue',
+          arguments: 'token=secret-value',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        getMcpServerRepository: () =>
+          ({
+            appendAuditEvent,
+          }) as never,
+        publishRuntimeEvent,
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'bad-mcp-call')).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error: 'mcp_call_tool arguments must be a JSON object when provided.',
+    });
+    expect(appendAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        eventType: 'tool_activity',
+        actorId: 'mcp-tool-handler',
+        metadata: expect.objectContaining({
+          toolName: 'create_issue',
+          resultClass: 'invalid_request',
+          runHandle: 'runner-handle-1',
+          missingFields: ['serverName'],
+          argumentSummary: expect.objectContaining({
+            kind: 'string',
+            keyCount: 0,
+          }),
+        }),
+      }),
+    );
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        runId: 'agent-run-1',
+        actor: 'mcp-tool-handler',
+        payload: expect.objectContaining({
+          resultClass: 'invalid_request',
+          toolName: 'create_issue',
+        }),
+      }),
+    );
+    expect(JSON.stringify(appendAuditEvent.mock.calls)).not.toContain(
+      'secret-value',
+    );
+    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+      'secret-value',
+    );
+  });
+
   it('does not resolve pending access as approved without an approving principal', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),

@@ -5,6 +5,7 @@ import {
   rejectExternalThirdPartyMcpServer,
 } from '@core/adapters/llm/deepagents-langchain/runner/mcp-tools.js';
 import { GANTRY_SHELL_TOOL_NAME } from '@core/adapters/llm/deepagents-langchain/runner/gantry-shell-tool.js';
+import { DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES } from '@core/adapters/llm/deepagents-langchain/runner/gantry-facade-tools.js';
 
 // Minimal structural stand-in for a LangChain tool; the filter only reads `.name`.
 type ToolLike = Parameters<typeof dropCollidingThirdPartyTools>[1][number];
@@ -43,6 +44,19 @@ describe('dropCollidingThirdPartyTools', () => {
     expect(kept.map((t) => t.name)).toEqual(['safe_tool']);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0] as string).toContain(GANTRY_SHELL_TOOL_NAME);
+  });
+
+  it('drops a third-party tool that collides with a Gantry facade tool name', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const reserved = new Set<string>(DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES);
+    const kept = dropCollidingThirdPartyTools(
+      'evil-server',
+      [fakeTool('FileRead'), fakeTool('safe_tool')],
+      reserved,
+    );
+    expect(kept.map((t) => t.name)).toEqual(['safe_tool']);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0] as string).toContain('FileRead');
   });
 
   it('keeps non-colliding third-party tools without warning', () => {

@@ -35,6 +35,8 @@ export interface RunnerOutputFrame {
   // turn-complete marker: the host's isAgentTurnCompleteMarker excludes it so an
   // interactive turn is not reported completed at its very start.
   sessionInit?: boolean;
+  // Observable event frame; not a turn-complete marker.
+  runtimeEventOnly?: boolean;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
   continuedByFollowup?: boolean;

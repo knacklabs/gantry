@@ -183,7 +183,7 @@
       "matches": {
         "ANTHROPIC_": 47,
         "CLAUDE_CONFIG_DIR": 6,
-        "anthropic_sdk": 1
+        "anthropic_sdk": 2
       },
       "reason": "Runtime spawn tests assert the Anthropic-compatible SDK projection uses only loopback Gantry gateway URLs and gtw_ run tokens; this gate is count-exact so new provider credential leakage fails.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
@@ -223,9 +223,121 @@
     {
       "file": "apps/core/test/unit/jobs/model-resolution.test.ts",
       "matches": {
+        "anthropic_sdk": 3
+      },
+      "reason": "Public AgentHarness vocabulary test coverage; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/src/cli/group-harness.ts",
+      "matches": {
+        "anthropic_sdk": 2
+      },
+      "reason": "Public AgentHarness CLI vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/src/cli/group-helpers.ts",
+      "matches": {
         "anthropic_sdk": 1
       },
-      "reason": "public AgentEngine vocabulary test coverage per docs/architecture/deepagents-agent-engine-handoff-plan.md",
+      "reason": "Public AgentHarness CLI usage text; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/src/config/settings/runtime-settings-agents-parser.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "Settings parser validates public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/src/config/settings/runtime-settings-parser.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "Settings parser validates public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/src/control/server/routes/agents.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "Control API types expose public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/cli/group-engine.test.ts",
+      "matches": {
+        "anthropic_sdk": 6
+      },
+      "reason": "CLI tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/cli/model-preview-format.test.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "CLI model-preview tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/config/public-runtime-settings.test.ts",
+      "matches": {
+        "anthropic_sdk": 2
+      },
+      "reason": "Public settings tests cover AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/config/runtime-settings.test.ts",
+      "matches": {
+        "anthropic_sdk": 3
+      },
+      "reason": "Runtime settings tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/config/settings-import-service.test.ts",
+      "matches": {
+        "anthropic_sdk": 3
+      },
+      "reason": "Settings import tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/control/model-agent-preview.test.ts",
+      "matches": {
+        "anthropic_sdk": 2
+      },
+      "reason": "Control preview tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "apps/core/test/unit/control/openapi.test.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "OpenAPI tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "packages/contracts/src/jobs/index.ts",
+      "matches": {
+        "anthropic_sdk": 1
+      },
+      "reason": "Contracts expose public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
+      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    },
+    {
+      "file": "packages/contracts/test/unit/index.test.ts",
+      "matches": {
+        "anthropic_sdk": 3
+      },
+      "reason": "Contract tests cover public AgentHarness vocabulary; this gate is count-exact so new provider leakage fails before provider-boundary cleanup.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
     }
   ]

@@ -9,6 +9,7 @@ import {
   schedulerJobSummary,
   schedulerJobsSummary,
   schedulerNotificationTargetsSummary,
+  schedulerRunsSummary,
 } from './scheduler-formatters.js';
 import {
   formatSchedulerJobPlan,
@@ -24,10 +25,8 @@ import {
   submitSchedulerMutationTask,
   SCHEDULER_WAIT_RESPONSE_GRACE_MS,
 } from './scheduler-tool-helpers.js';
-import {
-  schedulerAccessRequirementSchema,
-  type SchedulerAccessRequirementInput,
-} from './scheduler-capability-schema.js';
+import { schedulerAccessRequirementSchema } from './scheduler-capability-schema.js';
+import { normalizeSchedulerAccessRequirements } from './scheduler-access-requirements.js';
 const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'job_id',
   'name',
@@ -174,48 +173,6 @@ function validateScheduleInput(args: {
     }
   }
   return null;
-}
-
-function normalizeSchedulerAccessRequirements(
-  input: SchedulerAccessRequirementInput[] | undefined,
-): SchedulerJobPlanInput['accessRequirements'] {
-  return input?.map((requirement) => {
-    const target = requirement.target;
-    if (target.kind === 'tool_rule') {
-      return {
-        target: { kind: 'tool_rule' as const, rule: target.rule },
-        ...(requirement.reason ? { reason: requirement.reason } : {}),
-      };
-    }
-    if (target.kind === 'mcp_server') {
-      return {
-        target: { kind: 'mcp_server' as const, server: target.server },
-        ...(requirement.reason ? { reason: requirement.reason } : {}),
-      };
-    }
-    return {
-      target: {
-        kind: 'capability' as const,
-        capabilityId: target.capability_id,
-        ...(target.implementation
-          ? {
-              implementation: {
-                kind: target.implementation.kind,
-                name: target.implementation.name,
-                executablePath: target.implementation.executable_path,
-                executableVersion: target.implementation.executable_version,
-                executableHash: target.implementation.executable_hash,
-                commandTemplate: target.implementation.command_template,
-                authPreflight: target.implementation.auth_preflight,
-                protectedPaths: target.implementation.protected_paths,
-                networkHosts: target.implementation.network_hosts,
-              },
-            }
-          : {}),
-      },
-      ...(requirement.reason ? { reason: requirement.reason } : {}),
-    };
-  });
 }
 
 export function registerSchedulerTools(server: McpServer): void {
@@ -569,10 +526,12 @@ export function registerSchedulerTools(server: McpServer): void {
       });
       const error = taskError(response, 'Scheduler run-now failed.');
       if (error) return error;
-      const data = dataRecord(response!);
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(data, null, 2) },
+          {
+            type: 'text' as const,
+            text: 'Queued an immediate run of this job.',
+          },
         ],
       };
     },
@@ -595,7 +554,7 @@ export function registerSchedulerTools(server: McpServer): void {
       const result = Array.isArray(runs) ? runs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          { type: 'text' as const, text: schedulerRunsSummary(result) },
         ],
       };
     },
@@ -627,7 +586,7 @@ export function registerSchedulerTools(server: McpServer): void {
       const result = Array.isArray(events) ? events : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          { type: 'text' as const, text: schedulerEventsSummary(result) },
         ],
       };
     },
@@ -690,7 +649,10 @@ export function registerSchedulerTools(server: McpServer): void {
       const result = Array.isArray(runs) ? runs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          {
+            type: 'text' as const,
+            text: schedulerRunsSummary(result, { title: 'Dead-lettered runs' }),
+          },
         ],
       };
     },

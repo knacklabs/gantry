@@ -15,7 +15,6 @@ import {
 } from '@agent-runner-src/gantry-mcp-tool-surface.js';
 
 const SAFE_DEFAULT_ALLOWED_TOOLS = [
-  'Agent',
   'WebSearch',
   'WebFetch',
   'ToolSearch',
@@ -44,10 +43,16 @@ const DANGEROUS_DEFAULT_TOOLS = [
   'Edit',
   'NotebookEdit',
   'Config',
+  'Agent',
   'AskUserQuestion',
   'SendMessage',
+  'Task',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
   'TaskOutput',
   'TaskStop',
+  'TaskUpdate',
   'EnterWorktree',
   'ExitWorktree',
   'mcp__gantry__list_models',
@@ -66,10 +71,16 @@ const UNAVAILABLE_DEFAULT_TOOLS = [
   'NotebookEdit',
   'Browser',
   'Config',
+  'Agent',
   'AskUserQuestion',
   'SendMessage',
+  'Task',
+  'TaskCreate',
+  'TaskGet',
+  'TaskList',
   'TaskOutput',
   'TaskStop',
+  'TaskUpdate',
   'EnterWorktree',
   'ExitWorktree',
   'mcp__gantry__list_models',
@@ -77,7 +88,6 @@ const UNAVAILABLE_DEFAULT_TOOLS = [
 ] as const;
 
 const DEFAULT_AVAILABLE_TOOLS = [
-  'Agent',
   'WebSearch',
   'WebFetch',
   'ToolSearch',
@@ -94,7 +104,6 @@ const DEVELOPER_AVAILABLE_TOOLS = [
   'LS',
   'MultiEdit',
   'NotebookEdit',
-  'Agent',
   'WebSearch',
   'WebFetch',
   'ToolSearch',
@@ -242,6 +251,7 @@ describe('agent capability composition', () => {
       ),
     ).toContain('request_access');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_describe_tool');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });
 
@@ -268,6 +278,7 @@ describe('agent capability composition', () => {
       ),
     ).toContain('request_access');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_list_tools');
+    expect(profile.allowedTools).toContain('mcp__gantry__mcp_describe_tool');
     expect(profile.allowedTools).toContain('mcp__gantry__mcp_call_tool');
   });
 
@@ -373,7 +384,7 @@ describe('agent capability composition', () => {
 
     expect(profile.allowedTools).toEqual(DEVELOPER_ALLOWED_TOOLS);
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
-    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain('Agent');
     expect(profile.allowedTools).not.toContain(
       'mcp__gantry__settings_desired_state',
     );
@@ -393,7 +404,7 @@ describe('agent capability composition', () => {
 
     expect(profile.allowedTools).toEqual(DEVELOPER_ALLOWED_TOOLS);
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
-    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain('Agent');
     expect(profile.allowedTools).toContain('Read');
     expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
     expect(profile.allowedTools).not.toContain('Browser');
@@ -410,7 +421,7 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.allowedTools).not.toContain('Read');
-    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain('Agent');
     expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
     expect(profile.allowedTools).not.toContain('Browser');
   });
@@ -440,7 +451,7 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).not.toContain('Glob');
     expect(profile.allowedTools).not.toContain('Grep');
-    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain('Agent');
     expect(profile.allowedTools).not.toContain('Bash');
     expect(profile.allowedTools).not.toContain('mcp__gantry__service_restart');
     expect(profile.allowedTools).not.toContain('mcp__gantry__register_agent');
@@ -578,7 +589,6 @@ describe('agent capability composition', () => {
     );
     expect(profile.availableTools).toEqual(
       expect.arrayContaining([
-        'Agent',
         'WebSearch',
         'WebFetch',
         'ToolSearch',
@@ -628,7 +638,10 @@ describe('agent capability composition', () => {
       ],
     });
 
-    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain('Agent');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__delegate_task');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__task_get');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__task_cancel');
     expect(profile.allowedTools).not.toContain('Browser');
     expect(profile.allowedTools).not.toContain('ToolName(scope-pattern)');
     expect(profile.allowedTools).not.toContain('AgentDelegation');

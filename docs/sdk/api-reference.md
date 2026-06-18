@@ -80,8 +80,12 @@ admin/session calls go to the control role.
 
 **Role/live gauges on `/metrics`** (alongside the existing `gantry_*` gauges):
 `gantry_process_role{role}`, `gantry_live_turns_active`,
-`gantry_live_slots_used_cluster`, `gantry_live_turns_recoverable`, and
-`gantry_live_oldest_waiting_seconds` (the horizontal-live-pool scale signal).
+`gantry_live_slots_used_cluster`, `gantry_live_slots_capacity_cluster`,
+`gantry_live_warm_spare`, `gantry_live_turns_recoverable`,
+`gantry_live_oldest_waiting_seconds`, `gantry_live_admission_backlog`,
+`gantry_live_admission_backlog_oldest_seconds`,
+`gantry_background_job_slots_used`, and
+`gantry_background_job_slots_capacity`.
 
 The authenticated `GET /v1/health` and `GET /v1/doctor` (`sessions:read`) — which
 the SDK exposes as `client.health()` and `client.doctor()` — are served by every
@@ -238,7 +242,7 @@ Agent-facing tools:
 - `request_settings_update`: selected-capability reviewed edit to non-secret `settings.yaml` desired state.
 - `admin_permission_list`: selected-capability list of current-agent persistent Gantry MCP grants.
 - `admin_permission_revoke`: selected-capability revocation of a current-agent persistent Gantry MCP grant.
-- `mcp_list_tools` / `mcp_call_tool`: list and call connected third-party MCP tools through the Gantry proxy.
+- `mcp_list_tools` / `mcp_describe_tool` / `mcp_call_tool`: search connected third-party MCP source inventory, fetch one tool schema/detail, and call approved tools through the Gantry proxy.
 - `service_restart`: selected-capability restart after approved changes that require host restart.
 - `register_agent`: selected-capability binding of a channel conversation to an agent.
 
@@ -739,6 +743,45 @@ Read-only run event history is available over the control API:
 ```http
 GET /v1/runs/:runId/events
 ```
+
+Run events are projections of persisted runtime events:
+
+```ts
+{
+  id: string;
+  appId: string;
+  runId: string;
+  type:
+    | 'queued'
+    | 'started'
+    | 'diagnostic'
+    | 'model_event'
+    | 'tool_request'
+    | 'permission_decision'
+    | 'output_chunk'
+    | 'completed'
+    | 'failed'
+    | 'canceled';
+  payload: unknown;
+  createdAt: string;
+  metadata: { runtimeEventType: string };
+}
+```
+
+Notable runtime event types include:
+
+- `task.started`, `task.progress`, and `task.updated`: provider-neutral task
+  lifecycle observations. Persisted text fields are length-bounded and omit raw
+  prompts, output paths, provider handles, credentials, and stack traces.
+- `mcp.tool_activity`: MCP proxy attempt, denial, success, or failure audit
+  evidence. Arguments and errors are summarized/redacted; raw MCP tool result
+  values are not persisted in the activity event.
+- `run.startup_diagnostic`: count/timing startup diagnostics from host or
+  runner setup. The public run event projection exposes these as
+  `type: 'diagnostic'`.
+
+These events are observable history only. They do not create permissions, alter
+selected capabilities, or prove provider/channel delivery by themselves.
 
 The current run event API exposes read-only runtime history, but Gantry does not
 yet host-enforce the five-line terminal evidence receipt until the receipt

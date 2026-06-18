@@ -9,46 +9,15 @@ import {
   DEFAULT_BROWSER_USAGE_MODE,
   DEFAULT_BROWSER_USAGE_WINDOW_MS,
 } from './runtime-settings-defaults.js';
+import {
+  parseBooleanValue,
+  parsePositiveIntegerValue,
+  parseStringValue,
+} from './runtime-settings-parse-primitives.js';
 import type {
   RuntimeBrowserSettings,
   RuntimeBrowserUsagePolicyMode,
 } from './runtime-settings-types.js';
-
-function parseStringValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback?: string,
-): string {
-  if (raw === undefined && fallback !== undefined) return fallback;
-  if (typeof raw !== 'string' || raw.trim().length === 0) {
-    throw new Error(`${pathPrefix} must be a non-empty string`);
-  }
-  return raw.trim();
-}
-
-function parseBooleanValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback?: boolean,
-): boolean {
-  if (raw === undefined && fallback !== undefined) return fallback;
-  if (typeof raw !== 'boolean') {
-    throw new Error(`${pathPrefix} must be true/false`);
-  }
-  return raw;
-}
-
-function parsePositiveIntegerValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback: number,
-): number {
-  if (raw === undefined) return fallback;
-  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw <= 0) {
-    throw new Error(`${pathPrefix} must be a positive integer`);
-  }
-  return raw;
-}
 
 function parseOptionalPositiveIntegerValue(
   raw: unknown,

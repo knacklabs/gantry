@@ -19,6 +19,10 @@ function ipcInputDir(): string {
   return dir;
 }
 
+export function interactiveIpcInputDir(): string {
+  return ipcInputDir();
+}
+
 function closeSentinelPath(): string {
   return path.join(ipcInputDir(), '_close');
 }

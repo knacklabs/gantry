@@ -4,6 +4,7 @@ import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
+import { collectPendingMessagesSince } from '../../runtime/pending-message-replay.js';
 import { parseThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { buildLiveTurnContinuation } from './live-turn-continuation.js';
 
@@ -327,7 +328,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   chatJid: string;
   threadId: string | null;
   replayCursor: string;
-  maxMessagesPerPrompt: number;
+  messageFetchPageSize: number;
   timezone: string;
   getMessagesSince?: (
     conversationJid: string,
@@ -337,6 +338,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
   ) => Promise<NewMessage[]>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
+  enqueueMessageCheck?: (queueJid: string) => void;
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
@@ -344,18 +346,23 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     typeof routeScopeActiveLiveTurnAdmission
   >[0]['completeSessionAgentRun'];
 }): Promise<boolean> {
-  const messages = await input.getMessagesSince?.(
-    input.chatJid,
-    input.replayCursor,
-    input.maxMessagesPerPrompt,
-    { threadId: input.threadId },
-  );
-  return routeScopeActiveLiveTurnAdmission({
+  const replay = input.getMessagesSince
+    ? await collectPendingMessagesSince({
+        getMessagesSince: input.getMessagesSince,
+        chatJid: input.chatJid,
+        sinceCursor: input.replayCursor,
+        pageSize: input.messageFetchPageSize,
+        options: { threadId: input.threadId },
+      })
+    : undefined;
+  const messages = replay?.messages;
+  const routed = await routeScopeActiveLiveTurnAdmission({
     scope: input.scope,
     queueJid: input.queueJid,
     liveRunId: input.liveRunId,
     continuation: buildLiveTurnContinuation({
       queueJid: input.queueJid,
+      sinceCursor: input.replayCursor,
       messages,
       timezone: input.timezone,
       setAgentCursor: input.setAgentCursor,
@@ -364,4 +371,8 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     routeMessage: input.routeMessage,
     completeSessionAgentRun: input.completeSessionAgentRun,
   });
+  if (routed && replay?.hasMore) {
+    input.enqueueMessageCheck?.(input.queueJid);
+  }
+  return routed;
 }

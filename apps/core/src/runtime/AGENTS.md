@@ -47,11 +47,21 @@
   to `waitingMessageGroups`, including pending messages discovered while a
   task or active run drains. Deferred pending state should stay durable in the
   group until backlog capacity opens.
-- `GroupQueue` is process-local live-turn state. Horizontal scheduler workers
-  must set `runtime.live_turns.enabled: false`; only the single live-turn host
-  may run live message polling or admit live-turn ownership. Channels still
-  connect so scheduler outbound delivery can fail closed or send normally
+- `GroupQueue` is process-local live-turn state. Horizontal live workers may
+  all run durable live admission claims and admit live-turn ownership; the
+  durable live-turn scope claim and run lease fence serialize ownership.
+  Scheduler-only workers must set live execution off for that role. Channels
+  still connect so scheduler outbound delivery can fail closed or send normally
   instead of falsely stamping notification evidence.
 - Scheduled question IPC must carry the same run lease identity as scheduled
   permission IPC. Recheck the lease before rendering a question prompt and
   again before writing the answer response.
+- Host-side runner IPC request directories should be registered through
+  `IpcRequestWakeupRegistry` so new request files wake the existing processor
+  promptly while the periodic scan remains missed-event recovery only. Do not
+  treat filesystem watch events as authority; request parsing, signing,
+  permission, durable interaction, and response logic stay in the existing IPC
+  processors.
+- IPC request wakeups may carry folder/lane hints to narrow immediate scans, but
+  unidentified watcher events, startup, fallback polling, and watcher-error
+  recovery must still run the full trusted-folder scan.

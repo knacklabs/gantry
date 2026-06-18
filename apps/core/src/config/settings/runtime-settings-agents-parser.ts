@@ -14,30 +14,11 @@ import type {
   RuntimeConfiguredAgentSources,
   RuntimeDesiredStateSettings,
 } from './runtime-settings-types.js';
-
-function parseStringValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback?: string,
-): string {
-  if (raw === undefined && fallback !== undefined) return fallback;
-  if (typeof raw !== 'string' || raw.trim().length === 0) {
-    throw new Error(`${pathPrefix} must be a non-empty string`);
-  }
-  return raw.trim();
-}
-
-function parseBooleanValue(
-  raw: unknown,
-  pathPrefix: string,
-  fallback?: boolean,
-): boolean {
-  if (raw === undefined && fallback !== undefined) return fallback;
-  if (typeof raw !== 'boolean') {
-    throw new Error(`${pathPrefix} must be true/false`);
-  }
-  return raw;
-}
+import {
+  parseBooleanValue,
+  parseStringArrayValue,
+  parseStringValue,
+} from './runtime-settings-parse-primitives.js';
 
 function parseOptionalAgentHarnessValue(
   raw: unknown,
@@ -138,16 +119,7 @@ function parseConfiguredAgentSourceRef(
     source.kind = kind;
   }
   if (allowTools && map.tools !== undefined) {
-    if (!Array.isArray(map.tools)) {
-      throw new Error(`${pathPrefix}.tools must be an array`);
-    }
-    const tools = [
-      ...new Set(
-        map.tools.map((value, index) =>
-          parseStringValue(value, `${pathPrefix}.tools[${index}]`).trim(),
-        ),
-      ),
-    ].filter(Boolean);
+    const tools = parseStringArrayValue(map.tools, `${pathPrefix}.tools`);
     if (tools.length > 0) source.tools = tools;
   }
   return source;

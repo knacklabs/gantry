@@ -4,6 +4,7 @@ import type {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
+import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { formatDuration } from '../../shared/human-format.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 
@@ -26,6 +27,10 @@ interface UserQuestionSurfaceLike {
     targetJid: string,
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
+}
+
+interface AgentTodoSurfaceLike {
+  renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<void>;
 }
 
 interface PermissionApprovalTargetResolution {
@@ -203,5 +208,79 @@ export function createUserQuestionResponder(input: {
     clear: () => {
       userQuestionResponseCache.clear();
     },
+  };
+}
+
+// Renders an agent todo/plan to the bound channel, live-updating in place.
+// Best-effort: a missing channel or a render failure is logged and swallowed so
+// it never breaks the originating todo_update tool response. Per-conversation
+// throttle: the first update renders immediately (leading edge); rapid follow-ups
+// within the window are coalesced and only the latest flushes once the window
+// closes (trailing edge). This keeps the plan visible promptly while avoiding
+// edit flicker and provider rate limits when an agent updates the plan in a burst.
+// Message-id state is in-memory by design: an interrupted run loses its pending
+// question regardless, and a restarted todo simply posts one fresh message, so
+// durable cross-restart persistence is intentionally not modeled here.
+const AGENT_TODO_RENDER_THROTTLE_MS = 1000;
+
+export function createAgentTodoRenderer(input: {
+  findBoundChannel: (jid: string) => ChannelLike | undefined;
+  asAgentTodoSurface: (
+    channel: ChannelLike,
+  ) => AgentTodoSurfaceLike | undefined;
+  logger: Pick<ChannelWiringInteractionsLogger, 'error'>;
+}): (jid: string, render: AgentTodoRender) => Promise<void> {
+  const windows = new Map<
+    string,
+    { pending: AgentTodoRender | null; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  const flush = async (jid: string, render: AgentTodoRender): Promise<void> => {
+    const channel = input.findBoundChannel(jid);
+    const surface = channel ? input.asAgentTodoSurface(channel) : undefined;
+    if (!surface) return;
+    try {
+      await surface.renderAgentTodo(jid, render);
+    } catch (err) {
+      input.logger.error({
+        err,
+        jid,
+        message: 'Target channel agent todo render failed',
+      });
+    }
+  };
+
+  const renderKey = (jid: string, render: AgentTodoRender): string =>
+    `${jid}:${render.threadId ?? ''}`;
+
+  const openWindow = (key: string, jid: string): void => {
+    const timer = setTimeout(() => {
+      const entry = windows.get(key);
+      if (!entry) return;
+      const next = entry.pending;
+      if (next) {
+        entry.pending = null;
+        openWindow(key, jid);
+        void flush(jid, next);
+      } else {
+        windows.delete(key);
+      }
+    }, AGENT_TODO_RENDER_THROTTLE_MS);
+    // Don't let a pending plan flush keep the process alive on shutdown.
+    (timer as { unref?: () => void }).unref?.();
+    windows.set(key, { pending: windows.get(key)?.pending ?? null, timer });
+  };
+
+  return async (jid: string, render: AgentTodoRender): Promise<void> => {
+    if (!jid) return;
+    const key = renderKey(jid, render);
+    const existing = windows.get(key);
+    if (existing) {
+      // Within the throttle window: keep only the latest plan; it flushes on close.
+      existing.pending = render;
+      return;
+    }
+    openWindow(key, jid);
+    await flush(jid, render);
   };
 }

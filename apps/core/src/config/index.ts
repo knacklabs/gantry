@@ -30,6 +30,10 @@ import type { RuntimeSettings } from './settings/runtime-settings-types.js';
 import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
+import {
+  buildTriggerPattern,
+  defaultTriggerForAgentName,
+} from '../shared/trigger-pattern.js';
 export * from './memory.js';
 export { SettingsDesiredStateService } from './settings/desired-state-service.js';
 export { configureDesiredSettingsStorageProvider } from './settings/runtime-settings.js';
@@ -422,25 +426,17 @@ export function getSelectedAgentHarness(agentFolder?: string): AgentHarness {
   );
 }
 
+export const MESSAGE_FETCH_PAGE_SIZE = Math.max(
+  1,
+  parseInt(process.env.MESSAGE_FETCH_PAGE_SIZE || '200', 10) || 200,
+);
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
   1,
   parseInt(process.env.MAX_MESSAGES_PER_PROMPT || '10', 10) || 10,
 );
 export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep the agent run alive after last result
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-export function buildTriggerPattern(trigger: string): RegExp {
-  const normalizedTrigger = trigger.trim();
-  const slackMentionMatch = normalizedTrigger.match(/^<@([A-Z0-9]+)>?$/i);
-  if (slackMentionMatch) {
-    const mention = `<@${escapeRegex(slackMentionMatch[1])}>?`;
-    return new RegExp(`(?:^|\\s)${mention}(?=\\s|$|[,.!?;:])`, 'i');
-  }
-  return new RegExp(`^${escapeRegex(normalizedTrigger)}\\b`, 'i');
-}
-export const DEFAULT_TRIGGER = `@${ASSISTANT_NAME}`;
+export const DEFAULT_TRIGGER = defaultTriggerForAgentName(ASSISTANT_NAME);
 export function getTriggerPattern(trigger?: string): RegExp {
   const normalizedTrigger = trigger?.trim();
   return buildTriggerPattern(normalizedTrigger || DEFAULT_TRIGGER);

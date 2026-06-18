@@ -50,14 +50,11 @@ export function registerSettingsTools(
         response.data && typeof response.data === 'object'
           ? (response.data as { yaml?: unknown; revision?: unknown })
           : {};
-      const revision = String(data.revision || '');
       return {
         content: [
           {
             type: 'text' as const,
-            text: revision
-              ? `revision: ${revision}\n\n${String(data.yaml || response.message || '')}`
-              : String(data.yaml || response.message || ''),
+            text: String(data.yaml || response.message || ''),
           },
         ],
       };

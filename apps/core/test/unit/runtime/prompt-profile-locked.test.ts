@@ -58,7 +58,7 @@ describe('locked prompt assembly', () => {
       expect(prompt).toContain('## Memory');
       expect(prompt).toContain('## Communication');
       expect(prompt).toContain(
-        '- Use send_message for progress updates and ask_user_question for structured choices.',
+        'ask_user_question for genuine either/or decisions',
       );
     },
   );

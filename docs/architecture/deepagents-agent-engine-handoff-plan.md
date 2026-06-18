@@ -60,9 +60,9 @@ Full parity is blocked until all of these implementation slices are complete:
 - jobs and live turns using the same inheritance/resolution path;
 - DeepAgents delegation wrapper that maps `AgentDelegation` to raw `task` only
   after Gantry policy approval;
-- Gantry file facades for `FileSearch`, `FileRead`, `FileEdit`, and
-  `FileWrite`, including protected paths, symlink checks, sandbox enforcement,
-  audit, and receipt evidence;
+- production hardening around the landed Gantry web/file facade wrappers,
+  including sandbox readiness evidence, audit receipts, and final changed-file
+  evidence;
 - skills projected by reviewed ids/versions with scoped subagent tool sets;
 - stdio MCP fail-closed behavior, proxy/egress projection, and sandboxed MCP
   adapter execution before DeepAgents-visible MCP tools are enabled;
@@ -71,6 +71,13 @@ Full parity is blocked until all of these implementation slices are complete:
 - cleanup searches and full gates proving stale writable `agentEngine`, raw
   provider authority, raw DeepAgents tools, and old selector paths are absent
   from active surfaces.
+
+Related lifecycle note:
+
+Delegation remains an internal execution primitive until Gantry owns durable
+lifecycle state, permission/HITL gates, scope isolation, sandbox boundaries,
+user-visible receipts, telemetry, and closeout verification. Do not expose raw
+DeepAgents task or async-task tools as product-facing authority.
 
 ## Exact UX Contract
 
@@ -97,11 +104,11 @@ agents:
 
 Options:
 
-| Value | Label | Description |
-| --- | --- | --- |
-| `auto` | Auto | Gantry chooses the safest compatible harness for the selected model. |
-| `anthropic_sdk` | Anthropic SDK | Use the Claude Agent SDK for Claude-native execution. |
-| `deepagents` | DeepAgents | Use DeepAgents for advanced planning, skills, filesystem workflows, and internal delegation under Gantry permissions. |
+| Value           | Label         | Description                                                                                                           |
+| --------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `auto`          | Auto          | Gantry chooses the safest compatible harness for the selected model.                                                  |
+| `anthropic_sdk` | Anthropic SDK | Use the Claude Agent SDK for Claude-native execution.                                                                 |
+| `deepagents`    | DeepAgents    | Use DeepAgents for advanced planning, skills, filesystem workflows, and internal delegation under Gantry permissions. |
 
 Rules:
 
@@ -282,17 +289,20 @@ Required constraints:
 - Resolve and validate paths through Gantry before open/write.
 - Canonicalize symlinks before policy decisions; deny symlink escapes.
 - Enforce protected read/write path policy before filesystem access.
-- Require an enforcing sandbox for production/remote DeepAgents file writes and
-  any run that combines file authority with shell/local CLI authority.
+- Mount DeepAgents File facades only when the host projects the enforcing
+  sandbox filesystem flag; under `direct`, File facades stay unavailable even for
+  runtime approval prompts.
 - Audit every file read/write/edit/search decision with the Gantry facade tool
   name, normalized path or artifact id, policy decision, sandbox provider,
   parent run id, and delegated subagent context when present.
 - File write/edit tools must produce durable changed-file evidence for the final
   receipt.
 
-Current-state note: this plan does not claim raw DeepAgents filesystem parity.
-Full parity requires Gantry facades, sandbox enforcement, protected-path checks,
-audit, and receipt evidence to be implemented and verified first.
+Current-state note: DeepAgents now projects Gantry-owned `WebSearch`,
+`WebRead`, `FileSearch`, `FileRead`, `FileEdit`, and `FileWrite` wrappers.
+Raw DeepAgents filesystem parity is still not a product contract; production
+parity requires sandbox readiness evidence, audit receipts, and final
+changed-file evidence to remain verified.
 
 ## Skills And Capability Projection
 
@@ -329,202 +339,6 @@ fail-closed host control:
 - denied, stale, or unbound MCP requests must return a Gantry denial and record
   audit/runtime evidence before any provider-visible tool invocation.
 
-## Target Surface Impact Matrix
-
-The matrix below describes the target implementation. It must not be read as
-current-state evidence until the matching work packets, cleanup searches, and
-verification gates pass.
-
-| Surface | Status | Reason |
-| --- | --- | --- |
-| Runtime behavior | Changed | Harness resolution becomes `agentHarness + modelAlias -> effective agentEngine + executionProviderId`, with DeepAgents accepted as a first-class explicit harness when compatible. |
-| `settings.yaml` | Changed | Adds non-secret `defaults.agent_harness` and `agents.<id>.agent_harness`; settings remains desired state. |
-| Postgres/runtime projection | Changed | Projects requested harness, effective engine, diagnostic provider id, and delegation/audit evidence into runtime state without making Postgres the durable settings source. |
-| Control API | Changed | Agent read/write surfaces accept `agentHarness`, expose read-only `agentEngine`, and keep `executionProviderId` read-only diagnostic. |
-| SDK/contracts | Changed | SDK types expose durable `agentHarness`, read-only effective `agentEngine`, compatibility errors, and evidence receipt shape. |
-| CLI | Changed | Setup, agent list/show/update, model preview/why, and doctor surfaces use `Execution harness` and `agent_harness`. |
-| Gantry MCP tools/admin skill | Changed | Settings/admin tools may request reviewed `agentHarness` updates; agents must not edit settings or DB directly. |
-| Channel adapters | Read-only/observable | Slack, Teams, Telegram, WhatsApp, Web, and App channels render the same approvals/receipts and gain no channel-specific authority. |
-| LLM/provider adapters | Changed | DeepAgents harness wiring changes model-gateway routing, MCP projection, credential projection, and adapter admission while keeping raw provider credentials hidden. |
-| Docs/prompts | Changed | DeepAgents docs and prompts must use `agentHarness`/`agent_harness`, internal subagents, and Gantry facade authority. |
-| Audit/events | Changed | Audit logs and runtime events include requested harness, effective engine, delegation, tools, approvals, sandbox, egress, and receipt evidence. |
-| Tests/verification | Changed | Adds resolver, projection, delegation-wrapper, raw-authority denial, file facade, skills, job/live, audit, and receipt coverage. |
-
-## Capability-Driven Work Packets
-
-These packets are pending implementation slices unless a future closeout note
-links to passing verification evidence.
-
-1. Harness selection
-   - Add public `agentHarness = 'auto' | 'anthropic_sdk' | 'deepagents'`.
-   - Parse/render/import/export/project `agent_harness` defaults and per-agent
-     overrides.
-   - Expose writes through settings, Control API, SDK, CLI, and approved admin
-     tools.
-   - Keep `agentEngine` and `executionProviderId` read-only diagnostics.
-
-2. Compatibility resolver
-   - Resolve `agentHarness + modelAlias` into effective engine, model route,
-     credential projection, sandbox requirements, and internal provider id.
-   - Reject invalid combinations before runner spawn.
-   - Preserve `auto` behavior exactly.
-
-3. DeepAgents harness parity
-   - Treat `deepagents:langchain` as a first-class `AgentExecutionAdapter`.
-   - Preserve runner frame contracts, provider session evidence, usage/context
-     accounting, job heartbeat, live continuation/stop behavior, and cache
-     accounting.
-   - Keep model credentials in the model lane and tool networking in the tool
-     lane.
-
-4. Delegation wrapper
-   - Map Gantry `AgentDelegation` to DeepAgents `task`.
-   - Deny without invoking `task` when policy rejects the request.
-   - Keep raw `task` and `write_todos` hidden until the wrapper is implemented
-     and tested.
-
-5. File facade parity
-   - Route file search/read/edit/write through Gantry facade tools only.
-   - Enforce protected paths, symlink checks, sandbox, egress where relevant,
-     audit, and final receipt evidence.
-
-6. Skills and subagent scopes
-   - Project reviewed skill ids and versions into parent and subagent scopes.
-   - Ensure subagent tool scopes replace rather than merge with parent tools.
-   - Keep credentials and commands gated by explicit approved capabilities.
-
-7. Jobs, live turns, memory, and audit
-   - Jobs inherit bound-agent harness.
-   - Live turns keep durable owner routing for continuations, stop, stdin close,
-     and pending interactions.
-   - Gantry memory remains authoritative; DeepAgents memory is prompt context
-     only unless a later reviewed design adds durable support.
-   - Emit receipt/audit/runtime evidence for decisions and outcomes.
-
-8. Docs and cleanup
-   - Update docs/prompts that still describe provider-derived-only harness
-     selection.
-   - Remove old public-selector names from active docs and tests in the same
-     implementation phase that introduces replacements.
-   - Do not add compatibility aliases or local-only branches.
-
-## Acceptance Criteria
-
-These are cutover acceptance criteria for claiming full DeepAgents harness
-parity.
-
-- Settings can store `agent_harness: auto`, `anthropic_sdk`, or `deepagents` at
-  defaults and per-agent scope.
-- API/SDK use `agentHarness`; `settings.yaml` uses `agent_harness`.
-- `auto` produces the same effective harness behavior as the current
-  provider-derived resolver.
-- Explicit `anthropic_sdk` and `deepagents` either run the selected model route
-  or fail before runner spawn with the required user-facing error.
-- `agentEngine` is read-only effective diagnostic output.
-- `executionProviderId` is read-only internal diagnostic output.
-- Claude OAuth/subscription credentials are accepted only by the Anthropic SDK
-  lane.
-- Jobs and conversations inherit the bound agent's harness.
-- DeepAgents subagents are internal-only execution primitives and do not create a
-  dashboard, durable worker roster, or user-managed worker state.
-- `AgentDelegation` is the only durable authority path to DeepAgents `task`.
-- Denied delegation requests never invoke DeepAgents `task`.
-- Raw DeepAgents tool names are not user-facing durable authority.
-- Subagent definitions are host-resolved; model output cannot create durable
-  subagent identities or widen subagent tools.
-- Subagent tool scopes replace parent tool scopes and never merge implicitly.
-- DeepAgents file operations use only `FileSearch`, `FileRead`, `FileEdit`, and
-  `FileWrite` through Gantry policy.
-- Skills project from reviewed skill ids and versions, with explicit subagent
-  scopes and no credentials/commands by attachment alone.
-- Final responses include the exact evidence receipt format:
-  `Completed: <short outcome>`, `Used: <tools/capabilities>`,
-  `Changed: <files/accounts/channels or none>`, `Delegated: yes/no`, and
-  `Needs attention: <blocker or none>`.
-
-## Test Plan
-
-Focused unit tests:
-
-- settings parse/render/import/export in
-  `apps/core/test/unit/config/runtime-settings.test.ts`,
-  `apps/core/test/unit/config/settings-import-service.test.ts`,
-  `apps/core/test/unit/config/settings-desired-state-service.test.ts`, and
-  `apps/core/test/unit/config/desired-settings-writer.test.ts` for
-  `defaults.agent_harness` and `agents.<id>.agent_harness`;
-- contracts in `packages/contracts/test/unit/index.test.ts` for
-  `AgentHarness`, writable `agentHarness`, and read-only `agentEngine` /
-  `executionProviderId`;
-- Control API agent writes and OpenAPI shape in
-  `apps/core/test/unit/control/server-auth.test.ts`,
-  `apps/core/test/unit/control/openapi.test.ts`,
-  `apps/core/test/unit/control/agent-profile-routes.test.ts`, and
-  `apps/core/test/unit/control/model-agent-preview.test.ts`;
-- CLI setup/agent/model surfaces in
-  `apps/core/test/unit/cli/setup-flow-model-step.test.ts`,
-  `apps/core/test/unit/cli/group-engine.test.ts`,
-  `apps/core/test/unit/cli/model-preview-format.test.ts`, and
-  `apps/core/test/unit/cli/model-command.test.ts`;
-- Gantry MCP/admin settings update paths in
-  `apps/core/test/unit/jobs/ipc-runtime-admin-handlers.test.ts`,
-  `apps/core/test/unit/runner/agent-capabilities.test.ts`, and
-  `apps/core/test/unit/runner/mcp/server-registry.test.ts`;
-- compatibility resolver coverage for `auto`, forced Anthropic SDK, forced
-  DeepAgents, invalid model route, missing credential, unsafe sandbox, and Claude
-  OAuth/subscription with DeepAgents;
-- read-only behavior for `agentEngine` and `executionProviderId`;
-- job/conversation inheritance with no job-level harness write;
-- DeepAgents adapter spawn receives only compatible model gateway env;
-- raw DeepAgents `task`, `write_todos`, filesystem tools, backends, and raw MCP
-  authority stay hidden until Gantry wrappers project them;
-- `AgentDelegation` wrapper denies without invoking DeepAgents `task`;
-- allowed delegation invokes only host-resolved subagent definitions and records
-  audit/runtime evidence;
-- subagent tool scopes replace, not merge, with parent tools;
-- `FileSearch`/`FileRead`/`FileEdit`/`FileWrite` enforce protected paths,
-  symlink canonicalization, sandbox requirements, audit, and receipt evidence;
-- skills projection uses reviewed ids/versions and scoped credentials/commands;
-- receipt formatter emits exactly `Completed: <short outcome>`,
-  `Used: <tools/capabilities>`, `Changed: <files/accounts/channels or none>`,
-  `Delegated: yes/no`, and `Needs attention: <blocker or none>`.
-
-Integration tests:
-
-- Anthropic SDK regression for Claude OAuth/subscription lane;
-- `auto` harness run for existing Anthropic and OpenAI-compatible model routes;
-- explicit DeepAgents run through the Gantry model gateway for a supported
-  OpenAI-compatible route;
-- explicit DeepAgents rejection for Claude OAuth/subscription credentials;
-- scheduled job inherits agent harness, claims run lease before execution, and
-  fences terminal/provider writes;
-- live turn continuation, stop, close-stdin, pending interaction, and delegation
-  resolution stay routed to the durable owner;
-- pending interaction row is durable before any DeepAgents-visible approval or
-  question rendering;
-- production/remote sandbox guard rejects unsafe DeepAgents shell/filesystem
-  setup;
-- final response receipt and audit/runtime evidence match for delegated/file/tool
-  runs.
-
-Cleanup searches before handoff or PR:
-
-```bash
-rg -n "agent[_]engine|job\\.harness|executionProviderId.*job|job.*executionProviderId" apps/core/src packages/contracts/src docs
-rg -n "LocalShellBackend|BackendProtocol|execute\\b|\\.mcp\\.json|filesystem permissions|interrupt_on" apps/core/src packages/contracts/src docs --glob '!docs/architecture/deepagents-*'
-rg -n "ANTHROPIC_API_KEY|OPENAI_API_KEY|CLAUDE_CODE_OAUTH_TOKEN" apps/core/src packages/contracts/src docs
-rg -n "task.*not policy reviewed|v1-[S]AFEST|no user engine select(or)|S[U]PERSEDED" docs apps/core/src/adapters/llm/deepagents-langchain
-```
-
-Final verification commands:
-
-- Run the smallest relevant unit/integration tests after each implementation
-  slice.
-- For Postgres-backed checks, use a disposable Postgres with required
-  extensions per `docs/architecture/current-verification-commands.md`.
-- End implementation with `npm run build`, `npm test`,
-  `python3 .codex/scripts/verify.py`, and
-  `python3 .codex/scripts/validate_artifacts.py --allow-missing-run`.
-
 ## Locked Decisions
 
 - Public durable noun: agent harness.
@@ -542,8 +356,7 @@ Final verification commands:
   authority is introduced.
 - DeepAgents subagents are internal execution primitives, not user-managed
   workers.
-- No mission-control UI or dashboard is added for DeepAgents subagents in this
-  plan.
+- No mission-control UI or dashboard is added for DeepAgents subagents.
 - `AgentDelegation` is the only durable authority path to DeepAgents `task`.
 - Denied subagent requests never invoke DeepAgents `task`.
 - Raw DeepAgents tool names are not user-facing authority.

@@ -45,16 +45,15 @@ describe('mcp__gantry__file', () => {
     const { handleFileToolAction, measureFileToolPayloadSize } =
       await import('@core/runner/mcp/tools/file.js');
 
-    const response = JSON.parse(
-      await handleFileToolAction({
-        action: 'list',
-        scope: 'scratch',
-        path: 'notes/today.md',
-      }),
-    );
+    const response = await handleFileToolAction({
+      action: 'list',
+      scope: 'scratch',
+      path: 'notes/today.md',
+    });
 
-    expect(response).toMatchObject({ ok: true });
-    expect(response.artifacts[0]).not.toHaveProperty('storageRef');
+    expect(response).toContain('notes/today.md');
+    expect(response).not.toContain('storageRef');
+    expect(response).not.toContain('sha256');
     expect(writeIpcFile).toHaveBeenCalledWith(
       '/tmp/gantry-file-tool-test/tasks',
       expect.objectContaining({
@@ -93,20 +92,12 @@ describe('mcp__gantry__file', () => {
         path: 'AGENTS.md',
         content: 'bad',
         protected: true,
-      }).then(JSON.parse),
-    ).resolves.toMatchObject({
-      ok: false,
-      status: 'rejected',
-      reason: 'Protected prompt FileArtifact mutations require capability.',
-    });
+      }),
+    ).resolves.toContain(
+      'Protected prompt FileArtifact mutations require capability.',
+    );
     await expect(
-      handleFileToolAction({ action: 'read', path: 'notes/today.md' }).then(
-        JSON.parse,
-      ),
-    ).resolves.toMatchObject({
-      ok: false,
-      status: 'rejected',
-      reason: 'FileArtifact request timed out waiting for host confirmation.',
-    });
+      handleFileToolAction({ action: 'read', path: 'notes/today.md' }),
+    ).resolves.toContain('That file action was rejected:');
   });
 });

@@ -1,7 +1,7 @@
 import type { LiveTurnCoordinationRepository } from '../../domain/ports/live-turns.js';
 
 /**
- * Waiting-status UX: "Waiting for an available worker".
+ * Waiting-status UX: "Still starting this request."
  *
  * When the live fleet is saturated, an inbound message is still accepted
  * durably (WP2 message-store cursor guarantees retry — nothing is lost), but the
@@ -28,7 +28,7 @@ export const WAITING_STATUS_THRESHOLD_MS = 30_000;
 export const WAITING_STATUS_POLL_INTERVAL_MS = 5_000;
 
 /** The exact user-facing status text. */
-export const WAITING_STATUS_TEXT = 'Waiting for an available worker';
+export const WAITING_STATUS_TEXT = 'Still starting this request.';
 
 export interface WaitingStatusMonitorHandle {
   /** Stop the probe timer (drain / coordinator lease loss). */

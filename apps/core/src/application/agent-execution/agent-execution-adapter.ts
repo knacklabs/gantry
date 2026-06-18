@@ -21,6 +21,22 @@ import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabil
 
 export type AgentExecutionProviderId = ExecutionProviderId;
 
+export interface DeepAgentSkillFileProjection {
+  content: string;
+  mimeType: string;
+  created_at: string;
+  modified_at: string;
+}
+
+export interface DeepAgentSkillProjection {
+  sources: string[];
+  files: Record<string, DeepAgentSkillFileProjection>;
+  selectedSkillIds: string[];
+  skillCount: number;
+  fileCount: number;
+  contentBytes: number;
+}
+
 export interface AgentExecutionRunInput {
   prompt: string;
   appId?: string;
@@ -101,6 +117,11 @@ export interface AgentExecutionAdapterPrepareInput {
   effectiveModel?: string;
   effectiveModelEntry?: ModelCatalogEntry;
   modelCredentialProjection: AgentExecutionCredentialProjection;
+  runtimeStorage?: {
+    postgresUrl: string | null;
+    postgresUrlEnv: string;
+    postgresSchema: string;
+  };
   browserIpcEnabled: boolean;
   packageRootFromRunner: (runnerPath: string) => string;
   options?: AgentExecutionAdapterOptions;
@@ -115,6 +136,12 @@ export interface PreparedAgentExecution {
     modelCredentialEnv?: Record<string, string>;
     toolNetworkEnv?: Record<string, string>;
     semanticCapabilities?: SemanticCapabilityDefinition[];
+    deepAgentCheckpointer?: {
+      databaseUrl: string;
+      schema: string;
+      proxyUrl?: string;
+    };
+    deepAgentSkills?: DeepAgentSkillProjection;
   };
   sandboxRuntime?: {
     toolTempDirLeaf?: string;

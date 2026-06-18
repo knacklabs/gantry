@@ -206,6 +206,10 @@ export interface MetricsDeps {
   liveExecutionEnabled: boolean;
   /** This worker's instance id, or null before registration. */
   currentWorkerInstanceId: () => string | null;
+  /** Per-live-worker live turn capacity from runtime.queue.max_message_runs. */
+  liveCapacityLimit: () => number;
+  /** Per-workspace background job capacity from runtime.queue.max_job_runs. */
+  jobCapacityLimit: () => number;
   /**
    * Age in seconds of the oldest pending live admission waiting for a free
    * worker (0 when none). Reported by the runtime; computed cheaply in-process,
@@ -236,6 +240,16 @@ interface BakeStatusRow {
 interface StarvedRunsRow {
   starved: number;
   max_age_seconds: number;
+}
+
+interface BacklogRow {
+  count: number;
+  oldest_age_seconds: number;
+}
+
+interface JobSlotRow {
+  slot_key: string;
+  count: number;
 }
 
 /**
@@ -402,6 +416,15 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
     }
 
     try {
+      const limit = Math.max(0, Math.floor(deps.liveCapacityLimit()));
+      const capacityRows = await deps.query<CountRow>(
+        `SELECT count(*)::int AS count
+         FROM worker_instances
+         WHERE heartbeat_at > now() - interval '60 seconds'
+           AND status IN ('starting', 'healthy')
+           AND process_role IN ('all', 'live-worker')`,
+      );
+      const capacity = (capacityRows[0]?.count ?? 0) * limit;
       // Cluster-wide live slot usage: unexpired run_slots whose key is a live
       // per-worker slot key. The LIKE pattern matches `live:messages:<id>`.
       const rows = await deps.query<CountRow>(
@@ -414,6 +437,16 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
         'gantry_live_slots_used_cluster',
         'Unexpired live-turn run slots held cluster-wide.',
         rows[0]?.count ?? 0,
+      );
+      gauge(
+        'gantry_live_slots_capacity_cluster',
+        'Configured cluster live-turn capacity from healthy live workers.',
+        capacity,
+      );
+      gauge(
+        'gantry_live_warm_spare',
+        'Whether cluster live-turn capacity has at least one free slot.',
+        capacity > (rows[0]?.count ?? 0) ? 1 : 0,
       );
     } catch {
       // Slot usage unavailable; skip this gauge.
@@ -451,9 +484,59 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
     // so it is always emitted on a live process — 0 when nothing is waiting.
     gauge(
       'gantry_live_oldest_waiting_seconds',
-      'Age in seconds of the oldest live message waiting for an available worker (0 when none).',
+      'Age in seconds of the oldest live message waiting to start (0 when none).',
       Math.max(0, Math.floor(deps.oldestWaitingLiveAdmissionSeconds())),
     );
+
+    try {
+      const rows = await deps.query<BacklogRow>(
+        `SELECT
+           count(*)::int AS count,
+           coalesce(max(extract(epoch FROM (now() - created_at))), 0)::int
+             AS oldest_age_seconds
+         FROM live_admission_work_items
+         WHERE state = 'queued'`,
+      );
+      gauge(
+        'gantry_live_admission_backlog',
+        'Queued live admission work items waiting to start.',
+        rows[0]?.count ?? 0,
+      );
+      gauge(
+        'gantry_live_admission_backlog_oldest_seconds',
+        'Age in seconds of the oldest queued live admission work item.',
+        rows[0]?.oldest_age_seconds ?? 0,
+      );
+    } catch {
+      // Backlog unavailable; skip these gauges.
+    }
+  }
+
+  try {
+    const rows = await deps.query<JobSlotRow>(
+      `SELECT slot_key, count(*)::int AS count
+       FROM run_slots
+       WHERE slot_key NOT LIKE ${quoteSqlLiteral(`${LIVE_TURN_SLOT_KEY_PREFIX}%`)}
+         AND expires_at > now()
+       GROUP BY slot_key
+       ORDER BY slot_key`,
+    );
+    lines.push(
+      '# HELP gantry_background_job_slots_used Unexpired non-live run slots held by background jobs per slot key.',
+    );
+    lines.push('# TYPE gantry_background_job_slots_used gauge');
+    for (const row of rows) {
+      lines.push(
+        `gantry_background_job_slots_used${renderLabels({ slot_key: row.slot_key })} ${row.count}`,
+      );
+    }
+    gauge(
+      'gantry_background_job_slots_capacity',
+      'Configured per-workspace background job capacity.',
+      Math.max(1, Math.floor(deps.jobCapacityLimit())),
+    );
+  } catch {
+    // Background slot usage unavailable; skip these gauges.
   }
 
   return `${lines.join('\n')}\n`;

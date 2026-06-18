@@ -19,6 +19,7 @@ export interface SessionContinuityInjectionSubject {
 }
 export interface SessionContinuityInjectionStatus {
   injectedAt: string;
+  hydrationMode?: 'first_visible' | 'full';
   subject: SessionContinuityInjectionSubject;
   bytes: number;
   maxBytes: number;

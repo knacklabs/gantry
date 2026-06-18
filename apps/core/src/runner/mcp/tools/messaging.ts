@@ -141,7 +141,7 @@ export function registerMessagingTools(server: McpServer): void {
 
   server.tool(
     'ask_user_question',
-    'Ask the user a structured multiple-choice question. Shows interactive buttons in Telegram. Use when you need the user to pick between discrete options (e.g. which database, which approach, which config). Returns the selected option(s).',
+    'Ask the user a structured multiple-choice question across the active channel. Use when you need the user to pick between discrete options (e.g. which database, which approach, which config). Returns the selected option(s).',
     {
       questions: z
         .array(
@@ -234,7 +234,7 @@ export function registerMessagingTools(server: McpServer): void {
             content: [
               {
                 type: 'text' as const,
-                text: 'Question cancelled before an answer was received.',
+                text: 'Question cancelled. Nothing changed.',
               },
             ],
           };
@@ -325,7 +325,7 @@ export function registerMessagingTools(server: McpServer): void {
             content: [
               {
                 type: 'text' as const,
-                text: 'Question cancelled before an answer was received.',
+                text: 'Question cancelled. Nothing changed.',
               },
             ],
           };
@@ -336,7 +336,7 @@ export function registerMessagingTools(server: McpServer): void {
         content: [
           {
             type: 'text' as const,
-            text: 'Question timed out — no answer received within 5 minutes.',
+            text: 'Question expired. Please ask again if this is still needed.',
           },
         ],
       };

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
+import type { FSWatcher } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   isAbortError,
@@ -46,6 +47,31 @@ async function waitFor(
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('waitFor timed out');
+}
+
+type WatchListener = (
+  eventType: string,
+  filename: string | Buffer | null,
+) => void;
+
+function fakeWatcher(): FSWatcher {
+  return {
+    close: vi.fn(),
+    on: vi.fn(),
+    unref: vi.fn(),
+  } as unknown as FSWatcher;
+}
+
+function timeoutDeps() {
+  const timers: Array<{ callback: () => void; ms: number; handle: unknown }> =
+    [];
+  const setTimeoutFn = vi.fn((callback: () => void, ms: number) => {
+    const handle = { unref: vi.fn() };
+    timers.push({ callback, ms, handle });
+    return handle as ReturnType<typeof setTimeout>;
+  });
+  const clearTimeoutFn = vi.fn();
+  return { timers, setTimeoutFn, clearTimeoutFn };
 }
 
 describe('startDeepAgentLiveControl (STOP / close-stdin)', () => {
@@ -116,6 +142,58 @@ describe('startDeepAgentLiveControl (STOP / close-stdin)', () => {
     writeMessage('after stop', 1);
     control.drainNow();
     expect(control.takeBufferedFollowups()).toEqual(['after stop']);
+  });
+
+  it('wakes from fs.watch events without waiting for the fallback poll', () => {
+    const timeouts = timeoutDeps();
+    const listeners = new Map<string, WatchListener>();
+    const control = startDeepAgentLiveControl({
+      pollMs: 1_000_000,
+      deps: {
+        setTimeout: timeouts.setTimeoutFn,
+        clearTimeout: timeouts.clearTimeoutFn,
+        mkdirSync: vi.fn(),
+        watch: vi.fn((dir, _options, listener) => {
+          listeners.set(dir, listener);
+          return fakeWatcher();
+        }),
+      },
+    });
+
+    expect(timeouts.timers.map((timer) => timer.ms)).toEqual([1_000_000]);
+    writeMessage('watched follow-up', 1);
+    listeners.get(ipcDir)?.('rename', 'message-1.json');
+    expect(timeouts.timers.at(-1)?.ms).toBe(0);
+    timeouts.timers.at(-1)?.callback();
+
+    expect(control.takeBufferedFollowups()).toEqual(['watched follow-up']);
+    control.stop();
+  });
+
+  it('wakes and aborts from a watched _close sentinel', () => {
+    const timeouts = timeoutDeps();
+    const listeners = new Map<string, WatchListener>();
+    const control = startDeepAgentLiveControl({
+      pollMs: 1_000_000,
+      deps: {
+        setTimeout: timeouts.setTimeoutFn,
+        clearTimeout: timeouts.clearTimeoutFn,
+        mkdirSync: vi.fn(),
+        watch: vi.fn((dir, _options, listener) => {
+          listeners.set(dir, listener);
+          return fakeWatcher();
+        }),
+      },
+    });
+
+    writeCloseSentinel();
+    listeners.get(ipcDir)?.('rename', '_close');
+    expect(timeouts.timers.at(-1)?.ms).toBe(0);
+    timeouts.timers.at(-1)?.callback();
+
+    expect(control.closed()).toBe(true);
+    expect(control.signal.aborted).toBe(true);
+    control.stop();
   });
 });
 

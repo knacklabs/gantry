@@ -1,3 +1,7 @@
+import type { FinalProgressState } from './progress-updates.js';
+
+type GroupTurnRunResult = 'success' | 'error' | 'stopped';
+
 export async function handleFailure(input: {
   outputSentToUser: boolean;
   groupName: string;
@@ -61,4 +65,41 @@ export async function waitOutput(input: {
     'Agent output callback failed',
   );
   return true;
+}
+
+export function resolveGroupTurnFinalProgressState(input: {
+  output: GroupTurnRunResult;
+  hadError: boolean;
+  sawDeliveryIncomplete: boolean;
+  sawTerminalDeliveryFailure: boolean;
+  outputSentToUser: boolean;
+}): FinalProgressState {
+  if (input.output === 'stopped') return 'stopped';
+  if (input.output === 'error' || input.hadError) return 'failed';
+  if (
+    input.sawDeliveryIncomplete ||
+    (input.sawTerminalDeliveryFailure && input.outputSentToUser)
+  ) {
+    return 'delivery_incomplete';
+  }
+  return input.sawTerminalDeliveryFailure ? 'failed' : 'completed';
+}
+
+export function shouldSendTurnFinalProgress(input: {
+  finalProgressState: FinalProgressState;
+  awaitingResponseReceipt: boolean;
+  sentAnyTurnDoneProgress: boolean;
+  activeGenerationHasOutput: boolean;
+  sentTurnDoneProgressGeneration: number | null;
+  progressGeneration: number;
+}): boolean {
+  return (
+    !(
+      input.finalProgressState === 'completed' && input.awaitingResponseReceipt
+    ) &&
+    (input.finalProgressState !== 'completed' ||
+      !input.sentAnyTurnDoneProgress ||
+      (input.activeGenerationHasOutput &&
+        input.sentTurnDoneProgressGeneration !== input.progressGeneration))
+  );
 }

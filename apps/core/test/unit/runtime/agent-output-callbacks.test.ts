@@ -46,4 +46,20 @@ describe('agent output callbacks', () => {
       'sess-abc123',
     );
   });
+
+  it('does NOT treat runtime-event-only frames as turn completion markers', () => {
+    expect(
+      isAgentTurnCompleteMarker({
+        status: 'success',
+        result: null,
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          {
+            eventType: 'task.progress',
+            payload: { taskId: 'task-1' },
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
 });

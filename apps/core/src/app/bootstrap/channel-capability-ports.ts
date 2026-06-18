@@ -7,6 +7,7 @@ import {
   TypingSink,
 } from '../../domain/types.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
+import type { AgentTodoSink } from '../../domain/ports/task-lifecycle.js';
 
 export function asTypingSink(channel: ChannelAdapter): TypingSink | undefined {
   return typeof channel.setTyping === 'function'
@@ -62,5 +63,13 @@ export function asUserQuestionSurface(
 ): Pick<InteractionSurface, 'requestUserAnswer'> | undefined {
   return typeof channel.requestUserAnswer === 'function'
     ? (channel as unknown as Pick<InteractionSurface, 'requestUserAnswer'>)
+    : undefined;
+}
+
+export function asAgentTodoSurface(
+  channel: ChannelAdapter,
+): AgentTodoSink | undefined {
+  return typeof channel.renderAgentTodo === 'function'
+    ? (channel as unknown as AgentTodoSink)
     : undefined;
 }

@@ -159,6 +159,38 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     );
   });
 
+  it('passes only selected skill ids to Claude runtime materialization', async () => {
+    mockMaterializeClaudeRuntime.mockClear();
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await adapter.prepare(
+      prepareInput({
+        browserIpcEnabled: true,
+        input: {
+          prompt: 'hello',
+          chatJid: 'tg:test',
+          attachedSkillSourceIds: ['skill:release'],
+        },
+      }),
+    );
+
+    expect(mockMaterializeClaudeRuntime.mock.calls[0]?.[0]).toMatchObject({
+      enabledSkillIds: ['gantry-browser', 'skill:release'],
+    });
+  });
+
+  it('passes an empty SDK skill allowlist when no skills are selected', async () => {
+    mockMaterializeClaudeRuntime.mockClear();
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    const prepared = await adapter.prepare(prepareInput());
+
+    expect(mockMaterializeClaudeRuntime.mock.calls[0]?.[0]).toMatchObject({
+      enabledSkillIds: [],
+    });
+    expect(prepared.env.GANTRY_CLAUDE_SDK_SKILLS_JSON).toBe('[]');
+  });
+
   it('fails when runner files are missing', async () => {
     vi.mocked(fs.existsSync).mockReturnValueOnce(false);
     const adapter = new AnthropicClaudeAgentExecutionAdapter();

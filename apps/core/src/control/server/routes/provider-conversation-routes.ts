@@ -25,6 +25,7 @@ import {
 import { ListProvidersUseCase } from '../../../application/provider-conversations/list-providers-use-case.js';
 import { ConversationControlService } from '../../../application/conversations/conversation-control-use-cases.js';
 import type { Agent, AgentId } from '../../../domain/agent/agent.js';
+import { folderForAgentId } from '../../../domain/agent/agent-folder-id.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type {
   AgentConversationBinding,
@@ -646,7 +647,7 @@ function routeStateForBinding(input: {
   binding: AgentConversationBinding;
   conversation: Conversation;
 }): RuntimeConversationRouteState {
-  const folder = folderForAgentId(input.agent.id);
+  const folder = folderForAgentId(input.agent.id) ?? String(input.agent.id);
   return {
     name: input.binding.displayName || input.agent.name,
     folder,
@@ -657,11 +658,6 @@ function routeStateForBinding(input: {
     requiresTrigger: input.binding.requiresTrigger,
     conversationKind: input.conversation.kind === 'direct' ? 'dm' : 'channel',
   };
-}
-
-function folderForAgentId(agentId: Agent['id']): string {
-  const value = String(agentId);
-  return value.startsWith('agent:') ? value.slice('agent:'.length) : value;
 }
 
 function jidForConversation(providerId: string, externalId: string): string {
