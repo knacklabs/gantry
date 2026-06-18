@@ -261,7 +261,7 @@ autoscaled pool. Start from the symptom, not the axis:
 
 | What is actually growing / hurting                                                                               | Scale                                                                                                                       | Levers                                                                                                                                                                        |
 | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Live conversations: turns wait behind per-worker `max_message_runs`, users see "Waiting for an available worker" | **Horizontal (live pool)** — every live worker admits turns; cluster live capacity ≈ `max_message_runs` × live-worker count | Raise `live_worker_max_size` / `live_worker_desired_capacity`, or bigger `live_worker_instance_type` + higher `runtime.queue.max_message_runs` per box. Both add capacity now |
+| Live conversations: turns wait behind per-worker `max_message_runs`, users see "Still starting this request." | **Horizontal (live pool)** — every live worker admits turns; cluster live capacity ≈ `max_message_runs` × live-worker count | Raise `live_worker_max_size` / `live_worker_desired_capacity`, or bigger `live_worker_instance_type` + higher `runtime.queue.max_message_runs` per box. Both add capacity now |
 | Scheduled jobs, bakes: queue depth grows, job-worker CPU sustained high                                          | **Horizontal (job pool)** — jobs are claimable by any job worker                                                            | Raise `job_worker_max_size`, tune `job_worker_cpu_target`                                                                                                                     |
 | Admin/API latency (control plane): `/v1/*` slow, SDK calls back up                                               | **Vertical (control), then horizontal** — control runs no execution, so this is rare                                        | Bigger `control_instance_type`; raise `control_max_size` + set `control_autoscaling_enabled` if genuinely API-bound                                                           |
 | Single turns are too heavy: worker memory pressure, OOM-killed runners, subagent-dense turns                     | **Vertical** — more workers do not shrink one turn's footprint                                                              | Bigger instance, or cap harder via `resource_limits` (memory_mb / max_processes); see the sizing rule in Worker Configuration above                                           |
@@ -273,10 +273,10 @@ Signals to read before choosing (`/metrics` + CLI):
 
 - Job-queue depth rising while job-worker CPU is high → horizontal job pool (the
   autoscaler should already be reacting; check `job_worker_max_size`).
-- Live turns waiting (`gantry_live_oldest_waiting_seconds` climbing, users see
-  "Waiting for an available worker") while `gantry_live_slots_used_cluster` is at
-  capacity → horizontal live pool (more `live-worker` instances) and/or higher
-  per-worker `max_message_runs`.
+- Live turns waiting (`gantry_live_oldest_waiting_seconds` or
+  `gantry_live_admission_backlog` climbing, with `gantry_live_warm_spare` = 0)
+  while `gantry_live_slots_used_cluster` is at capacity → horizontal live pool
+  (more `live-worker` instances) and/or higher per-worker `max_message_runs`.
 - `gantry_capability_starved_runs` > 0 → neither axis: a capability is missing
   (bake failed/pending, or no eligible worker) — `gantry bake status`.
 - Worker memory headroom shrinking with stable turn counts → vertical, or
@@ -311,17 +311,23 @@ ALB never exposes them. They are role-aware:
   - `gantry_live_turns_active` — live turns this process currently owns.
   - `gantry_live_slots_used_cluster` — cluster-wide live slots in use (capacity ≈
     `max_message_runs` × live-worker count).
+  - `gantry_live_slots_capacity_cluster` — cluster-wide configured live capacity.
+  - `gantry_live_warm_spare` — 1 when at least one live slot is free.
   - `gantry_live_turns_recoverable` — live turns awaiting recovery.
   - `gantry_live_oldest_waiting_seconds` — age of the oldest waiting live turn
     (the horizontal-live-pool scale signal).
+  - `gantry_live_admission_backlog` and
+    `gantry_live_admission_backlog_oldest_seconds` — queued live-admission work.
+  - `gantry_background_job_slots_used` and
+    `gantry_background_job_slots_capacity` — background job slot usage.
 - **`/v1/health`** (authenticated, `sessions:read`) carries **`processRole`**.
 - `gantry status` shows the process role.
 
 **Overload UX.** Inbound is accepted durably; nothing is dropped. When a turn
-waits past a threshold for an available live worker, the user sees the literal
-status **"Waiting for an available worker"** (sent once per waiting episode by the
-recovery coordinator). Recovery keeps the existing message: **"Run recovered:
-previous worker lost its lease; Gantry safely retried this run."**
+waits past a threshold, the user sees the literal status **"Still starting this
+request."** (sent once per waiting episode by the recovery coordinator). Worker
+capacity language stays operator-only. Recovery keeps the existing message: **"Run
+recovered: previous worker lost its lease; Gantry safely retried this run."**
 
 ## Runbook Index
 

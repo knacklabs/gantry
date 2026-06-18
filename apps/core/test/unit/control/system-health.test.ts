@@ -220,6 +220,9 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
   return {
     query: vi.fn(async (sql: string) => {
       if (sql.includes('worker_instances')) {
+        if (!sql.includes('GROUP BY status')) {
+          return [{ count: 2 }] as never[];
+        }
         return [
           { status: 'healthy', count: 2 },
           { status: 'draining', count: 1 },
@@ -241,7 +244,13 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
         return [{ starved: 3, max_age_seconds: 742 }] as never[];
       }
       // Live gauges: distinguish per-query so each gets its own count.
+      if (sql.includes('run_slots') && sql.includes('NOT LIKE')) {
+        return [{ count: 1 }] as never[];
+      }
       if (sql.includes('run_slots')) return [{ count: 4 }] as never[];
+      if (sql.includes('live_admission_work_items')) {
+        return [{ count: 2, oldest_age_seconds: 33 }] as never[];
+      }
       if (sql.includes('run_leases')) return [{ count: 1 }] as never[];
       if (sql.includes('live_turns')) return [{ count: 2 }] as never[];
       return [] as never[];
@@ -251,6 +260,8 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
     role: 'all',
     liveExecutionEnabled: true,
     currentWorkerInstanceId: () => 'worker-1',
+    liveCapacityLimit: () => 3,
+    jobCapacityLimit: () => 4,
     oldestWaitingLiveAdmissionSeconds: () => 0,
     ...overrides,
   };
@@ -286,8 +297,15 @@ describe('renderMetrics', () => {
     );
     expect(body).toContain('gantry_live_turns_active 2');
     expect(body).toContain('gantry_live_slots_used_cluster 4');
+    expect(body).toContain('gantry_live_slots_capacity_cluster 6');
+    expect(body).toContain('gantry_live_warm_spare 1');
     expect(body).toContain('gantry_live_turns_recoverable 1');
     expect(body).toContain('gantry_live_oldest_waiting_seconds 42');
+    expect(body).toContain('gantry_live_admission_backlog 2');
+    expect(body).toContain('gantry_live_admission_backlog_oldest_seconds 33');
+    expect(body).toContain('gantry_background_job_slots_used 1');
+    expect(body).toContain('gantry_background_job_slots_capacity 4');
+    expect(body).not.toContain('available worker');
   });
 
   it('skips live execution gauges when live execution is disabled', async () => {

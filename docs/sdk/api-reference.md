@@ -80,8 +80,12 @@ admin/session calls go to the control role.
 
 **Role/live gauges on `/metrics`** (alongside the existing `gantry_*` gauges):
 `gantry_process_role{role}`, `gantry_live_turns_active`,
-`gantry_live_slots_used_cluster`, `gantry_live_turns_recoverable`, and
-`gantry_live_oldest_waiting_seconds` (the horizontal-live-pool scale signal).
+`gantry_live_slots_used_cluster`, `gantry_live_slots_capacity_cluster`,
+`gantry_live_warm_spare`, `gantry_live_turns_recoverable`,
+`gantry_live_oldest_waiting_seconds`, `gantry_live_admission_backlog`,
+`gantry_live_admission_backlog_oldest_seconds`,
+`gantry_background_job_slots_used`, and
+`gantry_background_job_slots_capacity`.
 
 The authenticated `GET /v1/health` and `GET /v1/doctor` (`sessions:read`) — which
 the SDK exposes as `client.health()` and `client.doctor()` — are served by every

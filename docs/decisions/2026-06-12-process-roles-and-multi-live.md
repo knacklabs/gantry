@@ -149,9 +149,10 @@ cutover ships by product decision. The full runtime contract is
   status` shows the process role. (Observability contract; see
   deployment-profiles.md and the SDK docs.)
 - Overload is durable, not a drop: inbound is accepted and persisted; past a
-  waiting threshold the user sees "Waiting for an available worker" (sent once per
-  waiting episode by the recovery coordinator). Recovery keeps the existing "Run
-  recovered: previous worker lost its lease; Gantry safely retried this run."
+  waiting threshold the user sees "Still starting this request." (sent once per
+  waiting episode by the recovery coordinator). Worker capacity language stays
+  operator-only. Recovery keeps the existing "Run recovered: previous worker lost
+  its lease; Gantry safely retried this run."
 
 ## Rollback Or Migration Notes
 

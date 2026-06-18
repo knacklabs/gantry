@@ -58,6 +58,12 @@ describe('startWaitingStatusMonitor', () => {
     expect(WAITING_STATUS_THRESHOLD_MS).toBe(30_000);
   });
 
+  it('uses user-facing copy without worker or capacity jargon', () => {
+    expect(WAITING_STATUS_TEXT).toBe('Still starting this request.');
+    expect(WAITING_STATUS_TEXT.toLowerCase()).not.toContain('worker');
+    expect(WAITING_STATUS_TEXT.toLowerCase()).not.toContain('capacity');
+  });
+
   it('sends the visible status once per waiting episode past the threshold', async () => {
     const { sent, tick, monitor } = makeMonitor({
       results: [

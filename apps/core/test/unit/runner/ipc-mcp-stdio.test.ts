@@ -48,12 +48,7 @@ function symlinkPackage(
 }
 
 function copyBuiltContractsPackage(root: string): void {
-  const packagePath = path.join(
-    root,
-    'node_modules',
-    '@gantry',
-    'contracts',
-  );
+  const packagePath = path.join(root, 'node_modules', '@gantry', 'contracts');
   fs.mkdirSync(packagePath, { recursive: true });
   fs.copyFileSync(
     path.join(repoRoot, 'packages/contracts/package.json'),

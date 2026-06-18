@@ -15,10 +15,27 @@ import {
   type ControlPlaneMemoryStatus,
 } from '../application/control-plane/control-plane-read-model.js';
 import { buildControlPlaneReadModelFromRepositories } from '../application/control-plane/control-plane-storage-model.js';
+import { createDefaultRunnerSandboxProvider } from '../adapters/llm/default-runtime-adapters.js';
 import { resolveProcessRole } from '../app/bootstrap/roles/role-resolver.js';
 import { roleCapabilities } from '../app/bootstrap/roles/role-capabilities.js';
+import { LIVE_TURN_SLOT_KEY_PREFIX } from '../application/live-turns/live-turn-lease-service.js';
 import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 import type { AppId } from '../domain/app/app.js';
+import type { RunnerSandboxWarmTemplateStatus } from '../shared/runner-sandbox-provider.js';
+
+export interface RuntimeCapacityStatus {
+  interactive: {
+    used: number;
+    capacity: number;
+    backlog: number;
+    oldestBacklogSeconds: number;
+    warmSpare: 'available' | 'missing';
+  };
+  backgroundJobs: {
+    used: number;
+    capacity: number;
+  };
+}
 
 export interface RuntimeStatusSummary {
   doctor: DoctorReport;
@@ -38,6 +55,8 @@ export interface RuntimeStatusSummary {
   settings: ReturnType<typeof ensureRuntimeSettings>;
   readModel?: ControlPlaneReadModel;
   processRole: ProcessRole;
+  runtimeCapacity?: RuntimeCapacityStatus;
+  sandboxWarmTemplate?: RunnerSandboxWarmTemplateStatus;
 }
 
 export async function collectRuntimeStatus(
@@ -97,8 +116,13 @@ export async function collectRuntimeStatus(
     ),
     settings,
     processRole: resolveProcessRole(process.env),
+    sandboxWarmTemplate: collectSandboxWarmTemplate(settings),
     ...(!storageUnavailable(doctor)
       ? {
+          runtimeCapacity: await readRuntimeCapacityFromStorage(
+            runtimeHome,
+            settings,
+          ),
           readModel: await readControlPlaneModelFromStorage(
             runtimeHome,
             settings,
@@ -106,6 +130,19 @@ export async function collectRuntimeStatus(
         }
       : {}),
   };
+}
+
+function collectSandboxWarmTemplate(
+  settings: ReturnType<typeof ensureRuntimeSettings>,
+): RunnerSandboxWarmTemplateStatus {
+  return (
+    createDefaultRunnerSandboxProvider(settings.runtime.sandbox).warmTemplate?.() ??
+    {
+      available: false,
+      cacheHit: false,
+      authorityFree: true,
+    }
+  );
 }
 
 function storageUnavailable(doctor: DoctorReport): boolean {
@@ -175,19 +212,93 @@ async function readControlPlaneModelFromStorage(
   }
 }
 
+async function readRuntimeCapacityFromStorage(
+  runtimeHome: string,
+  settings: ReturnType<typeof ensureRuntimeSettings>,
+): Promise<RuntimeCapacityStatus | undefined> {
+  process.env.GANTRY_HOME = runtimeHome;
+  try {
+    const { createStorageRuntime } =
+      await import('../adapters/storage/postgres/factory.js');
+    const storage = createStorageRuntime();
+    try {
+      const livePattern = `${LIVE_TURN_SLOT_KEY_PREFIX}%`;
+      const [liveWorkers, liveUsed, liveBacklog, jobUsed] = await Promise.all([
+        storage.service.pool.query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM worker_instances
+           WHERE heartbeat_at > now() - interval '60 seconds'
+             AND status IN ('starting', 'healthy')
+             AND process_role IN ('all', 'live-worker')`,
+        ),
+        storage.service.pool.query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM run_slots
+           WHERE slot_key LIKE $1 AND expires_at > now()`,
+          [livePattern],
+        ),
+        storage.service.pool.query<{
+          count: number;
+          oldest_age_seconds: number;
+        }>(
+          `SELECT
+             count(*)::int AS count,
+             coalesce(max(extract(epoch FROM (now() - created_at))), 0)::int
+               AS oldest_age_seconds
+           FROM live_admission_work_items
+           WHERE state = 'queued'`,
+        ),
+        storage.service.pool.query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM run_slots
+           WHERE slot_key NOT LIKE $1 AND expires_at > now()`,
+          [livePattern],
+        ),
+      ]);
+      const liveCapacity =
+        (liveWorkers.rows[0]?.count ?? 0) *
+        settings.runtime.queue.maxMessageRuns;
+      const liveSlotsUsed = liveUsed.rows[0]?.count ?? 0;
+      return {
+        interactive: {
+          used: liveSlotsUsed,
+          capacity: liveCapacity,
+          backlog: liveBacklog.rows[0]?.count ?? 0,
+          oldestBacklogSeconds:
+            liveBacklog.rows[0]?.oldest_age_seconds ?? 0,
+          warmSpare: liveCapacity > liveSlotsUsed ? 'available' : 'missing',
+        },
+        backgroundJobs: {
+          used: jobUsed.rows[0]?.count ?? 0,
+          capacity: settings.runtime.queue.maxJobRuns,
+        },
+      };
+    } finally {
+      await storage.runtimeEventNotifier.close().catch(() => undefined);
+      await storage.service.close().catch(() => undefined);
+    }
+  } catch (err) {
+    if (!isStorageUnavailableError(err)) {
+      console.warn(
+        `Storage degraded: ${err instanceof Error ? err.message : String(err)}. Runtime capacity may be unavailable.`,
+      );
+    }
+    return undefined;
+  }
+}
+
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   const withSandbox = (output: string) =>
     insertRoleStatus(
-      insertSandboxStatus(output, formatSandboxStatus(summary)),
+      insertSandboxTemplateStatus(
+        insertSandboxStatus(output, formatSandboxStatus(summary)),
+        formatSandboxWarmTemplateStatus(summary),
+      ),
       formatRoleStatus(summary),
     );
-  if (summary.readModel) {
-    return withSandbox(
-      formatControlPlaneStatus(summary.readModel, summary.service),
-    );
-  }
-  return withSandbox(
-    formatControlPlaneStatus(
+  const output = summary.readModel
+    ? formatControlPlaneStatus(summary.readModel, summary.service)
+    : formatControlPlaneStatus(
       buildControlPlaneReadModelFromSettings({
         settings: summary.settings,
         workspaceKey: 'default',
@@ -203,8 +314,8 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
         memoryStatus: summary.memoryStatus,
       }),
       summary.service,
-    ),
-  );
+    );
+  return insertRuntimeCapacityStatus(withSandbox(output), summary);
 }
 
 function formatSandboxStatus(summary: RuntimeStatusSummary): string {
@@ -233,6 +344,50 @@ function insertSandboxStatus(output: string, sandboxStatus: string): string {
   return lines.join('\n');
 }
 
+function formatSandboxWarmTemplateStatus(
+  summary: RuntimeStatusSummary,
+): string {
+  const status = summary.sandboxWarmTemplate ?? {
+    available: false,
+    cacheHit: false,
+    authorityFree: true,
+  };
+  return `${status.available ? 'available' : 'unavailable'}, ${
+    status.cacheHit ? 'cache hit' : 'cache miss'
+  }`;
+}
+
+function insertSandboxTemplateStatus(
+  output: string,
+  sandboxTemplateStatus: string,
+): string {
+  const lines = output.split('\n');
+  const sandboxIndex = lines.findIndex((line) => line.startsWith('Sandbox:'));
+  const insertAt = sandboxIndex !== -1 ? sandboxIndex + 1 : 1;
+  lines.splice(insertAt, 0, `Sandbox warm template: ${sandboxTemplateStatus}`);
+  return lines.join('\n');
+}
+
+function insertRuntimeCapacityStatus(
+  output: string,
+  summary: RuntimeStatusSummary,
+): string {
+  const capacity = summary.runtimeCapacity;
+  if (!capacity) return output;
+  const lines = output.split('\n');
+  const roleIndex = lines.findIndex((line) => line.startsWith('Role:'));
+  const insertAt = roleIndex !== -1 ? roleIndex + 1 : 1;
+  lines.splice(
+    insertAt,
+    0,
+    `Interactive capacity: ${capacity.interactive.used}/${capacity.interactive.capacity}`,
+    `Interactive backlog: ${capacity.interactive.backlog}, oldest ${capacity.interactive.oldestBacklogSeconds}s`,
+    `Background jobs: ${capacity.backgroundJobs.used}/${capacity.backgroundJobs.capacity}`,
+    `Live warm spare: ${capacity.interactive.warmSpare}`,
+  );
+  return lines.join('\n');
+}
+
 /**
  * One-line role + role-capability summary. The `all` workstation default lists
  * "everything"; worker roles list only what they run, so the operator can tell
@@ -252,8 +407,16 @@ function formatRoleStatus(summary: RuntimeStatusSummary): string {
 
 function insertRoleStatus(output: string, roleStatus: string): string {
   const lines = output.split('\n');
+  const sandboxTemplateIndex = lines.findIndex((line) =>
+    line.startsWith('Sandbox warm template:'),
+  );
   const sandboxIndex = lines.findIndex((line) => line.startsWith('Sandbox:'));
-  const insertAt = sandboxIndex !== -1 ? sandboxIndex + 1 : 1;
+  const insertAt =
+    sandboxTemplateIndex !== -1
+      ? sandboxTemplateIndex + 1
+      : sandboxIndex !== -1
+        ? sandboxIndex + 1
+        : 1;
   lines.splice(insertAt, 0, `Role: ${roleStatus}`);
   return lines.join('\n');
 }

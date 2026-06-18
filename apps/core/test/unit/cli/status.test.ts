@@ -62,6 +62,21 @@ describe('status command formatting', () => {
       memoryStatus: 'Ready',
       settings,
       processRole: 'all',
+      runtimeCapacity: {
+        interactive: {
+          used: 1,
+          capacity: 6,
+          backlog: 2,
+          oldestBacklogSeconds: 33,
+          warmSpare: 'available',
+        },
+        backgroundJobs: { used: 1, capacity: 4 },
+      },
+      sandboxWarmTemplate: {
+        available: false,
+        cacheHit: false,
+        authorityFree: true,
+      },
     } satisfies RuntimeStatusSummary);
 
     expect(output).toMatchInlineSnapshot(`
@@ -70,7 +85,12 @@ describe('status command formatting', () => {
       Runtime: Ready
       Service (background): running(pid:12345)
       Sandbox: direct (compatibility, no OS sandbox)
+      Sandbox warm template: unavailable, cache miss
       Role: all (control:full, live, jobs, inbound, bake)
+      Interactive capacity: 1/6
+      Interactive backlog: 2, oldest 33s
+      Background jobs: 1/4
+      Live warm spare: available
       Workspace: default
       Agents: 1/1
       Conversations: 1/1
@@ -172,6 +192,7 @@ describe('status command formatting', () => {
     expect(output).toContain('Jobs: 4/1/0');
     expect(output).toContain('Access: 9/0');
     expect(output).toContain('Sandbox: direct (compatibility, no OS sandbox)');
+    expect(output).toContain('Sandbox warm template: unavailable, cache miss');
   });
 
   it('renders unavailable sandbox_runtime state from doctor evidence', () => {
@@ -207,6 +228,7 @@ describe('status command formatting', () => {
     expect(output).toContain(
       'Sandbox: sandbox_runtime (unavailable: sandbox_runtime needs sandbox-exec on macOS.)',
     );
+    expect(output).toContain('Sandbox warm template: unavailable, cache miss');
   });
 
   it('renders a role line scoped to the resolved process role', () => {
