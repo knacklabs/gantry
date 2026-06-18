@@ -625,8 +625,12 @@ export class GroupQueue {
         this.drainWaiting();
         return;
       }
-      state.active = false;
-      this.activeMessageCount--;
+      if (state.active) {
+        state.active = false;
+        this.activeMessageCount = Math.max(0, this.activeMessageCount - 1);
+      } else {
+        state.active = false;
+      }
       if (retainIdlePooledWorker) {
         this.drainWaiting();
         return;

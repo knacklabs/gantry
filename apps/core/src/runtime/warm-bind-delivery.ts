@@ -46,6 +46,19 @@ function findRunnerConnection(
   );
 }
 
+function rekeyRunnerConnection(
+  runner: IpcConnection,
+  scope: ConversationBindScope,
+): void {
+  const connectionScope = runner.scope;
+  if (!connectionScope || connectionScope.role !== 'runner') return;
+  connectionScope.runHandle = scope.runHandle;
+  connectionScope.chatJid = scope.chatJid;
+  connectionScope.threadId = scope.threadId ?? null;
+  connectionScope.appId = scope.appId;
+  connectionScope.agentId = scope.agentId;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -121,6 +134,7 @@ export function makeSocketWarmBindDelivery(
         id: `bind:${scope.runHandle}`,
         payload: bindPayload(scope),
       });
+      rekeyRunnerConnection(runner, scope);
       return true;
     },
   };

@@ -4,6 +4,7 @@ import type {
   ConversationBindScope,
   WarmWorkerHandle,
 } from '@core/application/agent-execution/warm-pool-capable.js';
+import { makeSocketContinuationDelivery } from '@core/runtime/continuation-delivery.js';
 import { makeSocketWarmBindDelivery } from '@core/runtime/warm-bind-delivery.js';
 import type { IpcConnection } from '@core/shared/ipc-connection.js';
 
@@ -96,5 +97,41 @@ describe('makeSocketWarmBindDelivery', () => {
       false,
     );
     expect(sent).toHaveLength(0);
+  });
+
+  it('rekeys the runner socket to the bound run handle for follow-up continuations', async () => {
+    const sent: unknown[] = [];
+    const connections = [makeConnection({ runHandle: 'worker-process', sent })];
+    const bindDelivery = makeSocketWarmBindDelivery(() => connections, {
+      bindReadyTimeoutMs: 5,
+      pollIntervalMs: 1,
+    });
+    const continuationDelivery = makeSocketContinuationDelivery(
+      () => connections,
+    );
+
+    await expect(bindDelivery.deliver(makeHandle(), makeScope())).resolves.toBe(
+      true,
+    );
+
+    expect(
+      continuationDelivery.deliverContinuation(
+        {
+          groupFolder: 'boondi_support',
+          chatJid: 'wa:000000001',
+          threadId: null,
+          runHandle: 'bound-run-1',
+        },
+        'follow up',
+        0,
+      ),
+    ).toBe(true);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(
+      expect.objectContaining({
+        channel: 'continuation',
+        payload: expect.objectContaining({ text: 'follow up' }),
+      }),
+    );
   });
 });

@@ -929,6 +929,68 @@ describe('GroupQueue', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it('does not double-decrement active message count when a retained continuation finishes before DB-drain cleanup', async () => {
+    const release = vi.fn(async () => undefined);
+    const deliverContinuation = vi.fn(() => true);
+    queue.setContinuationDelivery({
+      deliverContinuation,
+      deliverClose: vi.fn(),
+    });
+    const proc = Object.assign(new EventEmitter(), {
+      killed: false,
+    });
+    let processCalls = 0;
+    const processMessages = vi.fn(async () => {
+      processCalls += 1;
+      if (processCalls === 1) {
+        queue.registerProcess(
+          'group1@g.us',
+          proc as any,
+          'run-1',
+          'test-group',
+          undefined,
+          undefined,
+          {
+            pooledWarmWorker: {
+              handle: {
+                id: 'warm-worker-1',
+                key: 'warm-key',
+                bornAt: 100,
+                bound: true,
+              },
+              release,
+            },
+          },
+        );
+        queue.notifyIdle('group1@g.us');
+        return true;
+      }
+
+      expect(queue.sendMessage('group1@g.us', 'persisted follow-up')).toBe(
+        true,
+      );
+      queue.notifyIdle('group1@g.us');
+      return true;
+    });
+
+    queue.setProcessMessagesFn(processMessages);
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queue.getWorkerInventorySnapshot().activeMessageRuns).toBe(0);
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(deliverContinuation).toHaveBeenCalledTimes(1);
+    expect(queue.getWorkerInventorySnapshot().activeMessageRuns).toBe(0);
+    expect(release).not.toHaveBeenCalled();
+
+    proc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   // --- Coverage for drainWaiting with messages (line 337) ---
 
   it('drainWaiting runs pending messages for waiting groups when slots free up', async () => {

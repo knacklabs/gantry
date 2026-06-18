@@ -2,14 +2,13 @@
 
 Date: 2026-06-18
 
-Status: execution in progress. Phase 0 passed on 2026-06-18 IST. Phase 1 and
-Phase 2 natural 4x4 customer-visible chat validation passed again after
-rebuilding `dist`, but runtime acceptance remains blocked by follow-ups using
-SDK resume with `assistant startup` instead of the retained bound worker. The
-earlier `memory_save` IPC app-scope failure is covered by the IPC unit
-regression and was not reproduced in the rebuilt live runs, but the rebuilt
-natural chats did not force a successful memory-write tool call. Phase 3
-remains reopened for the same natural 4x4 rerun under cache-prewarm-on config.
+Status: execution in progress. Phase 0 passed on 2026-06-18 IST. Phase 1 passed
+after the retained warm-worker socket was rekeyed to the bound conversation run
+handle and the active-run counter double-decrement was fixed. Phase 2 still
+needs the multi-customer 4x4 rerun after that fix. The earlier `memory_save` IPC
+app-scope failure is covered by the IPC unit regression and Phase 1 now includes
+a successful `memory_save` live turn. Phase 3 remains reopened for the same
+natural 4x4 rerun under cache-prewarm-on config.
 
 ## Phase Status Tracker
 
@@ -20,8 +19,8 @@ evidence.
 | Phase     | Scope                                           | Scenario count | Status      | Evidence                                                                                                                                                                                                                                                                                                                 | Notes                                                                                                                                                                                                                 |
 | --------- | ----------------------------------------------- | -------------: | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phase 0   | Harness and baseline                            |  baseline gate | Passed      | 2026-06-18 IST baseline: core 4710, admin 3000, Shopify MCP 8081, CRM MCP 8082; one healthy runtime, 51 stale rows excluded, generic available 3, active 0, pending 0.                                                                                                                                                   | Admin Runtime and Conversations pages render; latency trace API reachable.                                                                                                                                            |
-| Phase 1   | Single customer, single core, cache prewarm off |              4 | Blocked     | 2026-06-18 IST rebuilt natural 4x4 rerun `conversation:wa:000950000102` persisted 4 inbound, 4 outbound, and 4 trace rows; turn 4 remembered 30 gift boxes, under ₹1,200 each, Mumbai, next Friday, Kaju Katli/assorted sweets.                                                                                          | Customer-visible flow passed, but trace rows for follow-up turns still include `assistant startup`, so retained same-process bound-worker continuation is still not passing.                                          |
-| Phase 2   | Multiple customers, single core                 |              5 | Blocked     | 2026-06-18 IST rebuilt natural 4x4 rerun used `conversation:wa:000950000201` and `conversation:wa:000950000202`; both persisted 4 inbound, 4 outbound, and 4 trace rows; final replies remembered only their own markers `ALPHA-MUMBAI-30` and `BRAVO-DELHI-12`; final runtime active 0, pending 0, generic available 3. | Customer-visible isolation passed, but follow-up traces still show `assistant startup`; retained bound-worker continuation remains the blocker.                                                                       |
+| Phase 1   | Single customer, single core, cache prewarm off |              4 | Passed      | 2026-06-18 IST fixed rerun `conversation:wa:000960000102` persisted 4 inbound, 4 outbound, and 4 latency reports; turn 4 remembered marker `REKEY-MUMBAI-31`; no latency report included `assistant startup`; healthy runtime active 0, pending 0.                                                                       | Retained same-process bound-worker continuation is now proven for a natural 4x4 chat. The run also covered a successful `memory_save` tool call.                                                                      |
+| Phase 2   | Multiple customers, single core                 |              5 | Blocked     | 2026-06-18 IST rebuilt natural 4x4 rerun used `conversation:wa:000950000201` and `conversation:wa:000950000202`; both persisted 4 inbound, 4 outbound, and 4 trace rows; final replies remembered only their own markers `ALPHA-MUMBAI-30` and `BRAVO-DELHI-12`; final runtime active 0, pending 0, generic available 3. | Customer-visible isolation passed before the retained-worker fix, but follow-up traces showed `assistant startup`; rerun Phase 2 after Phase 1 fix.                                                                   |
 | Phase 3   | Cache prewarm on                                |              2 | Reopened    | 2026-06-18 IST plumbing evidence exists from `conversation:wa:000930000301` and `conversation:wa:000930000302`-`305`; final phase pass now requires natural 4x4 chat coverage under cache-prewarm-on config.                                                                                                             | Startup prewarm completes before the control HTTP server accepts webhooks, so customer-during-startup-prewarm is not externally reachable in this build; replacement/replenishment during traffic was tested instead. |
 | Phase 3.5 | MCP smoke                                       |              1 | Not started | TBD                                                                                                                                                                                                                                                                                                                      | CRM and Shopify MCP live-traffic smoke.                                                                                                                                                                               |
 | Phase 4   | Follow-up routing stress                        |              4 | Not started | TBD                                                                                                                                                                                                                                                                                                                      | Rapid follow-ups, active-run follow-up, cold resume, five-turn loop.                                                                                                                                                  |
@@ -184,9 +183,8 @@ Acceptance for a scenario requires all required turns to pass:
 
 ## Phase 1 Evidence Log
 
-Status: original plumbing evidence passed on 2026-06-18 IST; natural 4x4
-customer-visible rerun passed on 2026-06-18 IST; runtime acceptance blocked by
-follow-up continuation behavior.
+Status: passed on 2026-06-18 IST after the retained-worker rekey and active-run
+counter fixes.
 
 Runtime setup:
 
@@ -235,9 +233,9 @@ Implementation findings from Phase 1:
 - Failed continuation delivery could leave a stale bound pooled worker in the
   runtime inventory. The queue now releases the pooled worker when the retained
   process is no longer reachable by the continuation carrier.
-- Current post-turn behavior still falls back to a resumed SDK session in a
-  fresh one-shot runner after the SDK query has completed. Same-process
-  post-turn IPC continuation is not proven yet and remains Phase 4 scope.
+- Earlier post-turn behavior fell back to a resumed SDK session in a fresh
+  one-shot runner after the SDK query completed. The retained-worker rekey
+  fixed that for the Phase 1 natural 4x4 rerun below.
 
 Natural 4x4 rerun - 2026-06-18 IST:
 
@@ -306,6 +304,57 @@ Rebuilt natural 4x4 rerun - 2026-06-18 IST:
 - Blocking runtime finding: follow-up turns 2, 3, and 4 included
   `assistant startup` in latency traces, so retained same-process bound-worker
   continuation is still not passing.
+
+Fixed retained-worker rerun - 2026-06-18 IST:
+
+- Status: passed.
+- Runtime: `runtime:99327`, one healthy core, `cache_prewarm_enabled=false`,
+  `cachePrewarm.skipped=4` after one bound worker plus three generic workers.
+- Reason for rerun: fixed two runtime defects found by the blocked Phase 1
+  evidence:
+  - bound warm-worker sockets were still indexed under the generic startup
+    run handle, so follow-up continuation lookup missed the retained process
+    and fell back to a cold/resumed one-shot runner;
+  - retained DB-drain cleanup could double-decrement `activeMessageRuns` after
+    `notifyIdle()` had already released the active slot.
+- Conversation: `conversation:wa:000960000102`.
+- Inbound provider ids:
+  `phase1-rekey-counter-1781741773170-1`,
+  `phase1-rekey-counter-1781741773170-2`,
+  `phase1-rekey-counter-1781741773170-3`,
+  `phase1-rekey-counter-1781741773170-4`.
+- Persisted outbound ids:
+  `message:wa:000960000102:outbound:d3d02f8a-35c8-4d6e-9079-47e9b0eeed17`
+  (`7.865 s`),
+  `message:wa:000960000102:outbound:856da71c-84fc-4693-8a1b-2f23e80137e5`
+  (`9.400 s`),
+  `message:wa:000960000102:outbound:e45066d8-3bcf-4a33-87f3-45c4b21f9025`
+  (`8.378 s`), and
+  `message:wa:000960000102:outbound:09d04a8a-3210-45f9-8c51-2ecb93c4ed47`
+  (`2.919 s`).
+- Transcript check: admin API showed `4` inbound and `4` outbound messages.
+- Trace check: all four outbound replies had latency reports; labels by turn:
+  - turn 1: `queue`, `guardrail`, `main LLM · turn 1`, `gap`,
+    `get_open_records`, `main LLM · turn 2`, `gap`, `send`;
+  - turn 2: `queue`, `main LLM · turn 1`, `gap`, `get_gifting_context`,
+    `main LLM · turn 2`, `gap`;
+  - turn 3: `queue`, `main LLM · turn 1`, `memory_save`,
+    `main LLM · turn 2`, `gap`;
+  - turn 4: `queue`, `main LLM · turn 1`, `gap`.
+- `assistant startup` check: no turn included `assistant startup` or any
+  startup stage in the latency report.
+- Customer-visible continuity check: turn 4 reply remembered marker
+  `REKEY-MUMBAI-31`, `30 gift boxes`, `Mumbai`, `Friday, Jun 26`,
+  `under ₹1,200 per box`, and `Kaju Katli or assorted sweets`.
+- MCP evidence: turn 1 included `boondi-crm.get_open_records`; turn 2 included
+  `shopify-api.get_gifting_context`; turn 3 included Gantry `memory_save`.
+- Final healthy runtime snapshot for `runtime:99327`:
+  `activeMessageRuns=0`, `pendingConversationKeys=0`,
+  `genericAvailable=3`, `genericStarting=0`, `boundActive=1`,
+  `maxMessageRuns=3`.
+- Dashboard truth check: no negative `activeMessageRuns` was observed after the
+  retained follow-up finished; the stale old runtime rows remained marked
+  `stale` and did not affect the healthy runtime evidence.
 
 ## Phase 2 Evidence Log
 
