@@ -812,13 +812,21 @@ measured from the customer's original inbound timestamp.
 
 What it does:
 
-- optionally prepares model/provider prompt-cache shape before customer traffic
+- optionally prepares the provider prompt-cache shape before customer traffic
+  with a throwaway synthetic Agent SDK query
 - is controlled by `runtime.warm_pool.cache_prewarm_enabled`
 - concurrency is controlled by `runtime.warm_pool.cache_prewarm_concurrency`
+- runs once per `cacheShapeKey`, not once per warm worker
+- refreshes a successful active shape after the prompt-cache TTL, currently
+  45 minutes by default, by running one more throwaway synthetic query for that
+  shape
+- destroys the synthetic runner before customer traffic so the customer session
+  is never polluted by the prewarm prompt
 
 Code anchor:
 
 - `apps/core/src/runtime/warm-pool-manager.ts`
+- `apps/core/src/adapters/llm/anthropic-claude-agent/warm-pool.ts`
 
 Why it earns its place:
 
@@ -831,9 +839,15 @@ Correctness should not break. Latency may be worse.
 
 Important clarification:
 
-Provider prompt-cache read/write chips during an LLM call are not proof that
-Gantry cache prewarm ran. They are provider usage counters for that call. The UI
-must label them as provider prompt-cache usage, not Gantry prewarm.
+`startup()` alone is not provider cache prewarm. Gantry cache prewarm is proven
+only when the throwaway synthetic runner reports provider cache usage evidence
+(`cacheWriteTokens > 0` or `cacheReadTokens > 0`) before customer traffic.
+The Anthropic throwaway runner must run with `GANTRY_PROVIDER_CACHE_PREWARM=1`
+and `warmGenericBoot: false`; if it enters the warm-generic `startup()` and
+bind-wait path, it is not doing provider-cache prewarm.
+Provider prompt-cache read/write chips during a customer LLM call are still
+provider usage counters for that call; they prove customer benefit only when the
+same `cacheShapeKey` had a prior successful Gantry prewarm.
 
 ### 3.17 Anthropic SDK Runner Path
 
@@ -1479,7 +1493,12 @@ sections so production latency can be fixed.
 ### Q23. Why does provider prompt-cache read not mean Gantry prewarm?
 
 Because provider prompt-cache counters are usage reported during an LLM call.
-Gantry prewarm is a separate runtime action before customer traffic.
+Gantry prewarm is a separate runtime action before customer traffic: a
+throwaway synthetic Agent SDK query for the same `cacheShapeKey`, followed by
+destroying that synthetic runner. Successful active shapes are refreshed after
+the prompt-cache TTL by another throwaway synthetic query for the same shape.
+Customer cache reads prove benefit only when they can be matched to that prior
+successful shape-level prewarm.
 
 ### Q24. What is the most dangerous class of bug here?
 

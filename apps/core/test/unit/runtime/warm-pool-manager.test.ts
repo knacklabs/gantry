@@ -24,12 +24,15 @@ function makeRecipe(
     thinking: { mode: 'enabled', effort: 'medium' },
     systemPromptVersion: 'prompt-v1',
   } as const;
-  return {
+  const recipe = {
     ...keyInput,
-    key: poolKeyOf(keyInput),
     cwd: '/tmp/agent',
     compiledSystemPrompt: 'shared prompt',
     ...overrides,
+  };
+  return {
+    ...recipe,
+    key: overrides.key ?? poolKeyOf(recipe),
   };
 }
 
@@ -459,6 +462,93 @@ describe('WarmPoolManager', () => {
     });
   });
 
+  it('deduplicates provider cache prewarm by cache shape across workers', async () => {
+    let now = 1_000;
+    const { capability } = makeCapability(() => now);
+    capability.prewarmCaches = vi.fn(async () => ({ status: 'succeeded' }));
+    const manager = new WarmPoolManager({ capability, clock: () => now });
+    const recipe = makeRecipe();
+
+    await manager.prewarm(recipe, 3);
+
+    expect(capability.prewarm).toHaveBeenCalledTimes(3);
+    expect(capability.prewarmCaches).toHaveBeenCalledTimes(1);
+    expect(manager.inventory(recipe.key)).toMatchObject({
+      cachePrewarm: {
+        pending: 0,
+        succeeded: 3,
+        skipped: 0,
+        failed: 0,
+      },
+      cacheShapes: [
+        {
+          cacheShapeKey: cacheShapeKeyOf(recipe),
+          status: 'succeeded',
+          workers: 3,
+        },
+      ],
+    });
+  });
+
+  it('refreshes provider cache prewarm once the shape ttl expires', async () => {
+    let now = 1_000;
+    const { capability } = makeCapability(() => now);
+    capability.prewarmCaches = vi.fn(async () => ({ status: 'succeeded' }));
+    const manager = new WarmPoolManager({
+      capability,
+      clock: () => now,
+      cachePrewarmTtlMs: 1_000,
+    });
+    const recipe = makeRecipe();
+
+    await manager.prewarm(recipe, 1);
+    expect(capability.prewarmCaches).toHaveBeenCalledTimes(1);
+
+    await manager.release(manager.acquire(recipe.key)!);
+    expect(capability.prewarmCaches).toHaveBeenCalledTimes(1);
+
+    now += 1_001;
+    await manager.release(manager.acquire(recipe.key)!);
+
+    expect(capability.prewarmCaches).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes provider cache prewarm proactively after the shape ttl', async () => {
+    vi.useFakeTimers();
+    let now = 1_000;
+    const { capability } = makeCapability(() => now);
+    capability.prewarmCaches = vi.fn(async () => ({ status: 'succeeded' }));
+    const manager = new WarmPoolManager({
+      capability,
+      clock: () => now,
+      cachePrewarmTtlMs: 1_000,
+    });
+    const recipe = makeRecipe();
+
+    await manager.prewarm(recipe, 3);
+    expect(capability.prewarmCaches).toHaveBeenCalledTimes(1);
+
+    now += 1_000;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(capability.prewarmCaches).toHaveBeenCalledTimes(2);
+    expect(manager.inventory(recipe.key)).toMatchObject({
+      cachePrewarm: {
+        pending: 0,
+        succeeded: 3,
+        skipped: 0,
+        failed: 0,
+      },
+      cacheShapes: [
+        {
+          cacheShapeKey: cacheShapeKeyOf(recipe),
+          status: 'succeeded',
+          workers: 3,
+        },
+      ],
+    });
+  });
+
   it('skips provider cache prewarm when disabled by runtime config', async () => {
     let now = 1_000;
     const { capability } = makeCapability(() => now);
@@ -479,7 +569,7 @@ describe('WarmPoolManager', () => {
     });
   });
 
-  it('bounds concurrent cache prewarm probes separately from process boots', async () => {
+  it('bounds concurrent cache prewarm probes across cache shapes', async () => {
     let now = 1_000;
     const { capability } = makeCapability(() => now);
     let active = 0;
@@ -501,9 +591,15 @@ describe('WarmPoolManager', () => {
       clock: () => now,
       maxConcurrentCachePrewarm: 1,
     });
-    const recipe = makeRecipe();
+    const recipes = [
+      makeRecipe({ systemPromptVersion: 'prompt-v1' }),
+      makeRecipe({ systemPromptVersion: 'prompt-v2' }),
+      makeRecipe({ systemPromptVersion: 'prompt-v3' }),
+    ];
 
-    const prewarm = manager.prewarm(recipe, 3);
+    const prewarm = Promise.all(
+      recipes.map((recipe) => manager.prewarm(recipe, 1)),
+    );
     await vi.waitFor(() => expect(capability.prewarm).toHaveBeenCalledTimes(3));
     expect(capability.prewarmCaches).toHaveBeenCalledTimes(1);
 
@@ -520,7 +616,9 @@ describe('WarmPoolManager', () => {
     releases.shift()?.();
     await prewarm;
     expect(maxActive).toBe(1);
-    expect(manager.size(recipe.key)).toBe(3);
+    for (const recipe of recipes) {
+      expect(manager.size(recipe.key)).toBe(1);
+    }
   });
 
   it('evicts idle workers older than the ttl and replenishes the pool', async () => {

@@ -84,7 +84,11 @@ export interface WarmWorkerHandle {
 }
 
 export type WarmWorkerCachePrewarmResult =
-  | { status: 'succeeded' }
+  | {
+      status: 'succeeded';
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+    }
   | { status: 'skipped'; reason: string }
   | { status: 'failed'; reason: string };
 

@@ -35,6 +35,10 @@
   inventory. The smoke should also resend the same provider message id and fail
   if that duplicate produces another guardrail, MCP, or outbound event for the
   chat.
+- When `runtime.warm_pool.cache_prewarm_enabled: true`, the local runtime stack
+  can spend extra time on the throwaway provider-cache prewarm before the core
+  control server is ready. Keep `GANTRY_CORE_READY_TIMEOUT_SECONDS` high enough
+  for that path; the default is intentionally `180` seconds.
 - The local runtime stack must tolerate `GANTRY_CONTROL_API_KEYS_JSON` loaded
   from `.env` with shell-style quotes and must rewrite each smoke sidecar
   immediately before printing its `Next:` command. A READY stack without a
@@ -65,6 +69,12 @@
   Start and health-check each core sequentially: local cores share Postgres, and
   concurrent readiness/migration startup can race before either control server
   is available.
+- In multi-core mode, the printed smoke env files should include all core logs
+  as a comma-separated `GANTRY_DEV_LOG` value. Customer work accepted on one
+  control port can be owned and logged by another core, so a single-core log
+  source can falsely report that reset, MCP, or outbound evidence is missing.
+  Do not run two smoke commands in parallel with the default fake phones; they
+  intentionally target the same test conversations.
 - Keep `scripts/boondi-test-setup.sh` warning against anything other than
   `BOONDI_TEST_IDLE_TIMEOUT_MS=2500` for broad scenario suites, but raise both
   that variable and `runtime.runner.idle_timeout_ms`, for example to `20000`,

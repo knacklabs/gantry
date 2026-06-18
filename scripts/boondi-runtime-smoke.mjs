@@ -20,7 +20,10 @@ import { parseRuntimeSmokeEnv } from './lib/runtime-smoke-env.mjs';
 import { sendWebhook } from './lib/webhook.mjs';
 
 const smokeEnv = parseRuntimeSmokeEnv();
-const LOG = smokeEnv.gantryDevLog || '/tmp/gantry-dev.log';
+const LOG_PATHS = (smokeEnv.gantryDevLog || '/tmp/gantry-dev.log')
+  .split(',')
+  .map((path) => path.trim())
+  .filter(Boolean);
 const CORE_PORT = Number(smokeEnv.controlPort || 4710);
 const RUNTIME_WORKERS_PATH = '/v1/runtime/workers';
 const TURN_TIMEOUT_MS = Number(process.env.TURN_TIMEOUT_MS || 180_000);
@@ -115,17 +118,21 @@ async function mapPool(items, concurrency, mapper) {
   return results;
 }
 
-function logSize() {
+function logSize(path) {
   try {
-    return fs.statSync(LOG).size;
+    return fs.statSync(path).size;
   } catch {
     return 0;
   }
 }
 
-function readLogSince(offset) {
+function logOffsets() {
+  return LOG_PATHS.map((path) => ({ path, offset: logSize(path) }));
+}
+
+function readLogSincePath(path, offset) {
   try {
-    const fd = fs.openSync(LOG, 'r');
+    const fd = fs.openSync(path, 'r');
     try {
       const size = fs.fstatSync(fd).size;
       const start = Math.min(offset, size);
@@ -138,6 +145,12 @@ function readLogSince(offset) {
   } catch {
     return '';
   }
+}
+
+function readLogsSince(offsets) {
+  return offsets
+    .map(({ path, offset }) => readLogSincePath(path, offset))
+    .join('\n');
 }
 
 function parseJsonLogLines(text) {
@@ -216,7 +229,7 @@ async function waitFor(label, offset, predicate, timeoutMs = TURN_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs;
   let last = '';
   while (Date.now() < deadline) {
-    last = readLogSince(offset);
+    last = readLogsSince(offset);
     if (predicate(last)) return last;
     await sleep(POLL_MS);
   }
@@ -329,7 +342,7 @@ async function sendCheckedWebhook(input) {
 async function runCase(smokeCase) {
   const chatJid = `wa:${smokeCase.phone}`;
 
-  let offset = logSize();
+  let offset = logOffsets();
   await sendCheckedWebhook({
     from: smokeCase.phone,
     text: '/new',
@@ -343,7 +356,7 @@ async function runCase(smokeCase) {
     60_000,
   );
 
-  offset = logSize();
+  offset = logOffsets();
   const firstTurn = await sendCheckedWebhook({
     from: smokeCase.phone,
     text: smokeCase.text,
@@ -374,7 +387,7 @@ async function runCase(smokeCase) {
   const outboundAt = firstFlowTimeForChat(finalLog, chatJid, 'outbound');
   const replyMs = outboundAt === null ? null : outboundAt - turnSentAt;
 
-  const duplicateOffset = logSize();
+  const duplicateOffset = logOffsets();
   await sendCheckedWebhook({
     from: smokeCase.phone,
     text: smokeCase.text,
@@ -382,7 +395,7 @@ async function runCase(smokeCase) {
     messageId: firstTurn.messageId,
   });
   await sleep(DUPLICATE_SETTLE_MS);
-  const duplicateLog = readLogSince(duplicateOffset);
+  const duplicateLog = readLogsSince(duplicateOffset);
   const duplicateRuntimeWork =
     hasFlowForChat(duplicateLog, chatJid, 'guardrail') ||
     hasFlowForChat(

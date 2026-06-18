@@ -28,6 +28,13 @@ interface WarmPoolEntry {
   retryTimer?: ReturnType<typeof setTimeout>;
 }
 
+interface CachePrewarmRecord {
+  result: WarmWorkerCachePrewarmResult;
+  refreshedAt: number;
+}
+
+const DEFAULT_CACHE_PREWARM_TTL_MS = 45 * 60 * 1000;
+
 export const WARM_POOL_ORPHAN_MARKER = 'gantry-warm-pool-worker';
 
 export interface WarmPoolInventorySnapshot {
@@ -52,6 +59,7 @@ export interface WarmPoolManagerOptions {
   maxConcurrentPrewarm?: number;
   cachePrewarmEnabled?: boolean;
   maxConcurrentCachePrewarm?: number;
+  cachePrewarmTtlMs?: number;
   maxBoundWorkers?: number;
   replacementBackoffMs?: number;
   orphanMarker?: string;
@@ -64,6 +72,7 @@ export class WarmPoolManager {
   private readonly maxConcurrentPrewarm: number;
   private readonly cachePrewarmEnabled: boolean;
   private readonly maxConcurrentCachePrewarm: number;
+  private readonly cachePrewarmTtlMs: number;
   private readonly maxBoundWorkers: number;
   private readonly replacementBackoffMs: number;
   private readonly orphanMarker: string;
@@ -73,6 +82,18 @@ export class WarmPoolManager {
   private readonly prewarmWaiters: Array<() => void> = [];
   private activeCachePrewarms = 0;
   private readonly cachePrewarmWaiters: Array<() => void> = [];
+  private readonly cachePrewarmByShape = new Map<
+    string,
+    CachePrewarmRecord
+  >();
+  private readonly cachePrewarmInFlightByShape = new Map<
+    string,
+    Promise<WarmWorkerCachePrewarmResult>
+  >();
+  private readonly cachePrewarmRefreshTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   private shuttingDown = false;
 
   constructor(options: WarmPoolManagerOptions) {
@@ -82,6 +103,8 @@ export class WarmPoolManager {
       options.maxConcurrentPrewarm ?? Number.POSITIVE_INFINITY;
     this.cachePrewarmEnabled = options.cachePrewarmEnabled ?? true;
     this.maxConcurrentCachePrewarm = options.maxConcurrentCachePrewarm ?? 1;
+    this.cachePrewarmTtlMs =
+      options.cachePrewarmTtlMs ?? DEFAULT_CACHE_PREWARM_TTL_MS;
     this.maxBoundWorkers =
       options.maxBoundWorkers ?? DEFAULT_WARM_POOL_MAX_BOUND_WORKERS;
     this.replacementBackoffMs = options.replacementBackoffMs ?? 1_000;
@@ -214,6 +237,10 @@ export class WarmPoolManager {
     for (const entry of entries) {
       if (entry.retryTimer) clearTimeout(entry.retryTimer);
     }
+    for (const timer of this.cachePrewarmRefreshTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.cachePrewarmRefreshTimers.clear();
     const idleWorkers = entries.flatMap((entry) => entry.idle);
     this.entries.clear();
     await Promise.all(
@@ -330,17 +357,126 @@ export class WarmPoolManager {
       };
       return;
     }
-    await this.withCachePrewarmSlot(async () => {
+    if (!handle.cacheShapeKey) {
+      handle.cachePrewarm = {
+        status: 'skipped',
+        reason: 'missing_cache_shape_key',
+      };
+      return;
+    }
+    handle.cachePrewarm = await this.ensureShapeCachePrewarm(handle);
+  }
+
+  private async ensureShapeCachePrewarm(
+    handle: WarmWorkerHandle,
+  ): Promise<WarmWorkerCachePrewarmResult> {
+    const shapeKey = handle.cacheShapeKey;
+    if (!shapeKey) {
+      return { status: 'skipped', reason: 'missing_cache_shape_key' };
+    }
+    const cached = this.cachePrewarmByShape.get(shapeKey);
+    if (cached && this.isFreshCachePrewarm(cached)) {
+      return cached.result;
+    }
+    return this.runShapeCachePrewarm(shapeKey, handle);
+  }
+
+  private isFreshCachePrewarm(record: CachePrewarmRecord): boolean {
+    return this.clock() - record.refreshedAt <= this.cachePrewarmTtlMs;
+  }
+
+  private scheduleShapeCachePrewarmRefresh(shapeKey: string): void {
+    if (this.shuttingDown) return;
+    const previous = this.cachePrewarmRefreshTimers.get(shapeKey);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(() => {
+      this.cachePrewarmRefreshTimers.delete(shapeKey);
+      void this.refreshShapeCachePrewarm(shapeKey);
+    }, this.cachePrewarmTtlMs);
+    timer.unref?.();
+    this.cachePrewarmRefreshTimers.set(shapeKey, timer);
+  }
+
+  private async refreshShapeCachePrewarm(shapeKey: string): Promise<void> {
+    if (this.shuttingDown) return;
+    const handle = this.findCachePrewarmHandle(shapeKey);
+    if (!handle) return;
+    const result = await this.runShapeCachePrewarm(shapeKey, handle);
+    this.applyCachePrewarmResultToShape(shapeKey, result);
+    if (result.status !== 'succeeded' && !this.shuttingDown) {
+      this.scheduleShapeCachePrewarmRefresh(shapeKey);
+    }
+  }
+
+  private findCachePrewarmHandle(
+    shapeKey: string,
+  ): WarmWorkerHandle | undefined {
+    for (const entry of this.entries.values()) {
+      for (const worker of entry.idle) {
+        if (worker.handle.cacheShapeKey === shapeKey) return worker.handle;
+      }
+      for (const handle of entry.active.values()) {
+        if (handle.cacheShapeKey === shapeKey) return handle;
+      }
+    }
+    return undefined;
+  }
+
+  private applyCachePrewarmResultToShape(
+    shapeKey: string,
+    result: WarmWorkerCachePrewarmResult,
+  ): void {
+    for (const entry of this.entries.values()) {
+      for (const worker of entry.idle) {
+        if (worker.handle.cacheShapeKey === shapeKey) {
+          worker.handle.cachePrewarm = result;
+        }
+      }
+      for (const handle of entry.active.values()) {
+        if (handle.cacheShapeKey === shapeKey) {
+          handle.cachePrewarm = result;
+        }
+      }
+    }
+  }
+
+  private async runShapeCachePrewarm(
+    shapeKey: string,
+    handle: WarmWorkerHandle,
+  ): Promise<WarmWorkerCachePrewarmResult> {
+    const inFlight = this.cachePrewarmInFlightByShape.get(shapeKey);
+    if (inFlight) return inFlight;
+
+    const prewarm = this.withCachePrewarmSlot(async () => {
       try {
-        const result = await this.capability.prewarmCaches?.(handle);
-        handle.cachePrewarm = normalizeCachePrewarmResult(result);
+        const result = normalizeCachePrewarmResult(
+          await this.capability.prewarmCaches?.(handle),
+        );
+        if (result.status === 'succeeded') {
+          this.cachePrewarmByShape.set(shapeKey, {
+            result,
+            refreshedAt: this.clock(),
+          });
+          this.scheduleShapeCachePrewarmRefresh(shapeKey);
+        }
+        return result;
       } catch (error) {
-        handle.cachePrewarm = {
+        return {
           status: 'failed',
           reason: error instanceof Error ? error.message : String(error),
-        };
+        } satisfies WarmWorkerCachePrewarmResult;
       }
-    });
+    }).then(
+      (result): WarmWorkerCachePrewarmResult =>
+        result ?? { status: 'skipped', reason: 'shutdown' },
+    );
+
+    this.cachePrewarmInFlightByShape.set(shapeKey, prewarm);
+    try {
+      return await prewarm;
+    } finally {
+      this.cachePrewarmInFlightByShape.delete(shapeKey);
+    }
   }
 
   private async withCachePrewarmSlot<T>(

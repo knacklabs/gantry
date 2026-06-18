@@ -20,6 +20,7 @@ GANTRY_RUNTIME_IPC_DIR="${GANTRY_RUNTIME_IPC_DIR:-/tmp/gantry-runtime-smoke-ipc}
 SHOPIFY_DEV_LOG="${SHOPIFY_DEV_LOG:-/tmp/mcp-shopify-dev.log}"
 CRM_DEV_LOG="${CRM_DEV_LOG:-/tmp/mcp-crm-dev.log}"
 GANTRY_CONTROL_PORT="${GANTRY_CONTROL_PORT:-4710}"
+GANTRY_CORE_READY_TIMEOUT_SECONDS="${GANTRY_CORE_READY_TIMEOUT_SECONDS:-180}"
 SHOPIFY_PORT="${SHOPIFY_PORT:-8081}"
 CRM_PORT="${CRM_PORT:-8082}"
 SHOPIFY_HEALTH_URL="${SHOPIFY_HEALTH_URL:-http://127.0.0.1:8081/healthz}"
@@ -76,6 +77,19 @@ core_log_for_index() {
   fi
 }
 
+joined_core_logs() {
+  local joined=""
+  local core_log=""
+  for core_log in "${CORE_LOGS[@]}"; do
+    if [ -z "$joined" ]; then
+      joined="$core_log"
+    else
+      joined="${joined},${core_log}"
+    fi
+  done
+  printf '%s' "$joined"
+}
+
 write_smoke_env() {
   local smoke_env="$1"
   local core_port="$2"
@@ -94,7 +108,7 @@ wait_for_core_port() {
   local core_log="$2"
   local core_pid="$3"
 
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 "$GANTRY_CORE_READY_TIMEOUT_SECONDS"); do
     core=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://127.0.0.1:${core_port}/" 2>/dev/null || true)
     if [ -n "$core" ] && [ "$core" != "000" ]; then
       return 0
@@ -107,7 +121,7 @@ wait_for_core_port() {
     sleep 1
   done
 
-  echo "Gantry core on ${core_port} did not become healthy"
+  echo "Gantry core on ${core_port} did not become healthy within ${GANTRY_CORE_READY_TIMEOUT_SECONDS}s"
   tail -80 "$core_log" 2>/dev/null || true
   return 1
 }
@@ -237,7 +251,7 @@ for _ in $(seq 1 60); do
       write_smoke_env \
         "${CORE_SMOKE_ENVS[$idx]}" \
         "${CORE_PORTS[$idx]}" \
-        "${CORE_LOGS[$idx]}" \
+        "$(joined_core_logs)" \
         "${CORE_SMOKE_TOKENS[$idx]}"
       echo "Next: GANTRY_RUNTIME_SMOKE_ENV=${CORE_SMOKE_ENVS[$idx]} npm run smoke:boondi-runtime"
     done

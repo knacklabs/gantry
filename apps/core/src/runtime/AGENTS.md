@@ -94,9 +94,13 @@ session ID`, expire that provider session and retry the same turn once without
   shape while including the execution provider, credential profile, agent,
   model, prompt hash, tool surface, and MCP set. Non-Anthropic SDK cache
   behavior remains deferred until another provider adapter is prioritized.
-- For the Anthropic SDK warm-pool path, the generic worker's `startup()` call is
-  the customer-free cache prewarm. Do not add a second synthetic provider turn
-  unless the adapter contract changes to prove it is needed and quota-safe.
+- For the Anthropic SDK warm-pool path, generic worker `startup()` is only SDK
+  runtime warmup. Provider prompt-cache prewarm is adapter-owned
+  `prewarmCaches` work: one throwaway synthetic Agent SDK query per
+  `cacheShapeKey`, with provider cache usage evidence, followed by destroying
+  the synthetic runner. Keep this shape-level work deduped and refreshed by the
+  runtime manager; do not turn it into one synthetic provider call per warm
+  worker.
 - Session-specific warm workers must boot `startup()` with the provider resume
   handle already in SDK options; `WarmQuery.query()` cannot add `resume` later
   at bind time. Keep resume handles out of prompt-cache shape keys and redact

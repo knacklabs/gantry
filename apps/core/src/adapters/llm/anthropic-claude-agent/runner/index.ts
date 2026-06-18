@@ -144,6 +144,7 @@ async function main(): Promise<void> {
     configuredModel: configuredModel.model,
     configuredThinking: configuredThinking.thinking,
     configuredEffort: configuredThinking.effort,
+    providerCachePrewarm: process.env.GANTRY_PROVIDER_CACHE_PREWARM === '1',
   });
 }
 
@@ -242,6 +243,7 @@ async function runInteractiveQueryLoop(opts: {
   configuredThinking?: Parameters<typeof runQuery>[5];
   configuredEffort?: Parameters<typeof runQuery>[6];
   warmGenericBoot?: boolean;
+  providerCachePrewarm?: boolean;
 }): Promise<void> {
   let diagnosticSessionId: string | undefined;
 
@@ -249,6 +251,8 @@ async function runInteractiveQueryLoop(opts: {
     log(
       opts.warmGenericBoot
         ? 'Starting warm generic boot (startup → bind → new persistent SDK session)...'
+        : opts.providerCachePrewarm
+          ? 'Starting provider cache prewarm query with ephemeral SDK session...'
         : `Starting live streaming query with ${opts.agentInput.sessionId ? 'resumed SDK session' : 'new persistent SDK session'}...`,
     );
     const queryResult = await runQuery(
@@ -260,8 +264,8 @@ async function runInteractiveQueryLoop(opts: {
       opts.configuredThinking,
       opts.configuredEffort,
       {
-        enableIpcFollowups: opts.warmGenericBoot === true,
-        persistSdkSession: true,
+        enableIpcFollowups: opts.providerCachePrewarm ? false : true,
+        persistSdkSession: opts.providerCachePrewarm ? false : true,
         warmGenericBoot: opts.warmGenericBoot ?? false,
       },
     );

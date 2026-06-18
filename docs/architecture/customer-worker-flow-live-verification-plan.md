@@ -39,7 +39,7 @@ evidence.
 | Phase 0   | Harness and baseline                            |  baseline gate | Passed      | 2026-06-18 IST baseline: core 4710, admin 3000, Shopify MCP 8081, CRM MCP 8082; one healthy runtime, 51 stale rows excluded, generic available 3, active 0, pending 0.                                                                                                                                                                              | Admin Runtime and Conversations pages render; latency trace API reachable.                                                                                                                                                                           |
 | Phase 1   | Single customer, single core, cache prewarm off |              4 | Passed      | 2026-06-18 IST fixed rerun `conversation:wa:000960000102` persisted 4 inbound, 4 outbound, and 4 latency reports; turn 4 remembered marker `REKEY-MUMBAI-31`; no latency report included `assistant startup`; healthy runtime active 0, pending 0.                                                                                                  | Retained same-process bound-worker continuation is now proven for a natural 4x4 chat. The run also covered a successful `memory_save` tool call.                                                                                                     |
 | Phase 2   | Multiple customers, single core                 |              5 | Passed      | 2026-06-18 IST fixed rerun used `conversation:wa:000960000201` and `conversation:wa:000960000202`; both persisted 4 inbound and 4 outbound replies; final replies remembered only their own markers `ALPHA-REKEY-201` and `BRAVO-REKEY-202`; no latency report included `assistant startup`; post-idle runtime active 0, pending 0, bound active 0. | Retained same-process continuation and isolation are now proven for two simultaneous natural 4x4 customer chats. Prior Phase 2 capacity and duplicate-redelivery evidence remains valid.                                                             |
-| Phase 3   | Cache prewarm on                                |              2 | Passed      | 2026-06-18 IST natural 4x4 rerun used `conversation:wa:000960000301`; cache prewarm was enabled and pre-traffic inventory showed `succeeded=3`, `skipped=0`; all 4 inbound and 4 outbound replies persisted; final reply remembered marker `PREWARM-ON-301`; no current latency report included `assistant startup` or `cache_prewarm`.             | Historical pre-fix rows can still contain raw `startup` sections. The admin UI now renders startup explicitly as `Assistant startup`; it must not fold that time into `runtime wait`. Startup prewarm completes before the control HTTP server accepts webhooks. |
+| Phase 3   | Cache prewarm on                                |              2 | Passed      | 2026-06-18 IST throwaway provider-cache implementation proof: `/tmp/gantry-dev-1.log:17` and `/tmp/gantry-dev-2.log:18` logged `Provider cache prewarm succeeded` with `cacheReadUnits=9601`; authenticated `/v1/runtime/workers` showed one shape with no cache-prewarm failures; customer model usage then showed cache reads around `14232`-`15085`; single-core sequential, single-core `SMOKE_CONCURRENCY=3`, two-core sequential, and two-core `SMOKE_CONCURRENCY=3` runtime smokes passed. | Historical pre-fix rows can still contain raw `startup` sections. The admin UI now renders startup explicitly as `Assistant startup`; it must not fold that time into `runtime wait`. Provider-cache prewarm completes before the control HTTP server accepts webhooks when startup prewarm is reachable. |
 | Phase 3.5 | MCP smoke                                       |              1 | Passed      | 2026-06-18 IST seeded returning-customer rerun used `conversation:wa:000960000352`; all 4 live signed inbound messages and 4 live outbound replies persisted; traces showed `boondi-crm.get_open_records`, `shopify-api.get_recent_orders_with_details`, and `shopify-api.search_products`; post-idle runtime active 0, pending 0, bound active 0. | CRM and Shopify MCP live traffic are proven through live transcript, trace sections, flow logs, admin API, and runtime workers API.                                                                                                                   |
 | Phase 4   | Follow-up routing stress                        |              4 | Passed      | Scenarios 4.1, 4.2, 4.3, and 4.4 passed on 2026-06-18 IST. 4.2 required a queue lifecycle fix so active-run follow-ups drain through the retained pooled worker. 4.4 used `conversation:wa:000960000405`, persisted 5 live inbound and 5 outbound replies, used one `agent_run`, and had no `startup` trace sections.                         | Follow-up routing stress is now proven for rapid follow-ups, active-run overlap, cold resume, and a five-turn same-customer loop. Admin API was not running because a separate Codex session owns admin UI work.                                     |
 | Phase 5   | Two core processes                              |              5 | Passed      | Scenarios 5.1 through 5.5 passed on 2026-06-18 IST. Two healthy cores exposed aggregate generic capacity `6`; `conversation:wa:000960000501` kept one owner while ingress alternated across ports; six-customer fanout split owners across both cores; restart scenarios recovered through persisted provider sessions.                         | Admin UI/API was intentionally not used because a separate Codex session owns admin UI work; evidence came from core workers API, DB rows, message traces, and logs.                                                                                 |
@@ -131,13 +131,23 @@ Interpretation:
 - Phase 1 intentionally reduced the earlier 200000 ms setting to 30000 ms to
   keep idle/release verification fast. Later phases may raise it again when
   testing longer customer gaps.
-- `cache_prewarm_enabled: false` means startup cache-prewarm model calls are
+- `cache_prewarm_enabled: false` means provider-cache prewarm model calls are
   skipped. It must not break chat correctness.
-- `cache_prewarm_enabled: true` means cache-prewarm work should happen before
-  customer traffic when possible.
+- `cache_prewarm_enabled: true` means Gantry should run a throwaway synthetic
+  Agent SDK query for each active `cacheShapeKey` before customer traffic when
+  possible, verify provider cache usage evidence, then destroy the synthetic
+  runner before customer traffic.
+- A successful shape-level prewarm is refreshed after the default prompt-cache
+  refresh interval, currently 45 minutes, by running another throwaway
+  synthetic query for the same active `cacheShapeKey`. The refresh is still per
+  shape, not per warm worker.
 - `cache_prewarm_concurrency: 1` means at most one cache-prewarm model call
-  runs at a time; if there are multiple cache shapes or workers requiring
-  prewarm, they are prewarmed one by one.
+  runs at a time; if there are multiple cache shapes requiring prewarm, they
+  are prewarmed one by one. Multiple warm workers with the same
+  `cacheShapeKey` must share one prewarm result.
+- In multi-core local smoke, the smoke env's `GANTRY_DEV_LOG` may contain
+  comma-separated core logs. This is required because work accepted on one
+  control port can be owned and logged by another runtime instance.
 
 ## Evidence Rules
 
@@ -702,7 +712,7 @@ Startup-order finding:
   equivalent, traffic while generic workers are consumed and replacement
   prewarm/startup is in progress.
 
-Startup prewarm evidence:
+Warm-pool and provider-cache prewarm evidence:
 
 - Core logs showed `Warm pool prewarm started`, followed by
   `Warm pool prewarm ready`, before the control server logged that it was
@@ -717,6 +727,42 @@ Startup prewarm evidence:
 - The configured `cache_prewarm_concurrency=1` was in effect for this run; this
   pass verified the final status but did not independently time every provider
   model call to prove serialization.
+
+Final throwaway provider-cache implementation proof:
+
+- Runtime instance: one dev core on `127.0.0.1:4710`.
+- Log evidence: `/tmp/gantry-dev-1.log:17` and `/tmp/gantry-dev-2.log:18`
+  logged `Provider cache prewarm succeeded` for the Boondi shape with
+  `cacheReadUnits=9601` and `cacheWriteUnits=0`.
+- Shape evidence: the logged `cacheShapeKey` used
+  `anthropic:claude-agent-sdk`, `agent:boondi_support`,
+  model `claude-sonnet-4-6`, Gantry MCP tools
+  `mcp_call_tool`, `mcp_list_tools`, `memory_save`, `memory_search`,
+  native `ToolSearch`, and MCP set `mcp:boondi-crm`, `mcp:shopify-api`.
+- Inventory evidence: authenticated `GET /v1/runtime/workers` with the smoke
+  token showed one healthy runtime, `availableTarget=3`,
+  `genericAvailable=3`, `boundActive=0`, and cache prewarm
+  `pending=0`, `succeeded=3`, `skipped=0`, `failed=0` for that one
+  `cacheShapeKey`.
+- Customer benefit evidence: subsequent `flow:model.usage` rows in the same
+  core logs showed provider cache reads including `14271`, `14232`, `14850`,
+  `15023`, `14789`, `14874`, `14911`, `15085`, and `14932`.
+- Regression evidence: `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env
+  npm run smoke:boondi-runtime` passed for the three default smoke cases, and
+  `SMOKE_CONCURRENCY=3 npm run smoke:boondi-runtime` also passed.
+- Multi-core runtime smoke evidence:
+  `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env.1
+  GANTRY_DEV_LOG=/tmp/gantry-dev-1.log,/tmp/gantry-dev-2.log
+  SMOKE_CONCURRENCY=3 npm run smoke:boondi-runtime` passed with two healthy
+  runtime instances, `availableTarget=6`, cache prewarm `succeeded=6`
+  before traffic, cache prewarm `succeeded=8` after replacement warm workers,
+  `failed=0`, and three concurrent smoke cases. Reply times were `11137 ms`,
+  `12319 ms`, and `5673 ms`.
+- Multi-core harness finding: reading only one core log is insufficient because
+  a webhook accepted on one control port can be owned by another runtime
+  instance. The smoke harness now accepts comma-separated `GANTRY_DEV_LOG`
+  paths, and the local stack rewrites printed smoke env files with all core
+  logs.
 
 Fixed natural 4x4 rerun under cache-prewarm-on:
 
@@ -1406,8 +1452,23 @@ Steps:
 
 Expected:
 
-- Cache prewarm occurs before customer traffic when possible.
-- With concurrency `1`, prewarm work runs one model call at a time.
+- Cache prewarm occurs before customer traffic when possible by using a
+  throwaway synthetic runner, not a customer-bound runner.
+- The throwaway query runs as an ephemeral provider-cache runner with
+  `GANTRY_PROVIDER_CACHE_PREWARM=1` and `warmGenericBoot: false`; it must not
+  enter the warm-generic `startup()` and bind-wait path.
+- With concurrency `1`, prewarm work runs one model call at a time per active
+  cache shape.
+- For `size: 3` and one Boondi shape, exactly one provider-cache synthetic
+  query should run for that shape; all three warm workers should report the
+  shared successful prewarm status.
+- After the default 45 minute cache TTL, the active shape is refreshed with one
+  more throwaway synthetic query. This refresh is not repeated once per warm
+  worker.
+- The prewarm synthetic runner must report provider usage evidence:
+  `cacheWriteTokens > 0` or `cacheReadTokens > 0`.
+- First customer call for the same `cacheShapeKey` should report provider
+  cache read evidence.
 - First customer reply does not include cache-prewarm wait as customer-side
   latency if prewarm already completed.
 - Dashboard shows prewarm status accurately.
@@ -1415,8 +1476,34 @@ Expected:
 Acceptance:
 
 - pass only if live customer reply works and cache-prewarm status is visible
+- pass only if the synthetic prewarm session id is not reused as the customer
+  session id
 - fail if prewarm status is misleading or counted as active customer work after
   it completed before traffic
+
+### Scenario 3.1.1: Provider Cache Transfers Across Fresh Sessions
+
+Steps:
+
+1. Create one unique large system prompt/cache shape.
+2. Start a throwaway Agent SDK runner with that shape.
+3. Send a tiny synthetic query and wait for usage evidence.
+4. Destroy the throwaway runner/session.
+5. Start four fresh independent Agent SDK sessions with the same shape.
+6. Optionally start a fifth fresh session after roughly 60 seconds.
+
+Expected:
+
+- The throwaway synthetic query writes or reads provider cache.
+- Each fresh session reads the provider cache despite using a different SDK
+  session.
+- No fresh session depends on the throwaway session id.
+
+Acceptance:
+
+- pass if the throwaway query has provider cache usage evidence and the four
+  fresh sessions show high `cache_read_input_tokens`
+- fail if cache reads only happen inside the original throwaway session
 
 ### Scenario 3.2: Customer Arrives While Prewarm Is In Progress
 

@@ -208,21 +208,143 @@ describe('Anthropic warm pool adapter', () => {
     );
   });
 
-  it('reports SDK startup cache prewarm as succeeded for Anthropic prewarmed handles', async () => {
-    const child = makeChild();
+  it('fails provider cache prewarm when the throwaway runner has no cache usage evidence', async () => {
+    const warmChild = makeChild();
+    const probeChild = makeChild();
     const controller = new AnthropicWarmPoolController({
-      spawn: vi.fn(() => child),
+      spawn: vi.fn().mockReturnValueOnce(warmChild).mockReturnValueOnce(
+        probeChild,
+      ),
       now: () => 1_000,
+      readyTimeoutMs: 500,
     });
 
-    const handle = await prewarmReady(controller, makeRecipe(), child);
+    const handle = await prewarmReady(controller, makeRecipe(), warmChild);
+    const prewarm = controller.prewarmCaches(handle);
+    await vi.waitFor(() => expect(probeChild.stdin.write).toHaveBeenCalled());
 
-    await expect(controller.prewarmCaches(handle)).resolves.toEqual({
+    probeChild.stdout.emit(
+      'data',
+      Buffer.from(
+        [
+          '---GANTRY_OUTPUT_START---',
+          JSON.stringify({
+            status: 'success',
+            result: 'PREWARM_OK',
+            usage: {
+              cacheWriteTokens: 0,
+              cacheReadTokens: 0,
+            },
+          }),
+          '---GANTRY_OUTPUT_END---',
+        ].join('\n'),
+      ),
+    );
+    probeChild.emit('exit', 0, null);
+
+    await expect(prewarm).resolves.toEqual({
+      status: 'failed',
+      reason: 'provider cache prewarm completed without cache usage evidence',
+    });
+  });
+
+  it('runs provider cache prewarm through a throwaway synthetic runner', async () => {
+    const warmChild = makeChild();
+    const probeChild = makeChild();
+    Object.defineProperty(probeChild, 'exitCode', {
+      configurable: true,
+      value: 0,
+    });
+    const spawn = vi.fn().mockReturnValueOnce(warmChild).mockReturnValueOnce(
+      probeChild,
+    );
+    const controller = new AnthropicWarmPoolController({
+      spawn,
+      now: () => 1_000,
+      readyTimeoutMs: 500,
+    });
+    const recipe = makeRecipe();
+    const handle = await prewarmReady(controller, recipe, warmChild);
+
+    const prewarm = controller.prewarmCaches(handle);
+    await vi.waitFor(() => expect(probeChild.stdin.write).toHaveBeenCalled());
+
+    const probeInput = JSON.parse(String(probeChild.stdin.write.mock.calls[0][0]));
+    expect(probeInput).toEqual(
+      expect.objectContaining({
+        compiledSystemPrompt: 'shared prompt',
+        prompt: 'Reply with exactly PREWARM_OK.',
+        warmGenericBoot: false,
+      }),
+    );
+    expect(probeInput.sessionId).toBeUndefined();
+    expect(spawn).toHaveBeenNthCalledWith(
+      2,
+      '/usr/local/bin/node',
+      ['/opt/gantry/runner/index.js'],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          GANTRY_AGENT_RUN_HANDLE: expect.stringContaining(
+            'warm-worker-1-cache-prewarm-',
+          ),
+          GANTRY_PROVIDER_CACHE_PREWARM: '1',
+          GANTRY_WARM_POOL_BOOT: undefined,
+          GANTRY_WARM_POOL_MARKER: undefined,
+          GANTRY_WARM_POOL_WORKER: undefined,
+        }),
+      }),
+    );
+
+    probeChild.stdout.emit(
+      'data',
+      Buffer.from(
+        [
+          '---GANTRY_OUTPUT_START---',
+          JSON.stringify({
+            status: 'success',
+            result: 'PREWARM_OK',
+            usage: {
+              cacheWriteTokens: 12000,
+              cacheReadTokens: 2672,
+            },
+          }),
+          '---GANTRY_OUTPUT_END---',
+        ].join('\n'),
+      ),
+    );
+
+    await expect(prewarm).resolves.toEqual({
       status: 'succeeded',
+      cacheWriteTokens: 12000,
+      cacheReadTokens: 2672,
     });
-    expect(
-      (handle as { cachePrewarmTrace?: unknown }).cachePrewarmTrace,
-    ).toBeUndefined();
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(probeChild.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(warmChild.kill).not.toHaveBeenCalled();
+  });
+
+  it('uses a dedicated timeout for provider cache prewarm probes', async () => {
+    const warmChild = makeChild();
+    const probeChild = makeChild();
+    const controller = new AnthropicWarmPoolController({
+      spawn: vi.fn().mockReturnValueOnce(warmChild).mockReturnValueOnce(
+        probeChild,
+      ),
+      now: () => 1_000,
+      readyTimeoutMs: 500,
+      cachePrewarmTimeoutMs: 20,
+    });
+
+    const handle = await prewarmReady(controller, makeRecipe(), warmChild);
+    const prewarm = controller.prewarmCaches(handle);
+    await vi.waitFor(() => expect(probeChild.stdin.write).toHaveBeenCalled());
+
+    await expect(prewarm).resolves.toEqual({
+      status: 'failed',
+      reason: 'provider cache prewarm timed out after 20ms',
+    });
+    expect(probeChild.kill).toHaveBeenCalledWith('SIGTERM');
+    expect(warmChild.kill).not.toHaveBeenCalled();
   });
 
   it('includes stderr tail when a warm worker exits before bind-ready', async () => {
@@ -450,7 +572,7 @@ describe('Anthropic warm pool adapter', () => {
 
     await expect(controller.prewarmCaches(handle)).resolves.toEqual({
       status: 'skipped',
-      reason: 'probe_unavailable',
+      reason: 'worker_not_found',
     });
 
     expect(cachePrewarmProbe).not.toHaveBeenCalled();
