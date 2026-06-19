@@ -1,5 +1,6 @@
 import type {
   AnthropicStructuredModelConfig,
+  GantryAgentTaskAttachment,
   GantryStructuredModelConfig,
   StructuredJsonModelProvider,
 } from '../shared/types.js';
@@ -62,7 +63,7 @@ export function createAnthropicStructuredModelProvider(
                 messages: [
                   {
                     role: 'user',
-                    content: buildAnthropicUserPrompt(input),
+                    content: buildAnthropicUserContent(input),
                   },
                 ],
               }),
@@ -104,7 +105,7 @@ function selectAnthropicModel(
     asNonEmptyString(config.taskModels?.[taskType]) ??
     asNonEmptyString(config.model) ??
     asNonEmptyString(config.defaultModel) ??
-    'claude-3-5-sonnet-latest'
+    'claude-sonnet-4-6'
   );
 }
 
@@ -116,10 +117,21 @@ function buildAnthropicSystemPrompt(instructions: string): string {
   ].join('\n');
 }
 
-function buildAnthropicUserPrompt(
+type AnthropicUserContentBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'image';
+      readonly source: {
+        readonly type: 'base64';
+        readonly media_type: string;
+        readonly data: string;
+      };
+    };
+
+function buildAnthropicUserContent(
   input: Parameters<StructuredJsonModelProvider['generateJson']>[0],
-): string {
-  return [
+): AnthropicUserContentBlock[] {
+  const prompt = [
     'Task type:',
     input.taskType,
     '',
@@ -147,6 +159,29 @@ function buildAnthropicUserPrompt(
   ]
     .filter((part) => part !== '')
     .join('\n');
+  return [
+    { type: 'text', text: prompt },
+    ...readInlineImageAttachments(input.attachments).map((attachment) => ({
+      type: 'image' as const,
+      source: {
+        type: 'base64' as const,
+        media_type: attachment.mimeType,
+        data: attachment.base64,
+      },
+    })),
+  ];
+}
+
+function readInlineImageAttachments(
+  attachments: readonly GantryAgentTaskAttachment[] | undefined,
+): Array<{ readonly mimeType: string; readonly base64: string }> {
+  return (attachments ?? [])
+    .filter((attachment) => attachment.mimeType.startsWith('image/'))
+    .map((attachment) => ({
+      mimeType: attachment.mimeType,
+      base64: asNonEmptyString(attachment.base64) ?? '',
+    }))
+    .filter((attachment) => attachment.base64.length > 0);
 }
 
 function buildAnthropicError(

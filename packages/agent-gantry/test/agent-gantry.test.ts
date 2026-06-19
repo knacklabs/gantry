@@ -165,6 +165,51 @@ describe('@cawstudios/agent-gantry', () => {
     expect(JSON.stringify(requestBody)).not.toContain('test-key');
   });
 
+  it('sends Anthropic structured task image attachments as vision blocks', async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      fetchImpl: async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '{"status":"completed"}' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.vision',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+        attachments: [
+          {
+            label: 'captcha',
+            mimeType: 'image/png',
+            base64: 'base64-image',
+            purpose: 'captcha_ocr',
+          },
+        ],
+      }),
+    ).resolves.toEqual({ status: 'completed' });
+    const messages = requestBody?.messages;
+    expect(Array.isArray(messages)).toBe(true);
+    const firstMessage = (messages as Array<{ content?: unknown }>)[0];
+    expect(firstMessage.content).toContainEqual({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/png',
+        data: 'base64-image',
+      },
+    });
+  });
+
   it('fetches and summarizes HTTP pages with blocking signals', async () => {
     const provider = createHttpFetchProvider({
       fetchImpl: async () =>
