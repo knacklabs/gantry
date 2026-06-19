@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "@cawstudios/agent-gantry",
   "version": "0.1.0",
   "description": "Stable Gantry SDK facade for product-specific agent packages.",
@@ -31,11 +31,14 @@
     "access": "restricted"
   },
   "scripts": {
+    "prebuild": "node scripts/patch-botframework-openid-fetch.mjs --root . --fallback-root ../..",
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
     "prepack": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run -c vitest.config.ts"
+    "patch:botframework-openid-fetch": "node scripts/patch-botframework-openid-fetch.mjs --root . --fallback-root ../..",
+    "verify:botframework-openid-fetch": "node scripts/patch-botframework-openid-fetch.mjs --root . --fallback-root ../.. --verify",
+    "test": "npm run verify:botframework-openid-fetch && vitest run -c vitest.config.ts"
   },
   "dependencies": {
     "botbuilder": "^4.23.3",
