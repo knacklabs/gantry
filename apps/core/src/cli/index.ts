@@ -32,7 +32,6 @@ import {
 
 configureDesiredSettingsStorageProvider(async () => {
   const {
-    closeRuntimeStorage,
     getRuntimeStorage,
     initializeRuntimeStorage,
     isStorageUnavailableError,

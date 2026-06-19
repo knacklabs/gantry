@@ -10,6 +10,7 @@ import {
 } from './repositories/domain-repositories.postgres.js';
 import {
   ARTIFACTS_DIR,
+  STORAGE_POSTGRES_PLAINTEXT_HOST_ALLOWLIST,
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
   STORAGE_POSTGRES_URL_ENV,
@@ -94,6 +95,7 @@ export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
     postgresUrl: STORAGE_POSTGRES_URL,
     postgresUrlEnv: STORAGE_POSTGRES_URL_ENV,
     postgresSchema: STORAGE_POSTGRES_SCHEMA,
+    postgresPlaintextHostAllowlist: STORAGE_POSTGRES_PLAINTEXT_HOST_ALLOWLIST,
   };
 }
 

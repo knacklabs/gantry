@@ -30,6 +30,7 @@
 //   GANTRY_DB_SCHEMA  ->  "gantry" (matches DEFAULT_STORAGE_POSTGRES_SCHEMA)
 
 import { PostgresStorageService } from '../../dist/adapters/storage/postgres/storage-service.js';
+import { fleetRehearsalPlaintextPostgresHosts } from '../../dist/adapters/storage/postgres/url.js';
 
 function resolveMigrationUrl() {
   const url =
@@ -51,7 +52,9 @@ async function main() {
   const url = resolveMigrationUrl();
   const schema = resolveSchema();
 
-  const service = new PostgresStorageService(url, schema);
+  const service = new PostgresStorageService(url, schema, {
+    plaintextHostAllowlist: fleetRehearsalPlaintextPostgresHosts(),
+  });
   try {
     await service.migrate();
   } finally {

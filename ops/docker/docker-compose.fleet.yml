@@ -28,10 +28,10 @@
 #   docker compose -f ops/docker/docker-compose.fleet.yml up --build \
 #     --scale live-worker=3 --scale job-worker=2
 #
-# Migrations run from ONE service by design (control, see GANTRY_SKIP_MIGRATIONS
-# below). The settings-seed one-shot migrates the schema first; the entrypoint
-# advisory lock makes concurrent migration safe regardless, so this is a
-# deliberate "single explicit migrator" choice, not a correctness requirement.
+# The settings-seed one-shot runs the required first migration/import. Control
+# also runs the entrypoint migration pass as an idempotent no-op; workers skip
+# the explicit pass. The entrypoint advisory lock makes concurrent migration
+# safe regardless.
 #
 # Only control publishes a host port (admin/API). Worker replicas take no host
 # port (they would collide under --scale) and are reachable on the internal
@@ -180,11 +180,10 @@ services:
         && mc mb --ignore-existing "local/${GANTRY_ARTIFACT_S3_BUCKET:-gantry-artifacts}"
 
   # One-shot desired-state seed. Writes a fleet-marked settings.yaml into the
-  # shared gantry-home volume, migrates the schema, then appends revision 1 via
-  # `gantry settings import --fleet`. All roles wait on this completing so
-  # /readyz can go green. This is the one service that always migrates (it must,
-  # to import settings into a migrated schema). Replace the heredoc settings.yaml
-  # with your real desired state (agents, providers, conversations) before a real
+  # shared gantry-home volume, runs migrations through the normal entrypoint,
+  # then appends revision 1 with the Docker seed script. All roles wait on this
+  # completing so /readyz can go green. Replace the heredoc settings.yaml with
+  # your real desired state (agents, providers, conversations) before a real
   # deployment.
   settings-seed:
     <<: *worker-base
@@ -228,10 +227,9 @@ services:
   # Control plane: full admin/settings API. Channels connect outbound-only; it
   # runs no live or job execution and no bakes, and does not register as a worker
   # instance. This is the single service whose control port is published for
-  # admin/API access during rehearsal, and the single explicit migrator
-  # (GANTRY_SKIP_MIGRATIONS=0). It depends on settings-seed (which already
-  # migrated), so its explicit pass is an idempotent, lock-safe no-op — a
-  # deliberate "one owner" choice. Not scaled (one control plane).
+  # admin/API access during rehearsal. It depends on settings-seed (which already
+  # migrated), so its explicit migration pass is an idempotent, lock-safe no-op.
+  # Not scaled (one control plane).
   control:
     <<: *worker-base
     environment:

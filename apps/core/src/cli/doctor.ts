@@ -27,7 +27,10 @@ import {
 } from '../config/settings/runtime-settings.js';
 import { validateTelegramBotToken } from './telegram.js';
 import { inspectMemoryHealth } from './memory-health.js';
-import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
+import {
+  fleetRehearsalPlaintextPostgresHosts,
+  validatePostgresConnectionUrl,
+} from '../adapters/storage/postgres/url.js';
 import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
 import { validateRuntimeEnvPolicy } from '../config/source-classification.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
@@ -253,6 +256,10 @@ export function runDoctor(
       try {
         validatePostgresConnectionUrl(postgresUrl, {
           allowLocalhost: true,
+          plaintextHostAllowlist: fleetRehearsalPlaintextPostgresHosts({
+            ...env,
+            ...process.env,
+          }),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

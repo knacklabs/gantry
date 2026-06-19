@@ -50,6 +50,11 @@ export interface ResolvedStorageConfig {
   postgresUrl: string | null;
   postgresUrlEnv: string;
   postgresSchema: string;
+  postgresPlaintextHostAllowlist?: readonly string[];
+}
+
+export interface PostgresConnectionSecurityOptions {
+  plaintextHostAllowlist?: readonly string[];
 }
 
 export function quotePostgresIdentifier(identifier: string): string {
@@ -64,13 +69,17 @@ export function quotePostgresIdentifier(identifier: string): string {
 export function resolvePostgresPoolConfig(
   url: string,
   schema: string,
+  security: PostgresConnectionSecurityOptions = {},
 ): PoolConfig {
   const parsed = parsePostgresConnectionUrl(url);
   const sslMode = parsed.searchParams.get('sslmode')?.trim().toLowerCase();
-  const options = `-c search_path=${quotePostgresIdentifier(schema)},public`;
-  parsed.searchParams.set('options', options);
+  const searchPathOptions = `-c search_path=${quotePostgresIdentifier(schema)},public`;
+  parsed.searchParams.set('options', searchPathOptions);
   const connectionString = parsed.toString();
-  const isLocal = isLocalPostgresHost(parsed.hostname);
+  const isLocal = isLocalPostgresHost(
+    parsed.hostname,
+    security.plaintextHostAllowlist,
+  );
   if (!isLocal) {
     if (
       !sslMode ||
@@ -84,11 +93,11 @@ export function resolvePostgresPoolConfig(
     }
     return {
       connectionString,
-      options,
+      options: searchPathOptions,
       ssl: { rejectUnauthorized: true },
     };
   }
-  return { connectionString, options };
+  return { connectionString, options: searchPathOptions };
 }
 
 export class PostgresStorageService implements StorageService {
@@ -98,8 +107,9 @@ export class PostgresStorageService implements StorageService {
   constructor(
     private readonly url: string,
     private readonly schemaName: string,
+    private readonly security: PostgresConnectionSecurityOptions = {},
   ) {
-    this.pool = new Pool(resolvePostgresPoolConfig(url, schemaName));
+    this.pool = new Pool(resolvePostgresPoolConfig(url, schemaName, security));
     this.db = drizzlePg(this.pool, { schema: pgSchema });
   }
 
@@ -177,7 +187,11 @@ export class PostgresStorageService implements StorageService {
   }
 
   private async migratePgBoss(): Promise<void> {
-    const poolConfig = resolvePostgresPoolConfig(this.url, this.schemaName);
+    const poolConfig = resolvePostgresPoolConfig(
+      this.url,
+      this.schemaName,
+      this.security,
+    );
     const boss = new PgBoss({
       connectionString: poolConfig.connectionString,
       schema: 'pgboss',
@@ -345,5 +359,7 @@ export function createStorageService(
   if (!config.postgresUrl?.trim()) {
     throw new Error(`${config.postgresUrlEnv} is required for runtime storage`);
   }
-  return new PostgresStorageService(config.postgresUrl, config.postgresSchema);
+  return new PostgresStorageService(config.postgresUrl, config.postgresSchema, {
+    plaintextHostAllowlist: config.postgresPlaintextHostAllowlist,
+  });
 }

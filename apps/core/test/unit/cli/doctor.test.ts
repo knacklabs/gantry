@@ -6,6 +6,45 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockListModelCredentials = vi.hoisted(() => vi.fn());
 
+vi.mock(
+  '@core/application/model-credentials/model-credential-service.js',
+  () => ({
+    ModelCredentialService: class MockModelCredentialService {
+      async list(input: unknown) {
+        return (await mockListModelCredentials(input)).map(
+          (row: { status?: string; health?: string }) => ({
+            ...row,
+            health:
+              row.health ?? (row.status === 'active' ? 'ready' : 'missing'),
+          }),
+        );
+      }
+    },
+  }),
+);
+
+vi.mock(
+  '@core/application/model-resolution/required-model-credential-providers.js',
+  () => ({
+    requiredModelCredentialProviders: vi.fn((settings) => {
+      const providers = new Set<string>(['anthropic']);
+      if (
+        settings.memory.embeddings.enabled &&
+        settings.memory.embeddings.provider !== 'disabled'
+      ) {
+        providers.add(settings.memory.embeddings.provider);
+      }
+      if (
+        settings.memory.dreaming.embeddings.enabled &&
+        settings.memory.dreaming.embeddings.provider !== 'disabled'
+      ) {
+        providers.add(settings.memory.dreaming.embeddings.provider);
+      }
+      return [...providers].sort();
+    }),
+  }),
+);
+
 vi.mock('@core/infrastructure/service/package-paths.js', () => ({
   assertRuntimeEntryExists: vi.fn(),
   getRuntimeEntryPath: () => '/mock/dist/index.js',
@@ -119,6 +158,33 @@ afterEach(() => {
 });
 
 describe('doctor model credential readiness', () => {
+  it('accepts the fleet rehearsal postgres service hostname in runtime storage checks', async () => {
+    mockListModelCredentials.mockResolvedValue([]);
+    const runtimeHome = makeRuntimeHome();
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      [
+        'GANTRY_DATABASE_URL=postgres://gantry_app:pass@postgres:5432/gantry',
+        'GANTRY_FLEET_REHEARSAL_AUTO_SECRETS=1',
+        `SECRET_ENCRYPTION_KEY=${strongEncryptionKey}`,
+        'TELEGRAM_BOT_TOKEN=123456:test-token',
+        '',
+      ].join('\n'),
+    );
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'runtime-storage',
+        status: 'pass',
+      }),
+    );
+  });
+
   it('fails when selected model defaults are missing active credentials', async () => {
     mockListModelCredentials.mockResolvedValue([]);
     const runtimeHome = makeRuntimeHome();

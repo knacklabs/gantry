@@ -41,11 +41,22 @@ describe('storage-service', () => {
     await service.close();
   });
 
-  it('accepts the first-party docker compose postgres service hostname without sslmode', async () => {
+  it('rejects docker compose postgres service hostname without an explicit plaintext allowlist', () => {
+    expect(() =>
+      createStorageService({
+        postgresUrl: 'postgres://user:pass@postgres:5432/gantry',
+        postgresUrlEnv: 'GANTRY_DATABASE_URL',
+        postgresSchema: 'gantry',
+      }),
+    ).toThrow(/sslmode=require/i);
+  });
+
+  it('accepts the first-party docker compose postgres service hostname when allowlisted', async () => {
     const service = createStorageService({
       postgresUrl: 'postgres://user:pass@postgres:5432/gantry',
       postgresUrlEnv: 'GANTRY_DATABASE_URL',
       postgresSchema: 'gantry',
+      postgresPlaintextHostAllowlist: ['postgres'],
     });
     expect(service).toBeInstanceOf(PostgresStorageService);
     await service.close();

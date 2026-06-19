@@ -2,7 +2,10 @@ import {
   getProvider,
   normalizeProviderId,
 } from '../../channels/provider-registry.js';
-import { validatePostgresConnectionUrl } from '../../adapters/storage/postgres/url.js';
+import {
+  fleetRehearsalPlaintextPostgresHosts,
+  validatePostgresConnectionUrl,
+} from '../../adapters/storage/postgres/url.js';
 import { readEnvFile } from '../env/file.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
 import {
@@ -83,12 +86,17 @@ export function validateLoadedRuntimeSettings(
   const postgresUrlEnv = settings.storage.postgres.urlEnv;
   const postgresUrl =
     process.env[postgresUrlEnv]?.trim() || env[postgresUrlEnv]?.trim() || '';
+  const postgresPlaintextHostAllowlist = fleetRehearsalPlaintextPostgresHosts({
+    ...env,
+    ...process.env,
+  });
   if (!postgresUrl) {
     details.push(`${postgresUrlEnv} is required for runtime storage.`);
   } else {
     try {
       validatePostgresConnectionUrl(postgresUrl, {
         allowLocalhost: true,
+        plaintextHostAllowlist: postgresPlaintextHostAllowlist,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

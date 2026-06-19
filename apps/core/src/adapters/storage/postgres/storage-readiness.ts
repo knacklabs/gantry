@@ -1,5 +1,6 @@
 import type { StorageService } from './storage-service.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
+import { fleetRehearsalPlaintextPostgresHosts } from './url.js';
 import { readEnvFile } from '../../../config/env/file.js';
 import { envFilePath } from '../../../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../../../config/settings/runtime-settings.js';
@@ -60,6 +61,10 @@ export async function inspectRuntimeStorageReadiness(
       postgresUrl,
       postgresUrlEnv,
       postgresSchema: settings.storage.postgres.schema,
+      postgresPlaintextHostAllowlist: fleetRehearsalPlaintextPostgresHosts({
+        ...env,
+        ...process.env,
+      }),
     });
   } catch (err) {
     const message = redactString(

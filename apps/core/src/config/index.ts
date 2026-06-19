@@ -1,10 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import {
-  resolveModelAlias,
-  resolveModelSelectionForWorkload,
-  DEFAULT_SETUP_MODEL_ALIAS,
-} from '../shared/model-catalog.js';
+import { resolveModelAlias } from '../shared/model-catalog.js';
 import {
   AUTO_AGENT_HARNESS,
   type AgentHarness,
@@ -212,6 +208,8 @@ const runtimeStorageConfig = resolveRuntimeStorageConfig(
 export const STORAGE_POSTGRES_URL_ENV = runtimeStorageConfig.postgresUrlEnv;
 export const STORAGE_POSTGRES_URL = runtimeStorageConfig.postgresUrl;
 export const STORAGE_POSTGRES_SCHEMA = runtimeStorageConfig.postgresSchema;
+export const STORAGE_POSTGRES_PLAINTEXT_HOST_ALLOWLIST =
+  runtimeStorageConfig.postgresPlaintextHostAllowlist;
 export const PERMISSION_APPROVAL_TIMEOUT_MS =
   resolvePermissionApprovalTimeoutMs(process.env, envConfig);
 export const AGENT_TIMEOUT = parseInt(

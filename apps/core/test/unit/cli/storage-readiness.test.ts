@@ -74,4 +74,47 @@ describe('inspectRuntimeStorageReadiness', () => {
     expect(migrate).toHaveBeenCalledBefore(healthCheck);
     expect(close).toHaveBeenCalled();
   });
+
+  it('passes the fleet rehearsal postgres hostname allowlist into storage', async () => {
+    const runtimeHome = createRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
+    settings.storage.postgres.schema = 'gantry';
+    saveRuntimeSettings(runtimeHome, settings);
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      [
+        'GANTRY_DATABASE_URL=postgres://gantry_app:pass@postgres:5432/gantry',
+        'GANTRY_FLEET_REHEARSAL_AUTO_SECRETS=1',
+        '',
+      ].join('\n'),
+    );
+    const close = vi.fn().mockResolvedValue(undefined);
+    const createStorageService = vi.fn(() => ({
+      healthCheck: vi.fn().mockResolvedValue({
+        lexicalSearch: true,
+        vectorSearch: true,
+        textSearch: true,
+        jobQueue: true,
+        runtimeEvents: true,
+        eventBusOutbox: true,
+      }),
+      close,
+    }));
+    vi.doMock('@core/adapters/storage/postgres/storage-service.js', () => ({
+      createStorageService,
+    }));
+    const { inspectRuntimeStorageReadiness: inspectWithMock } =
+      await import('@core/adapters/storage/postgres/storage-readiness.js');
+
+    const result = await inspectWithMock(runtimeHome);
+
+    expect(result.status).toBe('pass');
+    expect(createStorageService).toHaveBeenCalledWith(
+      expect.objectContaining({
+        postgresPlaintextHostAllowlist: ['postgres'],
+      }),
+    );
+    expect(close).toHaveBeenCalled();
+  });
 });

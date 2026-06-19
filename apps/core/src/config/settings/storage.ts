@@ -1,11 +1,15 @@
 import { readRuntimeStorageSettingsSnapshot } from './runtime-settings.js';
 import { runtimeEnvValueDynamic } from '../env/index.js';
-import { validatePostgresConnectionUrl } from '../../adapters/storage/postgres/url.js';
+import {
+  fleetRehearsalPlaintextPostgresHosts,
+  validatePostgresConnectionUrl,
+} from '../../adapters/storage/postgres/url.js';
 
 export interface RuntimeStorageConfig {
   postgresUrlEnv: string;
   postgresUrl: string | null;
   postgresSchema: string;
+  postgresPlaintextHostAllowlist?: readonly string[];
 }
 
 export function resolveRuntimeStorageConfig(
@@ -24,10 +28,16 @@ export function resolveRuntimeStorageConfig(
   }
   const postgresUrlEnv = settings.postgresUrlEnv || 'GANTRY_DATABASE_URL';
   const postgresUrl = runtimeEnvValueDynamic(postgresUrlEnv).trim() || null;
+  const postgresPlaintextHostAllowlist = fleetRehearsalPlaintextPostgresHosts({
+    GANTRY_FLEET_REHEARSAL_AUTO_SECRETS: runtimeEnvValueDynamic(
+      'GANTRY_FLEET_REHEARSAL_AUTO_SECRETS',
+    ),
+  });
   if (postgresUrl) {
     try {
       validatePostgresConnectionUrl(postgresUrl, {
         allowLocalhost: true,
+        plaintextHostAllowlist: postgresPlaintextHostAllowlist,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -41,5 +51,6 @@ export function resolveRuntimeStorageConfig(
     postgresUrlEnv,
     postgresUrl,
     postgresSchema: settings.postgresSchema || 'gantry',
+    postgresPlaintextHostAllowlist,
   };
 }

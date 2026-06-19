@@ -13,19 +13,34 @@ export function parsePostgresConnectionUrl(url: string): URL {
   return parsed;
 }
 
-export function isLocalPostgresHost(hostname: string): boolean {
+const FLEET_REHEARSAL_POSTGRES_HOSTS = ['postgres'] as const;
+
+export function fleetRehearsalPlaintextPostgresHosts(
+  env: Partial<Record<string, string | undefined>> = process.env,
+): readonly string[] {
+  return env.GANTRY_FLEET_REHEARSAL_AUTO_SECRETS?.trim() === '1'
+    ? FLEET_REHEARSAL_POSTGRES_HOSTS
+    : [];
+}
+
+export function isLocalPostgresHost(
+  hostname: string,
+  plaintextHostAllowlist: readonly string[] = [],
+): boolean {
   const normalized = hostname.trim().toLowerCase();
   return (
     normalized === 'localhost' ||
     normalized === '127.0.0.1' ||
     normalized === '::1' ||
-    normalized === 'postgres' ||
-    normalized === 'gantry-fleet-postgres'
+    plaintextHostAllowlist.some(
+      (host) => host.trim().toLowerCase() === normalized,
+    )
   );
 }
 
 export interface ValidatePostgresConnectionUrlOptions {
   allowLocalhost?: boolean;
+  plaintextHostAllowlist?: readonly string[];
 }
 
 export function validatePostgresConnectionUrl(
@@ -34,7 +49,7 @@ export function validatePostgresConnectionUrl(
 ): void {
   const allowLocalhost = options.allowLocalhost ?? true;
   const parsed = parsePostgresConnectionUrl(url);
-  if (isLocalPostgresHost(parsed.hostname)) {
+  if (isLocalPostgresHost(parsed.hostname, options.plaintextHostAllowlist)) {
     if (allowLocalhost) return;
     throw new Error('Local Postgres URLs are not allowed in this context');
   }

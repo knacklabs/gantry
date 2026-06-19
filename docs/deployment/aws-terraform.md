@@ -63,19 +63,20 @@ collide — and are reached on the internal network or via
 The `settings-seed` one-shot service runs first: it writes a fleet-marked
 `settings.yaml` (`runtime.deployment_mode: fleet`) into the shared
 `gantry-fleet-home` volume, **migrates the schema**, and appends settings
-**revision 1** via `gantry settings import --fleet`. Every role `depend_on`s it
-completing, so they boot in fleet mode with desired state already seeded and
-`/readyz` can go green (a fleet worker with no revision stays red and logs the
-seed command). The `control` service is the single explicit migrator
-(`GANTRY_SKIP_MIGRATIONS=0`); workers skip the explicit pass. The entrypoint
-advisory lock makes concurrent migration safe regardless, so this is a deliberate
-"one owner" choice, not a correctness requirement.
+**revision 1** with `ops/docker/fleet-settings-seed.mjs` through the normal
+container entrypoint. Every role `depend_on`s it completing, so they boot in
+fleet mode with desired state already seeded and `/readyz` can go green (a
+fleet worker with no revision stays red and logs the seed command). The
+`settings-seed` service runs the required first migration/import
+(`GANTRY_SKIP_MIGRATIONS=0`); `control` also runs the idempotent entrypoint
+migration pass, and workers skip the explicit pass. The entrypoint advisory lock
+makes concurrent migration safe regardless.
 
 Expected sequence in the logs:
 
 ```
 gantry-fleet-postgres      | ... database system is ready to accept connections
-gantry-fleet-settings-seed | ... Appended fleet settings revision 1.
+gantry-fleet-settings-seed | ... fleet settings revision 1 seeded
 gantry-fleet-control-1     | <ts> [entrypoint] running migrations (GANTRY_DATABASE_URL)
 gantry-fleet-control-1     | <ts> [entrypoint] migrations complete
 gantry-fleet-control-1     | <ts> [entrypoint] starting runtime: node dist/index.js
