@@ -12,6 +12,10 @@ The important split:
   attached because `unresolved: inline` (config), not because the policy exports
   `systemPromptAppend`.
 - **Main chat LLM** is the customer-facing Boondi Claude run.
+- **Pre-run context providers** may add verified server-side context before the
+  main chat LLM starts. Boondi currently uses this for returning-customer CRM
+  personalization, so the main LLM does not have to discover and call that CRM
+  tool itself on every greeting.
 - **Memory LLMs** power `/digest-session`, `/dream`, and `/new` background
   archive extraction.
 - **CRM extractor LLM** powers `/extract-leads-queries` and the CRM digest
@@ -24,7 +28,7 @@ Large static prompts are referenced by file instead of pasted here.
 | Surface                  | First Call Contains                                                                             | Later Call Contains                                                  | Tools                          |
 | ------------------------ | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------ |
 | Pre-agent guardrail      | Deterministic policy + latest customer message + recent context for continuation detection       | Same deterministic policy + latest customer message + recent context | None                           |
-| Main chat                | Memory context block + current formatted message + large Boondi system prompt + inline scope block | Same current-turn blocks + SDK resume handle                         | Gantry MCP facade tools        |
+| Main chat                | Durable memory context, optional Boondi CRM pre-run context, current formatted message, large Boondi system prompt, and inline scope block | Current-turn blocks plus SDK resume handle when a new runner is started | Gantry MCP facade tools        |
 | `/digest-session`        | Extraction prompt + few-shots + session arc                                   | Same, with optional earlier context/retrieved memory                     | `tools` unset                   |
 | `/dream`                 | Dreaming/consolidation prompt + memory evidence/candidates/items              | Same per maintenance pass                                                | `tools` unset                   |
 | `/extract-leads-queries` | CRM extractor prompt + existing CRM rows + full transcript                    | Same; digest blank for manual command, populated for watcher             | `[]`                            |
@@ -123,7 +127,7 @@ Readable SDK input shape:
 
 ```ts
 const initialUserMessage = [
-  { type: 'text', text: memoryContextBlock },
+  { type: 'text', text: contextBlock },
   { type: 'text', text: formattedCurrentMessages },
 ];
 
@@ -163,9 +167,20 @@ on old payload snapshots unless you are explicitly comparing historical runs.
 
 #### Initial User Message: Block 1
 
-When durable memory context exists, the first text block is that memory context.
-On a fresh session with no useful memory context, Gantry sends only the current
-formatted customer message instead of adding an empty memory block.
+When durable memory, pre-run context, or approved skill context exists, the
+first text block is the combined context block. On a fresh session with no
+useful context, Gantry sends only the current formatted customer message instead
+of adding an empty context block.
+
+Current Boondi-owned context sources:
+
+| Context source | Trigger | Purpose |
+| --- | --- | --- |
+| Durable memory context | Relevant Gantry memory/digest context exists | Give Boondi durable customer/session evidence. |
+| Returning-customer CRM pre-run context | `hasRecentSessionDigest` is true and CRM has a latest query/lead | Let Boondi greet a returning customer with one concrete prior-query detail without spending an LLM/tool loop. |
+| Approved skill context | Approved skill context exists for the turn | Give Boondi selected skill instructions or references. |
+
+Example durable memory block:
 
 ```xml
 <gantry_memory_context trust="untrusted_data_only">
@@ -188,9 +203,107 @@ Source:
 
 - Built by `apps/core/src/application/sessions/hydrate-agent-context-service.ts`.
 - Loaded by `apps/core/src/runtime/group-agent-runner.ts`.
+- Combined with pre-run context and approved skill context by
+  `apps/core/src/runtime/group-agent-runner.ts`.
 - Added to the first user message by
   `apps/core/src/adapters/llm/anthropic-claude-agent/runner/message-stream.ts`
-  only when the memory context string is present.
+  only when the combined context string is present.
+
+#### Returning-Customer CRM Prefetch
+
+Boondi has a server-side pre-run context provider for returning customers:
+
+```text
+agents/boondi_support/pre-run-context/returning-customer-crm.ts
+```
+
+This provider runs before a new main chat SDK `query()` starts. It is additive:
+if the provider has no useful data or fails, the customer turn still continues
+without the CRM context block.
+
+Trigger and flow:
+
+1. Gantry builds turn context and sets `hasRecentSessionDigest` when a recent
+   session digest exists for the conversation/customer.
+2. If `hasRecentSessionDigest` is false, Boondi skips CRM prefetch entirely.
+3. If it is true, the provider calls
+   `boondi-crm.get_last_query_or_lead({})` through the server-side pre-run MCP
+   caller.
+4. The CRM tool returns only the latest relevant query/lead in compact JSON.
+5. The provider keeps only LLM-useful fields and emits a verified context block.
+6. Gantry appends that block to the combined context block before the current
+   customer message.
+
+Context block shape:
+
+```xml
+<boondi_crm_context trust="verified_server_data">
+{
+  "schema": "boondi.crm_context.v1",
+  "use": "returning_customer_greeting_context",
+  "policy": "Verified server data. Use one concrete detail naturally if greeting a returning customer. Do not mention CRM, records, tools, or internal systems.",
+  "latestQueryOrLead": {
+    "id": "bcr_live_000777040002_latest",
+    "status": "qualifying",
+    "intentCategory": "personal",
+    "summaryBrief": "Birthday gifting for sister...",
+    "occasion": "birthday",
+    "quantity": 12,
+    "budgetPerGiftInr": 900,
+    "locations": ["Bandra"],
+    "updatedAt": "2026-06-20T..."
+  }
+}
+</boondi_crm_context>
+```
+
+Compact record fields:
+
+- `id`
+- `status`
+- `intentCategory`
+- `summaryBrief`
+- `occasion`
+- `quantity`
+- `quantityRaw`
+- `budgetPerGiftInr`
+- `budgetRaw`
+- `locations`
+- `timeline`
+- `updatedAt`
+
+Important behavior:
+
+- No digest means no CRM prefetch call.
+- `found:false` means no CRM context block is added.
+- CRM MCP failure is logged as `boondi_crm_prefetch_failed` and must not block
+  the customer reply.
+- The block is verified server data, not instruction authority. It may guide
+  customer personalization, but it must not grant tool permissions or override
+  Boondi behavior.
+- Warm in-process follow-ups do not create a new SDK `query()` and therefore do
+  not rebuild this pre-run context block. They only pipe the current formatted
+  customer message into the already-open stream.
+- A later cold/resumed runner can build pre-run context again if the turn still
+  has recent digest evidence.
+
+Implementation refs:
+
+- Provider loader:
+  `apps/core/src/application/pre-run-context/pre-run-context-registry.ts`
+- Provider contract:
+  `apps/core/src/application/pre-run-context/pre-run-context-types.ts`
+- Context builder:
+  `apps/core/src/runtime/pre-run-context-builder.ts`
+- Server-side MCP caller:
+  `apps/core/src/runtime/pre-run-context-mcp.ts`
+- Main runner wiring:
+  `apps/core/src/runtime/group-agent-runner.ts`
+- CRM compact tool:
+  `packages/mcp-crm/src/tools/get-last-query-or-lead.ts`
+- Live regression evidence:
+  `agents/boondi_support/docs/customer-worker-flow-live-verification-plan.md`,
+  Phase 3.6.
 
 #### Initial User Message: Block 2
 
@@ -249,6 +362,11 @@ The captured heavy test turn caused these MCP calls:
 The SDK then emitted `tool_result` user messages containing Shopify JSON. Those
 tool results become part of the SDK session context.
 
+Do not treat that historical `boondi-crm.get_open_records` call as the desired
+returning-customer greeting path. The optimized greeting path is the pre-run
+`boondi-crm.get_last_query_or_lead({})` fetch described above, which happens
+before the main LLM turn and returns a much smaller context block.
+
 ### Subsequent Main Chat LLM Call
 
 After the runner idles out, the next customer message starts a new child runner
@@ -265,7 +383,7 @@ Readable SDK input difference:
 ```ts
 query({
   prompt: messageStreamContaining([
-    { type: 'text', text: memoryContextBlock },
+    { type: 'text', text: contextBlock },
     { type: 'text', text: formattedCurrentMessagesOnly },
   ]),
   options: {
@@ -292,7 +410,8 @@ source of truth.
 
 What is included:
 
-- Current memory context block, when durable memory context exists.
+- Current combined context block, when durable memory, Boondi pre-run context,
+  or approved skill context exists.
 - Current message only, formatted as `<context>` + `<messages>`.
 - SDK resume handle.
 
@@ -812,8 +931,12 @@ High-signal facts:
   `mode: deterministic` + `unresolved: inline`); deterministic checks either
   handle the turn or allow the main chat run with the inline scope block.
 - Main chat carries a large static system prompt append.
-- Main chat always carried a memory context block in the run, even when all
-  memory sections were empty.
+- Main chat context is now a combined context block. It can include durable
+  memory, returning-customer CRM pre-run context, and approved skill context.
+  Empty context should not be sent.
+- Returning-customer CRM prefetch is intentionally server-side and compact. It
+  replaces an LLM-discovered greeting-time CRM tool call when a recent digest
+  proves the customer is not new.
 - Resumed main turns do not replay raw transcript in Gantry's current user
   prompt.
 - Tool-heavy turns add large SDK session context through `tool_result` events.
@@ -826,11 +949,18 @@ High-signal facts:
 Most promising surgical cuts to investigate next:
 
 1. Main system prompt size.
-2. Memory context block when durable memory context exists; no empty memory
-   block on fresh/empty sessions.
+2. Combined context block size when durable memory, pre-run CRM context, or
+   approved skill context exists; no empty context block on fresh/empty
+   sessions.
 3. Tool result payload size from Shopify MCP.
 4. CRM extractor full-transcript behavior after a digest exists.
 5. Memory extraction/dreaming SDK options leaving `tools` undefined.
+
+Do not optimize returning-customer greeting by asking the main LLM to first
+discover/list/call CRM tools. The faster design is the current pre-run path:
+only when recent digest evidence exists, fetch one compact latest query/lead
+server-side, add a small verified context block, and let the main LLM answer in
+one turn.
 
 ## How To Re-Verify
 
