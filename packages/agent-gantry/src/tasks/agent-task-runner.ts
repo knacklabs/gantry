@@ -5,6 +5,7 @@ import type {
   GantryAgentTaskResult,
   GantryAgentTaskStep,
   StructuredModelTaskRunnerConfig,
+  StructuredJsonModelProvider,
 } from '../shared/types.js';
 import { asRecord, parseJsonRecord } from '../shared/helpers.js';
 import {
@@ -24,7 +25,9 @@ import {
 } from './agent-task-runner-helpers.js';
 
 export async function runGenericAgentTask(
-  config: StructuredModelTaskRunnerConfig,
+  config: Omit<StructuredModelTaskRunnerConfig, 'model'> & {
+    readonly model: StructuredJsonModelProvider;
+  },
   input: GantryAgentTaskInput,
 ): Promise<GantryAgentTaskResult> {
   const taskRunId = input.correlationId ?? randomUUID();
@@ -176,7 +179,9 @@ export async function runGenericAgentTask(
         'agent_model_step_timeout',
       );
       action =
-        typeof generated === 'string' ? parseJsonRecord(generated) : generated;
+        typeof generated === 'string'
+          ? parseJsonRecord(generated)
+          : (generated as Record<string, unknown>);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await recordStep({

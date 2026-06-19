@@ -258,6 +258,24 @@ export interface StructuredJsonModelProvider {
   }): Promise<Record<string, unknown> | string>;
 }
 
+export interface AnthropicStructuredModelConfig {
+  readonly provider: 'anthropic';
+  readonly apiKey?: string | null;
+  readonly model?: string | null;
+  readonly defaultModel?: string | null;
+  readonly taskModels?: Record<string, string | null | undefined>;
+  readonly fetchImpl?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly maxRetries?: number;
+  readonly temperature?: number;
+  readonly maxTokens?: number;
+  readonly apiVersion?: string;
+}
+
+export type GantryStructuredModelConfig =
+  | StructuredJsonModelProvider
+  | AnthropicStructuredModelConfig;
+
 export interface StructuredBrowserToolProvider {
   runTask?(input: GantryStructuredTaskInput): Promise<Record<string, unknown>>;
   inspect?(
@@ -294,6 +312,28 @@ export interface GantrySearchToolResult {
 
 export interface StructuredSearchToolProvider {
   search(input: GantrySearchToolInput): Promise<GantrySearchToolResult>;
+}
+
+export interface GantryMapToolInput {
+  readonly url: string;
+  readonly limit?: number;
+  readonly budget?: GantryToolBudget;
+  readonly correlationId?: string | null;
+}
+
+export interface GantryMapToolResult {
+  readonly startUrl: string;
+  readonly links: ReadonlyArray<{
+    readonly url: string;
+    readonly title?: string | null;
+    readonly source?: string | null;
+  }>;
+  readonly provider?: string | null;
+  readonly warnings?: readonly string[];
+}
+
+export interface StructuredMapToolProvider {
+  map(input: GantryMapToolInput): Promise<GantryMapToolResult>;
 }
 
 export interface GantryFetchToolInput {
@@ -395,6 +435,7 @@ export interface StructuredDocumentExtractToolProvider {
 
 export interface StructuredToolProviderSet {
   readonly search?: StructuredSearchToolProvider;
+  readonly map?: StructuredMapToolProvider;
   readonly fetch?: StructuredFetchToolProvider;
   readonly crawl?: StructuredCrawlToolProvider;
   readonly browser?: StructuredBrowserToolProvider;
@@ -402,7 +443,7 @@ export interface StructuredToolProviderSet {
 }
 
 export interface StructuredModelTaskRunnerConfig {
-  readonly model: StructuredJsonModelProvider;
+  readonly model: GantryStructuredModelConfig;
   readonly browser?: StructuredBrowserToolProvider;
   readonly tools?: StructuredToolProviderSet;
   readonly storage?: GantryStructuredTaskStorage;
@@ -433,6 +474,7 @@ export interface FirecrawlSearchProviderConfig {
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly maxResults?: number;
+  readonly searchMode?: 'lightweight' | 'scrape';
 }
 
 export interface FirecrawlFetchProviderConfig {
@@ -440,6 +482,24 @@ export interface FirecrawlFetchProviderConfig {
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly maxBytes?: number;
+}
+
+export interface FirecrawlMapProviderConfig {
+  readonly apiKey?: string | null;
+  readonly fetchImpl?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly maxLinks?: number;
+}
+
+export interface FirecrawlDiscoveryToolProviderSetConfig {
+  readonly apiKey?: string | null;
+  readonly fetchImpl?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly maxResults?: number;
+  readonly maxPages?: number;
+  readonly maxLinks?: number;
+  readonly fetchMode?: 'http' | 'firecrawl';
+  readonly searchMode?: 'lightweight' | 'scrape';
 }
 
 export interface GantrySignatureInput {

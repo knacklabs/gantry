@@ -1,6 +1,7 @@
 export * from './shared/helpers.js';
 export * from './shared/types.js';
 export * from './tasks/agent-task-runner.js';
+export * from './tasks/model-provider.js';
 export * from './tasks/structured-task-runner.js';
 export * from './tools/browser-gateway.js';
 export * from './tools/discovery-providers.js';

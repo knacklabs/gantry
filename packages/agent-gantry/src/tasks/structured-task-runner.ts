@@ -13,10 +13,13 @@ import {
   readString,
 } from '../shared/helpers.js';
 import { runGenericAgentTask } from './agent-task-runner.js';
+import { resolveStructuredModelProvider } from './model-provider.js';
 
 export function createStructuredModelTaskRunner(
   config: StructuredModelTaskRunnerConfig,
 ): GantryStructuredTaskRunner {
+  const model = resolveStructuredModelProvider(config.model);
+  const runnerConfig = { ...config, model };
   return {
     runStructuredTask: async (input) => {
       const taskRunId = input.correlationId ?? randomUUID();
@@ -28,7 +31,7 @@ export function createStructuredModelTaskRunner(
           input,
         );
         toolContext = await collectStructuredToolContext(tools, input);
-        const generated = await config.model.generateJson({
+        const generated = await model.generateJson({
           ...input,
           input: {
             ...input.input,
@@ -109,7 +112,8 @@ export function createStructuredModelTaskRunner(
         };
       }
     },
-    runAgentTask: async (input) => await runGenericAgentTask(config, input),
+    runAgentTask: async (input) =>
+      await runGenericAgentTask(runnerConfig, input),
   };
 }
 
@@ -165,6 +169,33 @@ async function collectStructuredToolContext(
         try {
           const result = await fetchTool.fetch({
             url,
+            budget: asRecord(record.budget) ?? undefined,
+            correlationId: input.correlationId ?? null,
+          });
+          return { requestedUrl: url, ...result };
+        } catch (error) {
+          return {
+            requestedUrl: url,
+            toolFailure: true,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }),
+    );
+  }
+
+  const mapRequests = Array.isArray(toolRequests.map) ? toolRequests.map : [];
+  if (tools.map && mapRequests.length > 0) {
+    const mapTool = tools.map;
+    context.map = await Promise.all(
+      mapRequests.map(async (request) => {
+        const record = asRecord(request) ?? {};
+        const url = readString(record, 'url') ?? '';
+        if (!url.trim()) return { error: 'map_url_required' };
+        try {
+          const result = await mapTool.map({
+            url,
+            limit: readNumber(record, 'limit') ?? undefined,
             budget: asRecord(record.budget) ?? undefined,
             correlationId: input.correlationId ?? null,
           });

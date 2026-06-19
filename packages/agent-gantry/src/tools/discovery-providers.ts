@@ -1,12 +1,20 @@
 import type {
   FirecrawlCrawlProviderConfig,
+  FirecrawlDiscoveryToolProviderSetConfig,
   FirecrawlFetchProviderConfig,
+  FirecrawlMapProviderConfig,
   FirecrawlSearchProviderConfig,
+  GantryCrawlToolInput,
   GantryFetchToolResult,
+  GantryFetchToolInput,
+  GantryMapToolInput,
+  GantrySearchToolInput,
   HttpFetchProviderConfig,
   StructuredCrawlToolProvider,
   StructuredFetchToolProvider,
+  StructuredMapToolProvider,
   StructuredSearchToolProvider,
+  StructuredToolProviderSet,
   TavilySearchProviderConfig,
 } from '../shared/types.js';
 import {
@@ -108,7 +116,9 @@ export function createFirecrawlSearchProvider(
           body: JSON.stringify({
             query: input.query,
             limit: maxResults,
-            scrapeOptions: { formats: ['markdown'] },
+            ...(config.searchMode === 'scrape'
+              ? { scrapeOptions: { formats: ['markdown'] } }
+              : {}),
           }),
         },
         input.budget?.timeoutMs ?? config.timeoutMs ?? 20_000,
@@ -119,13 +129,17 @@ export function createFirecrawlSearchProvider(
           `Firecrawl search failed with HTTP ${response.status}.`,
         );
       }
+      const dataRecord = asRecord(payload.data);
       const results = Array.isArray(payload.data)
         ? payload.data
-        : Array.isArray(payload.results)
-          ? payload.results
-          : [];
+        : Array.isArray(dataRecord?.web)
+          ? dataRecord.web
+          : Array.isArray(payload.results)
+            ? payload.results
+            : [];
       return {
         provider: 'firecrawl-search',
+        searchMode: config.searchMode ?? 'lightweight',
         items: results
           .flatMap((item) => {
             const record = asRecord(item);
@@ -149,6 +163,52 @@ export function createFirecrawlSearchProvider(
             ];
           })
           .slice(0, maxResults),
+      };
+    },
+  };
+}
+
+export function createFirecrawlMapProvider(
+  config: FirecrawlMapProviderConfig,
+): StructuredMapToolProvider {
+  if (!config.apiKey?.trim()) {
+    throw new Error(
+      'FIRECRAWL_API_KEY is required to create the Firecrawl map provider.',
+    );
+  }
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const apiKey = config.apiKey.trim();
+  return {
+    map: async (input) => {
+      const limit = Math.min(
+        input.limit ?? input.budget?.maxResults ?? config.maxLinks ?? 25,
+        config.maxLinks ?? 50,
+      );
+      const response = await fetchWithTimeout(
+        fetchImpl,
+        'https://api.firecrawl.dev/v2/map',
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: input.url,
+            limit,
+          }),
+        },
+        input.budget?.timeoutMs ?? config.timeoutMs ?? 20_000,
+      );
+      const payload = (await response.json()) as Record<string, unknown>;
+      if (!response.ok) {
+        throw new Error(`Firecrawl map failed with HTTP ${response.status}.`);
+      }
+      const links = readFirecrawlMapLinks(payload);
+      return {
+        startUrl: input.url,
+        provider: 'firecrawl-map',
+        links: links.slice(0, limit),
       };
     },
   };
@@ -352,4 +412,295 @@ export function createHttpCrawlProvider(
       };
     },
   };
+}
+
+export function createFirecrawlDiscoveryToolProviderSet(
+  config: FirecrawlDiscoveryToolProviderSetConfig,
+): StructuredToolProviderSet {
+  if (!config.apiKey?.trim()) {
+    throw new Error(
+      'FIRECRAWL_API_KEY is required to create the Firecrawl discovery tool provider set.',
+    );
+  }
+  const apiKey = config.apiKey.trim();
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const timeoutMs = Math.max(1_000, config.timeoutMs ?? 45_000);
+  const maxResults = Math.max(1, config.maxResults ?? 5);
+  const maxPages = Math.max(1, config.maxPages ?? 3);
+  const maxLinks = Math.max(1, config.maxLinks ?? 25);
+  const search = createFirecrawlSearchProvider({
+    apiKey,
+    fetchImpl,
+    timeoutMs,
+    maxResults,
+    searchMode: config.searchMode ?? 'lightweight',
+  });
+  const map = createFirecrawlMapProvider({
+    apiKey,
+    fetchImpl,
+    timeoutMs,
+    maxLinks,
+  });
+  const fetchProvider =
+    config.fetchMode === 'firecrawl'
+      ? createFirecrawlFetchProvider({ apiKey, fetchImpl, timeoutMs })
+      : createHttpFetchProvider({ fetchImpl, timeoutMs });
+  const crawl = createFirecrawlCrawlProvider({
+    apiKey,
+    fetchImpl,
+    timeoutMs,
+    maxPages,
+  });
+  return {
+    search: instrumentSearchProvider(search, {
+      endpoint: 'https://api.firecrawl.dev/v2/search',
+      maxResults,
+      timeoutMs,
+      searchMode: config.searchMode ?? 'lightweight',
+    }),
+    map: instrumentMapProvider(map, {
+      endpoint: 'https://api.firecrawl.dev/v2/map',
+      maxLinks,
+      timeoutMs,
+    }),
+    fetch: instrumentFetchProvider(fetchProvider, { timeoutMs }),
+    crawl: instrumentCrawlProvider(crawl, {
+      endpoint: 'https://api.firecrawl.dev/v1/crawl',
+      maxPages,
+      timeoutMs,
+    }),
+  };
+}
+
+function readFirecrawlMapLinks(payload: Record<string, unknown>): Array<{
+  readonly url: string;
+  readonly title?: string | null;
+  readonly source?: string | null;
+}> {
+  const candidates = Array.isArray(payload.links)
+    ? payload.links
+    : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(asRecord(payload.data)?.links)
+        ? (asRecord(payload.data)?.links as unknown[])
+        : [];
+  return candidates.flatMap((item) => {
+    if (typeof item === 'string' && item.trim()) {
+      return [{ url: item.trim(), source: 'firecrawl' }];
+    }
+    const record = asRecord(item);
+    const url = asNonEmptyString(record?.url);
+    if (!url) return [];
+    return [
+      {
+        url,
+        title: asNonEmptyString(record?.title),
+        source: 'firecrawl',
+      },
+    ];
+  });
+}
+
+function instrumentSearchProvider(
+  provider: StructuredSearchToolProvider,
+  config: {
+    readonly endpoint: string;
+    readonly maxResults: number;
+    readonly timeoutMs: number;
+    readonly searchMode: 'lightweight' | 'scrape';
+  },
+): StructuredSearchToolProvider {
+  return {
+    search: async (input) => {
+      const metadata = searchDiagnostics(input, config);
+      const startedAtMs = Date.now();
+      try {
+        const result = await provider.search(input);
+        return {
+          ...result,
+          ...finishDiagnostics(metadata, startedAtMs),
+          rawCount: result.items.length,
+        };
+      } catch (error) {
+        throw withToolDiagnostics(error, metadata, startedAtMs);
+      }
+    },
+  };
+}
+
+function instrumentMapProvider(
+  provider: StructuredMapToolProvider,
+  config: {
+    readonly endpoint: string;
+    readonly maxLinks: number;
+    readonly timeoutMs: number;
+  },
+): StructuredMapToolProvider {
+  return {
+    map: async (input) => {
+      const metadata = mapDiagnostics(input, config);
+      const startedAtMs = Date.now();
+      try {
+        const result = await provider.map(input);
+        return {
+          ...result,
+          ...finishDiagnostics(metadata, startedAtMs),
+          rawCount: result.links.length,
+        };
+      } catch (error) {
+        throw withToolDiagnostics(error, metadata, startedAtMs);
+      }
+    },
+  };
+}
+
+function instrumentFetchProvider(
+  provider: StructuredFetchToolProvider,
+  config: { readonly timeoutMs: number },
+): StructuredFetchToolProvider {
+  return {
+    fetch: async (input) => {
+      const metadata = fetchDiagnostics(input, config);
+      const startedAtMs = Date.now();
+      try {
+        const result = await provider.fetch(input);
+        return {
+          ...result,
+          ...finishDiagnostics(metadata, startedAtMs),
+        };
+      } catch (error) {
+        throw withToolDiagnostics(error, metadata, startedAtMs);
+      }
+    },
+  };
+}
+
+function instrumentCrawlProvider(
+  provider: StructuredCrawlToolProvider,
+  config: {
+    readonly endpoint: string;
+    readonly maxPages: number;
+    readonly timeoutMs: number;
+  },
+): StructuredCrawlToolProvider {
+  return {
+    crawl: async (input) => {
+      const metadata = crawlDiagnostics(input, config);
+      const startedAtMs = Date.now();
+      try {
+        const result = await provider.crawl(input);
+        return {
+          ...result,
+          ...finishDiagnostics(metadata, startedAtMs),
+        };
+      } catch (error) {
+        throw withToolDiagnostics(error, metadata, startedAtMs);
+      }
+    },
+  };
+}
+
+function searchDiagnostics(
+  input: GantrySearchToolInput,
+  config: {
+    readonly endpoint: string;
+    readonly maxResults: number;
+    readonly timeoutMs: number;
+    readonly searchMode: 'lightweight' | 'scrape';
+  },
+): Record<string, unknown> {
+  return {
+    operation: 'search',
+    endpoint: config.endpoint,
+    query: input.query,
+    searchMode: config.searchMode,
+    limit: Math.min(
+      input.limit ?? input.budget?.maxResults ?? config.maxResults,
+      config.maxResults,
+    ),
+    timeoutMs: input.budget?.timeoutMs ?? config.timeoutMs,
+    correlationId: input.correlationId ?? null,
+  };
+}
+
+function mapDiagnostics(
+  input: GantryMapToolInput,
+  config: {
+    readonly endpoint: string;
+    readonly maxLinks: number;
+    readonly timeoutMs: number;
+  },
+): Record<string, unknown> {
+  return {
+    operation: 'map',
+    endpoint: config.endpoint,
+    url: input.url,
+    limit: Math.min(
+      input.limit ?? input.budget?.maxResults ?? config.maxLinks,
+      config.maxLinks,
+    ),
+    timeoutMs: input.budget?.timeoutMs ?? config.timeoutMs,
+    correlationId: input.correlationId ?? null,
+  };
+}
+
+function fetchDiagnostics(
+  input: GantryFetchToolInput,
+  config: { readonly timeoutMs: number },
+): Record<string, unknown> {
+  return {
+    operation: 'fetch',
+    endpoint: input.url,
+    url: input.url,
+    timeoutMs: input.budget?.timeoutMs ?? config.timeoutMs,
+    correlationId: input.correlationId ?? null,
+  };
+}
+
+function crawlDiagnostics(
+  input: GantryCrawlToolInput,
+  config: {
+    readonly endpoint: string;
+    readonly maxPages: number;
+    readonly timeoutMs: number;
+  },
+): Record<string, unknown> {
+  return {
+    operation: 'crawl',
+    endpoint: config.endpoint,
+    url: input.url,
+    limit: Math.min(
+      input.limit ?? input.budget?.maxPages ?? config.maxPages,
+      config.maxPages,
+    ),
+    timeoutMs: input.budget?.timeoutMs ?? config.timeoutMs,
+    correlationId: input.correlationId ?? null,
+  };
+}
+
+function finishDiagnostics(
+  metadata: Record<string, unknown>,
+  startedAtMs: number,
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    startedAt: new Date(startedAtMs).toISOString(),
+    elapsedMs: Math.max(0, Date.now() - startedAtMs),
+  };
+}
+
+function withToolDiagnostics(
+  error: unknown,
+  metadata: Record<string, unknown>,
+  startedAtMs: number,
+): Error {
+  const diagnosticError =
+    error instanceof Error ? error : new Error(String(error));
+  Object.assign(diagnosticError, {
+    diagnostics: {
+      ...finishDiagnostics(metadata, startedAtMs),
+      errorName: diagnosticError.name,
+    },
+  });
+  return diagnosticError;
 }
