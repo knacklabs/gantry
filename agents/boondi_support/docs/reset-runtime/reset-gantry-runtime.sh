@@ -26,15 +26,16 @@
 # the database volume.
 #
 # Usage (from anywhere):
-#   bash ops/reset-runtime/reset-gantry-runtime.sh            # interactive confirm
-#   bash ops/reset-runtime/reset-gantry-runtime.sh --dry-run  # show plan, change nothing
-#   bash ops/reset-runtime/reset-gantry-runtime.sh --yes      # skip the typed confirmation
+#   bash agents/boondi_support/docs/reset-runtime/reset-gantry-runtime.sh            # interactive confirm
+#   bash agents/boondi_support/docs/reset-runtime/reset-gantry-runtime.sh --dry-run  # show plan, change nothing
+#   bash agents/boondi_support/docs/reset-runtime/reset-gantry-runtime.sh --yes      # skip the typed confirmation
 #
 set -euo pipefail
 
 # ---- locations --------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+HELPER_DIR="$SCRIPT_DIR"
 RUNTIME_HOME="${GANTRY_HOME:-$HOME/gantry}"
 COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
 PG_SERVICE="postgres"
@@ -113,7 +114,7 @@ log "Recovering Claude OAuth token (before any deletion)..."
 OAUTH_TOKEN=""
 SOURCE=""
 
-EXTRACT_OUT="$(cd "$REPO_DIR" && GANTRY_HOME="$RUNTIME_HOME" npx tsx ops/reset-runtime/extract-anthropic-token.ts 2>/tmp/gantry-extract.err)" || true
+EXTRACT_OUT="$(cd "$REPO_DIR" && GANTRY_HOME="$RUNTIME_HOME" npx tsx "$HELPER_DIR/extract-anthropic-token.ts" 2>/tmp/gantry-extract.err)" || true
 OAUTH_TOKEN="$(printf '%s' "$EXTRACT_OUT" | sed -n 's/.*__GANTRY_OAUTH_BEGIN__\(.*\)__GANTRY_OAUTH_END__.*/\1/p')"
 [[ -n "$OAUTH_TOKEN" ]] && SOURCE="database"
 
@@ -187,11 +188,11 @@ log "Postgres is healthy."
 # ---- step 5: re-store the token, then verify --------------------------------
 log "Re-storing the Claude OAuth credential into the fresh database ..."
 (cd "$REPO_DIR" && GANTRY_HOME="$RUNTIME_HOME" GANTRY_RESET_OAUTH_TOKEN="$OAUTH_TOKEN" \
-  npx tsx ops/reset-runtime/store-anthropic-token.ts)
+  npx tsx "$HELPER_DIR/store-anthropic-token.ts")
 unset OAUTH_TOKEN GANTRY_RESET_OAUTH_TOKEN
 
 log "Verifying the credential reads back ..."
-(cd "$REPO_DIR" && GANTRY_HOME="$RUNTIME_HOME" npx tsx ops/reset-runtime/extract-anthropic-token.ts --check)
+(cd "$REPO_DIR" && GANTRY_HOME="$RUNTIME_HOME" npx tsx "$HELPER_DIR/extract-anthropic-token.ts" --check)
 
 echo
 log "Done. Fresh runtime + fresh database, Claude OAuth credential restored."

@@ -12,7 +12,9 @@
 - If a Claude provider resume handle returns `No conversation found with
 session ID`, expire that provider session and retry the same turn once without
   `resume`. Do not surface the stale provider-handle failure as the user-facing
-  answer when a fresh session can handle the turn.
+  answer when a fresh session can handle the turn. That retry has no provider
+  session handle, so it may use the generic warm pool if otherwise eligible and
+  available.
 - Pre-agent guardrails run after slash commands and trigger checks but before
   typing, prompt formatting, agent spawn, or tool materialization. Runtime code
   must stay policy-agnostic: route by response kind, pass through policy-owned
@@ -101,11 +103,13 @@ session ID`, expire that provider session and retry the same turn once without
   the synthetic runner. Keep this shape-level work deduped and refreshed by the
   runtime manager; do not turn it into one synthetic provider call per warm
   worker.
-- Session-specific warm workers must boot `startup()` with the provider resume
-  handle already in SDK options; `WarmQuery.query()` cannot add `resume` later
-  at bind time. Keep resume handles out of prompt-cache shape keys and redact
-  them from trace payloads, but do not strip them from session-specific
-  `warmRunnerInput`.
+- Current saved provider-session turns are not session-specific generic warm
+  workers. They either pipe to an already-retained live worker or cold-spawn with
+  the provider resume handle already in SDK options. If a future implementation
+  adds session-specific warm workers, they must also boot `startup()` with the
+  resume handle already present; `WarmQuery.query()` cannot add `resume` later at
+  bind time. Keep resume handles out of prompt-cache shape keys and redact them
+  from trace payloads.
 - Do not route saved provider-session turns through the generic warm pool.
   A generic Anthropic warm worker has already called `startup()` without that
   resume handle, so a returning conversation must either pipe to its retained

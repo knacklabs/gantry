@@ -158,16 +158,14 @@ query({
 });
 ```
 
-For the actual captured values from this worktree, including the full
-`systemPrompt.append`, exact `settings`, `skills`, tool lists, sandbox, env key
-names, initial user message blocks, and observed tool results, see
-`docs/BOONDI-MAIN-CHAT-FIRST-PAYLOAD.md`.
+For a fresh check, capture the trace payloads from the current run. Do not rely
+on old payload snapshots unless you are explicitly comparing historical runs.
 
 #### Initial User Message: Block 1
 
-The first text block is durable memory context.
-
-Even on a fresh session, this block exists with empty sections:
+When durable memory context exists, the first text block is that memory context.
+On a fresh session with no useful memory context, Gantry sends only the current
+formatted customer message instead of adding an empty memory block.
 
 ```xml
 <gantry_memory_context trust="untrusted_data_only">
@@ -190,7 +188,9 @@ Source:
 
 - Built by `apps/core/src/application/sessions/hydrate-agent-context-service.ts`.
 - Loaded by `apps/core/src/runtime/group-agent-runner.ts`.
-- Read by `apps/core/src/adapters/llm/anthropic-claude-agent/runner/system-prompt.ts`.
+- Added to the first user message by
+  `apps/core/src/adapters/llm/anthropic-claude-agent/runner/message-stream.ts`
+  only when the memory context string is present.
 
 #### Initial User Message: Block 2
 
@@ -210,9 +210,10 @@ Source:
 
 #### System Prompt Composition
 
-The main system prompt is large, so do not inline it in this flow map. In the
-captured first main-chat payload, `systemPrompt.append` was 59,843 chars. The
-full value is printed in `docs/BOONDI-MAIN-CHAT-FIRST-PAYLOAD.md`.
+The main system prompt is large, so do not inline it in this flow map. In one
+historical captured first main-chat payload, `systemPrompt.append` was 59,843
+chars. Treat that number as historical evidence only; capture fresh trace
+payloads when checking the current code path.
 
 Composition order:
 
@@ -285,14 +286,13 @@ query({
 });
 ```
 
-For the actual captured resumed-call values from this worktree, including the
-full `systemPrompt.append`, exact `resume` handle source/value, initial user
-message blocks, options, and observed tool results, see
-`docs/BOONDI-MAIN-CHAT-RESUMED-PAYLOAD.md`.
+For fresh resumed-call values, capture trace payloads from the current run.
+Older payload snapshots should be treated as historical examples, not current
+source of truth.
 
 What is included:
 
-- Current memory context block.
+- Current memory context block, when durable memory context exists.
 - Current message only, formatted as `<context>` + `<messages>`.
 - SDK resume handle.
 
@@ -328,11 +328,9 @@ stream.pushContent(formattedCurrentMessages);
 
 That follow-up still runs guardrail screening first.
 
-There is no separate full SDK `query({ prompt, options })` payload file for this
-case because Gantry does not call SDK `query()` again. The full SDK `query()`
-payload remains the first-call payload already printed in
-`docs/BOONDI-MAIN-CHAT-FIRST-PAYLOAD.md`; the warm follow-up only appends the
-current formatted message to that already-open stream.
+There is no separate full SDK `query({ prompt, options })` payload for this
+case because Gantry does not call SDK `query()` again. The warm follow-up only
+appends the current formatted message to the already-open stream.
 
 ## Direct Memory Save
 
@@ -828,7 +826,8 @@ High-signal facts:
 Most promising surgical cuts to investigate next:
 
 1. Main system prompt size.
-2. Empty memory context block on fresh/empty sessions.
+2. Memory context block when durable memory context exists; no empty memory
+   block on fresh/empty sessions.
 3. Tool result payload size from Shopify MCP.
 4. CRM extractor full-transcript behavior after a digest exists.
 5. Memory extraction/dreaming SDK options leaving `tools` undefined.
@@ -837,20 +836,20 @@ Most promising surgical cuts to investigate next:
 
 Use the Boondi runbook:
 
-- `docs/BOONDI-E2E-TESTING.md`
+- `agents/boondi_support/docs/BOONDI-E2E-TESTING.md`
 
-Add this env var to core, child runner, and CRM:
+Enable trace payload capture on the core/child-runner path:
 
 ```sh
-GANTRY_LLM_PAYLOAD_LOG=/tmp/boondi-llm-payload-<timestamp>.jsonl
+GANTRY_TRACE_PAYLOADS=1
 ```
 
 Safety requirements:
 
 - Keep `GANTRY_OUTBOUND_DRYRUN=1`.
-- Use only dedicated test customer identifiers from `GANTRY_TEST_OPERATOR_PHONE`.
-- Reset only those test identifiers with `scripts/lib/reset.mjs`.
-- Send signed webhooks with `scripts/lib/webhook.mjs`.
+- Use configured operator numbers or `000*` fake numbers for local outbound
+  attempts under dry-run.
+- Send signed webhooks with the raw HMAC request from the E2E runbook.
 - Confirm results through admin `/api/messages` and DB tables:
   - `gantry.agent_session_digests`
   - `gantry.memory_items`
@@ -858,5 +857,6 @@ Safety requirements:
 
 Trace code:
 
-- Core trace helper: `apps/core/src/shared/llm-payload-trace.ts`
-- CRM trace helper: `packages/mcp-crm/src/llm-payload-trace.ts`
+- Trace flag hydration: `apps/core/src/app/index.ts`
+- SDK trace capture: `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts`
+- Payload read API: `GET /v1/messages/{messageId}/trace-payloads`

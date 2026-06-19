@@ -17,7 +17,7 @@
  *
  * Run from the repo root, e.g.:
  *   GANTRY_HOME=~/gantry GANTRY_RESET_OAUTH_TOKEN="sk-ant-oat01-..." \
- *     npx tsx ops/reset-runtime/store-anthropic-token.ts
+ *     npx tsx agents/boondi_support/docs/reset-runtime/store-anthropic-token.ts
  *
  * Exit codes: 0 ok | 1 unexpected error | 2 no token provided | 4 bad token format
  */
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   }
 
   const { storeModelCredentialInput } = await import(
-    '../../apps/core/src/cli/credentials.js'
+    '../../../../apps/core/src/cli/credentials.js'
   );
   await storeModelCredentialInput({
     runtimeHome: RUNTIME_HOME,

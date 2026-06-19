@@ -517,7 +517,7 @@ export function createGroupAgentRunner(input: {
         await updateRunProviderMetadata({ providerSessionId: null });
         runtimeLogger.warn(
           { group: group.name, reason },
-          'Expired stale provider session and retrying without resume',
+          'No conversation found with session ID; expired stale provider session and retrying without resume',
         );
         return true;
       };

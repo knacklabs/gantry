@@ -5,7 +5,8 @@ Date: 2026-06-18
 Audience: an architect taking over Gantry/Boondi with no prior mental model.
 
 Source of truth for this document: current code in this checkout plus the live
-verification evidence in `docs/architecture/customer-worker-flow-live-verification-plan.md`.
+verification evidence in
+`agents/boondi_support/docs/customer-worker-flow-live-verification-plan.md`.
 This document is intentionally reason-based: each component is described by what
 it does, why it earns its place, what breaks without it, and where to inspect it.
 
@@ -387,7 +388,7 @@ The latest post-fix load evidence used:
 
 Evidence anchor:
 
-- `docs/architecture/customer-worker-flow-live-verification-plan.md`
+- `agents/boondi_support/docs/customer-worker-flow-live-verification-plan.md`
 
 ## 3. Deep Dive
 
@@ -779,6 +780,9 @@ What breaks without it:
 Dashboard meaning:
 
 - `boundActive`: workers currently bound to conversations
+- `boundIdle` and `boundDraining` are currently reserved inventory fields. In
+  today's runtime they should stay `0`; they are not useful for explaining a
+  customer's current reply path.
 
 ### 3.15 Idle Timeout
 
@@ -822,6 +826,9 @@ What it does:
   shape
 - destroys the synthetic runner before customer traffic so the customer session
   is never polluted by the prewarm prompt
+- must be proven by one explicit system/prompt-cache prewarm call through the
+  adapter `prewarmCaches` path for each active `cacheShapeKey`; warm worker
+  `startup()` alone is not cache prewarm
 
 Code anchor:
 
@@ -1466,8 +1473,18 @@ claiming ownership and screening guardrails.
 
 ### Q17. What happens after idle timeout?
 
-The bound runner is closed/stopped. A later message must use a new warm or cold
-runner and recover continuity from persisted session/memory where available.
+The bound runner is closed/stopped. A later message with a saved provider
+session does not use the generic warm pool. It cold-spawns with provider-session
+resume, then may stay alive again for quick follow-ups inside
+`runtime.runner.idle_timeout_ms`. A later message without a saved provider
+session can use a generic warm worker when one is available.
+
+If Anthropic rejects the saved provider session with `No conversation found with
+session ID`, Gantry treats that saved provider session as stale. It expires the
+saved provider session, retries the same customer message once without `resume`,
+and keeps the Gantry-owned memory/digest block in the retry if one exists. That
+retry now has no provider session id, so it can use a generic warm worker when
+one is available.
 
 ### Q18. Is cache prewarm required for correctness?
 
@@ -1674,9 +1691,19 @@ Plain-English version:
   the customer after the last customer message" timer.
 - If the customer returns before that timer, the preferred path is to reuse the
   bound runner.
-- If the customer returns after that timer, Gantry may assign a new warm worker.
-  Then continuity depends on persisted transcript/session/memory, not on the
-  still-running process.
+- If the customer returns after that timer and the conversation has a saved
+  provider session, Gantry cold-spawns with provider-session resume. The user
+  should still get a normal reply, but that reply can include assistant startup.
+- If Anthropic says that saved provider session no longer exists, Gantry expires
+  the stale saved session and retries the same customer message once without
+  `resume`. That retry can use a generic warm worker because it no longer has a
+  provider session id.
+- The retry without `resume` does not mean Gantry forgot everything. Gantry can
+  still include the memory/digest block it owns.
+- If there is no saved provider session, Gantry can use a generic warm worker
+  when one is available.
+- After the resumed reply, quick same-customer follow-ups can reuse the retained
+  runner again until `runtime.runner.idle_timeout_ms`.
 
 Critical distinction:
 
@@ -1684,6 +1711,7 @@ Critical distinction:
 | --- | --- |
 | Follow-up before idle timeout | Same bound runner should receive continuation |
 | Follow-up after idle timeout | New worker may start, but should recover durable context if designed |
+| Saved provider session rejected by Anthropic | Expire stale provider session, retry once without `resume`, and use generic warm pool if eligible/available |
 | Core restart | Process-local runner context is gone; durable session/transcript becomes source |
 
 ### 9.4 Path D: Dashboard Looks Wrong Or Stale
@@ -1804,7 +1832,7 @@ They are not the same.
 
 | Term | What It Means | Where It Happens | What It Proves |
 | --- | --- | --- | --- |
-| Gantry cache prewarm | Gantry intentionally runs prewarm work before customer traffic | Warm-pool/cache-prewarm path | The runtime attempted to prepare cache earlier |
+| Gantry cache prewarm | Gantry intentionally runs one explicit system/prompt-cache prewarm call before customer traffic for a `cacheShapeKey` | Warm-pool/cache-prewarm path | The runtime attempted to prepare cache earlier |
 | Provider prompt-cache read | Anthropic reports tokens were read from provider cache during this LLM call | Main LLM call usage | The provider reused cached prompt tokens |
 | Provider prompt-cache write | Anthropic reports tokens were written to provider cache during this LLM call | Main LLM call usage | The provider stored prompt tokens for later |
 

@@ -665,36 +665,36 @@ export class GroupQueue {
       }
       if (retainLiveContinuation) {
         this.drainWaiting();
-        return;
-      }
-      if (state.active) {
-        state.active = false;
-        this.activeMessageCount = Math.max(0, this.activeMessageCount - 1);
       } else {
-        state.active = false;
+        if (state.active) {
+          state.active = false;
+          this.activeMessageCount = Math.max(0, this.activeMessageCount - 1);
+        } else {
+          state.active = false;
+        }
       }
-      if (retainIdleLiveRunner) {
+      if (!retainLiveContinuation && retainIdleLiveRunner) {
         if (state.pendingMessages) {
           this.drainGroup(groupJid);
         } else {
           this.drainWaiting();
         }
-        return;
+      } else if (!retainLiveContinuation) {
+        state.process = null;
+        state.runHandle = null;
+        state.groupFolder = null;
+        state.threadId = null;
+        state.requiredContinuationUserId = null;
+        state.pooledWarmWorker = null;
+        state.retainedContinuationActive = false;
+        state.idleWaiting = false;
+        state.continuationHandler = null;
+        if (pooledWarmWorker) {
+          await this.releasePooledWarmWorker(groupJid, pooledWarmWorker);
+        }
+        this.removeStopAliasForQueueJid(groupJid);
+        this.drainGroup(groupJid);
       }
-      state.process = null;
-      state.runHandle = null;
-      state.groupFolder = null;
-      state.threadId = null;
-      state.requiredContinuationUserId = null;
-      state.pooledWarmWorker = null;
-      state.retainedContinuationActive = false;
-      state.idleWaiting = false;
-      state.continuationHandler = null;
-      if (pooledWarmWorker) {
-        await this.releasePooledWarmWorker(groupJid, pooledWarmWorker);
-      }
-      this.removeStopAliasForQueueJid(groupJid);
-      this.drainGroup(groupJid);
     }
   }
 

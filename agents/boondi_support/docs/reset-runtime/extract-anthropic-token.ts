@@ -19,7 +19,7 @@
  *                <GANTRY_HOME>/.env for GANTRY_DATABASE_URL + SECRET_ENCRYPTION_KEY.
  *
  * Run from the repo root, e.g.:
- *   GANTRY_HOME=~/gantry npx tsx ops/reset-runtime/extract-anthropic-token.ts --check
+ *   GANTRY_HOME=~/gantry npx tsx agents/boondi_support/docs/reset-runtime/extract-anthropic-token.ts --check
  *
  * Exit codes: 0 ok | 1 unexpected error | 3 no active credential | 4 bad token format
  */
@@ -42,10 +42,10 @@ async function main(): Promise<void> {
   // Dynamic imports AFTER GANTRY_HOME is set, so the config/storage layer reads
   // the right <runtime>/.env at module-evaluation time.
   const { createStorageRuntime } = await import(
-    '../../apps/core/src/adapters/storage/postgres/factory.js'
+    '../../../../apps/core/src/adapters/storage/postgres/factory.js'
   );
   const { ModelCredentialService } = await import(
-    '../../apps/core/src/application/model-credentials/model-credential-service.js'
+    '../../../../apps/core/src/application/model-credentials/model-credential-service.js'
   );
 
   const storage = createStorageRuntime();

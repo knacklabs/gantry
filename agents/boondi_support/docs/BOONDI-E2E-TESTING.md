@@ -17,8 +17,9 @@ Gantry/Boondi:**
    driven by the `.env` in the gantry runtime folder (§3).
 2. **Cluttered state? Take the fresh start.** When old sessions/backlogs/DB
    noise get in the way, wipe everything with
-   `bash ops/reset-runtime/reset-gantry-runtime.sh --yes` — it preserves the
-   Claude OAuth token automatically — then kill + restart the dev stack (§8).
+   `bash agents/boondi_support/docs/reset-runtime/reset-gantry-runtime.sh --yes`
+   — it preserves the Claude OAuth token automatically — then kill + restart
+   the dev stack (§8).
 3. **Edit `~/gantry/settings.yaml` directly** to adjust and test
    (idle timings, guardrail mode/model, thinking, …) — restart core to apply.
 4. **Confused while debugging? Read the logs first** — `GANTRY_FLOW_LOG=1` and
@@ -67,7 +68,7 @@ Background (after the conversation goes idle):
      ├──► core memory-fact extraction → gantry.memory_items
      └──► mcp-crm digest-watcher → lead/query extraction
             → boondi_crm.boondi_business_records
-   nightly dreaming consolidation (cron 0 1 * * *)
+   nightly dreaming consolidation (default cron 15 3 * * *)
 ```
 
 ---
@@ -80,7 +81,7 @@ string `"1"` — keep them a bare `1` with no trailing comment.
 
 ### `GANTRY_OUTBOUND_DRYRUN` (.env ~line 191)
 
-Code: `apps/core/src/app/bootstrap/channel-wiring.ts:346`.
+Code: `apps/core/src/app/bootstrap/channel-wiring.ts` dry-run branch.
 
 | DRYRUN    | number in operator list? | what happens to Boondi's reply                                                                   |
 | --------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
@@ -105,9 +106,12 @@ It gates two things:
 
 Set this to the real operator number only, for example `919654405340`. Fake
 numbers starting with `000` are inferred by the runtime and do not need to be
-listed in `.env`. Special fakes: `000000050` is the seeded "returning customer"
-persona; `000000901–906` are the isolation-suite pool; `000000001–003` are
-fallback lane phones (`scripts/lib/phones.mjs`).
+listed in `.env`. Real customer numbers are processed inbound, but under
+dry-run they are persisted only unless they are explicitly configured test
+operator numbers. Fake `000*` numbers can attempt outbound under dry-run; the
+provider may reject them, but the reply is still persisted. Special fakes:
+`000000050` is the seeded "returning customer" persona; `000000901–906` are
+the isolation-suite pool.
 
 ### `GANTRY_TEST_CALLER_IDENTITY_PHONE=918097288633` (.env ~line 209)
 
@@ -168,32 +172,6 @@ Kills core + boondi-crm + shopify (127.0.0.1) and force-frees :4710 and :8081
 can usually stay up across a DB reset; this snippet now clears it too for a full
 stop.
 
-### Starting the basic runtime MCP stack
-
-For the basic inbound/outbound/MCP smoke, start the checked-in runtime stack in
-one terminal:
-
-```bash
-cd /Users/caw-d/Desktop/gantry
-npm run dev:boondi-runtime
-```
-
-Then run the smoke from a second terminal:
-
-```bash
-# Use the exact "Next:" command printed by npm run dev:boondi-runtime.
-GANTRY_DEV_LOG=/tmp/gantry-dev.log npm run smoke:boondi-runtime
-```
-
-If `~/gantry/.env` overrides `GANTRY_DEV_LOG`, the stack command prints that
-path in its `Next:` line; use the printed value so the smoke reads the active
-core flow log.
-
-This starts Gantry core, `shopify-api`, and `boondi-crm` with flow logging and
-outbound dry-run. It proves webhook ACK, guardrail entry, MCP proxy
-request/response for both MCP servers, and dry-run outbound only. It does not
-judge Boondi CRM/Shopify product behavior.
-
 ### Starting the stack manually (dev mode)
 
 **Always plain `npm run dev`, one per server, driven entirely by
@@ -220,19 +198,12 @@ Gotchas (will bite if ignored):
   `ANTHROPIC_BASE_URL` — prefix with
   `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CODE_OAUTH_TOKEN npm run dev`.
   A normal user terminal needs nothing.
-- **Regression-harness runs only** (§8): the harness parses core's flow log
-  from a file, so start core as
-  `npm run dev > "${GANTRY_DEV_LOG:-/tmp/gantry-dev.log}" 2>&1 &` and with a
-  short `runtime.runner.idle_timeout_ms: 2500` in `settings.yaml` (default is
-  30 min, and warm LLM runs fill the active-run slots, making later fake-phone
-  chats appear unanswered). For warm-follow-up latency measurements, use a
-  bounded realistic window such as
-  `BOONDI_TEST_IDLE_TIMEOUT_MS=20000 scripts/boondi-test-setup.sh` and set the
-  same `runtime.runner.idle_timeout_ms` value, otherwise the short
-  regression-suite timeout forces SDK-session resume instead of measuring the
-  in-process `MessageStream` path.
-  `scripts/boondi-test-setup.sh` exists to set up exactly that shape for
-  harness runs; it is not the normal way to start the stack.
+- **Flow-log evidence** (§9): when you need a file-backed flow log, start core
+  as `npm run dev > "${GANTRY_DEV_LOG:-/tmp/gantry-dev.log}" 2>&1 &` and use
+  that same file while debugging. Keep `runtime.runner.idle_timeout_ms` in
+  `settings.yaml` aligned with the behavior you are testing: short values force
+  cold/resumed-session behavior sooner, while longer values let immediate
+  follow-ups exercise the still-live `MessageStream` path.
 
 ---
 
@@ -266,23 +237,11 @@ Dedup: `data.message.id` is unique per conversation — re-sending the same id
 ACKs 200 but is dropped at the DB constraint. Use a fresh UUID per message
 (omit it and core synthesizes one).
 
-### Preferred sender — `scripts/lib/webhook.mjs` (canonical, allowlist-guarded)
+### Raw signed webhook sender
 
-```bash
-cd /Users/caw-d/Desktop/gantry
-node -e 'import("./scripts/lib/webhook.mjs").then(async m => {
-  const r = await m.sendWebhook({ text: "Do you have kaju katli?", from: "000000905", name: "Test Customer" });
-  console.log(JSON.stringify(r));
-})'
-# → {"status":200,"ok":true,"messageId":"<uuid>","chatJid":"wa:000000905","response":"{\"ok\":true}\n"}
-```
-
-It builds the minimal valid payload, signs the exact bytes, and **refuses
-non-operator, non-`000*` `from` numbers** (safety convention — the runtime itself
-would process any number but could never reply to an unlisted real number under
-dry-run, which just wastes an LLM turn).
-
-### Raw curl equivalent (tested verbatim)
+There is no checked-in webhook helper in this worktree. Use the raw signed
+request below so the test enters through the same HMAC-protected route as
+Interakt.
 
 ```bash
 SECRET=$(grep '^INTERAKT_WEBHOOK_SECRET=' ~/gantry/.env | cut -d= -f2-)
@@ -298,7 +257,10 @@ curl -s -X POST http://127.0.0.1:4710/v1/channels/interakt/webhook \
 
 Change `channel_phone_number`, `message`, and (optionally) `traits.name` per
 turn; everything else stays. Always `--data-binary` — the signature covers the
-exact bytes.
+exact bytes. Prefer a `000*` fake number for local tests. Under
+`GANTRY_OUTBOUND_DRYRUN=1`, configured operator numbers and `000*` fake numbers
+can attempt outbound; unlisted real numbers are processed inbound but their
+replies are persisted only.
 
 A real captured Interakt payload carries more fields (customer `id`, `traits`
 with `whatsapp_opted_in`/`chat_assignee`, message `message_status`,
@@ -435,7 +397,7 @@ then writes a digest row: `gantry.agent_session_digests` with
    `boondi_crm.boondi_business_records` (status ladder
    query→qualifying→lead, bands P5–P1). View: `/leads` page or `/api/records`.
 3. **Dreaming** (nightly consolidation): settings.yaml `memory.dreaming`
-   enabled, `cron: '0 1 * * *'`.
+   enabled, default `cron: '15 3 * * *'`.
 
 **Don't wait for timers in tests** — drive it with slash commands. A command
 is just a normal signed webhook message whose text IS the command (e.g.
@@ -495,15 +457,11 @@ customer names come from inbound `sender_display_name`.
 
 ---
 
-## 8. Clean state & the scenario harness
+## 8. Clean state
 
-- **Per-phone reset** (deterministic reruns): `scripts/lib/reset.mjs`
-  `resetTestData(client, phones)` deletes the conversation cascade, sessions,
-  runs, digests, CRM records, digest cursor, memory items **and the
-  memory-extraction cursor** (else a reused phone looks "already extracted"
-  and no facts get saved), then `seedReturning` re-seeds the `000000050`
-  returning persona. The regression harness runs this automatically pre-run.
-  Refuses non-local DB hosts unless `BOONDI_ALLOW_DB_RESET=1`.
+- **Per-conversation session reset**: send `/new` from the same `000*` test
+  number when you only need a fresh agent session. This does not delete the DB
+  transcript, CRM rows, memory rows, or admin history; those remain evidence.
 - **Full fresh start** — when the DB/sessions/backlogs are cluttered and you
   want a clean slate (no old conversations, digests, memory, jobs):
   ```bash
@@ -514,7 +472,7 @@ customer names come from inbound `sender_display_name`.
   #    settings.yaml, and agents/ (the repo symlinks), and auto-extracts + restores the
   #    Claude OAuth token — it aborts BEFORE deleting anything if the token can't be
   #    recovered, so the token is never your problem.
-  bash ops/reset-runtime/reset-gantry-runtime.sh --yes
+  bash agents/boondi_support/docs/reset-runtime/reset-gantry-runtime.sh --yes
   # 3) restart the dev stack (§3, plain npm run dev) — core and mcp-crm recreate
   #    their schemas via boot migrations. Restart boondi-admin only if its queries
   #    error afterwards.
@@ -525,64 +483,12 @@ customer names come from inbound `sender_display_name`.
   `--dry-run` previews the plan. The script cycles only the Postgres
   container — restarting the Gantry dev servers afterwards (step 3) is on you,
   which is why the kill+restart is part of this flow.
-- **Scenario suites** (`scripts/`, conventions in `scripts/AGENTS.md`):
-
-```bash
-node scripts/boondi-regression.mjs                # all groups: conversation, shopify, crm
-node scripts/boondi-regression.mjs shopify crm    # subset
-node scripts/boondi-isolation.mjs                 # concurrent users, cross-chat bleed guard
-node scripts/measure-latency.mjs                  # reply-latency measurement
-```
-
-Scenarios live in `scripts/boondi-scenarios.json` (each declares its own
-fake phone). The harness judges conversation/shopify groups from the flow
-log: core stdout must be tee'd to the file the harness reads —
-`GANTRY_DEV_LOG`, default `/tmp/gantry-dev.log`. **Check the env on the
-running core**: `.env` may point `GANTRY_DEV_LOG` elsewhere (it pointed at
-`/tmp/gantry-capture.log` on 2026-06-10), and a hand-started core in a
-terminal tees nowhere — `lsof -p <core-pid> | awk '$4=="1u"'` shows where
-stdout goes. Prereq env for harness runs is exactly what
-`scripts/boondi-test-setup.sh` sets (flow log, dry-run, operator phones,
-caller-identity override, short CRM poll) and expects
-`runtime.runner.idle_timeout_ms: 2500` in `settings.yaml` by default. For
-warm-retention latency runs, start the same script with
-`BOONDI_TEST_IDLE_TIMEOUT_MS=20000` and set the same
-`runtime.runner.idle_timeout_ms` value so a realistic follow-up can reach the
-live runner before stdin closes.
-
-`scripts/boondi-regression.mjs` defaults each customer-visible live-flow turn to
-`TURN_TIMEOUT_MS=180000`. That suite is a correctness gate for guardrails, tool
-calls, privacy, routing, and visible replies. Do not treat it as the latency
-benchmark; measure reply latency with `scripts/measure-latency.mjs` and
-boondi-admin `replySeconds` evidence instead.
-
-`scripts/boondi-isolation.mjs` defaults to `ISOLATION_SETTLE_MS=180000` for the
-same reason: it is a concurrency liveness/bleed gate. Under local model/provider
-load, valid concurrent replies can land after 60s; use the latency script for
-speed claims.
-
-For a fast local runtime smoke that avoids Boondi product semantics, start the
-stack first, then run:
-
-```bash
-npm run dev:boondi-runtime
-# second terminal; use the exact "Next:" command printed by the stack:
-GANTRY_DEV_LOG=/tmp/gantry-dev.log npm run smoke:boondi-runtime
-```
-
-This check sends signed fake Interakt webhooks and proves only the basic
-runtime path: webhook ACK, guardrail entry, MCP proxy request/response for
-`shopify-api` and `boondi-crm`, outbound dry-run, and duplicate provider
-message-id dedupe without duplicate runtime work. Use the full
-`boondi-regression.mjs` groups only when you intentionally want to test Boondi
-CRM/Shopify behavior.
-
-For repeated CRM subset reruns, stale `agent_session_digests` can be replayed by
-the boondi-crm background watcher if the reset races a running watcher. If a
-checkpoint sees old CRM rows after a reset, stop boondi-crm, reset the affected
-test phones while the watcher is offline, restart the stack, and rerun that
-subset with `BOONDI_NO_RESET=1`. Do not loosen the scenario expectation until
-the flow log and CRM log prove the row came from the current transcript.
+- There is no current checked-in per-phone reset helper or Boondi scenario
+  harness in this worktree. For local proof, drive the signed webhook manually,
+  poll admin/API/DB, and quote the exact evidence. If stale CRM rows appear,
+  stop boondi-crm, use the full fresh start above, restart the stack, and rerun
+  the same signed webhook flow. Do not loosen expectations until the flow log
+  and CRM log prove the row came from the current transcript.
 
 ---
 
@@ -592,8 +498,8 @@ the flow log and CRM log prove the row came from the current transcript.
 `GANTRY_FLOW_LOG=1` logs JSON events (grep keys: `flow`, `chatJid`) —
 `flow:guardrail` (decision + reason), `flow:mcp.request` (tool calls),
 `flow:outbound` (final text) — which trace each message's whole journey.
-Location depends on launch: setup script → `$GANTRY_DEV_LOG` (default
-`/tmp/gantry-dev.log`); hand-started → that terminal's stdout
+Location depends on launch: file-backed dev start →
+`${GANTRY_DEV_LOG:-/tmp/gantry-dev.log}`; hand-started → that terminal's stdout
 (`lsof -p <core-pid> | awk '$4=="1u"'`).
 
 **No reply after 60 s — walk the chain:**
@@ -640,10 +546,10 @@ restart core. Runner-side TS changes need `npm run build` unless
 2. **Pick a `000*` fake number** (e.g. from `000000901–906`; avoid
    `000000050` unless testing the returning persona). Optionally reset it
    (§8) for a clean run — otherwise prior context is part of the scenario.
-3. **Send each customer turn** via `scripts/lib/webhook.mjs` (§4); after each
-   send, **poll every 5 s** (§5) until the outbound reply lands — chat turns
-   max 50 s, command replies max 2 min, then debug (§9). Reply arrived early ⇒
-   proceed immediately.
+3. **Send each customer turn** via the raw signed webhook request (§4); after
+   each send, **poll every 5 s** (§5) until the outbound reply lands — chat
+   turns max 50 s, command replies max 2 min, then debug (§9). Reply arrived
+   early ⇒ proceed immediately.
 4. **For CRM/memory assertions** don't wait for idle timers: send
    `/digest-session` and `/extract-leads-queries` from
    the same number (§6c), then check `/api/records` and

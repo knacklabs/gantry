@@ -140,7 +140,6 @@ export function createConversationWorkClaimGate(
       const key = trackedLeaseKeyFromInput(heartbeatInput);
       let stopped = false;
       let running = false;
-      let timer: ReturnType<typeof setInterval> | undefined;
       const stop = (): void => {
         if (stopped) return;
         stopped = true;
@@ -173,7 +172,7 @@ export function createConversationWorkClaimGate(
           running = false;
         }
       };
-      timer = setIntervalFn(
+      const timer = setIntervalFn(
         () => {
           void heartbeat();
         },

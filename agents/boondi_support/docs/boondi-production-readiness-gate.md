@@ -6,7 +6,7 @@ Status: active readiness profile.
 
 This document is the production-readiness entry point for Boondi customer-flow
 testing. It does not redefine the live scenarios. The scenario source of truth
-is `docs/architecture/customer-worker-flow-live-verification-plan.md`.
+is `agents/boondi_support/docs/customer-worker-flow-live-verification-plan.md`.
 
 Use this document to decide:
 
@@ -104,7 +104,7 @@ pending" until F7 is completed.
 ## 4. Heavy Gate
 
 Run the full regression in
-`docs/architecture/customer-worker-flow-live-verification-plan.md` when the
+`agents/boondi_support/docs/customer-worker-flow-live-verification-plan.md` when the
 change touches any of these surfaces:
 
 - worker binding or warm-pool lifecycle

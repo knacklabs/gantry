@@ -39,14 +39,14 @@ evidence.
 | Phase 0   | Harness and baseline                            |  baseline gate | Passed      | 2026-06-18 IST baseline: core 4710, admin 3000, Shopify MCP 8081, CRM MCP 8082; one healthy runtime, 51 stale rows excluded, generic available 3, active 0, pending 0.                                                                                                                                                                              | Admin Runtime and Conversations pages render; latency trace API reachable.                                                                                                                                                                           |
 | Phase 1   | Single customer, single core, cache prewarm off |              4 | Passed      | 2026-06-18 IST fixed rerun `conversation:wa:000960000102` persisted 4 inbound, 4 outbound, and 4 latency reports; turn 4 remembered marker `REKEY-MUMBAI-31`; no latency report included `assistant startup`; healthy runtime active 0, pending 0.                                                                                                  | Retained same-process bound-worker continuation is now proven for a natural 4x4 chat. The run also covered a successful `memory_save` tool call.                                                                                                     |
 | Phase 2   | Multiple customers, single core                 |              5 | Passed      | 2026-06-18 IST fixed rerun used `conversation:wa:000960000201` and `conversation:wa:000960000202`; both persisted 4 inbound and 4 outbound replies; final replies remembered only their own markers `ALPHA-REKEY-201` and `BRAVO-REKEY-202`; no latency report included `assistant startup`; post-idle runtime active 0, pending 0, bound active 0. | Retained same-process continuation and isolation are now proven for two simultaneous natural 4x4 customer chats. Prior Phase 2 capacity and duplicate-redelivery evidence remains valid.                                                             |
-| Phase 3   | Cache prewarm on                                |              2 | Passed      | 2026-06-18 IST throwaway provider-cache implementation proof: `/tmp/gantry-dev-1.log:17` and `/tmp/gantry-dev-2.log:18` logged `Provider cache prewarm succeeded` with `cacheReadUnits=9601`; authenticated `/v1/runtime/workers` showed one shape with no cache-prewarm failures; customer model usage then showed cache reads around `14232`-`15085`; single-core sequential, single-core `SMOKE_CONCURRENCY=3`, two-core sequential, and two-core `SMOKE_CONCURRENCY=3` runtime smokes passed. | Historical pre-fix rows can still contain raw `startup` sections. The admin UI now renders startup explicitly as `Assistant startup`; it must not fold that time into `runtime wait`. Provider-cache prewarm completes before the control HTTP server accepts webhooks when startup prewarm is reachable. |
+| Phase 3   | Cache prewarm on                                |              2 | Passed      | 2026-06-18 IST throwaway provider-cache implementation proof: `/tmp/gantry-dev-1.log:17` and `/tmp/gantry-dev-2.log:18` logged `Provider cache prewarm succeeded` with `cacheReadUnits=9601`; authenticated `/v1/runtime/workers` showed one shape with no cache-prewarm failures; customer model usage then showed cache reads around `14232`-`15085`; single-core sequential, single-core `SMOKE_CONCURRENCY=3`, two-core sequential, and two-core `SMOKE_CONCURRENCY=3` runtime smokes passed. | Historical pre-fix rows can still contain raw `startup` sections. The admin UI now renders startup explicitly as `Assistant startup`; it must not fold that time into `runtime wait`. Startup waits for the default Interakt route prewarm, but existing saved routes are prewarmed in the background. A user should still get a reply; the first reply can be slower if that route is not ready yet. |
 | Phase 3.5 | MCP smoke                                       |              1 | Passed      | 2026-06-18 IST seeded returning-customer rerun used `conversation:wa:000960000352`; all 4 live signed inbound messages and 4 live outbound replies persisted; traces showed `boondi-crm.get_open_records`, `shopify-api.get_recent_orders_with_details`, and `shopify-api.search_products`; post-idle runtime active 0, pending 0, bound active 0. | CRM and Shopify MCP live traffic are proven through live transcript, trace sections, flow logs, admin API, and runtime workers API.                                                                                                                   |
 | Phase 4   | Follow-up routing stress                        |              5 | Passed      | Scenarios 4.1, 4.2, 4.3, and 4.4 passed on 2026-06-18 IST. Scenario 4.5 passed as a focused regression on 2026-06-19 IST with `idle_timeout_ms=60000`: the post-idle resumed reply paid one `assistant startup`, and the immediate follow-up had no startup section with `queue=61 ms`.                         | Follow-up routing stress is now proven for rapid follow-ups, active-run overlap, cold resume, post-resume retained continuation, and a five-turn same-customer loop. Admin/API evidence should be preferred when available.                                     |
 | Phase 5   | Two core processes                              |              5 | Passed      | Scenarios 5.1 through 5.5 passed on 2026-06-18 IST. Two healthy cores exposed aggregate generic capacity `6`; `conversation:wa:000960000501` kept one owner while ingress alternated across ports; six-customer fanout split owners across both cores; restart scenarios recovered through persisted provider sessions.                         | Admin UI/API was intentionally not used because a separate Codex session owns admin UI work; evidence came from core workers API, DB rows, message traces, and logs.                                                                                 |
 | Phase 6   | Dashboard truth                                 | dashboard gate | Passed      | Admin API returned `200` for conversations and runtime workers after Phase 10. Runtime API and admin runtime API both showed two healthy instances, `genericAvailable=6`, `boundActive=0`, `activeMessageRuns=0`, `pendingConversationKeys=0`, and cache prewarm `skipped=6`. Latency UI regression in `boondi-admin` now forbids `runtime wait`. | Another session owns broader admin layout polish, but the data contract and latency report wording are verified.                                                                                                                                     |
 | Phase 7   | Failure recovery                                |              3 | Passed      | Scenarios 7.1 through 7.3 passed on 2026-06-18 IST. Runner kill used `conversation:wa:000960000701` with 4 inbound/4 outbound and stable provider session. Clean MCP outage/recovery used `conversation:wa:000960000722` with exactly 2 inbound/2 outbound. Core kill left `runtime:97799` stale and excluded; survivor handled 4x4 chat.       | Admin UI/API was intentionally not used because a separate Codex session owns admin UI work; evidence came from core workers API, DB rows, flow logs, and MCP health checks.                                                                        |
 | Phase 8   | Repeated-flow soak                              |      soak gate | Passed      | Initial 2026-06-18 IST soak failed before turn 4 due stale multi-core cursor replay. After durable cursor refresh/merge fix, focused replay probe passed and full five-customer/five-turn soak rerun completed with exactly `5` inbound and `5` outbound per customer, `5` latency traces per customer, no duplicates, and worker totals active/pending `0`. | Five customers, five turns each, at least 10 minutes; post-idle `startup` trace sections are expected because gaps intentionally exceed `idle_timeout_ms=30000`.                                                                                     |
-| Phase 9   | Final real-customer acceptance                  |  customer gate | Passed      | Local customer-facing ingress passed on 2026-06-18 IST with `conversation:wa:000960000931`: 4 signed webhooks, 4 outbound dry-run customer replies, 4 latency traces, final reply remembered 6 boxes, chocolate/kaju, `₹1,800`, Pune, and next Friday after a 45s post-idle wait.                                                                      | Real external WhatsApp send remains for the user's final manual test; local acceptance used signed Interakt-compatible webhook ingress and dry-run outbound persistence.                                                                              |
+| Phase 9   | Local customer-flow acceptance                  |  customer gate | Engineering passed      | Local customer-facing ingress passed on 2026-06-18 IST with `conversation:wa:000960000931`: 4 signed webhooks, 4 outbound dry-run customer replies, 4 latency traces, final reply remembered 6 boxes, chocolate/kaju, `₹1,800`, Pune, and next Friday after a 45s post-idle wait.                                                                      | This proves Boondi's local customer-flow functioning. Real external WhatsApp delivery through the third-party provider remains the user's final manual confirmation.                                                                              |
 | Phase 10  | Final regression pass                           | regression gate | Passed      | Post-fix load rerun `loadwave1781772606859` used eight customers across ports `4710` and `4711`, with four reply-gated live signed webhook waves. Every customer ended at exactly `4` inbound, `4` outbound, and `4` latency traces. After a 90s settle, workers showed `activeMessageRuns=0`, `pendingConversationKeys=0`, and `boundActive=0`. Focused fix checks and root `npm run build` passed. | Initial compact pass used `conversation:wa:000960001101`, `000960001102`, and `000960001103`, but `000960001102` later showed `4` inbound and `5` outbound messages. That earlier pass is superseded by the claim/revalidate fix and load rerun. |
 
 `Scenario count` is the named scenario count. Default live execution after
@@ -101,10 +101,12 @@ runtime:
   warm_pool:
     enabled: true
     size: 3
-    idle_timeout_ms: 30000
+    idle_ttl_ms: 240000
     max_bound_workers: 3
     cache_prewarm_enabled: false
     cache_prewarm_concurrency: 1
+  runner:
+    idle_timeout_ms: 30000
 ```
 
 Cache-prewarm-on config:
@@ -114,10 +116,12 @@ runtime:
   warm_pool:
     enabled: true
     size: 3
-    idle_timeout_ms: 30000
+    idle_ttl_ms: 240000
     max_bound_workers: 3
     cache_prewarm_enabled: true
     cache_prewarm_concurrency: 1
+  runner:
+    idle_timeout_ms: 30000
 ```
 
 Interpretation:
@@ -125,9 +129,11 @@ Interpretation:
 - `size: 3` means each healthy core should maintain three generic warm runners
   for the tested warm-pool shape, unless the runtime is starting, draining, or
   unhealthy.
-- `idle_timeout_ms: 30000` means a conversation-bound runner should remain
-  alive for follow-ups after it becomes idle after replying. It is not measured
-  from the customer's message timestamp.
+- `runtime.warm_pool.idle_ttl_ms: 240000` means an unused generic warm runner
+  may sit idle for four minutes before maintenance can recycle it.
+- `runtime.runner.idle_timeout_ms: 30000` means a conversation-bound runner
+  should remain alive for follow-ups after it becomes idle after replying. It is
+  not measured from the customer's message timestamp.
 - Phase 1 intentionally reduced the earlier 200000 ms setting to 30000 ms to
   keep idle/release verification fast. Later phases may raise it again when
   testing longer customer gaps.
@@ -137,6 +143,9 @@ Interpretation:
   Agent SDK query for each active `cacheShapeKey` before customer traffic when
   possible, verify provider cache usage evidence, then destroy the synthetic
   runner before customer traffic.
+- The cache-prewarm proof must include one explicit system/prompt-cache prewarm
+  call through the warm-pool `prewarmCaches` path for each active
+  `cacheShapeKey`. Warm worker `startup()` by itself is not this proof.
 - A successful shape-level prewarm is refreshed after the default prompt-cache
   refresh interval, currently 45 minutes, by running another throwaway
   synthetic query for the same active `cacheShapeKey`. The refresh is still per
@@ -183,7 +192,9 @@ Required sections:
 - tool calls
 - send / outbound delivery
 - runtime handoff or gap, with timestamp and duration
-- cache prewarm, only when an actual Gantry cache-prewarm call ran
+- Gantry cache-prewarm evidence, only as pre-traffic/runtime evidence. It should
+  not be counted as customer reply latency when it already happened before the
+  customer message.
 - provider prompt-cache read/write, labeled as provider prompt-cache usage and
   not as Gantry prewarm
 
@@ -253,8 +264,8 @@ Runtime setup:
 - MCPs: `shopify-api` healthy on `127.0.0.1:8081`; `boondi-crm` healthy on
   `127.0.0.1:8082`.
 - Outbound: `GANTRY_OUTBOUND_DRYRUN=1`.
-- Warm pool: `size: 3`, `max_bound_workers: 3`, `cache_prewarm_enabled: false`,
-  `idle_timeout_ms: 30000`.
+- Warm pool: `size: 3`, `max_bound_workers: 3`, `cache_prewarm_enabled: false`.
+- Runner: `idle_timeout_ms: 30000`.
 
 Live scenario:
 
@@ -428,8 +439,8 @@ Runtime setup:
 - MCPs: `shopify-api` healthy on `127.0.0.1:8081`; `boondi-crm` healthy on
   `127.0.0.1:8082`.
 - Outbound: `GANTRY_OUTBOUND_DRYRUN=1`.
-- Warm pool: `size: 3`, `max_bound_workers: 3`, `cache_prewarm_enabled: false`,
-  `idle_timeout_ms: 30000`.
+- Warm pool: `size: 3`, `max_bound_workers: 3`, `cache_prewarm_enabled: false`.
+- Runner: `idle_timeout_ms: 30000`.
 
 Scenario 2.1 and 2.1b: two customers sequential plus cross-customer marker
 isolation.
@@ -697,17 +708,21 @@ Runtime setup:
   `127.0.0.1:8082`.
 - Outbound: `GANTRY_OUTBOUND_DRYRUN=1`.
 - Warm pool: `size: 3`, `max_bound_workers: 3`, `cache_prewarm_enabled: true`,
-  `cache_prewarm_concurrency: 1`, `idle_timeout_ms: 30000`.
+  `cache_prewarm_concurrency: 1`.
+- Runner: `idle_timeout_ms: 30000`.
 
 Startup-order finding:
 
 - Code path: `apps/core/src/app/index.ts` awaits `prewarmWarmPoolRoutes(...)`
   before connecting enabled channels and starting the control HTTP server.
 - Scope: `apps/core/src/app/bootstrap/startup.ts` awaits default Interakt route
-  prewarm and fire-and-forgets only prewarm of previously discovered existing
-  routes.
-- Result: a signed webhook cannot arrive during default startup prewarm because
-  the control HTTP server is not listening yet.
+  prewarm. Previously discovered existing routes are prewarmed in the
+  background.
+- Result for a user: a signed webhook cannot arrive during default startup
+  prewarm because the control HTTP server is not listening yet. After the server
+  starts, a customer on an existing route can arrive before that route's
+  background prewarm finishes. That is allowed; the reply should still work, but
+  the first reply may pay startup/cold-resume time.
 - Acceptance interpretation: Scenario 3.2 was exercised as the reachable
   equivalent, traffic while generic workers are consumed and replacement
   prewarm/startup is in progress.
@@ -724,6 +739,9 @@ Warm-pool and provider-cache prewarm evidence:
   `pending=0`, `succeeded=3`, `skipped=0`, `failed=0`.
 - The cache shape for `agent:boondi_support` showed `status=succeeded` with
   `workers=3`.
+- This must come from one explicit system/prompt-cache prewarm call for the
+  Boondi `cacheShapeKey`, shared by the warm workers for that shape. It must not
+  be inferred only from warm worker startup.
 - The configured `cache_prewarm_concurrency=1` was in effect for this run; this
   pass verified the final status but did not independently time every provider
   model call to prove serialization.
@@ -747,22 +765,15 @@ Final throwaway provider-cache implementation proof:
 - Customer benefit evidence: subsequent `flow:model.usage` rows in the same
   core logs showed provider cache reads including `14271`, `14232`, `14850`,
   `15023`, `14789`, `14874`, `14911`, `15085`, and `14932`.
-- Regression evidence: `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env
-  npm run smoke:boondi-runtime` passed for the three default smoke cases, and
-  `SMOKE_CONCURRENCY=3 npm run smoke:boondi-runtime` also passed.
-- Multi-core runtime smoke evidence:
-  `GANTRY_RUNTIME_SMOKE_ENV=/tmp/gantry-runtime-smoke.env.1
-  GANTRY_DEV_LOG=/tmp/gantry-dev-1.log,/tmp/gantry-dev-2.log
-  SMOKE_CONCURRENCY=3 npm run smoke:boondi-runtime` passed with two healthy
-  runtime instances, `availableTarget=6`, cache prewarm `succeeded=6`
-  before traffic, cache prewarm `succeeded=8` after replacement warm workers,
-  `failed=0`, and three concurrent smoke cases. Reply times were `11137 ms`,
-  `12319 ms`, and `5673 ms`.
-- Multi-core harness finding: reading only one core log is insufficient because
-  a webhook accepted on one control port can be owned by another runtime
-  instance. The smoke harness now accepts comma-separated `GANTRY_DEV_LOG`
-  paths, and the local stack rewrites printed smoke env files with all core
-  logs.
+- Historical runtime evidence: the June 18 runtime smoke captured three default
+  cases and a concurrent run with two healthy runtime instances,
+  `availableTarget=6`, cache prewarm `succeeded=6` before traffic, cache
+  prewarm `succeeded=8` after replacement warm workers, `failed=0`, and reply
+  times of `11137 ms`, `12319 ms`, and `5673 ms`.
+- Multi-core log finding: reading only one core log is insufficient because a
+  webhook accepted on one control port can be owned by another runtime
+  instance. For current manual checks, collect logs from every core process you
+  start.
 
 Fixed natural 4x4 rerun under cache-prewarm-on:
 
@@ -896,8 +907,8 @@ Runtime setup:
   `127.0.0.1:8082`.
 - Outbound: `GANTRY_OUTBOUND_DRYRUN=1`.
 - Warm pool: `size: 3`, `max_bound_workers: 3`,
-  `cache_prewarm_enabled: false`, `cache_prewarm_concurrency: 1`,
-  `idle_timeout_ms: 30000`.
+  `cache_prewarm_enabled: false`, `cache_prewarm_concurrency: 1`.
+- Runner: `idle_timeout_ms: 30000`.
 
 Baseline runtime snapshot:
 
@@ -1070,7 +1081,7 @@ Required timing sections:
 - queue wait
 - continuation delivery or worker acquisition
 - warm bind, when a warm worker is used
-- Gantry cache prewarm, only when it is customer-visible or relevant to the run
+- Gantry cache prewarm, as runtime/pre-traffic evidence when relevant to the run
 - runner startup
 - guardrail/safety check
 - main LLM turns
@@ -1193,7 +1204,8 @@ Steps:
 4. Record current config values:
    - `runtime.warm_pool.enabled`
    - `runtime.warm_pool.size`
-   - `runtime.warm_pool.idle_timeout_ms`
+   - `runtime.warm_pool.idle_ttl_ms`
+   - `runtime.runner.idle_timeout_ms`
    - `runtime.warm_pool.max_bound_workers`
    - `runtime.warm_pool.cache_prewarm_enabled`
    - `runtime.warm_pool.cache_prewarm_concurrency`
@@ -1215,9 +1227,12 @@ Acceptance:
 Config:
 
 ```yaml
-cache_prewarm_enabled: false
-size: 3
-idle_timeout_ms: 30000
+runtime:
+  warm_pool:
+    cache_prewarm_enabled: false
+    size: 3
+  runner:
+    idle_timeout_ms: 30000
 ```
 
 ### Scenario 1.1: First Customer Message Uses A Warm Runner
@@ -1434,10 +1449,13 @@ Acceptance:
 Config:
 
 ```yaml
-cache_prewarm_enabled: true
-cache_prewarm_concurrency: 1
-size: 3
-idle_timeout_ms: 30000
+runtime:
+  warm_pool:
+    cache_prewarm_enabled: true
+    cache_prewarm_concurrency: 1
+    size: 3
+  runner:
+    idle_timeout_ms: 30000
 ```
 
 ### Scenario 3.1: Prewarm Completes Before Traffic
@@ -1457,6 +1475,9 @@ Expected:
 - The throwaway query runs as an ephemeral provider-cache runner with
   `GANTRY_PROVIDER_CACHE_PREWARM=1` and `warmGenericBoot: false`; it must not
   enter the warm-generic `startup()` and bind-wait path.
+- There must be one explicit system/prompt-cache prewarm call for the active
+  `cacheShapeKey`; for `size: 3` and one Boondi shape, that one call is shared
+  by all three warm workers.
 - With concurrency `1`, prewarm work runs one model call at a time per active
   cache shape.
 - For `size: 3` and one Boondi shape, exactly one provider-cache synthetic
@@ -2237,6 +2258,9 @@ Expected dashboard language:
 - `Available target`: desired generic ready count.
 - `Active message runs`: conversations currently being processed.
 - `Pending conversations`: conversations with queued work not yet processed.
+- `boundIdle` and `boundDraining`: currently reserved fields in the runtime
+  inventory. Today they are expected to stay `0`; do not explain user behavior
+  from these fields.
 
 Acceptance:
 
@@ -2616,9 +2640,10 @@ Acceptance:
 
 ### Phase 9 Evidence Log
 
-Status: passed for the local customer-facing acceptance path on 2026-06-18 IST.
+Status: engineering passed for the local customer-facing acceptance path on
+2026-06-18 IST. This means Boondi's local customer-flow functioning passed.
 Real external WhatsApp delivery remains the user's final manual confirmation
-after engineering verification; local runtime verification keeps
+through the third-party provider; local runtime verification keeps
 `GANTRY_OUTBOUND_DRYRUN=1`.
 
 Runtime setup:
@@ -2836,14 +2861,15 @@ The complete plan passes only when live-flow evidence proves:
 6. Dead/stale workers do not appear as healthy usable capacity.
 7. No message remains pending after the responsible runner has already produced
    a visible reply.
-8. Cache prewarm on/off is accurately reflected in dashboard and latency report.
+8. Cache prewarm on/off is accurately reflected in dashboard/runtime evidence.
 9. Latency report separates:
    - inbound webhook receipt
    - inbound validation/dedupe
    - inbound persistence
    - route resolution
    - owner/claim acquisition
-   - Gantry cache prewarm
+   - Gantry cache prewarm as pre-traffic/runtime evidence, not customer reply
+     latency when it already happened before the customer message
    - provider prompt-cache read/write during the LLM call
    - queue wait
    - continuation delivery or worker acquisition
