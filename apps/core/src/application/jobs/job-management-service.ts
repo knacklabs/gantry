@@ -11,6 +11,7 @@ import {
 import { createManagedJob } from './job-management-create.js';
 import {
   assertExecutionContextMatchesAuthenticatedContext,
+  assertPublicJobNamespace,
   authenticatedContextFromAccess,
   encodeTriggerRequester,
   normalizeNotificationRoutes,
@@ -57,6 +58,7 @@ import { assertJobAppAccess } from './job-management-context-access.js';
 import { createJobVisibilityReaders } from './job-management-visibility-readers.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { updateManagedJob } from './job-management-update.js';
+import { isTrustedSystemJob } from '../../shared/system-job-identity.js';
 
 const DEFAULT_JOB_LIST_LIMIT = 100;
 const MAX_JOB_LIST_LIMIT = 500;
@@ -90,6 +92,7 @@ export class JobManagementService {
         'Unsupported schedule type.',
       );
     }
+    assertPublicJobNamespace({ jobId: input.jobId, prompt });
     const schedule = this.deps.schedulePlanner.planInitial({
       scheduleType,
       scheduleValue: input.scheduleValue,
@@ -298,6 +301,7 @@ export class JobManagementService {
 
   async deleteJob(input: ManagedJobDeleteInput): Promise<{ deleted: true }> {
     const job = await this.requireJob(input.jobId);
+    assertPublicJobNamespace({ jobId: job.id });
     await this.assertAccess(job, input);
     await this.deps.ops.deleteJob(job.id);
     this.deps.scheduler.requestSchedulerSync(job.id);
@@ -306,6 +310,7 @@ export class JobManagementService {
 
   async pauseJob(input: ManagedJobPauseInput): Promise<{ paused: true }> {
     const job = await this.requireJob(input.jobId);
+    assertPublicJobNamespace({ jobId: job.id });
     await this.assertAccess(job, input);
     await this.deps.ops.updateJob(job.id, {
       status: 'paused',
@@ -320,6 +325,7 @@ export class JobManagementService {
     input: ManagedJobResumeInput,
   ): Promise<{ resumed: boolean; job: Job }> {
     const job = await this.requireJob(input.jobId);
+    if (!isTrustedSystemJob(job)) assertPublicJobNamespace({ jobId: job.id });
     await this.assertAccess(job, input);
     let nextRun = this.deps.schedulePlanner.planResume({
       job,
@@ -378,6 +384,7 @@ export class JobManagementService {
     const runtimeEvents = requireRuntimeEvents(this.deps);
     const triggerQueue = requireTriggerQueue(this.deps);
     const job = await this.requireJob(input.jobId);
+    assertPublicJobNamespace({ jobId: job.id });
     const appSession = await resolveJobAppSession({
       control,
       job,

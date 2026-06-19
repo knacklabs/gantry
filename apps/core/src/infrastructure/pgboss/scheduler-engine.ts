@@ -30,8 +30,14 @@ import { resolveAppSessionForJob } from '../../jobs/app-session-resolution.js';
 import { agentIdForJobWorkspaceKey } from '../../application/jobs/job-tool-policy.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../../application/jobs/job-access.js';
 import { currentWorkerInstanceId } from '../../jobs/worker-identity.js';
-import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import { validateScheduleConfig } from '../../jobs/schedule.js';
+import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
+import { requeueRunSlotBlockedDelivery } from './scheduler-delay-notification.js';
+import {
+  loadSchedulerDispatchesByAdmission,
+  schedulerDeliveryPriorityForJob,
+} from './scheduler-admission.js';
+import { recoverExpiredWorkerLeases } from './scheduler-worker-recovery.js';
 import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
@@ -40,7 +46,11 @@ import {
   schedulerJobStaleness,
   staleOnceRequeueBucket,
 } from '../../shared/scheduler-job-staleness.js';
-import { nowMs as currentTimeMs, toIso } from '../../shared/time/datetime.js';
+import {
+  nowMs as currentTimeMs,
+  parseIso,
+  toIso,
+} from '../../shared/time/datetime.js';
 
 const SCHEDULER_QUEUE = 'gantry.jobs';
 const SCHEDULER_QUEUE_DEAD_LETTER = 'gantry.jobs.dead_letter';
@@ -55,6 +65,7 @@ interface PgBossSchedulerCallbacks {
     deps: SchedulerDependencies,
     queueJid: string,
     dispatch?: SchedulerDispatchPayload,
+    control?: { abortSignal?: AbortSignal },
   ) => Promise<void>;
   sweepCompletedOneTimeJobs: (deps: SchedulerDependencies) => Promise<boolean>;
   handleReleasedStaleLeases?: (
@@ -109,15 +120,11 @@ function isRunnableScheduledJob(job: Job): boolean {
 }
 
 function pgBossStartAfter(value: string): Date {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const date = parseIso(value);
+  if (!date) {
     throw new Error(`Invalid scheduler next_run: ${value}`);
   }
   return date;
-}
-
-function schedulerQueueJid(workspaceKey: string, jobId?: string): string {
-  return `__scheduler__:${workspaceKey}${jobId ? `:${jobId}` : ''}`;
 }
 
 export class PgBossSchedulerEngine {
@@ -154,12 +161,25 @@ export class PgBossSchedulerEngine {
     this.boss = boss;
     await this.ensureQueues();
     const queuePolicy = getRuntimeQueueConfig();
+    const hostCapacity = computeHostCapacityPlan({
+      queue: queuePolicy,
+      processRole: this.deps.processRole,
+    });
+    if (hostCapacity.backgroundCapacity === 0) {
+      logger.info(
+        {
+          processRole: this.deps.processRole ?? 'all',
+          cpuThreads: hostCapacity.cpuThreads,
+        },
+        'Scheduler worker running in delay-only mode because background capacity is zero',
+      );
+    }
     await boss.work<SchedulerDispatchPayload>(
       SCHEDULER_QUEUE,
       {
         batchSize: 1,
         pollingIntervalSeconds: 1,
-        localConcurrency: queuePolicy.maxJobRuns,
+        localConcurrency: Math.max(1, hostCapacity.backgroundCapacity),
       },
       (jobs) => this.processBossJobs(jobs),
     );
@@ -262,7 +282,11 @@ export class PgBossSchedulerEngine {
         { count: released.length },
         'Released stale scheduler leases',
       );
-      await this.callbacks.handleReleasedStaleLeases?.(released, this.deps);
+      void this.callbacks
+        .handleReleasedStaleLeases?.(released, this.deps)
+        .catch((err) =>
+          logger.warn({ err }, 'Stale scheduler lease notification failed'),
+        );
       this.scheduleSignatures.clear();
       this.deps.onSchedulerChanged?.();
     }
@@ -284,14 +308,6 @@ export class PgBossSchedulerEngine {
     }
   }
 
-  /**
-   * Fleet-only capability-starvation safety net, driven by the (stoppable)
-   * maintenance sync. Alerts due jobs whose required capability set no active
-   * worker satisfies — the case the requeue-without-retry-burn loop would
-   * otherwise let starve silently — and pauses them through the existing
-   * readiness pause path so they stop requeueing and surface one clear user
-   * action. No-op in workstation mode.
-   */
   private async scanCapabilityStarvation(jobs: readonly Job[]): Promise<void> {
     if (getDeploymentMode() !== 'fleet') return;
     try {
@@ -343,42 +359,11 @@ export class PgBossSchedulerEngine {
     });
   }
 
-  /**
-   * Stale recovery only: marks heartbeat-lapsed workers unhealthy and expires
-   * run leases whose lease window has lapsed. Live leases held by healthy
-   * workers — including a previous incarnation of this process — are never
-   * released here.
-   */
   private async recoverExpiredWorkerLeases(): Promise<void> {
-    try {
-      const coordination = getWorkerCoordinationRepository();
-      const unhealthy = await coordination.markStaleWorkersUnhealthy({
-        staleBefore: toIso(currentTimeMs() - WORKER_STALE_AFTER_MS),
-      });
-      if (unhealthy.length > 0) {
-        logger.warn(
-          { workerInstanceIds: unhealthy },
-          'Marked heartbeat-lapsed worker instances unhealthy',
-        );
-      }
-      const recovered = await coordination.recoverExpiredRunLeases({});
-      if (recovered.length > 0) {
-        logger.warn(
-          {
-            count: recovered.length,
-            leases: recovered.map((lease) => ({
-              runId: lease.runId,
-              jobId: lease.jobId,
-              workerInstanceId: lease.workerInstanceId,
-              fencingVersion: lease.fencingVersion,
-            })),
-          },
-          'Expired lapsed run leases; runs are retryable with a higher fencing version',
-        );
-      }
-    } catch (err) {
-      logger.warn({ err }, 'Failed to recover expired worker run leases');
-    }
+    await recoverExpiredWorkerLeases({
+      coordination: getWorkerCoordinationRepository(),
+      logger,
+    });
   }
 
   private async syncOneJob(jobId: string): Promise<void> {
@@ -430,6 +415,7 @@ export class PgBossSchedulerEngine {
           group: { id: pgBossGroupId(job.workspace_key) },
           singletonKey: pgBossJobKey(job.id),
           retryLimit: 0,
+          priority: schedulerDeliveryPriorityForJob(job),
         },
       );
       return;
@@ -455,6 +441,7 @@ export class PgBossSchedulerEngine {
         startAfter: pgBossStartAt,
         group: { id: pgBossGroupId(job.workspace_key) },
         retryLimit: 0,
+        priority: schedulerDeliveryPriorityForJob(job),
       },
     );
   }
@@ -472,6 +459,7 @@ export class PgBossSchedulerEngine {
         STALE_ONCE_REENQUEUE_THROTTLE_MS,
       ),
       workspaceKey: job.workspace_key,
+      admissionPriority: schedulerDeliveryPriorityForJob(job),
     });
   }
 
@@ -492,26 +480,57 @@ export class PgBossSchedulerEngine {
   private async processBossJobs(
     jobs: PgBossJob<SchedulerDispatchPayload>[],
   ): Promise<void> {
-    const maxParallelJobRuns = getRuntimeQueueConfig().maxJobRuns;
-    for (const bossJob of jobs) {
-      const payload = bossJob.data;
-      if (!payload?.jobId) continue;
-      const current = await this.deps.opsRepository.getJobById(payload.jobId);
-      if (!current) continue;
-      // Capability-matched dispatch (fleet only): an ineligible worker must not
-      // claim. Requeue its delivery and skip runJob so no retry budget burns.
-      if (await this.requeuedIneligibleDelivery(current, payload)) continue;
-      const queueJid = schedulerQueueJid(current.workspace_key, current.id);
+    const queuePolicy = getRuntimeQueueConfig();
+    const hostCapacity = computeHostCapacityPlan({
+      queue: queuePolicy,
+      processRole: this.deps.processRole,
+    });
+    const backgroundCapacity = hostCapacity.backgroundCapacity;
+    const maxParallelJobRuns = queuePolicy.maxJobRuns;
+    const sharesInteractiveBudget = hostCapacity.interactiveCapacity > 0;
+    const interactiveBacklog =
+      backgroundCapacity > 0 &&
+      sharesInteractiveBudget &&
+      (await this.deps.hasLiveAdmissionBacklog?.()) === true;
+    const dispatches = await loadSchedulerDispatchesByAdmission({
+      jobs,
+      getJobById: (jobId) => this.deps.opsRepository.getJobById(jobId),
+    });
+    for (const { current, payload } of dispatches) {
+      const dispatchPayload = {
+        ...payload,
+        runId: payload.runId ?? randomUUID(),
+      };
+      if (await this.requeuedIneligibleDelivery(current, dispatchPayload))
+        continue;
+      if (interactiveBacklog) {
+        await this.requeueCapacityBlockedDelivery(current, dispatchPayload);
+        continue;
+      }
+      const queueJid = `__scheduler__:${current.workspace_key}:${current.id}`;
+      const capacityAbort = new AbortController();
       const releaseSlot = await tryAcquireRunSlot(
         current.workspace_key,
         maxParallelJobRuns,
+        {
+          hostCapacity: backgroundCapacity,
+          hostBudgetCapacity: hostCapacity.budget,
+          runId: dispatchPayload.runId,
+          onSlotLost: () => capacityAbort.abort(),
+        },
       );
       if (!releaseSlot) {
-        await this.requeueRunSlotBlockedDelivery(current, payload);
+        await this.requeueCapacityBlockedDelivery(current, dispatchPayload);
         continue;
       }
       try {
-        await this.callbacks.runJob(current, this.deps, queueJid, payload);
+        await this.callbacks.runJob(
+          current,
+          this.deps,
+          queueJid,
+          dispatchPayload,
+          { abortSignal: capacityAbort.signal },
+        );
       } catch (err) {
         logger.warn(
           { err, jobId: current.id, queueJid },
@@ -521,35 +540,6 @@ export class PgBossSchedulerEngine {
         releaseSlot?.();
       }
       this.requestSync();
-    }
-  }
-
-  private async requeueRunSlotBlockedDelivery(
-    job: Job,
-    payload: SchedulerDispatchPayload,
-  ): Promise<void> {
-    const startAfter = new Date(currentTimeMs() + runSlotRequeueDelayMs());
-    try {
-      await this.requireBoss().send(
-        SCHEDULER_QUEUE,
-        { ...payload, jobId: job.id },
-        {
-          id: randomUUID(),
-          startAfter,
-          group: { id: pgBossGroupId(job.workspace_key) },
-          retryLimit: 0,
-        },
-      );
-      logger.info(
-        { jobId: job.id, startAfter: startAfter.toISOString() },
-        'Requeued scheduler delivery while run slot capacity is full',
-      );
-    } catch (err) {
-      logger.warn(
-        { err, jobId: job.id },
-        'Failed to requeue scheduler delivery blocked on run slot capacity',
-      );
-      throw err;
     }
   }
 
@@ -595,7 +585,7 @@ export class PgBossSchedulerEngine {
     await this.persistRequiredCapabilities(job, decision.requiredCapabilities);
     if (decision.outcome !== 'ineligible') return false;
 
-    const startAfter = new Date(currentTimeMs() + ineligibleRequeueDelayMs());
+    const startAfter = toIso(currentTimeMs() + ineligibleRequeueDelayMs());
     try {
       await this.requireBoss().send(
         SCHEDULER_QUEUE,
@@ -605,6 +595,7 @@ export class PgBossSchedulerEngine {
           startAfter,
           group: { id: pgBossGroupId(job.workspace_key) },
           retryLimit: 0,
+          priority: schedulerDeliveryPriorityForJob(job),
         },
       );
     } catch (err) {
@@ -619,14 +610,27 @@ export class PgBossSchedulerEngine {
         jobId: job.id,
         requiredCapabilities: decision.requiredCapabilities,
         missingCapabilities: decision.missingCapabilities,
-        startAfter: startAfter.toISOString(),
+        startAfter,
       },
       'Requeued ineligible scheduler delivery without consuming retry budget',
     );
     return true;
   }
 
-  /** Persist the resolved required set onto the job when it changed. */
+  private requeueCapacityBlockedDelivery(
+    job: Job,
+    payload: SchedulerDispatchPayload,
+  ): Promise<void> {
+    return requeueRunSlotBlockedDelivery({
+      boss: this.requireBoss(),
+      queueName: SCHEDULER_QUEUE,
+      groupId: pgBossGroupId(job.workspace_key),
+      job,
+      payload,
+      sendMessage: this.deps.sendMessage,
+    });
+  }
+
   private async persistRequiredCapabilities(
     job: Job,
     resolved: readonly string[],
@@ -690,10 +694,7 @@ export async function enqueueSchedulerTriggerDelivery(input: {
       id: pgBossSendId(input.jobId, `trigger:${input.triggerId}`),
       group: { id: pgBossGroupId(job.workspace_key) },
       retryLimit: 0,
+      priority: schedulerDeliveryPriorityForJob(job),
     },
   );
-}
-
-function runSlotRequeueDelayMs(random: () => number = Math.random): number {
-  return 1_000 + Math.floor(random() * 4_000);
 }

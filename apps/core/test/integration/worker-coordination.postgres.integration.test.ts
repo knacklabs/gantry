@@ -528,6 +528,42 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
     ).resolves.toBeNull();
   });
 
+  it('a stale worker crash releases its active leases before the TTL lapses', async () => {
+    await coordination.registerWorker({
+      id: 'w-stale-active-lease',
+      bootNonce: 'nonce-stale-active-lease',
+      now: toIso(nowMs() - 120_000),
+    });
+    await runtime.ops.upsertJob(makeJob('job-stale-worker-lease'));
+    await runtime.ops.upsertJob(makeJob('job-healthy-worker-lease'));
+    await createRunForJob('job-stale-worker-lease', 'run-stale-worker-lease');
+    await createRunForJob(
+      'job-healthy-worker-lease',
+      'run-healthy-worker-lease',
+    );
+    const staleWorkerLease = await coordination.claimRunLease({
+      runId: 'run-stale-worker-lease',
+      jobId: 'job-stale-worker-lease',
+      workerInstanceId: 'w-stale-active-lease',
+      ttlMs: 120_000,
+    });
+    const healthyWorkerLease = await coordination.claimRunLease({
+      runId: 'run-healthy-worker-lease',
+      jobId: 'job-healthy-worker-lease',
+      workerInstanceId: 'w2',
+      ttlMs: 120_000,
+    });
+    expect(staleWorkerLease).not.toBeNull();
+    expect(healthyWorkerLease).not.toBeNull();
+
+    const recovered = await coordination.recoverExpiredRunLeases({
+      staleBefore: toIso(nowMs() - 60_000),
+    });
+    const recoveredRunIds = recovered.map((lease) => lease.runId);
+    expect(recoveredRunIds).toContain('run-stale-worker-lease');
+    expect(recoveredRunIds).not.toContain('run-healthy-worker-lease');
+  });
+
   it('marks retry claims recovered after maintenance expired the old lease', async () => {
     await runtime.ops.upsertJob(makeJob('job-maintenance-recovered'));
     await createRunForJob(
@@ -645,6 +681,50 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
         requireNextRun: false,
       }),
     ).resolves.toBeNull();
+  });
+
+  it('releases a job lease after stale-worker recovery expires its run lease', async () => {
+    await coordination.registerWorker({
+      id: 'w-stale-job-lease',
+      bootNonce: 'nonce-stale-job-lease',
+      now: toIso(nowMs() - 120_000),
+    });
+    await runtime.ops.upsertJob(makeJob('job-stale-job-lease'));
+    const runLease = await runtime.ops.claimDueJobRunStart({
+      jobId: 'job-stale-job-lease',
+      runId: 'run-stale-job-lease',
+      executionProviderId: 'anthropic:claude-agent-sdk' as never,
+      workerInstanceId: 'w-stale-job-lease',
+      workerId: 'worker-folder-1',
+      scheduledFor: nowIso(),
+      startedAt: nowIso(),
+      retryCount: 0,
+      leaseExpiresAt: toIso(nowMs() + 120_000),
+      requireNextRun: false,
+    });
+    expect(runLease).not.toBeNull();
+
+    await coordination.recoverExpiredRunLeases({
+      staleBefore: toIso(nowMs() - 60_000),
+    });
+    const released = await runtime.ops.releaseStaleJobLeases();
+
+    expect(released).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          jobId: 'job-stale-job-lease',
+          runId: 'run-stale-job-lease',
+          runTimedOut: true,
+        }),
+      ]),
+    );
+    await expect(
+      runtime.ops.getJobById('job-stale-job-lease'),
+    ).resolves.toMatchObject({
+      status: 'active',
+      lease_run_id: null,
+      lease_expires_at: null,
+    });
   });
 
   it('does not reclaim an existing terminal run row', async () => {
@@ -926,6 +1006,60 @@ maybeDescribe('multi-worker coordination acceptance gates', () => {
         ttlMs: 60_000,
       }),
     ).resolves.toBe(true);
+  });
+
+  it('does not release stale-worker slots while their run lease is still active', async () => {
+    await coordination.registerWorker({
+      id: 'w-stale-slot-active-lease',
+      bootNonce: 'nonce-w-stale-slot-active-lease',
+      now: toIso(nowMs() - 120_000),
+    });
+    await runtime.ops.upsertJob(makeJob('job-slot-active-lease'));
+    await createRunForJob('job-slot-active-lease', 'run-slot-active-lease');
+    const lease = await coordination.claimRunLease({
+      runId: 'run-slot-active-lease',
+      jobId: 'job-slot-active-lease',
+      workerInstanceId: 'w-stale-slot-active-lease',
+      ttlMs: 60_000,
+    });
+    expect(lease).not.toBeNull();
+    await expect(
+      coordination.acquireRunSlot({
+        slotKey: 'workspace:active-lease',
+        holderId: 'holder-active-lease',
+        capacity: 1,
+        ttlMs: 60_000,
+        runId: 'run-slot-active-lease',
+        workerInstanceId: 'w-stale-slot-active-lease',
+      }),
+    ).resolves.toBe(true);
+
+    await expect(
+      coordination.releaseRunSlotsForStaleWorkers!({
+        staleBefore: toIso(nowMs() - 60_000),
+      }),
+    ).resolves.toBe(0);
+    await expect(
+      runtime.service.pool.query<{ count: number }>(
+        `SELECT count(*)::int AS count
+         FROM "${runtime.schemaName}".run_slots
+         WHERE slot_key = $1 AND holder_id = $2`,
+        ['workspace:active-lease', 'holder-active-lease'],
+      ),
+    ).resolves.toMatchObject({ rows: [{ count: 1 }] });
+
+    await expect(
+      coordination.settleRunLease({
+        runId: 'run-slot-active-lease',
+        leaseToken: lease!.leaseToken,
+        outcome: 'completed',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      coordination.releaseRunSlotsForStaleWorkers!({
+        staleBefore: toIso(nowMs() - 60_000),
+      }),
+    ).resolves.toBe(1);
   });
 
   it('round-trips the process role and defaults it to "all"', async () => {

@@ -88,6 +88,7 @@ export async function startGantryRuntime(
   logger.info({ processRole, capabilities: roleCaps }, 'Resolved process role');
 
   const app = getDefaultRuntimeApp({
+    processRole,
     mcpHostnameLookup: () => mcpHostnameLookup,
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
@@ -363,7 +364,7 @@ export async function startGantryRuntime(
       currentWorkerInstanceId,
       isSchedulerReady,
       oldestWaitingLiveAdmissionSeconds: getOldestWaitingLiveAdmissionSeconds,
-      liveCapacityLimit: () => runtimeSettings.runtime.queue.maxMessageRuns,
+      liveCapacityLimit: () => app.queue.getPolicy().maxMessageRuns,
       sendConversationIngressProjection: async (input) => {
         await channelWiring.sendMessage(input.conversationJid, input.text, {
           durability: 'required',

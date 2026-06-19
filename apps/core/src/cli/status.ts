@@ -18,10 +18,19 @@ import { buildControlPlaneReadModelFromRepositories } from '../application/contr
 import { createDefaultRunnerSandboxProvider } from '../adapters/llm/default-runtime-adapters.js';
 import { resolveProcessRole } from '../app/bootstrap/roles/role-resolver.js';
 import { roleCapabilities } from '../app/bootstrap/roles/role-capabilities.js';
-import { LIVE_TURN_SLOT_KEY_PREFIX } from '../application/live-turns/live-turn-lease-service.js';
-import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
+import {
+  PROCESS_ROLES,
+  type ProcessRole,
+} from '../app/bootstrap/roles/process-role.js';
 import type { AppId } from '../domain/app/app.js';
 import type { RunnerSandboxWarmTemplateStatus } from '../shared/runner-sandbox-provider.js';
+import {
+  computeHostCapacityPlan,
+  detectHostCpuThreads,
+  HOST_EXECUTION_SLOT_KEY_PREFIX,
+  hostExecutionSlotKey,
+  type HostExecutionRuntimeClass,
+} from '../shared/host-capacity.js';
 
 export interface RuntimeCapacityStatus {
   interactive: {
@@ -34,6 +43,11 @@ export interface RuntimeCapacityStatus {
   backgroundJobs: {
     used: number;
     capacity: number;
+  };
+  host: {
+    used: number;
+    budget: number;
+    cpuThreads: number;
   };
 }
 
@@ -223,20 +237,25 @@ async function readRuntimeCapacityFromStorage(
       await import('../adapters/storage/postgres/factory.js');
     const storage = createStorageRuntime();
     try {
-      const livePattern = `${LIVE_TURN_SLOT_KEY_PREFIX}%`;
-      const [liveWorkers, liveUsed, liveBacklog, jobUsed] = await Promise.all([
-        storage.service.pool.query<{ count: number }>(
-          `SELECT count(*)::int AS count
+      const hostUsage = hostSlotUsageFilter();
+      const interactiveUsage = hostSlotUsageFilter('interactive');
+      const backgroundUsage = hostSlotUsageFilter('background');
+      const [
+        workerCounts,
+        liveBacklog,
+        hostInteractiveUsed,
+        hostBackgroundUsed,
+        hostUsed,
+      ] = await Promise.all([
+        storage.service.pool.query<{
+          process_role: ProcessRole;
+          count: number;
+        }>(
+          `SELECT process_role, count(*)::int AS count
            FROM worker_instances
            WHERE heartbeat_at > now() - interval '60 seconds'
              AND status IN ('starting', 'healthy')
-             AND process_role IN ('all', 'live-worker')`,
-        ),
-        storage.service.pool.query<{ count: number }>(
-          `SELECT count(*)::int AS count
-           FROM run_slots
-           WHERE slot_key LIKE $1 AND expires_at > now()`,
-          [livePattern],
+           GROUP BY process_role`,
         ),
         storage.service.pool.query<{
           count: number;
@@ -247,30 +266,56 @@ async function readRuntimeCapacityFromStorage(
              coalesce(max(extract(epoch FROM (now() - created_at))), 0)::int
                AS oldest_age_seconds
            FROM live_admission_work_items
-           WHERE state = 'queued'`,
+           WHERE state = 'queued'
+              OR (
+                state = 'deferred'
+                AND (defer_until IS NULL OR defer_until <= now())
+              )`,
         ),
         storage.service.pool.query<{ count: number }>(
           `SELECT count(*)::int AS count
            FROM run_slots
-           WHERE slot_key NOT LIKE $1 AND expires_at > now()`,
-          [livePattern],
+           WHERE ${interactiveUsage.whereSql} AND expires_at > now()`,
+          interactiveUsage.params,
+        ),
+        storage.service.pool.query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM run_slots
+           WHERE ${backgroundUsage.whereSql} AND expires_at > now()`,
+          backgroundUsage.params,
+        ),
+        storage.service.pool.query<{ count: number }>(
+          `SELECT count(*)::int AS count
+           FROM run_slots
+           WHERE ${hostUsage.whereSql} AND expires_at > now()`,
+          hostUsage.params,
         ),
       ]);
-      const liveCapacity =
-        (liveWorkers.rows[0]?.count ?? 0) *
-        settings.runtime.queue.maxMessageRuns;
-      const liveSlotsUsed = liveUsed.rows[0]?.count ?? 0;
+      const liveSlotsUsed = hostInteractiveUsed.rows[0]?.count ?? 0;
+      const backgroundSlotsUsed = hostBackgroundUsed.rows[0]?.count ?? 0;
+      const hostCapacity = resolveStatusHostCapacity({
+        settings,
+        workerCounts: workerCounts.rows,
+      });
+      const effectiveLiveCapacity =
+        hostCapacity.liveWorkerCount > 0 ? hostCapacity.interactiveCapacity : 0;
       return {
         interactive: {
           used: liveSlotsUsed,
-          capacity: liveCapacity,
+          capacity: effectiveLiveCapacity,
           backlog: liveBacklog.rows[0]?.count ?? 0,
           oldestBacklogSeconds: liveBacklog.rows[0]?.oldest_age_seconds ?? 0,
-          warmSpare: liveCapacity > liveSlotsUsed ? 'available' : 'missing',
+          warmSpare:
+            effectiveLiveCapacity > liveSlotsUsed ? 'available' : 'missing',
         },
         backgroundJobs: {
-          used: jobUsed.rows[0]?.count ?? 0,
-          capacity: settings.runtime.queue.maxJobRuns,
+          used: backgroundSlotsUsed,
+          capacity: hostCapacity.backgroundCapacity,
+        },
+        host: {
+          used: hostUsed.rows[0]?.count ?? 0,
+          budget: hostCapacity.budget,
+          cpuThreads: hostCapacity.cpuThreads,
         },
       };
     } finally {
@@ -285,6 +330,122 @@ async function readRuntimeCapacityFromStorage(
     }
     return undefined;
   }
+}
+
+function hostSlotUsageFilter(runtimeClass?: HostExecutionRuntimeClass): {
+  whereSql: string;
+  params: string[];
+} {
+  if (process.env.GANTRY_HOST_ID?.trim()) {
+    return {
+      whereSql: 'slot_key = $1',
+      params: [hostExecutionSlotKey(undefined, runtimeClass)],
+    };
+  }
+  if (runtimeClass) {
+    return {
+      whereSql: 'slot_key LIKE $1',
+      params: [`${HOST_EXECUTION_SLOT_KEY_PREFIX}%:${runtimeClass}`],
+    };
+  }
+  return {
+    whereSql:
+      'slot_key LIKE $1 AND slot_key NOT LIKE $2 AND slot_key NOT LIKE $3',
+    params: [
+      `${HOST_EXECUTION_SLOT_KEY_PREFIX}%`,
+      `${HOST_EXECUTION_SLOT_KEY_PREFIX}%:interactive`,
+      `${HOST_EXECUTION_SLOT_KEY_PREFIX}%:background`,
+    ],
+  };
+}
+
+function resolveStatusHostCapacity(input: {
+  settings: ReturnType<typeof ensureRuntimeSettings>;
+  workerCounts: Array<{ process_role: ProcessRole; count: number }>;
+}): {
+  interactiveCapacity: number;
+  backgroundCapacity: number;
+  budget: number;
+  cpuThreads: number;
+  liveWorkerCount: number;
+} {
+  const cpuThreads = detectHostCpuThreads();
+  if (process.env.GANTRY_HOST_ID?.trim()) {
+    const allPlan = computeHostCapacityPlan({
+      queue: input.settings.runtime.queue,
+      processRole: 'all',
+      cpuThreads,
+    });
+    const livePlan = computeHostCapacityPlan({
+      queue: input.settings.runtime.queue,
+      processRole: 'live-worker',
+      cpuThreads,
+    });
+    const jobPlan = computeHostCapacityPlan({
+      queue: input.settings.runtime.queue,
+      processRole: 'job-worker',
+      cpuThreads,
+    });
+    const allCount = sumRoleCounts(input.workerCounts, ['all']);
+    const liveWorkerCount = sumRoleCounts(input.workerCounts, [
+      'all',
+      'live-worker',
+    ]);
+    const jobWorkerCount = sumRoleCounts(input.workerCounts, [
+      'all',
+      'job-worker',
+    ]);
+    return {
+      interactiveCapacity:
+        allCount > 0
+          ? allPlan.interactiveCapacity
+          : liveWorkerCount > 0
+            ? livePlan.interactiveCapacity
+            : 0,
+      backgroundCapacity:
+        allCount > 0
+          ? allPlan.backgroundCapacity
+          : jobWorkerCount > 0
+            ? jobPlan.backgroundCapacity
+            : 0,
+      budget: liveWorkerCount > 0 || jobWorkerCount > 0 ? cpuThreads : 0,
+      cpuThreads,
+      liveWorkerCount,
+    };
+  }
+  let interactiveCapacity = 0;
+  let backgroundCapacity = 0;
+  let budget = 0;
+  let liveWorkerCount = 0;
+  for (const role of PROCESS_ROLES) {
+    const count = sumRoleCounts(input.workerCounts, [role]);
+    if (count <= 0 || role === 'control') continue;
+    const plan = computeHostCapacityPlan({
+      queue: input.settings.runtime.queue,
+      processRole: role,
+      cpuThreads,
+    });
+    interactiveCapacity += plan.interactiveCapacity * count;
+    backgroundCapacity += plan.backgroundCapacity * count;
+    budget += plan.budget * count;
+    if (role === 'all' || role === 'live-worker') liveWorkerCount += count;
+  }
+  return {
+    interactiveCapacity,
+    backgroundCapacity,
+    budget,
+    cpuThreads,
+    liveWorkerCount,
+  };
+}
+
+function sumRoleCounts(
+  rows: Array<{ process_role: ProcessRole; count: number }>,
+  roles: ProcessRole[],
+): number {
+  return rows
+    .filter((row) => roles.includes(row.process_role))
+    .reduce((sum, row) => sum + row.count, 0);
 }
 
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
@@ -383,6 +544,7 @@ function insertRuntimeCapacityStatus(
     `Interactive capacity: ${capacity.interactive.used}/${capacity.interactive.capacity}`,
     `Interactive backlog: ${capacity.interactive.backlog}, oldest ${capacity.interactive.oldestBacklogSeconds}s`,
     `Background jobs: ${capacity.backgroundJobs.used}/${capacity.backgroundJobs.capacity}`,
+    `Host capacity: ${capacity.host.used}/${capacity.host.budget}, CPU threads ${capacity.host.cpuThreads}`,
     `Live warm spare: ${capacity.interactive.warmSpare}`,
   );
   return lines.join('\n');

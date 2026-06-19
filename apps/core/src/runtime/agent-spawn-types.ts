@@ -108,6 +108,7 @@ export interface AgentOutputRuntimeEvent {
 
 export interface RunAgentOptions {
   timeoutMs?: number;
+  signal?: AbortSignal;
   credentialBroker?: AgentCredentialBroker;
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;

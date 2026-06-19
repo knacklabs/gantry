@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   claimLiveTurnExecution,
@@ -9,12 +9,26 @@ import {
   liveTurnSlotKey,
   type LiveTurnLeaseDeps,
 } from '@core/application/live-turns/live-turn-lease-service.js';
+import {
+  hostExecutionSlotHolderId,
+  hostExecutionSlotKey,
+} from '@core/shared/host-capacity.js';
 import type {
   LiveTurnCoordinationRepository,
   LiveTurnScope,
 } from '@core/domain/ports/live-turns.js';
 
 import { FakeCoordination, FakeLiveTurns } from './live-turn-lease-fakes.js';
+
+const originalHostId = process.env.GANTRY_HOST_ID;
+
+afterEach(() => {
+  if (originalHostId === undefined) {
+    delete process.env.GANTRY_HOST_ID;
+  } else {
+    process.env.GANTRY_HOST_ID = originalHostId;
+  }
+});
 
 function makeScope(patch: Partial<LiveTurnScope> = {}): LiveTurnScope {
   return {
@@ -54,6 +68,7 @@ describe('claimLiveTurnExecution', () => {
       scope: makeScope(),
       runId: 'run-1',
       slotCapacity: 2,
+      hostSlotCapacity: 2,
       leaseTtlMs: 60_000,
       pendingMessage: { text: 'hi' },
     });
@@ -126,7 +141,52 @@ describe('claimLiveTurnExecution', () => {
     expect(liveTurns.turns.has('turn-2')).toBe(false);
   });
 
-  it('claims live capacity even when the matching job workspace slot is full', async () => {
+  it('requires a host slot before claiming a live turn when host capacity is enforced', async () => {
+    const { deps, liveTurns, coordination } = makeDeps();
+    await coordination.acquireRunSlot({
+      slotKey: hostExecutionSlotKey('w1', 'interactive'),
+      holderId: 'job-holder',
+      capacity: 1,
+      ttlMs: 60_000,
+      runId: 'job-run',
+      workerInstanceId: 'w1',
+    });
+
+    const result = await claimLiveTurnExecution({
+      deps,
+      turnId: 'turn-1',
+      scope: makeScope(),
+      runId: 'run-1',
+      slotCapacity: 1,
+      hostSlotCapacity: 1,
+      leaseTtlMs: 60_000,
+    });
+
+    expect(result.outcome).toBe('no_capacity');
+    expect(liveTurns.turns.has('turn-1')).toBe(false);
+    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+  });
+
+  it('holds the host slot under the live lease generation after claim', async () => {
+    const { deps, coordination } = makeDeps();
+
+    const result = await claimLiveTurnExecution({
+      deps,
+      turnId: 'turn-1',
+      scope: makeScope(),
+      runId: 'run-1',
+      slotCapacity: 1,
+      hostSlotCapacity: 2,
+      leaseTtlMs: 60_000,
+    });
+
+    expect(result.outcome).toBe('claimed');
+    expect(
+      coordination.slotHolders(hostExecutionSlotKey('w1', 'interactive')),
+    ).toEqual([hostExecutionSlotHolderId(liveTurnSlotHolderId('turn-1', 1))]);
+  });
+
+  it('claims live capacity even when background and maintenance slots are full', async () => {
     const { deps, coordination } = makeDeps();
     await coordination.acquireRunSlot({
       slotKey: 'tg:team',
@@ -135,6 +195,14 @@ describe('claimLiveTurnExecution', () => {
       ttlMs: 60_000,
       runId: 'job-run',
       workerInstanceId: 'job-worker',
+    });
+    await coordination.acquireRunSlot({
+      slotKey: 'maintenance:memory',
+      holderId: 'maintenance-holder',
+      capacity: 1,
+      ttlMs: 60_000,
+      runId: 'maintenance-run',
+      workerInstanceId: 'maintenance-worker',
     });
 
     const result = await claimLiveTurnExecution({
@@ -148,9 +216,158 @@ describe('claimLiveTurnExecution', () => {
 
     expect(result.outcome).toBe('claimed');
     expect(coordination.slotHolders('tg:team')).toEqual(['job-holder']);
+    expect(coordination.slotHolders('maintenance:memory')).toEqual([
+      'maintenance-holder',
+    ]);
     expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([
       liveTurnSlotHolderId('turn-1', 1),
     ]);
+  });
+
+  it('keeps reserved live slots available when a background job holds host capacity', async () => {
+    process.env.GANTRY_HOST_ID = 'shared-host';
+    const { deps, coordination } = makeDeps();
+    await coordination.acquireRunSlot({
+      slotKey: hostExecutionSlotKey('job-worker'),
+      holderId: hostExecutionSlotHolderId('job-holder'),
+      capacity: 4,
+      ttlMs: 60_000,
+      runId: 'job-run',
+      workerInstanceId: 'job-worker',
+    });
+    await coordination.acquireRunSlot({
+      slotKey: hostExecutionSlotKey('job-worker', 'background'),
+      holderId: hostExecutionSlotHolderId('job-holder'),
+      capacity: 4,
+      ttlMs: 60_000,
+      runId: 'job-run',
+      workerInstanceId: 'job-worker',
+    });
+
+    for (const turnId of ['turn-1', 'turn-2', 'turn-3']) {
+      const result = await claimLiveTurnExecution({
+        deps,
+        turnId,
+        scope: makeScope({ conversationId: `tg:${turnId}` }),
+        runId: `run-${turnId}`,
+        slotCapacity: 3,
+        hostSlotCapacity: 3,
+        hostBudgetCapacity: 4,
+        leaseTtlMs: 60_000,
+      });
+
+      expect(result.outcome).toBe('claimed');
+    }
+
+    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toHaveLength(3);
+    expect(coordination.slotHolders(hostExecutionSlotKey('w1'))).toHaveLength(
+      4,
+    );
+    expect(
+      coordination.slotHolders(hostExecutionSlotKey('w1', 'interactive')),
+    ).toHaveLength(3);
+    expect(
+      coordination.slotHolders(
+        hostExecutionSlotKey('job-worker', 'background'),
+      ),
+    ).toEqual([hostExecutionSlotHolderId('job-holder')]);
+  });
+
+  it('shares one host budget across background and live workers on the same host', async () => {
+    process.env.GANTRY_HOST_ID = 'shared-host';
+    const { deps, liveTurns, coordination } = makeDeps();
+    for (const holder of ['job-1', 'job-2', 'job-3', 'job-4']) {
+      await coordination.acquireRunSlot({
+        slotKey: hostExecutionSlotKey('job-worker'),
+        holderId: hostExecutionSlotHolderId(holder),
+        capacity: 4,
+        ttlMs: 60_000,
+        runId: holder,
+        workerInstanceId: 'job-worker',
+      });
+    }
+
+    const result = await claimLiveTurnExecution({
+      deps,
+      turnId: 'turn-1',
+      scope: makeScope(),
+      runId: 'live-run',
+      slotCapacity: 3,
+      hostSlotCapacity: 3,
+      hostBudgetCapacity: 4,
+      leaseTtlMs: 60_000,
+    });
+
+    expect(result.outcome).toBe('no_capacity');
+    expect(liveTurns.turns.has('turn-1')).toBe(false);
+    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+  });
+
+  it('releases the shared host budget when interactive class-slot acquisition throws', async () => {
+    const { deps, coordination } = makeDeps();
+    const acquireRunSlot = coordination.acquireRunSlot.bind(coordination);
+    coordination.acquireRunSlot = async (input) => {
+      if (input.slotKey === hostExecutionSlotKey('w1', 'interactive')) {
+        throw new Error('interactive slot unavailable');
+      }
+      return acquireRunSlot(input);
+    };
+
+    await expect(
+      claimLiveTurnExecution({
+        deps,
+        turnId: 'turn-1',
+        scope: makeScope(),
+        runId: 'live-run',
+        slotCapacity: 3,
+        hostSlotCapacity: 3,
+        hostBudgetCapacity: 4,
+        leaseTtlMs: 60_000,
+      }),
+    ).rejects.toThrow('interactive slot unavailable');
+
+    expect(coordination.slotHolders(hostExecutionSlotKey('w1'))).toEqual([]);
+  });
+
+  it('unwinds claimed lease, slots, and turn when re-homed host-slot acquisition throws', async () => {
+    const { deps, liveTurns, coordination } = makeDeps();
+    const acquireRunSlot = coordination.acquireRunSlot.bind(coordination);
+    let interactiveAcquireCalls = 0;
+    coordination.acquireRunSlot = async (input) => {
+      if (input.slotKey === hostExecutionSlotKey('w1', 'interactive')) {
+        interactiveAcquireCalls += 1;
+        if (interactiveAcquireCalls === 2) {
+          throw new Error('re-homed interactive slot unavailable');
+        }
+      }
+      return acquireRunSlot(input);
+    };
+
+    await expect(
+      claimLiveTurnExecution({
+        deps,
+        turnId: 'turn-1',
+        scope: makeScope(),
+        runId: 'live-run',
+        slotCapacity: 3,
+        hostSlotCapacity: 3,
+        hostBudgetCapacity: 4,
+        leaseTtlMs: 60_000,
+      }),
+    ).rejects.toThrow('re-homed interactive slot unavailable');
+
+    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+    expect(coordination.slotHolders(hostExecutionSlotKey('w1'))).toEqual([]);
+    expect(
+      coordination.slotHolders(hostExecutionSlotKey('w1', 'interactive')),
+    ).toEqual([]);
+    expect(coordination.leases).toMatchObject([
+      {
+        runId: 'live-run',
+        status: 'released',
+      },
+    ]);
+    expect(liveTurns.turns.get('turn-1')?.state).toBe('failed');
   });
 
   it('unwinds slot and turn when the lease cannot be claimed', async () => {
@@ -261,6 +478,41 @@ describe('heartbeatLiveTurnLease', () => {
       }),
     ).resolves.toEqual({ leaseAlive: false, slotHeld: false });
   });
+
+  it('releases both host slot rows when host-slot renewal is partial', async () => {
+    const { deps, coordination } = makeDeps();
+    const claim = await claimLiveTurnExecution({
+      deps,
+      turnId: 'turn-1',
+      scope: makeScope(),
+      runId: 'run-1',
+      slotCapacity: 2,
+      hostSlotCapacity: 2,
+      leaseTtlMs: 60_000,
+    });
+    if (claim.outcome !== 'claimed') throw new Error('claim failed');
+    const holderId = liveTurnSlotHolderId('turn-1', 1);
+    await coordination.releaseRunSlot({
+      slotKey: hostExecutionSlotKey('w1', 'interactive'),
+      holderId: hostExecutionSlotHolderId(holderId),
+    });
+
+    await expect(
+      heartbeatLiveTurnLease({
+        deps,
+        turnId: 'turn-1',
+        lease: claim.lease,
+        leaseTtlMs: 60_000,
+        hostSlotCapacity: 2,
+      }),
+    ).resolves.toEqual({ leaseAlive: true, slotHeld: false });
+
+    expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+    expect(coordination.slotHolders(hostExecutionSlotKey('w1'))).toEqual([]);
+    expect(
+      coordination.slotHolders(hostExecutionSlotKey('w1', 'interactive')),
+    ).toEqual([]);
+  });
 });
 
 describe('finalizeLiveTurnExecution', () => {
@@ -286,6 +538,7 @@ describe('finalizeLiveTurnExecution', () => {
         },
         turnState: 'completed',
         leaseOutcome: 'completed',
+        hostSlotCapacity: 2,
         agentRunCompletion: {
           status: 'completed',
           resultSummary: 'Live turn completed.',
@@ -301,6 +554,9 @@ describe('finalizeLiveTurnExecution', () => {
       },
     ]);
     expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+    expect(
+      coordination.slotHolders(hostExecutionSlotKey('w1', 'interactive')),
+    ).toEqual([]);
     // The scope is claimable again.
     const next = await claimLiveTurnExecution({
       deps,
@@ -481,5 +737,60 @@ describe('recoverLiveTurnExecution', () => {
       coordination.leases.filter((row) => row.status === 'active'),
     ).toEqual([]);
     expect(coordination.slotHolders(liveTurnSlotKey('w1'))).toEqual([]);
+  });
+
+  it('unwinds recovery lease and slots when host-slot acquisition throws', async () => {
+    const { deps, liveTurns, coordination } = makeDeps();
+    const claim = await claimLiveTurnExecution({
+      deps,
+      turnId: 'turn-1',
+      scope: makeScope(),
+      runId: 'run-1',
+      slotCapacity: 3,
+      leaseTtlMs: 60_000,
+    });
+    if (claim.outcome !== 'claimed') throw new Error('claim failed');
+    coordination.expireLease(claim.lease.leaseToken);
+    const acquireRunSlot = coordination.acquireRunSlot.bind(coordination);
+    coordination.acquireRunSlot = async (input) => {
+      if (input.slotKey === hostExecutionSlotKey('w2', 'interactive')) {
+        throw new Error('recovery interactive slot unavailable');
+      }
+      return acquireRunSlot(input);
+    };
+
+    await expect(
+      recoverLiveTurnExecution({
+        deps: { ...deps, workerInstanceId: 'w2' },
+        turn: liveTurns.turns.get('turn-1')!,
+        slotCapacity: 3,
+        hostSlotCapacity: 3,
+        hostBudgetCapacity: 4,
+        leaseTtlMs: 60_000,
+      }),
+    ).rejects.toThrow('recovery interactive slot unavailable');
+
+    expect(coordination.slotHolders(liveTurnSlotKey('w2'))).toEqual([]);
+    expect(coordination.slotHolders(hostExecutionSlotKey('w2'))).toEqual([]);
+    expect(
+      coordination.slotHolders(hostExecutionSlotKey('w2', 'interactive')),
+    ).toEqual([]);
+    expect(
+      coordination.leases.filter((row) => row.status === 'active'),
+    ).toEqual([]);
+    expect(coordination.leases).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          leaseToken: claim.lease.leaseToken,
+          status: 'expired',
+        }),
+        expect.objectContaining({ runId: 'run-1', status: 'released' }),
+      ]),
+    );
+    expect(liveTurns.turns.get('turn-1')).toMatchObject({
+      state: 'claimed',
+      workerInstanceId: 'w1',
+      fencingVersion: claim.lease.fencingVersion,
+    });
   });
 });

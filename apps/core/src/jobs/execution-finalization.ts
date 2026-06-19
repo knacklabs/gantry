@@ -294,7 +294,7 @@ export async function finalizeSchedulerJobRun(input: {
   };
 }
 
-function retryBackoffMs(job: Job, retryCount: number): number {
+export function retryBackoffMs(job: Job, retryCount: number): number {
   const baseBackoff = Math.max(0, job.retry_backoff_ms || 0);
   const exponent = Math.max(0, retryCount - 1);
   const cappedExponent = Math.min(exponent, 30);

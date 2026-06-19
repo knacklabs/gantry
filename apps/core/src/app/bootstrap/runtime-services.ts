@@ -20,6 +20,7 @@ import type { NewMessage } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
+import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
 // prettier-ignore
 import { recoverPendingMessages, startMessagePollingLoop, type MessageLoopDeps, type MessagePollingLoopHandle } from '../../runtime/message-loop.js';
 // prettier-ignore
@@ -75,7 +76,11 @@ import {
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
-import { nowIso, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import {
+  nowIso,
+  nowMs as currentTimeMs,
+  toIso,
+} from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
 import { configurePendingInteractionPermissionPersistence } from '../../application/interactions/pending-interaction-durability.js';
@@ -292,6 +297,16 @@ export async function startRuntimeServices(
     ? new LiveTurnAuthority({
         leaseDeps: liveTurnLeaseDeps,
         slotCapacity: () => app.queue.getPolicy().maxMessageRuns,
+        hostSlotCapacity: () =>
+          computeHostCapacityPlan({
+            queue: app.queue.getPolicy(),
+            processRole,
+          }).interactiveCapacity,
+        hostBudgetCapacity: () =>
+          computeHostCapacityPlan({
+            queue: app.queue.getPolicy(),
+            processRole,
+          }).budget,
         warn: (context, message) => resolved.logger.warn(context, message),
       })
     : undefined;
@@ -693,7 +708,7 @@ export async function startRuntimeServices(
         },
         initialClaim: {
           claimToken: `claim:live-send:${input.sourceMessageId}`,
-          claimExpiresAt: new Date(currentTimeMs() + 60_000).toISOString(),
+          claimExpiresAt: toIso(currentTimeMs() + 60_000),
         },
       });
       const claimedItems = started.claimedItems;
@@ -944,6 +959,7 @@ export async function startRuntimeServices(
   };
   activeLiveExecutionServices = startLiveExecutionServices({
     appId: channelWiring.getRuntimeAppId(),
+    processRole,
     app,
     liveTurnAuthority,
     liveTurnLeaseDeps,

@@ -2,7 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { MemoryIpcAction } from '@gantry/contracts';
 import type { BrowserBackendAction } from '../../shared/browser-backend-actions.js';
-import { nowMs, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import {
+  nowMs,
+  nowMs as currentTimeMs,
+  toIso,
+} from '../../shared/time/datetime.js';
 import { formatDuration } from '../../shared/human-format.js';
 import {
   formatMemoryTimeoutError,
@@ -121,7 +125,7 @@ export async function requestMemoryAction(
       allowedActions: memoryIpcAllowedActions,
       reviewerIsControlApprover: memoryReviewerIsControlApprover,
     },
-    expiresAt: new Date(currentTimeMs() + timeoutMs).toISOString(),
+    expiresAt: toIso(currentTimeMs() + timeoutMs),
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
     MEMORY_IPC_AUTH_TOKEN,
@@ -224,7 +228,7 @@ export async function requestBrowserAction(
         : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
     },
-    expiresAt: new Date(currentTimeMs() + timeoutMs).toISOString(),
+    expiresAt: toIso(currentTimeMs() + timeoutMs),
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
     BROWSER_IPC_AUTH_TOKEN,

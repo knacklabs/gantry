@@ -288,6 +288,64 @@ describe('executeRunnerProcess', () => {
         'test-runner sandbox provider failed',
       );
     });
+
+    it('does not spawn when the run is already aborted', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const sandboxProvider = {
+        id: 'direct' as const,
+        enforcing: false,
+        start: vi.fn(() => fakeProc),
+      };
+      const onProcess = vi.fn();
+      const spec = makeSpec({
+        onProcess,
+        options: {
+          runnerSandboxProvider: sandboxProvider,
+          signal: controller.signal,
+        },
+      });
+
+      const result = await executeRunnerProcess(spec);
+
+      expect(sandboxProvider.start).not.toHaveBeenCalled();
+      expect(onProcess).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        status: 'error',
+        result: null,
+        error: 'test-runner stopped because the run was aborted',
+      });
+    });
+
+    it('binds abort before writing runner input', async () => {
+      const controller = new AbortController();
+      const stdinWrite = vi.spyOn(fakeProc.stdin, 'write');
+      const sandboxProvider = {
+        id: 'direct' as const,
+        enforcing: false,
+        start: vi.fn(() => {
+          controller.abort();
+          return fakeProc;
+        }),
+      };
+      const spec = makeSpec({
+        options: {
+          runnerSandboxProvider: sandboxProvider,
+          signal: controller.signal,
+        },
+      });
+      const resultP = executeRunnerProcess(spec);
+
+      fakeProc.emit('close', null, 'SIGTERM');
+      await vi.advanceTimersByTimeAsync(10);
+
+      await expect(resultP).resolves.toMatchObject({
+        status: 'error',
+        error: 'test-runner stopped because the run was aborted',
+      });
+      expect(stdinWrite).not.toHaveBeenCalled();
+      expect(fakeProc.kill).toHaveBeenCalledWith('SIGTERM');
+    });
   });
 
   /* ============================================================== */

@@ -6,6 +6,11 @@ import {
   recoverLiveTurnExecution,
   type LiveTurnLeaseDeps,
 } from '../application/live-turns/live-turn-lease-service.js';
+import {
+  nowMs as currentTimeMs,
+  parseIso,
+  toIso,
+} from '../shared/time/datetime.js';
 
 /**
  * Bounded recovery sweep for live turns whose owner stopped heartbeating.
@@ -51,6 +56,8 @@ export async function runLiveTurnRecoveryTick(input: {
    */
   onNoEligibleRecoverer?: (turn: LiveTurn) => Promise<void> | void;
   slotCapacity: number;
+  hostSlotCapacity?: number;
+  hostBudgetCapacity?: number;
   leaseTtlMs: number;
   /** How long an unleased claim may sit before it is timed out. */
   unleasedStaleMs: number;
@@ -59,10 +66,13 @@ export async function runLiveTurnRecoveryTick(input: {
   warn?: (context: Record<string, unknown>, message: string) => void;
 }): Promise<LiveTurnRecoveryTickResult> {
   const warn = input.warn ?? (() => undefined);
-  const nowMsValue = input.now ? Date.parse(input.now) : Date.now();
-  const unleasedStaleBefore = new Date(
-    nowMsValue - input.unleasedStaleMs,
-  ).toISOString();
+  const nowMsValue = input.now
+    ? parseIso(input.now)?.getTime()
+    : currentTimeMs();
+  if (nowMsValue === undefined) {
+    throw new Error(`Invalid date input: ${input.now}`);
+  }
+  const unleasedStaleBefore = toIso(nowMsValue - input.unleasedStaleMs);
   const candidates = await input.deps.liveTurns.listRecoverableLiveTurns({
     unleasedStaleBefore,
     limit: Math.max(1, input.batchLimit ?? 16),
@@ -106,6 +116,8 @@ export async function runLiveTurnRecoveryTick(input: {
       deps: input.deps,
       turn,
       slotCapacity: input.slotCapacity,
+      hostSlotCapacity: input.hostSlotCapacity,
+      hostBudgetCapacity: input.hostBudgetCapacity,
       leaseTtlMs: input.leaseTtlMs,
       isEligible: input.isEligible,
       now: input.now,
@@ -141,6 +153,8 @@ export async function runLiveTurnRecoveryTick(input: {
         fence: liveTurnFence(recovery.lease),
         turnState: 'failed',
         leaseOutcome: 'failed',
+        hostSlotCapacity: input.hostSlotCapacity,
+        hostBudgetCapacity: input.hostBudgetCapacity,
         agentRunCompletion: {
           status: 'failed',
           errorSummary: 'Recovered live turn failed to resume.',

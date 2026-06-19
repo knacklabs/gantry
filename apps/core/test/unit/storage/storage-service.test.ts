@@ -4,6 +4,7 @@ import {
   PostgresStorageService,
   createStorageService,
   postgresMigrationsFolder,
+  resolvePostgresPoolConfig,
 } from '@core/adapters/storage/postgres/storage-service.js';
 
 describe('storage-service', () => {
@@ -29,6 +30,15 @@ describe('storage-service', () => {
     });
     expect(service).toBeInstanceOf(PostgresStorageService);
     await service.close();
+  });
+
+  it('reserves enough pool headroom for listeners, leases, live turns, and jobs', () => {
+    const config = resolvePostgresPoolConfig(
+      'postgres://user:pass@127.0.0.1:5432/gantry',
+      'gantry',
+    );
+
+    expect(config.max).toBeGreaterThanOrEqual(20);
   });
 
   it('constructs postgres storage with custom runtime schema', async () => {

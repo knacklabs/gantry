@@ -32,6 +32,7 @@ import type { ProcessRole } from '../app/bootstrap/roles/process-role.js';
 export interface SchedulerDependencies {
   /** Process role; persisted on the worker_instances row at registration. */
   processRole?: ProcessRole;
+  hasLiveAdmissionBacklog?: () => Promise<boolean>;
   conversationRoutes: () => Record<string, ConversationRoute>;
   queue: GroupQueue;
   onProcess: (
@@ -86,4 +87,5 @@ export interface SchedulerDispatchPayload {
   runId?: string | null;
   triggerId?: string | null;
   scheduledFor?: string | null;
+  capacityDelayNotified?: boolean;
 }

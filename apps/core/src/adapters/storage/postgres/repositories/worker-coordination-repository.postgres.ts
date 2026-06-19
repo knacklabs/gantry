@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import type {
   PendingInteraction,
@@ -219,8 +219,7 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
     try {
       return await this.db.transaction((tx) => claimRunLeaseInTx(tx, input));
     } catch (err) {
-      // Partial unique indexes on (run_id) / (job_id) where status='active'
-      // back-stop concurrent claims: the loser sees a unique violation.
+      // Partial unique indexes back-stop concurrent claims.
       if (isUniqueViolation(err)) return null;
       throw err;
     }
@@ -280,17 +279,19 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
 
   async recoverExpiredRunLeases(input: {
     now?: string;
+    staleBefore?: string;
   }): Promise<RecoveredRunLease[]> {
     const now = input.now ?? currentIso();
+    const recoverable = input.staleBefore
+      ? or(
+          lte(pgSchema.runLeasesPostgres.expiresAt, now),
+          sql`EXISTS (SELECT 1 FROM ${pgSchema.workerInstancesPostgres} wi WHERE wi.id = ${pgSchema.runLeasesPostgres.workerInstanceId} AND (wi.status IN ('unhealthy', 'stopped') OR wi.heartbeat_at < ${input.staleBefore}))`,
+        )
+      : lte(pgSchema.runLeasesPostgres.expiresAt, now);
     const rows = await this.db
       .update(pgSchema.runLeasesPostgres)
       .set({ status: 'expired' })
-      .where(
-        and(
-          eq(pgSchema.runLeasesPostgres.status, 'active'),
-          lte(pgSchema.runLeasesPostgres.expiresAt, now),
-        ),
-      )
+      .where(and(eq(pgSchema.runLeasesPostgres.status, 'active'), recoverable))
       .returning({
         runId: pgSchema.runLeasesPostgres.runId,
         jobId: pgSchema.runLeasesPostgres.jobId,
@@ -375,6 +376,30 @@ export class PostgresWorkerCoordinationRepository implements WorkerCoordinationR
           eq(pgSchema.runSlotsPostgres.holderId, input.holderId),
         ),
       );
+  }
+
+  async releaseRunSlotsForStaleWorkers(input: {
+    staleBefore: string;
+  }): Promise<number> {
+    const rows = await this.db
+      .delete(pgSchema.runSlotsPostgres)
+      .where(
+        sql`${pgSchema.runSlotsPostgres.workerInstanceId} IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM ${pgSchema.workerInstancesPostgres} wi
+            WHERE wi.id = ${pgSchema.runSlotsPostgres.workerInstanceId}
+              AND (wi.status IN ('unhealthy', 'stopped')
+                OR wi.heartbeat_at < ${input.staleBefore})
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ${pgSchema.runLeasesPostgres} rl
+            WHERE rl.run_id = ${pgSchema.runSlotsPostgres.runId}
+              AND rl.worker_instance_id = ${pgSchema.runSlotsPostgres.workerInstanceId}
+              AND rl.status = 'active' AND rl.expires_at > ${currentIso()}
+          )`,
+      )
+      .returning({ holderId: pgSchema.runSlotsPostgres.holderId });
+    return rows.length;
   }
 
   async appendRunnerControlEvent(input: {

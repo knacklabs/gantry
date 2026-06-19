@@ -247,6 +247,9 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
       if (sql.includes('run_slots') && sql.includes('NOT LIKE')) {
         return [{ slot_key: 'tg:team', count: 1 }] as never[];
       }
+      if (sql.includes('run_slots') && sql.includes('slot_key =')) {
+        return [{ count: 2 }] as never[];
+      }
       if (sql.includes('run_slots')) return [{ count: 4 }] as never[];
       if (sql.includes('live_admission_work_items')) {
         return [{ count: 2, oldest_age_seconds: 33 }] as never[];
@@ -262,6 +265,7 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
     currentWorkerInstanceId: () => 'worker-1',
     liveCapacityLimit: () => 3,
     jobCapacityLimit: () => 4,
+    hostCpuThreads: () => 8,
     oldestWaitingLiveAdmissionSeconds: () => 0,
     ...overrides,
   };
@@ -288,16 +292,16 @@ describe('renderMetrics', () => {
   });
 
   it('emits live execution gauges when live execution is enabled', async () => {
-    const body = await renderMetrics(
-      makeMetricsDeps({
-        role: 'live-worker',
-        liveExecutionEnabled: true,
-        oldestWaitingLiveAdmissionSeconds: () => 42,
-      }),
-    );
+    const deps = makeMetricsDeps({
+      role: 'live-worker',
+      liveExecutionEnabled: true,
+      oldestWaitingLiveAdmissionSeconds: () => 42,
+    });
+    const body = await renderMetrics(deps);
     expect(body).toContain('gantry_live_turns_active 2');
     expect(body).toContain('gantry_live_slots_used_cluster 4');
-    expect(body).toContain('gantry_live_slots_capacity_cluster 6');
+    expect(body).toContain('gantry_live_slots_used_local 2');
+    expect(body).toContain('gantry_live_slots_capacity_local 3');
     expect(body).toContain('gantry_live_warm_spare 1');
     expect(body).toContain('gantry_live_turns_recoverable 1');
     expect(body).toContain('gantry_live_oldest_waiting_seconds 42');
@@ -306,8 +310,40 @@ describe('renderMetrics', () => {
     expect(body).toContain(
       'gantry_background_job_slots_used{slot_key="tg:team"} 1',
     );
-    expect(body).toContain('gantry_background_job_slots_capacity 4');
+    expect(body).toContain('gantry_background_job_slots_capacity 0');
     expect(body).not.toContain('available worker');
+    expect(deps.query).toHaveBeenCalledWith(
+      expect.stringContaining('host:execution:%'),
+    );
+    expect(deps.query).toHaveBeenCalledWith(
+      expect.stringContaining('defer_until IS NULL OR defer_until <= now()'),
+    );
+  });
+
+  it('reports effective local live capacity and warm spare', async () => {
+    const body = await renderMetrics(
+      makeMetricsDeps({
+        role: 'live-worker',
+        hostCpuThreads: () => 2,
+        liveCapacityLimit: () => 3,
+      }),
+    );
+
+    expect(body).toContain('gantry_live_slots_capacity_local 1');
+    expect(body).toContain('gantry_live_warm_spare 0');
+  });
+
+  it('reports effective host-clamped background capacity', async () => {
+    const body = await renderMetrics(
+      makeMetricsDeps({
+        role: 'all',
+        hostCpuThreads: () => 4,
+        liveCapacityLimit: () => 3,
+        jobCapacityLimit: () => 4,
+      }),
+    );
+
+    expect(body).toContain('gantry_background_job_slots_capacity 1');
   });
 
   it('skips live execution gauges when live execution is disabled', async () => {
@@ -316,6 +352,7 @@ describe('renderMetrics', () => {
     );
     expect(body).not.toContain('gantry_live_turns_active');
     expect(body).not.toContain('gantry_live_slots_used_cluster');
+    expect(body).not.toContain('gantry_live_slots_capacity_local');
     expect(body).not.toContain('gantry_live_oldest_waiting_seconds');
     // The role info gauge is always present, even with no live gauges.
     expect(body).toContain('gantry_process_role{role="job-worker"} 1');
@@ -331,6 +368,7 @@ describe('renderMetrics', () => {
     expect(body).not.toContain('gantry_live_turns_active');
     // Cluster-wide gauges do not need a worker id and still emit.
     expect(body).toContain('gantry_live_slots_used_cluster 4');
+    expect(body).toContain('gantry_live_slots_capacity_local 0');
   });
 
   it('renders bake-job and capability-starvation gauges', async () => {

@@ -68,6 +68,7 @@ export interface AgentExecutionRunInput {
 }
 
 export interface AgentExecutionAdapterOptions {
+  signal?: AbortSignal;
   credentialBroker?: AgentCredentialBroker;
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;

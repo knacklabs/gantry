@@ -961,6 +961,7 @@ describe('agent-runner IPC lifecycle', () => {
           GANTRY_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
           GANTRY_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
         },
+        SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
       );
 
       expect(result.exitCode, result.stderr).toBe(0);
@@ -1063,7 +1064,7 @@ describe('agent-runner IPC lifecycle', () => {
         path.join('adapters', 'llm', 'anthropic-claude-agent', 'mcp'),
       );
     },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
+    SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
@@ -1099,11 +1100,16 @@ describe('agent-runner IPC lifecycle', () => {
     async () => {
       const fixture = createRunnerFixture();
 
-      const result = await runRunner(fixture, baseInput(), {
-        TEST_PERMISSION_DECISION: 'deny',
-        TEST_PERMISSION_TOOL_NAME: 'Agent',
-        TEST_EXIT_AFTER_QUERY: '1',
-      });
+      const result = await runRunner(
+        fixture,
+        baseInput(),
+        {
+          TEST_PERMISSION_DECISION: 'deny',
+          TEST_PERMISSION_TOOL_NAME: 'Agent',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+        SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
+      );
 
       expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
@@ -1117,7 +1123,7 @@ describe('agent-runner IPC lifecycle', () => {
         interrupt: false,
       });
     },
-    RUNNER_IPC_TEST_TIMEOUT_MS,
+    SLOW_RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(

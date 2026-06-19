@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { createHmac, randomUUID, verify as cryptoVerify } from 'node:crypto';
 
-import { nowIso, nowMs } from '../shared/time/datetime.js';
+import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
 import { formatDuration } from '../shared/human-format.js';
 import { isPlainObject } from '../shared/object.js';
 import { persistentPermissionUpdates } from '../shared/permission-tool-rules.js';
@@ -333,7 +333,7 @@ export function createSignedIpcRequestEnvelope(
         ? payload.requestId
         : `ipc-${randomUUID()}`,
     nonce: randomUUID(),
-    expiresAt: new Date(nowMs() + 5 * 60_000).toISOString(),
+    expiresAt: toIso(nowMs() + 5 * 60_000),
   };
   const signature = signIpcRequestPayload(requestSigningKey, signedPayload);
   return signature ? { ...signedPayload, signature } : signedPayload;

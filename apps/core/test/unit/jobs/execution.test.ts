@@ -5,6 +5,8 @@ import type { ConversationRoute, Job } from '@core/domain/types.js';
 
 const runtimeStoreMock = vi.hoisted(() => ({
   publish: vi.fn(async () => undefined),
+  appendRunnerControlEvent: vi.fn(async () => 'persisted'),
+  heartbeatRunLease: vi.fn(async () => true),
   bindPendingTriggerToRun: vi.fn(async () => null),
   bindTriggerToRun: vi.fn(async () => null),
   getAppSessionById: vi.fn(async () => null),
@@ -35,8 +37,8 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
     publish: runtimeStoreMock.publish,
   }),
   getWorkerCoordinationRepository: () => ({
-    appendRunnerControlEvent: vi.fn(async () => 'persisted'),
-    heartbeatRunLease: vi.fn(async () => true),
+    appendRunnerControlEvent: runtimeStoreMock.appendRunnerControlEvent,
+    heartbeatRunLease: runtimeStoreMock.heartbeatRunLease,
   }),
   getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
 }));
@@ -208,6 +210,8 @@ function makeToolRepository(toolNames: string[]) {
 describe('jobs/execution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runtimeStoreMock.appendRunnerControlEvent.mockResolvedValue('persisted');
+    runtimeStoreMock.heartbeatRunLease.mockResolvedValue(true);
     handleSystemJobMock.mockResolvedValue('System job completed.');
   });
 
@@ -372,6 +376,7 @@ describe('jobs/execution', () => {
 
   it('passes an abortable deadline into host-owned system jobs', async () => {
     const job = makeJob({
+      id: 'system:dreaming:scheduler_agent:abc123',
       name: 'Memory Dreaming',
       prompt: '__system:memory_dream',
       timeout_ms: 1_260_000,
@@ -425,6 +430,7 @@ describe('jobs/execution', () => {
     });
     try {
       const job = makeJob({
+        id: 'system:dreaming:scheduler_agent:abc123',
         name: 'Memory Dreaming',
         prompt: '__system:memory_dream',
         timeout_ms: 30_000,
@@ -455,6 +461,7 @@ describe('jobs/execution', () => {
           runAgent: vi.fn() as never,
         },
         'tg:scheduler',
+        { jobId: job.id, runId: 'run-1' },
       );
       for (let i = 0; i < 10; i += 1) {
         await Promise.resolve();
@@ -716,6 +723,74 @@ describe('jobs/execution', () => {
         }),
       }),
     );
+  });
+
+  it('keeps the runner alive after a transient scheduler run lease heartbeat failure', async () => {
+    vi.useFakeTimers();
+    try {
+      runtimeStoreMock.heartbeatRunLease
+        .mockRejectedValueOnce(new Error('db unavailable'))
+        .mockResolvedValue(true);
+      const job = makeJob();
+      const opsRepository = makeOpsRepository(job);
+      let runStarted: (() => void) | undefined;
+      const started = new Promise<void>((resolve) => {
+        runStarted = resolve;
+      });
+      let finishRun: (() => void) | undefined;
+      let runSignal: AbortSignal | undefined;
+      const runAgent = vi.fn(
+        async (_group, _input, _onProcess, _onStream, options) => {
+          runSignal = options.signal;
+          runStarted?.();
+          return new Promise((resolve) => {
+            finishRun = () =>
+              resolve({
+                status: 'success',
+                result: 'runtime flow completed',
+              });
+          });
+        },
+      );
+
+      const run = runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: () => {},
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          runAgent: runAgent as never,
+          executionAdapter: {
+            id: 'anthropic:claude-agent-sdk',
+            prepare: vi.fn(),
+          } as never,
+        },
+        'tg:scheduler',
+        { jobId: job.id, runId: 'run-1' },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(runSignal?.aborted).toBe(false);
+      finishRun?.();
+      await run;
+
+      expect(runtimeStoreMock.heartbeatRunLease).toHaveBeenCalledWith({
+        runId: 'run-1',
+        leaseToken: 'lease-token-1',
+        ttlMs: 60_000,
+      });
+      expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+        'run-1',
+        'completed',
+        'runtime flow completed',
+        null,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('redacts dead-letter scheduler error summaries, pause reason, and events', async () => {

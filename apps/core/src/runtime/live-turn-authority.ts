@@ -25,6 +25,10 @@ import {
   routeLiveStop,
 } from './live-turn-routing.js';
 import { writeResolvedInteractionResponse } from './interaction-resolution-response.js';
+import {
+  hostExecutionSlotHolderId,
+  hostExecutionSlotKey,
+} from '../shared/host-capacity.js';
 
 /**
  * Per-worker live-turn authority: the durable replacement for GroupQueue's
@@ -79,6 +83,8 @@ export class LiveTurnAuthority {
     private readonly deps: {
       leaseDeps: LiveTurnLeaseDeps;
       slotCapacity: () => number;
+      hostSlotCapacity?: () => number;
+      hostBudgetCapacity?: () => number;
       leaseTtlMs?: number;
       ownerPollMs?: number;
       warn?: WarnLog;
@@ -147,6 +153,8 @@ export class LiveTurnAuthority {
       scope: input.scope,
       runId: input.runId,
       slotCapacity: this.deps.slotCapacity(),
+      hostSlotCapacity: this.deps.hostSlotCapacity?.(),
+      hostBudgetCapacity: this.deps.hostBudgetCapacity?.(),
       leaseTtlMs: this.leaseTtlMs,
       pendingMessage: input.pendingMessage,
       stopAliasJids: input.stopAliasJids,
@@ -447,6 +455,25 @@ export class LiveTurnAuthority {
           registration.fence.fencingVersion,
         ),
       });
+      if (this.deps.hostSlotCapacity) {
+        const holderId = hostExecutionSlotHolderId(
+          liveTurnSlotHolderId(
+            registration.turnId,
+            registration.fence.fencingVersion,
+          ),
+        );
+        await this.deps.leaseDeps.coordination.releaseRunSlot({
+          slotKey: hostExecutionSlotKey(
+            this.deps.leaseDeps.workerInstanceId,
+            'interactive',
+          ),
+          holderId,
+        });
+        await this.deps.leaseDeps.coordination.releaseRunSlot({
+          slotKey: hostExecutionSlotKey(this.deps.leaseDeps.workerInstanceId),
+          holderId,
+        });
+      }
       return false;
     }
     this.teardown(queueJid, registration);
@@ -457,6 +484,8 @@ export class LiveTurnAuthority {
       turnState,
       leaseOutcome,
       agentRunCompletion,
+      hostSlotCapacity: this.deps.hostSlotCapacity?.(),
+      hostBudgetCapacity: this.deps.hostBudgetCapacity?.(),
     });
   }
 
@@ -546,6 +575,8 @@ export class LiveTurnAuthority {
           fencingVersion: registration.fence.fencingVersion,
         },
         leaseTtlMs: this.leaseTtlMs,
+        hostSlotCapacity: this.deps.hostSlotCapacity?.(),
+        hostBudgetCapacity: this.deps.hostBudgetCapacity?.(),
       });
       if (!result.leaseAlive || !result.slotHeld) {
         registration.fencedOut = true;

@@ -332,6 +332,7 @@ export async function archiveCurrentRuntimeSession(input: {
 
 export function buildRuntimeRunOptions(input: {
   timeoutMs?: number;
+  signal?: AbortSignal;
   credentialBroker?: RunAgentOptions['credentialBroker'];
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
@@ -384,6 +385,7 @@ export function buildRuntimeRunOptions(input: {
       : {};
   const options: RunAgentOptions = {
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.signal ? { signal: input.signal } : {}),
     ...(input.credentialBroker
       ? { credentialBroker: input.credentialBroker }
       : {}),
@@ -470,6 +472,18 @@ export async function completeFailedRuntimeSessionRun(input: {
       'Failed to complete runtime session run; continuing with outer run finalization',
     );
   }
+}
+
+export async function failRuntimeSessionRun(
+  ops: RuntimeAgentSessionRepository,
+  runId: string | undefined,
+  errorSummary: string | null,
+): Promise<void> {
+  await completeFailedRuntimeSessionRun({
+    ops,
+    runId,
+    errorSummary: errorSummary ?? 'Unknown error',
+  });
 }
 
 export async function buildApprovedSkillContextBlock(input: {

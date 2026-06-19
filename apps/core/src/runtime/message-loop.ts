@@ -179,7 +179,7 @@ async function processQueueMessages(
   const replay =
     preloadedInitialReplay ??
     (await collectPendingMessagesSince({
-      getMessagesSince: opsRepository.getMessagesSince,
+      getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
       chatJid,
       sinceCursor: recoveredCursor,
       pageSize: MESSAGE_FETCH_PAGE_SIZE,
@@ -285,7 +285,7 @@ export async function processLiveAdmissionWorkItem(
 
   const recoveredCursor = await deps.getOrRecoverCursor(item.queueJid);
   const replay = await collectPendingMessagesSince({
-    getMessagesSince: opsRepository.getMessagesSince,
+    getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
     chatJid,
     sinceCursor: recoveredCursor,
     pageSize: MESSAGE_FETCH_PAGE_SIZE,
@@ -399,7 +399,7 @@ export async function recoverPendingMessages(
     for (const threadId of await opsRepository.getMessageThreadIds(chatJid)) {
       const queueJid = makeThreadQueueKey(chatJid, threadId);
       const pending = await collectPendingMessagesSince({
-        getMessagesSince: opsRepository.getMessagesSince,
+        getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
         chatJid,
         sinceCursor: await deps.getOrRecoverCursor(queueJid),
         pageSize: MESSAGE_FETCH_PAGE_SIZE,

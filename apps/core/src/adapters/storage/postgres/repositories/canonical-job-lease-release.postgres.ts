@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 
 import type { ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
 import * as pgSchema from '../schema/schema.js';
@@ -16,8 +16,9 @@ export async function releaseStaleCanonicalJobLeases(
   return db.transaction(async (tx) => {
     const jobs = pgSchema.canonicalJobsPostgres;
     const runs = pgSchema.agentRunsPostgres;
-    // A heartbeat-renewed run lease keeps the job alive even past the job's
-    // original lease window; only release once both have lapsed.
+    // A live run lease keeps the job alive. If stale-worker recovery expired
+    // the run lease first, the job lease must be released even before its
+    // original lease window lapses.
     const noLiveRunLease = sql`NOT EXISTS (
       SELECT 1 FROM run_leases rl
       WHERE rl.run_id = ${jobs.leaseRunId}
@@ -27,7 +28,6 @@ export async function releaseStaleCanonicalJobLeases(
     const stalePredicate = and(
       eq(jobs.status, 'running'),
       isNotNull(jobs.leaseExpiresAt),
-      lt(jobs.leaseExpiresAt, nowIso),
       noLiveRunLease,
     );
     const staleJobs = await tx

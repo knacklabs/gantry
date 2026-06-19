@@ -11,6 +11,7 @@ import {
 } from './job-management-access.js';
 import {
   buildJobUpdates,
+  assertPublicJobNamespace,
   normalizeExecutionContext,
   normalizeNotificationRoutes,
   normalizeStoredNotificationRoutes,
@@ -37,6 +38,7 @@ export async function updateManagedJob(
   const job = await requireJob(deps, input.jobId);
   await assertAccess(deps, job, input);
   const patch = { ...input.patch };
+  assertPublicJobNamespace({ jobId: job.id, prompt: patch.prompt });
   const targetWorkspaceKey = patch.workspaceKey ?? job.workspace_key;
   const targetScheduleType = patch.scheduleType ?? job.schedule_type;
   if (typeof patch.model === 'string') {

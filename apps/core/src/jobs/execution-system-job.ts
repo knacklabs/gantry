@@ -33,6 +33,7 @@ export async function runSystemJobTurn(input: {
   context: SystemJobContext;
   startedAtMs: number;
   timeoutMs: number;
+  signal?: AbortSignal;
   logger?: SystemJobLogger;
 }): Promise<{ result: string | null; error: string | null }> {
   try {
@@ -54,6 +55,7 @@ export async function runSystemJobWithDeadline(input: {
   context: SystemJobContext;
   startedAtMs: number;
   timeoutMs: number;
+  signal?: AbortSignal;
   logger?: SystemJobLogger;
 }): Promise<unknown> {
   const log = input.logger ?? NOOP_LOGGER;
@@ -68,6 +70,12 @@ export async function runSystemJobWithDeadline(input: {
     Math.max(1, timeoutAtMs - nowMs()),
   );
   timeoutHandle.unref?.();
+  const onParentAbort = () => controller.abort(abortReason(input.signal!));
+  if (input.signal?.aborted) {
+    onParentAbort();
+  } else {
+    input.signal?.addEventListener('abort', onParentAbort, { once: true });
+  }
   let timedOut = false;
   const work = handleSystemJob(input.currentJob, input.context, {
     signal: controller.signal,
@@ -113,6 +121,7 @@ export async function runSystemJobWithDeadline(input: {
     return await Promise.race([observedWork, abort]);
   } finally {
     clearTimeout(timeoutHandle);
+    input.signal?.removeEventListener('abort', onParentAbort);
     if (onAbort) controller.signal.removeEventListener('abort', onAbort);
     if (timedOut) await observePostTimeoutWork(observedWork);
   }

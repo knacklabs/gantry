@@ -6,7 +6,7 @@ import {
   type Request,
 } from 'playwright-core';
 
-import { nowMs } from '../../shared/time/datetime.js';
+import { nowMs, toIso } from '../../shared/time/datetime.js';
 
 const BROWSER_CONNECTION_IDLE_MS = 120_000;
 
@@ -195,7 +195,7 @@ export function observePage(page: Page): void {
     state.console.push({
       type: message.type(),
       text: message.text(),
-      timestamp: new Date(nowMs()).toISOString(),
+      timestamp: toIso(nowMs()),
       location: message.location(),
     });
     if (state.console.length > 500) state.console.shift();
@@ -204,7 +204,7 @@ export function observePage(page: Page): void {
     const state = pageState(page);
     state.pageErrors.push({
       message: err.message,
-      timestamp: new Date(nowMs()).toISOString(),
+      timestamp: toIso(nowMs()),
     });
     if (state.pageErrors.length > 200) state.pageErrors.shift();
   });
@@ -217,7 +217,7 @@ export function observePage(page: Page): void {
       method: request.method(),
       url: request.url(),
       resourceType: request.resourceType(),
-      timestamp: new Date(nowMs()).toISOString(),
+      timestamp: toIso(nowMs()),
     });
     if (state.network.length > 500) state.network.shift();
   });

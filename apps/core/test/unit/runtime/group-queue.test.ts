@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { GroupQueue } from '@core/runtime/group-queue.js';
 import { activeRunStopWasRequested } from '@core/runtime/group-queue-stop.js';
+import {
+  createQueuedTask,
+  dequeueTaskGroupByAdmissionClass,
+} from '@core/runtime/runtime-admission.js';
 
 // Mock config for DATA_DIR used by sendMessage/closeStdin helpers.
 vi.mock('@core/config/index.js', () => ({
@@ -31,10 +35,35 @@ describe('GroupQueue', () => {
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 
   // --- Single group at a time ---
+
+  it('selects priority task groups from large backlogs without rotating the queue', () => {
+    const waiting = Array.from({ length: 500 }, (_, i) => `maint-${i}`);
+    waiting.push('child');
+    const groups = new Map(
+      waiting.map((groupJid) => [
+        groupJid,
+        {
+          active: false,
+          pendingTasks: [
+            createQueuedTask(
+              groupJid,
+              `task-${groupJid}`,
+              async () => {},
+              groupJid === 'child' ? 'interactive_child' : 'maintenance',
+            ),
+          ],
+        },
+      ]),
+    );
+
+    expect(dequeueTaskGroupByAdmissionClass(waiting, groups)).toBe('child');
+    expect(waiting[0]).toBe('maint-0');
+  });
 
   it('only runs one run per group at a time', async () => {
     let concurrentCount = 0;
@@ -301,9 +330,9 @@ describe('GroupQueue', () => {
     ]);
   });
 
-  // --- Tasks prioritized over messages ---
+  // --- Chat work prioritized over background tasks ---
 
-  it('drains tasks before messages for same group', async () => {
+  it('drains messages before background tasks for same group', async () => {
     const executionOrder: string[] = [];
     let resolveFirst: () => void;
 
@@ -335,10 +364,86 @@ describe('GroupQueue', () => {
     resolveFirst!();
     await vi.advanceTimersByTimeAsync(10);
 
-    // Task should have run before the second message check
     expect(executionOrder[0]).toBe('messages'); // first call
-    expect(executionOrder[1]).toBe('task'); // task runs first in drain
-    // Messages would run after task completes
+    expect(executionOrder[1]).toBe('messages'); // chat drains before background
+    expect(executionOrder[2]).toBe('task');
+  });
+
+  it('does not start a background task ahead of an already queued chat', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1, maxJobRuns: 1 });
+    const executionOrder: string[] = [];
+    let resolveFirst: () => void;
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      if (groupJid === 'group1@g.us') {
+        await new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      executionOrder.push(`messages:${groupJid}`);
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.enqueueMessageCheck('group2@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    queue.enqueueTask(
+      'group2@g.us',
+      'task-1',
+      async () => {
+        executionOrder.push('task:group2@g.us');
+      },
+      { admissionClass: 'background' },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(executionOrder).toEqual([]);
+
+    resolveFirst!();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(executionOrder).toEqual([
+      'messages:group1@g.us',
+      'messages:group2@g.us',
+      'task:group2@g.us',
+    ]);
+  });
+
+  it('drains interactive child tasks before messages for same group', async () => {
+    const executionOrder: string[] = [];
+    let resolveFirst: () => void;
+
+    queue.setProcessMessagesFn(async () => {
+      if (executionOrder.length === 0) {
+        await new Promise<void>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      executionOrder.push('messages');
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    queue.enqueueTask(
+      'group1@g.us',
+      'task-1',
+      async () => {
+        executionOrder.push('task');
+      },
+      { admissionClass: 'interactive_child' },
+    );
+    queue.enqueueMessageCheck('group1@g.us');
+
+    resolveFirst!();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(executionOrder[0]).toBe('messages');
+    expect(executionOrder[1]).toBe('task');
+    expect(executionOrder[2]).toBe('messages');
   });
 
   // --- Retry with backoff on failure ---
@@ -889,6 +994,81 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(taskExecuted).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs messages while background and maintenance task lanes are saturated', async () => {
+    queue = new GroupQueue({ maxJobRuns: 1, maxMessageRuns: 1 });
+    let completeTask: () => void;
+    queue.enqueueTask(
+      'job-group@g.us',
+      'background-task',
+      async () => {
+        await new Promise<void>((resolve) => {
+          completeTask = resolve;
+        });
+      },
+      { admissionClass: 'background' },
+    );
+    queue.enqueueTask(
+      'maintenance-group@g.us',
+      'maintenance-task',
+      async () => {},
+      { admissionClass: 'maintenance' },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    const processed: string[] = [];
+    queue.setProcessMessagesFn(async (groupJid) => {
+      processed.push(groupJid);
+      return true;
+    });
+
+    queue.enqueueMessageCheck('chat-group@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processed).toEqual(['chat-group@g.us']);
+
+    completeTask!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
+  it('prioritizes interactive child and background task work before maintenance', async () => {
+    queue = new GroupQueue({ maxJobRuns: 1 });
+    let completeTask: () => void;
+    queue.enqueueTask('active-group@g.us', 'active-task', async () => {
+      await new Promise<void>((resolve) => {
+        completeTask = resolve;
+      });
+    });
+    await vi.advanceTimersByTimeAsync(10);
+
+    const order: string[] = [];
+    queue.enqueueTask(
+      'maintenance-group@g.us',
+      'maintenance-task',
+      async () => {
+        order.push('maintenance');
+      },
+      { admissionClass: 'maintenance' },
+    );
+    queue.enqueueTask('background-group@g.us', 'background-task', async () => {
+      order.push('background');
+    });
+    queue.enqueueTask(
+      'child-group@g.us',
+      'interactive-child-task',
+      async () => {
+        order.push('interactive_child');
+      },
+      { admissionClass: 'interactive_child' },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(order).toEqual([]);
+
+    completeTask!();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(order).toEqual(['interactive_child', 'background', 'maintenance']);
   });
 
   // --- Coverage for shutdown with active processes (lines 355-356) ---
@@ -1600,7 +1780,7 @@ describe('GroupQueue', () => {
     queue.enqueueTask(schedulerQueueJid, 'job-1', blockingTask);
     await vi.advanceTimersByTimeAsync(10);
 
-    const mockProcess = { pid: 6464, killed: false, kill: vi.fn() } as any;
+    const mockProcess = { pid: 9_999_991, killed: false, kill: vi.fn() } as any;
     queue.registerProcess(
       schedulerQueueJid,
       mockProcess,
@@ -1611,7 +1791,7 @@ describe('GroupQueue', () => {
 
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true as never);
     expect(queue.stopGroup('group2@g.us')).toBe(true);
-    expect(killSpy).toHaveBeenCalledWith(-6464, 'SIGTERM');
+    expect(killSpy).toHaveBeenCalledWith(-9_999_991, 'SIGTERM');
     killSpy.mockRestore();
 
     resolveTask!();
@@ -1630,12 +1810,12 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    const mockProcess = { pid: 4242, killed: false, kill: vi.fn() } as any;
+    const mockProcess = { pid: 9_999_992, killed: false, kill: vi.fn() } as any;
     queue.registerProcess('group1@g.us', mockProcess, 'run-1', 'team');
 
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true as never);
     expect(queue.stopGroup('group1@g.us')).toBe(true);
-    expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM');
+    expect(killSpy).toHaveBeenCalledWith(-9_999_992, 'SIGTERM');
     expect(activeRunStopWasRequested(mockProcess)).toBe(true);
     killSpy.mockRestore();
 
@@ -1655,7 +1835,7 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    const mockProcess = { pid: 5252, killed: false, kill: vi.fn() } as any;
+    const mockProcess = { pid: 9_999_993, killed: false, kill: vi.fn() } as any;
     queue.registerProcess('group1@g.us', mockProcess, 'run-1', 'team');
 
     const killSpy = vi
@@ -1665,8 +1845,8 @@ describe('GroupQueue', () => {
       })
       .mockReturnValueOnce(true as never);
     expect(queue.stopGroup('group1@g.us')).toBe(true);
-    expect(killSpy).toHaveBeenNthCalledWith(1, -5252, 'SIGTERM');
-    expect(killSpy).toHaveBeenNthCalledWith(2, 5252, 'SIGTERM');
+    expect(killSpy).toHaveBeenNthCalledWith(1, -9_999_993, 'SIGTERM');
+    expect(killSpy).toHaveBeenNthCalledWith(2, 9_999_993, 'SIGTERM');
     killSpy.mockRestore();
 
     resolveProcess!();

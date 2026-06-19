@@ -98,6 +98,7 @@ describe('runner sandbox provider', () => {
       cwd: '/work/agent',
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { PATH: '/usr/bin' },
+      detached: true,
     });
   });
 

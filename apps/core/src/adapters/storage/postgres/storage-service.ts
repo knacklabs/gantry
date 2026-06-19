@@ -19,6 +19,7 @@ export const postgresMigrationsFolder = path.join(
 );
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
+const RUNTIME_POSTGRES_POOL_MAX = 20;
 // Cross-instance "run gantry migrations" lock. One identity serializes EVERY
 // migrator — the container entrypoint (ops/docker/migrate.mjs) and the
 // runtime's boot-time migrate() — so concurrent boots cannot race the drizzle
@@ -94,10 +95,15 @@ export function resolvePostgresPoolConfig(
     return {
       connectionString,
       options: searchPathOptions,
+      max: RUNTIME_POSTGRES_POOL_MAX,
       ssl: { rejectUnauthorized: true },
     };
   }
-  return { connectionString, options: searchPathOptions };
+  return {
+    connectionString,
+    options: searchPathOptions,
+    max: RUNTIME_POSTGRES_POOL_MAX,
+  };
 }
 
 export class PostgresStorageService implements StorageService {

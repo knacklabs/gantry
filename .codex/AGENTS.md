@@ -15,6 +15,7 @@ This folder owns factory prompts, hook wiring, agent prompt contracts, and tests
 - When adding prompt policy, add or update tests under `.codex/scripts/tests/` so the contract does not silently drift.
 - Do not let prompt changes invent new product behavior or bypass the existing PR-ready review gates.
 - Deterministic verify includes an architecture phase (`python3 .codex/scripts/check_architecture.py`) before typecheck/tests.
+- Keep `verify.py` default execution serial and fail-fast; any parallel mode must be explicit and limited to read-only phases with deterministic result ordering.
 - Architecture exceptions belong in `.codex/architecture-exceptions.json`, use the file/rule/reason/removeByPhase schema, and should stay empty unless a narrow temporary waiver makes the codebase stronger. File line-budget violations are strict and must not be excepted.
 - Anthropic/Claude provider-boundary debt belongs in `.codex/provider-boundary-exceptions.json` with exact file paths and exact token counts. Do not approve broad config, memory, or shared paths for this gate.
 - Direct provider-send guardrails must cover alias receiver forms, not just canonical local names. Keep Slack `*.chat.postMessage`, Telegram `*.sendMessage`, and Teams SDK `*.sendMessage` regressions covered in `.codex/scripts/tests/test_check_architecture.py`.

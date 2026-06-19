@@ -180,12 +180,25 @@ The final PR or overall refactor deletion target remains a branch-base check:
 python3 .codex/scripts/check_refactor_line_delta.py --check-diff --base-ref origin/main
 ```
 
-`python3 .codex/scripts/verify.py` currently runs format, build, structural architecture, runtime truth, factory Python tests, typecheck, tests, and e2e unless overridden with `FACTORY_*` environment variables.
+`python3 .codex/scripts/verify.py` runs structural format checks, build,
+architecture, runtime truth, factory Python tests, typecheck, tests, and e2e
+unless overridden with `FACTORY_*` environment variables. It prints phase
+start/finish progress and records per-phase timing in `.factory/verify.json` so
+long phases are diagnosable while they run. Each phase has a 30-minute timeout
+by default; local factory debugging can override that with
+`FACTORY_VERIFY_TIMEOUT_SECONDS`.
 
 Use this command to inspect the deterministic verification contract without running every phase:
 
 ```bash
 python3 .codex/scripts/verify.py --print-only
+```
+
+Use this command when you want independent read-only post-build checks to run in
+parallel without changing the default command contract:
+
+```bash
+python3 .codex/scripts/verify.py --parallel-safe
 ```
 
 ## Missing Or Currently Failing Commands

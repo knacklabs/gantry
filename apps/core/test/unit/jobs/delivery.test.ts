@@ -284,6 +284,36 @@ describe('jobs/delivery', () => {
     });
   });
 
+  it('does not block scheduler progress when direct notification delivery hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const job = makeJob({
+        notification_routes: [
+          {
+            conversationJid: 'tg:1',
+            threadId: null,
+            label: 'dm',
+          },
+        ],
+      });
+      const send = vi.fn(() => new Promise<void>(() => undefined));
+      const delivered = sendJobNotification({
+        job,
+        text: 'done',
+        phase: 'summary',
+        runId: 'run-1',
+        sendMessage: send as any,
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(delivered).resolves.toBe(false);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('suppresses user-facing notifications for silent jobs', async () => {
     const job = makeJob({
       silent: true,

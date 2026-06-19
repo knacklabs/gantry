@@ -139,6 +139,31 @@ describe('job application use cases', () => {
     );
   });
 
+  it('rejects managed app jobs using the reserved system prompt namespace', async () => {
+    const upsertJob = vi.fn(async () => ({ created: true }));
+    const service = new JobManagementService({
+      ops: {
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+    });
+
+    await expect(
+      service.createJob({
+        appId: 'app-one',
+        name: 'Reserved',
+        prompt: '__system:memory_dream',
+        sessionId: 'session-app-one',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job prompt uses a reserved Gantry system namespace.',
+    });
+    expect(upsertJob).not.toHaveBeenCalled();
+  });
+
   it('creates setup-paused jobs when declared durable requirements are missing', async () => {
     const upsertJob = vi.fn(async () => ({ created: true }));
     const runtimeEvents = { publish: vi.fn(async () => undefined) };
@@ -689,6 +714,56 @@ describe('job application use cases', () => {
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-1');
   });
 
+  it('rejects job prompt updates using the reserved system prompt namespace', async () => {
+    const ops = makeOps(makeJob());
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await expect(
+      service.updateJob({
+        appId: 'app-one',
+        jobId: 'job-1',
+        patch: { prompt: '__system:memory_dream' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job prompt uses a reserved Gantry system namespace.',
+    });
+    expect(ops.updateJob).not.toHaveBeenCalled();
+  });
+
+  it('rejects public updates targeting reserved system job ids', async () => {
+    const systemJob = makeJob({
+      id: 'system:dreaming:main_agent:abc123',
+      prompt: '__system:memory_dream',
+    });
+    const ops = makeOps(systemJob);
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await expect(
+      service.updateJob({
+        appId: 'app-one',
+        jobId: systemJob.id,
+        patch: { status: 'paused' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job id uses a reserved Gantry system namespace.',
+    });
+    expect(ops.updateJob).not.toHaveBeenCalled();
+  });
+
   it('lets owner API retarget default runtime job notifications within the same conversation', async () => {
     const ops = makeOps(
       makeJob({
@@ -1072,6 +1147,60 @@ describe('job application use cases', () => {
         next_run: null,
       }),
     );
+  });
+
+  it('allows trusted system jobs to resume through the managed service', async () => {
+    const systemJob = makeJob({
+      id: 'system:dreaming:main_agent:abc123',
+      prompt: '__system:memory_dream',
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      status: 'dead_lettered',
+      session_id: null,
+      next_run: null,
+    });
+    const ops = makeOps(systemJob);
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await service.resumeJob({ jobId: systemJob.id });
+
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      systemJob.id,
+      expect.objectContaining({
+        status: 'active',
+        pause_reason: null,
+        next_run: '2026-04-24T01:00:00.000Z',
+      }),
+    );
+    expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith(systemJob.id);
+  });
+
+  it('rejects public resume for untrusted reserved system job ids', async () => {
+    const systemJob = makeJob({
+      id: 'system:fake',
+      status: 'dead_lettered',
+    });
+    const ops = makeOps(systemJob);
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await expect(
+      service.resumeJob({ jobId: systemJob.id }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job id uses a reserved Gantry system namespace.',
+    });
+    expect(ops.updateJob).not.toHaveBeenCalled();
   });
 
   it('pauses jobs without route-owned mutation logic', async () => {
@@ -1656,6 +1785,53 @@ describe('job application use cases', () => {
         ],
       }),
     );
+  });
+
+  it('rejects IPC scheduler jobs using reserved system namespaces', async () => {
+    const upsertJob = vi.fn(async () => ({ created: true }));
+    const service = new JobManagementService({
+      ops: {
+        getJobById: vi.fn(),
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+    const access = {
+      sourceAgentFolder: 'team',
+      originConversationJid: 'tg:team',
+      conversationBindings: {
+        'tg:team': { folder: 'team' },
+      },
+      sourceAgentFolderJids: ['tg:team'],
+    };
+
+    await expect(
+      service.upsertJobFromIpc({
+        access,
+        name: 'Reserved prompt',
+        prompt: '__system:memory_dream',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job prompt uses a reserved Gantry system namespace.',
+    });
+    await expect(
+      service.upsertJobFromIpc({
+        access,
+        jobId: 'system:embedding-backfill',
+        name: 'Reserved id',
+        prompt: 'Summarize updates',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job id uses a reserved Gantry system namespace.',
+    });
+    expect(upsertJob).not.toHaveBeenCalled();
   });
 
   it('maps IPC scheduler schedule validation to invalid_schedule', async () => {
@@ -2605,6 +2781,52 @@ describe('job application use cases', () => {
         }),
       }),
     );
+  });
+
+  it('rejects scheduler_run_now for reserved system jobs', async () => {
+    const control = {
+      createJobTrigger: vi.fn(async () => ({ triggerId: 'trigger-1' })),
+      markTriggerCompleted: vi.fn(),
+      getAppSessionById: vi.fn(async () => undefined),
+    };
+    const triggerQueue = {
+      isReady: vi.fn(() => true),
+      enqueue: vi.fn(async () => undefined),
+    };
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({
+          id: 'system:dreaming:main_agent:abc123',
+          prompt: '__system:memory_dream',
+          workspace_key: 'team',
+        }),
+      ) as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents: { publish: vi.fn() },
+      triggerQueue,
+    });
+
+    await expect(
+      service.runJobNowFromMcp({
+        jobId: 'system:dreaming:main_agent:abc123',
+        runId: 'run-1',
+        access: {
+          sourceAgentFolder: 'team',
+          originConversationJid: 'tg:team',
+          conversationBindings: {
+            'tg:team': { folder: 'team' },
+          },
+          sourceAgentFolderJids: ['tg:team'],
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Job id uses a reserved Gantry system namespace.',
+    });
+    expect(control.createJobTrigger).not.toHaveBeenCalled();
+    expect(triggerQueue.enqueue).not.toHaveBeenCalled();
   });
 
   it('queues scheduler_run_now for setup-paused jobs once readiness passes', async () => {

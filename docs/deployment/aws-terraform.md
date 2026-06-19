@@ -38,9 +38,10 @@ public-access block enabled.
 ## Part A — Local Fleet Rehearsal (≤ 15 min)
 
 Exercises the role-differentiated fleet topology on one machine: Postgres + MinIO
-+ one `control` process + N `live-worker` + N `job-worker`, all from the same
-built runtime image (differentiated by `GANTRY_PROCESS_ROLE`), health-checked on
-`/readyz`. The root `docker-compose.yml` (Postgres-only dev) is untouched.
+
+- one `control` process + N `live-worker` + N `job-worker`, all from the same
+  built runtime image (differentiated by `GANTRY_PROCESS_ROLE`), health-checked on
+  `/readyz`. The root `docker-compose.yml` (Postgres-only dev) is untouched.
 
 From the repo root:
 
@@ -384,7 +385,7 @@ the secrets created in B.2 separately if no longer needed.
 > this section covers the AWS-side mechanics.
 
 **Memory model (process-per-turn).** The parent runtime process idles around
-~200 MB. Each *active* turn spawns a runner subprocess costing roughly
+~200 MB. Each _active_ turn spawns a runner subprocess costing roughly
 150–400 MB depending on tools and context size. Sessions are Postgres rows —
 an idle session costs nothing on the worker, only active turns consume memory.
 Rough capacity guidance per worker: **4 GB ≈ 8–12 concurrent turns, 8 GB ≈
@@ -410,6 +411,10 @@ concurrent turns, not load average.
   size + `control_autoscaling_enabled` only if the API surface itself is the
   bottleneck (rare).
 
+If multiple Gantry runtime processes are ever co-located on one EC2 instance,
+give them the same `GANTRY_HOST_ID`; the default ASG profile is one runtime role
+per instance, so the instance hostname is already the host identity.
+
 The scaling policy owns desired capacity once enabled; steer a running pool via
 its `*_min_size`/`*_max_size`, not `*_desired_capacity`.
 
@@ -427,8 +432,8 @@ directly. Scale out with `live_worker_max_size`; scale per-box with a bigger
 `live_worker_instance_type` plus a higher `runtime.queue.max_message_runs`. The
 horizontal-scale signal is `gantry_live_oldest_waiting_seconds` /
 `gantry_live_slots_used_cluster` (see deployment-profiles.md, Health/Readiness,
-and Metrics), and the user-visible backpressure is the "Waiting for an available
-worker" status.
+and Metrics), and the user-visible backpressure after the wait threshold is the
+"Still starting this request." status.
 
 **Always-on floor.** The live pool minimum is two instances
 (`live_worker_min_size >= 2`); control and job pools default to one each.

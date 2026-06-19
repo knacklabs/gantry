@@ -47,6 +47,7 @@ const runtimeStoreMocks = vi.hoisted(() => ({
   opsRepository: { getJobById: vi.fn() },
   controlRepository: {},
   workerCoordination: {},
+  poolQuery: vi.fn(),
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
@@ -54,6 +55,13 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => runtimeStoreMocks.controlRepository,
   getRuntimeEventExchange: () => ({ publish: vi.fn() }),
   getWorkerCoordinationRepository: () => runtimeStoreMocks.workerCoordination,
+  getRuntimeStorage: () => ({
+    service: {
+      pool: {
+        query: runtimeStoreMocks.poolQuery,
+      },
+    },
+  }),
 }));
 
 const workerIdentityMocks = vi.hoisted(() => ({
@@ -72,6 +80,7 @@ vi.mock('@core/jobs/concurrency.js', () => ({
 }));
 
 import {
+  _hasQueuedLiveAdmissionWorkForTests,
   _resetSchedulerLoopForTests,
   _setSendOnlyPgBossFactoryForTests,
   enqueueJobTrigger,
@@ -95,6 +104,7 @@ describe('isJobTriggerQueueReady truth table', () => {
     _resetSchedulerLoopForTests();
     configMocks.url = 'postgres://example/db';
     engineMocks.ready = true;
+    runtimeStoreMocks.poolQuery.mockReset();
     vi.clearAllMocks();
   });
 
@@ -123,6 +133,18 @@ describe('isJobTriggerQueueReady truth table', () => {
   it('is not ready for a default role with no running engine', () => {
     // Default role: roleHasNoJobExecution stays false, engine is null.
     expect(isJobTriggerQueueReady()).toBe(false);
+  });
+
+  it('counts queued and due-deferred live admission rows as interactive backlog', async () => {
+    runtimeStoreMocks.poolQuery.mockResolvedValueOnce({
+      rows: [{ waiting: true }],
+    });
+
+    await expect(_hasQueuedLiveAdmissionWorkForTests()).resolves.toBe(true);
+
+    expect(String(runtimeStoreMocks.poolQuery.mock.calls[0]?.[0])).toContain(
+      'defer_until IS NULL OR defer_until <= now()',
+    );
   });
 });
 

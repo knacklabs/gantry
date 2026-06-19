@@ -757,6 +757,39 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('does not publish synthetic memory query scopes as runtime run ids', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-old');
+    const audit = vi.fn(async () => undefined);
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: 'memory-query:ephemeral' as never,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      expect(audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId,
+          eventType: 'credential.model.used',
+          actor: 'gantry-model-gateway',
+          payload: expect.objectContaining({
+            providerId: 'anthropic',
+            outcome: 'token_issued',
+          }),
+        }),
+      );
+      expect(audit.mock.calls[0]?.[0]).not.toHaveProperty('runId');
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('streams upstream provider responses without buffering the full body', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-stream');

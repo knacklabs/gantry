@@ -119,9 +119,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       return true;
     }
     const scopedQueue = options.queued === true || queueThreadId !== undefined;
+    const opsRepository = ops();
     const { messages: missedMessages, hasMore: missedMessagesRemain } =
       await collectPendingMessagesSince({
-        getMessagesSince: ops().getMessagesSince,
+        getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
         chatJid,
         sinceCursor: await deps.getCursor(queueJid),
         pageSize: MESSAGE_FETCH_PAGE_SIZE,
@@ -817,8 +818,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendDoneProgress(finalProgressState);
     }
     await setTypingState(false);
-    resultOk &&
-      missedMessagesRemain &&
+    if (resultOk && missedMessagesRemain)
       deps.queue.enqueueMessageCheck(queueJid);
     options?.onRunResult?.(output);
     return resultOk;

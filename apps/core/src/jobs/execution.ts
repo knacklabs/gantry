@@ -28,9 +28,9 @@ import { publishRunFailoverEvent } from '../runtime/failover-candidate-loop.js';
 import { providerSessionExternalSessionId } from '../runtime/agent-output-provider-session.js';
 import {
   buildRuntimeRunOptions,
-  completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
   createRuntimeUserVisibleResultAccumulator,
+  failRuntimeSessionRun as failSessionRun,
 } from '../runtime/session-resume-runtime.js';
 import {
   resolveTurnSemanticCapabilities,
@@ -54,6 +54,7 @@ import {
 } from './execution-notifications.js';
 import {
   claimSchedulerRunLease,
+  createSchedulerRunLeaseAbort,
   startSchedulerRunLeaseHeartbeat,
 } from './execution-lease.js';
 import { resolveExecutionContextOrDeadLetter } from './execution-dead-letter.js';
@@ -71,6 +72,7 @@ import {
 import {
   createJobRunDiagnostics,
   createStreamingEventFlusher,
+  filterUnforwardedRunnerRuntimeEvents,
   formatTerminalToolDenial,
   forwardRunnerRuntimeEvents,
   runnerRuntimeEventKey,
@@ -80,6 +82,7 @@ import {
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
   bindSchedulerRunEventState,
+  createRuntimeEventPublisher as createEventPublisher,
   createSchedulerJobEventEmitter,
   publishSchedulerCompletionEvent,
 } from './execution-runtime-events.js';
@@ -88,6 +91,7 @@ import { finalizeSchedulerJobRun } from './execution-finalization.js';
 import { assertToolAccessRequirementsReadyForRun } from './execution-tool-access-requirements.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
 import { prelaunchBrowserForJobRun } from './execution-browser-prelaunch.js';
+import { isTrustedSystemJob } from '../shared/system-job-identity.js';
 import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
 import type {
@@ -101,6 +105,7 @@ export async function runJob(
   deps: SchedulerDependencies,
   queueJid: string,
   dispatch?: SchedulerDispatchPayload,
+  control?: { abortSignal?: AbortSignal },
 ): Promise<void> {
   const currentJob = await deps.opsRepository.getJobById(job.id);
   if (!currentJob || currentJob.status !== 'active') return;
@@ -110,10 +115,7 @@ export async function runJob(
   const startedAtMs = nowMs();
   const startedAt = toIso(startedAtMs);
   const runtimeAppId = DEFAULT_JOB_RUNTIME_APP_ID;
-  const runtimeEventExchange = getRuntimeEventExchange();
-  const publishRuntimeEvent = (
-    event: Parameters<typeof runtimeEventExchange.publish>[0],
-  ): Promise<void> => runtimeEventExchange.publish(event).then(() => undefined);
+  const publishRuntimeEvent = createEventPublisher(getRuntimeEventExchange());
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
   const groups = deps.conversationRoutes();
@@ -186,15 +188,19 @@ export async function runJob(
     warn,
   });
   if (!leaseContext) return;
+  const runLeaseAbort = createSchedulerRunLeaseAbort();
   const leaseHeartbeat = startSchedulerRunLeaseHeartbeat({
     runId,
     leaseContext,
     ttlMs: timeoutMs + 30_000,
+    deadlineMs: startedAtMs + timeoutMs,
     getCoordinationRepository: getWorkerCoordinationRepository,
     warn,
+    onLeaseLost: runLeaseAbort.abort,
+    externalAbortSignal: control?.abortSignal,
   });
-  let terminalRunRecorded = false;
-  let deletedDuringRun = false;
+  let terminalRunRecorded = false,
+    deletedDuringRun = false;
   try {
     const claimedRun = await deps.opsRepository.getJobRunById(runId);
     const runShortId = claimedRun?.short_id ?? null;
@@ -246,6 +252,7 @@ export async function runJob(
     const resultSummaryAccumulator =
       createRuntimeUserVisibleResultAccumulator();
     let hasStreamedResult = false;
+    let agentRunId: string | undefined;
     const streamedRuntimeEventKeys = new Set<string>();
     const appendResultSummary = (delta: string | null | undefined): void => {
       if (!delta) return;
@@ -272,11 +279,12 @@ export async function runJob(
       });
       deletionGuard.resetDeliveryDeletionCheck();
     }
-    if (!error && currentJob.prompt.startsWith('__system:')) {
+    if (!error && isTrustedSystemJob(currentJob)) {
       const systemOutcome = await runSystemJobTurn({
         currentJob,
         startedAtMs,
         timeoutMs,
+        signal: runLeaseAbort.signal,
         logger,
         context: {
           folder: execution.group.folder,
@@ -291,7 +299,8 @@ export async function runJob(
     } else {
       if (!error) {
         let turnContext: JobTurnContext | undefined;
-        let agentRunId: string | undefined;
+        const failRun = () =>
+          failSessionRun(deps.opsRepository, agentRunId, error);
         const updateRunProviderMetadata = createRunProviderMetadataUpdater({
           opsRepository: deps.opsRepository,
           jobId: currentJob.id,
@@ -405,6 +414,7 @@ export async function runJob(
           if (!error) {
             const runOptions = buildRuntimeRunOptions({
               timeoutMs,
+              signal: runLeaseAbort.signal,
               credentialBroker,
               skillRepository: deps.getSkillRepository?.(),
               skillArtifactStore: deps.getSkillArtifactStore?.(),
@@ -501,6 +511,7 @@ export async function runJob(
                 );
               },
               streamHandler: async (streamedOutput: AgentOutput) => {
+                if (runLeaseAbort.isAborted()) return;
                 for (const event of streamedOutput.runtimeEvents ?? []) {
                   const eventKey = runnerRuntimeEventKey(event);
                   if (eventKey) streamedRuntimeEventKeys.add(eventKey);
@@ -540,79 +551,69 @@ export async function runJob(
                 }
               },
             });
-            streamingFlusher.flush(true);
-            await forwardRunnerRuntimeEvents({
-              events: output.runtimeEvents?.filter((event) => {
-                const eventKey = runnerRuntimeEventKey(event);
-                return !eventKey || !streamedRuntimeEventKeys.has(eventKey);
-              }),
-              diagnostics,
-              emitJobEvent,
-            });
-            await updateRunProviderMetadata({ force: true });
-            if (output.status === 'error') {
-              error = output.error || 'Unknown error';
-              await completeFailedRuntimeSessionRun({
-                ops: deps.opsRepository,
-                runId: agentRunId,
-                errorSummary: error,
+            if (runLeaseAbort.isAborted()) {
+              error = runLeaseAbort.error;
+            } else {
+              streamingFlusher.flush(true);
+              await forwardRunnerRuntimeEvents({
+                events: filterUnforwardedRunnerRuntimeEvents(
+                  output.runtimeEvents,
+                  streamedRuntimeEventKeys,
+                ),
+                diagnostics,
+                emitJobEvent,
               });
-            } else if (output.result && !hasStreamedResult) {
-              appendResultSummary(output.result);
-            }
-            if (!error) {
-              error = formatTerminalToolDenial(diagnostics) ?? null;
-            }
-            if (!error) {
-              const boundedResultSummary = resultSummaryAccumulator.snapshot();
-              await completeSuccessfulRuntimeSessionRun({
-                ops: deps.opsRepository,
-                group: execution.group,
-                chatJid: execution.executionJid,
-                threadId: execution.threadId,
-                conversationKind: execution.group.conversationKind,
-                memoryUserId,
-                jobId: currentJob.id,
-                agentSessionId: turnContext?.agentSessionId,
-                agentSessionResetAt: turnContext?.agentSessionResetAt ?? null,
-                runId: agentRunId,
-                result: boundedResultSummary,
-              });
-              await collectJobCompletionMemory({
-                agentSessionId: turnContext?.agentSessionId,
-                collectMemory: deps.collectSessionMemory,
-                defaultScope: memoryDefaultScope,
-                prompt: currentJob.prompt,
-                result: boundedResultSummary,
-                logger,
-                context: { jobId: currentJob.id, runId },
-              });
-            } else if (output.status !== 'error') {
-              await completeFailedRuntimeSessionRun({
-                ops: deps.opsRepository,
-                runId: agentRunId,
-                errorSummary: error,
-              });
+              await updateRunProviderMetadata({ force: true });
+              if (output.status === 'error') {
+                if (!error) error = output.error || 'Unknown error';
+                await failRun();
+              } else if (output.result && !hasStreamedResult) {
+                appendResultSummary(output.result);
+              }
+              if (!error) error = formatTerminalToolDenial(diagnostics) ?? null;
+              if (!error) {
+                const boundedResultSummary =
+                  resultSummaryAccumulator.snapshot();
+                await completeSuccessfulRuntimeSessionRun({
+                  ops: deps.opsRepository,
+                  group: execution.group,
+                  chatJid: execution.executionJid,
+                  threadId: execution.threadId,
+                  conversationKind: execution.group.conversationKind,
+                  memoryUserId,
+                  jobId: currentJob.id,
+                  agentSessionId: turnContext?.agentSessionId,
+                  agentSessionResetAt: turnContext?.agentSessionResetAt ?? null,
+                  runId: agentRunId,
+                  result: boundedResultSummary,
+                });
+                await collectJobCompletionMemory({
+                  agentSessionId: turnContext?.agentSessionId,
+                  collectMemory: deps.collectSessionMemory,
+                  defaultScope: memoryDefaultScope,
+                  prompt: currentJob.prompt,
+                  result: boundedResultSummary,
+                  logger,
+                  context: { jobId: currentJob.id, runId },
+                });
+              } else if (output.status !== 'error') {
+                await failRun();
+              }
             }
           }
         } catch (err) {
-          error = err instanceof Error ? err.message : String(err);
-          await updateRunProviderMetadata({ force: true });
-          await completeFailedRuntimeSessionRun({
-            ops: deps.opsRepository,
-            runId: agentRunId,
-            errorSummary: error,
-          });
+          error = runLeaseAbort.errorFor(err);
+          if (!runLeaseAbort.isAborted()) {
+            await updateRunProviderMetadata({ force: true });
+            await failRun();
+          }
         }
       }
     }
     const now = nowIso();
     await deletionGuard.isJobDeleted(true);
     deletedDuringRun = deletionGuard.deletedDuringRun;
-    if (deletionGuard.deletedDuringRun) {
-      result = null;
-      error = null;
-    }
+    if (deletionGuard.deletedDuringRun) result = error = null;
     const safeResultSummary = deletionGuard.deletedDuringRun
       ? null
       : result || resultSummaryAccumulator.snapshot() || null;
@@ -695,6 +696,8 @@ export async function runJob(
       }
       terminalRunRecorded = true;
     }
+    if (runLeaseAbort.isAborted())
+      await failSessionRun(deps.opsRepository, agentRunId, error);
     if (!deletionGuard.deletedDuringRun) {
       await leaseContext.recordRunnerControlEvent('terminal_state', {
         outcome: error ? 'failed' : 'completed',

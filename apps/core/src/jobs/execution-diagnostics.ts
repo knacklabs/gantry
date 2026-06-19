@@ -243,6 +243,16 @@ export function runnerRuntimeEventKey(event: {
   return `${event.eventType}\u001f${payload}`;
 }
 
+export function filterUnforwardedRunnerRuntimeEvents(
+  events: Array<{ eventType: unknown; payload?: unknown }> | undefined,
+  forwardedKeys: Set<string>,
+): Array<{ eventType: unknown; payload?: unknown }> | undefined {
+  return events?.filter((event) => {
+    const eventKey = runnerRuntimeEventKey(event);
+    return !eventKey || !forwardedKeys.has(eventKey);
+  });
+}
+
 export function terminalDiagnosticsPayload(
   diagnostics: JobRunDiagnostics,
 ): Record<string, unknown> {

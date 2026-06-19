@@ -14,7 +14,6 @@ import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { formatRunnerProcessExitError } from './generated-runtime-path-error.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 import {
-  formatScheduledJobIdleStallError,
   readScheduledJobHeartbeat,
   scheduledJobIdleTimeoutMs,
   type ScheduledJobHeartbeatPayload,
@@ -25,6 +24,14 @@ import {
   providerSessionExternalSessionId,
   runnerResultWithProviderSession,
 } from './agent-output-provider-session.js';
+import {
+  abortedRunnerOutput,
+  bindRunnerAbortSignal,
+} from './agent-spawn-process-abort.js';
+import {
+  type RunnerTimeoutReason,
+  writeRunnerTimeoutLog,
+} from './agent-spawn-process-timeout.js';
 import {
   isRunnerCompletionEvidenceFrame,
   isVisibleResultFrame,
@@ -39,7 +46,6 @@ const OUTPUT_START_MARKER = '---GANTRY_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---GANTRY_OUTPUT_END---';
 
 const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
-type RunnerTimeoutReason = 'timeout' | 'scheduled_job_idle_stall';
 
 function formatResumeSessionStatus(sessionId?: string): string {
   return sessionId ? 'present' : 'none';
@@ -103,6 +109,8 @@ export function executeRunnerProcess(
       });
       return;
     }
+    if (options?.signal?.aborted)
+      return resolve(abortedRunnerOutput(runnerLabel));
     let runner: ReturnType<RunnerSandboxProvider['start']>;
     const startupTiming = createRunnerStartupTiming({
       startTime,
@@ -136,6 +144,17 @@ export function executeRunnerProcess(
       return;
     }
 
+    const abortBinding = bindRunnerAbortSignal({
+      signal: options?.signal,
+      runner,
+      runnerLabel,
+      context: {
+        group: group.name,
+        processName,
+        ...runnerContextPayload(input),
+      },
+      warn: logger.warn.bind(logger),
+    });
     onProcess(runner, processName);
 
     let stdout = '';
@@ -144,6 +163,7 @@ export function executeRunnerProcess(
     let stderrTruncated = false;
 
     startupTiming.measureStdinWrite(() => {
+      if (abortBinding.aborted()) return;
       runner.stdin.write(JSON.stringify(input));
       runner.stdin.end();
     });
@@ -323,6 +343,7 @@ export function executeRunnerProcess(
 
     runner.on('close', (code, signal) => {
       clearTimeout(timeout);
+      abortBinding.close();
       const duration = currentTimeMs() - startTime;
       publishRunnerProcessStartupDiagnostic({
         spec,
@@ -335,50 +356,18 @@ export function executeRunnerProcess(
       });
 
       if (timedOut) {
-        const ts = nowIso().replace(/[:.]/g, '-');
-        const timeoutLog = path.join(logsDir, `agent-${ts}.log`);
-        const timeoutTitle =
-          timeoutReason === 'scheduled_job_idle_stall'
-            ? 'SCHEDULED JOB IDLE STALL'
-            : 'TIMEOUT';
-        fs.writeFileSync(
-          timeoutLog,
-          [
-            `=== Agent Run Log (${timeoutTitle}) ===`,
-            `Timestamp: ${nowIso()}`,
-            `Group: ${group.name}`,
-            `Process: ${processName}`,
-            `App ID: ${input.appId ?? 'none'}`,
-            `Agent ID: ${input.agentId ?? 'none'}`,
-            `Session ID: ${input.sessionId ?? 'none'}`,
-            `Job ID: ${input.jobId ?? 'none'}`,
-            `Run ID: ${input.runId ?? 'none'}`,
-            `Log File: ${timeoutLog}`,
-            `Duration: ${formatDuration(duration)}`,
-            `Exit Code: ${code}`,
-            `Had Streaming Output: ${hadStreamingOutput}`,
-            ``,
-            `=== Startup Timing ===`,
-            ...startupTiming.lines(),
-            ...(timeoutReason === 'scheduled_job_idle_stall'
-              ? [
-                  `Idle Timeout: ${formatDuration(scheduledJobIdleMs)}`,
-                  `Last Tool: ${lastScheduledJobHeartbeat?.lastTool ?? lastScheduledJobHeartbeat?.currentTool ?? 'none'}`,
-                  `Last Activity At: ${lastScheduledJobHeartbeat?.lastActivityAt ?? 'unknown'}`,
-                  `Pending Permissions: ${lastScheduledJobHeartbeat?.pendingPermissionRequests ?? 0}`,
-                  `Pending Permission Tools: ${
-                    lastScheduledJobHeartbeat?.pendingPermissionToolNames
-                      ?.length
-                      ? lastScheduledJobHeartbeat.pendingPermissionToolNames.join(
-                          ', ',
-                        )
-                      : 'none'
-                  }`,
-                  `Total Tool Calls: ${lastScheduledJobHeartbeat?.totalToolCalls ?? 0}`,
-                ]
-              : []),
-          ].join('\n'),
-        );
+        const timeoutLog = writeRunnerTimeoutLog({
+          spec,
+          logsDir,
+          duration,
+          code,
+          hadStreamingOutput,
+          startupLines: startupTiming.lines(),
+          timeoutReason,
+          scheduledJobIdleMs,
+          lastScheduledJobHeartbeat,
+          timeoutMs,
+        });
 
         if (
           hadStreamingOutput &&
@@ -392,7 +381,7 @@ export function executeRunnerProcess(
               duration,
               code,
               startupTiming: startupTiming.payload(),
-              logFile: timeoutLog,
+              logFile: timeoutLog.logFile,
               ...runnerContextPayload(input),
             },
             `${runnerLabel} timed out after output (idle cleanup)`,
@@ -408,15 +397,6 @@ export function executeRunnerProcess(
           return;
         }
 
-        const error =
-          timeoutReason === 'scheduled_job_idle_stall'
-            ? formatScheduledJobIdleStallError({
-                timeoutMs: scheduledJobIdleMs,
-                heartbeat: lastScheduledJobHeartbeat,
-                logFile: timeoutLog,
-              })
-            : `${runnerLabel} timed out after ${formatDuration(timeoutMs)}`;
-
         logger.error(
           {
             group: group.name,
@@ -425,7 +405,7 @@ export function executeRunnerProcess(
             code,
             hadStreamingOutput,
             startupTiming: startupTiming.payload(),
-            logFile: timeoutLog,
+            logFile: timeoutLog.logFile,
             timeoutReason,
             ...runnerContextPayload(input),
           },
@@ -441,7 +421,7 @@ export function executeRunnerProcess(
             runnerResultWithProviderSession({
               status: 'error',
               externalSessionId: providerSessionExternalId,
-              error,
+              error: timeoutLog.error,
             }),
           );
         });
@@ -528,6 +508,23 @@ export function executeRunnerProcess(
       const stopRequested = activeRunStopWasRequested(runner);
       const streamedSigterm =
         onOutput && signal === 'SIGTERM' && hadStreamingOutput;
+      if (abortBinding.aborted()) {
+        outputChain.then(() => {
+          logger.warn(
+            {
+              group: group.name,
+              duration,
+              hadStreamingOutput,
+              signal,
+              startupTiming: startupTiming.payload(),
+              ...runnerContextPayload(input),
+            },
+            `${runnerLabel} stopped after run abort`,
+          );
+          resolve(abortedRunnerOutput(runnerLabel, providerSessionExternalId));
+        });
+        return;
+      }
       if (streamedSigterm && !stopRequested) {
         outputChain.then(() => {
           logger.info(

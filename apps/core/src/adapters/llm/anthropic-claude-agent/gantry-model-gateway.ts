@@ -595,7 +595,9 @@ function runtimeEventRunIdFor(
   tokenRecord: GatewayTokenRecord,
 ): RuntimeEventPublishInput['runId'] | undefined {
   if (!tokenRecord.runId) return undefined;
-  return String(tokenRecord.runId).startsWith('credential-run:')
+  const runId = String(tokenRecord.runId);
+  return runId.startsWith('credential-run:') ||
+    runId.startsWith('memory-query:')
     ? undefined
     : tokenRecord.runId;
 }

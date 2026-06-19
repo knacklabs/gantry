@@ -93,11 +93,14 @@ export class DirectRunnerSandboxProvider implements RunnerSandboxProvider {
       input.args,
       input.resourceLimits ?? this.resourceLimits,
     );
-    return spawn(prepared.command, prepared.args, {
+    const child = spawn(prepared.command, prepared.args, {
       cwd: input.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: input.env,
+      detached: true,
     });
+    installProcessGroupKill(child);
+    return child;
   }
 }
 

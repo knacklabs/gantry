@@ -7,6 +7,11 @@
  */
 
 import { LIVE_TURN_SLOT_KEY_PREFIX } from '../../application/live-turns/live-turn-lease-service.js';
+import {
+  computeHostCapacityPlan,
+  HOST_EXECUTION_SLOT_KEY_PREFIX,
+  hostExecutionSlotKey,
+} from '../../shared/host-capacity.js';
 
 /**
  * Process role string. Kept as a local union (not imported from the runtime
@@ -210,6 +215,7 @@ export interface MetricsDeps {
   liveCapacityLimit: () => number;
   /** Per-workspace background job capacity from runtime.queue.max_job_runs. */
   jobCapacityLimit: () => number;
+  hostCpuThreads?: () => number;
   /**
    * Age in seconds of the oldest pending live admission waiting for a free
    * worker (0 when none). Reported by the runtime; computed cheaply in-process,
@@ -416,15 +422,26 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
     }
 
     try {
-      const limit = Math.max(0, Math.floor(deps.liveCapacityLimit()));
-      const capacityRows = await deps.query<CountRow>(
-        `SELECT count(*)::int AS count
-         FROM worker_instances
-         WHERE heartbeat_at > now() - interval '60 seconds'
-           AND status IN ('starting', 'healthy')
-           AND process_role IN ('all', 'live-worker')`,
+      const liveCapacityPlan = computeHostCapacityPlan({
+        queue: {
+          maxMessageRuns: deps.liveCapacityLimit(),
+          maxJobRuns: deps.jobCapacityLimit(),
+        },
+        processRole: deps.role,
+        cpuThreads: deps.hostCpuThreads?.(),
+      });
+      const limit = liveCapacityPlan.interactiveCapacity;
+      const localCapacity = workerInstanceId ? limit : 0;
+      const localInteractiveSlotKey = hostExecutionSlotKey(
+        workerInstanceId ?? undefined,
+        'interactive',
       );
-      const capacity = (capacityRows[0]?.count ?? 0) * limit;
+      const localRows = await deps.query<CountRow>(
+        `SELECT count(*)::int AS count
+         FROM run_slots
+         WHERE slot_key = ${quoteSqlLiteral(localInteractiveSlotKey)}
+           AND expires_at > now()`,
+      );
       // Cluster-wide live slot usage: unexpired run_slots whose key is a live
       // per-worker slot key. The LIKE pattern matches `live:messages:<id>`.
       const rows = await deps.query<CountRow>(
@@ -439,14 +456,19 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
         rows[0]?.count ?? 0,
       );
       gauge(
-        'gantry_live_slots_capacity_cluster',
-        'Configured cluster live-turn capacity from healthy live workers.',
-        capacity,
+        'gantry_live_slots_used_local',
+        'Unexpired host execution slots held by interactive work on this runtime host.',
+        localRows[0]?.count ?? 0,
+      );
+      gauge(
+        'gantry_live_slots_capacity_local',
+        'Effective host-clamped live-turn capacity on this runtime host.',
+        localCapacity,
       );
       gauge(
         'gantry_live_warm_spare',
-        'Whether cluster live-turn capacity has at least one free slot.',
-        capacity > (rows[0]?.count ?? 0) ? 1 : 0,
+        'Whether this runtime host has at least one free live-turn slot.',
+        localCapacity > (localRows[0]?.count ?? 0) ? 1 : 0,
       );
     } catch {
       // Slot usage unavailable; skip this gauge.
@@ -495,7 +517,11 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
            coalesce(max(extract(epoch FROM (now() - created_at))), 0)::int
              AS oldest_age_seconds
          FROM live_admission_work_items
-         WHERE state = 'queued'`,
+         WHERE state = 'queued'
+            OR (
+              state = 'deferred'
+              AND (defer_until IS NULL OR defer_until <= now())
+            )`,
       );
       gauge(
         'gantry_live_admission_backlog',
@@ -517,12 +543,13 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
       `SELECT slot_key, count(*)::int AS count
        FROM run_slots
        WHERE slot_key NOT LIKE ${quoteSqlLiteral(`${LIVE_TURN_SLOT_KEY_PREFIX}%`)}
+         AND slot_key NOT LIKE ${quoteSqlLiteral(`${HOST_EXECUTION_SLOT_KEY_PREFIX}%`)}
          AND expires_at > now()
        GROUP BY slot_key
        ORDER BY slot_key`,
     );
     lines.push(
-      '# HELP gantry_background_job_slots_used Unexpired non-live run slots held by background jobs per slot key.',
+      '# HELP gantry_background_job_slots_used Unexpired workspace run slots held by background jobs per slot key.',
     );
     lines.push('# TYPE gantry_background_job_slots_used gauge');
     for (const row of rows) {
@@ -532,8 +559,15 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
     }
     gauge(
       'gantry_background_job_slots_capacity',
-      'Configured per-workspace background job capacity.',
-      Math.max(1, Math.floor(deps.jobCapacityLimit())),
+      'Effective host-clamped background job capacity.',
+      computeHostCapacityPlan({
+        queue: {
+          maxMessageRuns: deps.liveCapacityLimit(),
+          maxJobRuns: deps.jobCapacityLimit(),
+        },
+        processRole: deps.role,
+        cpuThreads: deps.hostCpuThreads?.(),
+      }).backgroundCapacity,
     );
   } catch {
     // Background slot usage unavailable; skip these gauges.

@@ -79,6 +79,25 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('does not block a run when start notification delivery hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const sendMessage = vi.fn(() => new Promise<void>(() => undefined));
+      const delivered = notifySchedulerRunStart({
+        job: makeJob(),
+        runId: 'run-1',
+        sendMessage,
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(delivered).resolves.toBe(false);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('prefers lifecycle update over summary fallback when update succeeds', async () => {
     const sendMessage = vi.fn(async () => undefined);
     const update = vi.fn(async () => 'updated' as const);

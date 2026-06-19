@@ -1,6 +1,7 @@
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { ApplicationError } from '../common/application-error.js';
 import { assertSchedulerJobAccess } from './job-management-access.js';
+import { assertPublicJobNamespace } from './job-management-helpers.js';
 import type {
   JobControlPort,
   JobManagementServiceDeps,
@@ -63,6 +64,7 @@ export async function runSchedulerJobNowFromMcp(
   const triggerQueue = requireTriggerQueue(deps);
   const job = await deps.ops.getJobById(input.jobId);
   if (!job) throw new ApplicationError('NOT_FOUND', 'Job not found');
+  assertPublicJobNamespace({ jobId: job.id, prompt: job.prompt });
   assertSchedulerJobAccess(job, input.access);
   const canRecheckSetupPausedJob =
     job.status === 'paused' && job.pause_reason === SETUP_REQUIRED_PAUSE_REASON;

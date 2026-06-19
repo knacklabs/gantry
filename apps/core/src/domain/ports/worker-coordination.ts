@@ -195,6 +195,7 @@ export interface RunLeaseRepository {
    */
   recoverExpiredRunLeases(input: {
     now?: string;
+    staleBefore?: string;
   }): Promise<RecoveredRunLease[]>;
 }
 
@@ -215,6 +216,9 @@ export interface RunSlotRepository {
     now?: string;
   }): Promise<boolean>;
   releaseRunSlot(input: { slotKey: string; holderId: string }): Promise<void>;
+  releaseRunSlotsForStaleWorkers?(input: {
+    staleBefore: string;
+  }): Promise<number>;
 }
 
 export interface RunnerControlEventRepository {

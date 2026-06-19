@@ -5,6 +5,14 @@ const runtimeStore = vi.hoisted(() => ({
     getTriggerById: vi.fn(),
   },
 }));
+const workerCoordination = vi.hoisted(() => ({
+  markStaleWorkersUnhealthy: vi.fn(async () => [] as string[]),
+  recoverExpiredRunLeases: vi.fn(async () => [] as unknown[]),
+  releaseRunSlotsForStaleWorkers: vi.fn(async () => 0),
+  getWorker: vi.fn(async () => ({
+    capabilities: [] as string[],
+  })),
+}));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => runtimeStore.controlRepository,
@@ -15,17 +23,16 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       },
     },
   }),
-  getWorkerCoordinationRepository: () => ({
-    markStaleWorkersUnhealthy: async () => [],
-    recoverExpiredRunLeases: async () => [],
-    getWorker: async () => ({
-      capabilities: [],
-    }),
-  }),
+  getWorkerCoordinationRepository: () => workerCoordination,
 }));
 
 const deploymentModeMock = vi.hoisted(() => ({
   mode: 'workstation' as 'workstation' | 'fleet',
+}));
+const runtimeQueueConfigMock = vi.hoisted(() => ({
+  value: undefined as
+    | { maxMessageRuns: number; maxJobRuns: number; maxRetries: number }
+    | undefined,
 }));
 
 vi.mock('@core/config/index.js', async (importOriginal) => {
@@ -33,6 +40,8 @@ vi.mock('@core/config/index.js', async (importOriginal) => {
   return {
     ...actual,
     getDeploymentMode: () => deploymentModeMock.mode,
+    getRuntimeQueueConfig: () =>
+      runtimeQueueConfigMock.value ?? actual.getRuntimeQueueConfig(),
   };
 });
 
@@ -46,6 +55,9 @@ import {
   SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS,
 } from '@core/infrastructure/pgboss/scheduler-engine.js';
 import { configureRunSlotBackend } from '@core/jobs/concurrency.js';
+import { JOB_INTERACTIVE_CAPACITY_RESERVED_DELAY_TEXT } from '@core/shared/scheduler-copy.js';
+import { nowMs, toIso } from '@core/shared/time/datetime.js';
+import { WORKER_STALE_AFTER_MS } from '@core/shared/worker-heartbeat.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -85,6 +97,12 @@ function createJob(overrides: Partial<Job> = {}): Job {
 describe('PgBossSchedulerEngine', () => {
   afterEach(() => {
     deploymentModeMock.mode = 'workstation';
+    runtimeQueueConfigMock.value = undefined;
+    workerCoordination.markStaleWorkersUnhealthy.mockResolvedValue([]);
+    workerCoordination.recoverExpiredRunLeases.mockResolvedValue([]);
+    workerCoordination.releaseRunSlotsForStaleWorkers.mockResolvedValue(0);
+    workerCoordination.getWorker.mockResolvedValue({ capabilities: [] });
+    vi.clearAllMocks();
     configureRunSlotBackend(null);
   });
 
@@ -200,6 +218,55 @@ describe('PgBossSchedulerEngine', () => {
       { jobId: 'job-1', scheduledFor: '2027-05-19 04:00:00+00' },
       expect.objectContaining({
         startAfter: new Date('2027-05-19T04:00:00.000Z'),
+        priority: 0,
+      }),
+    );
+  });
+
+  it('assigns lower pg-boss priority to trusted system maintenance jobs', async () => {
+    const job = createJob({
+      id: 'system:dreaming:team:abc123',
+      prompt: '__system:memory_dream',
+      schedule_type: 'cron',
+      schedule_value: '* * * * *',
+      next_run: '2027-05-19T04:00:00.000Z',
+    });
+    const schedule = vi.fn().mockResolvedValue(undefined);
+    const boss = {
+      send: vi.fn().mockResolvedValue(undefined),
+      schedule,
+      unschedule: vi.fn().mockResolvedValue(undefined),
+      deleteJob: vi.fn().mockResolvedValue(undefined),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+          getAllJobs: vi.fn().mockResolvedValue([job]),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    (engine as unknown as { boss: typeof boss }).boss = boss;
+
+    await (
+      engine as unknown as { syncAllJobs: () => Promise<void> }
+    ).syncAllJobs();
+
+    expect(schedule).toHaveBeenCalledWith(
+      'gantry.jobs',
+      '* * * * *',
+      { jobId: 'system:dreaming:team:abc123' },
+      expect.objectContaining({
+        priority: -1,
       }),
     );
   });
@@ -418,6 +485,53 @@ describe('PgBossSchedulerEngine', () => {
     expect(onSchedulerChanged).toHaveBeenCalledWith();
   });
 
+  it('startup recovery releases slots held by already stale workers', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-04-24T08:00:00.000Z'));
+      workerCoordination.releaseRunSlotsForStaleWorkers.mockResolvedValue(2);
+      const opsRepository = {
+        getAllJobs: vi.fn().mockResolvedValue([]),
+        releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+      };
+      const engine = new PgBossSchedulerEngine(
+        {
+          conversationRoutes: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(),
+          opsRepository: opsRepository as never,
+        },
+        {
+          registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+          runJob: vi.fn().mockResolvedValue(undefined),
+          sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        },
+      );
+      (engine as unknown as { boss: unknown }).boss = {
+        schedule: vi.fn(),
+        unschedule: vi.fn(),
+        send: vi.fn(),
+        deleteJob: vi.fn(),
+      };
+
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+
+      expect(
+        workerCoordination.releaseRunSlotsForStaleWorkers,
+      ).toHaveBeenCalledWith({
+        staleBefore: toIso(nowMs() - WORKER_STALE_AFTER_MS),
+      });
+      expect(workerCoordination.recoverExpiredRunLeases).toHaveBeenCalledWith({
+        staleBefore: toIso(nowMs() - WORKER_STALE_AFTER_MS),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('periodically runs a full sync so stale leases are released while idle', async () => {
     vi.useFakeTimers();
     try {
@@ -612,6 +726,11 @@ describe('PgBossSchedulerEngine', () => {
   });
 
   it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
+    runtimeQueueConfigMock.value = {
+      maxMessageRuns: 0,
+      maxJobRuns: 4,
+      maxRetries: 5,
+    };
     const acquireRunSlot = vi.fn(async () => true);
     configureRunSlotBackend({
       repository: {
@@ -662,17 +781,701 @@ describe('PgBossSchedulerEngine', () => {
       expect.any(Object),
       '__scheduler__:tg:team:job-1',
       { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
+      expect.objectContaining({ abortSignal: expect.any(AbortSignal) }),
     );
-    expect(acquireRunSlot).toHaveBeenCalledWith(
-      expect.objectContaining({
-        capacity: 4,
-        slotKey: 'tg:team',
-      }),
+    const workspaceAcquire = acquireRunSlot.mock.calls.find(
+      ([input]) => input.slotKey === 'tg:team',
+    )?.[0];
+    expect(workspaceAcquire).toEqual(
+      expect.objectContaining({ slotKey: 'tg:team' }),
     );
-    expect(acquireRunSlot.mock.calls[0]?.[0].slotKey).not.toMatch(
-      /^live:messages:/,
-    );
+    expect(workspaceAcquire?.capacity).toBe(4);
+    expect(workspaceAcquire?.runId).toBe('run-1');
+    const hostAcquire = acquireRunSlot.mock.calls.find(([input]) =>
+      String(input.slotKey).endsWith(':background'),
+    )?.[0];
+    expect(hostAcquire?.capacity).toBe(4);
+    expect(hostAcquire?.runId).toBe('run-1');
+    expect(
+      acquireRunSlot.mock.calls.some(
+        ([input]) =>
+          String(input.slotKey).startsWith('host:execution:') &&
+          !String(input.slotKey).endsWith(':background'),
+      ),
+    ).toBe(true);
     expect(requestSync).toHaveBeenCalledWith();
+  });
+
+  it('dispatches background jobs before system maintenance jobs', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => true),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const maintenanceJob = createJob({
+      id: 'system:dreaming:team:abc123',
+      prompt: '__system:memory_dream',
+    });
+    const backgroundJob = createJob({
+      id: 'background-job',
+      prompt: 'Summarize the channel',
+    });
+    const callbacks = {
+      registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+      runJob: vi.fn().mockResolvedValue(undefined),
+      sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          getJobById: vi.fn(async (jobId: string) =>
+            jobId === 'system:dreaming:team:abc123'
+              ? maintenanceJob
+              : backgroundJob,
+          ),
+        } as never,
+      },
+      callbacks,
+    );
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string; runId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([
+      {
+        data: {
+          jobId: 'system:dreaming:team:abc123',
+          runId: 'maintenance-run',
+        },
+      },
+      { data: { jobId: 'background-job', runId: 'background-run' } },
+    ]);
+
+    expect(callbacks.runJob.mock.calls.map((call) => call[0].id)).toEqual([
+      'background-job',
+      'system:dreaming:team:abc123',
+    ]);
+  });
+
+  it('does not put untrusted reserved prompts in the maintenance lane', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => true),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const rogueReservedPromptJob = createJob({
+      id: 'rogue-job',
+      prompt: '__system:memory_dream',
+    });
+    const backgroundJob = createJob({
+      id: 'background-job',
+      prompt: 'Summarize the channel',
+    });
+    const callbacks = {
+      registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+      runJob: vi.fn().mockResolvedValue(undefined),
+      sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          getJobById: vi.fn(async (jobId: string) =>
+            jobId === 'rogue-job' ? rogueReservedPromptJob : backgroundJob,
+          ),
+        } as never,
+      },
+      callbacks,
+    );
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string; runId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([
+      { data: { jobId: 'rogue-job', runId: 'rogue-run' } },
+      { data: { jobId: 'background-job', runId: 'background-run' } },
+    ]);
+
+    expect(callbacks.runJob.mock.calls.map((call) => call[0].id)).toEqual([
+      'rogue-job',
+      'background-job',
+    ]);
+  });
+
+  it('notifies with the job delay copy when background job capacity is full', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => false),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob({
+      notification_routes: [
+        {
+          conversationJid: 'tg:ops',
+          threadId: null,
+          label: 'Ops',
+        },
+      ],
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage,
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string; runId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: { jobId: 'job-1', runId: 'run-1' } }]);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:ops',
+      JOB_INTERACTIVE_CAPACITY_RESERVED_DELAY_TEXT,
+    );
+  });
+
+  it('requeues zero-capacity background deliveries instead of running them', async () => {
+    runtimeQueueConfigMock.value = {
+      maxMessageRuns: 3,
+      maxJobRuns: 0,
+      maxRetries: 5,
+    };
+    const acquireRunSlot = vi.fn(async () => true);
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot,
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob({
+      notification_routes: [
+        {
+          conversationJid: 'tg:ops',
+          threadId: null,
+          label: 'Ops',
+        },
+      ],
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const runJob = vi.fn().mockResolvedValue(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage,
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob,
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send,
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string; runId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: { jobId: 'job-1', runId: 'run-zero' } }]);
+
+    expect(runJob).not.toHaveBeenCalled();
+    expect(acquireRunSlot).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:ops',
+      JOB_INTERACTIVE_CAPACITY_RESERVED_DELAY_TEXT,
+    );
+  });
+
+  it('dedupes job delay copy across workers while the same delivery remains capacity blocked', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => false),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob({
+      notification_routes: [
+        {
+          conversationJid: 'tg:ops',
+          threadId: null,
+          label: 'Ops',
+        },
+      ],
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage,
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send,
+    };
+    const blockedDelivery = {
+      data: { jobId: 'job-1', runId: 'run-delay-dedupe' },
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string; runId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([blockedDelivery]);
+    const requeuedPayload = send.mock.calls[0]?.[1] as {
+      jobId: string;
+      runId: string;
+      capacityDelayNotified?: boolean;
+    };
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => false),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test-2',
+    });
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{
+            data: {
+              jobId: string;
+              runId: string;
+              capacityDelayNotified?: boolean;
+            };
+          }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: requeuedPayload }]);
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(requeuedPayload).toMatchObject({ capacityDelayNotified: true });
+    expect(send.mock.calls[1]?.[1]).toMatchObject({
+      capacityDelayNotified: true,
+    });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:ops',
+      JOB_INTERACTIVE_CAPACITY_RESERVED_DELAY_TEXT,
+    );
+  });
+
+  it('does not resend job delay copy when a blocked delivery stays delayed past the old throttle window', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-06-19T00:00:00.000Z'));
+      configureRunSlotBackend({
+        repository: {
+          acquireRunSlot: vi.fn(async () => false),
+          renewRunSlot: vi.fn(async () => true),
+          releaseRunSlot: vi.fn(async () => undefined),
+        },
+        workerInstanceId: 'worker-test',
+      });
+      const job = createJob({
+        notification_routes: [
+          {
+            conversationJid: 'tg:ops',
+            threadId: null,
+            label: 'Ops',
+          },
+        ],
+      });
+      const sendMessage = vi.fn().mockResolvedValue(undefined);
+      const engine = new PgBossSchedulerEngine(
+        {
+          conversationRoutes: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage,
+          opsRepository: {
+            getJobById: vi.fn().mockResolvedValue(job),
+          } as never,
+        },
+        {
+          registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+          runJob: vi.fn().mockResolvedValue(undefined),
+          sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        },
+      );
+      const send = vi.fn().mockResolvedValue(undefined);
+      (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss =
+        {
+          send,
+        };
+      const blockedDelivery = {
+        data: { jobId: 'job-1', runId: 'run-delay-no-expire' },
+      };
+
+      await (
+        engine as unknown as {
+          processBossJobs: (
+            jobs: Array<{ data: { jobId: string; runId: string } }>,
+          ) => Promise<void>;
+        }
+      ).processBossJobs([blockedDelivery]);
+      const requeuedPayload = send.mock.calls[0]?.[1] as {
+        jobId: string;
+        runId: string;
+        capacityDelayNotified?: boolean;
+      };
+      vi.setSystemTime(new Date('2026-06-19T00:20:00.000Z'));
+      await (
+        engine as unknown as {
+          processBossJobs: (
+            jobs: Array<{
+              data: {
+                jobId: string;
+                runId: string;
+                capacityDelayNotified?: boolean;
+              };
+            }>,
+          ) => Promise<void>;
+        }
+      ).processBossJobs([{ data: requeuedPayload }]);
+
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('persists delivered capacity delay copy state on the requeued delivery', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => false),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob({
+      notification_routes: [
+        {
+          conversationJid: 'tg:ops',
+          threadId: null,
+          label: 'Ops',
+        },
+      ],
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage,
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send,
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string; runId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([
+      { data: { jobId: 'job-1', runId: 'run-notify-async' } },
+    ]);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:ops',
+      JOB_INTERACTIVE_CAPACITY_RESERVED_DELAY_TEXT,
+    );
+    expect(send.mock.calls[0]?.[1]).toMatchObject({
+      capacityDelayNotified: true,
+    });
+  });
+
+  it('retries capacity delay copy until at least one route reports delivery', async () => {
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot: vi.fn(async () => false),
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob({
+      notification_routes: [
+        {
+          conversationJid: 'tg:ops',
+          threadId: null,
+          label: 'Ops',
+        },
+      ],
+    });
+    const sendMessage = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage,
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send,
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{
+            data: {
+              jobId: string;
+              runId: string;
+              capacityDelayNotified?: boolean;
+            };
+          }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([
+      { data: { jobId: 'job-1', runId: 'run-notify-retry' } },
+    ]);
+    const firstRequeuedPayload = send.mock.calls[0]?.[1] as {
+      jobId: string;
+      runId: string;
+      capacityDelayNotified?: boolean;
+    };
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{
+            data: {
+              jobId: string;
+              runId: string;
+              capacityDelayNotified?: boolean;
+            };
+          }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: firstRequeuedPayload }]);
+    const secondRequeuedPayload = send.mock.calls[1]?.[1] as {
+      jobId: string;
+      runId: string;
+      capacityDelayNotified?: boolean;
+    };
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{
+            data: {
+              jobId: string;
+              runId: string;
+              capacityDelayNotified?: boolean;
+            };
+          }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: secondRequeuedPayload }]);
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(firstRequeuedPayload).toMatchObject({
+      capacityDelayNotified: false,
+    });
+    expect(send.mock.calls[1]?.[1]).toMatchObject({
+      capacityDelayNotified: true,
+    });
+    expect(send.mock.calls[2]?.[1]).toMatchObject({
+      capacityDelayNotified: true,
+    });
+  });
+
+  it('requeues delivery without claiming slots while chat admission is backlogged', async () => {
+    const acquireRunSlot = vi.fn(async () => true);
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot,
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob();
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        hasLiveAdmissionBacklog: vi.fn().mockResolvedValue(true),
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send,
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: { jobId: 'job-1' } }]);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(acquireRunSlot).not.toHaveBeenCalled();
+  });
+
+  it('does not idle a dedicated job-worker for unrelated chat backlog', async () => {
+    const acquireRunSlot = vi.fn(async () => true);
+    configureRunSlotBackend({
+      repository: {
+        acquireRunSlot,
+        renewRunSlot: vi.fn(async () => true),
+        releaseRunSlot: vi.fn(async () => undefined),
+      },
+      workerInstanceId: 'worker-test',
+    });
+    const job = createJob();
+    const runJob = vi.fn().mockResolvedValue(undefined);
+    const hasLiveAdmissionBacklog = vi.fn().mockResolvedValue(true);
+    const engine = new PgBossSchedulerEngine(
+      {
+        processRole: 'job-worker',
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        hasLiveAdmissionBacklog,
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob,
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    const send = vi.fn().mockResolvedValue(undefined);
+    (engine as unknown as { boss: { send: ReturnType<typeof vi.fn> } }).boss = {
+      send,
+    };
+
+    await (
+      engine as unknown as {
+        processBossJobs: (
+          jobs: Array<{ data: { jobId: string } }>,
+        ) => Promise<void>;
+      }
+    ).processBossJobs([{ data: { jobId: 'job-1' } }]);
+
+    expect(hasLiveAdmissionBacklog).not.toHaveBeenCalled();
+    expect(runJob).toHaveBeenCalled();
+    expect(acquireRunSlot).toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    const acquiredRunIds = acquireRunSlot.mock.calls
+      .map(([input]) => input.runId)
+      .filter(Boolean);
+    expect(new Set(acquiredRunIds).size).toBe(1);
+    expect(acquiredRunIds[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(runJob.mock.calls[0]?.[3]).toEqual(
+      expect.objectContaining({ runId: acquiredRunIds[0] }),
+    );
   });
 
   it('fails the pg-boss delivery when capacity requeue cannot be persisted', async () => {

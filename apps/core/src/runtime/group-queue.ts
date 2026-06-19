@@ -9,6 +9,7 @@ import {
   UNLIMITED_QUEUE_BACKLOG,
   type GroupQueuePolicy,
 } from './group-queue-policy.js';
+import { createLiveTurnLocalRunnerHooks } from './group-queue-live-turn-hooks.js';
 import {
   localContinuationRunnerControlPort,
   type ContinuationHandler,
@@ -19,6 +20,7 @@ import {
   type QueuedTask,
 } from './group-queue-types.js';
 import type { LiveTurnLocalRunnerHooks } from './live-turn-authority.js';
+import * as admission from './runtime-admission.js';
 
 interface GroupState {
   active: boolean;
@@ -278,10 +280,17 @@ export class GroupQueue {
     groupJid: string,
     taskId: string,
     fn: () => Promise<void>,
+    options: { admissionClass?: QueuedTask['admissionClass'] } = {},
   ): boolean {
     if (this.shuttingDown) return false;
 
     const state = this.getGroup(groupJid);
+    const task = admission.createQueuedTask(
+      groupJid,
+      taskId,
+      fn,
+      options.admissionClass,
+    );
 
     if (state.runningTaskId === taskId) {
       logger.debug({ groupJid, taskId }, 'Task already running, skipping');
@@ -296,7 +305,7 @@ export class GroupQueue {
       if (!this.canAcceptPendingTask()) {
         return this.rejectTaskBacklog(groupJid, taskId, state);
       }
-      state.pendingTasks.push({ id: taskId, kind: 'task', groupJid, fn });
+      admission.enqueueByAdmissionClass(state.pendingTasks, task);
       if (state.idleWaiting) {
         this.closeStdin(groupJid);
       }
@@ -304,11 +313,18 @@ export class GroupQueue {
       return true;
     }
 
+    if (state.pendingMessages && task.admissionClass !== 'interactive_child') {
+      if (!this.canAcceptPendingTask()) {
+        return this.rejectTaskBacklog(groupJid, taskId, state);
+      }
+      admission.enqueueByAdmissionClass(state.pendingTasks, task);
+      return true;
+    }
     if (this.activeTaskCount >= this.policy.maxJobRuns) {
       if (!this.canAcceptPendingTask()) {
         return this.rejectTaskBacklog(groupJid, taskId, state);
       }
-      state.pendingTasks.push({ id: taskId, kind: 'task', groupJid, fn });
+      admission.enqueueByAdmissionClass(state.pendingTasks, task);
       this.enqueueWaitingGroup('task', groupJid);
       logger.debug(
         { groupJid, taskId, activeTaskCount: this.activeTaskCount },
@@ -318,9 +334,8 @@ export class GroupQueue {
     }
 
     this.trackRun(
-      this.runTask(groupJid, { id: taskId, kind: 'task', groupJid, fn }).catch(
-        (err) =>
-          logger.error({ groupJid, taskId, err }, 'Unhandled error in runTask'),
+      this.runTask(groupJid, task).catch((err) =>
+        logger.error({ groupJid, taskId, err }, 'Unhandled error in runTask'),
       ),
     );
     return true;
@@ -377,7 +392,13 @@ export class GroupQueue {
         : [];
     for (const alias of aliases) this.addStopAlias(alias, groupJid);
     if (!state.isTaskRun) {
-      const hooks = this.createLiveTurnLocalRunnerHooks(groupJid, state);
+      const hooks = createLiveTurnLocalRunnerHooks({
+        groupJid,
+        state,
+        runnerControlPort: this.runnerControlPort,
+        closeStdin: () => this.closeStdin(groupJid),
+        stopGroup: () => this.stopGroup(groupJid),
+      });
       void Promise.resolve(
         this.liveTurnRunnerRegistrar?.(groupJid, hooks, {
           stopAliasJids: aliases,
@@ -497,33 +518,6 @@ export class GroupQueue {
     return false;
   }
 
-  private createLiveTurnLocalRunnerHooks(
-    groupJid: string,
-    state: GroupState,
-  ): LiveTurnLocalRunnerHooks {
-    return {
-      applyContinuation: ({ text, sequence, threadId }) => {
-        if (!state.active || !state.workspaceFolder || state.isTaskRun) return;
-        const incomingThreadId = normalizeThreadQueueId(threadId) || null;
-        if (state.threadId !== incomingThreadId) return;
-        state.idleWaiting = false;
-        this.runnerControlPort.writeContinuationInput({
-          workspaceFolder: state.workspaceFolder,
-          text,
-          sequence,
-          threadId: incomingThreadId,
-        });
-        state.continuationHandler?.();
-      },
-      applyCloseStdin: () => {
-        this.closeStdin(groupJid);
-      },
-      applyStop: () => {
-        this.stopGroup(groupJid);
-      },
-    };
-  }
-
   private async runForGroup(
     groupJid: string,
     reason: 'messages' | 'drain',
@@ -637,25 +631,10 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    if (state.pendingTasks.length > 0) {
-      if (this.activeTaskCount >= this.policy.maxJobRuns) {
-        this.enqueueWaitingGroup('task', groupJid);
-        this.drainWaiting();
-        return;
-      }
-      const task = state.pendingTasks.shift()!;
-      this.trackRun(
-        this.runTask(groupJid, task).catch((err) =>
-          logger.error(
-            { groupJid, taskId: task.id, err },
-            'Unhandled error in runTask (drain)',
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (state.pendingMessages) {
+    if (
+      state.pendingMessages &&
+      state.pendingTasks[0]?.admissionClass !== 'interactive_child'
+    ) {
       if (this.activeMessageCount >= this.policy.maxMessageRuns) {
         if (!this.canAcceptWaitingMessageGroup(groupJid)) {
           logger.warn(
@@ -678,6 +657,24 @@ export class GroupQueue {
           logger.error(
             { groupJid, err },
             'Unhandled error in runForGroup (drain)',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (state.pendingTasks.length > 0) {
+      if (this.activeTaskCount >= this.policy.maxJobRuns) {
+        this.enqueueWaitingGroup('task', groupJid);
+        this.drainWaiting();
+        return;
+      }
+      const task = state.pendingTasks.shift()!;
+      this.trackRun(
+        this.runTask(groupJid, task).catch((err) =>
+          logger.error(
+            { groupJid, taskId: task.id, err },
+            'Unhandled error in runTask (drain)',
           ),
         ),
       );
@@ -712,7 +709,10 @@ export class GroupQueue {
       }
 
       if (this.activeTaskCount < this.policy.maxJobRuns) {
-        const nextTaskJid = this.dequeueWaitingGroup('task');
+        const nextTaskJid = admission.dequeueTaskGroupByAdmissionClass(
+          this.waitingTaskGroups,
+          this.groups,
+        );
         if (nextTaskJid) {
           const state = this.getGroup(nextTaskJid);
           const task = state.pendingTasks.shift();

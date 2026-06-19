@@ -30,6 +30,9 @@
   timeout constants in the registration signature so existing canonical jobs are
   updated, and pass the remaining deadline through maintenance queues into the
   actual subsystem instead of relying on stale-lease recovery as the timeout.
+- `__system:` prompts and `system:` job ids are host-reserved. User and agent
+  job create/update paths must reject them, and scheduler admission/execution
+  must use trusted system job identity instead of prompt text alone.
 - `request_skill_install` has two distinct IPC outcomes: staged `files` go
   through same-channel approval and, on approval, immediately install, bind,
   sync settings, and return immediate skill context; `installCommandArgv`

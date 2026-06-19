@@ -78,6 +78,9 @@ x-worker-base: &worker-base
     GANTRY_DB_SCHEMA: gantry
     GANTRY_CONTROL_HOST: 0.0.0.0
     GANTRY_CONTROL_PORT: '8080'
+    # Local fleet runs role-split containers on one developer machine, so they
+    # must share one host identity for host-budget slot accounting.
+    GANTRY_HOST_ID: ${GANTRY_HOST_ID:-gantry-fleet-local}
     # Local rehearsal only: generate/load one shared secret set from the shared
     # gantry-home volume when the operator did not supply real env vars.
     # Production leaves this unset and injects values via Secrets Manager refs

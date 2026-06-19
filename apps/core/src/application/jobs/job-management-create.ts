@@ -8,6 +8,7 @@ import { resolveRequestedJobModel } from './job-model-selection.js';
 import {
   normalizeExecutionContext,
   normalizeNotificationRoutes,
+  assertPublicJobNamespace,
   requireJobNotificationRouteApproval,
   routesBeyondAuthenticatedContext,
 } from './job-management-helpers.js';
@@ -41,6 +42,7 @@ export async function createManagedJob(
       'API key cannot access this session',
     );
   }
+  assertPublicJobNamespace({ prompt: input.prompt });
 
   const kind = input.kind ?? 'manual';
   const schedule = deps.schedulePlanner.planAppSchedule({

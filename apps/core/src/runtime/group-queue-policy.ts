@@ -35,7 +35,7 @@ export function createGroupQueuePolicy(
       options.maxMessageRuns,
       MAX_MESSAGE_RUNS,
     ),
-    maxJobRuns: normalizePositiveInteger(options.maxJobRuns, MAX_JOB_RUNS),
+    maxJobRuns: normalizeNonNegativeInteger(options.maxJobRuns, MAX_JOB_RUNS),
     maxMessageBacklog: normalizeNonNegativeInteger(
       options.maxMessageBacklog,
       UNLIMITED_QUEUE_BACKLOG,

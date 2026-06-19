@@ -9,6 +9,7 @@ import type { RunLease } from '../../domain/ports/worker-coordination.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import type { NewMessage } from '../../domain/types.js';
+import type { ProcessRole } from './roles/process-role.js';
 import {
   parseThreadQueueKey,
   makeThreadQueueKey,
@@ -40,6 +41,7 @@ import {
   isBrowserProfileSyncEnabled,
   snapshotBrowserProfile,
 } from '../../runtime/browser-profile-sync.js';
+import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
 
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
@@ -219,12 +221,13 @@ export function buildLiveAdmissionProcessor(input: {
       replayCursor,
       messageFetchPageSize,
       timezone,
-      getMessagesSince: opsRepository.getMessagesSince,
+      getMessagesSince: opsRepository.getMessagesSince?.bind(opsRepository),
       setAgentCursor: app.setAgentCursor,
       saveState: app.saveState,
       enqueueMessageCheck: input.enqueueMessageCheck,
       routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
-      completeSessionAgentRun: opsRepository.completeSessionAgentRun,
+      completeSessionAgentRun:
+        opsRepository.completeSessionAgentRun?.bind(opsRepository),
     });
 
   return async (queueJid: string): Promise<boolean> => {
@@ -432,6 +435,7 @@ export interface WaitingStatusCoordination {
  */
 export function startLiveExecutionServices(input: {
   appId: string;
+  processRole?: ProcessRole;
   app: AdmissionApp & {
     queue: {
       getPolicy: () => { maxMessageRuns: number; maxRetries?: number };
@@ -542,10 +546,16 @@ export function startLiveExecutionServices(input: {
     if (!liveTurnAuthority || !liveTurnLeaseDeps) return;
     const recoveryLoop = startLiveTurnRecoveryLoop({
       intervalMs: 20_000,
-      tick: () =>
-        runLiveTurnRecoveryTick({
+      tick: () => {
+        const hostCapacityPlan = computeHostCapacityPlan({
+          queue: app.queue.getPolicy(),
+          processRole: input.processRole,
+        });
+        return runLiveTurnRecoveryTick({
           deps: liveTurnLeaseDeps,
           slotCapacity: app.queue.getPolicy().maxMessageRuns,
+          hostSlotCapacity: hostCapacityPlan.interactiveCapacity,
+          hostBudgetCapacity: hostCapacityPlan.budget,
           leaseTtlMs: 60_000,
           unleasedStaleMs: 30_000,
           isEligible: isEligibleToRecoverLiveTurn,
@@ -563,7 +573,8 @@ export function startLiveExecutionServices(input: {
               liveTurnLeaseDeps,
               warn,
             }),
-        }),
+        });
+      },
       warn,
     });
     handle.recoveryLoop = recoveryLoop;

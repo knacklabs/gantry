@@ -6,6 +6,12 @@ import type { GroupQueuePolicyOptions } from './group-queue-policy.js';
 import type { RunnerControlPort } from './runner-control-port.js';
 
 export type QueueKind = 'message' | 'task';
+export type RuntimeAdmissionClass =
+  | 'interactive'
+  | 'interactive_child'
+  | 'background'
+  | 'maintenance';
+export type TaskAdmissionClass = Exclude<RuntimeAdmissionClass, 'interactive'>;
 
 export type ContinuationOptions = {
   threadId?: string | null;
@@ -30,6 +36,7 @@ export const localContinuationRunnerControlPort: ContinuationRunnerControlPort =
 export interface QueuedTask {
   id: string;
   kind: QueueKind;
+  admissionClass: TaskAdmissionClass;
   groupJid: string;
   fn: () => Promise<void>;
 }

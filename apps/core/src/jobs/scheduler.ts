@@ -5,6 +5,7 @@ import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
   getRuntimeRepositories,
+  getRuntimeStorage,
   getWorkerCoordinationRepository,
 } from '../adapters/storage/postgres/runtime-store.js';
 import {
@@ -185,6 +186,8 @@ export async function startSchedulerLoop(
   const resolvedDeps = {
     ...deps,
     opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
+    hasLiveAdmissionBacklog:
+      deps.hasLiveAdmissionBacklog ?? hasQueuedLiveAdmissionWork,
   };
   const warn = (context: Record<string, unknown>, message: string): void =>
     logger.warn(context, message);
@@ -232,6 +235,28 @@ export async function startSchedulerLoop(
       );
     throw err;
   }
+}
+
+async function hasQueuedLiveAdmissionWork(): Promise<boolean> {
+  const result = await getRuntimeStorage().service.pool.query<{
+    waiting: boolean;
+  }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM live_admission_work_items
+       WHERE state = 'queued'
+          OR (
+            state = 'deferred'
+            AND (defer_until IS NULL OR defer_until <= now())
+          )
+       LIMIT 1
+     ) AS waiting`,
+  );
+  return result.rows[0]?.waiting === true;
+}
+
+/** @internal test hook */
+export async function _hasQueuedLiveAdmissionWorkForTests(): Promise<boolean> {
+  return hasQueuedLiveAdmissionWork();
 }
 
 export async function stopSchedulerLoop(): Promise<void> {

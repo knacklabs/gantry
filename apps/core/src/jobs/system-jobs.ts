@@ -44,14 +44,20 @@ import {
   getSystemJobRegistrationSignature,
   setSystemJobRegistrationSignature,
 } from './system-registration-cache.js';
+import {
+  MEMORY_DREAM_SYSTEM_PROMPT,
+  MEMORY_DREAMING_JOB_ID_PREFIX,
+  MEMORY_EMBEDDING_BACKFILL_JOB_ID,
+  MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+} from '../shared/system-job-identity.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
 import type { SchedulerDependencies } from './types.js';
 
-export const MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream';
-export const MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT =
-  '__system:memory_embedding_backfill';
-const MEMORY_EMBEDDING_BACKFILL_JOB_ID = 'system:embedding-backfill';
+export {
+  MEMORY_DREAM_SYSTEM_PROMPT,
+  MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+} from '../shared/system-job-identity.js';
 const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
 
@@ -77,7 +83,7 @@ function routeDigest(value: string): string {
 }
 
 function systemDreamingJobId(input: { folder: string; jid: string }): string {
-  return `system:dreaming:${input.folder}:${routeDigest(input.jid)}`;
+  return `${MEMORY_DREAMING_JOB_ID_PREFIX}${input.folder}:${routeDigest(input.jid)}`;
 }
 
 export function memoryDreamingTimeoutForJob(

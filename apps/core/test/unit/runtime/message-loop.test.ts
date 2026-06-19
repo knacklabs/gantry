@@ -190,6 +190,39 @@ describe('recoverPendingMessages', () => {
     expect(deps.enqueued).toContain('group@g.us');
   });
 
+  it('keeps the repository receiver when replaying pending messages', async () => {
+    const repo = {
+      messages: [
+        {
+          id: 1,
+          chat_jid: 'group@g.us',
+          sender: 'user@s.whatsapp.net',
+          content: 'hello',
+          timestamp: '2024-01-01T00:00:01.000Z',
+          is_from_me: false,
+          message_id: 'msg-1',
+          reply_to_message_id: null,
+          reply_to_content: null,
+          sender_name: 'User',
+        },
+      ],
+      async getNewMessages() {
+        return { messages: [], newTimestamp: '' };
+      },
+      async getMessagesSince() {
+        return this.messages;
+      },
+      async getMessageThreadIds() {
+        return [null];
+      },
+    } as unknown as MessageLoopDeps['opsRepository'];
+
+    const deps = makeDeps({ opsRepository: repo });
+    await recoverPendingMessages(deps);
+
+    expect(deps.enqueued).toContain('group@g.us');
+  });
+
   it('does not enqueue when no pending messages exist', async () => {
     mockGetMessagesSince.mockReturnValue([]);
 

@@ -42,6 +42,8 @@ import {
   getRuntimeSkillArtifactStore,
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
+import type { ProcessRole } from './roles/process-role.js';
+import { applyHostCapacityToQueuePolicy } from '../../shared/host-capacity.js';
 import { AppMemoryService } from '../../memory/app-memory-service.js';
 import { collectDurableMemoryAtBoundary } from '../../memory/app-memory-session-boundary-collector.js';
 import { memoryAgentIdForWorkspaceFolder } from '../../memory/app-memory-boundaries.js';
@@ -131,6 +133,7 @@ export interface RuntimeAppOptions {
   executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider?: RunnerSandboxProvider;
   opsRepository?: RuntimeAppRepository;
+  processRole?: ProcessRole;
 }
 
 export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
@@ -140,7 +143,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let stateSaveInFlight: Promise<void> | undefined;
   let stateSaveDirty = false;
 
-  const queue = options.queue ?? new GroupQueue(getRuntimeQueueConfig());
+  const queue =
+    options.queue ??
+    new GroupQueue(
+      applyHostCapacityToQueuePolicy(
+        getRuntimeQueueConfig(),
+        options.processRole,
+      ),
+    );
   const executionAdapters =
     options.executionAdapters ?? createDefaultAgentExecutionAdapterRegistry();
   const executionAdapter =

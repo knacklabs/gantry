@@ -80,7 +80,8 @@ admin/session calls go to the control role.
 
 **Role/live gauges on `/metrics`** (alongside the existing `gantry_*` gauges):
 `gantry_process_role{role}`, `gantry_live_turns_active`,
-`gantry_live_slots_used_cluster`, `gantry_live_slots_capacity_cluster`,
+`gantry_live_slots_used_cluster`, `gantry_live_slots_used_local`,
+`gantry_live_slots_capacity_local`,
 `gantry_live_warm_spare`, `gantry_live_turns_recoverable`,
 `gantry_live_oldest_waiting_seconds`, `gantry_live_admission_backlog`,
 `gantry_live_admission_backlog_oldest_seconds`,

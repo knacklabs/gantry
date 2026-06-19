@@ -24,6 +24,7 @@ export type DeliverySettlement =
   | 'sent'
   | 'delivery_incomplete'
   | 'not_delivered';
+const NOTIFICATION_DELIVERY_TIMEOUT_MS = 5_000;
 
 export function isDeliverySent(settlement: DeliverySettlement): boolean {
   return settlement === 'sent';
@@ -112,6 +113,21 @@ export async function settleDeliveryAttempt(
   }
 }
 
+function withDeliveryTimeout(
+  send: () => Promise<void | boolean>,
+): () => Promise<void | boolean> {
+  return () => {
+    const timeout = new Promise<false>((resolve) => {
+      const timer = setTimeout(
+        () => resolve(false),
+        NOTIFICATION_DELIVERY_TIMEOUT_MS,
+      );
+      timer.unref?.();
+    });
+    return Promise.race([send(), timeout]);
+  };
+}
+
 function providerFromPayload(providerPayload: unknown): string | undefined {
   if (typeof providerPayload !== 'object' || providerPayload === null) {
     return undefined;
@@ -195,10 +211,11 @@ export async function sendJobNotification(input: {
         : undefined;
     try {
       const settlement = await settleDeliveryAttempt(
-        () =>
+        withDeliveryTimeout(() =>
           options
             ? sendMessage(route.conversationJid, input.text, options)
             : sendMessage(route.conversationJid, input.text),
+        ),
         { scope: 'job-notification', target: route.conversationJid },
       );
       if (isDeliverySent(settlement)) delivered = true;

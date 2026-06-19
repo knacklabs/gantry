@@ -49,6 +49,12 @@ export interface SchedulerRunEventState {
   eventAppSession?: SchedulerEventAppSession;
 }
 
+export function createRuntimeEventPublisher(input: {
+  publish(event: RuntimeEventPublishInput): Promise<unknown>;
+}): (event: RuntimeEventPublishInput) => Promise<void> {
+  return (event) => input.publish(event).then(() => undefined);
+}
+
 export async function bindSchedulerRunEventState(input: {
   currentJob: Job;
   dispatch?: SchedulerDispatchPayload;
