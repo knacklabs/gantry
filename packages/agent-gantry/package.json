@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@cawstudios/agent-gantry",
   "version": "0.1.0",
   "description": "Stable Gantry SDK facade for product-specific agent packages.",
