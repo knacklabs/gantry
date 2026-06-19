@@ -93,10 +93,13 @@ vi.mock('@core/runtime/agent-spawn.js', () => ({
   spawnAgent: (...args: unknown[]) => mockSpawnAgent(...args),
   writeGroupsSnapshot: (...args: unknown[]) => mockWriteGroupsSnapshot(...args),
 }));
-vi.mock('@core/application/pre-run-context/pre-run-context-registry.js', () => ({
-  loadAgentPreRunContextProvider: (...args: unknown[]) =>
-    mockLoadAgentPreRunContextProvider(...args),
-}));
+vi.mock(
+  '@core/application/pre-run-context/pre-run-context-registry.js',
+  () => ({
+    loadAgentPreRunContextProvider: (...args: unknown[]) =>
+      mockLoadAgentPreRunContextProvider(...args),
+  }),
+);
 
 const mockHandleSessionCommand = vi.fn();
 vi.mock('@core/session/session-commands.js', () => ({
@@ -1278,10 +1281,11 @@ describe('createGroupProcessor', () => {
         },
       } as Partial<ConversationRoute>);
       const { deps } = setupHappyPath({ group });
-      const providerBuild = vi.fn(async (input: { hasRecentSessionDigest: boolean }) =>
-        input.hasRecentSessionDigest
-          ? '<boondi_crm_context>{"latestQueryOrLead":{"summaryBrief":"12 birthday boxes"}}</boondi_crm_context>'
-          : null,
+      const providerBuild = vi.fn(
+        async (input: { hasRecentSessionDigest: boolean }) =>
+          input.hasRecentSessionDigest
+            ? '<boondi_crm_context>{"latestQueryOrLead":{"summaryBrief":"12 birthday boxes"}}</boondi_crm_context>'
+            : null,
       );
       mockLoadAgentPreRunContextProvider.mockResolvedValue({
         name: 'returning-customer-crm',
