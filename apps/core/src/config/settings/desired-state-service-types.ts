@@ -1,4 +1,5 @@
 import type { AgentPersona } from '../../shared/agent-persona.js';
+import type { PromptSurface } from '../../shared/prompt-surface.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
   AgentPluginsConfig,
@@ -26,6 +27,7 @@ export interface StoredAgentBinding {
   agentConfig?: {
     model?: string;
     persona?: AgentPersona;
+    promptSurface?: PromptSurface;
     guardrail?: GuardrailConfig;
     plugins?: AgentPluginsConfig;
     thinking?: ThinkingOverride;

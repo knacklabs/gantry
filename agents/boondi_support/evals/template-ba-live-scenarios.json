@@ -1,0 +1,598 @@
+{
+  "version": 1,
+  "source": "/Users/caw-d/Downloads/Boondi_Intent_Scenario_Template.xlsx#Template_BA",
+  "headerRow": 4,
+  "scenarioCount": 59,
+  "scenarios": [
+    {
+      "scenarioId": "pre-01-shelf-life",
+      "intentId": "PRE-01",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Shelf life of a specific product",
+      "text": "What is the shelf life of your Kaju Katli?",
+      "expectedDecision": "Product-care route. Product-specific shelf life needs confirmed source facts.",
+      "expectedToolPolicy": "Use source data if exact product shelf life is needed; do not invent shelf life."
+    },
+    {
+      "scenarioId": "pre-01-refrigeration",
+      "intentId": "PRE-01",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Refrigeration needed?",
+      "text": "Do I need to keep your Motichoor Ladoo in the fridge?",
+      "expectedDecision": "Product-care storage route.",
+      "expectedToolPolicy": "Use confirmed product/source guidance for product-specific storage."
+    },
+    {
+      "scenarioId": "pre-01-travel-suitability",
+      "intentId": "PRE-01",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Travel / outstation suitability",
+      "text": "Can I carry Kaju Katli on a train to Pune tomorrow?",
+      "expectedDecision": "Product-care travel route.",
+      "expectedToolPolicy": "Ask/source product and travel facts; do not guarantee travel survival."
+    },
+    {
+      "scenarioId": "pre-02-deliverability",
+      "intentId": "PRE-02",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Pincode / city deliverability",
+      "text": "Do you deliver to pincode 400050?",
+      "expectedDecision": "Delivery serviceability route.",
+      "expectedToolPolicy": "Confirm only from current delivery/source data."
+    },
+    {
+      "scenarioId": "pre-02-delivery-eta",
+      "intentId": "PRE-02",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Delivery timeline / ETA before ordering",
+      "text": "Can this be delivered tomorrow evening to 400050?",
+      "expectedDecision": "Pre-order delivery ETA route.",
+      "expectedToolPolicy": "Use current delivery/source data; no ETA promise from memory."
+    },
+    {
+      "scenarioId": "pre-03-piece-count",
+      "intentId": "PRE-03",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Piece count / weight / box contents",
+      "text": "How many pieces come in the Kaju Katli box?",
+      "expectedDecision": "Product-detail route.",
+      "expectedToolPolicy": "Use confirmed product/variant source data."
+    },
+    {
+      "scenarioId": "pre-03-custom-pack-size",
+      "intentId": "PRE-03",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Custom packing size / alternative quantity",
+      "text": "Can I get a smaller box with 12 pieces instead?",
+      "expectedDecision": "Variant/custom-pack route.",
+      "expectedToolPolicy": "Offer confirmed variants or route feasibility; no custom-pack promise."
+    },
+    {
+      "scenarioId": "pre-04-sugar-free",
+      "intentId": "PRE-04",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Sugar-free / diabetic-friendly query",
+      "text": "Do you have anything sugar-free or diabetic friendly?",
+      "expectedDecision": "Dietary route.",
+      "expectedToolPolicy": "Use confirmed source facts; no medical assurance."
+    },
+    {
+      "scenarioId": "pre-04-allergen-jain",
+      "intentId": "PRE-04",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Allergen / Jain / nut-free query",
+      "text": "Does your Kaju Katli contain cashew or dairy?",
+      "expectedDecision": "Allergen route.",
+      "expectedToolPolicy": "Use confirmed KB/source facts; route uncertainty."
+    },
+    {
+      "scenarioId": "pre-04-ingredients-missing",
+      "intentId": "PRE-04",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Ingredients/Nutritional Values not listed on packaging",
+      "text": "The ingredients are not listed on my box. Can you share the nutritional values?",
+      "expectedDecision": "Ingredients/nutrition route.",
+      "expectedToolPolicy": "Use confirmed source or route to team; ask product/batch only if needed."
+    },
+    {
+      "scenarioId": "pre-05-apply-discount",
+      "intentId": "PRE-05",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Applying a promo / discount code",
+      "text": "My discount code BSSDIWALI20 is not applying.",
+      "expectedDecision": "Discount validation route.",
+      "expectedToolPolicy": "Validate current code/source; do not invent validity."
+    },
+    {
+      "scenarioId": "pre-05-missed-window",
+      "intentId": "PRE-05",
+      "group": "product-care",
+      "kb": "product-care.md",
+      "subflow": "Discount won't apply in time / missed window",
+      "text": "The offer ends today but I need delivery next week. Can I still use the discount?",
+      "expectedDecision": "Discount plus delivery route.",
+      "expectedToolPolicy": "Use current offer and delivery rules; route edge cases."
+    },
+    {
+      "scenarioId": "pre-06-gift-budget",
+      "intentId": "PRE-06",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Gift rec with occasion + budget",
+      "text": "Birthday gift for my friend under Rs 500. What should I buy?",
+      "expectedDecision": "Personal gifting route.",
+      "expectedToolPolicy": "Product search only when current shortlist is needed."
+    },
+    {
+      "scenarioId": "pre-06-roka-anniversary",
+      "intentId": "PRE-06",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Specific occasion — roka / anniversary",
+      "text": "This is for a roka ceremony. Need something special under Rs 900.",
+      "expectedDecision": "Occasion-led personal gifting route.",
+      "expectedToolPolicy": "Search products only for current recommendations."
+    },
+    {
+      "scenarioId": "pre-07-wedding-hampers",
+      "intentId": "PRE-07",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Wedding hampers",
+      "text": "I want 30 wedding hampers for next month in Mumbai.",
+      "expectedDecision": "Event/bulk gifting route.",
+      "expectedToolPolicy": "Avoid broad fanout; capture brief and route."
+    },
+    {
+      "scenarioId": "pre-07-baby-announcement",
+      "intentId": "PRE-07",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Baby shower / baby announcement",
+      "text": "Baby announcement gifting, about 40 boxes.",
+      "expectedDecision": "Event/bulk gifting route.",
+      "expectedToolPolicy": "No product search unless examples are requested."
+    },
+    {
+      "scenarioId": "pre-07-haldi",
+      "intentId": "PRE-07",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Haldi / other personal ceremony",
+      "text": "Need 11 boxes for a haldi under Rs 800 each.",
+      "expectedDecision": "Personal ceremony gifting route.",
+      "expectedToolPolicy": "Product search only if current shortlist is useful."
+    },
+    {
+      "scenarioId": "pre-08-corporate-quote",
+      "intentId": "PRE-08",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Corporate gifting — 25+ units, quote needed",
+      "text": "Corporate gifting around 100 units. Need prices.",
+      "expectedDecision": "B2B/bulk route.",
+      "expectedToolPolicy": "No Shopify/CRM fanout unless product examples or prior context are needed."
+    },
+    {
+      "scenarioId": "pre-08-gst-logo",
+      "intentId": "PRE-08",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Bulk order + GST invoice + logo branding",
+      "text": "Need 80 employee gifts with GST invoice and logo branding.",
+      "expectedDecision": "B2B/customisation route.",
+      "expectedToolPolicy": "Capture brief; no GST/branding feasibility promise."
+    },
+    {
+      "scenarioId": "pre-09-message-card",
+      "intentId": "PRE-09",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Custom message card",
+      "text": "I wanted to add a customised message to the gift box.",
+      "expectedDecision": "Gift-message route.",
+      "expectedToolPolicy": "Source/team confirmation; no loose checkout claims."
+    },
+    {
+      "scenarioId": "pre-09-branded-sleeve",
+      "intentId": "PRE-09",
+      "group": "gifting",
+      "kb": "gifting.md",
+      "subflow": "Branded sleeve / personalised box",
+      "text": "Can I customise a box with our logo?",
+      "expectedDecision": "Custom packaging route.",
+      "expectedToolPolicy": "Ask quantity if missing and route feasibility."
+    },
+    {
+      "scenarioId": "pre-10-pincode-tech",
+      "intentId": "PRE-10",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Pincode not serviceable / same-day not showing",
+      "text": "Same day delivery is not showing for my pincode 400050.",
+      "expectedDecision": "Checkout/delivery-tech route.",
+      "expectedToolPolicy": "Use delivery/source data if diagnosing availability."
+    },
+    {
+      "scenarioId": "pre-10-payment-failing",
+      "intentId": "PRE-10",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Payment failing / order not going through",
+      "text": "My payment keeps failing and I cannot place the order.",
+      "expectedDecision": "Checkout/payment issue route.",
+      "expectedToolPolicy": "Ask method/error once; no sensitive payment data."
+    },
+    {
+      "scenarioId": "del-01-order-status",
+      "intentId": "DEL-01",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Order status — standard tracking request",
+      "text": "Where is my order? Can you check the ETA?",
+      "expectedDecision": "Order-status route.",
+      "expectedToolPolicy": "Use verified order source."
+    },
+    {
+      "scenarioId": "del-01-tracking-link",
+      "intentId": "DEL-01",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Tracking link shows nothing",
+      "text": "The tracking link for my order is showing nothing.",
+      "expectedDecision": "Order-status exception route.",
+      "expectedToolPolicy": "Check order source and route abnormal/no update."
+    },
+    {
+      "scenarioId": "del-01-repeat-followup",
+      "intentId": "DEL-01",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Repeat follow-up — order still not received",
+      "text": "I followed up earlier but still have not received any update on my order.",
+      "expectedDecision": "Escalation route.",
+      "expectedToolPolicy": "Order source if useful; no delivery promise."
+    },
+    {
+      "scenarioId": "del-02-no-bill",
+      "intentId": "DEL-02",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Gift order — no invoice / prices visible",
+      "text": "This is a gift order. Please do not send the bill or show prices.",
+      "expectedDecision": "Order note/support route.",
+      "expectedToolPolicy": "Order source for placed order; no guaranteed note."
+    },
+    {
+      "scenarioId": "del-03-date-request",
+      "intentId": "DEL-03",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Specific delivery date request",
+      "text": "Can you deliver my order this Friday instead?",
+      "expectedDecision": "Order modification route.",
+      "expectedToolPolicy": "Route to human; no date promise."
+    },
+    {
+      "scenarioId": "del-03-time-window",
+      "intentId": "DEL-03",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Specific time window request",
+      "text": "Can you deliver between 5 and 7 pm?",
+      "expectedDecision": "Delivery request route.",
+      "expectedToolPolicy": "Route to human; no time-window promise."
+    },
+    {
+      "scenarioId": "del-04-add-remove",
+      "intentId": "DEL-04",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Add / remove item from placed order",
+      "text": "Can you add one more Kaju Katli box to my placed order?",
+      "expectedDecision": "Order modification route.",
+      "expectedToolPolicy": "Order/source route; no change promise."
+    },
+    {
+      "scenarioId": "del-04-combine-orders",
+      "intentId": "DEL-04",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Combine multiple orders",
+      "text": "I placed two orders. Can you combine them for one delivery?",
+      "expectedDecision": "Order modification route.",
+      "expectedToolPolicy": "Order/source route; no merge promise."
+    },
+    {
+      "scenarioId": "del-05-cancel",
+      "intentId": "DEL-05",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Accidental / change of plan cancellation",
+      "text": "I placed the order by mistake. Can you cancel it?",
+      "expectedDecision": "Cancellation route.",
+      "expectedToolPolicy": "Order/source route; no cancellation promise."
+    },
+    {
+      "scenarioId": "del-05-cancel-refund",
+      "intentId": "DEL-05",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Cancellation + refund request",
+      "text": "Please cancel my order and refund the amount.",
+      "expectedDecision": "Cancellation/refund route.",
+      "expectedToolPolicy": "Order/source route; no refund approval promise."
+    },
+    {
+      "scenarioId": "post-01-melted",
+      "intentId": "POST-01",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Product melted / texture changed",
+      "text": "The product arrived melted and the texture is completely changed.",
+      "expectedDecision": "Complaint route.",
+      "expectedToolPolicy": "Ask for useful photo/order context and route."
+    },
+    {
+      "scenarioId": "post-01-stale",
+      "intentId": "POST-01",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Stale / off taste / below expectation",
+      "text": "The mithai tastes stale and below expectation.",
+      "expectedDecision": "Complaint route.",
+      "expectedToolPolicy": "Ask product/order/photo if useful and route."
+    },
+    {
+      "scenarioId": "post-02-missing-item",
+      "intentId": "POST-02",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Item missing from order / hamper",
+      "text": "One item is missing from my hamper.",
+      "expectedDecision": "Missing-item route.",
+      "expectedToolPolicy": "Order source if needed; no unnecessary photo demand."
+    },
+    {
+      "scenarioId": "post-02-card-missing",
+      "intentId": "POST-02",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Gift card / message card not included",
+      "text": "The gift message card is missing from my order.",
+      "expectedDecision": "Missing-card route.",
+      "expectedToolPolicy": "Order source if needed; route."
+    },
+    {
+      "scenarioId": "post-03-damaged-packaging",
+      "intentId": "POST-03",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Packaging physically damaged on arrival",
+      "text": "The packaging arrived damaged.",
+      "expectedDecision": "Damage route.",
+      "expectedToolPolicy": "Ask picture and route."
+    },
+    {
+      "scenarioId": "post-03-wrong-packaging",
+      "intentId": "POST-03",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Different / wrong packaging received",
+      "text": "I received different packaging from what I ordered.",
+      "expectedDecision": "Wrong packaging route.",
+      "expectedToolPolicy": "Ask picture/details and route."
+    },
+    {
+      "scenarioId": "post-04-sender",
+      "intentId": "POST-04",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Unexpected / surprise delivery — identify sender",
+      "text": "I received a package from you. Can you tell me who sent it?",
+      "expectedDecision": "Sender-identification route.",
+      "expectedToolPolicy": "Use order/billing source only; route privacy-sensitive cases."
+    },
+    {
+      "scenarioId": "post-05-gst-wrong",
+      "intentId": "POST-05",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "GST invoice not reflecting correct GST number",
+      "text": "The GST number on my invoice is wrong.",
+      "expectedDecision": "Invoice correction route.",
+      "expectedToolPolicy": "Route/source; no correction promise."
+    },
+    {
+      "scenarioId": "post-05-invoice-needed",
+      "intentId": "POST-05",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Invoice / bill not included / needed post-delivery",
+      "text": "Can you send me the invoice for my delivered order?",
+      "expectedDecision": "Invoice request route.",
+      "expectedToolPolicy": "Use order/invoice source or route."
+    },
+    {
+      "scenarioId": "post-06-delivered-not-received",
+      "intentId": "POST-06",
+      "group": "orders",
+      "kb": "orders.md",
+      "subflow": "Marked delivered but not received",
+      "text": "My order says delivered but I have not received it.",
+      "expectedDecision": "Urgent delivery complaint route.",
+      "expectedToolPolicy": "Order source if available; urgent route, no delivery promise."
+    },
+    {
+      "scenarioId": "cafe-01-reservation",
+      "intentId": "CAFE-01",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Table booking / dine-in availability",
+      "text": "Can I reserve a table at your Bandra cafe tonight?",
+      "expectedDecision": "Cafe reservation policy route.",
+      "expectedToolPolicy": "Use confirmed policy/source; no invented reservation."
+    },
+    {
+      "scenarioId": "cafe-02-address-hours",
+      "intentId": "CAFE-02",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Store location, hours, contact number",
+      "text": "What is your Bandra store address and timing?",
+      "expectedDecision": "Store-info route.",
+      "expectedToolPolicy": "Use confirmed outlet/source data."
+    },
+    {
+      "scenarioId": "cafe-02-nearest-store",
+      "intentId": "CAFE-02",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Nearest store to a specific area",
+      "text": "Which is your nearest store to Worli?",
+      "expectedDecision": "Store-location route.",
+      "expectedToolPolicy": "Use confirmed outlet/source data."
+    },
+    {
+      "scenarioId": "cafe-03-dine-in-menu",
+      "intentId": "CAFE-03",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Current café menu / seasonal specials",
+      "text": "Can you share the dine-in menu and today's soft serve flavours?",
+      "expectedDecision": "Cafe menu route.",
+      "expectedToolPolicy": "Use confirmed menu/source; route live flavour uncertainty."
+    },
+    {
+      "scenarioId": "cafe-04-valet",
+      "intentId": "CAFE-04",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Parking / valet at a specific outlet",
+      "text": "Is valet available at the cafe?",
+      "expectedDecision": "Store amenity route.",
+      "expectedToolPolicy": "Use confirmed outlet/source data."
+    },
+    {
+      "scenarioId": "cafe-05-store-availability",
+      "intentId": "CAFE-05",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Stock / product available at a specific outlet",
+      "text": "Is Kaju Katli available in your Bandra store today?",
+      "expectedDecision": "Store availability route.",
+      "expectedToolPolicy": "Use store/source data; do not assume online stock."
+    },
+    {
+      "scenarioId": "cafe-06-store-bill",
+      "intentId": "CAFE-06",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Receipt / GST bill for in-store purchase",
+      "text": "I bought from the Bandra store and need my bill.",
+      "expectedDecision": "In-store invoice route.",
+      "expectedToolPolicy": "Capture outlet/time/payment mode and route."
+    },
+    {
+      "scenarioId": "misc-01-spam",
+      "intentId": "MISC-01",
+      "group": "misc-policy",
+      "kb": "misc-policy.md",
+      "subflow": "Unsolicited / irrelevant inbound message",
+      "text": "cheap followers click this link now",
+      "expectedDecision": "Spam route.",
+      "expectedToolPolicy": "No MCP/tool use."
+    },
+    {
+      "scenarioId": "misc-02-opt-out",
+      "intentId": "MISC-02",
+      "group": "misc-policy",
+      "kb": "misc-policy.md",
+      "subflow": "Customer opts out of marketing messages",
+      "text": "Please stop sending me promotional messages.",
+      "expectedDecision": "Opt-out route.",
+      "expectedToolPolicy": "Confirm action only if system/source supports it."
+    },
+    {
+      "scenarioId": "misc-02-repeat-opt-out",
+      "intentId": "MISC-02",
+      "group": "misc-policy",
+      "kb": "misc-policy.md",
+      "subflow": "Repeated opt-out not honoured — angry",
+      "text": "I already unsubscribed but I am still getting promotional messages.",
+      "expectedDecision": "Opt-out complaint route.",
+      "expectedToolPolicy": "Acknowledge repeat issue and route."
+    },
+    {
+      "scenarioId": "misc-03-franchise",
+      "intentId": "MISC-03",
+      "group": "misc-policy",
+      "kb": "misc-policy.md",
+      "subflow": "Franchise / distribution / retail partnership enquiry",
+      "text": "I want to open a Bombay Sweet Shop franchise.",
+      "expectedDecision": "Franchise policy route.",
+      "expectedToolPolicy": "Use confirmed policy/source; no invented process."
+    },
+    {
+      "scenarioId": "misc-04-jobs",
+      "intentId": "MISC-04",
+      "group": "misc-policy",
+      "kb": "misc-policy.md",
+      "subflow": "Employment / vacancy enquiry",
+      "text": "Are you hiring? I want a job at Bombay Sweet Shop.",
+      "expectedDecision": "Hiring route.",
+      "expectedToolPolicy": "Use confirmed careers route/source."
+    },
+    {
+      "scenarioId": "agg-01-quality",
+      "intentId": "AGG-01",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Damaged / poor quality via aggregator",
+      "text": "I ordered on Swiggy and the mithai quality was bad.",
+      "expectedDecision": "Aggregator quality complaint route.",
+      "expectedToolPolicy": "Do not use Shopify order lookup by default."
+    },
+    {
+      "scenarioId": "agg-02-missing-item",
+      "intentId": "AGG-02",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Incomplete order via aggregator",
+      "text": "My Zomato order is missing one item.",
+      "expectedDecision": "Aggregator missing route.",
+      "expectedToolPolicy": "Ask platform/order/missing item; no Shopify assumption."
+    },
+    {
+      "scenarioId": "agg-03-availability",
+      "intentId": "AGG-03",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "Product out of stock or not found on aggregator",
+      "text": "Kaju Katli is not showing on Swiggy in my area.",
+      "expectedDecision": "Aggregator availability route.",
+      "expectedToolPolicy": "Use platform/source only if available; no enablement promise."
+    },
+    {
+      "scenarioId": "agg-04-bill",
+      "intentId": "AGG-04",
+      "group": "store-aggregator",
+      "kb": "store-aggregator.md",
+      "subflow": "GST invoice / bill for aggregator order",
+      "text": "I need a bill for my Swiggy order but the platform is not helping.",
+      "expectedDecision": "Aggregator invoice route.",
+      "expectedToolPolicy": "Redirect only if confirmed; otherwise route with platform details."
+    }
+  ]
+}

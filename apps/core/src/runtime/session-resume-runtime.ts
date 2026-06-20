@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import type { NewMessage, ConversationRoute } from '../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
@@ -520,7 +523,7 @@ export async function buildApprovedSkillContextBlock(input: {
       '',
       ...(progressive
         ? [
-            `(Progressive skill — full guide lives in the skill folder "${skill.name}/SKILL.md" and is intentionally not preloaded. Open/read it only when the description above matches the customer's need.)`,
+            `(Progressive skill — full guide lives in the materialized skill folder "${skill.name}/SKILL.md" and is intentionally not preloaded. When the description above matches the customer's need and the answer depends on this skill's guidance, open it before answering by using the provider-native Skill(${skill.name}) tool; do not answer from general memory. Do not use Gantry mcp_list_tools, mcp_call_tool, or serverName "${skill.name}"; selected skills are not MCP servers.)`,
           ]
         : ['```markdown', content, '```']),
     ]
@@ -535,6 +538,80 @@ export async function buildApprovedSkillContextBlock(input: {
   }
   sections.push('[[/APPROVED_SKILLS_AVAILABLE_THIS_SESSION]]');
   return sections.length > 3 ? sections.join('\n') : '';
+}
+
+export async function buildAgentFolderSkillContextBlock(input: {
+  agentFolderPath?: string;
+  skillIds?: readonly string[];
+  maxChars?: number;
+}): Promise<string> {
+  if (!input.agentFolderPath || !input.skillIds?.length) return '';
+  const maxChars = input.maxChars ?? 8_000;
+  const sections: string[] = [
+    '[[AGENT_FOLDER_SKILLS_AVAILABLE_THIS_SESSION]]',
+    'The following agent-folder skills are selected for this session. Follow the SKILL.md instructions when relevant.',
+  ];
+  let remaining = maxChars - sections.join('\n').length;
+
+  for (const skillId of input.skillIds) {
+    if (remaining <= 0 || !/^[A-Za-z0-9._-]+$/.test(skillId)) continue;
+    const skillFile = path.join(
+      input.agentFolderPath,
+      'skills',
+      skillId,
+      'SKILL.md',
+    );
+    if (!fs.existsSync(skillFile)) continue;
+    const content = fs.readFileSync(skillFile, 'utf-8');
+    const frontmatter = readSkillFrontmatter(content);
+    const progressive = frontmatter.disclosure === 'progressive';
+    const rendered = [
+      '',
+      `## ${frontmatter.name || skillId}`,
+      `id: ${skillId}`,
+      frontmatter.description
+        ? `description: ${frontmatter.description}`
+        : undefined,
+      '',
+      ...(progressive
+        ? [
+            `(Progressive skill — full guide lives in the selected skill folder "${skillId}/SKILL.md" and is intentionally not preloaded. When the description above matches the customer's need and the answer depends on this skill's guidance, open it before answering by using the provider-native Skill(${frontmatter.name || skillId}) tool; do not answer from general memory. Do not use Gantry mcp_list_tools, mcp_call_tool, or serverName "${skillId}"; selected skills are not MCP servers.)`,
+          ]
+        : ['```markdown', content, '```']),
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join('\n');
+    const chunk =
+      rendered.length <= remaining
+        ? rendered
+        : `${rendered.slice(0, Math.max(0, remaining - 80)).trimEnd()}\n[Skill context truncated]`;
+    sections.push(chunk);
+    remaining -= chunk.length;
+  }
+  sections.push('[[/AGENT_FOLDER_SKILLS_AVAILABLE_THIS_SESSION]]');
+  return sections.length > 3 ? sections.join('\n') : '';
+}
+
+function readSkillFrontmatter(content: string): {
+  name?: string;
+  description?: string;
+  disclosure?: string;
+} {
+  if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) {
+    return {};
+  }
+  const normalized = content.replace(/\r\n/g, '\n');
+  const end = normalized.indexOf('\n---', 4);
+  if (end < 0) return {};
+  const fields: { name?: string; description?: string; disclosure?: string } =
+    {};
+  for (const line of normalized.slice(4, end).split('\n')) {
+    const match = /^(name|description|disclosure):\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const value = match[2].replace(/^['"]|['"]$/g, '').trim();
+    if (value) fields[match[1] as keyof typeof fields] = value;
+  }
+  return fields;
 }
 
 export function resolveMemoryUserId(

@@ -18,6 +18,11 @@ const inputSchema = {
     .min(1)
     .optional()
     .describe('Compatibility alias for handleOrId. Prefer handleOrId.'),
+  id: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Compatibility alias for handleOrId when passing a full GID.'),
 };
 
 interface ProductByHandleResponse {
@@ -40,7 +45,7 @@ export function registerGetProduct(
     inputSchema,
     async (args) => {
       try {
-        const handleOrId = args.handleOrId ?? args.handle;
+        const handleOrId = args.handleOrId ?? args.handle ?? args.id;
         if (!handleOrId) {
           return toolErrorContent(
             'INVALID_REQUEST',

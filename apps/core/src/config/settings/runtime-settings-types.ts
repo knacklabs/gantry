@@ -3,6 +3,7 @@ import type {
   RuntimeStorageSettingsSnapshot,
 } from './memory-snapshot.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
+import type { PromptSurface } from '../../shared/prompt-surface.js';
 import type {
   AgentMemoryConfig,
   AgentPluginsConfig,
@@ -189,6 +190,7 @@ export interface RuntimeConfiguredAgent {
   name: string;
   folder: string;
   persona?: AgentPersona;
+  promptSurface?: PromptSurface;
   model?: string;
   oneTimeJobDefaultModel?: string;
   recurringJobDefaultModel?: string;

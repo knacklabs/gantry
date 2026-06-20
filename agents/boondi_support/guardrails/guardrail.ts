@@ -75,7 +75,7 @@ const GRATITUDE_CLOSING_RE =
   /^\s*(?:(?:perfect|great|lovely|awesome|amazing)[,!\s]+)?(?:thanks?|thank you)(?:\s+so much|\s+a lot)?(?:\s*[—-]\s*(?:that'?s|that is)\s+all\s+i\s+needed)?[\s!.]*$/i;
 
 const BSS_TOPIC_RE =
-  /\b(order|orders|ordered|delivery|deliver|delivered|shipping|ship|shipped|tracking|track|refund|replacement|return|cancel|damaged|damage|broken|stale|wrong item|missing|payment|paid|invoice|receipt|discount|coupon|code|product|products|sweet|sweets|mithai|kaju|katli|barfi|lado[o]?|modak|hamper|gift|gifting|corporate|bulk|store|address|hours?|open|closed|allergen|ingredient|shelf life|stock|available|availability|price|cost|daam|kitna|kitni|kitne|kahan|where is my|last order|recent order)\b/i;
+  /\b(order|orders|ordered|delivery|deliver|delivered|shipping|ship|shipped|tracking|track|refund|replacement|return|cancel|damaged|damage|broken|stale|wrong item|missing|payment|paid|invoice|receipt|bill|discount|coupon|code|product|products|sweet|sweets|mithai|kaju|katli|barfi|lado[o]?|modak|hamper|gift|gifting|corporate|bulk|store|address|hours?|open|closed|allergen|ingredient|shelf life|stock|available|availability|price|cost|daam|kitna|kitni|kitne|kahan|where is my|last order|recent order|cafe|café|table|reservation|reserve|booking|dine-?in|menu|soft serve|valet|nearest store|swiggy|zomato|aggregator)\b/i;
 
 const HINDI_BSS_TOPIC_RE =
   /(?:ऑर्डर|आर्डर|डिलीवरी|भेज|कीमत|दाम|काजू|कतली|मिठाई|लड्डू|पेड़ा|गुलाब|जामुन|गिफ्ट|हैम्पर|रिफंड|वापस)/;

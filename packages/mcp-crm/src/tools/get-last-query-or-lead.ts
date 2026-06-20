@@ -45,7 +45,7 @@ export function registerGetLastQueryOrLead(
 ): void {
   server.tool(
     'get_last_query_or_lead',
-    "Return only the verified caller's newest active CRM query/lead for a returning-customer greeting. Use empty arguments {}. Response is intentionally compact; use get_open_records only when you need every active opportunity.",
+    "Return only the verified caller's newest active CRM query/lead when the message appears to continue prior business-interest context or the customer explicitly asks to pick up an earlier query. Use empty arguments {}. Do not call for clear standalone new requests such as a new corporate quote, gift-message, product recommendation, checkout, policy, order-support, delivery, invoice, cancellation, refund, or complaint question. Response is intentionally compact; use get_open_records only when you need every active opportunity.",
     {},
     async () => {
       try {

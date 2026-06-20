@@ -387,6 +387,8 @@ export async function exportCurrentDesiredState(input: {
       name: existing?.name ?? group.name,
       folder,
       persona: existing?.persona ?? group.agentConfig?.persona ?? 'developer',
+      promptSurface:
+        existing?.promptSurface ?? group.agentConfig?.promptSurface,
       model: existing?.model ?? group.agentConfig?.model,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,

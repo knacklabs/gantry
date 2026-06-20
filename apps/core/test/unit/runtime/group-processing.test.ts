@@ -912,6 +912,69 @@ describe('createGroupProcessor', () => {
       });
     });
 
+    it('expires a stale provider session after streamed output without retrying or failing the turn', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          externalSessionId: 'claude-session-stale',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:message-1');
+
+      mockSpawnAgent.mockImplementationOnce(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'Visible reply' });
+          return {
+            status: 'error',
+            result: null,
+            error: 'No conversation found with session ID: stale',
+          } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Visible reply',
+      );
+      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:1',
+        agentSessionId: 'agent-session:1',
+        provider: 'anthropic:claude-agent-sdk',
+        externalSessionId: 'claude-session-stale',
+      });
+      expect(
+        deps.opsRepository.updateAgentRunProviderMetadata,
+      ).toHaveBeenCalledWith({
+        runId: 'agent-run:message-1',
+        providerSessionId: null,
+      });
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(setCursorCalls).toHaveLength(1);
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700000001',
+        id: 'msg-1',
+      });
+    });
+
     it('treats partial channel delivery as output sent, avoids rollback, and replaces completion with delivery-incomplete', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];

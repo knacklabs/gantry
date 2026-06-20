@@ -11,6 +11,7 @@ import { registerSearchProducts } from './search-products.js';
 import { registerGetProduct } from './get-product.js';
 import { registerCheckInventory } from './check-inventory.js';
 import { registerValidateDiscountCode } from './validate-discount-code.js';
+import type { ProductSearchCache } from './product-search-cache.js';
 
 export const REGISTERED_TOOL_NAMES = [
   'lookup_customer',
@@ -41,6 +42,7 @@ export function assertReadOnlyToolNames(names: ReadonlyArray<string>): void {
 
 export interface RegisterAllToolsOptions {
   identityCache?: CustomerIdentityCache;
+  productSearchCache?: ProductSearchCache;
   requireVerifiedIdentity?: boolean;
 }
 
@@ -70,9 +72,12 @@ export function registerAllTools(
   });
   registerGetGiftingContext(server, client, {
     identityCache: options.identityCache,
+    productSearchCache: options.productSearchCache,
     requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
   });
-  registerSearchProducts(server, client);
+  registerSearchProducts(server, client, {
+    productSearchCache: options.productSearchCache,
+  });
   registerGetProduct(server, client);
   registerCheckInventory(server, client);
   registerValidateDiscountCode(server, client);

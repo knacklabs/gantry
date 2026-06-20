@@ -22,6 +22,7 @@ import {
 import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
+  claudeSdkToolsForEnabledSkills,
   readClaudeSdkSkillNamesFromEnv,
 } from '../native-sdk-skills.js';
 import { MessageStream } from './message-stream.js';
@@ -89,6 +90,7 @@ import { readContextUsage } from './context-usage.js';
 import { createDeferredContextUsageEmitter } from './context-usage-emitter.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
+import { writeSdkQueryArgsPayloadLogs } from './sdk-query-args-log.js';
 
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
@@ -409,6 +411,8 @@ function traceableSdkStartupOptions(options: Options): Record<string, unknown> {
     mcpServers: options.mcpServers,
     includePartialMessages: options.includePartialMessages,
     settingSources: options.settingSources,
+    debug: options.debug,
+    debugFile: options.debugFile ? 'present' : undefined,
   };
 }
 
@@ -437,7 +441,11 @@ async function dispatchWarmQuery(args: {
   guardrailPreface?: string;
   onBound: (scope: ConversationBindScope) => void;
   captureCachePrewarmPayloads: boolean;
-}): Promise<{ query: Query; cachePrewarmTrace?: WarmCachePrewarmTrace }> {
+}): Promise<{
+  query: Query;
+  effectiveFirstMessage: string;
+  cachePrewarmTrace?: WarmCachePrewarmTrace;
+}> {
   const startupStartedAt = Date.now();
   const warm = await startup({ options: args.sdkOptions });
   const startupEndedAt = Date.now();
@@ -521,7 +529,9 @@ async function dispatchWarmQuery(args: {
     writeBoundIdentityFile(ipcDir, boundIdentity);
   }
 
-  const guardrailPreface = args.guardrailPreface?.trim();
+  const guardrailPreface = (
+    scope.guardrailPreface ?? args.guardrailPreface
+  )?.trim();
   const firstMessage = guardrailPreface
     ? `${guardrailPreface}\n\n${scope.firstMessage}`
     : scope.firstMessage;
@@ -529,6 +539,7 @@ async function dispatchWarmQuery(args: {
   args.onBound(scope);
   return {
     query: warm.query(args.stream),
+    effectiveFirstMessage: firstMessage,
     ...(cachePrewarmTrace ? { cachePrewarmTrace } : {}),
   };
 }
@@ -670,11 +681,20 @@ export async function runQuery(
   const externalMcpServers = readExternalMcpServers();
   const externalMcpAllowedTools = readExternalMcpAllowedTools();
   const externalMcpAlwaysAllowedTools = readExternalMcpAlwaysAllowedTools();
+  const approvedMcpServerNames = [
+    ...Object.keys(externalMcpServers),
+    ...(agentInput.attachedMcpSourceIds ?? []).map((id) =>
+      id.startsWith('mcp:') ? id.slice(4) : id,
+    ),
+  ];
   const systemPrompt = buildRunnerSystemPrompt(
     agentInput,
     memoryBlock,
     {
-      approvedMcpServerNames: Object.keys(externalMcpServers),
+      approvedMcpServerNames,
+      mcpListToolsEnabled: externalMcpAllowedTools.includes(
+        'mcp__gantry__mcp_list_tools',
+      ),
     },
     { genericBoot: warmGenericBoot },
   );
@@ -762,7 +782,10 @@ export async function runQuery(
       skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
     },
     skills: enabledSdkSkills,
-    tools: [...capabilities.availableTools],
+    tools: claudeSdkToolsForEnabledSkills(
+      capabilities.availableTools,
+      enabledSdkSkills,
+    ),
     allowedTools: [...capabilities.allowedTools],
     disallowedTools: [...capabilities.disallowedTools],
     env: isolatedSdkEnv,
@@ -794,6 +817,9 @@ export async function runQuery(
     settingSources: ['user'],
     mcpServers: capabilities.mcpServers,
     includePartialMessages: true,
+    ...(process.env.GANTRY_CLAUDE_SDK_DEBUG_FILE?.trim()
+      ? { debugFile: process.env.GANTRY_CLAUDE_SDK_DEBUG_FILE.trim() }
+      : {}),
   };
   // MEASUREMENT-ONLY: just before the SDK spawns the Claude Code CLI subprocess.
   timingMark('before_sdk_query');
@@ -815,13 +841,17 @@ export async function runQuery(
     : undefined;
   pendingCachePrewarmTrace = warmQueryResult?.cachePrewarmTrace;
   const sdkQueryArgs = { prompt: stream, options: sdkOptions };
+  const effectivePrompt =
+    warmQueryResult?.effectiveFirstMessage ?? pendingTurnInput;
   const sdkQueryArgsPayload = {
     capturedAt: new Date().toISOString(),
     path: warmQueryResult?.query ? 'warm_bound_worker' : 'cold_query',
-    prompt: pendingTurnInput,
+    prompt: effectivePrompt,
+    ...(effectivePrompt !== pendingTurnInput
+      ? { rawPrompt: pendingTurnInput }
+      : {}),
     options: sdkOptions,
   };
-  const sdkQueryArgsLog = JSON.stringify(sdkQueryArgsPayload, null, 2);
   log(
     `[LLM_SDK_QUERY_ARGS] ${JSON.stringify({
       path: warmQueryResult?.query ? 'warm_bound_worker' : 'cold_query',
@@ -829,28 +859,16 @@ export async function runQuery(
       options: sdkOptions,
     })}`,
   );
-  fs.appendFileSync(
-    process.env.GANTRY_LLM_PAYLOAD_LOG ||
-      '/tmp/gantry-llm-sdk-query-args.jsonl',
-    `${sdkQueryArgsLog}\n`,
-  );
   const rootPayloadLogPath =
     process.env.GANTRY_LLM_PAYLOAD_JSON ||
     `${process.cwd()}/llm-sdk-query-args.json`;
-  let rootPayloadLog: unknown[] = [];
-  try {
-    rootPayloadLog = JSON.parse(
-      fs.readFileSync(rootPayloadLogPath, 'utf8'),
-    ) as unknown[];
-    if (!Array.isArray(rootPayloadLog)) rootPayloadLog = [];
-  } catch {
-    rootPayloadLog = [];
-  }
-  rootPayloadLog.push(sdkQueryArgsPayload);
-  fs.writeFileSync(
-    rootPayloadLogPath,
-    `${JSON.stringify(rootPayloadLog, null, 2)}\n`,
-  );
+  writeSdkQueryArgsPayloadLogs({
+    latestPath: rootPayloadLogPath,
+    historyPath:
+      process.env.GANTRY_LLM_PAYLOAD_LOG ||
+      '/tmp/gantry-llm-sdk-query-args.jsonl',
+    payload: sdkQueryArgsPayload,
+  });
   const sdkQuery = warmQueryResult?.query ?? query(sdkQueryArgs);
   // Context usage is diagnostics-only (model-status store / session-command
   // display) but its fetch round-trips the CLI (0.7-4.1s measured). It is

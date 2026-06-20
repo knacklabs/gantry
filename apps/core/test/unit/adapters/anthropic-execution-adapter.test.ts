@@ -54,6 +54,7 @@ function prepareInput(
       runnerDistDir: '/opt/gantry/dist/runner',
     },
     groupDir: '/tmp/gantry/agents/test-agent',
+    runtimeMaterializationName: 'gantry-test-agent-123',
     effectiveModel: 'claude-sonnet-4-5',
     modelCredentialProjection: {
       env: {},
@@ -84,6 +85,12 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
 
     expect(prepared.env.GANTRY_MCP_SERVER_PATH).toBe(
       '/opt/gantry/dist/runner/mcp/stdio.js',
+    );
+    expect(mockMaterializeClaudeRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseTempDir:
+          '/tmp/gantry/agents/test-agent/.llm-runtime/runs/gantry-test-agent-123',
+      }),
     );
   });
 

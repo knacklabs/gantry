@@ -45,6 +45,8 @@ export interface RunnerRecord {
     primeToolDecisions?: Record<string, Record<string, unknown>>;
     tools?: string[];
     allowedTools?: string[];
+    debug?: boolean;
+    debugFile?: string;
     sdkEnv?: Record<string, string>;
     mcpServers?: Record<string, unknown>;
     settings?: Record<string, unknown>;
@@ -408,6 +410,8 @@ export async function* query({ prompt, options }) {
     additionalDirectories: options?.additionalDirectories,
     tools: options?.tools,
     allowedTools: options?.allowedTools,
+    debug: options?.debug,
+    debugFile: options?.debugFile,
     persistSession: options?.persistSession,
     resume: options?.resume,
     resumeSessionAt: options?.resumeSessionAt,

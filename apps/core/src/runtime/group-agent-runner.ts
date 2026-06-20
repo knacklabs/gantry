@@ -16,6 +16,7 @@ import {
 } from './group-run-context.js';
 import {
   resolveSingleNonSelfSenderId,
+  buildAgentFolderSkillContextBlock,
   buildApprovedSkillContextBlock,
   buildRuntimeRunOptions,
   completeFailedRuntimeSessionRun,
@@ -455,6 +456,10 @@ export function createGroupAgentRunner(input: {
       skillArtifactStore: deps.getSkillArtifactStore?.(),
       turnContext,
     });
+    const agentFolderSkillContextBlock = await buildAgentFolderSkillContextBlock({
+      agentFolderPath: resolveGroupFolderPath(group.folder),
+      skillIds: group.agentConfig?.plugins?.skills,
+    });
     const [configuredToolPolicy, selectedSkillContext, semanticCapabilities] =
       await Promise.all([
         resolveTurnToolPolicy(deps, turnContext),
@@ -516,6 +521,12 @@ export function createGroupAgentRunner(input: {
       turnContext?.memoryContextBlock,
       preRunContextBlock,
       approvedSkillContextBlock,
+    ]
+      .filter((block): block is string => Boolean(block?.trim()))
+      .join('\n\n');
+    const runtimeSystemPromptAppend = [
+      agentFolderSkillContextBlock,
+      options?.guardrailSystemPromptAppend,
     ]
       .filter((block): block is string => Boolean(block?.trim()))
       .join('\n\n');
@@ -588,6 +599,7 @@ export function createGroupAgentRunner(input: {
             memoryDefaultScope: defaultMemoryScope,
             memoryReviewerIsControlApprover,
             persona: group.agentConfig?.persona,
+            promptSurface: group.agentConfig?.promptSurface,
             allowedTools: configuredToolPolicy.allowedTools,
             gantryMcpToolSurface: group.agentConfig?.toolSurface?.gantryMcp,
             nativeToolSurface: group.agentConfig?.toolSurface?.native,
@@ -599,10 +611,9 @@ export function createGroupAgentRunner(input: {
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: agentInput.memoryContextBlock,
-            ...(options?.guardrailSystemPromptAppend
+            ...(runtimeSystemPromptAppend
               ? {
-                  guardrailSystemPromptAppend:
-                    options.guardrailSystemPromptAppend,
+                  guardrailSystemPromptAppend: runtimeSystemPromptAppend,
                 }
               : {}),
             ...(agentInput.resumeSessionId
@@ -660,7 +671,20 @@ export function createGroupAgentRunner(input: {
         memoryContextBlock,
         resumeSessionId: turnContext?.externalSessionId,
       });
+      const streamedResultSnapshot = streamedResult.snapshot();
       if (
+        output.status === 'error' &&
+        isMissingProviderSessionError(output.error) &&
+        streamedResultSnapshot &&
+        (await expireTurnProviderSession(output.error ?? 'missing session'))
+      ) {
+        output = {
+          ...output,
+          status: 'success',
+          result: streamedResultSnapshot,
+          error: undefined,
+        };
+      } else if (
         output.status === 'error' &&
         isMissingProviderSessionError(output.error) &&
         (await expireTurnProviderSession(output.error ?? 'missing session'))

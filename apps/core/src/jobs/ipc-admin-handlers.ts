@@ -312,6 +312,13 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
       );
       return;
     }
+    if (toolName === 'mcp_list_tools') {
+      reject(
+        'mcp_list_tools is a Gantry inventory action, not a third-party MCP source tool. Use the direct mcp_list_tools tool only when it is enabled for the run.',
+        'invalid_request',
+      );
+      return;
+    }
     const args =
       payload.arguments &&
       typeof payload.arguments === 'object' &&

@@ -30,6 +30,14 @@ export interface ShopifyMcpEnv {
    * list_orders_for_customer and get_order_history. Set to 0 to disable.
    */
   identityCacheTtlMs: number;
+  /**
+   * TTL (ms) for compact product search results. Set to 0 to disable.
+   */
+  productSearchCacheTtlMs: number;
+  /**
+   * Start a background product-search refresh this long before cache expiry.
+   */
+  productSearchCacheRefreshLeadMs: number;
 }
 
 const VALID_LOG_LEVELS = new Set([
@@ -185,6 +193,16 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): ShopifyMcpEnv 
       'SHOPIFY_MCP_IDENTITY_CACHE_TTL_MS',
       source.SHOPIFY_MCP_IDENTITY_CACHE_TTL_MS,
       30 * 60 * 1000, // 30 minutes
+    ),
+    productSearchCacheTtlMs: parseNonNegativeInt(
+      'SHOPIFY_PRODUCT_SEARCH_CACHE_TTL_MS',
+      source.SHOPIFY_PRODUCT_SEARCH_CACHE_TTL_MS,
+      24 * 60 * 60 * 1000, // 24 hours
+    ),
+    productSearchCacheRefreshLeadMs: parseNonNegativeInt(
+      'SHOPIFY_PRODUCT_SEARCH_CACHE_REFRESH_LEAD_MS',
+      source.SHOPIFY_PRODUCT_SEARCH_CACHE_REFRESH_LEAD_MS,
+      10 * 60 * 1000, // 10 minutes
     ),
   };
 }

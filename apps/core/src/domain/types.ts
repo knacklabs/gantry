@@ -1,4 +1,5 @@
 import type { ExecutionProviderId } from './sessions/sessions.js';
+import type { PromptSurface } from '../shared/prompt-surface.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export interface AdditionalMount {
@@ -136,6 +137,7 @@ export interface AgentToolSurfaceConfig {
 export interface AgentConfig {
   additionalMounts?: AdditionalMount[];
   persona?: import('../shared/agent-persona.js').AgentPersona;
+  promptSurface?: PromptSurface;
   model?: string; // Optional model alias/full name for this group
   thinking?: ThinkingOverride; // Optional thinking override for this group
   timeout?: number; // Default: 300000 (5 minutes)

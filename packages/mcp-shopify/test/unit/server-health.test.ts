@@ -20,6 +20,8 @@ function env(port: number): ShopifyMcpEnv {
     requireVerifiedIdentity: false,
     identityMaxAgeSec: 60,
     identityCacheTtlMs: 0,
+    productSearchCacheTtlMs: 0,
+    productSearchCacheRefreshLeadMs: 0,
   };
 }
 

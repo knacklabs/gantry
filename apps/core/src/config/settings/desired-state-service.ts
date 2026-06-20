@@ -197,12 +197,14 @@ export class SettingsDesiredStateService {
           agentConfig:
             binding.model ||
             agent.persona ||
+            agent.promptSurface ||
             agent.plugins ||
             agent.thinking ||
             agent.toolSurface
               ? {
                   model: binding.model,
                   persona: agent.persona,
+                  promptSurface: agent.promptSurface,
                   plugins: agent.plugins,
                   thinking: agent.thinking,
                   toolSurface: agent.toolSurface,

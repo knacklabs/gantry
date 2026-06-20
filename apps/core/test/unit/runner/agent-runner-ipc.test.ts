@@ -586,6 +586,56 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'keeps the Skill tool available when enabled SDK skills meet a restricted native surface',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          persona: 'generalist',
+          nativeToolSurface: ['ToolSearch'],
+        }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+          [GANTRY_CLAUDE_SDK_SKILLS_ENV]: JSON.stringify(['boondi-kb']),
+        },
+      );
+
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.skills).toEqual(['boondi-kb']);
+      expect(call?.tools).toEqual(['ToolSearch', 'Skill']);
+      expect(call?.allowedTools).toContain('ToolSearch');
+      expect(call?.allowedTools).not.toContain('Skill');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'passes an explicit Claude SDK debug file only when requested',
+    async () => {
+      const fixture = createRunnerFixture();
+      const debugFile = path.join(fixture.root, 'claude-sdk-debug.log');
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ persona: 'generalist' }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+          GANTRY_CLAUDE_SDK_DEBUG_FILE: debugFile,
+        },
+      );
+
+      expect(result.exitCode, `${result.stderr}\n${result.stdout}`).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.debugFile).toBe(debugFile);
+      expect(call?.debug).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'hides Claude SDK-native skills for session slash commands',
     async () => {
       const fixture = createRunnerFixture();

@@ -17,6 +17,7 @@ import {
   compactProductSearchSummary,
   type ProductSearchSummary,
 } from './search-products.js';
+import type { ProductSearchCache } from './product-search-cache.js';
 import {
   jsonContent,
   mapOrderResponse,
@@ -37,7 +38,7 @@ const inputSchema = {
     .boolean()
     .optional()
     .describe(
-      'Include the verified caller’s latest order details. Defaults to true.',
+      'Include the verified caller’s latest order details. Defaults to false; set true only when the customer asks to use prior/latest-order context.',
     ),
   customerId: z
     .string()
@@ -55,6 +56,11 @@ const inputSchema = {
     .describe(
       'One to four targeted product search queries for the gifting brief.',
     ),
+  productQuery: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Compatibility alias for a single productQueries entry.'),
   maxProductsPerQuery: z
     .number()
     .int()
@@ -77,9 +83,16 @@ const inputSchema = {
     .nonnegative()
     .optional()
     .describe('Compatibility alias for budgetMax. Prefer budgetMax.'),
+  maxPrice: z
+    .number()
+    .nonnegative()
+    .optional()
+    .describe('Compatibility alias for budgetMax. Prefer budgetMax.'),
   occasion: optionalBriefTextSchema
     .optional()
-    .describe('Known gifting occasion, such as Diwali, wedding, or client gifts.'),
+    .describe(
+      'Known gifting occasion, such as Diwali, wedding, or client gifts.',
+    ),
   quantity: z
     .number()
     .int()
@@ -121,9 +134,30 @@ interface GiftingAnswerGuidance {
 
 interface GiftingReplyContract {
   status: 'success';
-  useCustomerReplyDraft: boolean;
   mustMentionLatestOrderName: string;
   mustNotUseHiccupWording: boolean;
+}
+
+interface GiftingReplyFacts {
+  latestOrder: {
+    name: string;
+    firstItem?: {
+      title: string;
+      quantity: number;
+    };
+  };
+  brief: {
+    occasion?: string;
+    quantity?: number;
+    budgetMax?: number;
+    deliveryLocations: string[];
+    timeline?: string;
+    branding?: string;
+  };
+  productCuration: {
+    owner: 'gifting_team';
+    reason: 'qualified_gifting_brief';
+  };
 }
 
 interface GiftingBrief {
@@ -155,13 +189,13 @@ function normalizeDeliveryLocations(
     ? value
     : value.split(/\s*(?:,|;|\band\b|&)\s*/i);
   return [
-    ...new Set(
-      rawLocations.map((location) => location.trim()).filter(Boolean),
-    ),
+    ...new Set(rawLocations.map((location) => location.trim()).filter(Boolean)),
   ].slice(0, 8);
 }
 
-function normalizeBriefText(value: string | false | undefined): string | undefined {
+function normalizeBriefText(
+  value: string | false | undefined,
+): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
@@ -170,6 +204,7 @@ function normalizeGiftingBrief(args: {
   quantity?: number;
   budgetMax?: number;
   budget?: number;
+  maxPrice?: number;
   deliveryLocations?: string | string[];
   delivery_locations?: string | string[];
   timeline?: string | false;
@@ -181,7 +216,7 @@ function normalizeGiftingBrief(args: {
       typeof args.quantity === 'number' && Number.isFinite(args.quantity)
         ? args.quantity
         : undefined,
-    budgetMax: args.budgetMax ?? args.budget,
+    budgetMax: args.budgetMax ?? args.budget ?? args.maxPrice,
     deliveryLocations: normalizeDeliveryLocations(
       args.deliveryLocations ?? args.delivery_locations,
     ),
@@ -209,48 +244,49 @@ function buildAnswerGuidance(input: {
   };
 }
 
-function formatInr(value: number): string {
-  return `₹${new Intl.NumberFormat('en-IN').format(value)}`;
+function buildReplyContract(input: {
+  latestOrder: ReturnType<typeof detailedOrder> | null;
+  products: GiftingProductSummary[];
+}): GiftingReplyContract | undefined {
+  if (!input.latestOrder || input.products.length > 0) return undefined;
+  return {
+    status: 'success',
+    mustMentionLatestOrderName: input.latestOrder.name,
+    mustNotUseHiccupWording: true,
+  };
 }
 
-function buildCustomerReplyDraft(input: {
+function buildReplyFacts(input: {
   latestOrder: ReturnType<typeof detailedOrder> | null;
   products: GiftingProductSummary[];
   brief: GiftingBrief;
-}): string | undefined {
+}): GiftingReplyFacts | undefined {
   if (!input.latestOrder || input.products.length > 0) return undefined;
   const firstItem = input.latestOrder.items[0];
-  const itemDetail = firstItem
-    ? ` It included ${firstItem.quantity} x ${firstItem.title}.`
-    : '';
-  const briefParts = [
-    input.brief.occasion ? `occasion: ${input.brief.occasion}` : null,
-    input.brief.quantity ? `quantity: ${input.brief.quantity}` : null,
-    input.brief.budgetMax
-      ? `budget: ${formatInr(input.brief.budgetMax)} per gift`
-      : null,
-    input.brief.deliveryLocations.length > 0
-      ? `delivery: ${input.brief.deliveryLocations.join(' + ')}`
-      : null,
-    input.brief.timeline ? `timeline: ${input.brief.timeline}` : null,
-    input.brief.branding ? `branding: ${input.brief.branding}` : null,
-  ].filter((part): part is string => Boolean(part));
-  const briefLine =
-    briefParts.length > 0 ? ` Gifting brief: ${briefParts.join('; ')}.` : '';
-
-  return `Your latest order is ${input.latestOrder.name}.${itemDetail}${briefLine} Product curation is team-owned for this brief; the gifting team will curate suitable options.`;
-}
-
-function buildReplyContract(input: {
-  latestOrder: ReturnType<typeof detailedOrder> | null;
-  customerReplyDraft: string | undefined;
-}): GiftingReplyContract | undefined {
-  if (!input.latestOrder || !input.customerReplyDraft) return undefined;
   return {
-    status: 'success',
-    useCustomerReplyDraft: true,
-    mustMentionLatestOrderName: input.latestOrder.name,
-    mustNotUseHiccupWording: true,
+    latestOrder: {
+      name: input.latestOrder.name,
+      ...(firstItem
+        ? {
+            firstItem: {
+              title: firstItem.title,
+              quantity: firstItem.quantity,
+            },
+          }
+        : {}),
+    },
+    brief: {
+      ...(input.brief.occasion ? { occasion: input.brief.occasion } : {}),
+      ...(input.brief.quantity ? { quantity: input.brief.quantity } : {}),
+      ...(input.brief.budgetMax ? { budgetMax: input.brief.budgetMax } : {}),
+      deliveryLocations: input.brief.deliveryLocations,
+      ...(input.brief.timeline ? { timeline: input.brief.timeline } : {}),
+      ...(input.brief.branding ? { branding: input.brief.branding } : {}),
+    },
+    productCuration: {
+      owner: 'gifting_team',
+      reason: 'qualified_gifting_brief',
+    },
   };
 }
 
@@ -272,20 +308,23 @@ export function registerGetGiftingContext(
   client: ShopifyClient,
   options: {
     identityCache?: CustomerIdentityCache;
+    productSearchCache?: ProductSearchCache;
     requireVerifiedIdentity?: boolean;
   } = {},
 ): void {
   server.tool(
     'get_gifting_context',
-    'Aggregate helper for qualified gifting requests: optionally fetches the verified caller’s latest order and targeted compact product candidates in one MCP call. Use this instead of separate latest-order plus product-search calls for gifting briefs.',
+    'Aggregate helper for gifting requests that explicitly need latest-order context or a single targeted product query. Latest order is excluded unless includeLatestOrder=true. For simple personal gift recommendations, prefer one search_products call unless previous-order context is requested.',
     inputSchema,
     async (args) => {
       try {
-        const includeLatestOrder = args.includeLatestOrder ?? true;
+        const includeLatestOrder = args.includeLatestOrder ?? false;
         const brief = normalizeGiftingBrief(args);
         let requestedQueries: string[];
         if (args.productQueries?.length) {
           requestedQueries = args.productQueries;
+        } else if (args.productQuery?.trim()) {
+          requestedQueries = [args.productQuery.trim()];
         } else if (isQualifiedGiftingBrief(brief)) {
           requestedQueries = [];
         } else {
@@ -297,7 +336,7 @@ export function registerGetGiftingContext(
           ),
         ].slice(0, 4);
         const maxProductsPerQuery = args.maxProductsPerQuery ?? args.limit ?? 3;
-        const budgetMax = args.budgetMax ?? args.budget;
+        const budgetMax = args.budgetMax ?? args.budget ?? args.maxPrice;
         const requireVerifiedIdentity =
           options.requireVerifiedIdentity ?? false;
         const hasCallerIdentity = Boolean(args.callerPhone || args.callerEmail);
@@ -341,24 +380,32 @@ export function registerGetGiftingContext(
                 .then((data) => {
                   const order = (data.orders?.edges ?? [])
                     .map((edge) => detailedOrder(mapOrderResponse(edge.node)))
-                    .sort((a, b) =>
-                      b.createdAt.localeCompare(a.createdAt),
-                    )[0];
+                    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
                   return order ?? null;
                 })
             : Promise.resolve(null);
 
         const productSearchPromises = productQueries.map(async (query) => {
-          const data = await client.graphql<ProductEdgesResponse>(
-            SEARCH_PRODUCTS,
-            {
-              query: buildProductQuery({
-                query,
-                priceMax: budgetMax,
+          const productQuery = buildProductQuery({
+            query,
+            priceMax: budgetMax,
+          });
+          const cacheKey = JSON.stringify({
+            query: productQuery,
+            first: maxProductsPerQuery,
+          });
+          const data = await (options.productSearchCache?.getOrLoad(
+            cacheKey,
+            () =>
+              client.graphql<ProductEdgesResponse>(SEARCH_PRODUCTS, {
+                query: productQuery,
+                first: maxProductsPerQuery,
               }),
+          ) ??
+            client.graphql<ProductEdgesResponse>(SEARCH_PRODUCTS, {
+              query: productQuery,
               first: maxProductsPerQuery,
-            },
-          );
+            }));
           const products = (data.products?.edges ?? [])
             .map((edge) => mapProductResponse(edge.node))
             .filter((product) => withinBudget(product, budgetMax));
@@ -394,19 +441,19 @@ export function registerGetGiftingContext(
 
         const products = [...productsById.values()];
         const answerGuidance = buildAnswerGuidance({ latestOrder, products });
-        const customerReplyDraft = buildCustomerReplyDraft({
+        const replyContract = buildReplyContract({
+          latestOrder,
+          products,
+        });
+        const replyFacts = buildReplyFacts({
           latestOrder,
           products,
           brief,
         });
-        const replyContract = buildReplyContract({
-          latestOrder,
-          customerReplyDraft,
-        });
 
         return jsonContent({
-          ...(customerReplyDraft ? { customerReplyDraft } : {}),
           ...(replyContract ? { replyContract } : {}),
+          ...(replyFacts ? { replyFacts } : {}),
           ...(answerGuidance ? { answerGuidance } : {}),
           latestOrder: replyContract
             ? compactLatestOrderForReply(latestOrder)

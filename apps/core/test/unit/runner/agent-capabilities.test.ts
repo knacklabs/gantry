@@ -247,6 +247,22 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('WebSearch');
   });
 
+  it('keeps the native Skill tool available when selected skills exist under a native keep-list', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'wa:000000905',
+      groupFolder: 'boondi_support',
+      persona: 'sales',
+      nativeToolSurface: ['ToolSearch'],
+      attachedSkillSourceIds: ['boondi-kb'],
+    });
+
+    expect(profile.availableTools).toContain('Skill');
+    expect(profile.availableTools).toContain('ToolSearch');
+    expect(profile.allowedTools).toContain('ToolSearch');
+    expect(profile.allowedTools).not.toContain('Skill');
+  });
+
   it('omits the tool-surface projection when no keep-list is configured', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',

@@ -1820,6 +1820,35 @@ conversations:
 });
 
 describe('agents tool_surface', () => {
+  it('parses and renders a customer_live prompt surface', () => {
+    const parsed = parseRuntimeSettings(`
+agents:
+  boondi_support:
+    name: Boondi
+    prompt_surface: customer_live
+`);
+    expect(parsed.agents.boondi_support.promptSurface).toBe('customer_live');
+
+    const rendered = renderRuntimeSettingsYaml(parsed);
+    expect(rendered).toContain('prompt_surface: customer_live');
+
+    const reparsed = parseRuntimeSettings(rendered);
+    expect(reparsed.agents.boondi_support.promptSurface).toBe('customer_live');
+  });
+
+  it('rejects unknown prompt surfaces', () => {
+    expect(() =>
+      parseRuntimeSettings(`
+agents:
+  boondi_support:
+    name: Boondi
+    prompt_surface: internal_debug
+`),
+    ).toThrow(
+      'agents.boondi_support.prompt_surface must be one of: full, customer_live',
+    );
+  });
+
   it('parses a gantry MCP keep-list and renders it back', () => {
     const parsed = parseRuntimeSettings(`
 agents:

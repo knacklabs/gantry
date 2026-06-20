@@ -13,14 +13,16 @@ function captureGetLastQueryOrLeadTool(
   repo: Pick<RecordsRepository, 'getLastOpenOpportunityByPhone'>,
 ) {
   let handler: ToolHandler | undefined;
+  let description = '';
   const server = {
     tool: (
       name: string,
-      _description: string,
+      registeredDescription: string,
       _schema: unknown,
       registeredHandler: ToolHandler,
     ) => {
       expect(name).toBe('get_last_query_or_lead');
+      description = registeredDescription;
       handler = registeredHandler;
     },
   } as unknown as McpServer;
@@ -28,7 +30,7 @@ function captureGetLastQueryOrLeadTool(
   registerGetLastQueryOrLead(server, repo as RecordsRepository);
   if (!handler)
     throw new Error('get_last_query_or_lead handler was not registered');
-  return handler;
+  return { handler, description };
 }
 
 function businessRecord(
@@ -72,7 +74,7 @@ describe('get_last_query_or_lead tool', () => {
     const repo = {
       getLastOpenOpportunityByPhone: vi.fn(async () => businessRecord()),
     };
-    const handler = captureGetLastQueryOrLeadTool(repo);
+    const { handler } = captureGetLastQueryOrLeadTool(repo);
 
     const result = await runWithIdentity(
       { phone: '000000050', issuedAtMs: Date.now() },
@@ -111,7 +113,7 @@ describe('get_last_query_or_lead tool', () => {
     const repo = {
       getLastOpenOpportunityByPhone: vi.fn(async () => null),
     };
-    const handler = captureGetLastQueryOrLeadTool(repo);
+    const { handler } = captureGetLastQueryOrLeadTool(repo);
 
     const result = await runWithIdentity(
       { phone: '000000050', issuedAtMs: Date.now() },
@@ -122,5 +124,17 @@ describe('get_last_query_or_lead tool', () => {
     };
 
     expect(payload).toEqual({ found: false });
+  });
+
+  it('describes latest-record lookup as prior-context only, not clear new requests', () => {
+    const repo = {
+      getLastOpenOpportunityByPhone: vi.fn(async () => null),
+    };
+    const { description } = captureGetLastQueryOrLeadTool(repo);
+
+    expect(description).toMatch(/continue prior business-interest context/i);
+    expect(description).toMatch(/Do not call for clear standalone new requests/i);
+    expect(description).toMatch(/new corporate quote/i);
+    expect(description).toMatch(/gift-message/i);
   });
 });

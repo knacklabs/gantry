@@ -70,7 +70,7 @@ export function registerGetOpenRecords(
 ): void {
   server.tool(
     'get_open_records',
-    "Return the verified caller's OPEN opportunities (queries/leads) — a customer may have several. Call with empty arguments {} on the first turn of a returning conversation so you can greet them and continue where they left off. Returns {found:false, records:[]} for a brand-new customer.",
+    "Return all of the verified caller's OPEN opportunities (queries/leads) when the customer appears to be continuing prior business-interest context or you explicitly need every active opportunity. Use empty arguments {}. Do not call for a brand-new one-off product, gift-message, policy, checkout, order-support, delivery, invoice, cancellation, refund, complaint, or customization question; answer those from the relevant source/KB instead. For a lightweight returning-customer greeting, prefer get_last_query_or_lead.",
     {},
     async () => {
       try {

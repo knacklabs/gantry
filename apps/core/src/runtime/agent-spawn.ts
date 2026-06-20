@@ -359,10 +359,12 @@ export async function spawnAgent(
   const compileAgentId =
     input.agentId || promptProfileAgentIdForFolder(group.folder);
   const compilePersona = input.persona ?? group.agentConfig?.persona;
+  const compilePromptSurface =
+    input.promptSurface ?? group.agentConfig?.promptSurface;
   // Keyed by the full compile identity so per-route persona overrides never
   // collide. The cache is process-lifetime; authored files only change at boot
   // (which restarts the process), so any hit is current.
-  const promptCacheKey = `${compileAppId}::${compileAgentId}::${compilePersona ?? ''}`;
+  const promptCacheKey = `${compileAppId}::${compileAgentId}::${compilePersona ?? ''}::${compilePromptSurface ?? ''}`;
 
   let compiledSystemPrompt = getCachedSystemPrompt(promptCacheKey) ?? '';
 
@@ -371,6 +373,7 @@ export async function spawnAgent(
       compiledSystemPrompt = await promptProfileService.compileSystemPrompt({
         agentFolder: group.folder,
         persona: compilePersona,
+        promptSurface: compilePromptSurface,
         appId: compileAppId,
         agentId: compileAgentId,
       });
@@ -413,6 +416,7 @@ export async function spawnAgent(
     ...input,
     allowedTools: trustedAllowedTools,
     browserProfileName,
+    promptSurface: compilePromptSurface,
     compiledSystemPrompt,
     yoloMode: effectiveYoloModeSettings(
       getRuntimeSettingsForConfig().permissions.yoloMode,
@@ -459,6 +463,7 @@ export async function spawnAgent(
       input,
       hostRuntime,
       groupDir,
+      runtimeMaterializationName: processName,
       effectiveModel,
       effectiveModelEntry,
       modelCredentialProjection: {
@@ -654,6 +659,12 @@ export async function spawnAgent(
       // this only adds the heavy payloads). DEV/diagnostic only.
       ...(process.env.GANTRY_TRACE_PAYLOADS
         ? { GANTRY_TRACE_PAYLOADS: process.env.GANTRY_TRACE_PAYLOADS }
+        : {}),
+      ...(process.env.GANTRY_CLAUDE_SDK_DEBUG_FILE
+        ? {
+            GANTRY_CLAUDE_SDK_DEBUG_FILE:
+              process.env.GANTRY_CLAUDE_SDK_DEBUG_FILE,
+          }
         : {}),
       GANTRY_LLM_PAYLOAD_JSON:
         process.env.GANTRY_LLM_PAYLOAD_JSON ||
@@ -900,6 +911,7 @@ export async function spawnAgent(
             input: warmRunnerInput,
             hostRuntime,
             groupDir,
+            runtimeMaterializationName: warmProcessName,
             effectiveModel,
             effectiveModelEntry,
             modelCredentialProjection: {

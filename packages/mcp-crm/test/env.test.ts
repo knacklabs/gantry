@@ -45,3 +45,18 @@ describe('loadEnv extractorModel', () => {
     ).toBe('claude-haiku-4-5');
   });
 });
+
+describe('loadEnv digest watcher', () => {
+  it('enables the digest watcher by default', () => {
+    expect(loadEnv({ ...base } as never).disableDigestWatcher).toBe(false);
+  });
+
+  it('honors BOONDI_CRM_DISABLE_DIGEST_WATCHER', () => {
+    expect(
+      loadEnv({
+        ...base,
+        BOONDI_CRM_DISABLE_DIGEST_WATCHER: 'true',
+      } as never).disableDigestWatcher,
+    ).toBe(true);
+  });
+});

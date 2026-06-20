@@ -8,6 +8,7 @@ import type { AgentRunnerInput } from './types.js';
 
 export interface RunnerSystemPromptContext {
   approvedMcpServerNames?: readonly string[];
+  mcpListToolsEnabled?: boolean;
 }
 
 export function buildSystemPrompt(append?: string):
@@ -60,6 +61,7 @@ export function buildRunnerSystemPrompt(
   context: RunnerSystemPromptContext = {},
   options: BuildRunnerSystemPromptOptions = {},
 ): ReturnType<typeof buildSystemPrompt> {
+  const isCustomerLive = agentInput.promptSurface === 'customer_live';
   return buildSystemPrompt(
     composeSystemPromptAppend(
       [
@@ -74,7 +76,10 @@ export function buildRunnerSystemPrompt(
       // Generic boot forces the boundary policy into the shared prefix so it is
       // byte-identical across customers (Fix #1). The cold path keeps the policy
       // gated on memory presence ⇒ pool-off prompt stays byte-for-byte as today.
-      { forceBoundaryPolicy: options.genericBoot ?? false },
+      {
+        forceBoundaryPolicy: options.genericBoot ?? false,
+        boundaryStyle: isCustomerLive ? 'compact' : 'full',
+      },
     ),
   );
 }
@@ -91,7 +96,9 @@ function approvedMcpServicesPrompt(context: RunnerSystemPromptContext): string {
   const lines = [
     '## Approved MCP Services',
     `Approved third-party MCP services for this run: ${names.join(', ')}.`,
-    'When the user asks for customer, order, product, account, or store data that may live in an approved MCP service, call mcp_list_tools first and then mcp_call_tool with the matching serverName before saying you do not have access.',
+    context.mcpListToolsEnabled
+      ? 'When the user asks for customer, order, product, account, or store data that may live in an approved MCP service: if current instructions already name the serverName and tool name, call mcp_call_tool directly; use mcp_list_tools directly only when you do not know which approved tool to call. Never route mcp_list_tools through mcp_call_tool.'
+      : 'When the user asks for customer, order, product, account, or store data that may live in an approved MCP service: if current instructions already name the serverName and tool name, call mcp_call_tool directly. mcp_list_tools is not enabled for this run; never route mcp_list_tools through mcp_call_tool. If no known source route fits, say the team/source can confirm.',
     'Do not invent a separate verification policy before the call; approved MCP tools enforce their own access and identity checks. If the tool denies access, returns not found, or errors, explain that result briefly.',
     'Use only the information returned by the MCP tool in your answer.',
   ];

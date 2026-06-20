@@ -84,3 +84,13 @@ export function readClaudeSdkSkillNamesFromEnv(
   }
   return [...new Set(parsed.filter((item) => item.trim().length > 0))].sort();
 }
+
+export function claudeSdkToolsForEnabledSkills(
+  availableTools: readonly string[],
+  enabledSkills: readonly string[],
+): string[] {
+  if (enabledSkills.length === 0 || availableTools.includes('Skill')) {
+    return [...availableTools];
+  }
+  return [...availableTools, 'Skill'];
+}

@@ -94,6 +94,7 @@ export interface AgentExecutionAdapterPrepareInput {
   input: AgentExecutionRunInput;
   hostRuntime: AgentExecutionHostRuntime;
   groupDir: string;
+  runtimeMaterializationName: string;
   effectiveModel?: string;
   effectiveModelEntry?: ModelCatalogEntry;
   modelCredentialProjection: AgentExecutionCredentialProjection;

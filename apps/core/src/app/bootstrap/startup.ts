@@ -67,18 +67,21 @@ function agentConfigForRuntimeAgent(agent: RuntimeSettings['agents'][string]):
       persona?: typeof agent.persona;
       plugins?: typeof agent.plugins;
       thinking?: typeof agent.thinking;
+      promptSurface?: typeof agent.promptSurface;
       toolSurface?: typeof agent.toolSurface;
     }
   | undefined {
   const agentConfig =
     agent.model ||
     agent.persona ||
+    agent.promptSurface ||
     agent.plugins ||
     agent.thinking ||
     agent.toolSurface
       ? {
           model: agent.model,
           persona: agent.persona,
+          promptSurface: agent.promptSurface,
           plugins: agent.plugins,
           thinking: agent.thinking,
           toolSurface: agent.toolSurface,

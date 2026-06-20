@@ -56,6 +56,11 @@ const GANTRY_SKILL_ACTIONS_ENV = 'GANTRY_SKILL_ACTIONS_JSON';
 const requireFromHere = createRequire(import.meta.url);
 const TSX_IMPORT_SPECIFIER = pathToFileURL(requireFromHere.resolve('tsx')).href;
 
+function materializationDirName(value: string): string {
+  const sanitized = value.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 160);
+  return sanitized || 'run';
+}
+
 export class AnthropicClaudeAgentExecutionAdapter
   implements AgentExecutionAdapter, WarmPoolCapable
 {
@@ -108,7 +113,12 @@ export class AnthropicClaudeAgentExecutionAdapter
     const skillSources = this.skillSources(input, packageRoot);
     const materialization = await materializeClaudeRuntime({
       groupDir: input.groupDir,
-      baseTempDir: path.join(input.groupDir, '.llm-runtime'),
+      baseTempDir: path.join(
+        input.groupDir,
+        '.llm-runtime',
+        'runs',
+        materializationDirName(input.runtimeMaterializationName),
+      ),
       cleanupPolicy: 'retain-for-debug',
       cliEntryPoint: path.join(packageRoot, 'dist', 'cli', 'index.js'),
       packageRoot,

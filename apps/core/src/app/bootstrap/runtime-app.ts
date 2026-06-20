@@ -800,6 +800,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
           group.conversationKind,
         ),
         persona: group.agentConfig?.persona,
+        promptSurface: group.agentConfig?.promptSurface,
         allowedTools: configuredToolPolicy.allowedTools,
         gantryMcpToolSurface: group.agentConfig?.toolSurface?.gantryMcp,
         nativeToolSurface: group.agentConfig?.toolSurface?.native,

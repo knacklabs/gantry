@@ -54,7 +54,7 @@ Guardrail (pre-agent, in core)                agents/boondi_support/guardrails/g
 Agent run (Claude Agent SDK)                  prompts: SOUL.md + CLAUDE.md (synced at BOOT)
    │  mcp_call_tool → socket IPC → host proxy (X-Caller-Identity HMAC)
    ├──► shopify-api  :8081   (packages/mcp-shopify)
-   └──► boondi-crm   :8082   (packages/mcp-crm — get_open_records only)
+   └──► boondi-crm   :8082   (packages/mcp-crm — get_last_query_or_lead, get_open_records)
    ▼
 Outbound reply
    │  GANTRY_OUTBOUND_DRYRUN × GANTRY_TEST_OPERATOR_PHONE gate
@@ -239,9 +239,8 @@ ACKs 200 but is dropped at the DB constraint. Use a fresh UUID per message
 
 ### Raw signed webhook sender
 
-There is no checked-in webhook helper in this worktree. Use the raw signed
-request below so the test enters through the same HMAC-protected route as
-Interakt.
+For one-off manual debugging, use the raw signed request below so the test
+enters through the same HMAC-protected route as Interakt.
 
 ```bash
 SECRET=$(grep '^INTERAKT_WEBHOOK_SECRET=' ~/gantry/.env | cut -d= -f2-)
@@ -261,6 +260,24 @@ exact bytes. Prefer a `000*` fake number for local tests. Under
 `GANTRY_OUTBOUND_DRYRUN=1`, configured operator numbers and `000*` fake numbers
 can attempt outbound; unlisted real numbers are processed inbound but their
 replies are persisted only.
+
+### Template_BA live eval harness
+
+For repeatable Template_BA runs, prefer the Boondi-owned harness instead of
+copy-pasting curl commands:
+
+```bash
+npx tsx agents/boondi_support/evals/run-template-ba-live.ts --dry-run --all --limit 3
+npx tsx agents/boondi_support/evals/run-template-ba-live.ts --id pre-04-allergen-jain
+npx tsx agents/boondi_support/evals/run-template-ba-live.ts --group product-care --limit 3
+```
+
+The manifest is
+`agents/boondi_support/evals/template-ba-live-scenarios.json`. Live mode sends
+signed webhooks, polls Gantry Postgres for the outbound reply and
+`message_traces`, and writes an evidence JSON file under `/tmp` unless `--out`
+is provided. Keep this as an evidence collector; human review still decides
+pass/fail against the scenario playbook and regression gate.
 
 A real captured Interakt payload carries more fields (customer `id`, `traits`
 with `whatsapp_opted_in`/`chat_assignee`, message `message_status`,
@@ -483,12 +500,13 @@ customer names come from inbound `sender_display_name`.
   `--dry-run` previews the plan. The script cycles only the Postgres
   container — restarting the Gantry dev servers afterwards (step 3) is on you,
   which is why the kill+restart is part of this flow.
-- There is no current checked-in per-phone reset helper or Boondi scenario
-  harness in this worktree. For local proof, drive the signed webhook manually,
-  poll admin/API/DB, and quote the exact evidence. If stale CRM rows appear,
-  stop boondi-crm, use the full fresh start above, restart the stack, and rerun
-  the same signed webhook flow. Do not loosen expectations until the flow log
-  and CRM log prove the row came from the current transcript.
+- There is no current checked-in per-phone reset helper in this worktree. For
+  Template_BA proof, use `agents/boondi_support/evals/run-template-ba-live.ts`
+  or drive the signed webhook manually, then poll admin/API/DB and quote the
+  exact evidence. If stale CRM rows appear, stop boondi-crm, use the full fresh
+  start above, restart the stack, and rerun the same signed webhook flow. Do not
+  loosen expectations until the flow log and CRM log prove the row came from the
+  current transcript.
 
 ---
 
@@ -501,6 +519,14 @@ customer names come from inbound `sender_display_name`.
 Location depends on launch: file-backed dev start →
 `${GANTRY_DEV_LOG:-/tmp/gantry-dev.log}`; hand-started → that terminal's stdout
 (`lsof -p <core-pid> | awk '$4=="1u"'`).
+
+For live SDK-skill diagnostics, normal reply traces are still the first proof:
+SDK/direct-MCP tool calls appear in `message_traces.timings_json` when Claude
+Code surfaces them as assistant `tool_use` blocks. If native `Skill(...)`
+behavior is hidden from persisted traces, start core for that proof run with an
+explicit debug file, for example
+`GANTRY_CLAUDE_SDK_DEBUG_FILE=/tmp/boondi-skill-proof.log`. This is
+diagnostic-only; do not enable it in normal runs.
 
 **No reply after 60 s — walk the chain:**
 

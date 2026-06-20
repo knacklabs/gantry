@@ -138,6 +138,65 @@ describe('get_gifting_context', () => {
     harness.tokenManager.stop();
   });
 
+  it('accepts live-model productQuery and maxPrice aliases', async () => {
+    const mock = buildMockFetch({
+      graphqlResponses: [
+        graphqlOk(
+          productsEdges([
+            {
+              id: 'gid://shopify/Product/fudge',
+              handle: 'fudge',
+              title: 'Chocolate Fudge',
+              minPrice: '350.00',
+              maxPrice: '350.00',
+              totalInventory: 10,
+            },
+            {
+              id: 'gid://shopify/Product/hamper',
+              handle: 'hamper',
+              title: 'Hamper',
+              minPrice: '900.00',
+              maxPrice: '900.00',
+              totalInventory: 10,
+            },
+          ]),
+        ),
+      ],
+    });
+    const harness = buildToolHarness(mock.fetch);
+
+    const result = await harness.call<{
+      products: Array<{ handle: string }>;
+      productQueries: Array<{ query: string; resultCount: number }>;
+    }>('get_gifting_context', {
+      productQuery: 'birthday gift',
+      maxPrice: 500,
+      limit: 2,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.data?.products.map((product) => product.handle)).toEqual([
+      'fudge',
+    ]);
+    expect(result.data?.productQueries).toEqual([
+      { query: 'birthday gift', resultCount: 1 },
+    ]);
+    const productCall = mock.calls.find((call) =>
+      call.url.includes('/graphql.json'),
+    );
+    expect(
+      (productCall!.body as { variables: { query: string; first: number } })
+        .variables,
+    ).toMatchObject({
+      query: expect.stringContaining('birthday gift'),
+      first: 2,
+    });
+    expect(
+      (productCall!.body as { variables: { query: string } }).variables.query,
+    ).toContain('variants.price:<=500');
+    harness.tokenManager.stop();
+  });
+
   it('returns structured source data for qualified gifting briefs', async () => {
     const mock = buildMockFetch({
       graphqlResponses: [
@@ -370,7 +429,25 @@ describe('get_gifting_context', () => {
           latestOrderLine: string;
           productLine: string;
         };
-        customerReplyDraft?: string;
+        replyFacts?: {
+          latestOrder: {
+            name: string;
+            firstItem?: {
+              title: string;
+              quantity: number;
+            };
+          };
+          brief: {
+            occasion?: string;
+            quantity?: number;
+            budgetMax?: number;
+            deliveryLocations: string[];
+          };
+          productCuration: {
+            owner: 'gifting_team';
+            reason: 'qualified_gifting_brief';
+          };
+        };
       }>('get_gifting_context', {
         includeLatestOrder: true,
         occasion: 'Diwali',
@@ -381,13 +458,13 @@ describe('get_gifting_context', () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(Object.keys(result.raw as Record<string, unknown>).slice(0, 2)).toEqual(
-      ['customerReplyDraft', 'replyContract'],
-    );
+    expect(
+      Object.keys(result.raw as Record<string, unknown>).slice(0, 2),
+    ).toEqual(['replyContract', 'replyFacts']);
+    expect(result.raw).not.toHaveProperty('customerReplyDraft');
     expect(JSON.stringify(result.raw).length).toBeLessThan(1000);
     expect(result.data?.replyContract).toEqual({
       status: 'success',
-      useCustomerReplyDraft: true,
       mustMentionLatestOrderName: '#BSS-3002',
       mustNotUseHiccupWording: true,
     });
@@ -400,21 +477,26 @@ describe('get_gifting_context', () => {
       productLine:
         'Product curation is team-owned for this brief; say the gifting team will curate options without treating it as a live-data failure.',
     });
-    expect(result.data?.customerReplyDraft).toBeDefined();
-    expect(result.data?.customerReplyDraft ?? '').toContain(
-      'Your latest order is #BSS-3002',
-    );
-    expect(result.data?.customerReplyDraft ?? '').toContain('Diwali');
-    expect(result.data?.customerReplyDraft ?? '').toContain('80');
-    expect(result.data?.customerReplyDraft ?? '').toContain('₹1,200');
-    expect(result.data?.customerReplyDraft ?? '').toContain('Mumbai + Delhi');
-    expect(result.data?.customerReplyDraft ?? '').toContain('gifting team');
-    expect(result.data?.customerReplyDraft ?? '').toContain(
-      'Product curation is team-owned',
-    );
-    expect(result.data?.customerReplyDraft ?? '').not.toContain(
-      'No live product matches',
-    );
+    expect(result.data?.replyFacts).toEqual({
+      latestOrder: {
+        name: '#BSS-3002',
+        firstItem: {
+          title: 'Choco Barks',
+          quantity: 2,
+        },
+      },
+      brief: {
+        occasion: 'Diwali',
+        quantity: 80,
+        budgetMax: 1200,
+        deliveryLocations: ['Mumbai', 'Delhi'],
+      },
+      productCuration: {
+        owner: 'gifting_team',
+        reason: 'qualified_gifting_brief',
+      },
+    });
+    expect(JSON.stringify(result.raw)).not.toContain('No live product matches');
     expect(mock.graphqlCallCount()).toBe(2);
     harness.tokenManager.stop();
   });

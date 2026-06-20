@@ -13,21 +13,23 @@ function captureGetOpenRecordsTool(
   repo: Pick<RecordsRepository, 'getOpenOpportunitiesByPhone'>,
 ) {
   let handler: ToolHandler | undefined;
+  let description = '';
   const server = {
     tool: (
       name: string,
-      _description: string,
+      registeredDescription: string,
       _schema: unknown,
       registeredHandler: ToolHandler,
     ) => {
       expect(name).toBe('get_open_records');
+      description = registeredDescription;
       handler = registeredHandler;
     },
   } as unknown as McpServer;
 
   registerGetOpenRecords(server, repo as RecordsRepository);
   if (!handler) throw new Error('get_open_records handler was not registered');
-  return handler;
+  return { handler, description };
 }
 
 function leadRecord(overrides: Partial<BusinessRecord> = {}): BusinessRecord {
@@ -69,7 +71,7 @@ describe('get_open_records tool', () => {
     const repo = {
       getOpenOpportunitiesByPhone: vi.fn(async () => [leadRecord()]),
     };
-    const handler = captureGetOpenRecordsTool(repo);
+    const { handler } = captureGetOpenRecordsTool(repo);
 
     const result = await runWithIdentity(
       { phone: '000000050', issuedAtMs: Date.now() },
@@ -87,5 +89,17 @@ describe('get_open_records tool', () => {
     expect(payload.customerReplyDraft).toMatch(/welcome back/i);
     expect(payload.customerReplyDraft).toContain('Diwali');
     expect(payload.customerReplyDraft).toContain('300');
+  });
+
+  it('describes open-record lookup as returning context, not automatic first-turn lookup', () => {
+    const repo = {
+      getOpenOpportunitiesByPhone: vi.fn(async () => []),
+    };
+    const { description } = captureGetOpenRecordsTool(repo);
+
+    expect(description).toMatch(/continuing prior business-interest context/i);
+    expect(description).toMatch(/Do not call for a brand-new one-off/i);
+    expect(description).toMatch(/prefer get_last_query_or_lead/i);
+    expect(description).not.toMatch(/on the first turn/i);
   });
 });

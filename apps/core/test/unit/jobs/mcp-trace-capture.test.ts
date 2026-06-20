@@ -233,6 +233,37 @@ describe('mcpCallToolHandler trace capture', () => {
     expect(captured.length).toBe(0);
   });
 
+  it('rejects mcp_list_tools when it is routed through mcp_call_tool', async () => {
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-trace-'));
+    runtimeHomes.push(runtimeHome);
+    const callTool = vi.fn();
+    const { handlers, ipcAuth } = await loadHandlers(
+      runtimeHome,
+      { content: [] },
+      callTool,
+    );
+    const envelope = ipcAuth.createIpcAuthEnvelope('main_agent');
+    const responses: Record<string, unknown>[] = [];
+    const ctx = makeContext({
+      responseKeyId: envelope.responseKeyId,
+    });
+    ctx.data.payload.toolName = 'mcp_list_tools';
+    await registerTaskResponder({
+      folder: 'main_agent',
+      taskId: 'task-mcp-1',
+      onResponse: (response) => responses.push(response),
+    });
+
+    await handlers.adminTaskHandlers.mcp_call_tool(ctx as never);
+
+    expect(callTool).not.toHaveBeenCalled();
+    expect(responses[0]?.ok).toBe(false);
+    expect(responses[0]?.code).toBe('invalid_request');
+    expect(responses[0]?.error).toContain(
+      'mcp_list_tools is a Gantry inventory action',
+    );
+  });
+
   it('blocks write-shaped MCP tool calls when the runtime no longer owns the conversation', async () => {
     const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-trace-'));
     runtimeHomes.push(runtimeHome);

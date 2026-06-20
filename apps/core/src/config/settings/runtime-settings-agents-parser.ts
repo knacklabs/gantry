@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { BUILTIN_COMMAND_NAMES } from '../../application/commands/builtin-command-names.js';
 import { parseAgentPersona } from '../../shared/agent-persona.js';
+import { parsePromptSurface } from '../../shared/prompt-surface.js';
 import type { ThinkingOverride } from '../../domain/types.js';
 import {
   resolveModelSelection,
@@ -711,6 +712,7 @@ export function parseConfiguredAgents(
       if (
         key !== 'name' &&
         key !== 'persona' &&
+        key !== 'prompt_surface' &&
         key !== 'jid' &&
         key !== 'trigger' &&
         key !== 'added_at' &&
@@ -727,7 +729,7 @@ export function parseConfiguredAgents(
         key !== 'capabilities'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, model, job model defaults, thinking, plugins (guardrail/memory_extraction/skills/commands/pre_run_context), memory (idle_end_minutes), tool_surface (gantry_mcp), bindings, sources, or capabilities.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, prompt_surface, model, job model defaults, thinking, plugins (guardrail/memory_extraction/skills/commands/pre_run_context), memory (idle_end_minutes), tool_surface (gantry_mcp), bindings, sources, or capabilities.`,
         );
       }
     }
@@ -783,6 +785,10 @@ export function parseConfiguredAgents(
       name: parseStringValue(map.name, `${pathPrefix}.name`),
       folder,
       persona: parseAgentPersona(map.persona, `${pathPrefix}.persona`),
+      promptSurface: parsePromptSurface(
+        map.prompt_surface,
+        `${pathPrefix}.prompt_surface`,
+      ),
       model,
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,

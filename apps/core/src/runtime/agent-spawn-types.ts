@@ -15,6 +15,7 @@ import type {
   RuntimeContextUsageSnapshot,
 } from '../shared/model-catalog.js';
 import type { AgentPersona } from '../shared/agent-persona.js';
+import type { PromptSurface } from '../shared/prompt-surface.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
 import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-access.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
@@ -42,6 +43,7 @@ export interface AgentInput {
   memoryDefaultScope?: 'user' | 'group';
   memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
+  promptSurface?: PromptSurface;
   browserProfileName?: string;
   allowedTools?: string[];
   /** Per-agent gantry MCP tool keep-list (settings `tool_surface.gantry_mcp`). */

@@ -77,13 +77,18 @@ if (isEntry) {
         (running) => {
           // Digest watcher: LLM extraction from session-end digests.
           // Started here so it shares the same pool/lifecycle.
-          const stopWatcher = startDigestWatcher({
-            env,
-            logger,
-            pool: running.pool,
-            repo: running.repo,
-            llm: createAnthropicExtractorLlm(env),
-          });
+          const stopWatcher = env.disableDigestWatcher
+            ? (() => {
+                logger.info({}, 'digest_watcher_disabled');
+                return () => undefined;
+              })()
+            : startDigestWatcher({
+                env,
+                logger,
+                pool: running.pool,
+                repo: running.repo,
+                llm: createAnthropicExtractorLlm(env),
+              });
 
           let shuttingDown = false;
           const shutdown = async () => {

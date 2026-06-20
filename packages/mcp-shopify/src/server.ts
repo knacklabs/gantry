@@ -17,6 +17,7 @@ import {
   verifyIdentityHeader,
 } from './identity/identity-header.js';
 import { runWithIdentity } from './identity/identity-context.js';
+import { ProductSearchCache } from './tools/product-search-cache.js';
 
 function readHeader(req: IncomingMessage, name: string): string | undefined {
   const raw = req.headers[name.toLowerCase()];
@@ -76,12 +77,20 @@ export function buildMcpServer(
     env.identityCacheTtlMs > 0
       ? new CustomerIdentityCache({ ttlMs: env.identityCacheTtlMs })
       : undefined;
+  const productSearchCache =
+    env.productSearchCacheTtlMs > 0
+      ? new ProductSearchCache({
+          ttlMs: env.productSearchCacheTtlMs,
+          refreshLeadMs: env.productSearchCacheRefreshLeadMs,
+        })
+      : undefined;
   const server = new McpServer({
     name: 'shopify-mcp',
     version: '0.1.0',
   });
   registerAllTools(server, client, {
     identityCache,
+    productSearchCache,
     requireVerifiedIdentity: env.requireVerifiedIdentity,
   });
   return { server, tokenManager, client };
@@ -144,6 +153,13 @@ export async function startHttpServer(
   const identityCache =
     env.identityCacheTtlMs > 0
       ? new CustomerIdentityCache({ ttlMs: env.identityCacheTtlMs })
+      : undefined;
+  const productSearchCache =
+    env.productSearchCacheTtlMs > 0
+      ? new ProductSearchCache({
+          ttlMs: env.productSearchCacheTtlMs,
+          refreshLeadMs: env.productSearchCacheRefreshLeadMs,
+        })
       : undefined;
 
   const httpServer = createServer(
@@ -209,6 +225,7 @@ export async function startHttpServer(
       });
       registerAllTools(server, client, {
         identityCache,
+        productSearchCache,
         requireVerifiedIdentity: env.requireVerifiedIdentity,
       });
       const transport = new StreamableHTTPServerTransport({
@@ -253,6 +270,8 @@ export async function startHttpServer(
       apiVersion: env.apiVersion,
       identityMode: env.identity.mode,
       identityCacheTtlMs: env.identityCacheTtlMs,
+      productSearchCacheTtlMs: env.productSearchCacheTtlMs,
+      productSearchCacheRefreshLeadMs: env.productSearchCacheRefreshLeadMs,
       bootedAt: new Date().toISOString(),
     },
     'shopify_mcp_listening',

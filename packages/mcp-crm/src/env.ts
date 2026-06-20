@@ -38,6 +38,7 @@ export interface BoondiCrmEnv {
   modelAppId: string;
   // Extraction model for the background opportunity extractor.
   extractorModel: string;
+  disableDigestWatcher: boolean;
   anthropicApiKey?: string;
 }
 
@@ -172,6 +173,10 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): BoondiCrmEnv {
     modelAppId: source.BOONDI_CRM_MODEL_APP_ID?.trim() || 'default',
     extractorModel:
       source.BOONDI_CRM_EXTRACTOR_MODEL?.trim() || 'claude-sonnet-4-6',
+    disableDigestWatcher: parseBool(
+      source.BOONDI_CRM_DISABLE_DIGEST_WATCHER,
+      false,
+    ),
     anthropicApiKey: source.ANTHROPIC_API_KEY?.trim() || undefined,
   };
 }

@@ -167,8 +167,15 @@ const sdkToolsProvider: AgentCapabilityProvider = {
     const nativeKeep = ctx.nativeToolSurface
       ? new Set(ctx.nativeToolSurface)
       : null;
-    const filterNative = <T extends string>(tools: readonly T[]): T[] =>
-      nativeKeep ? tools.filter((tool) => nativeKeep.has(tool)) : [...tools];
+    const selectedSkillsExist = (ctx.attachedSkillSourceIds?.length ?? 0) > 0;
+    const availableNativeKeep =
+      nativeKeep && selectedSkillsExist
+        ? new Set([...nativeKeep, 'Skill'])
+        : nativeKeep;
+    const filterNative = <T extends string>(
+      tools: readonly T[],
+      keep: ReadonlySet<string> | null = nativeKeep,
+    ): T[] => (keep ? tools.filter((tool) => keep.has(tool)) : [...tools]);
     const baseAvailableTools = ctx.isScheduledJob
       ? [
           ...(persona === 'developer' ? DEVELOPER_NATIVE_SDK_TOOLS : []),
@@ -187,7 +194,7 @@ const sdkToolsProvider: AgentCapabilityProvider = {
               ...defaultAllowedTools,
             ]
           : defaultAllowedTools,
-      availableTools: filterNative(baseAvailableTools),
+      availableTools: filterNative(baseAvailableTools, availableNativeKeep),
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
     };
   },

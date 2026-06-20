@@ -101,6 +101,20 @@ describe('loadEnv — SHOPIFY_ENV switch', () => {
     ).toBe(2500);
   });
 
+  it('reads product search cache settings with 24h TTL and 10m refresh lead defaults', () => {
+    const defaults = loadEnv({ ...DEV_VARS } as NodeJS.ProcessEnv);
+    expect(defaults.productSearchCacheTtlMs).toBe(86_400_000);
+    expect(defaults.productSearchCacheRefreshLeadMs).toBe(600_000);
+
+    const custom = loadEnv({
+      ...DEV_VARS,
+      SHOPIFY_PRODUCT_SEARCH_CACHE_TTL_MS: '1000',
+      SHOPIFY_PRODUCT_SEARCH_CACHE_REFRESH_LEAD_MS: '250',
+    } as NodeJS.ProcessEnv);
+    expect(custom.productSearchCacheTtlMs).toBe(1000);
+    expect(custom.productSearchCacheRefreshLeadMs).toBe(250);
+  });
+
   it('rejects required customer identity mode without a signing secret', () => {
     expect(() =>
       loadEnv({

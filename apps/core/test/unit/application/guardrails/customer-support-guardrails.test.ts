@@ -63,6 +63,11 @@ describe('BSS customer support guardrail', () => {
       'क्या आपके पास काजू कतली है? इसकी कीमत क्या है?',
       'मेरा पिछला ऑर्डर कहाँ है? क्या वह भेज दिया गया है?',
       'My last order arrived damaged and I want help',
+      'Can I reserve a table at your Bandra cafe tonight?',
+      'Which is your nearest store to Worli?',
+      "Can you share the dine-in menu and today's soft serve flavours?",
+      'I bought from the Bandra store and need my bill.',
+      'My Zomato order is missing one item.',
     ]) {
       await expect(
         evaluateAgentGuardrail({

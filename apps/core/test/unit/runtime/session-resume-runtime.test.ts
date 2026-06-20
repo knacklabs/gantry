@@ -1,6 +1,11 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeAgentSessionRepository } from '@core/domain/repositories/ops-repo.js';
 import {
+  buildAgentFolderSkillContextBlock,
   createRuntimeResultSummaryAccumulator,
   completeSuccessfulRuntimeSessionRun,
   completeFailedRuntimeSessionRun,
@@ -10,6 +15,43 @@ import {
 } from '@core/runtime/session-resume-runtime.js';
 
 describe('session-resume-runtime', () => {
+  it('summarizes progressive agent-folder skills without injecting their body', async () => {
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-agent-skill-context-'));
+    try {
+      const skillDir = path.join(tempRoot, 'skills', 'boondi-kb');
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, 'SKILL.md'),
+        [
+          '---',
+          'name: boondi-kb',
+          'description: Use for gifting recommendations.',
+          'disclosure: progressive',
+          '---',
+          '',
+          '# Secret body',
+          'PRE-06 to PRE-09 runtime gifting projection',
+        ].join('\n'),
+      );
+
+      const block = await buildAgentFolderSkillContextBlock({
+        agentFolderPath: tempRoot,
+        skillIds: ['boondi-kb'],
+      });
+
+      expect(block).toContain('[[AGENT_FOLDER_SKILLS_AVAILABLE_THIS_SESSION]]');
+      expect(block).toContain('id: boondi-kb');
+      expect(block).toContain('description: Use for gifting recommendations.');
+      expect(block).toContain('provider-native Skill(boondi-kb) tool');
+      expect(block).toContain('do not answer from general memory');
+      expect(block).toContain('selected skills are not MCP servers');
+      expect(block).toContain('Do not use Gantry mcp_list_tools, mcp_call_tool');
+      expect(block).not.toContain('PRE-06 to PRE-09 runtime gifting projection');
+    } finally {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('redacts provider session handles from persisted summaries', () => {
     const summary = summarizeRuntimeResultForPersistence(
       [

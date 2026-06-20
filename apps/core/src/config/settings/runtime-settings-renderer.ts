@@ -225,6 +225,9 @@ function renderConfiguredAgentsYaml(
     if (agent.persona && agent.persona !== 'developer') {
       lines.push(`    persona: ${quoteYamlString(agent.persona)}`);
     }
+    if (agent.promptSurface && agent.promptSurface !== 'full') {
+      lines.push(`    prompt_surface: ${quoteYamlString(agent.promptSurface)}`);
+    }
     if (agent.model) {
       lines.push(`    model: ${quoteYamlString(agent.model)}`);
     }
