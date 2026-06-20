@@ -84,6 +84,7 @@ export function buildGantryMcpProjection(
     ...passthrough(env, 'GANTRY_JOB_ID'),
     ...passthrough(env, 'GANTRY_JOB_NAME'),
     ...passthrough(env, 'GANTRY_JOB_RUN_ID'),
+    ...passthrough(env, 'GANTRY_PARENT_TASK_ID'),
     ...passthrough(env, 'GANTRY_JOB_RUN_LEASE_TOKEN'),
     ...passthrough(env, 'GANTRY_JOB_RUN_LEASE_FENCING_VERSION'),
     ...passthrough(env, 'GANTRY_MEMORY_USER_ID'),

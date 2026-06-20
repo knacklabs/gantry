@@ -74,6 +74,7 @@ export function buildBaseRunnerEnv(input: {
   jobId?: string;
   jobName?: string;
   runId?: string;
+  parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   browserIpcAuthToken?: string;
@@ -124,6 +125,9 @@ export function buildBaseRunnerEnv(input: {
     ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
     ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),
     ...(input.runId ? { GANTRY_JOB_RUN_ID: input.runId } : {}),
+    ...(input.parentTaskId
+      ? { GANTRY_PARENT_TASK_ID: input.parentTaskId }
+      : {}),
     ...(input.runLeaseToken
       ? { GANTRY_JOB_RUN_LEASE_TOKEN: input.runLeaseToken }
       : {}),

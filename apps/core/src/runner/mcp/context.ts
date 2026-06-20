@@ -1,6 +1,7 @@
 import path from 'path';
 import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   parseEnabledGantryMcpToolNames,
 } from '../gantry-mcp-tool-surface.js';
@@ -91,7 +92,10 @@ export const enabledGantryMcpTools = parseEnabledGantryMcpToolNames(
   process.env.GANTRY_MCP_TOOL_NAMES_JSON,
   { lockedPreset: lockedAccessPreset },
 );
-const asyncTaskToolNameSet = new Set<string>(ASYNC_TASK_GANTRY_MCP_TOOL_NAMES);
+const asyncTaskToolNameSet = new Set<string>([
+  ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+]);
 const asyncTaskToolsEnabled =
   process.env.GANTRY_ASYNC_TASK_TOOLS_ENABLED === '1';
 export const configuredAllowedTools = parseConfiguredAllowedTools(
@@ -226,9 +230,11 @@ export function capabilityStatusText(): string {
       toolName === 'send_message' ||
       toolName === 'ask_user_question' ||
       toolName === 'async_run_command' ||
+      toolName === 'delegate_task' ||
       toolName === 'task_cancel' ||
       toolName === 'task_get' ||
       toolName === 'task_list' ||
+      toolName === 'task_message' ||
       toolName === 'todo_update' ||
       toolName === 'memory_search' ||
       toolName === 'memory_save' ||

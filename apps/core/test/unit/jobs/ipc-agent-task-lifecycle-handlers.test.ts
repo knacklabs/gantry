@@ -11,6 +11,7 @@ import type {
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
@@ -58,9 +59,37 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
           (!filter.agentId || task.agentId === filter.agentId) &&
           (filter.conversationId === undefined ||
             task.conversationId === filter.conversationId) &&
+          (filter.parentTaskId === undefined ||
+            task.privateCorrelationJson.parentTaskId === filter.parentTaskId) &&
           (!filter.statuses || filter.statuses.includes(task.status)),
       )
       .slice(0, filter.limit ?? 50);
+  }
+
+  async countTasksByStatus(
+    filter: Omit<AsyncTaskListFilter, 'limit'>,
+  ): Promise<AsyncTaskStatusCount[]> {
+    const counts = new Map<AsyncTaskRecord['status'], number>();
+    const tasks = await this.listTasks({
+      ...filter,
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+    for (const task of tasks) {
+      counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([status, count]) => ({ status, count }));
+  }
+
+  async updateTaskReceipt(
+    taskId: string,
+    receiptJson: AsyncTaskRecord['receiptJson'],
+    now: string,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(taskId);
+    if (!current) return null;
+    const next = { ...current, receiptJson, updatedAt: now };
+    this.tasks.set(taskId, next);
+    return next;
   }
 
   async transitionTask(
@@ -71,6 +100,11 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
       !current ||
       current.leaseToken !== input.leaseToken ||
       current.fencingVersion !== input.fencingVersion ||
+      (input.expectedUpdatedAt &&
+        current.updatedAt !== input.expectedUpdatedAt) ||
+      (input.expectedPrivateCorrelationJson &&
+        JSON.stringify(current.privateCorrelationJson) !==
+          JSON.stringify(input.expectedPrivateCorrelationJson)) ||
       isAsyncTaskTerminal(current.status)
     ) {
       return null;
@@ -178,6 +212,7 @@ function contextFor(input: {
   data: Record<string, unknown>;
   renderAgentTodo?: ReturnType<typeof vi.fn>;
   deps?: Record<string, unknown>;
+  conversationBindings?: Record<string, unknown>;
 }) {
   return {
     data: input.data,
@@ -188,7 +223,7 @@ function contextFor(input: {
         : {}),
       ...(input.deps ?? {}),
     },
-    conversationBindings: {},
+    conversationBindings: input.conversationBindings ?? {},
     sourceAgentFolderJids: ['sl:C123'],
   } as never;
 }
@@ -270,8 +305,11 @@ describe('agent task lifecycle IPC handlers', () => {
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const { agentTaskLifecycleHandlers, taskData } =
-      await loadTaskLifecycleHandlers(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
     const renderAgentTodo = vi.fn();
 
     await agentTaskLifecycleHandlers.todo_update(
@@ -431,6 +469,217 @@ describe('agent task lifecycle IPC handlers', () => {
     });
   });
 
+  it('scopes delegated child task tools to child-created async tasks', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    const parent = await repository.createTask({
+      id: 'task_parent',
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      parentRunId: 'run-id-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'delegate_task' },
+      privateCorrelationJson: {},
+      leaseToken: 'parent-lease',
+      fencingVersion: 1,
+      now,
+    });
+    const child = await repository.createTask({
+      id: 'task_child',
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      parentRunId: 'run-id-1',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { command: 'echo child' },
+      privateCorrelationJson: {
+        parentTaskId: parent.id,
+        process: {
+          pid: 9999991,
+          processGroupId: null,
+          detached: false,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'child-lease',
+      fencingVersion: 1,
+      now,
+    });
+    const sibling = await repository.createTask({
+      id: 'task_sibling',
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      parentRunId: 'run-id-1',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { command: 'echo sibling' },
+      privateCorrelationJson: {},
+      leaseToken: 'sibling-lease',
+      fencingVersion: 1,
+      now,
+    });
+    await repository.createTask({
+      id: 'task_delegated_sibling',
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      parentRunId: 'run-id-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'delegate_task' },
+      privateCorrelationJson: { workspaceFolder: 'main_agent' },
+      leaseToken: 'delegated-sibling-lease',
+      fencingVersion: 1,
+      now,
+    });
+    const deps = {
+      getAsyncTaskRepository: () => repository,
+      getToolRepository: () =>
+        ({
+          listAgentToolBindings: async () => [
+            { status: 'active', toolId: 'tool:delegation' },
+          ],
+          getTool: async () => ({
+            appId: 'app:test',
+            name: 'AgentDelegation',
+          }),
+        }) as never,
+      runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+    };
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: {
+          cpuSeconds: 10,
+          memoryMb: 128,
+          maxProcesses: 8,
+        },
+      },
+    });
+
+    await agentTaskLifecycleHandlers.task_get(
+      contextFor({
+        data: {
+          ...taskData('child-get-own', 'task_get', { taskId: child.id }),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'child-get-own')).toMatchObject({
+      ok: true,
+      data: { id: child.id },
+    });
+
+    await agentTaskLifecycleHandlers.task_get(
+      contextFor({
+        data: {
+          ...taskData('child-get-sibling', 'task_get', { taskId: sibling.id }),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'child-get-sibling')).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+
+    await agentTaskLifecycleHandlers.task_list(
+      contextFor({
+        data: {
+          ...taskData('child-list', 'task_list', {}),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'child-list')).toMatchObject({
+      ok: true,
+      data: { tasks: [expect.objectContaining({ id: child.id })] },
+    });
+
+    await agentTaskLifecycleHandlers.task_cancel(
+      contextFor({
+        data: {
+          ...taskData('child-cancel-parent', 'task_cancel', {
+            taskId: parent.id,
+          }),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'child-cancel-parent')).toMatchObject({
+      ok: false,
+      code: 'not_found',
+    });
+    expect(repository.tasks.get(parent.id)?.status).toBe('running');
+
+    await agentTaskLifecycleHandlers.task_message(
+      contextFor({
+        data: {
+          ...taskData('child-steer-sibling', 'task_message', {
+            taskId: 'task_delegated_sibling',
+            message: 'Change direction.',
+          }),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'child-steer-sibling')).toMatchObject({
+      ok: false,
+      error: 'Task not found.',
+    });
+
+    await agentTaskLifecycleHandlers.task_cancel(
+      contextFor({
+        data: {
+          ...taskData('child-cancel-own', 'task_cancel', { taskId: child.id }),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'child-cancel-own')).toMatchObject({
+      ok: true,
+    });
+    expect(repository.tasks.get(child.id)?.status).toBe('cancelled');
+  });
+
   it('stores scheduled job run ids in the job-run parent column', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
@@ -506,5 +755,424 @@ describe('agent task lifecycle IPC handlers', () => {
         deps,
       }),
     );
+  });
+
+  it('delegates an async child agent run and sends steering messages', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    const runAgent = vi.fn(
+      async (_group, input, onProcess, onOutput, options) => {
+        const child = new EventEmitter() as EventEmitter & {
+          pid: number;
+          killed: boolean;
+          kill: ReturnType<typeof vi.fn>;
+        };
+        child.pid = 34567;
+        child.killed = false;
+        child.kill = vi.fn(() => {
+          child.killed = true;
+          return true;
+        });
+        onProcess(child as never, 'child-run-1');
+        await onOutput?.({
+          status: 'success',
+          result: 'halfway',
+        });
+        expect(input.prompt).toContain('Objective: Research lead sources');
+        expect(options?.asyncTaskRepositoryAvailable).toBe(true);
+        return { status: 'success', result: 'delegated done' };
+      },
+    );
+    const deps = {
+      getAsyncTaskRepository: () => repository,
+      getToolRepository: () =>
+        ({
+          listTools: async () => [],
+          listAgentToolBindings: async () => [
+            { status: 'active', toolId: 'tool:delegation' },
+          ],
+          getTool: async () => ({
+            appId: 'app:test',
+            name: 'AgentDelegation',
+          }),
+        }) as never,
+      runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+      runAgent,
+    };
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: {
+          cpuSeconds: 300,
+          memoryMb: 1024,
+          maxProcesses: 64,
+        },
+      },
+    });
+
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: taskData('delegate-start', 'delegate_task', {
+          objective: 'Research lead sources',
+        }),
+        deps,
+        conversationBindings: {
+          'sl:C123': {
+            jid: 'sl:C123',
+            name: 'Lead gen',
+            folder: 'main_agent',
+            isRegistered: true,
+          },
+        },
+      }),
+    );
+
+    const taskId = [...repository.tasks.values()][0]?.id;
+    expect(taskId).toBeTruthy();
+    expect(readResponse(runtimeHome, 'delegate-start')).toMatchObject({
+      ok: true,
+      data: { id: taskId, kind: 'delegated_agent' },
+    });
+    await waitForStatus(repository, 'completed');
+
+    await agentTaskLifecycleHandlers.task_message(
+      contextFor({
+        data: taskData('delegate-message', 'task_message', {
+          taskId,
+          message: 'Narrow the scope.',
+        }),
+        deps,
+      }),
+    );
+    expect(readResponse(runtimeHome, 'delegate-message')).toMatchObject({
+      ok: false,
+      error: 'Task is already finished and cannot receive messages.',
+    });
+  });
+
+  it('fails delegated runs when child process handle persistence fails', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    const originalTransition = repository.transitionTask.bind(repository);
+    repository.transitionTask = async (input) => {
+      if (input.privateCorrelationJson?.process) return null;
+      return originalTransition(input);
+    };
+    const kill = vi.fn(() => true);
+    const runAgent = vi.fn(async (_group, _input, onProcess) => {
+      const child = new EventEmitter() as EventEmitter & {
+        pid: number;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.pid = 45678;
+      child.kill = kill;
+      onProcess(child as never, 'child-run-1');
+      return { status: 'success', result: 'delegated done' };
+    });
+    const deps = {
+      getAsyncTaskRepository: () => repository,
+      getToolRepository: () =>
+        ({
+          listTools: async () => [],
+          listAgentToolBindings: async () => [
+            { status: 'active', toolId: 'tool:delegation' },
+          ],
+          getTool: async () => ({
+            appId: 'app:test',
+            name: 'AgentDelegation',
+          }),
+        }) as never,
+      runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+      runAgent,
+    };
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: {
+          cpuSeconds: 300,
+          memoryMb: 1024,
+          maxProcesses: 64,
+        },
+      },
+    });
+
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: taskData('delegate-persist-fails', 'delegate_task', {
+          objective: 'Research lead sources',
+        }),
+        deps,
+        conversationBindings: {
+          'sl:C123': {
+            jid: 'sl:C123',
+            name: 'Lead gen',
+            folder: 'main_agent',
+            isRegistered: true,
+          },
+        },
+      }),
+    );
+
+    const taskId = [...repository.tasks.values()][0]?.id;
+    expect(taskId).toBeTruthy();
+    if (!taskId) return;
+    await waitForStatus(repository, 'failed');
+    expect(kill).toHaveBeenCalledWith('SIGTERM');
+    expect(repository.tasks.get(taskId)?.errorSummary).toContain(
+      'Could not persist delegated task progress.',
+    );
+  });
+
+  it('rejects child async commands when the delegated parent is terminal', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    const parent = await repository.createTask({
+      id: 'task_parent',
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      parentRunId: 'run-id-1',
+      kind: 'delegated_agent',
+      status: 'cancelled',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'delegate_task' },
+      privateCorrelationJson: {},
+      leaseToken: 'parent-lease',
+      fencingVersion: 1,
+      now: new Date().toISOString(),
+    });
+    const deps = {
+      getAsyncTaskRepository: () => repository,
+      getToolRepository: () =>
+        ({
+          listAgentToolBindings: async () => [
+            { status: 'active', toolId: 'tool:permission-rule:test' },
+          ],
+          getTool: async () => ({
+            appId: 'app:test',
+            name: 'RunCommand(echo *)',
+          }),
+        }) as never,
+      runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+    };
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: {
+          cpuSeconds: 10,
+          memoryMb: 128,
+          maxProcesses: 8,
+        },
+      },
+    });
+
+    await agentTaskLifecycleHandlers.async_run_command(
+      contextFor({
+        data: {
+          ...taskData('child-after-cancel', 'async_run_command', {
+            command: 'echo late',
+          }),
+          parentTaskId: parent.id,
+        },
+        deps,
+      }),
+    );
+
+    expect(readResponse(runtimeHome, 'child-after-cancel')).toMatchObject({
+      ok: false,
+      code: 'forbidden',
+      error: 'Parent delegated task is not active in this scope.',
+    });
+    expect(repository.tasks.size).toBe(1);
+  });
+
+  it('rejects steering without AgentDelegation access', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    await repository.createTask({
+      id: 'task_delegate',
+      appId: 'app:test',
+      agentId: 'agent:main_agent',
+      conversationId: 'sl:C123',
+      threadId: 'thread-1',
+      parentRunId: 'run-id-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { toolName: 'delegate_task' },
+      privateCorrelationJson: { workspaceFolder: 'main_agent' },
+      leaseToken: 'delegate-lease',
+      fencingVersion: 1,
+      now: new Date().toISOString(),
+    });
+    const deps = {
+      getAsyncTaskRepository: () => repository,
+      getToolRepository: () =>
+        ({
+          listTools: async () => [],
+          listAgentToolBindings: async () => [],
+        }) as never,
+      runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+    };
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: {
+          cpuSeconds: 10,
+          memoryMb: 128,
+          maxProcesses: 8,
+        },
+      },
+    });
+
+    await agentTaskLifecycleHandlers.task_message(
+      contextFor({
+        data: taskData('steer-no-access', 'task_message', {
+          taskId: 'task_delegate',
+          message: 'Change direction',
+        }),
+        deps,
+      }),
+    );
+
+    expect(readResponse(runtimeHome, 'steer-no-access')).toMatchObject({
+      ok: false,
+      code: 'forbidden',
+      error: 'task_message requires AgentDelegation access.',
+    });
+    expect(
+      repository.tasks.get('task_delegate')?.privateCorrelationJson,
+    ).toEqual({ workspaceFolder: 'main_agent' });
+  });
+
+  it('rejects recursive delegated tasks from a child task', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const {
+      agentTaskLifecycleHandlers,
+      taskData,
+      registerAsyncCommandSandboxPolicy,
+    } = await loadTaskLifecycleHandlers(runtimeHome);
+    const repository = new MemoryAsyncTaskRepository();
+    const deps = {
+      getAsyncTaskRepository: () => repository,
+      runnerSandboxProvider: fakeEnforcingSandboxProvider(),
+    };
+    registerAsyncCommandSandboxPolicy({
+      sourceAgentFolder: 'main_agent',
+      runHandle: 'run-1',
+      policy: {
+        appId: 'app:test',
+        agentId: 'agent:main_agent',
+        conversationId: 'sl:C123',
+        threadId: 'thread-1',
+        runId: 'run-id-1',
+        protectedReadPaths: [],
+        protectedWritePaths: [],
+        allowedNetworkHosts: [],
+        resourceLimits: {
+          cpuSeconds: 300,
+          memoryMb: 1024,
+          maxProcesses: 64,
+        },
+      },
+    });
+
+    await agentTaskLifecycleHandlers.delegate_task(
+      contextFor({
+        data: {
+          ...taskData('delegate-nested', 'delegate_task', {
+            objective: 'Nested work',
+          }),
+          parentTaskId: 'task_parent',
+        },
+        deps,
+        conversationBindings: {
+          'sl:C123': {
+            jid: 'sl:C123',
+            name: 'Lead gen',
+            folder: 'main_agent',
+            isRegistered: true,
+          },
+        },
+      }),
+    );
+
+    expect(readResponse(runtimeHome, 'delegate-nested')).toMatchObject({
+      ok: false,
+      error: 'delegate_task cannot be called from a delegated task.',
+    });
+    expect(repository.tasks.size).toBe(0);
   });
 });

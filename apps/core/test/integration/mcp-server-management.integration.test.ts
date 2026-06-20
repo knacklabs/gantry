@@ -178,6 +178,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('@core/config/index.js', () => ({
+  AGENT_MAX_OUTPUT_SIZE: 200_000,
   GANTRY_HOME: '/tmp/gantry-mcp-integration-home',
   DATA_DIR: '/tmp/gantry-mcp-integration-home/data',
   GANTRY_IPC_AUTH_SECRET: 'test-ipc-secret',

@@ -9,6 +9,12 @@ import {
   toPublicAsyncTaskDto,
 } from '../domain/ports/async-tasks.js';
 import {
+  sendDelegatedAgentTaskMessage,
+  startDelegatedAgentTask,
+  type StartDelegatedAgentTaskInput,
+  type StartDelegatedAgentTaskResult,
+} from './async-delegated-agent-task.js';
+import {
   buildAgentToolExecutionRequest,
   evaluateProtectedCapabilityToolUse,
   ToolExecutionClassifier,
@@ -32,11 +38,16 @@ import {
   truncate,
   withLocalAdmissionLock,
 } from './async-command-task-helpers.js';
+import {
+  cancelledReceipt,
+  failedReceipt,
+} from './async-command-task-receipts.js';
+import { refreshDelegatedCancellationReceipt } from './async-task-cancellation.js';
 
 const SHELL_POLICY_TOOL_NAME = 'Bash';
 const ACTIVE_TASK_STATUSES: AsyncTaskRecord['status'][] = ['queued', 'running'];
-const MAX_ACTIVE_ASYNC_COMMANDS_PER_APP = 4;
-const MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT = 2;
+const MAX_ACTIVE_ASYNC_COMMANDS_PER_APP = 4,
+  MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT = 2;
 const ASYNC_TASK_HEARTBEAT_MS = 15_000;
 export const ASYNC_TASK_STALE_AFTER_MS = 60_000;
 
@@ -96,6 +107,7 @@ export interface StartAsyncCommandTaskInput {
   conversationId: string;
   threadId?: string | null;
   parentRunId?: string | null;
+  parentTaskId?: string | null;
   parentJobId?: string | null;
   parentJobRunId?: string | null;
   command: string;
@@ -225,6 +237,7 @@ export class AsyncCommandTaskService {
       },
       privateCorrelationJson: {
         cwd: input.cwd ?? null,
+        parentTaskId: input.parentTaskId ?? null,
         launch: launchControl,
       },
       leaseToken: randomUUID(),
@@ -239,6 +252,20 @@ export class AsyncCommandTaskService {
     this.active.set(task.id, controller);
     void this.execute(task, command, input, controller, launchControl);
     return { ok: true, task: toPublicAsyncTaskDto(task) };
+  }
+
+  async startDelegatedAgent(input: StartDelegatedAgentTaskInput) {
+    return startDelegatedAgentTask({
+      taskInput: input,
+      repository: this.repository,
+      active: this.active,
+      admitTask: (createInput) => this.admitTask(createInput),
+      recoverStaleTasks: (recoverInput) => this.recoverStaleTasks(recoverInput),
+      cancelLinkedChildTasks: async (parent) => {
+        const result = await this.cancelChildTasks(parent);
+        return result.ok ? result.cancelled : 0;
+      },
+    });
   }
 
   private async admitTask(
@@ -289,6 +316,7 @@ export class AsyncCommandTaskService {
     agentId: string;
     conversationId?: string | null;
     threadId?: string | null;
+    parentTaskId?: string | null;
   }): Promise<PublicAsyncTaskDto | null> {
     const task = await this.repository.getTask(input.taskId);
     return task && taskInScope(task, input) ? toPublicAsyncTaskDto(task) : null;
@@ -300,10 +328,27 @@ export class AsyncCommandTaskService {
     conversationId?: string | null;
     threadId?: string | null;
     parentRunId?: string | null;
+    parentTaskId?: string | null;
     limit?: number;
   }): Promise<PublicAsyncTaskDto[]> {
     const tasks = await this.repository.listTasks(input);
     return tasks.map(toPublicAsyncTaskDto);
+  }
+
+  async message(input: {
+    taskId: string;
+    appId: string;
+    agentId: string;
+    conversationId?: string | null;
+    threadId?: string | null;
+    parentTaskId?: string | null;
+    message: string;
+    deliver: (task: AsyncTaskRecord, message: string) => Promise<void> | void;
+  }): Promise<{ ok: boolean; message: string }> {
+    return sendDelegatedAgentTaskMessage({
+      ...input,
+      repository: this.repository,
+    });
   }
 
   async recoverStaleTasks(input: {
@@ -325,6 +370,7 @@ export class AsyncCommandTaskService {
       const handle = readPersistedProcessHandle(task.privateCorrelationJson);
       if (!handle && task.status === 'running') {
         const now = nowIso();
+        if (task.kind === 'delegated_agent') await this.cancelChildTasks(task);
         const updated = await this.repository.transitionTask({
           taskId: task.id,
           leaseToken: task.leaseToken,
@@ -334,19 +380,16 @@ export class AsyncCommandTaskService {
           terminalAt: now,
           errorSummary:
             'Task worker stopped before Gantry could recover a process handle.',
-          receiptJson: {
-            completed:
-              'failed after worker stopped before process handle recovery',
-            used: 'RunCommand',
-            changed: 'unknown',
-            delegated: 'no',
-            needsAttention: 'start this task again if it is still needed',
-          },
+          receiptJson: failedReceipt(
+            task,
+            'failed after worker stopped before process handle recovery',
+          ),
         });
         if (updated) recovered += 1;
         continue;
       }
       const now = nowIso();
+      if (task.kind === 'delegated_agent') await this.cancelChildTasks(task);
       const updated = await this.repository.transitionTask({
         taskId: task.id,
         leaseToken: task.leaseToken,
@@ -356,13 +399,10 @@ export class AsyncCommandTaskService {
         terminalAt: now,
         errorSummary:
           'Task recovered after its worker stopped heartbeating; any tracked process was terminated.',
-        receiptJson: {
-          completed: 'failed after worker heartbeat expired',
-          used: 'RunCommand',
-          changed: 'unknown',
-          delegated: 'no',
-          needsAttention: 'start this task again if it is still needed',
-        },
+        receiptJson: failedReceipt(
+          task,
+          'failed after worker heartbeat expired',
+        ),
       });
       if (updated) {
         if (handle) this.terminateProcess(handle);
@@ -381,6 +421,7 @@ export class AsyncCommandTaskService {
           agentId?: string;
           conversationId?: string | null;
           threadId?: string | null;
+          parentTaskId?: string | null;
         },
   ): Promise<{ ok: boolean; message: string }> {
     const taskId = typeof input === 'string' ? input : input.taskId;
@@ -393,6 +434,7 @@ export class AsyncCommandTaskService {
         agentId: input.agentId ?? task.agentId,
         conversationId: input.conversationId,
         threadId: input.threadId,
+        parentTaskId: input.parentTaskId,
       })
     ) {
       return { ok: false, message: 'Task not found.' };
@@ -415,16 +457,22 @@ export class AsyncCommandTaskService {
           status: 'cancelled',
           now,
           terminalAt: now,
-          receiptJson: {
-            completed: 'cancelled',
-            used: 'RunCommand',
-            changed: 'none',
-            delegated: 'no',
-            needsAttention: 'none',
-          },
+          receiptJson: cancelledReceipt(task),
         });
         if (cancelled) {
           this.terminateProcess(handle);
+          if (task.kind === 'delegated_agent') {
+            const childCancellation = await this.cancelChildTasks(task);
+            if (!childCancellation.ok) {
+              return { ok: false, message: childCancellation.message };
+            }
+            await refreshDelegatedCancellationReceipt({
+              repository: this.repository,
+              parent: task,
+              alreadyCancelled: childCancellation.cancelled,
+              cancelChildTasks: (parent) => this.cancelChildTasks(parent),
+            });
+          }
           return {
             ok: true,
             message: 'Task was cancelled. Nothing else changed.',
@@ -445,13 +493,7 @@ export class AsyncCommandTaskService {
       status: 'cancelled',
       now,
       terminalAt: now,
-      receiptJson: {
-        completed: 'cancelled',
-        used: 'RunCommand',
-        changed: 'none',
-        delegated: 'no',
-        needsAttention: 'none',
-      },
+      receiptJson: cancelledReceipt(task),
     });
     if (!cancelled) {
       return {
@@ -465,7 +507,47 @@ export class AsyncCommandTaskService {
       ? readPersistedProcessHandle(latest.privateCorrelationJson)
       : null;
     if (handle) this.terminateProcess(handle);
+    if (task.kind === 'delegated_agent') {
+      const childCancellation = await this.cancelChildTasks(task);
+      if (!childCancellation.ok) {
+        return { ok: false, message: childCancellation.message };
+      }
+      await refreshDelegatedCancellationReceipt({
+        repository: this.repository,
+        parent: task,
+        alreadyCancelled: childCancellation.cancelled,
+        cancelChildTasks: (parent) => this.cancelChildTasks(parent),
+      });
+    }
     return { ok: true, message: 'Task was cancelled. Nothing else changed.' };
+  }
+
+  private async cancelChildTasks(
+    parent: AsyncTaskRecord,
+  ): Promise<{ ok: true; cancelled: number } | { ok: false; message: string }> {
+    let cancelled = 0;
+    for (;;) {
+      const tasks = await this.repository.listTasks({
+        appId: parent.appId,
+        agentId: parent.agentId,
+        parentTaskId: parent.id,
+        statuses: ['queued', 'running', 'needs_attention'],
+        limit: 100,
+      });
+      if (tasks.length === 0) break;
+      for (const child of tasks) {
+        if (child.id === parent.id) continue;
+        const result = await this.cancel(child.id);
+        if (result.ok) cancelled += 1;
+        else {
+          return {
+            ok: false,
+            message: `Could not cancel child task ${child.id}: ${result.message}`,
+          };
+        }
+      }
+    }
+    return { ok: true, cancelled };
   }
 
   private async execute(

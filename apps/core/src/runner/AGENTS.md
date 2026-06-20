@@ -46,12 +46,11 @@
   approval, and persistent suggestions must list separate safe leaf rules
   instead of the compound command.
 - Native SDK `Agent` and `Task` tool calls are always background work. Force `run_in_background: true` in runner tool input before validation, permission checks, sandbox/network gates, and SDK allow responses; SDK `task_notification` system messages should be emitted as structured runtime events instead of log-only observations.
-- Delegation wrappers are authority surfaces. Do not mount `delegate_task`
-  until Gantry has a real delegated-agent executor wired behind it; dormant
-  unavailable handlers and task rows without an executor are not valid. Public
-  task status/cancel tools may be mounted for `async_command` only when the
-  host IPC path is backed by durable task rows, a real executor, scoped
-  read/list/cancel, abort propagation, terminal receipts, and restart recovery.
+- Delegation wrappers are authority surfaces. Mount `delegate_task` only through
+  Gantry's durable task lifecycle: row before child agent spawn, scoped
+  read/list/cancel, steering via `task_message`, abort propagation, terminal
+  receipts, and restart recovery. Dormant unavailable handlers and task rows
+  without an executor are not valid.
 - Durable file/web authority uses Gantry-owned facade names such as
   `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, `WebSearch`, and
   `WebRead`. The selected harness maps those names to provider-native tools

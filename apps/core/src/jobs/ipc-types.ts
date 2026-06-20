@@ -42,6 +42,7 @@ export interface TaskIpcData {
   statuses?: string[];
   kind?: 'manual' | 'once' | 'recurring';
   runId?: string;
+  parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   eventType?: string;

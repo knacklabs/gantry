@@ -441,7 +441,7 @@ async function launchBrowserInner(
       throw new Error('Failed to launch Chrome process');
     }
 
-    await waitForCdpHttp(debuggingPort, browserLaunchTimeoutMs(opts, 10_000));
+    await waitForCdpHttp(debuggingPort, browserLaunchTimeoutMs(opts, 30_000));
     const targetId = await ensureBrowserTarget(
       debuggingPort,
       typeof opts.deadlineAtMs === 'number'

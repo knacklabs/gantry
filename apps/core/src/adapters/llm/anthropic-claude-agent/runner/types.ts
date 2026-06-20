@@ -33,6 +33,7 @@ export interface AgentRunnerInput {
   isScheduledJob?: boolean;
   jobId?: string;
   runId?: string;
+  parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   assistantName?: string;

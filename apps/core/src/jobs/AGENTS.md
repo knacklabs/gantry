@@ -18,9 +18,10 @@
   command task IPC may exist only when it is backed by the full durable
   `agent_async_tasks` lifecycle: admission before execution, a real host
   executor, scoped read/list/cancel, abort propagation, terminal receipts, and
-  restart recovery. `delegate_task` remains blocked until a real delegated
-  agent executor can claim, run, and finish the work; dormant unavailable
-  handlers are not a product surface.
+  restart recovery. `delegate_task` uses the same durable row before spawning a
+  child Gantry agent run; `task_message` persists steering before delivering it
+  through runner continuation input. Dormant unavailable handlers are not a
+  product surface.
 - Scheduler terminal notifications are user-facing lifecycle receipts. Format
   job reports, system maintenance results, and next-run times into readable
   product copy before delivery; never surface raw queue bookkeeping JSON,

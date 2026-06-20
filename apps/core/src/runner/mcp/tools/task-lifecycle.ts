@@ -49,6 +49,9 @@ async function submitTaskLifecycleRequest(input: {
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
     ...(jobId ? { jobId } : {}),
     ...(jobRunId ? { runId: jobRunId } : {}),
+    ...(process.env.GANTRY_PARENT_TASK_ID
+      ? { parentTaskId: process.env.GANTRY_PARENT_TASK_ID }
+      : {}),
     ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
     ...(jobRunLeaseFencingVersion
       ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
@@ -187,6 +190,45 @@ export function registerTaskLifecycleTools(server: McpServer): void {
         payload: { taskId: args.taskId },
         timeoutMessage: 'Task cancel timed out.',
         fallbackError: 'Task cancel failed.',
+      }),
+  );
+
+  server.tool(
+    'delegate_task',
+    'Start a durable async child agent run. Use task_get/task_list to inspect it and task_message to steer it while it is running.',
+    {
+      objective: z.string().min(1).max(10_000),
+      context: z.string().max(20_000).optional(),
+      expectedOutput: z.string().max(2_000).optional(),
+      timeoutMs: z
+        .number()
+        .int()
+        .positive()
+        .max(30 * 60_000)
+        .optional(),
+    },
+    async (args) =>
+      submitTaskLifecycleRequest({
+        type: 'delegate_task',
+        payload: args,
+        timeoutMessage: 'Delegated task start timed out.',
+        fallbackError: 'Delegated task start failed.',
+      }),
+  );
+
+  server.tool(
+    'task_message',
+    'Send a steering message to a running delegated async task. Terminal tasks and async command tasks reject steering messages.',
+    {
+      taskId: z.string().min(1).max(160),
+      message: z.string().min(1).max(10_000),
+    },
+    async (args) =>
+      submitTaskLifecycleRequest({
+        type: 'task_message',
+        payload: { taskId: args.taskId, message: args.message },
+        timeoutMessage: 'Task message timed out.',
+        fallbackError: 'Task message failed.',
       }),
   );
 

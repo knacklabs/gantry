@@ -1,4 +1,4 @@
-import { AvailableGroup } from './agent-spawn.js';
+import { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -30,6 +30,10 @@ import type { BrowserUsageSettings } from './browser-usage-governor.js';
 import type { EgressSettings } from '../shared/egress-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
+import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
+import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -64,6 +68,11 @@ export interface IpcDeps {
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
+  getSkillArtifactStore?: () => SkillArtifactStore | undefined;
+  getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
+  runAgent?: typeof spawnAgent;
+  executionAdapter?: AgentExecutionAdapter;
+  executionAdapters?: AgentExecutionAdapterRegistry;
   runnerSandboxProvider?: RunnerSandboxProvider;
   runApprovedCommand?: (input: {
     argv: string[];

@@ -8,6 +8,7 @@ import {
 import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   BASELINE_GANTRY_MCP_TOOL_NAMES,
+  DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   DEFAULT_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
@@ -695,10 +696,34 @@ describe('agent capability composition', () => {
     for (const toolName of ASYNC_TASK_GANTRY_MCP_TOOL_NAMES) {
       expect(profile.allowedTools).toContain(gantryMcpFullToolName(toolName));
     }
+    for (const toolName of DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES) {
+      expect(profile.allowedTools).not.toContain(
+        gantryMcpFullToolName(toolName),
+      );
+    }
     expect(profile.mcpServers.gantry?.env?.GANTRY_MCP_TOOL_NAMES_JSON).toBe(
       JSON.stringify(
         selectedGantryMcpToolNames([], { asyncTaskToolsEnabled: true }),
       ),
+    );
+
+    const delegatedProfile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      appId: 'app-main',
+      agentId: 'agent:telegram_team',
+      chatJid: 'tg:team',
+      workspaceFolder: 'telegram_team',
+      parentTaskId: 'task_parent',
+      configuredAllowedTools: ['AgentDelegation'],
+      asyncTaskToolsEnabled: true,
+    });
+    for (const toolName of DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES) {
+      expect(delegatedProfile.allowedTools).toContain(
+        gantryMcpFullToolName(toolName),
+      );
+    }
+    expect(delegatedProfile.mcpServers.gantry?.env?.GANTRY_PARENT_TASK_ID).toBe(
+      'task_parent',
     );
   });
 

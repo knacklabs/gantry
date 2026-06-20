@@ -76,11 +76,8 @@ import {
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
-import {
-  nowIso,
-  nowMs as currentTimeMs,
-  toIso,
-} from '../../shared/time/datetime.js';
+// prettier-ignore
+import { nowIso, nowMs as currentTimeMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
 import { configurePendingInteractionPermissionPersistence } from '../../application/interactions/pending-interaction-durability.js';
@@ -131,7 +128,6 @@ interface Deps {
   getRuntimeDependencyRepository?: () =>
     | RuntimeDependencyRepository
     | undefined;
-  /** Injectable for tests; defaults to the settings-backed deployment mode. */
   getDeploymentMode: typeof getDeploymentMode;
   startOutboundDeliveryRecoveryLoop: typeof startOutboundDeliveryRecoveryLoop;
   callBrowserTool: IpcDeps['callBrowserTool'];
@@ -474,9 +470,14 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
     getToolRepository: resolved.getToolRepository,
+    getSkillRepository: resolved.getSkillRepository,
     getAsyncTaskRepository: resolved.getAsyncTaskRepository,
     getMcpServerRepository: resolved.getMcpServerRepository,
     getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
+    getSkillArtifactStore: resolved.getSkillArtifactStore,
+    getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
+    executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
+    executionAdapters: resolved.executionAdapters ?? app.executionAdapters,
     runnerSandboxProvider: resolved.runnerSandboxProvider,
     runApprovedCommand: resolved.runApprovedCommand,
     getPermissionRepository: resolved.getPermissionRepository,

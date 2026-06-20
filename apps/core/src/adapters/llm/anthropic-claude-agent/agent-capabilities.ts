@@ -10,6 +10,7 @@ import {
 import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   BASELINE_GANTRY_MCP_TOOL_NAMES,
+  DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,
   gantryMcpToolNameFromFullName,
@@ -42,6 +43,7 @@ export interface AgentCapabilityContext {
   jobId?: string;
   runHandle?: string;
   runId?: string;
+  parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   memoryUserId?: string;
@@ -131,6 +133,10 @@ function gantryMcpAllowedTools(input: {
     ...BASELINE_GANTRY_MCP_TOOL_NAMES,
     ...(input.asyncTaskToolsEnabled === true
       ? ASYNC_TASK_GANTRY_MCP_TOOL_NAMES
+      : []),
+    ...(input.asyncTaskToolsEnabled === true &&
+    (input.configuredTools ?? []).includes('AgentDelegation')
+      ? DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES
       : []),
   ];
   return defaultAllowedNames
@@ -232,6 +238,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ...(ctx.runHandle ? { GANTRY_AGENT_RUN_HANDLE: ctx.runHandle } : {}),
       ...(ctx.jobId ? { GANTRY_JOB_ID: ctx.jobId } : {}),
       ...(ctx.runId ? { GANTRY_JOB_RUN_ID: ctx.runId } : {}),
+      ...(ctx.parentTaskId ? { GANTRY_PARENT_TASK_ID: ctx.parentTaskId } : {}),
       ...(ctx.runLeaseToken
         ? { GANTRY_JOB_RUN_LEASE_TOKEN: ctx.runLeaseToken }
         : {}),

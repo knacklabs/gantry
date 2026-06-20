@@ -1,33 +1,45 @@
 import type { AgentTodoItem } from '../domain/ports/task-lifecycle.js';
+import { randomUUID } from 'node:crypto';
 import { AsyncCommandTaskService } from './async-command-task-service.js';
-import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
+import {
+  isAsyncTaskTerminal,
+  type AsyncTaskRepository,
+} from '../domain/ports/async-tasks.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskContext, TaskHandler } from './ipc-types.js';
 import { resolveConfiguredAllowedTools } from '../runtime/configured-agent-tools.js';
-import { NEUTRAL_CA_TRUST_ENV_KEYS } from '../shared/neutral-ca-trust-env.js';
-import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
-import type { RunnerSandboxResourceLimits } from '../shared/runner-sandbox-provider.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
-import type {
-  AsyncCommandLaunchControl,
-  AsyncCommandProcessHandle,
-} from './async-command-task-service.js';
+import type { AgentOutput } from '../runtime/agent-spawn-types.js';
+import { spawnAgent } from '../runtime/agent-spawn.js';
+import {
+  taskContinuationThreadId,
+  writeContinuationInput,
+} from '../runtime/continuation-input.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readLiveToolRules } from '../shared/live-tool-rules.js';
 import {
   readAsyncCommandSandboxPolicy,
   type AsyncCommandSandboxPolicy,
 } from '../runtime/async-command-sandbox-policy.js';
-import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
   closeEgressGateway,
   ensureEgressGateway,
 } from '../runtime/egress-gateway.js';
+import {
+  DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
+  DEFAULT_ASYNC_RESOURCE_LIMITS,
+  buildAsyncCommandEnv,
+  runSandboxedAsyncCommand,
+} from './async-command-sandbox-runner.js';
+import {
+  resolveTurnSelectedMcpServerIds,
+  resolveTurnSelectedSkillContext,
+  resolveTurnSemanticCapabilities,
+  resolveTurnToolPolicy,
+} from '../runtime/group-run-context.js';
 
 const TODO_STATUSES = new Set([
   'pending',
@@ -36,37 +48,7 @@ const TODO_STATUSES = new Set([
   'blocked',
 ]);
 const MAX_TODO_ITEMS = 50;
-const DEFAULT_ASYNC_COMMAND_TIMEOUT_MS = 120_000;
-const DEFAULT_ASYNC_RESOURCE_LIMITS: RunnerSandboxResourceLimits = {
-  cpuSeconds: 300,
-  memoryMb: 1024,
-  maxProcesses: 64,
-};
-const ASYNC_COMMAND_ENV_KEYS = [
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'http_proxy',
-  'https_proxy',
-  'ALL_PROXY',
-  'all_proxy',
-  'GRPC_PROXY',
-  'grpc_proxy',
-  'NO_PROXY',
-  'no_proxy',
-  'NODE_USE_ENV_PROXY',
-  'GODEBUG',
-  'GANTRY_EGRESS_PROXY_URL',
-  'NODE_EXTRA_CA_CERTS',
-  ...NEUTRAL_CA_TRUST_ENV_KEYS,
-  'PATH',
-  'HOME',
-  'TMPDIR',
-  'LANG',
-  'LC_ALL',
-  'USER',
-  'SHELL',
-  'TERM',
-] as const;
+const DEFAULT_DELEGATED_AGENT_TIMEOUT_MS = 30 * 60_000;
 const asyncCommandServices = new WeakMap<
   AsyncTaskRepository,
   AsyncCommandTaskService
@@ -182,243 +164,6 @@ function taskService(context: TaskContext): AsyncCommandTaskService | null {
   return service;
 }
 
-async function runSandboxedAsyncCommand(
-  provider: RunnerSandboxProvider,
-  input: {
-    command: string;
-    cwd: string;
-    env: NodeJS.ProcessEnv;
-    timeoutMs: number;
-    outputMaxBytes: number;
-    protectedReadPaths: string[];
-    protectedWritePaths: string[];
-    allowedNetworkHosts: string[];
-    egressProxyUrl?: string;
-    resourceLimits: RunnerSandboxResourceLimits;
-    signal: AbortSignal;
-    appId: string;
-    agentId: string;
-    conversationId: string;
-    threadId?: string | null;
-    parentRunId?: string | null;
-    parentJobId?: string | null;
-    onProcessStarted?: (
-      handle: AsyncCommandProcessHandle,
-    ) => Promise<void> | void;
-    launchControl?: AsyncCommandLaunchControl;
-  },
-): Promise<{ outputSummary?: string; errorSummary?: string }> {
-  if (!provider.enforcing) {
-    return Promise.reject(
-      new Error(
-        'Async command execution requires an enforcing runner sandbox.',
-      ),
-    );
-  }
-  if (input.signal.aborted) throw new Error('Command aborted.');
-  const configFilePath = input.launchControl
-    ? path.join(input.launchControl.directory, 'sandbox-runtime.json')
-    : path.join(
-        fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-async-command-')),
-        'sandbox-runtime.json',
-      );
-  const child = provider.start({
-    command: '/bin/sh',
-    args: ['-c', asyncCommandLaunchScript()],
-    cwd: input.cwd,
-    workspaceRoot: input.cwd,
-    configFilePath,
-    egressProxyUrl: input.egressProxyUrl,
-    allowedNetworkHosts: input.allowedNetworkHosts,
-    runtimeReadPaths: [
-      input.cwd,
-      ...(input.launchControl ? [input.launchControl.directory] : []),
-    ],
-    runtimeWritePaths: [
-      input.cwd,
-      ...(input.launchControl ? [input.launchControl.directory] : []),
-    ],
-    protectedReadPaths: input.protectedReadPaths,
-    protectedWritePaths: input.protectedWritePaths,
-    resourceLimits: input.resourceLimits,
-    sandboxProfile: {
-      id: 'async-command',
-      network: input.egressProxyUrl ? 'required' : 'none',
-      filesystem: 'workspace_write',
-    },
-    principal: {
-      appId: input.appId,
-      agentId: input.agentId,
-      conversationId: input.conversationId,
-      threadId: input.threadId ?? undefined,
-      runId: input.parentRunId ?? undefined,
-      jobId: input.parentJobId ?? undefined,
-    },
-    env: {
-      ...input.env,
-      GANTRY_ASYNC_COMMAND_SCRIPT: input.command,
-      ...(input.launchControl
-        ? {
-            GANTRY_ASYNC_LAUNCH_DIR: input.launchControl.directory,
-            GANTRY_ASYNC_PID_FILE: input.launchControl.pidFile,
-            GANTRY_ASYNC_PGID_FILE: input.launchControl.pgidFile,
-            GANTRY_ASYNC_READY_FILE: input.launchControl.readyFile,
-            GANTRY_ASYNC_CONTINUE_FILE: input.launchControl.continueFile,
-          }
-        : {}),
-    },
-  });
-  let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
-  const terminate = () => {
-    child.kill('SIGTERM');
-    forceKillTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
-    forceKillTimer.unref?.();
-  };
-  const onAbort = () => terminate();
-  if (input.signal.aborted) {
-    terminate();
-    fs.rmSync(configFilePath, { force: true });
-    throw new Error('Command aborted.');
-  }
-  input.signal.addEventListener('abort', onAbort, { once: true });
-  let settled = false;
-  let timedOut = false;
-  let stdout = '';
-  let stderr = '';
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const completion = new Promise<{
-    outputSummary?: string;
-    errorSummary?: string;
-  }>((resolve, reject) => {
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      input.signal.removeEventListener('abort', onAbort);
-      fs.rmSync(configFilePath, { force: true });
-      fn();
-    };
-    timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, input.timeoutMs);
-    child.stdout.on('data', (chunk) => {
-      stdout = `${stdout}${String(chunk)}`.slice(-input.outputMaxBytes);
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr = `${stderr}${String(chunk)}`.slice(-input.outputMaxBytes);
-    });
-    child.on('error', (err) => settle(() => reject(err)));
-    child.on('close', (code, signal) => {
-      if (input.signal.aborted) {
-        settle(() => reject(new Error('Command aborted.')));
-        return;
-      }
-      if (timedOut) {
-        settle(() =>
-          reject(
-            new Error(
-              `Command timed out${signal ? ` with signal ${signal}` : ''}.`,
-            ),
-          ),
-        );
-        return;
-      }
-      if (code === 0) {
-        child.kill('SIGTERM');
-        const completionCleanupTimer = setTimeout(() => {
-          child.kill('SIGKILL');
-          settle(() =>
-            resolve({
-              outputSummary: stdout.trim() || 'command completed',
-              errorSummary: stderr.trim(),
-            }),
-          );
-        }, 1_000);
-        completionCleanupTimer.unref?.();
-        return;
-      }
-      settle(() =>
-        reject(
-          new Error(
-            `Command failed${signal ? ` with signal ${signal}` : ` with exit code ${code}`}${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
-          ),
-        ),
-      );
-    });
-  });
-  if (child.pid) {
-    try {
-      const processStartId = readProcessStartId(child.pid);
-      await input.onProcessStarted?.({
-        pid: child.pid,
-        processGroupId: process.platform === 'win32' ? null : child.pid,
-        detached: true,
-        platform: process.platform,
-        ownerPid: process.pid,
-        startedAt: nowIso(),
-        ...(processStartId ? { processStartId } : {}),
-      });
-      if (input.signal.aborted) throw new Error('Command aborted.');
-      if (input.launchControl) {
-        await waitForLaunchReady(input.launchControl.readyFile);
-        if (input.signal.aborted) throw new Error('Command aborted.');
-        fs.writeFileSync(input.launchControl.continueFile, '', { mode: 0o600 });
-      }
-    } catch (err) {
-      terminate();
-      void completion.catch(() => undefined);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      input.signal.removeEventListener('abort', onAbort);
-      fs.rmSync(configFilePath, { force: true });
-      throw err;
-    }
-  }
-  return completion;
-}
-
-function asyncCommandLaunchScript(): string {
-  return [
-    'set -eu',
-    'mkdir -p "$GANTRY_ASYNC_LAUNCH_DIR"',
-    'echo "$$" > "$GANTRY_ASYNC_PID_FILE"',
-    '(ps -o pgid= -p "$$" | tr -d " " > "$GANTRY_ASYNC_PGID_FILE") 2>/dev/null || echo "$$" > "$GANTRY_ASYNC_PGID_FILE"',
-    ': > "$GANTRY_ASYNC_READY_FILE"',
-    'while [ ! -f "$GANTRY_ASYNC_CONTINUE_FILE" ]; do sleep 0.05; done',
-    'exec /bin/sh -c "$GANTRY_ASYNC_COMMAND_SCRIPT"',
-  ].join('\n');
-}
-
-async function waitForLaunchReady(readyFile: string): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (fs.existsSync(readyFile)) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error('Async command did not reach its launch barrier.');
-}
-
-function readProcessStartId(pid: number): string | null {
-  if (process.platform === 'win32') return null;
-  try {
-    return execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return null;
-  }
-}
-
-function buildAsyncCommandEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const key of ASYNC_COMMAND_ENV_KEYS) {
-    const value = process.env[key];
-    if (typeof value === 'string') env[key] = value;
-  }
-  return env;
-}
-
 function taskScope(context: TaskContext): {
   appId: string;
   agentId: string;
@@ -463,6 +208,41 @@ function taskScope(context: TaskContext): {
     threadId: context.data.authThreadId || context.data.threadId || null,
     sandboxPolicy,
   };
+}
+
+async function validateParentTaskScope(
+  context: TaskContext,
+  scope: {
+    appId: string;
+    agentId: string;
+    conversationId: string;
+    threadId?: string | null;
+  },
+): Promise<
+  { ok: true; parentTaskId: string | null } | { ok: false; message: string }
+> {
+  const parentTaskId = toTrimmedString(context.data.parentTaskId, {
+    maxLen: 120,
+  });
+  if (!parentTaskId) return { ok: true, parentTaskId: null };
+  const parent = await context.deps
+    .getAsyncTaskRepository?.()
+    ?.getTask(parentTaskId);
+  const valid =
+    parent &&
+    parent.kind === 'delegated_agent' &&
+    parent.appId === scope.appId &&
+    parent.agentId === scope.agentId &&
+    parent.conversationId === scope.conversationId &&
+    (parent.threadId ?? null) === (scope.threadId ?? null) &&
+    !isAsyncTaskTerminal(parent.status);
+  if (!valid) {
+    return {
+      ok: false,
+      message: 'Parent delegated task is not active in this scope.',
+    };
+  }
+  return { ok: true, parentTaskId };
 }
 
 async function configuredAllowedTools(
@@ -550,9 +330,15 @@ const asyncRunCommandHandler: TaskHandler = async (context) => {
     return;
   }
   const { sandboxPolicy, ...scopedTaskOwner } = scope;
+  const parentTask = await validateParentTaskScope(context, scopedTaskOwner);
+  if (!parentTask.ok) {
+    reject(parentTask.message, 'forbidden');
+    return;
+  }
   const result = await service.start({
     ...scopedTaskOwner,
     parentRunId: context.data.jobId ? null : (context.data.runId ?? null),
+    parentTaskId: parentTask.parentTaskId,
     parentJobId: context.data.jobId ?? null,
     parentJobRunId: context.data.jobId ? (context.data.runId ?? null) : null,
     command,
@@ -595,7 +381,16 @@ const taskGetHandler: TaskHandler = async (context) => {
     return;
   }
   const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
-  const task = await service.getScoped({ ...scopedTaskOwner, taskId });
+  const parentTask = await validateParentTaskScope(context, scopedTaskOwner);
+  if (!parentTask.ok) {
+    reject(parentTask.message, 'forbidden');
+    return;
+  }
+  const task = await service.getScoped({
+    ...scopedTaskOwner,
+    taskId,
+    parentTaskId: parentTask.parentTaskId ?? undefined,
+  });
   if (!task) {
     reject('Task not found.', 'not_found');
     return;
@@ -619,8 +414,14 @@ const taskListHandler: TaskHandler = async (context) => {
     return;
   }
   const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
+  const parentTask = await validateParentTaskScope(context, scopedTaskOwner);
+  if (!parentTask.ok) {
+    reject(parentTask.message, 'forbidden');
+    return;
+  }
   const tasks = await service.list({
     ...scopedTaskOwner,
+    parentTaskId: parentTask.parentTaskId ?? undefined,
     limit: 20,
   });
   acceptData(`Listed ${tasks.length} async task(s).`, { tasks });
@@ -649,7 +450,16 @@ const taskCancelHandler: TaskHandler = async (context) => {
     return;
   }
   const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
-  const result = await service.cancel({ ...scopedTaskOwner, taskId });
+  const parentTask = await validateParentTaskScope(context, scopedTaskOwner);
+  if (!parentTask.ok) {
+    reject(parentTask.message, 'forbidden');
+    return;
+  }
+  const result = await service.cancel({
+    ...scopedTaskOwner,
+    taskId,
+    parentTaskId: parentTask.parentTaskId ?? undefined,
+  });
   if (!result.ok) {
     reject(
       result.message,
@@ -662,10 +472,217 @@ const taskCancelHandler: TaskHandler = async (context) => {
   acceptData(result.message, { taskId });
 };
 
+const delegateTaskHandler: TaskHandler = async (context) => {
+  const { acceptData, reject } = responder(context);
+  const scope = taskScope(context);
+  if (!scope) {
+    reject(
+      'delegate_task must target the originating app, agent, and conversation.',
+      'forbidden',
+    );
+    return;
+  }
+  const service = taskService(context);
+  if (!service) {
+    reject('Async task runtime is unavailable.', 'unavailable');
+    return;
+  }
+  if (context.data.parentTaskId) {
+    reject(
+      'delegate_task cannot be called from a delegated task.',
+      'forbidden',
+    );
+    return;
+  }
+  const group = context.conversationBindings[scope.conversationId];
+  if (!group) {
+    reject('Delegated task conversation is unavailable.', 'not_found');
+    return;
+  }
+  const payload = context.data.payload ?? {};
+  const objective = toTrimmedString(payload.objective, { maxLen: 10_000 });
+  if (!objective) {
+    reject('delegate_task requires an objective.', 'invalid_request');
+    return;
+  }
+  const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
+  const [toolPolicy, selectedSkillContext, semanticCapabilities] =
+    await Promise.all([
+      resolveTurnToolPolicy(context.deps, scopedTaskOwner),
+      resolveTurnSelectedSkillContext(context.deps, scopedTaskOwner),
+      resolveTurnSemanticCapabilities(context.deps, scopedTaskOwner),
+    ]);
+  if (!toolPolicy.toolPolicyRules?.includes('AgentDelegation')) {
+    reject('delegate_task requires AgentDelegation access.', 'forbidden');
+    return;
+  }
+  const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
+    context.deps,
+    scopedTaskOwner,
+    toolPolicy.toolPolicyRules,
+  );
+  const result = await service.startDelegatedAgent({
+    ...scopedTaskOwner,
+    parentRunId: context.data.jobId ? null : (context.data.runId ?? null),
+    objective,
+    context: toTrimmedString(payload.context, { maxLen: 20_000 }),
+    expectedOutput: toTrimmedString(payload.expectedOutput, { maxLen: 2_000 }),
+    workspaceFolder: context.sourceAgentFolder,
+    run: async ({ task, prompt, signal, onProcessStarted, onProgress }) => {
+      const runAgent = context.deps.runAgent ?? spawnAgent;
+      let latestResult: string | null = null;
+      let processHandlePersisted: Promise<void> | null = null;
+      const output = await runAgent(
+        group,
+        {
+          prompt,
+          appId: scopedTaskOwner.appId,
+          agentId: scopedTaskOwner.agentId,
+          chatJid: scopedTaskOwner.conversationId,
+          threadId: scopedTaskOwner.threadId ?? undefined,
+          workspaceFolder: context.sourceAgentFolder,
+          parentTaskId: task.id,
+          persona: group.agentConfig?.persona,
+          thinking: group.agentConfig?.thinking,
+          toolPolicyRules: toolPolicy.toolPolicyRules,
+          runtimeAccess: toolPolicy.runtimeAccess,
+          attachedSkillSourceIds: selectedSkillContext.ids,
+          selectedSkillDisplays: selectedSkillContext.displays,
+          attachedMcpSourceIds,
+          semanticCapabilities,
+        },
+        (proc) => {
+          if (proc.pid) {
+            processHandlePersisted = Promise.resolve(
+              onProcessStarted?.({
+                pid: proc.pid,
+                processGroupId: proc.pid,
+                detached: true,
+                platform: process.platform,
+                ownerPid: process.pid,
+                startedAt: nowIso(),
+              }),
+            );
+            processHandlePersisted.catch(() => {
+              proc.kill('SIGTERM');
+            });
+          }
+        },
+        async (output: AgentOutput) => {
+          if (output.result) {
+            latestResult = output.result;
+            await onProgress?.(output.result);
+          }
+        },
+        {
+          timeoutMs:
+            typeof payload.timeoutMs === 'number'
+              ? Math.min(payload.timeoutMs, DEFAULT_DELEGATED_AGENT_TIMEOUT_MS)
+              : DEFAULT_DELEGATED_AGENT_TIMEOUT_MS,
+          signal,
+          credentialBroker: await context.deps.getCredentialBroker?.(),
+          skillRepository: context.deps.getSkillRepository?.(),
+          skillArtifactStore: context.deps.getSkillArtifactStore?.(),
+          skillContext: scopedTaskOwner,
+          mcpServerRepository: context.deps.getMcpServerRepository?.(),
+          capabilitySecretRepository:
+            context.deps.getCapabilitySecretRepository?.(),
+          mcpContext: scopedTaskOwner,
+          mcpHostnameLookup: context.deps.mcpHostnameLookup,
+          mcpDnsValidationCache: context.deps.getMcpDnsValidationCache?.(),
+          publishRuntimeEvent: context.deps.publishRuntimeEvent,
+          executionAdapter: context.deps.executionAdapter,
+          executionAdapters: context.deps.executionAdapters,
+          runnerSandboxProvider: context.deps.runnerSandboxProvider!,
+          asyncTaskRepositoryAvailable: Boolean(
+            context.deps.getAsyncTaskRepository?.(),
+          ),
+        },
+      );
+      if (processHandlePersisted) await processHandlePersisted;
+      if (output.status === 'error') {
+        throw new Error(output.error ?? 'Delegated agent run failed.');
+      }
+      return {
+        outputSummary:
+          output.result ?? latestResult ?? 'delegated task completed',
+      };
+    },
+  });
+  if (!result.ok) {
+    reject(result.message, 'forbidden');
+    return;
+  }
+  acceptData(`Started: ${result.task.summary || result.task.id}`, result.task);
+};
+
+const taskMessageHandler: TaskHandler = async (context) => {
+  const { acceptData, reject } = responder(context);
+  const scope = taskScope(context);
+  if (!scope) {
+    reject(
+      'task_message must target the originating app, agent, and conversation.',
+      'forbidden',
+    );
+    return;
+  }
+  const service = taskService(context);
+  if (!service) {
+    reject('Async task runtime is unavailable.', 'unavailable');
+    return;
+  }
+  const taskId = toTrimmedString(context.data.payload?.taskId, {
+    maxLen: 160,
+  });
+  const message = toTrimmedString(context.data.payload?.message, {
+    maxLen: 10_000,
+  });
+  if (!taskId || !message) {
+    reject('task_message requires taskId and message.', 'invalid_request');
+    return;
+  }
+  const { sandboxPolicy: _sandboxPolicy, ...scopedTaskOwner } = scope;
+  const toolPolicy = await resolveTurnToolPolicy(context.deps, scopedTaskOwner);
+  if (!toolPolicy.toolPolicyRules?.includes('AgentDelegation')) {
+    reject('task_message requires AgentDelegation access.', 'forbidden');
+    return;
+  }
+  const parentTask = await validateParentTaskScope(context, scopedTaskOwner);
+  if (!parentTask.ok) {
+    reject(parentTask.message, 'forbidden');
+    return;
+  }
+  const result = await service.message({
+    ...scopedTaskOwner,
+    taskId,
+    parentTaskId: parentTask.parentTaskId ?? undefined,
+    message,
+    deliver: (task, text) => {
+      const workspaceFolder =
+        typeof task.privateCorrelationJson.workspaceFolder === 'string'
+          ? task.privateCorrelationJson.workspaceFolder
+          : context.sourceAgentFolder;
+      writeContinuationInput(
+        workspaceFolder,
+        text,
+        `${Date.now()}-${randomUUID()}`,
+        taskContinuationThreadId(task.threadId, task.id),
+      );
+    },
+  });
+  if (!result.ok) {
+    reject(result.message, 'invalid_request');
+    return;
+  }
+  acceptData(result.message, { taskId });
+};
+
 export const agentTaskLifecycleHandlers: Record<string, TaskHandler> = {
   async_run_command: asyncRunCommandHandler,
+  delegate_task: delegateTaskHandler,
   task_cancel: taskCancelHandler,
   task_get: taskGetHandler,
   task_list: taskListHandler,
+  task_message: taskMessageHandler,
   todo_update: todoUpdateHandler,
 };

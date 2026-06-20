@@ -201,6 +201,7 @@ export function taskInScope(
     agentId: string;
     conversationId?: string | null;
     threadId?: string | null;
+    parentTaskId?: string | null;
   },
 ): boolean {
   return (
@@ -208,7 +209,9 @@ export function taskInScope(
     task.agentId === input.agentId &&
     (input.conversationId === undefined ||
       task.conversationId === input.conversationId) &&
-    (input.threadId === undefined || task.threadId === input.threadId)
+    (input.threadId === undefined || task.threadId === input.threadId) &&
+    (input.parentTaskId === undefined ||
+      task.privateCorrelationJson.parentTaskId === input.parentTaskId)
   );
 }
 

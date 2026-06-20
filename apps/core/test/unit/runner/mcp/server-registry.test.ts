@@ -141,6 +141,7 @@ describe('effective enabled MCP tool projection', () => {
     expect(enabled.has('task_cancel')).toBe(false);
     expect(enabled.has('todo_update')).toBe(true);
     expect(enabled.has('delegate_task')).toBe(false);
+    expect(enabled.has('task_message')).toBe(false);
     expect(enabled.has('memory_search')).toBe(true);
     expect(enabled.has('agent_profile_read')).toBe(true);
   });
@@ -156,6 +157,8 @@ describe('effective enabled MCP tool projection', () => {
         'task_get',
         'task_list',
         'task_cancel',
+        'delegate_task',
+        'task_message',
       ]),
       undefined,
       undefined,
@@ -167,5 +170,7 @@ describe('effective enabled MCP tool projection', () => {
     expect(enabled.has('task_get')).toBe(true);
     expect(enabled.has('task_list')).toBe(true);
     expect(enabled.has('task_cancel')).toBe(true);
+    expect(enabled.has('delegate_task')).toBe(true);
+    expect(enabled.has('task_message')).toBe(true);
   });
 });

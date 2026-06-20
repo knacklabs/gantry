@@ -14,6 +14,7 @@ export interface AsyncTaskReceipt {
   used: string;
   changed: string;
   delegated: 'yes' | 'no';
+  subtasks?: string;
   needsAttention: string;
 }
 
@@ -51,6 +52,12 @@ export interface PublicAsyncTaskDto {
   summary?: string | null;
   outputSummary?: string | null;
   errorSummary?: string | null;
+  currentPhase?: string | null;
+  lastProgress?: string | null;
+  lastToolSummary?: string | null;
+  blocker?: string | null;
+  pendingSteeringCount?: number;
+  consumedSteeringCount?: number;
   receiptLines: string[];
   allowedActions: Array<'get' | 'list' | 'cancel'>;
   createdAt: string;
@@ -84,8 +91,14 @@ export interface AsyncTaskListFilter {
   conversationId?: string | null;
   threadId?: string | null;
   parentRunId?: string | null;
+  parentTaskId?: string | null;
   statuses?: AsyncTaskStatus[];
   limit?: number;
+}
+
+export interface AsyncTaskStatusCount {
+  status: AsyncTaskStatus;
+  count: number;
 }
 
 export interface AsyncTaskTransitionInput {
@@ -101,6 +114,8 @@ export interface AsyncTaskTransitionInput {
   outputSummary?: string | null;
   errorSummary?: string | null;
   receiptJson?: AsyncTaskReceipt | null;
+  expectedUpdatedAt?: string | null;
+  expectedPrivateCorrelationJson?: Record<string, unknown>;
 }
 
 export interface AsyncTaskRepository {
@@ -118,6 +133,14 @@ export interface AsyncTaskRepository {
   >;
   getTask(taskId: string): Promise<AsyncTaskRecord | null>;
   listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]>;
+  countTasksByStatus(
+    filter: Omit<AsyncTaskListFilter, 'limit'>,
+  ): Promise<AsyncTaskStatusCount[]>;
+  updateTaskReceipt(
+    taskId: string,
+    receipt: AsyncTaskReceipt,
+    now: string,
+  ): Promise<AsyncTaskRecord | null>;
   transitionTask(
     input: AsyncTaskTransitionInput,
   ): Promise<AsyncTaskRecord | null>;
@@ -144,6 +167,7 @@ export function toPublicAsyncTaskDto(
     summary: task.summary,
     outputSummary: task.outputSummary,
     errorSummary: task.errorSummary,
+    ...publicProgress(task),
     receiptLines: receiptLines(task.receiptJson),
     allowedActions: isAsyncTaskTerminal(task.status)
       ? ['get', 'list']
@@ -156,11 +180,56 @@ export function toPublicAsyncTaskDto(
 
 function receiptLines(receipt: AsyncTaskReceipt | null | undefined): string[] {
   if (!receipt) return [];
-  return [
+  const lines = [
     `Completed: ${receipt.completed}`,
     `Used: ${receipt.used}`,
     `Changed: ${receipt.changed}`,
     `Delegated: ${receipt.delegated}`,
-    `Needs attention: ${receipt.needsAttention}`,
   ];
+  if (receipt.delegated === 'yes') {
+    lines.push(
+      `Subtasks: ${receipt.subtasks ?? '0 completed, 0 failed, 0 cancelled'}`,
+    );
+  }
+  lines.push(`Needs attention: ${receipt.needsAttention}`);
+  return lines;
+}
+
+function publicProgress(
+  task: AsyncTaskRecord,
+): Pick<
+  PublicAsyncTaskDto,
+  | 'currentPhase'
+  | 'lastProgress'
+  | 'lastToolSummary'
+  | 'blocker'
+  | 'pendingSteeringCount'
+  | 'consumedSteeringCount'
+> {
+  const progress = record(task.privateCorrelationJson.progress);
+  const steering = Array.isArray(task.privateCorrelationJson.steering)
+    ? task.privateCorrelationJson.steering
+    : [];
+  return {
+    currentPhase: stringValue(progress.phase),
+    lastProgress: stringValue(progress.lastProgress),
+    lastToolSummary: stringValue(progress.lastToolSummary),
+    blocker: stringValue(progress.blocker),
+    pendingSteeringCount: steering.filter(
+      (entry) => record(entry).status === 'pending',
+    ).length,
+    consumedSteeringCount: steering.filter(
+      (entry) => record(entry).status === 'consumed',
+    ).length,
+  };
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }

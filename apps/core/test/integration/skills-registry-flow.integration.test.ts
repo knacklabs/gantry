@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('@core/config/index.js', () => ({
+  AGENT_MAX_OUTPUT_SIZE: 200_000,
   GANTRY_HOME: '/tmp/gantry-skills-integration-home',
   GANTRY_IPC_AUTH_SECRET: 'test-ipc-secret',
   getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),

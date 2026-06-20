@@ -19,6 +19,17 @@ export function getContinuationInputNamespace(
     : 'input';
 }
 
+export function taskContinuationThreadId(
+  threadId: string | null | undefined,
+  parentTaskId: string | null | undefined,
+): string | null | undefined {
+  if (!parentTaskId) return threadId;
+  const normalized = normalizeThreadQueueId(threadId);
+  return normalized
+    ? `${normalized}:task:${parentTaskId}`
+    : `task:${parentTaskId}`;
+}
+
 export function getContinuationInputDir(
   workspaceFolder: string,
   threadId?: string | null,
@@ -33,7 +44,7 @@ export function getContinuationInputDir(
 
 export function continuationInputPath(
   workspaceFolder: string,
-  sequence: number,
+  sequence: number | string,
   threadId?: string | null,
 ): string {
   const inputDir = getContinuationInputDir(workspaceFolder, threadId);
@@ -54,7 +65,7 @@ export function closeSignalPath(
 export function writeContinuationInput(
   workspaceFolder: string,
   text: string,
-  sequence: number,
+  sequence: number | string,
   threadId?: string | null,
 ): void {
   const inputDir = getContinuationInputDir(workspaceFolder, threadId);

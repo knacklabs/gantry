@@ -107,6 +107,7 @@ describe('locked tool surface mounting', () => {
     expect(defaultNames).not.toContain('task_list');
     expect(defaultNames).not.toContain('task_cancel');
     expect(defaultNames).not.toContain('delegate_task');
+    expect(defaultNames).not.toContain('task_message');
 
     const enabledNames = selectedGantryMcpToolNames([], {
       asyncTaskToolsEnabled: true,
@@ -115,25 +116,38 @@ describe('locked tool surface mounting', () => {
     expect(enabledNames).toContain('task_get');
     expect(enabledNames).toContain('task_list');
     expect(enabledNames).toContain('task_cancel');
+    expect(enabledNames).not.toContain('delegate_task');
+    expect(enabledNames).not.toContain('task_message');
 
-    const delegatedNames = selectedGantryMcpToolNames(['AgentDelegation']);
-    expect(delegatedNames).not.toContain('delegate_task');
+    const delegatedNames = selectedGantryMcpToolNames(['AgentDelegation'], {
+      asyncTaskToolsEnabled: true,
+    });
+    expect(delegatedNames).toContain('delegate_task');
+    expect(delegatedNames).toContain('task_message');
 
     const explicitlyConfiguredNames = selectedGantryMcpToolNames([
       'mcp__gantry__delegate_task',
       'mcp__gantry__task_get',
       'mcp__gantry__task_cancel',
+      'mcp__gantry__task_message',
     ]);
     expect(explicitlyConfiguredNames).not.toContain('delegate_task');
     expect(explicitlyConfiguredNames).not.toContain('task_get');
     expect(explicitlyConfiguredNames).not.toContain('task_cancel');
+    expect(explicitlyConfiguredNames).not.toContain('task_message');
 
     const parsedNames = parseEnabledGantryMcpToolNames(
-      JSON.stringify(['delegate_task', 'task_get', 'task_cancel']),
+      JSON.stringify([
+        'delegate_task',
+        'task_get',
+        'task_cancel',
+        'task_message',
+      ]),
     );
-    expect(parsedNames.has('delegate_task')).toBe(false);
+    expect(parsedNames.has('delegate_task')).toBe(true);
     expect(parsedNames.has('task_get')).toBe(true);
     expect(parsedNames.has('task_cancel')).toBe(true);
+    expect(parsedNames.has('task_message')).toBe(true);
 
     const lockedNames = selectedGantryMcpToolNames(['AgentDelegation'], {
       excludeAuthorityTools: true,
@@ -144,6 +158,7 @@ describe('locked tool surface mounting', () => {
     expect(lockedNames).not.toContain('task_list');
     expect(lockedNames).not.toContain('task_cancel');
     expect(lockedNames).not.toContain('delegate_task');
+    expect(lockedNames).not.toContain('task_message');
   });
 });
 

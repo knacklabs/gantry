@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   AsyncCommandTaskService,
@@ -9,6 +9,7 @@ import type {
   AsyncTaskListFilter,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
@@ -51,9 +52,37 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
         (task) =>
           task.appId === filter.appId &&
           (!filter.agentId || task.agentId === filter.agentId) &&
+          (filter.parentTaskId === undefined ||
+            task.privateCorrelationJson.parentTaskId === filter.parentTaskId) &&
           (!filter.statuses || filter.statuses.includes(task.status)),
       )
       .slice(0, filter.limit ?? 50);
+  }
+
+  async countTasksByStatus(
+    filter: Omit<AsyncTaskListFilter, 'limit'>,
+  ): Promise<AsyncTaskStatusCount[]> {
+    const counts = new Map<AsyncTaskRecord['status'], number>();
+    const tasks = await this.listTasks({
+      ...filter,
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+    for (const task of tasks) {
+      counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([status, count]) => ({ status, count }));
+  }
+
+  async updateTaskReceipt(
+    taskId: string,
+    receiptJson: AsyncTaskRecord['receiptJson'],
+    now: string,
+  ): Promise<AsyncTaskRecord | null> {
+    const current = this.tasks.get(taskId);
+    if (!current) return null;
+    const next = { ...current, receiptJson, updatedAt: now };
+    this.tasks.set(taskId, next);
+    return next;
   }
 
   async transitionTask(
@@ -64,6 +93,11 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
       !current ||
       current.leaseToken !== input.leaseToken ||
       current.fencingVersion !== input.fencingVersion ||
+      (input.expectedUpdatedAt &&
+        current.updatedAt !== input.expectedUpdatedAt) ||
+      (input.expectedPrivateCorrelationJson &&
+        JSON.stringify(current.privateCorrelationJson) !==
+          JSON.stringify(input.expectedPrivateCorrelationJson)) ||
       isAsyncTaskTerminal(current.status)
     ) {
       return null;
@@ -318,6 +352,524 @@ describe('AsyncCommandTaskService', () => {
     expect(repository.tasks.get('task-detached')?.status).toBe('cancelled');
   });
 
+  it('records delegated receipts when cancelling delegated tasks', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-delegated',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        process: {
+          pid: 45679,
+          processGroupId: 45679,
+          detached: true,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'lease-1',
+      fencingVersion: 1,
+      now,
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(service.cancel('task-delegated')).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(repository.tasks.get('task-delegated')?.receiptJson).toMatchObject({
+      used: 'Gantry agent run',
+      delegated: 'yes',
+      subtasks: '0 completed, 0 failed, 1 cancelled',
+    });
+  });
+
+  it('cancels async command children when cancelling delegated tasks', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-parent',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        process: {
+          pid: 45681,
+          processGroupId: 45681,
+          detached: true,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'lease-parent',
+      fencingVersion: 1,
+      now,
+    });
+    await repository.createTask({
+      id: 'task-child',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        parentTaskId: 'task-parent',
+        process: {
+          pid: 45680,
+          processGroupId: 45680,
+          detached: true,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'lease-child',
+      fencingVersion: 1,
+      now,
+    });
+    const killed: number[] = [];
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        terminateProcess: (handle) => {
+          killed.push(handle.processGroupId ?? handle.pid);
+          return true;
+        },
+      },
+    );
+
+    await expect(service.cancel('task-parent')).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(repository.tasks.get('task-child')?.status).toBe('cancelled');
+    expect(repository.tasks.get('task-parent')?.receiptJson).toMatchObject({
+      subtasks: '0 completed, 0 failed, 1 cancelled',
+    });
+    expect(killed).toEqual([45681, 45680]);
+  });
+
+  it('cancels all async command children beyond the first list page', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-parent',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        process: {
+          pid: 44_999,
+          processGroupId: 44_999,
+          detached: true,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'lease-parent',
+      fencingVersion: 1,
+      now,
+    });
+    for (let index = 0; index < 101; index += 1) {
+      await repository.createTask({
+        id: `task-child-${index}`,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        kind: 'async_command',
+        status: 'running',
+        admissionClass: 'task',
+        authoritySnapshotJson: {},
+        privateCorrelationJson: {
+          parentTaskId: 'task-parent',
+          process: {
+            pid: 45_000 + index,
+            processGroupId: 45_000 + index,
+            detached: true,
+            platform: process.platform,
+            ownerPid: process.pid,
+            startedAt: now,
+          },
+        },
+        leaseToken: `lease-child-${index}`,
+        fencingVersion: 1,
+        now,
+      });
+    }
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(service.cancel('task-parent')).resolves.toMatchObject({
+      ok: true,
+    });
+    const activeChildren = [...repository.tasks.values()].filter(
+      (task) =>
+        task.privateCorrelationJson.parentTaskId === 'task-parent' &&
+        !isAsyncTaskTerminal(task.status),
+    );
+    expect(activeChildren).toEqual([]);
+    expect(repository.tasks.get('task-parent')?.receiptJson).toMatchObject({
+      subtasks: '0 completed, 0 failed, 101 cancelled',
+    });
+  });
+
+  it('cancels child tasks created during delegated parent cancellation', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-parent',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        process: {
+          pid: 44_998,
+          processGroupId: 44_998,
+          detached: true,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'lease-parent',
+      fencingVersion: 1,
+      now,
+    });
+    await repository.createTask({
+      id: 'task-child-existing',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        parentTaskId: 'task-parent',
+        process: {
+          pid: 45_998,
+          processGroupId: 45_998,
+          detached: true,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: now,
+        },
+      },
+      leaseToken: 'lease-child-existing',
+      fencingVersion: 1,
+      now,
+    });
+    const originalTransition = repository.transitionTask.bind(repository);
+    let lateChildCreated = false;
+    repository.transitionTask = async (input) => {
+      const result = await originalTransition(input);
+      if (
+        result?.id === 'task-parent' &&
+        input.status === 'cancelled' &&
+        !lateChildCreated
+      ) {
+        lateChildCreated = true;
+        await repository.createTask({
+          id: 'task-child-late',
+          appId: 'app-1',
+          agentId: 'agent-1',
+          conversationId: 'conversation-1',
+          kind: 'async_command',
+          status: 'running',
+          admissionClass: 'task',
+          authoritySnapshotJson: {},
+          privateCorrelationJson: {
+            parentTaskId: 'task-parent',
+            process: {
+              pid: 45_999,
+              processGroupId: 45_999,
+              detached: true,
+              platform: process.platform,
+              ownerPid: process.pid,
+              startedAt: now,
+            },
+          },
+          leaseToken: 'lease-child-late',
+          fencingVersion: 1,
+          now,
+        });
+      }
+      return result;
+    };
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(service.cancel('task-parent')).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(repository.tasks.get('task-child-existing')?.status).toBe(
+      'cancelled',
+    );
+    expect(repository.tasks.get('task-child-late')?.status).toBe('cancelled');
+    expect(repository.tasks.get('task-parent')?.receiptJson).toMatchObject({
+      subtasks: '0 completed, 0 failed, 2 cancelled',
+    });
+  });
+
+  it('waits for active child tasks beyond the terminal child page before completing delegated tasks', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+    let activeChild: AsyncTaskRecord | null = null;
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'Research many leads',
+      workspaceFolder: 'main_agent',
+      run: async ({ task }) => {
+        const now = new Date().toISOString();
+        for (let index = 0; index < 100; index += 1) {
+          await repository.createTask({
+            id: `task-terminal-${index}`,
+            appId: task.appId,
+            agentId: task.agentId,
+            conversationId: task.conversationId,
+            kind: 'async_command',
+            status: 'completed',
+            admissionClass: 'task',
+            authoritySnapshotJson: {},
+            privateCorrelationJson: { parentTaskId: task.id },
+            leaseToken: `terminal-lease-${index}`,
+            fencingVersion: 1,
+            now,
+          });
+        }
+        activeChild = await repository.createTask({
+          id: 'task-active-hidden',
+          appId: task.appId,
+          agentId: task.agentId,
+          conversationId: task.conversationId,
+          kind: 'async_command',
+          status: 'running',
+          admissionClass: 'task',
+          authoritySnapshotJson: {},
+          privateCorrelationJson: { parentTaskId: task.id },
+          leaseToken: 'active-lease',
+          fencingVersion: 1,
+          now,
+        });
+        return { outputSummary: 'delegated done' };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(repository.tasks.get(started.task.id)?.status).toBe('running');
+    expect(activeChild).toBeTruthy();
+    if (!activeChild) return;
+    const now = new Date().toISOString();
+    await repository.transitionTask({
+      taskId: activeChild.id,
+      leaseToken: activeChild.leaseToken,
+      fencingVersion: activeChild.fencingVersion,
+      status: 'completed',
+      now,
+      terminalAt: now,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    await waitForStatus(repository, started.task.id, 'completed');
+  });
+
+  it('fails delegated tasks when a failed child is beyond the terminal child page', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'Research many leads',
+      workspaceFolder: 'main_agent',
+      run: async ({ task }) => {
+        const now = new Date().toISOString();
+        for (let index = 0; index < 100; index += 1) {
+          await repository.createTask({
+            id: `task-terminal-success-${index}`,
+            appId: task.appId,
+            agentId: task.agentId,
+            conversationId: task.conversationId,
+            kind: 'async_command',
+            status: 'completed',
+            admissionClass: 'task',
+            authoritySnapshotJson: {},
+            privateCorrelationJson: { parentTaskId: task.id },
+            leaseToken: `terminal-success-lease-${index}`,
+            fencingVersion: 1,
+            now,
+          });
+        }
+        await repository.createTask({
+          id: 'task-failed-hidden',
+          appId: task.appId,
+          agentId: task.agentId,
+          conversationId: task.conversationId,
+          kind: 'async_command',
+          status: 'failed',
+          admissionClass: 'task',
+          authoritySnapshotJson: {},
+          privateCorrelationJson: { parentTaskId: task.id },
+          leaseToken: 'failed-lease',
+          fencingVersion: 1,
+          now,
+        });
+        return { outputSummary: 'delegated done' };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await waitForStatus(repository, started.task.id, 'failed');
+    expect(repository.tasks.get(started.task.id)?.receiptJson).toMatchObject({
+      subtasks: '101 completed, 1 failed, 0 cancelled',
+    });
+  });
+
+  it('keeps concurrent steering messages in durable state', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'Research the docs',
+      workspaceFolder: 'main_agent',
+      run: async () =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve({ outputSummary: 'done' }), 20),
+        ),
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    await waitForStatus(repository, started.task.id, 'running');
+
+    await Promise.all([
+      service.message({
+        taskId: started.task.id,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        message: 'first',
+        deliver: () => undefined,
+      }),
+      service.message({
+        taskId: started.task.id,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        message: 'second',
+        deliver: () => undefined,
+      }),
+    ]);
+
+    const task = repository.tasks.get(started.task.id);
+    expect(task?.privateCorrelationJson.steering).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: 'first', status: 'consumed' }),
+        expect.objectContaining({ message: 'second', status: 'consumed' }),
+      ]),
+    );
+  });
+
+  it('does not deliver steering after a concurrent terminal transition', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-delegated',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: { workspaceFolder: 'main_agent' },
+      leaseToken: 'lease-delegated',
+      fencingVersion: 1,
+      now,
+    });
+    const originalTransition = repository.transitionTask.bind(repository);
+    let cancelledAfterAppend = false;
+    repository.transitionTask = async (input) => {
+      const result = await originalTransition(input);
+      const steering = result?.privateCorrelationJson.steering;
+      if (
+        result?.id === 'task-delegated' &&
+        Array.isArray(steering) &&
+        steering.some((entry) => entry?.status === 'pending') &&
+        !cancelledAfterAppend
+      ) {
+        cancelledAfterAppend = true;
+        await originalTransition({
+          taskId: result.id,
+          leaseToken: result.leaseToken,
+          fencingVersion: result.fencingVersion,
+          status: 'cancelled',
+          now: new Date().toISOString(),
+          terminalAt: new Date().toISOString(),
+        });
+      }
+      return result;
+    };
+    const deliver = vi.fn();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(
+      service.message({
+        taskId: 'task-delegated',
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        message: 'late steer',
+        deliver,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      message: 'Task is already finished and cannot receive messages.',
+    });
+    expect(deliver).not.toHaveBeenCalled();
+    expect(repository.tasks.get('task-delegated')?.status).toBe('cancelled');
+  });
+
   it('terminates tracked stale task processes during recovery', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const stale = new Date(Date.now() - 120_000).toISOString();
@@ -363,6 +915,238 @@ describe('AsyncCommandTaskService', () => {
     ).resolves.toBe(1);
     expect(killed).toEqual([56789]);
     expect(repository.tasks.get('task-stale')?.status).toBe('failed');
+  });
+
+  it('cancels delegated child tasks during stale parent recovery', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const stale = new Date(Date.now() - 120_000).toISOString();
+    const processHandle = (pid: number) => ({
+      pid,
+      processGroupId: pid,
+      detached: true,
+      platform: process.platform,
+      ownerPid: process.pid,
+      startedAt: stale,
+    });
+    await repository.createTask({
+      id: 'task-parent',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: { process: processHandle(56789) },
+      leaseToken: 'lease-parent',
+      fencingVersion: 1,
+      now: stale,
+    });
+    await repository.createTask({
+      id: 'task-child',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {
+        parentTaskId: 'task-parent',
+        process: processHandle(56790),
+      },
+      leaseToken: 'lease-child',
+      fencingVersion: 1,
+      now: stale,
+    });
+    const killed: number[] = [];
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        terminateProcess: (handle) => {
+          killed.push(handle.processGroupId ?? handle.pid);
+          return true;
+        },
+      },
+    );
+
+    await expect(
+      service.recoverStaleTasks({ appId: 'app-1', staleAfterMs: 1 }),
+    ).resolves.toBe(1);
+    expect(repository.tasks.get('task-parent')?.status).toBe('failed');
+    expect(repository.tasks.get('task-child')?.status).toBe('cancelled');
+    expect(killed.sort()).toEqual([56789, 56790]);
+  });
+
+  it('starts delegated agent tasks and records steering messages', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    let release!: () => void;
+    const running = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      parentRunId: 'run-1',
+      objective: 'Research the docs',
+      workspaceFolder: 'main_agent',
+      run: async ({ prompt, signal, onProcessStarted, onProgress }) => {
+        expect(prompt).toContain('Objective: Research the docs');
+        await onProcessStarted?.({
+          pid: 24680,
+          processGroupId: null,
+          detached: false,
+          platform: process.platform,
+          ownerPid: process.pid,
+          startedAt: new Date().toISOString(),
+        });
+        await onProgress?.('Reading docs');
+        await running;
+        if (signal.aborted) throw new Error('aborted');
+        return { outputSummary: 'docs reviewed' };
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await waitForStatus(repository, started.task.id, 'running');
+    const sent: string[] = [];
+    await expect(
+      service.message({
+        taskId: started.task.id,
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        message: 'Focus on steering.',
+        deliver: (_task, message) => {
+          sent.push(message);
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      message: 'Message sent to delegated task.',
+    });
+    expect(sent).toEqual(['Focus on steering.']);
+    const dto = await service.get(started.task.id);
+    expect(dto).toMatchObject({
+      kind: 'delegated_agent',
+      status: 'running',
+      currentPhase: 'running',
+      lastProgress: 'Reading docs',
+      consumedSteeringCount: 1,
+    });
+
+    release();
+    await waitForStatus(repository, started.task.id, 'completed');
+    expect((await service.get(started.task.id))?.receiptLines).toEqual([
+      'Completed: docs reviewed',
+      'Used: Gantry agent run',
+      'Changed: none',
+      'Delegated: yes',
+      'Subtasks: 1 completed, 0 failed, 0 cancelled',
+      'Needs attention: none',
+    ]);
+  });
+
+  it('cancels child async commands when delegated agent run fails', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    const killed: number[] = [];
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run: async () => ({}) },
+      {
+        terminateProcess: (handle) => {
+          killed.push(handle.processGroupId ?? handle.pid);
+          return true;
+        },
+      },
+    );
+    const started = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      parentRunId: 'run-1',
+      objective: 'Run failing child work',
+      workspaceFolder: 'main_agent',
+      run: async ({ task }) => {
+        await repository.createTask({
+          id: 'task-child-failed-parent',
+          appId: task.appId,
+          agentId: task.agentId,
+          conversationId: task.conversationId,
+          kind: 'async_command',
+          status: 'running',
+          admissionClass: 'task',
+          authoritySnapshotJson: {},
+          privateCorrelationJson: {
+            parentTaskId: task.id,
+            process: {
+              pid: 45691,
+              processGroupId: 45691,
+              detached: true,
+              platform: process.platform,
+              ownerPid: process.pid,
+              startedAt: now,
+            },
+          },
+          leaseToken: 'lease-child-failed-parent',
+          fencingVersion: 1,
+          now,
+        });
+        throw new Error('delegated runner failed');
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    await waitForStatus(repository, started.task.id, 'failed');
+    expect(repository.tasks.get('task-child-failed-parent')?.status).toBe(
+      'cancelled',
+    );
+    expect(killed).toEqual([45691]);
+  });
+
+  it('rejects steering for async command and terminal tasks', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-command',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {},
+      leaseToken: 'lease-1',
+      fencingVersion: 1,
+      now,
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(
+      service.message({
+        taskId: 'task-command',
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        message: 'hello',
+        deliver: () => undefined,
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      message: 'task_message is only available for delegated agent tasks.',
+    });
   });
 });
 

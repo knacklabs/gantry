@@ -15,6 +15,8 @@ import type {
   AsyncTaskReceipt,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskStatus,
+  AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
 } from '../../../../domain/ports/async-tasks.js';
 import * as pgSchema from '../schema/schema.js';
@@ -95,37 +97,43 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
   }
 
   async listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]> {
-    const where = and(
-      eq(pgSchema.agentAsyncTasksPostgres.appId, filter.appId),
-      filter.agentId
-        ? eq(pgSchema.agentAsyncTasksPostgres.agentId, filter.agentId)
-        : undefined,
-      filter.conversationId !== undefined
-        ? nullableEq(
-            pgSchema.agentAsyncTasksPostgres.conversationId,
-            filter.conversationId,
-          )
-        : undefined,
-      filter.threadId !== undefined
-        ? nullableEq(pgSchema.agentAsyncTasksPostgres.threadId, filter.threadId)
-        : undefined,
-      filter.parentRunId !== undefined
-        ? nullableEq(
-            pgSchema.agentAsyncTasksPostgres.parentRunId,
-            filter.parentRunId,
-          )
-        : undefined,
-      filter.statuses?.length
-        ? inArray(pgSchema.agentAsyncTasksPostgres.status, filter.statuses)
-        : undefined,
-    );
     const rows = await this.db
       .select()
       .from(pgSchema.agentAsyncTasksPostgres)
-      .where(where)
+      .where(asyncTaskFilterWhere(filter))
       .orderBy(desc(pgSchema.agentAsyncTasksPostgres.updatedAt))
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 100));
     return rows.map(mapRow);
+  }
+
+  async countTasksByStatus(
+    filter: Omit<AsyncTaskListFilter, 'limit'>,
+  ): Promise<AsyncTaskStatusCount[]> {
+    const rows = await this.db
+      .select({
+        status: pgSchema.agentAsyncTasksPostgres.status,
+        count: count(),
+      })
+      .from(pgSchema.agentAsyncTasksPostgres)
+      .where(asyncTaskFilterWhere(filter))
+      .groupBy(pgSchema.agentAsyncTasksPostgres.status);
+    return rows.map((row) => ({
+      status: row.status as AsyncTaskStatus,
+      count: row.count,
+    }));
+  }
+
+  async updateTaskReceipt(
+    taskId: string,
+    receipt: AsyncTaskReceipt,
+    now: string,
+  ): Promise<AsyncTaskRecord | null> {
+    const [row] = await this.db
+      .update(pgSchema.agentAsyncTasksPostgres)
+      .set({ receiptJson: receipt, updatedAt: now })
+      .where(eq(pgSchema.agentAsyncTasksPostgres.id, taskId))
+      .returning();
+    return row ? mapRow(row) : null;
   }
 
   async transitionTask(
@@ -169,6 +177,18 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
             'cancelled',
             'timed_out',
           ]),
+          input.expectedUpdatedAt
+            ? eq(
+                pgSchema.agentAsyncTasksPostgres.updatedAt,
+                input.expectedUpdatedAt,
+              )
+            : undefined,
+          input.expectedPrivateCorrelationJson
+            ? eq(
+                pgSchema.agentAsyncTasksPostgres.privateCorrelationJson,
+                input.expectedPrivateCorrelationJson,
+              )
+            : undefined,
         ),
       )
       .returning();
@@ -197,6 +217,36 @@ function taskInsertValues(input: AsyncTaskCreateInput) {
     updatedAt: input.now,
     summary: input.summary ?? null,
   };
+}
+
+function asyncTaskFilterWhere(filter: Omit<AsyncTaskListFilter, 'limit'>) {
+  return and(
+    eq(pgSchema.agentAsyncTasksPostgres.appId, filter.appId),
+    filter.agentId
+      ? eq(pgSchema.agentAsyncTasksPostgres.agentId, filter.agentId)
+      : undefined,
+    filter.conversationId !== undefined
+      ? nullableEq(
+          pgSchema.agentAsyncTasksPostgres.conversationId,
+          filter.conversationId,
+        )
+      : undefined,
+    filter.threadId !== undefined
+      ? nullableEq(pgSchema.agentAsyncTasksPostgres.threadId, filter.threadId)
+      : undefined,
+    filter.parentRunId !== undefined
+      ? nullableEq(
+          pgSchema.agentAsyncTasksPostgres.parentRunId,
+          filter.parentRunId,
+        )
+      : undefined,
+    filter.parentTaskId !== undefined
+      ? sql`${pgSchema.agentAsyncTasksPostgres.privateCorrelationJson}->>'parentTaskId' = ${filter.parentTaskId}`
+      : undefined,
+    filter.statuses?.length
+      ? inArray(pgSchema.agentAsyncTasksPostgres.status, filter.statuses)
+      : undefined,
+  );
 }
 
 function mapRow(

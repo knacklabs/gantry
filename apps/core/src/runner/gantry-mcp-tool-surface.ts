@@ -37,6 +37,11 @@ export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
   'task_list',
 ] as const;
 
+export const DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES = [
+  'delegate_task',
+  'task_message',
+] as const;
+
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority for itself. In the fixed-image worker product mode they are hidden
 // from user-facing live agents and scheduled jobs: workers never install tools,
@@ -81,6 +86,7 @@ const REVIEWER_MEMORY_REVIEW_GANTRY_MCP_TOOL_NAMES = [
 export const NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES = [
   ...AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   ...OPTIONAL_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
 ] as const;
@@ -118,6 +124,7 @@ export const DEFAULT_GANTRY_MCP_TOOL_NAMES = [
 export const ALL_GANTRY_MCP_TOOL_NAMES = [
   ...DEFAULT_GANTRY_MCP_TOOL_NAMES,
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   ...GATED_GANTRY_MCP_TOOL_NAMES,
   ...REVIEWED_GANTRY_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,
@@ -154,6 +161,10 @@ export function selectedGantryMcpToolNames(
   if (options.asyncTaskToolsEnabled && !options.excludeAuthorityTools) {
     for (const toolName of ASYNC_TASK_GANTRY_MCP_TOOL_NAMES)
       names.add(toolName);
+    if (configuredTools.includes('AgentDelegation')) {
+      for (const toolName of DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES)
+        names.add(toolName);
+    }
   }
   if (isBrowserSelected(configuredTools)) {
     for (const toolName of GATED_GANTRY_MCP_TOOL_NAMES) names.add(toolName);
@@ -168,9 +179,10 @@ export function selectedGantryMcpToolNames(
     if (
       name &&
       (options.asyncTaskToolsEnabled ||
-        !(ASYNC_TASK_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(
-          name,
-        )) &&
+        ![
+          ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+          ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+        ].includes(name as never)) &&
       !(GATED_GANTRY_MCP_TOOL_NAMES as readonly string[]).includes(name)
     ) {
       names.add(name);

@@ -55,6 +55,7 @@ export interface AgentInput {
   jobId?: string;
   jobName?: string;
   runId?: string;
+  parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   jobModelUseKind?: 'oneTimeJob' | 'recurringJob';

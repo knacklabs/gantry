@@ -9,6 +9,7 @@ import { registerServiceTools } from './tools/service.js';
 import { registerTaskLifecycleTools } from './tools/task-lifecycle.js';
 import {
   ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+  DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   NO_PERMISSION_HIDDEN_GANTRY_MCP_TOOL_NAMES,
   parseEnabledGantryMcpToolNames,
 } from '../gantry-mcp-tool-surface.js';
@@ -125,7 +126,10 @@ export function effectiveEnabledMcpToolNames(
     }
   }
   if (rawAsyncTaskToolsEnabled !== '1') {
-    for (const toolName of ASYNC_TASK_GANTRY_MCP_TOOL_NAMES) {
+    for (const toolName of [
+      ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
+      ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
+    ]) {
       enabledTools.delete(toolName);
     }
   }

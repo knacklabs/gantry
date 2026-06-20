@@ -35,7 +35,10 @@ import {
   revokeBrowserIpcAuthorization,
   revokeIpcResponseSigningKey,
 } from './ipc-auth.js';
-import { getContinuationInputDir } from './continuation-input.js';
+import {
+  getContinuationInputDir,
+  taskContinuationThreadId,
+} from './continuation-input.js';
 import { executeRunnerProcess } from './agent-spawn-process.js';
 import { applyAgentEgressNoProxyEnv } from '../shared/no-proxy.js';
 import { buildToolNetworkEnv } from '../shared/tool-network-env.js';
@@ -97,11 +100,8 @@ import {
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
-export type {
-  AvailableGroup,
-  AgentInput,
-  AgentOutput,
-} from './agent-spawn-types.js';
+// prettier-ignore
+export type { AvailableGroup, AgentInput, AgentOutput } from './agent-spawn-types.js';
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -147,10 +147,6 @@ export async function spawnAgent(
   const agentEngine = resolvedModel.value.agentEngine;
   const effectiveModel = resolvedModel.value.runnerModel;
   const effectiveModelEntry = resolvedModel.value.modelEntry;
-  // Pre-spawn tool-rule admission: invalid runner tool rules, plus DeepAgents
-  // shell/filesystem authority (disabled in v1; the future enablement path also
-  // requires an enforcing sandbox under production/remote posture). Engine and
-  // resolved tool rules are both known here, so these fail closed before spawn.
   const preSpawnAdmissionError = hostStartup.measure(
     'preSpawnAdmissionMs',
     () =>
@@ -298,7 +294,10 @@ export async function spawnAgent(
   try {
     const command = process.execPath;
     const args = preparedExecution.runnerArgs;
-    const ipcInputDir = getContinuationInputDir(group.folder, input.threadId);
+    const ipcInputDir = getContinuationInputDir(
+      group.folder,
+      taskContinuationThreadId(input.threadId, input.parentTaskId),
+    );
     const runnerAppId = input.appId || 'default';
     const mcpServerPath = path.join(
       hostRuntime.runnerDistDir,
@@ -523,6 +522,7 @@ export async function spawnAgent(
       jobId: input.jobId,
       jobName: input.jobName,
       runId: input.runId,
+      parentTaskId: input.parentTaskId,
       runLeaseToken: input.runLeaseToken,
       runLeaseFencingVersion: input.runLeaseFencingVersion,
       browserIpcAuthToken: browserIpcEnabled

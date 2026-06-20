@@ -582,6 +582,13 @@
       "when": 1777288200000,
       "tag": "0084_agent_async_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1777295400000,
+      "tag": "0086_ensure_agent_async_tasks",
+      "breakpoints": true
     }
   ]
 }

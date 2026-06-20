@@ -57,9 +57,11 @@ export const LOCKED_DENIED_IPC_TASK_TYPES: ReadonlySet<string> =
       toolName === 'request_access' ? 'request_permission' : toolName,
     ),
     'async_run_command',
+    'delegate_task',
     'task_get',
     'task_list',
     'task_cancel',
+    'task_message',
     ...ADMIN_MCP_TOOL_NAMES,
   ]);
 
