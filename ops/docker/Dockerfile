@@ -81,6 +81,10 @@ RUN apt-get update \
 # search binary for agent turns, and libatomic1 is required by newer Node builds
 # on small Ubuntu/Debian hosts.
 
+# The runtime image never installs packages. Drop the package-manager payload
+# inherited from the Node base image so bundled npm CVEs do not fail image scans.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 # Non-root runtime user. The base image already ships a `node` user (uid 1000);
 # create a dedicated home and a writable runtime-state dir owned by it.
 RUN install -d -o node -g node "${GANTRY_HOME}"
