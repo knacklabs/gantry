@@ -333,7 +333,6 @@ export class AnthropicWarmPoolController {
       prompt: CACHE_PREWARM_PROMPT,
       compiledSystemPrompt: recipe.compiledSystemPrompt,
       warmGenericBoot: false,
-      sessionId: undefined,
     };
     const output = this.waitForProbeResult(process);
     try {

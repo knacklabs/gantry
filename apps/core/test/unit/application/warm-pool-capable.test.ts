@@ -67,26 +67,21 @@ describe('warm-pool capability contract', () => {
     expect(second).toBe(first);
   });
 
-  it('does not partition generic worker pools by provider resume session', () => {
-    const base = baseKeyInput();
+  it('does not expose provider resume session as a pool key dimension', () => {
+    const parsed = JSON.parse(poolKeyOf(baseKeyInput())) as Record<
+      string,
+      unknown
+    >;
 
-    expect(
-      poolKeyOf({
-        ...base,
-        resumeSessionId: 'claude-session-returning',
-      }),
-    ).toBe(poolKeyOf(base));
+    expect(parsed).not.toHaveProperty('resumeSessionId');
   });
 
   it('builds cache shape keys from prompt-cache-affecting input only', () => {
     const base = baseKeyInput();
 
     expect(
-      cacheShapeKeyOf({
-        ...base,
-        resumeSessionId: 'claude-session-returning',
-      }),
-    ).toBe(cacheShapeKeyOf(base));
+      JSON.parse(cacheShapeKeyOf(base)) as Record<string, unknown>,
+    ).not.toHaveProperty('resumeSessionId');
     expect(cacheShapeKeyOf({ ...base, model: 'sonnet' })).not.toBe(
       cacheShapeKeyOf(base),
     );

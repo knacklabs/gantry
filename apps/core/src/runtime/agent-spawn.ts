@@ -74,7 +74,6 @@ import {
   poolKeyOf,
   type SharedBootRecipe,
 } from '../application/agent-execution/warm-pool-capable.js';
-import { isPoolEligible } from './warm-pool-eligibility.js';
 
 function isSdkNativeMcpCapability(
   capability: MaterializedMcpCapability,
@@ -95,9 +94,7 @@ function isRecoverableWarmPathError(output: AgentOutput): boolean {
     isWarmMcpReadinessError(output) ||
     (output.status === 'error' &&
       typeof output.error === 'string' &&
-      output.error.includes(
-        'Warm bind resume session does not match boot session',
-      ))
+      output.error.includes('Warm bind failed before output'))
   );
 }
 
@@ -823,7 +820,6 @@ export async function spawnAgent(
     if (
       warmPoolConfig.enabled &&
       warmPool &&
-      isPoolEligible(input) &&
       hasWarmPoolCapability(executionAdapter)
     ) {
       const key = poolKeyOf({
@@ -833,7 +829,6 @@ export async function spawnAgent(
         agentId: input.agentId || compileAgentId,
         persona: compilePersona,
         model: effectiveModel,
-        resumeSessionId: input.sessionId,
         toolSurface: {
           gantryMcp: input.gantryMcpToolSurface,
           native: input.nativeToolSurface,
@@ -1167,7 +1162,6 @@ export async function spawnAgent(
             chatJid: input.chatJid,
             ...(input.threadId ? { threadId: input.threadId } : {}),
             ...(input.memoryUserId ? { memoryUserId: input.memoryUserId } : {}),
-            ...(input.sessionId ? { sessionId: input.sessionId } : {}),
             ...(input.memoryContextBlock
               ? { memoryBlock: input.memoryContextBlock }
               : {}),

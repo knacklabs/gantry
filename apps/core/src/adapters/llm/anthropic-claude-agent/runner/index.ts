@@ -253,7 +253,7 @@ async function runInteractiveQueryLoop(opts: {
         ? 'Starting warm generic boot (startup → bind → new persistent SDK session)...'
         : opts.providerCachePrewarm
           ? 'Starting provider cache prewarm query with ephemeral SDK session...'
-          : `Starting live streaming query with ${opts.agentInput.sessionId ? 'resumed SDK session' : 'new persistent SDK session'}...`,
+          : 'Starting live streaming query with new persistent SDK session...',
     );
     const queryResult = await runQuery(
       opts.prompt,

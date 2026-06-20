@@ -14,7 +14,6 @@ export interface AgentRunnerInput {
   runMode?: 'prime' | 'execute';
   appId?: string;
   agentId?: string;
-  sessionId?: string;
   groupFolder: string;
   chatJid: string;
   threadId?: string;

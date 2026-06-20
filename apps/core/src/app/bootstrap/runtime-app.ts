@@ -70,7 +70,6 @@ import {
 } from '../../adapters/llm/default-runtime-adapters.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
-import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
 import { hasWarmPoolCapability } from '../../application/agent-execution/warm-pool-capable.js';
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import { runClaudeQuery } from '../../adapters/llm/anthropic-claude-agent/memory-query.js';
@@ -83,8 +82,6 @@ import type {
 } from '../../runtime/worker-inventory-snapshot.js';
 import { spawnAgent } from '../../runtime/agent-spawn.js';
 import { promptProfileAgentIdForFolder } from '../../application/agents/prompt-profile-service.js';
-import { defaultModelStatusSelection } from '../../session/session-model-status.js';
-import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
@@ -756,21 +753,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     const agentId = promptProfileAgentIdForFolder(group.folder);
     const turnContext = { appId, agentId };
     const storage = getRuntimeStorage();
-    const initialModelSelection = defaultModelStatusSelection(
-      group.agentConfig?.model ?? 'opus',
-    );
-    const executionProviderId = (initialModelSelection.model
-      ?.executionProviderId ??
-      resolveRuntimeExecutionProviderId(
-        executionAdapter,
-      )) as ExecutionProviderId;
-    const sessionContext = await storage.ops.getAgentTurnContext?.({
-      agentFolder: group.folder,
-      executionProviderId,
-      conversationJid: chatJid,
-      conversationKind: group.conversationKind,
-      hydrateMemory: false,
-    });
     const deps = {
       getToolRepository: () => storage.repositories.tools,
       getSkillRepository: () => storage.repositories.skills,
@@ -811,9 +793,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         semanticCapabilities,
         assistantName: group.trigger || ASSISTANT_NAME,
         thinking: group.agentConfig?.thinking,
-        ...(sessionContext?.externalSessionId
-          ? { sessionId: sessionContext.externalSessionId }
-          : {}),
       },
       () => {},
       undefined,

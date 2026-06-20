@@ -322,6 +322,41 @@ describe('GroupQueue', () => {
     expect(processed).toContain('group4@g.us');
   });
 
+  it('does not count idle retained live runners against message concurrency', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1 });
+    const processed: string[] = [];
+    const completionCallbacks: Array<() => void> = [];
+
+    queue.setProcessMessagesFn(async (groupJid: string) => {
+      processed.push(groupJid);
+      queue.registerProcess(
+        groupJid,
+        Object.assign(new EventEmitter(), { killed: false }) as any,
+        `run-${groupJid}`,
+        'test-group',
+      );
+      queue.notifyIdle(groupJid);
+      await new Promise<void>((resolve) => completionCallbacks.push(resolve));
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(queue.getWorkerInventorySnapshot()).toMatchObject({
+      activeMessageRuns: 0,
+      maxMessageRuns: 1,
+    });
+
+    queue.enqueueMessageCheck('group2@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(processed).toEqual(['group1@g.us', 'group2@g.us']);
+
+    completionCallbacks.forEach((resolve) => resolve());
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
   // --- Running task dedup (Issue #138) ---
 
   it('rejects duplicate enqueue of a currently-running task', async () => {

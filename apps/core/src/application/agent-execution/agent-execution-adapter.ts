@@ -26,7 +26,6 @@ export interface AgentExecutionRunInput {
   appId?: string;
   agentId?: string;
   model?: string;
-  sessionId?: string;
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;

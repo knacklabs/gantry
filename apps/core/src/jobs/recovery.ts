@@ -442,9 +442,6 @@ async function runJobRecoveryAgentTurn(input: {
     selectedSkillDisplays: selectedSkillContext.displays,
     attachedMcpSourceIds,
     semanticCapabilities,
-    ...(turnContext?.externalSessionId
-      ? { sessionId: turnContext.externalSessionId }
-      : {}),
   } as AgentInput;
   const output = await runAgentImpl(
     input.execution.group,

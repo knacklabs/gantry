@@ -398,7 +398,6 @@ function traceableSdkStartupOptions(options: Options): Record<string, unknown> {
     cwd: options.cwd,
     additionalDirectories: options.additionalDirectories,
     persistSession: options.persistSession,
-    resume: options.resume ? 'present' : undefined,
     systemPrompt: options.systemPrompt,
     settings: options.settings,
     skills: options.skills,
@@ -437,7 +436,6 @@ type WarmCachePrewarmTrace = {
 async function dispatchWarmQuery(args: {
   sdkOptions: Options;
   stream: MessageStream;
-  runnerSessionId?: string;
   guardrailPreface?: string;
   onBound: (scope: ConversationBindScope) => void;
   captureCachePrewarmPayloads: boolean;
@@ -490,15 +488,6 @@ async function dispatchWarmQuery(args: {
       // Best-effort cleanup only.
     }
     throw err;
-  }
-
-  if (scope.sessionId && args.runnerSessionId !== scope.sessionId) {
-    try {
-      warm.close();
-    } catch {
-      // Best-effort cleanup only.
-    }
-    throw new Error('Warm bind resume session does not match boot session');
   }
 
   const boundIdentity = {
@@ -770,9 +759,6 @@ export async function runQuery(
     additionalDirectories:
       additionalDirectories.length > 0 ? additionalDirectories : undefined,
     persistSession: persistSdkSession,
-    ...(persistSdkSession && agentInput.sessionId
-      ? { resume: agentInput.sessionId }
-      : {}),
     systemPrompt,
     settings: {
       autoMemoryEnabled: false,
@@ -828,7 +814,6 @@ export async function runQuery(
     ? await dispatchWarmQuery({
         sdkOptions,
         stream,
-        runnerSessionId: agentInput.sessionId,
         guardrailPreface: agentInput.guardrailSystemPromptAppend,
         captureCachePrewarmPayloads: capturePayloads,
         onBound: (scope) => {
@@ -1020,7 +1005,7 @@ export async function runQuery(
                   threadId: agentInput.threadId,
                 },
                 rateLimit,
-                newSessionId ?? agentInput.sessionId,
+                newSessionId,
               ),
             ],
           });
@@ -1119,7 +1104,7 @@ export async function runQuery(
                 usage,
                 usageEventId: usageEventIdForMessage(
                   message,
-                  newSessionId ?? agentInput.sessionId,
+                  newSessionId,
                   resultCount,
                   queryRunId,
                 ),

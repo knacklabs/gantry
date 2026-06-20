@@ -119,9 +119,10 @@ Key runner inputs:
 
 - `allowedTools` from `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`, backed by the Gantry MCP surface in `apps/core/src/runner/gantry-mcp-tool-surface.ts`
 - Gantry MCP server config from `apps/core/src/runner/mcp/server.ts`
-- provider-session projection: live interactive turns may pass adapter resume
-  metadata from `ProviderSession`; scheduled jobs keep provider persistence
-  disabled and use Gantry job/session records as durable continuity
+- provider-session projection: live interactive turns may persist fresh provider
+  session metadata for diagnostics, but do not pass SDK resume handles;
+  scheduled jobs keep provider persistence disabled and use Gantry job/session
+  records as durable continuity
 - working directory and extra directories
 - `canUseTool`, the permission callback that projects each SDK request through
   the canonical tool execution boundary before sensitive tools run

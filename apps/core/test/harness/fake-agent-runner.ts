@@ -3,7 +3,6 @@ export interface FakeAgentInvocation {
   chatJid: string;
   prompt: string;
   isScheduledJob: boolean;
-  sessionId?: string;
   memoryContextBlock?: string;
   model?: string;
   input: any;
@@ -42,7 +41,6 @@ export function createFakeAgentRunner(options: FakeAgentRunnerOptions = {}) {
       chatJid: input.chatJid,
       prompt: input.prompt,
       isScheduledJob: input.isScheduledJob === true,
-      sessionId: input.sessionId,
       memoryContextBlock: input.memoryContextBlock,
       model: input.model,
       input,

@@ -17,7 +17,6 @@ import { log } from './logging.js';
 export interface ConversationBindScope {
   chatJid: string;
   firstMessage: string;
-  sessionId?: string;
   memoryBlock?: string;
   guardrailPreface?: string;
   runHandle?: string;
@@ -63,8 +62,6 @@ function parseBindScopeValue(
       firstMessage: scope.firstMessage,
       memoryBlock:
         typeof scope.memoryBlock === 'string' ? scope.memoryBlock : undefined,
-      sessionId:
-        typeof scope.sessionId === 'string' ? scope.sessionId : undefined,
       guardrailPreface:
         typeof scope.guardrailPreface === 'string'
           ? scope.guardrailPreface

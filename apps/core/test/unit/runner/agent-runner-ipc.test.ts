@@ -807,7 +807,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'resumes and persists SDK sessions for live channel turns',
+    'persists SDK sessions for live channel turns without resuming saved handles',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -826,7 +826,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.persistSession).toBe(true);
-      expect(call?.resume).toBe('stale-sdk-session');
+      expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
       expect(
         (call?.mcpServers?.gantry as { env?: Record<string, string> })?.env,

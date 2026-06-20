@@ -35,7 +35,6 @@ export interface AgentInput {
   appId?: string;
   agentId?: string;
   model?: string;
-  sessionId?: string;
   groupFolder: string;
   chatJid: string;
   threadId?: string;

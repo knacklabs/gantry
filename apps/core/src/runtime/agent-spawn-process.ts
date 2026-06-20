@@ -51,10 +51,6 @@ interface ScheduledJobHeartbeatPayload {
   totalToolCalls?: number;
 }
 
-function formatResumeSessionStatus(sessionId?: string): string {
-  return sessionId ? 'present' : 'none';
-}
-
 function sanitizeLogText(value: string, maxChars = 4000): string {
   let text = redactString(value);
   for (const pattern of SENSITIVE_TEXT_PATTERNS) {
@@ -93,7 +89,6 @@ function runnerContextPayload(input: RunnerProcessSpec['input']) {
   return {
     appId: input.appId,
     agentId: input.agentId,
-    sessionId: input.sessionId,
     jobId: input.jobId,
     runId: input.runId,
   };
@@ -237,9 +232,8 @@ export function executeRunnerProcess(
       runner.stdin.end();
     }
 
-    // Flow trace: what we hand to the LLM for this turn (user prompt + system
-    // prompt size + whether the SDK session was resumed). Reply is logged on
-    // close as flow:llm.output.
+    // Flow trace: what we hand to the LLM for this turn. Provider SDK resume is
+    // disabled; continuity comes from Gantry memory/digest and live IPC.
     const flowEnabled = isFlowLogEnabled();
     let llmReplyText = '';
     flowLog(logger, 'llm.input', {
@@ -247,7 +241,7 @@ export function executeRunnerProcess(
       promptChars: input.prompt.length,
       prompt: input.prompt,
       systemPromptChars: input.compiledSystemPrompt?.length ?? 0,
-      resumed: Boolean(input.sessionId),
+      resumed: false,
     });
 
     let parseBuffer = '';
@@ -460,7 +454,7 @@ export function executeRunnerProcess(
             `Process: ${processName}`,
             `App ID: ${input.appId ?? 'none'}`,
             `Agent ID: ${input.agentId ?? 'none'}`,
-            `Session ID: ${input.sessionId ?? 'none'}`,
+            `Provider resume: disabled`,
             `Job ID: ${input.jobId ?? 'none'}`,
             `Run ID: ${input.runId ?? 'none'}`,
             `Log File: ${timeoutLog}`,
@@ -582,7 +576,7 @@ export function executeRunnerProcess(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
             `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
-            `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
+            `Provider resume: disabled`,
             `Chat JID: ${input.chatJid}`,
             `Group Folder: ${input.groupFolder}`,
             '',
@@ -592,7 +586,7 @@ export function executeRunnerProcess(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
             `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
-            `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
+            `Provider resume: disabled`,
             ``,
           );
         }
@@ -614,7 +608,7 @@ export function executeRunnerProcess(
           `=== Input Summary ===`,
           `Prompt length: ${input.prompt.length} chars`,
           `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
-          `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
+          `Provider resume: disabled`,
           ``,
           `=== Runtime Details ===`,
           runtimeDetails.join('\n'),

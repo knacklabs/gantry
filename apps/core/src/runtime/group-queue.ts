@@ -262,7 +262,6 @@ export class GroupQueue {
 
   private canDrainIntoIdleLiveRun(state: GroupState): boolean {
     return (
-      state.active &&
       state.idleWaiting &&
       !state.isTaskRun &&
       state.process !== null &&
@@ -294,6 +293,16 @@ export class GroupQueue {
         return;
       }
       logger.debug({ groupJid }, 'Agent run active, message queued');
+      return;
+    }
+
+    if (state.idleWaiting && this.canDrainIntoIdleLiveRun(state)) {
+      state.pendingMessages = true;
+      this.drainGroup(groupJid);
+      logger.debug(
+        { groupJid },
+        'Idle agent run waiting, message queued for continuation drain',
+      );
       return;
     }
 
@@ -332,7 +341,7 @@ export class GroupQueue {
       return true;
     }
 
-    if (state.active) {
+    if (state.active || state.idleWaiting) {
       state.pendingTasks.push({ id: taskId, kind: 'task', groupJid, fn });
       if (state.idleWaiting) {
         this.closeStdin(groupJid);
@@ -445,14 +454,18 @@ export class GroupQueue {
       return;
     }
     state.idleWaiting = true;
+    if (this.canDrainIntoIdleLiveRun(state)) {
+      this.releaseActiveMessageSlotForIdleDrain(state);
+    }
     if (state.pendingTasks.length > 0) {
       this.closeStdin(groupJid);
       return;
     }
-    if (state.pendingMessages && this.canDrainIntoIdleLiveRun(state)) {
-      this.releaseActiveMessageSlotForIdleDrain(state);
+    if (state.pendingMessages) {
       this.drainGroup(groupJid);
+      return;
     }
+    this.drainWaiting();
   }
 
   registerContinuationHandler(

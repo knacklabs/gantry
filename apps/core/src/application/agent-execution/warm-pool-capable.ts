@@ -22,7 +22,6 @@ export interface WarmPoolKeyInput {
   agentId: string;
   persona?: AgentPersona;
   model?: string;
-  resumeSessionId?: string;
   toolSurface?: WarmPoolToolSurface;
   mcpSet?: readonly string[];
   thinking?: ThinkingOverride;
@@ -54,7 +53,6 @@ export interface ConversationBindScope {
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;
-  sessionId?: string;
   memoryBlock?: string;
   firstMessage: string;
   guardrailPreface?: string;

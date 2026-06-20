@@ -70,9 +70,6 @@ const RUNTIME_LOG_PROVIDER_VALUE_PATTERNS: RegExp[] = [
 const RUNTIME_LOG_REDACT_KEY_PATTERN =
   /^(sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$/i;
 const memoryReviewApproverCache = new Map<string, [boolean, number]>();
-function isMissingProviderSessionError(error: string | undefined): boolean {
-  return /\bNo conversation found with session ID\b/i.test(error ?? '');
-}
 function redactRuntimeLogString(value: string): string {
   let out = value;
   for (const pattern of RUNTIME_LOG_PROVIDER_FIELD_PATTERNS) {
@@ -535,7 +532,6 @@ export function createGroupAgentRunner(input: {
       ? await ops().createSessionAgentRun?.({
           agentSessionId: turnContext.agentSessionId,
           executionProviderId,
-          providerSessionId: turnContext.providerSessionId,
           cause:
             options?.memoryContext?.source === 'command'
               ? 'control'
@@ -559,35 +555,7 @@ export function createGroupAgentRunner(input: {
         warmPool: deps.warmPool,
         turnContext,
       });
-      const expireTurnProviderSession = async (
-        reason: string,
-      ): Promise<boolean> => {
-        if (
-          !turnContext?.providerSessionId ||
-          !turnContext.agentSessionId ||
-          !turnContext.externalSessionId ||
-          !ops().expireProviderSession
-        ) {
-          return false;
-        }
-        await ops().expireProviderSession?.({
-          providerSessionId: turnContext.providerSessionId,
-          agentSessionId: turnContext.agentSessionId,
-          provider: executionProviderId,
-          externalSessionId: turnContext.externalSessionId,
-        });
-        latestProviderSessionId = undefined;
-        await updateRunProviderMetadata({ providerSessionId: null });
-        runtimeLogger.warn(
-          { group: group.name, reason },
-          'No conversation found with session ID; expired stale provider session and retrying without resume',
-        );
-        return true;
-      };
-      const invokeAgent = (agentInput: {
-        memoryContextBlock?: string;
-        resumeSessionId?: string;
-      }) =>
+      const invokeAgent = (agentInput: { memoryContextBlock?: string }) =>
         runAgentImpl(
           group,
           {
@@ -616,9 +584,6 @@ export function createGroupAgentRunner(input: {
               ? {
                   guardrailSystemPromptAppend: runtimeSystemPromptAppend,
                 }
-              : {}),
-            ...(agentInput.resumeSessionId
-              ? { sessionId: agentInput.resumeSessionId }
               : {}),
             [WORKSPACE_FOLDER_INPUT_KEY]: group.folder,
           } as Parameters<typeof runAgentImpl>[1],
@@ -668,30 +633,7 @@ export function createGroupAgentRunner(input: {
           wrappedOnOutput,
           runOptions,
         );
-      let output = await invokeAgent({
-        memoryContextBlock,
-        resumeSessionId: turnContext?.externalSessionId,
-      });
-      const streamedResultSnapshot = streamedResult.snapshot();
-      if (
-        output.status === 'error' &&
-        isMissingProviderSessionError(output.error) &&
-        streamedResultSnapshot &&
-        (await expireTurnProviderSession(output.error ?? 'missing session'))
-      ) {
-        output = {
-          ...output,
-          status: 'success',
-          result: streamedResultSnapshot,
-          error: undefined,
-        };
-      } else if (
-        output.status === 'error' &&
-        isMissingProviderSessionError(output.error) &&
-        (await expireTurnProviderSession(output.error ?? 'missing session'))
-      ) {
-        output = await invokeAgent({ memoryContextBlock });
-      }
+      const output = await invokeAgent({ memoryContextBlock });
       if (output.status === 'error') {
         runtimeLogger.error(
           { group: group.name, error: output.error },

@@ -322,7 +322,7 @@ describe('executeRunnerProcess', () => {
       await resultP;
 
       const logContent = String(mockWriteFileSync.mock.calls[0]?.[1] ?? '');
-      expect(logContent).toContain('Resume session: present');
+      expect(logContent).toContain('Provider resume: disabled');
       expect(logContent).not.toContain(uuidHandle);
       expect(logContent).not.toContain(framedHandle);
       expect(logContent).not.toContain(shortHandle);

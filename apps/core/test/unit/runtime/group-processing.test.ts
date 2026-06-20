@@ -912,7 +912,7 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('expires a stale provider session after streamed output without retrying or failing the turn', async () => {
+    it('keeps streamed output delivered without provider-session retry handling', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
       const { deps, channel } = setupHappyPath({ group, messages });
@@ -940,7 +940,7 @@ describe('createGroupProcessor', () => {
           return {
             status: 'error',
             result: null,
-            error: 'No conversation found with session ID: stale',
+            error: 'late provider error after visible output',
           } as AgentOutput;
         },
       );
@@ -954,18 +954,7 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'Visible reply',
       );
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:1',
-        agentSessionId: 'agent-session:1',
-        provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'claude-session-stale',
-      });
-      expect(
-        deps.opsRepository.updateAgentRunProviderMetadata,
-      ).toHaveBeenCalledWith({
-        runId: 'agent-run:message-1',
-        providerSessionId: null,
-      });
+      expect(deps.opsRepository.expireProviderSession).not.toHaveBeenCalled();
       const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
         .calls;
       expect(setCursorCalls).toHaveLength(1);
@@ -1298,7 +1287,7 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('Postgres-authoritative session context', () => {
-    it('passes hydrated memory context with provider session resume id', async () => {
+    it('passes hydrated memory context without provider session resume id', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
       (deps.opsRepository as any).getAgentTurnContext = vi
@@ -1327,8 +1316,8 @@ describe('createGroupProcessor', () => {
         memoryContextBlock: expect.stringContaining(
           '<gantry_memory_context>memory</gantry_memory_context>',
         ),
-        sessionId: 'claude-session-1',
       });
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
       expect(mockSpawnAgent.mock.calls[0][4]).toMatchObject({
         executionAdapter: expect.objectContaining({
           id: 'anthropic:claude-agent-sdk',
@@ -1393,7 +1382,7 @@ describe('createGroupProcessor', () => {
       ).toContain('12 birthday boxes');
     });
 
-    it('expires a missing provider session and retries the turn without resume', async () => {
+    it('ignores saved provider sessions when spawning live message turns', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
       (deps.opsRepository as any).getAgentTurnContext = vi
@@ -1409,56 +1398,12 @@ describe('createGroupProcessor', () => {
         .fn()
         .mockResolvedValue('agent-run:message-1');
 
-      mockSpawnAgent.mockImplementationOnce(async () => ({
-        status: 'error',
-        result: null,
-        error: 'No conversation found with session ID: stale',
-      }));
-      mockSpawnAgent.mockImplementationOnce(
-        async (
-          _group: ConversationRoute,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          const output: AgentOutput = {
-            status: 'success',
-            result: 'fresh reply',
-            newSessionId: 'claude-session-fresh',
-          };
-          await onOutput?.(output);
-          return output;
-        },
-      );
-
       const { processGroupMessages } = createGroupProcessor(deps);
       await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
 
-      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
-      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        sessionId: 'claude-session-stale',
-      });
-      expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
-      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:1',
-        agentSessionId: 'agent-session:1',
-        provider: 'anthropic:claude-agent-sdk',
-        externalSessionId: 'claude-session-stale',
-      });
-      expect(
-        deps.opsRepository.updateAgentRunProviderMetadata,
-      ).toHaveBeenCalledWith({
-        runId: 'agent-run:message-1',
-        providerSessionId: null,
-      });
-      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
-        group.folder,
-        'claude-session-fresh',
-        null,
-        expect.objectContaining({
-          expectedAgentSessionId: 'agent-session:1',
-        }),
-      );
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(1);
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+      expect(deps.opsRepository.expireProviderSession).not.toHaveBeenCalled();
     });
 
     it('persists SDK session ids from final agent output for the next turn', async () => {

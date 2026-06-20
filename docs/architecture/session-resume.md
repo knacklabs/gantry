@@ -18,24 +18,27 @@ instruction authority, permissions, credentials, or sandbox access.
 ## Provider Session Metadata
 
 Provider session handles may exist as adapter metadata attached to canonical
-`AgentSession` records. Live user-facing turns use those handles only as an
-adapter resume optimization; canonical continuity still belongs to Postgres.
+`AgentSession` records. Live user-facing continuity does not use those handles
+as resume authority; canonical continuity belongs to Postgres plus any currently
+retained live runner.
 
 - Canonical continuity record: `AgentSession` (provider-neutral app contract).
 - Adapter projection field: `ProviderSession.externalSessionId`.
-- Current live runtime projection: Anthropic/Claude SDK runs set
-  `persistSession: true` and pass `resume` from the trusted
-  `AgentInput.sessionId` when a provider handle exists.
+- Current live runtime projection: Anthropic/Claude SDK runs may set
+  `persistSession: true` to receive fresh provider session metadata, but Gantry
+  does not pass SDK `resume` or `resumeSessionAt` for live message turns.
 - Current scheduled/autonomous job projection: jobs set `isScheduledJob: true`,
   do not pass `AgentInput.sessionId`, and the Claude SDK query runs with
   `persistSession: false`.
 - Conversation evidence belongs in Postgres messages, runs, jobs, memory,
   digests, and runtime events; provider JSONL files are not continuity state.
 
-This keeps normal agent conversations canonically provider-neutral while
-allowing live runs to use the provider's own efficient resume path. If
-transcript export is needed, generate it from Postgres evidence into a
-FileArtifact instead of depending on provider-local session files.
+This keeps normal agent conversations canonically provider-neutral. Active
+follow-ups use the retained live runner while it remains registered; after that
+runner is disposed, the next turn starts a fresh SDK session and injects scoped
+Gantry memory/digest context. If transcript export is needed, generate it from
+Postgres evidence into a FileArtifact instead of depending on provider-local
+session files.
 
 ## Scope And Ownership Isolation
 
@@ -120,12 +123,14 @@ fallback, or repair branches for that state.
 
 ## Runtime Guardrails
 
-- `apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts` must pass explicit query-loop SDK
-  persistence options: live turns persist/resume, scheduled jobs do not.
-- Host live runner inputs may pass the trusted `turnContext.externalSessionId`
-  as `AgentInput.sessionId`; scheduler execution must not copy
-  `jobs.session_id` or `executionContext.sessionId` into that field.
-- Tests should assert live turns set `persistSession: true` and `resume` when
-  `AgentInput.sessionId` exists, while scheduled jobs run with
-  `persistSession: false` and no `resume` options. Postgres remains the
-  canonical evidence path for messages, runs, memory, jobs, and events.
+- `apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts` must pass
+  explicit query-loop SDK persistence options: live turns may persist fresh
+  provider session metadata, scheduled jobs do not, and neither path passes SDK
+  `resume`.
+- Host live runner inputs must not copy `turnContext.externalSessionId`,
+  `jobs.session_id`, or `executionContext.sessionId` into `AgentInput.sessionId`
+  for provider resume.
+- Tests should assert live turns set `persistSession: true` without `resume`,
+  while scheduled jobs run with `persistSession: false` and no `resume` options.
+  Postgres remains the canonical evidence path for messages, runs, memory, jobs,
+  and events.
