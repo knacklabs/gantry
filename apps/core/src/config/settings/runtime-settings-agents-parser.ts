@@ -441,9 +441,6 @@ function parseDigestAndShortMemoryWatcher(
   }
   const map = raw as Record<string, unknown>;
   const enabled = parseBooleanValue(map.enabled, `${pathPrefix}.enabled`);
-  if (!enabled) {
-    return { enabled: false };
-  }
   for (const key of Object.keys(map)) {
     if (
       key !== 'enabled' &&
@@ -462,7 +459,7 @@ function parseDigestAndShortMemoryWatcher(
     throw new Error(`${pathPrefix}.model is invalid: ${resolved.message}`);
   }
   return {
-    enabled: true,
+    enabled,
     conversationIdleAfterMs: parsePositiveMilliseconds(
       map.conversation_idle_after_ms,
       `${pathPrefix}.conversation_idle_after_ms`,

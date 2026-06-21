@@ -31,7 +31,7 @@ Large static prompts are referenced by file instead of pasted here.
 | Main chat                | Durable memory context, optional Boondi CRM pre-run context, current formatted message, large Boondi system prompt, and inline scope block | Current-turn blocks plus SDK resume handle when a new runner is started | Gantry MCP facade tools        |
 | `/digest-session`        | Extraction prompt + few-shots + session arc                                   | Same, with optional earlier context/retrieved memory                     | `tools` unset                   |
 | `/dream`                 | Dreaming/consolidation prompt + memory evidence/candidates/items              | Same per maintenance pass                                                | `tools` unset                   |
-| `/extract-leads-queries` | CRM extractor prompt + existing CRM rows + full transcript                    | Same; digest blank for manual command, populated for watcher             | `[]`                            |
+| `/extract-leads-queries` | CRM extractor prompt + existing CRM rows + digest + full transcript           | Same digest-cycle path as watcher                                        | `[]`                            |
 | `/new`                   | No foreground LLM call                                                        | Optional background memory extractor                                     | `tools` unset if extractor runs |
 
 ## Guardrails
@@ -620,15 +620,17 @@ Why someone would use it:
   immediately instead of waiting for idle/session-end automation.
 - You are about to run `/dream` and want the latest turns available as evidence.
 - You are testing memory behavior and need deterministic digest/evidence rows.
-- You want to give the background CRM digest watcher a new digest boundary. This
-  is only for the watcher path; manual `/extract-leads-queries` does not need it.
+- You want to give the CRM extractor a new digest boundary. Manual
+  `/extract-leads-queries` and the background watcher consume the same digest
+  cycle.
 
 Do not use it when:
 
 - You expect active admin memory to appear immediately. `/digest-session` stages
   evidence; `/dream` promotes active memory.
 - You want to clear context. Use `/new`.
-- You want CRM lead extraction now. Use `/extract-leads-queries`.
+- You want CRM lead extraction now. Use `/digest-session`, then
+  `/extract-leads-queries`.
 
 What it writes:
 
@@ -729,7 +731,8 @@ Do not use it when:
 
 - The latest conversation has not been digested/staged yet and you expect those
   exact turns to be considered. Run `/digest-session` first.
-- You want CRM lead/query extraction. Use `/extract-leads-queries`.
+- You want CRM lead/query extraction. Use `/digest-session`, then
+  `/extract-leads-queries`.
 - You want to reset Boondi's current chat context. Use `/new`.
 
 What it writes:
@@ -820,7 +823,8 @@ Dreaming completed.
 What it actually does:
 
 - Runs Boondi CRM opportunity extraction for exactly one WhatsApp conversation.
-- Reads the live transcript directly.
+- Uses the same digest-cycle path as the automatic CRM watcher.
+- Loads the digest boundary and the live transcript for that conversation.
 - Compares against existing open opportunities for the customer's phone.
 - Creates or updates lead/query records in the Boondi CRM database.
 - This is not Gantry durable memory and does not write `gantry.memory_items`.
@@ -831,7 +835,7 @@ Why someone would use it:
   planning, budget, quantity, delivery city, timeline, or procurement context,
   and the operator wants CRM records now.
 - You want Boondi Admin CRM to show/update the opportunity without waiting for
-  the digest watcher.
+  the CRM watcher poll.
 - You are verifying the CRM extractor payload and merge/update behavior.
 
 Do not use it when:
@@ -890,7 +894,7 @@ Payload composition:
 | ------------------------------------ | ---------------------------------------------------------------------------------- | ------------------------------------- |
 | Opportunity extraction system prompt | `packages/mcp-crm/src/extractor/prompt.ts`                                         | Defines query/lead extraction schema. |
 | Existing open opportunities          | `packages/mcp-crm/src/watcher/index.ts`                                            | Loaded by phone.                      |
-| Session digest                       | Blank for manual `/extract-leads-queries`; populated for automatic digest watcher. |
+| Session digest                       | Pending digest row consumed by manual command and automatic watcher.              |
 | Full transcript                      | `packages/mcp-crm/src/reconciler/gantry-source.ts`                                 | Latest transcript, oldest to newest.  |
 
 Important transcript behavior:
@@ -898,9 +902,9 @@ Important transcript behavior:
 - `/extract-leads-queries` itself is skipped from the transcript.
 - `/digest-session` command messages and their immediate acknowledgements are
   skipped.
-- Manual `/extract-leads-queries` sends a blank digest plus full transcript.
-- Automatic CRM watcher after a digest sends digest text plus full transcript.
-  The digest is additive; it does not replace the transcript.
+- Manual `/extract-leads-queries` and the automatic watcher both send digest
+  text plus full transcript. The digest is additive; it does not replace the
+  transcript.
 
 Observed CRM result:
 
@@ -942,9 +946,8 @@ High-signal facts:
 - Tool-heavy turns add large SDK session context through `tool_result` events.
 - `/digest-session`, `/dream`, and `/new` archive extraction are background LLM
   paths, not customer-facing main chat calls.
-- `/extract-leads-queries` sends full transcript to the CRM extractor.
-- The CRM digest watcher sends digest plus full transcript; it does not use
-  digest as a replacement.
+- `/extract-leads-queries` and the CRM digest watcher send digest plus full
+  transcript; they do not use digest as a replacement.
 
 Most promising surgical cuts to investigate next:
 

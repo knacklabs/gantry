@@ -11,7 +11,7 @@ describe('startIdleSessionSweepLoop', () => {
     vi.useRealTimers();
   });
 
-  it('runs a sweep immediately, repeats on the interval, and stops on close', async () => {
+  it('starts the timer without running a sweep immediately, repeats on the interval, and stops on close', async () => {
     const runSweep = vi.fn(async () => undefined);
     const warn = vi.fn();
 
@@ -21,15 +21,14 @@ describe('startIdleSessionSweepLoop', () => {
       logger: { warn },
     });
 
-    await Promise.resolve();
-    expect(runSweep).toHaveBeenCalledTimes(1);
+    expect(runSweep).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(runSweep).toHaveBeenCalledTimes(2);
+    expect(runSweep).toHaveBeenCalledTimes(1);
 
     handle.close();
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(runSweep).toHaveBeenCalledTimes(2);
+    expect(runSweep).toHaveBeenCalledTimes(1);
     expect(warn).not.toHaveBeenCalled();
   });
 });

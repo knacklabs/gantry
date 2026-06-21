@@ -432,7 +432,7 @@ These are the commands the Boondi workflow uses:
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `/new`                   | **Starts a fresh session** for this conversation: archives and clears the current agent session, so the next message begins with a clean context window (also the recovery path when a persisted session is corrupted; older queued messages are not replayed). The DB transcript and admin-panel history are NOT touched. Use between scenarios — never as teardown (transcripts are review artifacts). | `Started a fresh session.` (on failure: `/new failed. The session is unchanged.`)                                                                       |
 | `/digest-session`        | Forces the **session digest + memory-fact extraction NOW** (same collector the digest watcher uses — no waiting for the idle watcher). The digest row is what the CRM watcher's automatic run consumes.                                                                                                                                                                                                  | `Digest processed. New digest: yes`                                                                                                                     | `no new customer turns`. `Memory facts saved: N.` |
-| `/extract-leads-queries` | Runs **CRM lead/query extraction for THIS conversation immediately** (agent-declared command → POST to mcp-crm `/admin/extract-leads-queries`). Reads the transcript directly, so it does NOT need a digest first — that's the difference from the automatic path, where the watcher only runs after a session-end digest exists.                                                                        | ack `Running lead/query extraction…`, then `Lead/query extraction processed. Extracted: N. Created: N. Updated: N. Skipped: N.` (wait up to 2 min — §5) |
+| `/extract-leads-queries` | Runs **CRM lead/query extraction for THIS conversation immediately** (agent-declared command → POST to mcp-crm `/admin/extract-leads-queries`). Uses the same digest-cycle path as the automatic watcher, so run `/digest-session` first when you need an immediate CRM extraction boundary.                                                                                                           | ack `Running lead/query extraction…`, then `Lead/query extraction processed. Extracted: N. Created: N. Updated: N. Skipped: N.` (wait up to 2 min — §5) |
 | `/commands`              | Lists the commands available in this conversation — useful to discover what's active.                                                                                                                                                                                                                                                                                                                    | the help list (built-ins + agent commands)                                                                                                              |
 
 Sources: built-ins in `apps/core/src/session/session-commands.ts` (+
@@ -442,10 +442,9 @@ Sources: built-ins in `apps/core/src/session/session-commands.ts` (+
 settings.yaml `plugins.commands`. (`/stop` also exists to abort a hung run —
 replies `Stopping current run.` / `No active run to stop.`)
 
-Verified live (2026-06-10): a one-line kaju-katli price question +
-`/extract-leads-queries` → `Extracted: 1. Created: 1.` → a `status:"query"`,
-`source:"extractor"` row in `boondi_business_records` with the question as
-`triggerExcerpt`.
+Current manual CRM sequence: send `/digest-session`, then
+`/extract-leads-queries`. The CRM command consumes the pending digest boundary
+and writes `source:"extractor"` rows in `boondi_business_records`.
 
 ---
 

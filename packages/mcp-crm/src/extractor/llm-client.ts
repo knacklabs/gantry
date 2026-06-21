@@ -101,13 +101,7 @@ export function createAnthropicExtractorLlm(env: BoondiCrmEnv): ExtractorLlm | n
           prompt,
           options: {
             abortController,
-            model: env.crmLeadQueryExtractionWatcher.enabled
-              ? env.crmLeadQueryExtractionWatcher.model
-              : (() => {
-                  throw new Error(
-                    'crm_lead_query_extraction_watcher is disabled',
-                  );
-                })(),
+            model: env.crmLeadQueryExtractionWatcher.model,
             maxTurns: 1,
             // Pure text extraction — no tools, and don't load any ambient
             // ~/.claude settings/skills that would pollute the prompt.

@@ -31,9 +31,11 @@ export interface BoondiCrmEnv {
   identityMaxAgeSec: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   logFormat: 'json' | 'text';
-  crmLeadQueryExtractionWatcher:
-    | { enabled: false }
-    | { enabled: true; pollIntervalMs: number; model: string };
+  crmLeadQueryExtractionWatcher: {
+    enabled: boolean;
+    pollIntervalMs: number;
+    model: string;
+  };
   reconcileAgentId: string;
   // The Gantry APP id that owns the model_credentials row the connector decrypts
   // its Anthropic credential from (model_credentials.app_id). Defaults to core's
@@ -234,9 +236,6 @@ function readCrmLeadQueryExtractionWatcher(source: NodeJS.ProcessEnv):
   ]);
   if (!map) throw new Error(`${pathPrefix} is required`);
   const enabled = parseWatcherBool(map.enabled, pathPrefix);
-  if (!enabled) {
-    return { enabled: false };
-  }
   const pollIntervalMs = parseWatcherPositiveMs(
     map.poll_interval_ms,
     `${pathPrefix}.poll_interval_ms`,
@@ -248,7 +247,7 @@ function readCrmLeadQueryExtractionWatcher(source: NodeJS.ProcessEnv):
     'model',
   ]);
   return {
-    enabled: true,
+    enabled,
     pollIntervalMs,
     model,
   };

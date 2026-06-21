@@ -111,14 +111,12 @@ export interface AgentPluginsConfig {
  * declare a custom memory extractor must explicitly configure whether the
  * background digest and short-memory watcher is enabled.
  */
-export type DigestAndShortMemoryWatcherConfig =
-  | { enabled: false }
-  | {
-      enabled: true;
-      conversationIdleAfterMs: number;
-      pollIntervalMs: number;
-      model: string;
-    };
+export type DigestAndShortMemoryWatcherConfig = {
+  enabled: boolean;
+  conversationIdleAfterMs: number;
+  pollIntervalMs: number;
+  model: string;
+};
 
 export interface AgentMemoryConfig {
   digestAndShortMemoryWatcher?: DigestAndShortMemoryWatcherConfig;

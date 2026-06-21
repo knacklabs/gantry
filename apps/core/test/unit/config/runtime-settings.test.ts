@@ -210,7 +210,7 @@ agents:
     );
   });
 
-  it('ignores digest watcher timing and model fields when disabled', () => {
+  it('keeps digest watcher timing and model fields when disabled for manual commands', () => {
     const parsed = parseRuntimeSettings(`
 agents:
   boondi_support:
@@ -226,10 +226,15 @@ agents:
 `);
     expect(
       parsed.agents.boondi_support.memory?.digestAndShortMemoryWatcher,
-    ).toEqual({ enabled: false });
+    ).toEqual({
+      enabled: false,
+      conversationIdleAfterMs: 120000,
+      pollIntervalMs: 30000,
+      model: 'haiku',
+    });
   });
 
-  it('ignores CRM watcher timing and model fields when disabled', () => {
+  it('keeps CRM watcher timing and model fields when disabled for manual commands', () => {
     const parsed = parseRuntimeSettings(`
 mcp_servers:
   "mcp:boondi-crm":
@@ -247,7 +252,11 @@ mcp_servers:
 
     expect(
       parsed.mcpServers['mcp:boondi-crm']?.crmLeadQueryExtractionWatcher,
-    ).toEqual({ enabled: false });
+    ).toEqual({
+      enabled: false,
+      pollIntervalMs: 30000,
+      model: 'haiku',
+    });
   });
 
   it('renders and parses the configured agent guardrail plugin (file + model)', () => {

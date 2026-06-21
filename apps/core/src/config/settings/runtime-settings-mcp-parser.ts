@@ -68,9 +68,6 @@ function parseCrmLeadQueryExtractionWatcher(
   }
   const map = raw as Record<string, unknown>;
   const enabled = parseBooleanValue(map.enabled, `${pathPrefix}.enabled`);
-  if (!enabled) {
-    return { enabled: false };
-  }
   for (const key of Object.keys(map)) {
     if (key !== 'enabled' && key !== 'poll_interval_ms' && key !== 'model') {
       throw new Error(
@@ -84,7 +81,7 @@ function parseCrmLeadQueryExtractionWatcher(
     throw new Error(`${pathPrefix}.model is invalid: ${resolved.message}`);
   }
   return {
-    enabled: true,
+    enabled,
     pollIntervalMs: parsePositiveMilliseconds(
       map.poll_interval_ms,
       `${pathPrefix}.poll_interval_ms`,
@@ -287,11 +284,10 @@ export function parseMcpServers(
       ),
       ...(serverId === 'mcp:boondi-crm'
         ? {
-            crmLeadQueryExtractionWatcher:
-              parseCrmLeadQueryExtractionWatcher(
-                map.crm_lead_query_extraction_watcher,
-                `${pathPrefix}.crm_lead_query_extraction_watcher`,
-              ),
+            crmLeadQueryExtractionWatcher: parseCrmLeadQueryExtractionWatcher(
+              map.crm_lead_query_extraction_watcher,
+              `${pathPrefix}.crm_lead_query_extraction_watcher`,
+            ),
           }
         : {}),
     };

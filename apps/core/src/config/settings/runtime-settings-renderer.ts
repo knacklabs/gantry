@@ -331,13 +331,9 @@ function renderMcpServersYaml(
       lines.push(
         '    crm_lead_query_extraction_watcher:',
         `      enabled: ${watcher.enabled ? 'true' : 'false'}`,
+        `      poll_interval_ms: ${watcher.pollIntervalMs}`,
+        `      model: ${quoteYamlString(watcher.model)}`,
       );
-      if (watcher.enabled) {
-        lines.push(
-          `      poll_interval_ms: ${watcher.pollIntervalMs}`,
-          `      model: ${quoteYamlString(watcher.model)}`,
-        );
-      }
     }
   }
   lines.push('');
@@ -439,9 +435,6 @@ function renderAgentMemoryYaml(
     '    memory:',
     '      digest_and_short_memory_watcher:',
     `        enabled: ${watcher.enabled ? 'true' : 'false'}`,
-  );
-  if (!watcher.enabled) return;
-  lines.push(
     `        conversation_idle_after_ms: ${watcher.conversationIdleAfterMs}`,
     `        poll_interval_ms: ${watcher.pollIntervalMs}`,
     `        model: ${quoteYamlString(watcher.model)}`,

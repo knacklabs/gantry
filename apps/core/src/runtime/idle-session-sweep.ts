@@ -2,14 +2,13 @@ import {
   getRuntimeStorage,
   tryAcquireRuntimeAdvisoryLease,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { getRuntimeSettingsForConfig } from '../config/index.js';
-import { agentIdForFolder } from '../config/settings/desired-state-service-helpers.js';
 import {
   DEFAULT_IDLE_SWEEP_CONCURRENCY,
   DEFAULT_IDLE_SWEEP_EXTRACTION_TIMEOUT_MS,
 } from '../config/settings/runtime-settings-defaults.js';
 import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { resolveDigestAndShortMemoryWatcherConfigs } from './digest-and-short-memory-watcher-config.js';
 import { drainBatches } from './idle-sweep-drain.js';
 
 const DEFAULT_MAX_PER_SWEEP = 25;
@@ -28,51 +27,12 @@ const SWEEP_LEASE_KEY = 'gantry:idle-session-sweep';
 const RETRY_BACKOFF_BASE_MS = 60_000;
 const RETRY_BACKOFF_MAX_MS = 30 * 60_000;
 
-/**
- * Map of opt-in agentId -> watcher config. Empty when no enabled watcher is
- * configured, which makes the sweep a no-op.
- */
-function resolveDigestAndShortMemoryWatcherAgents(): Map<
-  string,
-  { conversationIdleAfterMs: number; model: string }
-> {
-  const result = new Map<
-    string,
-    { conversationIdleAfterMs: number; model: string }
-  >();
-  let agents: ReturnType<typeof getRuntimeSettingsForConfig>['agents'];
-  try {
-    agents = getRuntimeSettingsForConfig().agents;
-    // eslint-disable-next-line no-catch-all/no-catch-all -- Unreadable settings means "no enabled watchers"; the sweep simply does nothing.
-  } catch {
-    return result;
-  }
-  for (const [folder, agent] of Object.entries(agents)) {
-    const watcher = agent.memory?.digestAndShortMemoryWatcher;
-    if (watcher?.enabled) {
-      result.set(agentIdForFolder(folder), {
-        conversationIdleAfterMs: watcher.conversationIdleAfterMs,
-        model: watcher.model,
-      });
-    }
-  }
-  return result;
-}
-
 export function resolveDigestAndShortMemoryWatcherPollIntervalMs():
   | number
   | undefined {
-  let agents: ReturnType<typeof getRuntimeSettingsForConfig>['agents'];
-  try {
-    agents = getRuntimeSettingsForConfig().agents;
-    // eslint-disable-next-line no-catch-all/no-catch-all -- Unreadable settings means "no enabled watchers".
-  } catch {
-    return undefined;
-  }
-  const intervals = Object.values(agents).flatMap((agent) => {
-    const watcher = agent.memory?.digestAndShortMemoryWatcher;
-    return watcher?.enabled ? [watcher.pollIntervalMs] : [];
-  });
+  const intervals = [
+    ...resolveDigestAndShortMemoryWatcherConfigs().values(),
+  ].map((watcher) => watcher.pollIntervalMs);
   return intervals.length > 0 ? Math.min(...intervals) : undefined;
 }
 
@@ -164,7 +124,6 @@ export function startIdleSessionSweepLoop(input: {
     }
   };
 
-  void runOnce();
   const interval = setInterval(() => void runOnce(), input.intervalMs);
   interval.unref?.();
 
@@ -203,7 +162,7 @@ export function createIdleSessionSweeper(
   for (const [
     agentId,
     watcher,
-  ] of resolveDigestAndShortMemoryWatcherAgents()) {
+  ] of resolveDigestAndShortMemoryWatcherConfigs()) {
     logger.info(
       {
         agentId,
@@ -215,7 +174,7 @@ export function createIdleSessionSweeper(
   }
 
   return async function runIdleSessionSweep(): Promise<void> {
-    const optIn = resolveDigestAndShortMemoryWatcherAgents();
+    const optIn = resolveDigestAndShortMemoryWatcherConfigs();
     if (optIn.size === 0) return;
 
     // Single-flight across instances. If another runtime holds the lease, skip
@@ -226,10 +185,7 @@ export function createIdleSessionSweeper(
       const nowMs = now();
       let minCutoffMs = Number.POSITIVE_INFINITY;
       for (const watcher of optIn.values()) {
-        minCutoffMs = Math.min(
-          minCutoffMs,
-          watcher.conversationIdleAfterMs,
-        );
+        minCutoffMs = Math.min(minCutoffMs, watcher.conversationIdleAfterMs);
       }
       const idleBeforeIso = new Date(nowMs - minCutoffMs).toISOString();
       const agentIds = [...optIn.keys()];

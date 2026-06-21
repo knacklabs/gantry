@@ -19,6 +19,8 @@ import {
 } from './group-memory-commands.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
+import { DEFAULT_IDLE_SWEEP_EXTRACTION_TIMEOUT_MS } from '../config/settings/runtime-settings-defaults.js';
+import { resolveDigestAndShortMemoryWatcherForFolder } from './digest-and-short-memory-watcher-config.js';
 import { runDreamingForGroup } from './memory-dreaming-runner.js';
 
 type ArchiveSessionInput = Parameters<typeof archiveCurrentRuntimeSession>[0];
@@ -134,10 +136,18 @@ export function createCollectCurrentSessionMemoryHandler(input: {
     if (!turnContext?.agentSessionId) {
       return { saved: 0, digestCreated: false };
     }
+    const watcher = resolveDigestAndShortMemoryWatcherForFolder(
+      input.group.folder,
+    );
+    if (!watcher) {
+      return { saved: 0, digestCreated: false };
+    }
     return input.collectMemory({
       agentSessionId: turnContext.agentSessionId,
       trigger: 'session-end',
       defaultScope: input.defaultScope,
+      model: watcher.model,
+      timeoutMs: DEFAULT_IDLE_SWEEP_EXTRACTION_TIMEOUT_MS,
       ...(options.excludeMessageIds
         ? { excludeMessageIds: options.excludeMessageIds }
         : {}),

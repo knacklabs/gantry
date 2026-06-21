@@ -134,7 +134,10 @@ export function resolveMemoryExtractorModelOverride(model: string): {
 } {
   const profile = resolveMemoryLlmModelProfile(model, 'memory_extractor');
   if (!profile) {
-    const resolved = resolveModelSelectionForWorkload(model, 'memory_extractor');
+    const resolved = resolveModelSelectionForWorkload(
+      model,
+      'memory_extractor',
+    );
     throw new Error(
       resolved.ok
         ? `Memory extractor model "${model}" is not usable for memory_extractor.`

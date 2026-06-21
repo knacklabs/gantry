@@ -138,8 +138,9 @@ describe('Boondi CRM admin extraction route', () => {
     expect(mockedManualExtraction).not.toHaveBeenCalled();
   });
 
-  it('runs the live-transcript manual extraction for one WhatsApp conversation', async () => {
+  it('runs manual extraction for one WhatsApp conversation', async () => {
     mockedManualExtraction.mockResolvedValueOnce({
+      digests: 1,
       extracted: 2,
       created: 1,
       updated: 1,
@@ -159,8 +160,40 @@ describe('Boondi CRM admin extraction route', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
-      stats: { extracted: 2, created: 1, updated: 1, skipped: 0 },
+      stats: { digests: 1, extracted: 2, created: 1, updated: 1, skipped: 0 },
     });
+    expect(mockedManualExtraction).toHaveBeenCalledWith(
+      expect.objectContaining({ env: server.env, pool: server.pool }),
+      'conversation:wa:919654405340',
+    );
+  });
+
+  it('runs manual extraction when the background CRM watcher is disabled', async () => {
+    mockedManualExtraction.mockResolvedValueOnce({
+      digests: 1,
+      extracted: 1,
+      created: 1,
+      updated: 0,
+      skipped: 0,
+    });
+    const server = await startTestServer({
+      crmLeadQueryExtractionWatcher: {
+        enabled: false,
+        pollIntervalMs: 30000,
+        model: 'haiku',
+      },
+    });
+    closeCurrent = server.running.close;
+
+    const response = await fetch(`${server.url}/admin/extract-leads-queries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationId: 'conversation:wa:919654405340',
+      }),
+    });
+
+    expect(response.status).toBe(200);
     expect(mockedManualExtraction).toHaveBeenCalledWith(
       expect.objectContaining({ env: server.env, pool: server.pool }),
       'conversation:wa:919654405340',

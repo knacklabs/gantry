@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeFakePool, makeFakeRepo, stubLlm } from './helpers/fakes.js';
-import { runDigestCycleOnce, runManualConversationExtraction } from '../src/watcher/index.js';
+import {
+  runDigestCycleOnce,
+  runManualConversationExtraction,
+  startDigestWatcher,
+} from '../src/watcher/index.js';
 import { pendingDigestsSql } from '../src/watcher/digest-source.js';
 
 const env = {
@@ -13,6 +17,7 @@ const env = {
   },
   anthropicApiKey: 'x',
 } as any;
+
 const logger = {
   info: vi.fn(),
   warn: vi.fn(),
@@ -20,6 +25,7 @@ const logger = {
   debug: vi.fn(),
   fatal: vi.fn(),
 } as any;
+
 const llm = stubLlm(
   '{"opportunities":[{"match":null,"isLead":true,"occasion":"Diwali","quantity":200,"summaryBrief":"200 Diwali","evidenceQuote":"200 boxes","confidence":0.9}]}',
 );
@@ -148,7 +154,7 @@ describe('runDigestCycleOnce', () => {
     expect(advanced).toBe(false);
   });
 
-  it('excludes manual digest command messages and their assistant acknowledgements from extraction', async () => {
+  it('excludes manual command messages and their assistant acknowledgements from extraction', async () => {
     const complete = vi.fn(async () => '{"opportunities":[]}');
     const { pool } = makeFakePool((sql) => {
       if (sql.includes('agent_session_digests')) {
@@ -222,8 +228,20 @@ describe('runManualConversationExtraction', () => {
     vi.clearAllMocks();
   });
 
-  it('extracts from the live transcript with NO digest and NO cursor touch', async () => {
+  it('runs the same digest cycle as the automatic watcher for one conversation', async () => {
     const { pool, query } = makeFakePool((sql) => {
+      if (sql.includes('agent_session_digests')) {
+        return {
+          rows: [
+            {
+              digest_id: 'd_manual',
+              conversation_id: 'conversation:wa:919654405340',
+              digest: 'manual digest text',
+              created_at: '2026-06-06T00:00:00Z',
+            },
+          ],
+        };
+      }
       if (sql.includes('message_parts')) {
         return {
           rows: [{ direction: 'inbound', text: 'I want 200 boxes for Diwali' }],
@@ -238,19 +256,30 @@ describe('runManualConversationExtraction', () => {
       'conversation:wa:919654405340',
     );
 
-    expect(stats).toEqual({ extracted: 1, created: 1, updated: 0, skipped: 0 });
+    expect(stats).toEqual({
+      digests: 1,
+      extracted: 1,
+      created: 1,
+      updated: 0,
+      skipped: 0,
+    });
+    expect(query.mock.calls[0][1]).toEqual([
+      env.reconcileAgentId,
+      'conversation:wa:919654405340',
+      25,
+    ]);
     expect(repo.upsertOpportunity).toHaveBeenCalledTimes(1);
-    // The manual path must never look at digests nor move the cursor.
-    const sqls = query.mock.calls.map(([sql]) => String(sql));
-    expect(sqls.some((s) => s.includes('agent_session_digests'))).toBe(false);
-    expect(sqls.some((s) => s.includes('boondi_digest_cursor'))).toBe(false);
+    const advanced = query.mock.calls.some(([sql]) =>
+      String(sql).includes('INSERT INTO boondi_digest_cursor'),
+    );
+    expect(advanced).toBe(true);
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
-        transcriptMessages: 1,
-        extracted: 1,
-        created: 1,
+        digests: 1,
+        trigger: 'manual',
+        apply: true,
       }),
-      'manual_extraction_completed',
+      'digest_cycle_started',
     );
   });
 
@@ -264,262 +293,53 @@ describe('runManualConversationExtraction', () => {
     ).rejects.toThrow(/conversation:wa:<digits>/);
   });
 
-  it('throws extractor_disabled when the llm is null (defense; endpoint pre-checks)', async () => {
-    const { pool } = makeFakePool(() => ({ rows: [] }));
-    await expect(
-      runManualConversationExtraction(
-        { env, logger, pool, repo: makeFakeRepo(), llm: null },
-        'conversation:wa:919654405340',
-      ),
-    ).rejects.toThrow(/extractor_disabled/);
-  });
-
-  it('returns zeros for an empty transcript without calling the llm', async () => {
-    const complete = vi.fn(async () => '{"opportunities":[]}');
+  it('is a no-op when no pending digest exists', async () => {
     const { pool } = makeFakePool(() => ({ rows: [] }));
     const repo = makeFakeRepo();
+    const complete = vi.fn(async () => '{"opportunities":[]}');
+
     const stats = await runManualConversationExtraction(
       { env, logger, pool, repo, llm: { complete } },
       'conversation:wa:919654405340',
     );
-    expect(stats).toEqual({ extracted: 0, created: 0, updated: 0, skipped: 0 });
+
+    expect(stats).toEqual({
+      digests: 0,
+      extracted: 0,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+    });
     expect(complete).not.toHaveBeenCalled();
     expect(repo.upsertOpportunity).not.toHaveBeenCalled();
   });
+});
 
-  it('reports skipped=1 on extractor parse failure and leaks no raw phone', async () => {
-    const { pool } = makeFakePool((sql) => {
-      if (sql.includes('message_parts')) {
-        return {
-          rows: [{ direction: 'inbound', text: 'I want 200 boxes for Diwali' }],
-        };
-      }
-      return { rows: [] };
-    });
-    const repo = makeFakeRepo();
-    const stats = await runManualConversationExtraction(
-      {
-        env,
-        logger,
-        pool,
-        repo,
-        llm: { complete: vi.fn(async () => '{"contactPhone": +919654405340}') },
-      },
-      'conversation:wa:919654405340',
-    );
-    expect(stats).toEqual({ extracted: 0, created: 0, updated: 0, skipped: 1 });
-    expect(repo.upsertOpportunity).not.toHaveBeenCalled();
-    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(
-      '919654405340',
-    );
-    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('919654405');
+describe('startDigestWatcher', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
   });
 
-  it('passes open opportunities and an empty digestText to the extractor', async () => {
-    const complete = vi.fn(async () => '{"opportunities":[]}');
-    const { pool } = makeFakePool((sql) => {
-      if (sql.includes('message_parts')) {
-        return { rows: [{ direction: 'inbound', text: 'make it 50 boxes' }] };
-      }
-      return { rows: [] };
-    });
-    const repo = makeFakeRepo({
-      getOpenOpportunitiesByPhone: vi.fn(async () => [
-        {
-          id: 'bcr_1',
-          status: 'query',
-          intentCategory: 'gifting_personal',
-          occasion: 'Diwali',
-          quantity: 20,
-        },
-      ]),
-    });
-    await runManualConversationExtraction(
-      { env, logger, pool, repo, llm: { complete } },
-      'conversation:wa:919654405340',
-    );
-    const prompt = complete.mock.calls[0][0].messages[0].content;
-    expect(prompt).toContain('bcr_1: query gifting_personal Diwali qty=20');
-    expect(prompt).toContain('customer: make it 50 boxes');
-    expect(prompt).toContain('SESSION DIGEST (short-term memory):\n\n');
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it('captures a soft browsing query when the extractor returns no opportunities', async () => {
-    const complete = vi.fn(async () => '{"opportunities":[]}');
-    const { pool } = makeFakePool((sql) => {
-      if (sql.includes('message_parts')) {
-        return {
-          rows: [
-            {
-              direction: 'inbound',
-              text: 'Just checking you out — a friend mentioned your sweets are amazing.',
-            },
-            {
-              direction: 'outbound',
-              text: "That's lovely to hear. If you're browsing BSS, I can help with favourites like Kaju Katli.",
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-    const repo = makeFakeRepo();
-
-    const stats = await runManualConversationExtraction(
-      { env, logger, pool, repo, llm: { complete } },
-      'conversation:wa:919654405340',
-    );
-
-    expect(stats).toEqual({ extracted: 1, created: 1, updated: 0, skipped: 0 });
-    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
-      expect.objectContaining({
-        match: null,
-        targetLead: false,
-        input: expect.objectContaining({
-          intentCategory: 'shopping',
-          summaryBrief: expect.stringMatching(/browsing/i),
-        }),
-      }),
-    );
-  });
-
-  it('captures recommendation shopping turns when the extractor misses them', async () => {
-    const complete = vi.fn(async () => '{"opportunities":[]}');
-    const { pool } = makeFakePool((sql) => {
-      if (sql.includes('message_parts')) {
-        return {
-          rows: [
-            {
-              direction: 'inbound',
-              text: "Hi! What's something really good and sweet you'd recommend?",
-            },
-            {
-              direction: 'outbound',
-              text: "A couple of lovely picks right now: Bombay's 3-Layer Chocolate Fudge and Indie Bar.",
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-    const repo = makeFakeRepo();
-
-    const stats = await runManualConversationExtraction(
-      { env, logger, pool, repo, llm: { complete } },
-      'conversation:wa:919654405340',
-    );
-
-    expect(stats).toEqual({ extracted: 1, created: 1, updated: 0, skipped: 0 });
-    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetLead: false,
-        input: expect.objectContaining({ intentCategory: 'shopping' }),
-      }),
-    );
-  });
-
-  it('matches the lone open personal gifting query when later extraction omits the id', async () => {
-    const complete = vi.fn(
-      async () =>
-        '{"opportunities":[{"match":null,"isLead":true,"intentCategory":"gifting_personal","occasion":"family get-together","quantity":12,"budgetPerGiftInr":300,"timeline":"tomorrow","summaryBrief":"10-12 boxes for a family party tomorrow","evidenceQuote":"It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.","confidence":0.86}]}',
-    );
-    const { pool } = makeFakePool((sql) => {
-      if (sql.includes('message_parts')) {
-        return {
-          rows: [
-            {
-              direction: 'inbound',
-              text: 'I am looking to gift something for a family get-together.',
-            },
-            {
-              direction: 'inbound',
-              text: 'It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.',
-            },
-            {
-              direction: 'inbound',
-              text: 'Yes please have the team help with this.',
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-    const repo = makeFakeRepo({
-      getOpenOpportunitiesByPhone: vi.fn(async () => [
-        {
-          id: 'bcr_1',
-          status: 'qualifying',
-          intentCategory: 'gifting_personal',
-          occasion: 'family get-together',
-          quantity: 12,
-        },
-      ]),
+  it('starts the timer without running a digest cycle immediately', async () => {
+    const { pool, query } = makeFakePool(() => ({ rows: [] }));
+    const stop = startDigestWatcher({
+      env,
+      logger,
+      pool,
+      repo: makeFakeRepo(),
+      llm,
     });
 
-    const stats = await runManualConversationExtraction(
-      { env, logger, pool, repo, llm: { complete } },
-      'conversation:wa:919654405340',
-    );
+    expect(query).not.toHaveBeenCalled();
 
-    expect(stats).toEqual({ extracted: 1, created: 0, updated: 1, skipped: 0 });
-    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
-      expect.objectContaining({
-        match: 'bcr_1',
-        targetLead: true,
-      }),
-    );
-  });
+    await vi.advanceTimersByTimeAsync(env.crmLeadQueryExtractionWatcher.pollIntervalMs);
 
-  it('matches the oldest compatible open row when a background digest created a duplicate', async () => {
-    const complete = vi.fn(
-      async () =>
-        '{"opportunities":[{"match":null,"isLead":true,"intentCategory":"gifting_personal","quantity":12,"summaryBrief":"10-12 boxes for a family party tomorrow","evidenceQuote":"It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.","confidence":0.86}]}',
-    );
-    const { pool } = makeFakePool((sql) => {
-      if (sql.includes('message_parts')) {
-        return {
-          rows: [
-            {
-              direction: 'inbound',
-              text: 'I am looking to gift something for a family get-together.',
-            },
-            {
-              direction: 'inbound',
-              text: 'It is for a family party, 10-12 boxes, about 300 per box, needed tomorrow, multiple home addresses.',
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-    const repo = makeFakeRepo({
-      getOpenOpportunitiesByPhone: vi.fn(async () => [
-        {
-          id: 'bcr_duplicate',
-          status: 'qualifying',
-          intentCategory: 'gifting_personal',
-          createdAt: '2026-06-13T06:02:41.000Z',
-        },
-        {
-          id: 'bcr_checkpoint',
-          status: 'qualifying',
-          intentCategory: 'gifting_personal',
-          createdAt: '2026-06-13T06:02:34.000Z',
-        },
-      ]),
-    });
-
-    const stats = await runManualConversationExtraction(
-      { env, logger, pool, repo, llm: { complete } },
-      'conversation:wa:919654405340',
-    );
-
-    expect(stats).toEqual({ extracted: 1, created: 0, updated: 1, skipped: 0 });
-    expect(repo.upsertOpportunity).toHaveBeenCalledWith(
-      expect.objectContaining({
-        match: 'bcr_checkpoint',
-        targetLead: true,
-      }),
-    );
+    expect(query).toHaveBeenCalled();
+    stop();
   });
 });

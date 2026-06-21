@@ -76,7 +76,7 @@ describe('loadEnv watcher config', () => {
     });
   });
 
-  it('ignores watcher model and interval when disabled', () => {
+  it('keeps watcher model and interval when disabled for manual extraction', () => {
     const settingsWithDisabledWatcher = `mcp_servers:
   "mcp:boondi-crm":
     name: boondi-crm
@@ -94,7 +94,11 @@ describe('loadEnv watcher config', () => {
     expect(
       loadEnv(withSettings(settingsWithDisabledWatcher))
         .crmLeadQueryExtractionWatcher,
-    ).toEqual({ enabled: false });
+    ).toEqual({
+      enabled: false,
+      pollIntervalMs: 30000,
+      model: 'haiku',
+    });
   });
 
   it('fails closed when watcher config is missing from settings.yaml', () => {
