@@ -428,17 +428,17 @@ export function registerServiceTools(server: McpServer): void {
     'register_agent',
     `Register the current chat/channel agent so Gantry can respond to messages there. Requires selected agent tool grant mcp__gantry__register_agent and same-conversation approver approval.
 
-The JID must be the current conversation. The folder name must be channel-prefixed: "{channel}_{conversation-name}" (e.g., "telegram_dev-team", "slack_eng", "teams_engineering"). Use lowercase with hyphens for the conversation name part.`,
+The JID must be the current conversation. The folder name must be channel-prefixed: "{channel}_{conversation-name}" (e.g., "telegram_dev-team", "slack_eng", "discord_ops", "teams_engineering"). Use lowercase with hyphens for the conversation name part.`,
     {
       jid: z
         .string()
         .describe(
-          'The chat JID (e.g., "tg:-1001234567890", "sl:C0123456789", "teams:19:abc@thread.v2")',
+          'The chat JID (e.g., "tg:-1001234567890", "sl:C0123456789", "dc:1234567890", "teams:19:abc@thread.v2")',
         ),
       name: z.string().describe('Display name for the agent'),
       folder: z
         .string()
-        .describe('Channel-prefixed folder name (e.g., "teams_engineering")'),
+        .describe('Channel-prefixed folder name (e.g., "discord_ops")'),
       trigger: z.string().describe('Trigger word (e.g., "@Default Agent")'),
       requiresTrigger: z
         .boolean()

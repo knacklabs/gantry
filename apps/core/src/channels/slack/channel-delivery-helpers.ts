@@ -479,10 +479,14 @@ export async function sendSlackProgressUpdate(input: {
   }
 
   if (!existing) {
+    const blocks = input.options.actionAffordances
+      ? slackMessageActionBlocks(trimmed, input.options.actionAffordances)
+      : undefined;
     const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
       text: trimmed,
       ...(threadTs ? { thread_ts: threadTs } : {}),
+      ...(blocks ? { blocks } : {}),
     })) as { ts?: string };
     if (!input.options.done) {
       input.activeProgress.set(input.key, {
@@ -513,6 +517,14 @@ export async function sendSlackProgressUpdate(input: {
 
   if (existing.lastText === trimmed) {
     if (input.options.done) {
+      if (existing.messageTs) {
+        await input.app.client.chat.update({
+          channel: existing.channelId,
+          ts: existing.messageTs,
+          text: trimmed,
+          blocks: [],
+        });
+      }
       input.activeProgress.delete(input.key);
       input.persistProgress();
       logger.info(
@@ -537,17 +549,25 @@ export async function sendSlackProgressUpdate(input: {
   }
 
   if (existing.messageTs) {
+    const blocks = input.options.actionAffordances
+      ? slackMessageActionBlocks(trimmed, input.options.actionAffordances)
+      : undefined;
     await input.app.client.chat.update({
       channel: existing.channelId,
       ts: existing.messageTs,
       text: trimmed,
+      ...(blocks ? { blocks } : { blocks: [] }),
     });
   } else {
     const existingThreadTs = slackThreadTsFromThreadId(existing.threadId);
+    const blocks = input.options.actionAffordances
+      ? slackMessageActionBlocks(trimmed, input.options.actionAffordances)
+      : undefined;
     const sent = (await input.app.client.chat.postMessage({
       channel: existing.channelId,
       text: trimmed,
       ...(existingThreadTs ? { thread_ts: existingThreadTs } : {}),
+      ...(blocks ? { blocks } : {}),
     })) as { ts?: string };
     existing.messageTs = sent.ts;
   }

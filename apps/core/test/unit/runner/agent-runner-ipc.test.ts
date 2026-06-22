@@ -222,6 +222,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'model-catalog.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-catalog-provider-metadata.ts'),
+    path.join(sharedDir, 'model-catalog-provider-metadata.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-catalog-lookup.ts'),
     path.join(sharedDir, 'model-catalog-lookup.ts'),
   );
@@ -238,6 +242,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-catalog-openai-compatible.ts'),
     path.join(sharedDir, 'model-catalog-openai-compatible.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-catalog-bedrock.ts'),
+    path.join(sharedDir, 'model-catalog-bedrock.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/agent-engine.ts'),

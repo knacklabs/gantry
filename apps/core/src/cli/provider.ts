@@ -17,7 +17,7 @@ import { nowIso } from '../shared/time/datetime.js';
 function usage(): string {
   return [
     'Usage:',
-    '  gantry provider connect <telegram|slack|teams>',
+    '  gantry provider connect <telegram|slack|discord|teams>',
     '  gantry provider list',
     '  gantry provider doctor',
     '  gantry conversation info <conversationId>',
@@ -50,6 +50,7 @@ function scopeProviderDoctorReport(report: DoctorReport): DoctorReport {
       'telegram-token',
       'telegram-token-api',
       'slack-tokens',
+      'discord-credentials',
       'teams-credentials',
     ].includes(check.id),
   );

@@ -180,6 +180,7 @@ export function toPublicAsyncTaskDto(
 
 function receiptLines(receipt: AsyncTaskReceipt | null | undefined): string[] {
   if (!receipt) return [];
+  if (isPureAnswerReceipt(receipt)) return [`Completed: ${receipt.completed}`];
   const lines = [
     `Completed: ${receipt.completed}`,
     `Used: ${receipt.used}`,
@@ -193,6 +194,15 @@ function receiptLines(receipt: AsyncTaskReceipt | null | undefined): string[] {
   }
   lines.push(`Needs attention: ${receipt.needsAttention}`);
   return lines;
+}
+
+function isPureAnswerReceipt(receipt: AsyncTaskReceipt): boolean {
+  return (
+    receipt.used === 'none' &&
+    receipt.changed === 'none' &&
+    receipt.delegated === 'no' &&
+    receipt.needsAttention === 'none'
+  );
 }
 
 function publicProgress(

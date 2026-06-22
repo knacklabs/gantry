@@ -9,12 +9,13 @@
  * raw transport ids in primary copy.
  */
 
-type ProviderKey = 'telegram' | 'slack' | 'teams' | 'app';
+type ProviderKey = 'telegram' | 'slack' | 'discord' | 'teams' | 'app';
 type ConversationKind = 'dm' | 'channel';
 
 function providerKeyForJid(conversationJid: string): ProviderKey | undefined {
   if (conversationJid.startsWith('tg:')) return 'telegram';
   if (conversationJid.startsWith('sl:')) return 'slack';
+  if (conversationJid.startsWith('dc:')) return 'discord';
   if (conversationJid.startsWith('teams:')) return 'teams';
   if (conversationJid.startsWith('app:')) return 'app';
   return undefined;
@@ -57,6 +58,10 @@ export function deliveryLabel(
       if (conversationKind === 'dm') return 'Teams chat';
       if (conversationKind === 'channel') return 'Teams channel';
       return 'Teams conversation';
+    case 'discord':
+      if (thread) return 'Discord thread';
+      if (conversationKind === 'dm') return 'Discord DM';
+      return 'Discord channel';
     case 'app':
       return thread ? 'App session' : 'App conversation';
     default:
@@ -92,6 +97,9 @@ export function ownerLabel(
       if (conversationKind === 'dm') return 'Teams chat';
       if (conversationKind === 'channel') return 'Teams channel';
       return 'Teams conversation';
+    case 'discord':
+      if (conversationKind === 'dm') return 'Discord DM';
+      return 'Discord channel';
     case 'app':
       return 'App conversation';
     default:

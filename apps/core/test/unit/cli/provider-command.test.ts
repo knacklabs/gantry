@@ -153,7 +153,9 @@ describe('channel CLI command', () => {
 
     expect(code).toBe(1);
     expect(error).toHaveBeenCalledWith(
-      expect.stringContaining('gantry provider connect <telegram|slack|teams>'),
+      expect.stringContaining(
+        'gantry provider connect <telegram|slack|discord|teams>',
+      ),
     );
   });
 

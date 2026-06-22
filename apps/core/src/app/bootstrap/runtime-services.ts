@@ -76,8 +76,8 @@ import {
 import { splitLiveSendProfileText } from './runtime-services-live-send-segmentation.js';
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
-// prettier-ignore
-import { nowIso, nowMs as currentTimeMs, toIso } from '../../shared/time/datetime.js';
+import { registerRuntimeLiveStopMessageAction } from './runtime-live-stop-message-action.js';
+import { nowIso, nowMs, toIso } from '../../shared/time/datetime.js';
 import { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnRecoveryLoop } from '../../runtime/live-turn-recovery.js';
 import { configurePendingInteractionPermissionPersistence } from '../../application/interactions/pending-interaction-durability.js';
@@ -367,7 +367,7 @@ export async function startRuntimeServices(
       getRuntimeDependencyRepository: resolved.getRuntimeDependencyRepository,
       agentIdForFolder,
       publishRuntimeEvent: resolved.publishRuntimeEvent,
-      nowMs: currentTimeMs,
+      nowMs,
       warn: (context, message) => resolved.logger.warn(context, message),
     });
   const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
@@ -595,16 +595,16 @@ export async function startRuntimeServices(
         executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
         queueJid,
       });
-      const routed = await liveTurnAuthority.routeStop({
+      return liveTurnAuthority.routeStop({
         ...(scope ? { scope } : {}),
         aliasJid: queueJid,
         queueJid,
         idempotencyKey: `stop:${randomUUID()}`,
         requestedBy: 'runtime-control',
       });
-      return routed;
     },
   };
+  registerRuntimeLiveStopMessageAction(channelWiring, app, liveMessageQueue);
   const handleActiveControlCommand = async ({
     chatJid,
     queueJid,
@@ -763,7 +763,7 @@ export async function startRuntimeServices(
         },
         initialClaim: {
           claimToken: `claim:live-send:${input.sourceMessageId}`,
-          claimExpiresAt: toIso(currentTimeMs() + 60_000),
+          claimExpiresAt: toIso(nowMs() + 60_000),
         },
       });
       const claimedItems = started.claimedItems;

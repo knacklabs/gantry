@@ -1673,7 +1673,11 @@ describe('createGroupProcessor', () => {
         expect.anything(),
         'provider-run:review-1',
         group.folder,
-        undefined,
+        [
+          expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+        ],
         undefined,
         { requiredContinuationUserId: 'sl:UADMIN' },
       );
@@ -3654,8 +3658,14 @@ describe('createGroupProcessor', () => {
         mockProc,
         'test-container',
         'test-group',
-        'group1@g.us',
+        [
+          'group1@g.us',
+          expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+        ],
         'thread-a',
+        undefined,
       );
       expect(mockSpawnAgent).toHaveBeenCalledWith(
         expect.anything(),
@@ -3787,6 +3797,11 @@ describe('createGroupProcessor', () => {
         mockProc,
         'test-container',
         'test-group',
+        [
+          expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+        ],
         undefined,
         undefined,
       );

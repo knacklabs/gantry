@@ -495,19 +495,39 @@ export interface ProgressUpdateOptions {
   done?: boolean;
   replaceOnly?: boolean;
   generation?: number;
+  actionAffordances?: MessageActionAffordance[];
 }
 
 export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
-  | 'scheduler_open';
+  | 'scheduler_open'
+  | 'live_turn_stop';
 
-export interface MessageActionAffordance {
-  kind: MessageActionAffordanceKind;
-  label: string;
-  jobId: string;
-  runId?: string | null;
+export type MessageActionAffordance =
+  | {
+      kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_open';
+      label: string;
+      jobId: string;
+      runId?: string | null;
+    }
+  | {
+      kind: 'live_turn_stop';
+      label: string;
+      actionToken: string;
+    };
+
+export interface MessageActionCallbackInput {
+  kind: 'live_turn_stop';
+  conversationJid: string;
+  threadId?: string;
+  userId?: string;
+  actionToken?: string;
 }
+
+export type OnMessageAction = (
+  input: MessageActionCallbackInput,
+) => Promise<void>;
 
 export interface MessageSendOptions {
   threadId?: string;

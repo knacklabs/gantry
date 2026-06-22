@@ -55,6 +55,7 @@ export {
 
 const DEFAULT_PROVIDER_CONNECTION_IDS: Record<string, string> = {
   app: 'app_default',
+  discord: 'discord_default',
   slack: 'slack_default',
   teams: 'teams_default',
   telegram: 'telegram_default',
@@ -64,6 +65,10 @@ const DEFAULT_RUNTIME_SECRET_REFS: Record<string, Record<string, string>> = {
   slack: {
     bot_token: 'SLACK_BOT_TOKEN',
     app_token: 'SLACK_APP_TOKEN',
+  },
+  discord: {
+    bot_token: 'DISCORD_BOT_TOKEN',
+    application_id: 'DISCORD_APPLICATION_ID',
   },
   teams: {
     client_id: 'TEAMS_CLIENT_ID',

@@ -19,6 +19,17 @@ variable "control_port" {
   default     = 8080
 }
 
+variable "target_type" {
+  description = "ALB target type for the control/live target groups. Use instance for ASG worker pools and ip for ECS awsvpc services."
+  type        = string
+  default     = "instance"
+
+  validation {
+    condition     = contains(["instance", "ip"], var.target_type)
+    error_message = "target_type must be instance or ip."
+  }
+}
+
 variable "api_path_patterns" {
   description = "Path patterns the PUBLIC listener forwards to the CONTROL target group (admin/settings API, SDK session messages, external ingress). Only the control role serves these; worker roles 404 admin routes. Operational endpoints (/metrics, /readyz, /healthz) are deliberately excluded from the public listener — health endpoints are reachable only via the target-group health check, and /metrics stays internal."
   type        = list(string)
@@ -29,6 +40,12 @@ variable "webhook_path_patterns" {
   description = "Path patterns the PUBLIC listener forwards to the LIVE target group (provider inbound webhooks). The live-worker role owns providerInbound. Most provider inbound is worker-initiated polling/socket (no ALB hop) today; this pattern is the correct home for HTTP webhook ingress as it lands."
   type        = list(string)
   default     = ["/webhooks/*"]
+}
+
+variable "enable_webhook_paths" {
+  description = "Forward webhook_path_patterns to the live target group. Disable for ECS deployment types where only the control service may attach a public target group."
+  type        = bool
+  default     = true
 }
 
 variable "health_check_path" {

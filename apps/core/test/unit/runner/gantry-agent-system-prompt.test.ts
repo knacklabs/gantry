@@ -94,14 +94,19 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.dynamicPrompt).toBe('');
   });
 
-  it('includes the required work receipt lines', () => {
+  it('includes adaptive work receipt guidance', () => {
     const prompt = buildGantryAgentSystemPrompt({
       runtimeProjection: 'wrapped-tool-projection',
       promptMode: 'full',
       currentDateTimeIso: '2026-06-17T00:00:00.000Z',
     });
 
+    expect(prompt.prompt).toContain(
+      'End pure chat answers with the answer only; do not add a receipt.',
+    );
+    expect(prompt.prompt).toContain('include only:');
     expect(prompt.prompt).toContain('Completed: <short outcome>');
+    expect(prompt.prompt).toContain('include the full receipt:');
     expect(prompt.prompt).toContain('Used: <tools/capabilities>');
     expect(prompt.prompt).toContain(
       'Changed: <files/accounts/channels or none>',

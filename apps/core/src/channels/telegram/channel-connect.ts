@@ -272,6 +272,32 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
+      if (data.startsWith('lt:stop:')) {
+        const callbackMessage = ctx.callbackQuery?.message as
+          | {
+              chat?: { id?: number | string };
+              message_thread_id?: number;
+            }
+          | undefined;
+        const chatId =
+          callbackMessage?.chat?.id?.toString() ||
+          ctx.chat?.id?.toString() ||
+          '';
+        if (!chatId) return;
+        await this.opts.onMessageAction?.({
+          kind: 'live_turn_stop',
+          conversationJid: `tg:${chatId}`,
+          threadId:
+            typeof callbackMessage?.message_thread_id === 'number'
+              ? String(callbackMessage.message_thread_id)
+              : undefined,
+          userId: ctx.from?.id?.toString(),
+          actionToken: data.slice('lt:stop:'.length),
+        });
+        await ctx.answerCallbackQuery({ text: 'Stopping current run.' });
+        return;
+      }
+
       const deadLetterActionMatch =
         TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN.exec(data);
       if (deadLetterActionMatch) {

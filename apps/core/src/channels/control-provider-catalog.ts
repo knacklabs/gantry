@@ -12,6 +12,10 @@ import {
   GraphTeamsSetupDiscoveryClient,
   type TeamsSetupDiscoveryClient,
 } from './teams-setup-discovery.js';
+import {
+  RestDiscordSetupDiscoveryClient,
+  type DiscordSetupDiscoveryClient,
+} from './discord-setup-discovery.js';
 import './register-builtins.js';
 import {
   getProvider,
@@ -54,6 +58,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
   constructor(
     private readonly secrets: RuntimeSecretProvider,
     private readonly teamsDiscoveryClient: TeamsSetupDiscoveryClient = new GraphTeamsSetupDiscoveryClient(),
+    private readonly discordDiscoveryClient: DiscordSetupDiscoveryClient = new RestDiscordSetupDiscoveryClient(),
   ) {}
 
   async discover(
@@ -168,6 +173,44 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
             title: channel.chatTitle,
             kind: 'channel',
             ...(channel.isArchived === true ? { status: 'archived' } : {}),
+            externalRef: {
+              kind: 'conversation',
+              value: canonicalConversationExternalId(
+                providerId,
+                channel.chatJid,
+              ),
+            },
+          }),
+        ),
+        input,
+      );
+    }
+    if (providerId === 'discord') {
+      const result = await this.discordDiscoveryClient.listChannels({
+        credentials: {
+          botToken: this.resolveExactSecret(
+            input.providerConnection.runtimeSecretRefs,
+            'DISCORD_BOT_TOKEN',
+          ),
+          applicationId: this.resolveExactSecret(
+            input.providerConnection.runtimeSecretRefs,
+            'DISCORD_APPLICATION_ID',
+          ),
+        },
+        limit: input.limit,
+      });
+      if (!result.ok) {
+        throw new ApplicationError('UNAVAILABLE', result.message);
+      }
+      return filterDiscoveredConversations(
+        result.channels.map(
+          (channel): DiscoveredConversation => ({
+            externalId: canonicalConversationExternalId(
+              providerId,
+              channel.chatJid,
+            ),
+            title: channel.chatTitle,
+            kind: 'channel',
             externalRef: {
               kind: 'conversation',
               value: canonicalConversationExternalId(

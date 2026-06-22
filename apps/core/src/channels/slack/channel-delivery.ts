@@ -476,10 +476,25 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       request,
       timeoutMs,
       promptText,
+      approverUserIds: this.slackControlApproverIds(parsed.channelId),
       pendingPermissionPrompts: this.pendingPermissionPrompts,
       resolvePermissionPrompt: (requestId, decision) =>
         this.resolvePermissionPrompt(requestId, decision),
     });
+  }
+
+  private slackControlApproverIds(channelId: string): string[] {
+    try {
+      return [
+        ...new Set(
+          Object.values(this.opts.runtimeSettings?.().conversations || {})
+            .filter((conversation) => conversation.externalId === channelId)
+            .flatMap((conversation) => conversation.controlApprovers),
+        ),
+      ];
+    } catch {
+      return [];
+    }
   }
 
   private loadPersistedProgress(): void {

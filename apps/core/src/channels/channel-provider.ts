@@ -7,6 +7,7 @@ import {
   OnInboundMessage,
   OnChatMetadata,
   NewMessage,
+  OnMessageAction,
   PlanReviewSurface,
   ProgressSink,
   PermissionApprovalRequest,
@@ -27,6 +28,7 @@ export interface ChannelOpts {
     message: NewMessage,
   ) => Promise<boolean>;
   onChatMetadata: OnChatMetadata;
+  onMessageAction?: OnMessageAction;
   conversationRoutes: () => Record<string, ConversationRoute>;
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;

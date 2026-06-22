@@ -55,6 +55,10 @@
   Keep provider PROPER NOUNS (Gemini/Llama/OpenAI/Anthropic) OUT of comments in
   these two catalog files: the provider-specific-path checker counts those bare
   words and both files sit at their exact `maxViolations` cap.
+- Bedrock catalog entries for the current `bedrock` model route must use
+  `bedrock-runtime` model IDs, not `bedrock-mantle` sample IDs. Some AWS model
+  cards show both forms; the Gantry route resolves to the regional Runtime
+  `/v1` Chat Completions endpoint.
 - Shared parsers used by both config and adapters belong in `shared/`, with
   config modules re-exporting them when needed. Adapters must not import from
   `config/` just to reuse parsing behavior.

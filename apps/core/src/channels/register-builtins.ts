@@ -28,6 +28,13 @@ async function createTeamsBuiltInChannel(
   return mod.createTeamsChannel(opts);
 }
 
+async function createDiscordBuiltInChannel(
+  opts: ChannelOpts,
+): Promise<import('./channel-provider.js').ChannelAdapter | null> {
+  const mod = await import('./discord.js');
+  return await mod.createDiscordChannel(opts);
+}
+
 async function createAppBuiltInChannel(
   opts: ChannelOpts,
 ): Promise<import('./channel-provider.js').ChannelAdapter | null> {
@@ -61,6 +68,11 @@ async function runSlackSetup(runtimeHome: string): Promise<number> {
 async function runTeamsSetup(runtimeHome: string): Promise<number> {
   const mod = await import('../cli/teams.js');
   return await mod.runTeamsConnectCommand(runtimeHome);
+}
+
+async function runDiscordSetup(runtimeHome: string): Promise<number> {
+  const mod = await import('../cli/discord.js');
+  return await mod.runDiscordConnectCommand(runtimeHome);
 }
 
 function isChannelEnabled(
@@ -122,6 +134,23 @@ const teamsProvider: Provider = {
   },
 };
 
+const discordProvider: Provider = {
+  id: 'discord',
+  label: 'Discord',
+  controlCapabilityFlags: ['setup', 'discover'],
+  jidPrefix: 'dc:',
+  folderPrefix: 'discord_',
+  isGroupJid: (jid: string) => jid.startsWith('dc:'),
+  formatting: 'markdown-native',
+  isEnabled: (settings) => isChannelEnabled(settings, 'discord'),
+  create: createDiscordBuiltInChannel,
+  setup: {
+    envKeys: ['DISCORD_BOT_TOKEN', 'DISCORD_APPLICATION_ID'],
+    describe: () => 'Discord bot and application commands',
+    run: (ctx) => runBuiltInSetup('Discord', runDiscordSetup, ctx),
+  },
+};
+
 const appProvider: Provider = {
   id: 'app',
   label: 'App',
@@ -140,6 +169,7 @@ const appProvider: Provider = {
 };
 
 registerProvider(appProvider);
+registerProvider(discordProvider);
 registerProvider(slackProvider);
 registerProvider(teamsProvider);
 registerProvider(telegramProvider);

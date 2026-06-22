@@ -133,6 +133,16 @@ function parseMentionFriendlySessionCommand(
   return null;
 }
 
+function normalizeGantryCommandEnvelope(text: string): string {
+  const match = text.match(/^\/gantry(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]+))?$/);
+  if (!match) return text;
+  const command = match[1]?.trim();
+  if (!command || command === 'help' || command === 'commands') {
+    return '/commands';
+  }
+  return command.startsWith('/') ? command : `/${command}`;
+}
+
 export function extractSessionCommand(
   content: string,
   triggerPattern: RegExp,
@@ -143,6 +153,7 @@ export function extractSessionCommand(
     triggerPattern.flags.replace(/g/g, ''),
   ).test(text);
   text = text.replace(triggerPattern, '').trim();
+  text = normalizeGantryCommandEnvelope(text);
   if (text === '/commands') return { kind: 'commands', raw: '/commands' };
   if (text === '/compact') return { kind: 'compact', raw: '/compact' };
   if (text === '/new') return { kind: 'new', raw: '/new' };

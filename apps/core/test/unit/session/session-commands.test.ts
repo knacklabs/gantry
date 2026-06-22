@@ -24,6 +24,38 @@ describe('extractSessionCommand', () => {
     });
   });
 
+  it('detects /gantry as command help', () => {
+    expect(extractSessionCommand('/gantry', trigger)).toEqual({
+      kind: 'commands',
+      raw: '/commands',
+    });
+    expect(extractSessionCommand('/gantry help', trigger)).toEqual({
+      kind: 'commands',
+      raw: '/commands',
+    });
+  });
+
+  it('detects /gantry subcommands through the existing command surface', () => {
+    expect(extractSessionCommand('/gantry status', trigger)).toEqual({
+      kind: 'status',
+      raw: '/status',
+    });
+    expect(extractSessionCommand('/gantry@andy_bot status', trigger)).toEqual({
+      kind: 'status',
+      raw: '/status',
+    });
+    expect(extractSessionCommand('/gantry model opus', trigger)).toEqual({
+      kind: 'model_set',
+      raw: '/model opus',
+      value: 'opus',
+    });
+    expect(extractSessionCommand('/gantry thinking high', trigger)).toEqual({
+      kind: 'thinking_set',
+      raw: '/thinking high',
+      value: { mode: 'adaptive', effort: 'high' },
+    });
+  });
+
   it('detects /commands with trigger prefix', () => {
     expect(extractSessionCommand('@Andy /commands', trigger)).toEqual({
       kind: 'commands',
@@ -400,7 +432,7 @@ describe('handleSessionCommand', () => {
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining(
-        '/commands or !commands - List available chat commands.',
+        '/gantry commands, /commands, or !commands - List available chat commands.',
       ),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(

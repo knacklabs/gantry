@@ -21,6 +21,8 @@ export const CONFIG_ENV_KEYS = [
   'TELEGRAM_BOT_TOKEN',
   'SLACK_BOT_TOKEN',
   'SLACK_APP_TOKEN',
+  'DISCORD_BOT_TOKEN',
+  'DISCORD_APPLICATION_ID',
 ] as const;
 
 function loadRuntimeEnvConfig(keys: readonly string[]): Record<string, string> {

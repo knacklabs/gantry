@@ -330,6 +330,47 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBe('262142');
   });
 
+  it('projects optional OpenRouter provider routing as snake_case runner env', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+    const prepared = await adapter.prepare(
+      prepareInput({
+        effectiveModel: 'moonshotai/kimi-k2.6',
+        effectiveModelEntry: {
+          ...catalogEntry('kimi'),
+          providerRouting: {
+            openrouter: {
+              only: ['moonshotai'],
+              allowFallbacks: false,
+              requireParameters: true,
+              dataCollection: 'deny',
+              sort: 'latency',
+            },
+          },
+        },
+        modelCredentialProjection: {
+          env: Object.fromEntries([
+            [openAiBaseUrlKey(), 'http://127.0.0.1:4567/openrouter'],
+            [openAiApiKeyKey(), 'gtw_test'],
+          ]),
+          credentialProviders: {},
+          brokerProfile: 'gantry',
+          brokerApplied: true,
+          brokerAuthMode: 'api_key',
+        },
+      }),
+    );
+
+    expect(
+      JSON.parse(prepared.env.GANTRY_DEEPAGENTS_OPENROUTER_PROVIDER_ROUTING!),
+    ).toEqual({
+      only: ['moonshotai'],
+      allow_fallbacks: false,
+      require_parameters: true,
+      data_collection: 'deny',
+      sort: 'latency',
+    });
+  });
+
   it('allows Gantry gateway projections for DeepAgents-routed API-key models', async () => {
     const adapter = new DeepAgentsLangChainExecutionAdapter();
     await expect(

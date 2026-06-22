@@ -32,6 +32,12 @@ const SETTINGS_PROVIDER_JID_INFO: SettingsProviderJidInfo[] = [
     isGroupJid: (jid: string) => jid.startsWith('teams:'),
   },
   {
+    id: 'discord',
+    label: 'Discord',
+    jidPrefix: 'dc:',
+    isGroupJid: (jid: string) => jid.startsWith('dc:'),
+  },
+  {
     id: 'app',
     label: 'App',
     jidPrefix: 'app:',
@@ -101,6 +107,12 @@ export function defaultRuntimeSecretRefs(
       client_id: 'TEAMS_CLIENT_ID',
       client_secret: 'TEAMS_CLIENT_SECRET',
       tenant_id: 'TEAMS_TENANT_ID',
+    };
+  }
+  if (providerId === 'discord') {
+    return {
+      bot_token: 'DISCORD_BOT_TOKEN',
+      application_id: 'DISCORD_APPLICATION_ID',
     };
   }
   return {};

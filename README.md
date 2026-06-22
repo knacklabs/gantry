@@ -111,6 +111,7 @@ gantry credentials access list|set|import-env|unset
 gantry credentials browser status
 gantry provider connect telegram
 gantry provider connect slack
+gantry provider connect discord
 gantry provider connect teams
 gantry provider list
 gantry provider doctor
@@ -374,11 +375,12 @@ schema. Do not reuse the Gantry runtime role for independent services.
 
 ### Provider And Conversation Setup
 
-Gantry supports multiple providers. You can connect Telegram, Slack, or Teams and then bind an agent into a conversation:
+Gantry supports multiple providers. You can connect Telegram, Slack, Discord, or Teams and then bind an agent into a conversation:
 
 ```bash
 gantry provider connect telegram
 gantry provider connect slack
+gantry provider connect discord
 gantry provider connect teams
 ```
 
@@ -387,12 +389,15 @@ Notes:
 - Telegram uses `TELEGRAM_BOT_TOKEN`; create it in Telegram by chatting with `@BotFather` and sending `/newbot`.
 - For Telegram groups, add the bot to the group and send a message before discovery; if Gantry must see every group message, make the bot an admin or disable Group Privacy in BotFather with `/setprivacy`.
 - `gantry provider connect telegram` auto-discovers recent chats and can register one without manual chat ID copy/paste. The human sender from the selected discovery message is added as a conversation approver, so `/new`, `/model`, `/dream`, and `/memory-status` work immediately.
+- Telegram registers `/gantry` for command discovery. Direct `/stop` and `!stop` remain the fast stop path, and active progress messages include a Stop action where Telegram supports inline callbacks. Approval prompts stay in the originating conversation today so restart recovery can still resolve the pending interaction.
 - Slack uses Socket Mode with `SLACK_BOT_TOKEN` (`xoxb-...`) and `SLACK_APP_TOKEN` (`xapp-...`); create a Slack app, add a bot user/scopes, enable Socket Mode, generate the app-level token, install/reinstall the app, then invite it to the target channel or DM it once.
 - Slack bot scopes for normal channel and DM operation are: `chat:write`, `app_mentions:read`, `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `mpim:read`, and `mpim:history`. Reinstall the Slack app after any scope change.
 - For Slack DMs, open the Slack app configuration, go to App Home, enable the Messages Tab, and enable the setting that lets users send messages from the messages tab. Without this, Slack can show "Sending messages to this app has been turned off" even when Socket Mode is connected.
 - `gantry provider connect slack` auto-discovers accessible conversations and can register one directly.
-- Slack tool permission approvals are deny-by-default until approvers are listed on the target conversation in `settings.yaml`. Guided setup asks for comma-separated Slack member IDs like `U0123456789`; these users must be members of that conversation to approve tool permissions and answer interactive prompts.
-- Slack UX uses native Slack surfaces (threads, streaming updates, actions).
+- Slack registers `/gantry` for command discovery. Direct `/stop` and `!stop` remain the fast stop path, and active progress messages include a Stop action.
+- Slack tool permission approvals are deny-by-default until approvers are listed on the target conversation in `settings.yaml`. Guided setup asks for comma-separated Slack member IDs like `U0123456789`; these users must be members of that conversation to approve tool permissions and answer interactive prompts. Gantry sends approval prompts ephemerally to configured approvers when Slack accepts that surface and falls back to the conversation prompt otherwise.
+- Slack UX uses native Slack surfaces: threads, streaming updates, ephemeral prompts, and actions.
+- Discord setup uses `DISCORD_BOT_TOKEN` and `DISCORD_APPLICATION_ID`, discovers guild text channels through Discord REST, registers `dc:` conversation IDs plus a guild `/gantry` command, and runs the Discord Gateway/REST transport for live messages and Stop actions.
 - Teams setup uses Microsoft Teams app auth through `RuntimeSecretProvider` (`TEAMS_CLIENT_ID`, `TEAMS_CLIENT_SECRET`, `TEAMS_TENANT_ID`), discovers Teams channels through Microsoft Graph, and registers `teams:` conversation IDs. Live Teams message transport remains behind the `TeamsSdkClient` adapter seam; this checkout includes tested normalization and Adaptive Card approval scaffolding, but not a concrete Bot Framework transport.
 
 ### Capability Management
@@ -707,10 +712,9 @@ Harness-selection work is documented in [Agent Harness Selection](docs/decisions
   exposed; tool use goes through Gantry facades, approvals, sandbox policy, and
   audit.
 - DeepAgents subagents are internal execution primitives, not a user-facing
-  mission-control UI. Current runtime does not yet host-enforce the five-line
-  receipt until the receipt formatter/enforcer lands. The target DeepAgents
-  parity contract keeps approvals, final answers, audit/runtime detail, and
-  high-level evidence receipts in this exact format:
+  mission-control UI. Evidence receipts are adaptive: pure chat answers do not
+  need a receipt, work with no tools, changes, delegation, or blocker may use
+  only `Completed: <short outcome>`, and impactful work uses the full receipt:
 
   ```text
   Completed: <short outcome>

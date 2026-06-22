@@ -3,6 +3,7 @@ import type {
   ModelRouteId,
   ModelWorkload,
 } from './model-catalog.js';
+import { buildBedrockCatalog } from './model-catalog-bedrock.js';
 
 // Catalog entries for OpenAI-chat-completions-compatible DeepAgents providers.
 // Extracted from model-catalog.ts to keep that file under its line
@@ -58,6 +59,8 @@ type ExecutableModelEntryFn = (input: {
   cacheMode: ModelCatalogEntry['cacheMode'];
   cacheTokenFields: readonly string[];
   supportedWorkloads: readonly ModelWorkload[];
+  providerAvailability?: ModelCatalogEntry['providerAvailability'];
+  providerRouting?: ModelCatalogEntry['providerRouting'];
   experimental?: boolean;
 }) => ModelCatalogEntry;
 
@@ -127,24 +130,16 @@ const G_DISPLAY = ['Ge', 'mini'].join('');
 const G_PRO = `${G_MODEL}-2.5-pro`;
 const G_FLASH = `${G_MODEL}-2.5-flash`;
 const G_NEXT_FLASH = `${G_MODEL}-3.5-flash`;
-
-const BEDROCK_OSS_SOURCE = {
-  label: 'Amazon Bedrock OSS models',
-  url: `https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-${OA}.html`,
-  verifiedAt: '2026-06-14',
-};
 const VERTEX_CHAT_SOURCE = {
   label: `Vertex ${G_DISPLAY} 3.5 Flash model card`,
   url: `https://docs.cloud.google.com/${G_MODEL}-enterprise-agent-platform/models/${G_MODEL}/3-5-flash`,
   verifiedAt: '2026-06-14',
 };
-
-// Curated context windows (input-token limits) for the empty-profile DeepAgents
-// ids above. 131_072 (128K) is the Llama/GPT-OSS/GLM family window; 1_048_576
-// (1M) is the 2.5/3.5 multimodal family window; Grok = 256K; DeepSeek v4 = 1M
-// (verified on the provider pricing page); Qwen3-235B-A22B-fp8-tput = 40_960
-// (the exact window the Together model page lists for that throughput variant);
-// Perplexity Sonar Pro = 200K, Sonar = 131_072 (128K).
+const VERTEX_GLOBAL_AVAILABILITY: ModelCatalogEntry['providerAvailability'] = {
+  verifiedAt: '2026-06-14',
+  evidence: { source: 'official_docs', commandOrUrl: VERTEX_CHAT_SOURCE.url },
+  scope: { kind: 'locations', values: ['global'] },
+};
 const WINDOW_128K = 131_072;
 const WINDOW_1M = 1_048_576;
 const WINDOW_GROK = 256_000;
@@ -466,19 +461,10 @@ export function buildOpenAiCompatibleCatalog(deps: {
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
-    executableModelEntry({
-      id: 'bedrock:gpt-oss-120b',
-      route: providerRoute('bedrock', `${OA}.gpt-oss-120b-1:0`),
-      displayName: 'Bedrock GPT-OSS 120B',
-      runnerModel: `${OA}.gpt-oss-120b-1:0`,
-      aliases: ['bedrock-oss', 'bedrock-gpt-oss-120b'],
-      recommendedAlias: 'bedrock-oss',
-      source: BEDROCK_OSS_SOURCE,
-      contextWindowTokens: WINDOW_128K,
-      cacheMode: 'none',
-      cacheTokenFields: [],
+    ...buildBedrockCatalog({
+      executableModelEntry,
+      providerRoute,
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
-      experimental: true,
     }),
     executableModelEntry({
       id: 'vertex:flash-3.5',
@@ -492,6 +478,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       cacheMode: 'none',
       cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_WORKLOADS,
+      providerAvailability: VERTEX_GLOBAL_AVAILABILITY,
       experimental: true,
     }),
   ];

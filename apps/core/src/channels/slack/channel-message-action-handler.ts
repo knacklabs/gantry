@@ -1,4 +1,7 @@
-import type { MessageActionAffordanceKind } from '../../domain/types.js';
+import type {
+  MessageActionAffordanceKind,
+  OnMessageAction,
+} from '../../domain/types.js';
 
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
@@ -15,23 +18,41 @@ type SlackAppLike = {
   };
 };
 
-export function registerSlackMessageActionHandler(app: SlackAppLike): void {
+export function registerSlackMessageActionHandler(
+  app: SlackAppLike,
+  onMessageAction?: OnMessageAction,
+): void {
   app.action('gantry_message_action', async (args: any) => {
     await args.ack();
     const action = args.action as { value?: string };
     const body = args.body as {
       channel?: { id?: string };
+      message?: { thread_ts?: string; ts?: string };
       user?: { id?: string };
     };
     let payload:
       | {
           kind?: unknown;
           jobId?: unknown;
+          actionToken?: unknown;
         }
       | undefined;
     try {
       payload = action.value ? JSON.parse(action.value) : undefined;
     } catch {
+      return;
+    }
+    if (payload?.kind === 'live_turn_stop' && body.channel?.id) {
+      await onMessageAction?.({
+        kind: 'live_turn_stop',
+        conversationJid: `sl:${body.channel.id}`,
+        threadId: body.message?.thread_ts,
+        userId: body.user?.id,
+        actionToken:
+          typeof payload.actionToken === 'string'
+            ? payload.actionToken
+            : undefined,
+      });
       return;
     }
     if (

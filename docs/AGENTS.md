@@ -48,11 +48,11 @@
   should use the current singular `gantry model ...` CLI surface unless the plan
   explicitly introduces and verifies a CLI rename.
 - DeepAgents docs must keep subagents internal. Users see approvals, final
-  answer, evidence receipt, audit, and runtime detail; do not introduce a
-  user-facing subagent mission-control UI. Evidence receipts must use exact
-  lines `Completed: <short outcome>`, `Used: <tools/capabilities>`,
-  `Changed: <files/accounts/channels or none>`, `Delegated: yes/no`, and
-  `Needs attention: <blocker or none>`.
+  answer, adaptive evidence receipt, audit, and runtime detail; do not introduce
+  a user-facing subagent mission-control UI. Pure chat answers do not need a
+  receipt, no-impact work may use only `Completed: <short outcome>`, and
+  impactful or delegated work must use the full receipt lines: `Completed`,
+  `Used`, `Changed`, `Delegated`, and `Needs attention`.
 - DeepAgents raw authority remains Gantry-owned and wrapped. Do not document raw
   `execute`, raw local filesystem access, raw `.mcp.json`, or raw provider
   credentials as possible user or agent authority.

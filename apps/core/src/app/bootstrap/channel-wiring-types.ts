@@ -1,5 +1,6 @@
 import type {
   MessageDeliveryResult,
+  MessageActionCallbackInput,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -149,6 +150,9 @@ export interface ChannelWiring {
   ) => void;
   setDurableOutboundAttemptFactory: (
     factory: DurableOutboundAttemptFactory | undefined,
+  ) => void;
+  setMessageActionHandler: (
+    handler: ((input: MessageActionCallbackInput) => Promise<void>) | undefined,
   ) => void;
   sendStreamingChunk: (
     jid: string,

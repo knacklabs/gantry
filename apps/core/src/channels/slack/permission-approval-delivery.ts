@@ -21,6 +21,7 @@ export async function requestSlackPermissionApproval(input: {
   request: PermissionApprovalRequest;
   timeoutMs: number;
   promptText: string;
+  approverUserIds?: readonly string[];
   pendingPermissionPrompts: Map<string, PendingPermissionPrompt>;
   resolvePermissionPrompt: (
     requestId: string,
@@ -57,23 +58,53 @@ export async function requestSlackPermissionApproval(input: {
       ...threadPayload,
       blocks: blocks as any,
     }) as Promise<{ ts?: string }>;
+  const postPrivatePrompt = async (
+    blocks: unknown[],
+  ): Promise<{ ts?: string } | null> => {
+    const userIds = [...new Set(input.approverUserIds || [])].filter(Boolean);
+    if (userIds.length === 0) return null;
+    let first: { ts?: string } | null = null;
+    for (const user of userIds) {
+      try {
+        const sent = (await input.app.client.chat.postEphemeral({
+          channel: input.channelId,
+          user,
+          text: input.promptText,
+          ...threadPayload,
+          blocks: blocks as any,
+        })) as { ts?: string; message_ts?: string };
+        first ||= { ts: sent.ts || sent.message_ts };
+      } catch (err) {
+        logger.debug(
+          { jid: input.jid, requestId: input.request.requestId, user, err },
+          'Slack private permission prompt failed for approver',
+        );
+      }
+    }
+    return first;
+  };
 
   try {
     let response: { ts?: string };
     try {
-      response = await postPrompt([...contentBlocks, actionsBlock]);
+      response =
+        (await postPrivatePrompt([...contentBlocks, actionsBlock])) ||
+        (await postPrompt([...contentBlocks, actionsBlock]));
     } catch (blocksErr) {
       logger.warn(
         { jid: input.jid, requestId: input.request.requestId, err: blocksErr },
         'Slack native permission blocks rejected; retrying with simple layout',
       );
-      response = await postPrompt([
+      const simpleBlocks = [
         {
           type: 'section',
           text: { type: 'mrkdwn', text: input.promptText },
         },
         actionsBlock,
-      ]);
+      ];
+      response =
+        (await postPrivatePrompt(simpleBlocks)) ||
+        (await postPrompt(simpleBlocks));
     }
     const messageTs = response.ts;
     if (!messageTs) {

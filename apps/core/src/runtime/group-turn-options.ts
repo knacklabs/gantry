@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+
 import type {
   MessageSendOptions,
   ProgressUpdateOptions,
@@ -14,6 +16,7 @@ export function createGroupTurnOptionBuilders(input: {
     threadId?: string;
     done?: boolean;
   }) => StreamingChunkOptions;
+  liveStopActionToken: string;
   buildProgressOptions: (args?: {
     threadId?: string;
     done?: boolean;
@@ -22,6 +25,7 @@ export function createGroupTurnOptionBuilders(input: {
 } {
   const resolveThreadId = (threadId?: string) =>
     threadId ?? input.activeThreadId;
+  const liveStopActionToken = randomUUID();
   return {
     buildMessageOptions: (threadId?: string) => {
       const resolved = resolveThreadId(threadId);
@@ -34,6 +38,7 @@ export function createGroupTurnOptionBuilders(input: {
         : {}),
       ...(args.done !== undefined ? { done: args.done } : {}),
     }),
+    liveStopActionToken,
     buildProgressOptions: (
       args: { threadId?: string; done?: boolean; replaceOnly?: boolean } = {},
     ) => ({
@@ -45,6 +50,17 @@ export function createGroupTurnOptionBuilders(input: {
       ...(args.replaceOnly !== undefined
         ? { replaceOnly: args.replaceOnly }
         : {}),
+      ...(args.done
+        ? {}
+        : {
+            actionAffordances: [
+              {
+                kind: 'live_turn_stop' as const,
+                label: 'Stop',
+                actionToken: liveStopActionToken,
+              },
+            ],
+          }),
     }),
   };
 }

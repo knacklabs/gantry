@@ -40,6 +40,18 @@ const mocks = vi.hoisted(() => ({
       },
     ],
   })),
+  listDiscordChannels: vi.fn(async () => ({
+    ok: true,
+    channels: [
+      {
+        chatJid: 'dc:1234567890',
+        chatTitle: 'Engineering / #general',
+        guildId: '987654321',
+        channelId: '1234567890',
+        channelType: 'text',
+      },
+    ],
+  })),
 }));
 
 vi.mock('@core/cli/telegram-chat-discovery.js', () => ({
@@ -85,11 +97,21 @@ function teamsDiscoveryClient() {
   };
 }
 
+function discordDiscoveryClient() {
+  return {
+    validateCredentials: vi.fn(),
+    verifyChannel: vi.fn(),
+    registerGantryCommand: vi.fn(),
+    listChannels: mocks.listDiscordChannels,
+  };
+}
+
 describe('RuntimeSecretConversationDiscovery', () => {
   beforeEach(() => {
     mocks.listTelegramRecentChats.mockClear();
     mocks.listTeamsChannels.mockClear();
     mocks.listSlackRecentChats.mockClear();
+    mocks.listDiscordChannels.mockClear();
   });
 
   it('does not fall back to preferred host env names when refs are empty', async () => {
@@ -203,6 +225,43 @@ describe('RuntimeSecretConversationDiscovery', () => {
       botToken: 'xoxb-token',
       limit: 10,
       includeArchived: undefined,
+    });
+  });
+
+  it('discovers Discord channels from referenced runtime secrets', async () => {
+    const discovery = new RuntimeSecretConversationDiscovery(
+      secrets({
+        DISCORD_BOT_TOKEN: 'discord-token',
+        DISCORD_APPLICATION_ID: '123456789',
+      }),
+      teamsDiscoveryClient(),
+      discordDiscoveryClient(),
+    );
+    const discordConnection = {
+      ...providerConnection(['DISCORD_BOT_TOKEN', 'DISCORD_APPLICATION_ID']),
+      providerId: 'discord' as never,
+      label: 'Discord',
+    } as ProviderConnection;
+
+    await expect(
+      discovery.discover({
+        providerConnection: discordConnection,
+        limit: 10,
+      }),
+    ).resolves.toEqual([
+      {
+        externalId: '1234567890',
+        title: 'Engineering / #general',
+        kind: 'channel',
+        externalRef: { kind: 'conversation', value: '1234567890' },
+      },
+    ]);
+    expect(mocks.listDiscordChannels).toHaveBeenCalledWith({
+      credentials: {
+        botToken: 'discord-token',
+        applicationId: '123456789',
+      },
+      limit: 10,
     });
   });
 
@@ -362,6 +421,28 @@ describe('RuntimeSecretConversationDiscovery', () => {
 });
 
 describe('BuiltInControlChannelProviderCatalog', () => {
+  it('advertises Discord setup/discovery runtime support', () => {
+    const catalog = new BuiltInControlChannelProviderCatalog();
+
+    const discord = catalog
+      .listProviders()
+      .find((provider) => provider.id === 'discord');
+
+    expect(discord).toEqual(
+      expect.objectContaining({
+        id: 'discord',
+        displayName: 'Discord',
+        capabilityFlags: expect.arrayContaining(['setup', 'discover']),
+        allowedRuntimeSecretRefs: [
+          'DISCORD_BOT_TOKEN',
+          'DISCORD_APPLICATION_ID',
+        ],
+      }),
+    );
+    expect(discord?.capabilityFlags).not.toContain('install');
+    expect(discord?.capabilityFlags).not.toContain('runtime-placeholder');
+  });
+
   it('does not advertise Teams runtime as installable while the transport is stubbed', () => {
     const catalog = new BuiltInControlChannelProviderCatalog();
 

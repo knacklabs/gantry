@@ -28,7 +28,7 @@ import type { ModelWorkload } from './model-catalog.js';
 //     cerebras    -> https://api.cerebras.ai/v1/chat/completions
 //     perplexity  -> https://api.perplexity.ai/chat/completions (bare path)
 //     google gen  -> https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-//     bedrock     -> Bedrock Runtime regional chat-completions endpoint
+//     bedrock     -> Bedrock Runtime regional /v1 chat-completions endpoint
 //   assertProviderPathAllowed strips the per-provider prefix, leaving
 //   `/chat/completions`, which is allowlisted for the DeepAgents engine.
 //
@@ -117,7 +117,7 @@ const NO_CACHE_SUPPORT: ModelProviderCacheSupport = {
 
 const OA_FAMILY = ['open', 'ai'].join('');
 const OPEN_API_ENDPOINT = ['open', 'api'].join('');
-const BEDROCK_CHAT_PATH_PREFIX = `/${OA_FAMILY}/v1`;
+const BEDROCK_CHAT_PATH_PREFIX = '/v1';
 const G_PROVIDER = ['ge', 'mini'].join('');
 const G_PROVIDER_LABEL = ['Google Ge', 'mini'].join('');
 

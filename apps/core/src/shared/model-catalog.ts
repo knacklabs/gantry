@@ -11,6 +11,11 @@ import {
   normalizeModelLookupKey,
   suggestModelAlias,
 } from './model-catalog-lookup.js';
+import {
+  type ModelProviderAvailability,
+  type ModelProviderRouting,
+  validateModelProviderMetadata,
+} from './model-catalog-provider-metadata.js';
 
 export type ModelResponseFamily = string;
 export type ModelRouteId = ModelRouteProviderId;
@@ -83,6 +88,15 @@ const GPT_54_MINI_SOURCE = {
   url: gptDocsUrl('gpt-5.4-mini'),
   verifiedAt: '2026-06-19',
 };
+const OPENROUTER_PROVIDER_AVAILABILITY: ModelProviderAvailability = {
+  verifiedAt: '2026-06-22',
+  evidence: {
+    source: 'official_docs',
+    commandOrUrl:
+      'https://openrouter.ai/docs/guides/routing/provider-selection',
+  },
+  scope: { kind: 'provider' },
+};
 
 export interface ModelCatalogEntry {
   id: string;
@@ -118,6 +132,8 @@ export interface ModelCatalogEntry {
   supportsTools?: boolean;
   capabilities: ModelCapabilityDescriptor;
   supportedWorkloads: readonly ModelWorkload[];
+  providerAvailability?: ModelProviderAvailability;
+  providerRouting?: ModelProviderRouting;
   experimental?: boolean;
 }
 
@@ -298,6 +314,8 @@ export function executableModelEntry(input: {
   supportsThinking?: boolean;
   supportsTools?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
+  providerAvailability?: ModelProviderAvailability;
+  providerRouting?: ModelProviderRouting;
   experimental?: boolean;
 }): ModelCatalogEntry {
   const provider = getModelProviderDefinition(input.route.id);
@@ -491,6 +509,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
       'memory_dreaming',
       'memory_consolidation',
     ],
+    providerAvailability: OPENROUTER_PROVIDER_AVAILABILITY,
     experimental: true,
   }),
   // These chat models run on the deepagents (LangChain) lane. REVERSAL of the
@@ -609,6 +628,7 @@ function validateModelCatalogProviderSupport(
         `Model catalog entry ${entry.id} declares cache mode ${entry.cacheMode}, but provider ${provider.id} does not support it.`,
       );
     }
+    validateModelProviderMetadata(entry);
   }
 }
 
@@ -742,6 +762,7 @@ export function findModelByRunnerModel(
   if (!trimmed) return undefined;
   const key = normalizeModelLookupKey(trimmed);
   return (
+    catalogIndexes.exactRunnerModelIndex.get(trimmed.toLowerCase()) ??
     catalogIndexes.runnerModelIndex.get(key) ??
     catalogIndexes.aliasIndex.get(key)?.entry
   );

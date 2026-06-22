@@ -45,8 +45,10 @@ const builtInPrefixAliases = new Map<string, string>([
   ['telegram', 'telegram'],
   ['slack', 'slack'],
   ['teams', 'teams'],
+  ['discord', 'discord'],
   ['tg', 'telegram'],
   ['sl', 'slack'],
+  ['dc', 'discord'],
 ]);
 
 const builtInProviderJidPrefixes = new Map<string, string>([
@@ -54,6 +56,7 @@ const builtInProviderJidPrefixes = new Map<string, string>([
   ['telegram', 'tg:'],
   ['slack', 'sl:'],
   ['teams', 'teams:'],
+  ['discord', 'dc:'],
 ]);
 
 function rebuildProviderPrefixCache(): void {

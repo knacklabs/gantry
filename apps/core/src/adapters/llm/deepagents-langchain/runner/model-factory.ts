@@ -1,5 +1,6 @@
 import { initChatModel } from 'langchain/chat_models/universal';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { ChatOpenRouterInput } from '@langchain/openrouter';
 import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 
 // Builds the LangChain chat-model instance the DeepAgents graph runs on. Model
@@ -26,6 +27,9 @@ import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 // - `anthropic` is NOT a deepagents provider (Claude is SDK-only); it throws.
 
 export type ModelEndpointFamily = 'openai' | 'openrouter';
+export type OpenRouterProviderPreferences = NonNullable<
+  ChatOpenRouterInput['provider']
+>;
 
 // The "openai:" class prefix is correct for ALL of these — they reach the Gantry
 // loopback gateway, which routes to the real upstream by pathSegment. Adding a
@@ -64,6 +68,7 @@ export async function buildRunnerModel(input: {
   // of the real window and context-usage reports correctly. When ABSENT (e.g.
   // gpt-5.5/gpt-5.4), the library's real profile is used unchanged.
   maxInputTokens?: number;
+  openRouterProviderRouting?: OpenRouterProviderPreferences;
 }): Promise<ResolvedRunnerModel> {
   const provider = input.provider.trim().toLowerCase();
   const baseURL = input.gatewayBaseUrl;
@@ -93,6 +98,9 @@ export async function buildRunnerModel(input: {
       // durable session id; stable across turns. ChatOpenRouter injects this as
       // body `session_id` via invocationParams.
       ...(sessionId ? { sessionId } : {}),
+      ...(input.openRouterProviderRouting
+        ? { provider: input.openRouterProviderRouting }
+        : {}),
     });
     return { model, endpointFamily: 'openrouter', modelId: input.modelId };
   }

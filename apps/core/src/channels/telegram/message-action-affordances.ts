@@ -7,6 +7,7 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   scheduler_run_now: 'retry',
   scheduler_pause_job: 'pause',
   scheduler_open: 'open',
+  live_turn_stop: 'stop',
 };
 
 export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
@@ -18,6 +19,12 @@ export function telegramActionReplyMarkup(actions?: MessageActionAffordance[]):
     .map((action) => {
       const code = TELEGRAM_ACTION_CALLBACK_BY_KIND[action.kind];
       if (!code || !action.label.trim()) return null;
+      if (action.kind === 'live_turn_stop') {
+        return {
+          text: action.label.trim(),
+          callback_data: `lt:stop:${action.actionToken}`,
+        };
+      }
       return {
         text: action.label.trim(),
         callback_data: `dl:${code}`,

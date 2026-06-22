@@ -3,6 +3,7 @@ import type { ModelCatalogEntry, ModelWorkload } from './model-catalog.js';
 export interface ModelCatalogIndexes {
   aliasIndex: Map<string, { entry: ModelCatalogEntry; alias: string }>;
   idIndex: Map<string, ModelCatalogEntry>;
+  exactRunnerModelIndex: Map<string, ModelCatalogEntry>;
   runnerModelIndex: Map<string, ModelCatalogEntry>;
   rawProviderModelIds: Set<string>;
 }
@@ -23,6 +24,7 @@ export function createModelCatalogIndexes(
     { entry: ModelCatalogEntry; alias: string }
   >();
   const idIndex = new Map<string, ModelCatalogEntry>();
+  const exactRunnerModelIndex = new Map<string, ModelCatalogEntry>();
   const runnerModelIndex = new Map<string, ModelCatalogEntry>();
   const rawProviderModelIds = new Set<string>();
 
@@ -47,13 +49,21 @@ export function createModelCatalogIndexes(
       entry.runnerModel,
       entry.modelRoute.providerModelId,
     ]) {
+      const exactKey = modelId.trim().toLowerCase();
+      exactRunnerModelIndex.set(exactKey, entry);
       const key = normalizeModelLookupKey(modelId);
       runnerModelIndex.set(key, entry);
       rawProviderModelIds.add(key);
     }
   }
 
-  return { aliasIndex, idIndex, runnerModelIndex, rawProviderModelIds };
+  return {
+    aliasIndex,
+    idIndex,
+    exactRunnerModelIndex,
+    runnerModelIndex,
+    rawProviderModelIds,
+  };
 }
 
 export function suggestModelAlias(

@@ -167,6 +167,7 @@ export function createGroupAgentRunner(input: {
       existingRunLeaseToken?: string;
       existingRunLeaseWorkerInstanceId?: string;
       existingRunLeaseFencingVersion?: number;
+      liveStopActionToken?: string;
     },
   ): Promise<GroupAgentRunResult> {
     const initialModelSelection = defaultModelStatusSelection(
@@ -579,25 +580,20 @@ export function createGroupAgentRunner(input: {
               memoryReviewerIsControlApprover && memoryReviewerUserId
                 ? { requiredContinuationUserId: memoryReviewerUserId }
                 : undefined;
-            if (registerOptions) {
-              deps.queue.registerProcess(
-                queueJid,
-                proc,
-                runHandle,
-                group.folder,
-                queueJid === chatJid ? undefined : chatJid,
-                options?.memoryContext?.threadId,
-                registerOptions,
-              );
-              return;
-            }
+            const stopAliasJids = [
+              ...(queueJid === chatJid ? [] : [chatJid]),
+              ...(options?.liveStopActionToken
+                ? [options.liveStopActionToken]
+                : []),
+            ];
             deps.queue.registerProcess(
               queueJid,
               proc,
               runHandle,
               group.folder,
-              queueJid === chatJid ? undefined : chatJid,
+              stopAliasJids,
               options?.memoryContext?.threadId,
+              registerOptions,
             );
           },
           wrappedOnOutput,

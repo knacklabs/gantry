@@ -1,7 +1,7 @@
 # Gantry on AWS — Terraform Runbook
 
-Copy-paste runbook for standing up a Gantry **fleet** or **locked support** stack
-on AWS with Terraform, plus a short local-rehearsal section.
+Copy-paste runbook for standing up a Gantry **fleet**, **locked support**, or
+**ECS/EC2** stack on AWS with Terraform, plus a short local-rehearsal section.
 
 Targets (measured gates from the deployment-modes plan):
 
@@ -13,9 +13,10 @@ ADRs under [docs/decisions/](../decisions/) (delivery vehicle, deployment modes,
 [process roles and multi-live](../decisions/2026-06-12-process-roles-and-multi-live.md),
 capability artifacts, locked preset).
 
-Module reference: `ops/terraform/modules/{network,database,storage,secrets,worker_pool,control}`,
-roots `ops/terraform/envs/{fleet,support}`. Image: `ops/docker/Dockerfile` +
-`ops/docker/entrypoint.sh`.
+Module reference:
+`ops/terraform/modules/{network,database,storage,secrets,worker_pool,control,ecs_capacity,ecs_service_set}`,
+roots `ops/terraform/envs/{fleet,support,ecs}`. Image:
+`ops/docker/Dockerfile` + `ops/docker/entrypoint.sh`.
 
 Artifact bucket IAM is split by prefix. Capability artifacts (`skills/`,
 `toolchains/`) are **bake-rw / worker-ro** — workers never mutate capability
@@ -142,10 +143,18 @@ everything, registered to both ALB target groups. Use `envs/support` for the
 locked support stack and `envs/fleet` for the full fleet. Commands below show
 `fleet`; substitute `support` where noted.
 
+The **ECS** root (`envs/ecs`) is the ECS/EC2 test-and-scale variant. It uses the
+same process roles but creates ECS services instead of direct Docker ASGs:
+`api-only` => `control`, `chat-only` => `control + live-worker`, `jobs-only` =>
+`job-worker`, and `all` => all three separated services. The control service
+attaches to the control/API target group, live-worker attaches to webhook
+ingress, and `jobs-only` creates no public ALB.
+
 ### B.0 Prerequisites
 
-- Terraform `>= 1.6`, AWS CLI v2, Docker (to build/push the image), and an AWS
-  account with permissions for VPC, RDS, S3, IAM, Secrets Manager, ELB, EC2/ASG.
+- Terraform `>= 1.6`, AWS CLI v2, `jq`, Docker (to build/push the image), and an
+  AWS account with permissions for VPC, RDS, S3, IAM, Secrets Manager, ELB,
+  EC2/ASG, ECS, CloudWatch Logs, and Application Auto Scaling.
 - A built runtime image pushed somewhere the workers can pull from. CI
   (`.github/workflows/image.yml`) pushes to GHCR on `main`/tags. For private GHCR
   or cross-registry pulls, mirror the image to ECR or grant the worker role pull
@@ -228,6 +237,18 @@ aws ssm get-parameter --region "$AWS_REGION" \
   --query 'Parameter.Value' --output text
 ```
 
+For the ECS variant:
+
+```bash
+cd ops/terraform/envs/ecs
+cp ecs.tfvars.example ecs.auto.tfvars
+$EDITOR ecs.auto.tfvars
+```
+
+Set `deployment_type` to `api-only`, `chat-only`, `jobs-only`, or `all`.
+`ecs_capacity_ami_id = ""` resolves the latest Amazon Linux 2023 ECS-optimized
+AMI from SSM; set it explicitly only when you want a pinned AMI.
+
 ### B.4 Init / plan / apply
 
 ```bash
@@ -239,6 +260,21 @@ terraform init \
   -backend-config="encrypt=true"
 
 terraform plan -out tf.plan        # support adds: -var-file=support.tfvars (if not using *.auto.tfvars)
+terraform apply tf.plan
+```
+
+For ECS, use the separate state key:
+
+```bash
+cd ops/terraform/envs/ecs
+terraform init \
+  -backend-config="bucket=$TF_STATE_BUCKET" \
+  -backend-config="key=gantry/ecs/terraform.tfstate" \
+  -backend-config="region=$AWS_REGION" \
+  -backend-config="dynamodb_table=$TF_LOCK_TABLE" \
+  -backend-config="encrypt=true"
+
+terraform plan -out tf.plan
 terraform apply tf.plan
 ```
 
@@ -257,6 +293,17 @@ control_asg             = "gantry-fleet-control"
 live_worker_asg         = "gantry-fleet-live-worker"
 job_worker_asg          = "gantry-fleet-job-worker"
 # support has a single ASG instead: worker_asg = "gantry-support-all"
+```
+
+ECS outputs include:
+
+```
+alb_dns_name            = "gantry-ecs-alb-1234567890.us-east-1.elb.amazonaws.com" # null for jobs-only
+artifacts_bucket        = "gantry-ecs-artifacts-ab12cd34"
+database_proxy_endpoint = "gantry-ecs-proxy.proxy-abcdefg.us-east-1.rds.amazonaws.com"
+ecs_cluster_name        = "gantry-ecs-ecs"
+ecs_capacity_asg        = "gantry-ecs-ecs-capacity"
+ecs_service_names       = { control = "...", live-worker = "...", job-worker = "..." } # depends on deployment_type
 ```
 
 ### B.5 Point the runtime DB URL secret at the proxy
@@ -282,6 +329,16 @@ done
 # Support: a single pool.
 #   aws autoscaling start-instance-refresh \
 #     --auto-scaling-group-name "$(terraform output -raw worker_asg)"
+```
+
+On ECS, start fresh tasks instead of an ASG instance refresh:
+
+```bash
+CLUSTER=$(terraform output -raw ecs_cluster_name)
+terraform output -json ecs_service_names | jq -r 'to_entries[].value' |
+while read -r service; do
+  aws ecs update-service --cluster "$CLUSTER" --service "$service" --force-new-deployment
+done
 ```
 
 > Note: the runtime DB role (`gantry_app`) is created by the database bootstrap.
@@ -344,6 +401,22 @@ done
 # its /readyz directly.
 ```
 
+For ECS, first verify services are stable:
+
+```bash
+CLUSTER=$(terraform output -raw ecs_cluster_name)
+terraform output -json ecs_service_names | jq -r 'to_entries[].value' |
+while read -r service; do
+  aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+    --query 'services[0].{serviceName:serviceName,desired:desiredCount,running:runningCount,pending:pendingCount,status:status}'
+done
+```
+
+For deployment types with control, the control target group should show healthy
+IP targets; for chat-enabled deployment types, the live target group should show
+healthy live-worker IP targets. `jobs-only` has no public ALB; inspect `/readyz`
+through ECS Exec, SSM, or another private VPC path.
+
 First locked support-agent turn: send a message through the configured channel
 (its webhook resolves to `https://$ALB/webhooks/...`). The locked agent responds
 using only pre-provisioned capabilities; any `request_*`/`admin_*`/`settings_*`
@@ -366,6 +439,18 @@ for asg in control_asg live_worker_asg job_worker_asg; do
 done
 # Support: aws autoscaling start-instance-refresh \
 #   --auto-scaling-group-name "$(terraform output -raw worker_asg)"
+```
+
+For ECS, re-apply the previous `image_ref` and force a new deployment for each
+enabled service:
+
+```bash
+terraform apply
+CLUSTER=$(terraform output -raw ecs_cluster_name)
+terraform output -json ecs_service_names | jq -r 'to_entries[].value' |
+while read -r service; do
+  aws ecs update-service --cluster "$CLUSTER" --service "$service" --force-new-deployment
+done
 ```
 
 Drain is graceful: the terminate lifecycle hook holds each instance in
@@ -428,6 +513,13 @@ per instance, so the instance hostname is already the host identity.
 
 The scaling policy owns desired capacity once enabled; steer a running pool via
 its `*_min_size`/`*_max_size`, not `*_desired_capacity`.
+
+**ECS variant.** `envs/ecs` creates an ECS service per enabled role plus one
+ECS-optimized EC2 capacity ASG. Service Auto Scaling owns each service's desired
+task count through `service_configs.<role>.min_capacity/max_capacity`, while the
+EC2 capacity provider's managed scaling owns the container-instance ASG desired
+capacity. Tune service min/max for workload shape; tune
+`ecs_capacity_min_size/max_size` for the total worker host floor/ceiling.
 
 **Scale-in and live turns.** Every termination goes through the terminate
 lifecycle hook (B.8): SIGTERM, `/readyz` 503, finish or hand off owned turns,

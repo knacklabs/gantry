@@ -160,7 +160,7 @@ Anthropic SDK is the only Claude OAuth/subscription lane and also runs Anthropic
 API-key models. DeepAgents is the OpenAI-compatible harness for OpenAI,
 OpenRouter, Bedrock, and Vertex routes through the Gantry Model Gateway and
 cannot use Claude OAuth/subscription credentials. Bedrock API-key mode forwards
-to the regional `bedrock-runtime.<region>.amazonaws.com/openai/v1` endpoint;
+to the regional `bedrock-runtime.<region>.amazonaws.com/v1` endpoint;
 AWS credentials, SigV4, and default-chain identity are deferred for a separate
 non-OpenAI Bedrock API-family lane. Vertex `service_account` mode mints a
 host-side OAuth token for the global Vertex OpenAI-compatible endpoint.
@@ -349,13 +349,21 @@ identity and runs readiness checks instead of asking for a token.
 
 The current Bedrock and Vertex strategy is intentionally narrow:
 
-- Bedrock ships only the OpenAI-compatible `bedrock-oss` catalog alias, routed
-  to `openai.gpt-oss-120b-1:0` through Amazon Bedrock OpenAI Chat
+- Bedrock ships OpenAI-compatible catalog aliases for `bedrock-oss`
+  (`openai.gpt-oss-120b-1:0`), `bedrock-oss-20b`
+  (`openai.gpt-oss-20b-1:0`), Kimi aliases (`bedrock-kimi`,
+  `bedrock-kimi-thinking`), Qwen aliases (`bedrock-qwen`,
+  `bedrock-qwen-coder`, `bedrock-qwen-next`, `bedrock-qwen-vl`), DeepSeek,
+  GLM, MiniMax, Mistral/Devstral/Magistral/Ministral/Voxtral, Gemma,
+  Nemotron, and Llama 3 aliases through Amazon Bedrock OpenAI Chat
   Completions. That OpenAI-compatible route authenticates only with an Amazon
   Bedrock API key and uses the regional
-  `bedrock-runtime.<region>.amazonaws.com/openai/v1` base URL. Claude on
-  Bedrock and AWS credentials/SigV4/default-chain authentication are deferred to
-  a separate non-OpenAI Bedrock API-family lane.
+  `bedrock-runtime.<region>.amazonaws.com/v1` base URL. Model availability is
+  region-specific; CLI evidence on 2026-06-22 confirmed these ON_DEMAND
+  text-output chat models in `ap-south-1`, while `ap-south-2` returned no
+  models for the same filter in this account. Claude on Bedrock, GPT-OSS
+  safeguard models, and AWS credentials/SigV4/default-chain authentication are
+  deferred to separate API-family or workload-specific lanes.
 - Vertex ships the `vertex` and `vertex-flash-3.5` aliases, routed to
   `google/gemini-3.5-flash` through the Vertex OpenAI-compatible endpoint.
   The current route accepts only `global`. Gantry's gateway uses the

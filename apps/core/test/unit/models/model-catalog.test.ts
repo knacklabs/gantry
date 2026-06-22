@@ -58,6 +58,12 @@ describe('model catalog resolution', () => {
     expect(findModelByRunnerModel('moonshotai/kimi-k2.6')).toMatchObject({
       recommendedAlias: 'kimi',
     });
+    expect(findModelByRunnerModel('zai-glm-4.7')).toMatchObject({
+      recommendedAlias: 'cerebras-glm',
+    });
+    expect(findModelByRunnerModel('zai.glm-4.7')).toMatchObject({
+      recommendedAlias: 'bedrock-glm-4.7',
+    });
   });
 
   it('resolves OpenAI chat aliases on the openai response family', () => {
@@ -84,6 +90,34 @@ describe('model catalog resolution', () => {
         modelRoute: { id: 'bedrock' },
       },
     });
+    expect(resolveModelSelection('bedrock-oss-20b')).toMatchObject({
+      ok: true,
+      alias: 'bedrock-oss-20b',
+      runnerModel: 'openai.gpt-oss-20b-1:0',
+      entry: {
+        responseFamily: 'openai',
+        modelRoute: { id: 'bedrock' },
+      },
+    });
+    for (const [alias, runnerModel] of [
+      ['bedrock-kimi', 'moonshotai.kimi-k2.5'],
+      ['bedrock-kimi-thinking', 'moonshot.kimi-k2-thinking'],
+      ['bedrock-qwen-coder', 'qwen.qwen3-coder-480b-a35b-v1:0'],
+      ['bedrock-minimax', 'minimax.minimax-m2.5'],
+      ['bedrock-glm', 'zai.glm-5'],
+      ['bedrock-mistral-large-3', 'mistral.mistral-large-3-675b-instruct'],
+      ['bedrock-nemotron-super-120b', 'nvidia.nemotron-super-3-120b'],
+    ] as const) {
+      expect(resolveModelSelection(alias)).toMatchObject({
+        ok: true,
+        alias,
+        runnerModel,
+        entry: {
+          responseFamily: 'openai',
+          modelRoute: { id: 'bedrock' },
+        },
+      });
+    }
     expect(resolveModelSelection('vertex')).toMatchObject({
       ok: true,
       alias: 'vertex',
@@ -97,16 +131,38 @@ describe('model catalog resolution', () => {
       ok: false,
       reason: 'unknown',
     });
+    const bedrockKimi = resolveModelSelection('bedrock-kimi');
+    const vertex = resolveModelSelection('vertex');
+    const kimi = resolveModelSelection('kimi');
+    if (!bedrockKimi.ok) throw new Error(bedrockKimi.message);
+    if (!vertex.ok) throw new Error(vertex.message);
+    if (!kimi.ok) throw new Error(kimi.message);
+    expect(bedrockKimi.entry.providerAvailability).toMatchObject({
+      scope: { kind: 'regions', values: ['ap-south-1'] },
+    });
+    expect(vertex.entry.providerAvailability).toMatchObject({
+      scope: { kind: 'locations', values: ['global'] },
+    });
+    expect(kimi.entry.providerAvailability).toMatchObject({
+      scope: { kind: 'provider' },
+    });
+    expect(kimi.entry.providerRouting).toBeUndefined();
   });
 
   it('keeps Bedrock Anthropic models out of the OpenAI-compatible catalog', () => {
     const bedrockEntries = listModelCatalogEntries().filter(
       (entry) => entry.modelRoute.id === 'bedrock',
     );
-    expect(bedrockEntries).not.toHaveLength(0);
+    expect(bedrockEntries).toHaveLength(38);
     expect(
       bedrockEntries.map((entry) => entry.modelRoute.providerModelId),
     ).not.toContain('us.anthropic.claude-sonnet-4-6');
+    expect(
+      bedrockEntries.map((entry) => entry.modelRoute.providerModelId),
+    ).not.toContain('anthropic.claude-3-sonnet-20240229-v1:0');
+    expect(
+      bedrockEntries.map((entry) => entry.modelRoute.providerModelId),
+    ).not.toContain('openai.gpt-oss-safeguard-120b');
   });
 
   it('scopes OpenAI chat models to chat and memory workloads, not jobs', () => {
@@ -169,6 +225,10 @@ describe('model catalog resolution', () => {
 
   it('rejects raw provider model IDs with actionable guidance', () => {
     expect(resolveModelSelection('moonshotai/kimi-k2.6')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
+    expect(resolveModelSelection('moonshotai.kimi-k2.5')).toMatchObject({
       ok: false,
       reason: 'raw-provider-id',
     });
@@ -259,6 +319,23 @@ describe('model catalog resolution', () => {
       ['Qwen/Qwen3-235B-A22B-fp8-tput', 40_960],
       ['accounts/fireworks/models/deepseek-v3p1', 163_840],
       ['gpt-oss-120b', 131_072],
+      ['openai.gpt-oss-120b-1:0', 131_072],
+      ['openai.gpt-oss-20b-1:0', 131_072],
+      ['moonshotai.kimi-k2.5', 256_000],
+      ['moonshot.kimi-k2-thinking', 256_000],
+      ['qwen.qwen3-coder-480b-a35b-v1:0', 131_072],
+      ['qwen.qwen3-coder-30b-a3b-v1:0', 256_000],
+      ['qwen.qwen3-235b-a22b-2507-v1:0', 131_072],
+      ['qwen.qwen3-vl-235b-a22b', 256_000],
+      ['deepseek.v3.2', 163_840],
+      ['minimax.minimax-m2.5', 196_000],
+      ['zai.glm-5', 200_000],
+      ['zai.glm-4.7', 203_000],
+      ['mistral.mistral-large-3-675b-instruct', 256_000],
+      ['mistral.voxtral-mini-3b-2507', 32_768],
+      ['google.gemma-3-27b-it', 131_072],
+      ['nvidia.nemotron-super-3-120b', 1_048_576],
+      ['meta.llama3-70b-instruct-v1:0', 8_192],
       ['zai-glm-4.7', 131_072],
       ['sonar-pro', 200_000],
       ['sonar', 131_072],
@@ -398,6 +475,72 @@ describe('model catalog resolution', () => {
       ok: true,
       alias: 'fast-job',
     });
+  });
+
+  it('validates provider availability and OpenRouter routing metadata', () => {
+    const kimi = resolveModelSelection('kimi');
+    if (!kimi.ok) throw new Error(kimi.message);
+    configureCustomModelCatalogEntries([
+      {
+        ...kimi.entry,
+        id: 'settings:kimi-routed',
+        aliases: ['kimi-routed'],
+        recommendedAlias: 'kimi-routed',
+        providerRouting: {
+          openrouter: {
+            only: ['moonshotai'],
+            ignore: ['openai'],
+            allowFallbacks: false,
+            requireParameters: true,
+            dataCollection: 'deny',
+            sort: 'latency',
+          },
+        },
+      },
+    ]);
+
+    expect(resolveModelSelection('kimi-routed')).toMatchObject({
+      ok: true,
+      entry: {
+        providerRouting: {
+          openrouter: {
+            only: ['moonshotai'],
+            allowFallbacks: false,
+            requireParameters: true,
+            dataCollection: 'deny',
+            sort: 'latency',
+          },
+        },
+      },
+    });
+
+    expect(() =>
+      configureCustomModelCatalogEntries([
+        {
+          ...kimi.entry,
+          id: 'settings:kimi-bad-routing',
+          aliases: ['kimi-bad-routing'],
+          recommendedAlias: 'kimi-bad-routing',
+          providerRouting: {
+            openrouter: { only: ['moonshotai'], ignore: ['MoonshotAI'] },
+          },
+        },
+      ]),
+    ).toThrow('both only and ignore');
+
+    const gpt = resolveModelSelection('gpt');
+    if (!gpt.ok) throw new Error(gpt.message);
+    expect(() =>
+      configureCustomModelCatalogEntries([
+        {
+          ...gpt.entry,
+          id: 'settings:gpt-bad-routing',
+          aliases: ['gpt-bad-routing'],
+          recommendedAlias: 'gpt-bad-routing',
+          providerRouting: { openrouter: { only: ['openai'] } },
+        },
+      ]),
+    ).toThrow('OpenRouter provider routing on route openai');
   });
 
   it('recommends models using deterministic filters and rankings', () => {

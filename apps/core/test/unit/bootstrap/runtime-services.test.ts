@@ -116,6 +116,7 @@ function makeChannelWiring(): ChannelWiring {
     createRecoveryDispatchPermit,
     setRetryTailRecoveryEnqueue: vi.fn(),
     setDurableOutboundAttemptFactory: vi.fn(),
+    setMessageActionHandler: vi.fn(),
     sendStreamingChunk: vi.fn(async () => {}),
     resetStreaming: vi.fn(),
     setTyping: vi.fn(async () => {}),
@@ -124,6 +125,7 @@ function makeChannelWiring(): ChannelWiring {
     requestPermissionApproval: vi.fn(async () => ({ approved: true })),
     requestUserAnswer: vi.fn(async () => ({ requestId: 'q', answers: {} })),
     disconnectChannels: vi.fn(async () => {}),
+    isControlApproverAllowed: vi.fn(async () => true),
   };
 }
 
@@ -1511,6 +1513,102 @@ describe('startRuntimeServices', () => {
       'tg:primary',
       'Stopping current run.',
       { durability: 'required', messageOptions: { threadId: 'topic-42' } },
+    );
+  });
+
+  it('routes live stop message actions through the active thread queue', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    vi.mocked(app.queue.stopGroup as any).mockReturnValue(true);
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(
+          () => ({ stop: vi.fn(), done: new Promise<void>(() => {}) }) as any,
+        ) as any,
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          fatal: vi.fn(),
+        },
+        exit: vi.fn() as any,
+      },
+    );
+
+    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
+      .calls[0]?.[0];
+    expect(handler).toBeDefined();
+    await handler?.({
+      kind: 'live_turn_stop',
+      conversationJid: 'tg:primary',
+      threadId: 'topic-42',
+      userId: 'user',
+      actionToken: '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
+    });
+
+    expect(app.queue.stopGroup).toHaveBeenCalledWith(
+      '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
+    );
+    expect(channelWiring.isControlApproverAllowed).toHaveBeenCalledWith({
+      conversationJid: 'tg:primary',
+      userId: 'user',
+      sourceAgentFolder: 'main',
+      decisionPolicy: 'same_channel',
+    });
+    expect(channelWiring.sendMessage).toHaveBeenCalledWith(
+      'tg:primary',
+      'Stopping current run.',
+      { durability: 'required', messageOptions: { threadId: 'topic-42' } },
+    );
+  });
+
+  it('does not stop live runs from unapproved message action callbacks', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    vi.mocked(channelWiring.isControlApproverAllowed).mockResolvedValue(false);
+    vi.mocked(app.queue.stopGroup as any).mockReturnValue(true);
+
+    await startRuntimeServices(
+      { app, channelWiring },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(
+          () => ({ stop: vi.fn(), done: new Promise<void>(() => {}) }) as any,
+        ) as any,
+        logger: { info: vi.fn(), warn: vi.fn(), fatal: vi.fn() },
+        exit: vi.fn() as any,
+      },
+    );
+
+    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
+      .calls[0]?.[0];
+    await handler?.({
+      kind: 'live_turn_stop',
+      conversationJid: 'tg:primary',
+      threadId: 'topic-42',
+      userId: 'user',
+    });
+
+    expect(app.queue.stopGroup).not.toHaveBeenCalled();
+    expect(channelWiring.sendMessage).not.toHaveBeenCalledWith(
+      'tg:primary',
+      'Stopping current run.',
+      expect.any(Object),
     );
   });
 

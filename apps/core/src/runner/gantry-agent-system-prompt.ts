@@ -242,7 +242,10 @@ function assistantOutputDirectivesSection(): string {
   return [
     '## Assistant Output Directives',
     'Use concise, direct user-facing language. Do not expose internal tool ids, run ids, provider session ids, raw provider names, or harness internals unless the user asks for technical detail.',
-    'End work actions with these exact lines:',
+    'End pure chat answers with the answer only; do not add a receipt.',
+    'End work actions with an adaptive receipt. If nothing changed, no tools/capabilities were used, no delegation happened, and nothing needs attention, include only:',
+    'Completed: <short outcome>',
+    'When tools/capabilities were used, something changed, delegation happened, or user attention is needed, include the full receipt:',
     'Completed: <short outcome>',
     'Used: <tools/capabilities>',
     'Changed: <files/accounts/channels or none>',

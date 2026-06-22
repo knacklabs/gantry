@@ -37,6 +37,52 @@ import { registerSlackMessageActionHandler } from './channel-message-action-hand
 import { registerSlackUtilityHandlers } from './channel-utility-handlers.js';
 
 export abstract class SlackChannelInteractions extends SlackChannelState {
+  protected async ingestSlackSlashCommand(command: {
+    channel_id?: string;
+    user_id?: string;
+    user_name?: string;
+    text?: string;
+    trigger_id?: string;
+    command_id?: string;
+  }): Promise<void> {
+    const channelId = command.channel_id;
+    if (!channelId) return;
+    const jid = `sl:${channelId}`;
+    const chatName = await this.resolveChannelName(channelId);
+    await this.opts.onChatMetadata(
+      jid,
+      nowIso(),
+      chatName,
+      'slack',
+      this.isLikelyGroupConversation(channelId),
+    );
+    const group = this.opts.conversationRoutes()[jid];
+    if (!group && this.isLikelyGroupConversation(channelId)) return;
+    const text = command.text?.trim();
+    const content = text ? `/gantry ${text}` : '/gantry';
+    const id =
+      command.command_id ||
+      command.trigger_id ||
+      `gantry:${channelId}:${Date.now()}`;
+    await this.opts.onMessage(jid, {
+      id,
+      chat_jid: jid,
+      provider: 'slack',
+      sender: command.user_id || 'unknown',
+      sender_name:
+        (command.user_id
+          ? await this.resolveUserName(command.user_id)
+          : command.user_name) ||
+        command.user_name ||
+        command.user_id ||
+        'unknown',
+      content,
+      timestamp: nowIso(),
+      is_from_me: false,
+      external_message_id: id,
+    });
+  }
+
   protected async ingestSlackMessage(
     event: SlackMessageLike,
     options: { forceOwnedTopLevel?: boolean } = {},
@@ -186,6 +232,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         await this.ingestSlackMessage(args.event as SlackMessageLike, {
           forceOwnedTopLevel: true,
         });
+      });
+      this.app.command('/gantry', async (args: any) => {
+        await args.ack();
+        await this.ingestSlackSlashCommand(args.command || args.body || {});
       });
       registerSlackUtilityHandlers(this.app);
     }
@@ -595,6 +645,6 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       }
       await this.finalizeUserQuestionPrompt(pending, text, answeredBy);
     });
-    registerSlackMessageActionHandler(this.app);
+    registerSlackMessageActionHandler(this.app, this.opts.onMessageAction);
   }
 }

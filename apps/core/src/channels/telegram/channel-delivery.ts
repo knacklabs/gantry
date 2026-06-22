@@ -26,6 +26,11 @@ import {
   telegramThreadOptionsFromString,
 } from './channel-shared.js';
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
+import {
+  clearProgressActions,
+  progressActionOptions,
+  sendNewProgressMessage,
+} from './progress-message-actions.js';
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
 import { renderTelegramAgentTodo } from './agent-todo-delivery.js';
 import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
@@ -345,9 +350,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       }
       return;
     }
-    const sendOptions = Number.isFinite(parsedThreadId)
-      ? { message_thread_id: parsedThreadId }
-      : {};
+    const actionOptions = progressActionOptions(options);
+    const sendOptions = {
+      ...(Number.isFinite(parsedThreadId)
+        ? { message_thread_id: parsedThreadId }
+        : {}),
+      ...actionOptions.sendOptions,
+    };
     if (!existing && options.replaceOnly) {
       logger.info(
         { jid, key, progressText: nextText, generation: options.generation },
@@ -356,43 +365,29 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       return;
     }
     if (!existing) {
-      const messageId = await sendTelegramMessageWithResult(
-        this.bot.api,
-        numericId,
-        nextText,
+      await sendNewProgressMessage({
+        api: this.bot.api,
+        activeProgressMessages: this.activeProgressMessages,
+        persistProgressMessages: () => this.persistProgressMessages(),
+        chatId: numericId,
+        key,
+        jid,
+        text: nextText,
+        options,
         sendOptions,
-      );
-      if (!options.done) {
-        this.activeProgressMessages.set(key, {
-          chatId: numericId,
-          threadId: Number.isFinite(parsedThreadId)
-            ? parsedThreadId
-            : undefined,
-          messageId,
-          lastText: nextText,
-          ...(options.generation !== undefined
-            ? { generation: options.generation }
-            : {}),
-        });
-        this.persistProgressMessages();
-      }
-      logger.info(
-        {
-          jid,
-          key,
-          progressText: nextText,
-          done: options.done ?? false,
-          generation: options.generation,
-          messageId,
-          storedHandle: !options.done,
-        },
-        'Progress lifecycle telegram sent new message',
-      );
+        threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
+      });
       return;
     }
-
     if (existing.lastText === nextText) {
       if (options.done) {
+        await clearProgressActions({
+          api: this.bot.api,
+          chatId: numericId,
+          messageId: existing.messageId,
+          text: nextText,
+          editReplyMarkup: actionOptions.editReplyMarkup,
+        });
         this.activeProgressMessages.delete(key);
         this.persistProgressMessages();
         logger.info(
@@ -436,6 +431,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           numericId,
           existing.messageId,
           nextText,
+          {},
+          actionOptions.editReplyMarkup,
         );
       } catch (err) {
         logger.debug(
@@ -525,7 +522,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         reason: 'This approval request is already awaiting a decision.',
       };
     }
-
     const callbackId = this.permissionCallbackIdForRequest(request.requestId);
     const timeoutMs = TELEGRAM_USER_QUESTION_TIMEOUT_MS;
     try {

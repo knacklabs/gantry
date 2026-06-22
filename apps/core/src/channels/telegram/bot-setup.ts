@@ -27,6 +27,14 @@ export function registerTelegramBotCommands(
   bot: Bot<TelegramContext>,
   assistantName: string,
 ): void {
+  void bot.api
+    .setMyCommands([
+      { command: 'gantry', description: 'Open Gantry commands' },
+      { command: 'chatid', description: 'Show this chat ID' },
+      { command: 'ping', description: 'Check bot status' },
+    ])
+    .catch(() => undefined);
+
   bot.command('chatid', (ctx) => {
     const chatId = ctx.chat.id;
     const chatType = ctx.chat.type;

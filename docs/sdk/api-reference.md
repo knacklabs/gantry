@@ -784,10 +784,10 @@ Notable runtime event types include:
 These events are observable history only. They do not create permissions, alter
 selected capabilities, or prove provider/channel delivery by themselves.
 
-The current run event API exposes read-only runtime history, but Gantry does not
-yet host-enforce the five-line terminal evidence receipt until the receipt
-formatter/enforcer lands. The target terminal run and job evidence receipt uses
-this exact format:
+The current run event API exposes read-only runtime history. Evidence receipts
+are adaptive: pure chat answers do not need a receipt, work with no tools,
+changes, delegation, or blocker may use only `Completed: <short outcome>`, and
+impactful work uses the full receipt:
 
 ```text
 Completed: <short outcome>

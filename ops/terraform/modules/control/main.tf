@@ -81,7 +81,7 @@ resource "aws_lb_target_group" "control" {
   port        = var.control_port
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
-  target_type = "instance"
+  target_type = var.target_type
 
   deregistration_delay = var.deregistration_delay_seconds
 
@@ -108,7 +108,7 @@ resource "aws_lb_target_group" "live" {
   port        = var.control_port
   protocol    = "HTTP"
   vpc_id      = var.vpc_id
-  target_type = "instance"
+  target_type = var.target_type
 
   deregistration_delay = var.deregistration_delay_seconds
 
@@ -167,7 +167,7 @@ resource "aws_lb_listener_rule" "https_api_paths" {
 
 # /webhooks/* (provider inbound webhooks) -> live TG (providerInbound role).
 resource "aws_lb_listener_rule" "https_webhook_paths" {
-  count        = var.certificate_arn != "" ? 1 : 0
+  count        = var.certificate_arn != "" && var.enable_webhook_paths ? 1 : 0
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 110
 

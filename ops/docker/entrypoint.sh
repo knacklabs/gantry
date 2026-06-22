@@ -132,12 +132,57 @@ load_or_create_rehearsal_secrets() {
   trap - EXIT INT TERM
 }
 
+seed_fleet_settings_file() {
+  gantry_home="${GANTRY_HOME:-/var/lib/gantry}"
+  settings_file="$gantry_home/settings.yaml"
+
+  mkdir -p "$gantry_home"
+  if [ -f "$settings_file" ]; then
+    log "fleet settings file already exists: $settings_file"
+    return
+  fi
+
+  artifact_bucket="${GANTRY_ARTIFACT_BUCKET:-${GANTRY_ARTIFACT_BUCKET_NAME:-}}"
+  artifact_region="${GANTRY_ARTIFACT_REGION:-${AWS_REGION:-}}"
+  schema="$(resolve_settings_schema)"
+
+  : "${artifact_bucket:?GANTRY_ARTIFACT_BUCKET is required when GANTRY_FLEET_SETTINGS_AUTO=1}"
+  : "${artifact_region:?AWS_REGION or GANTRY_ARTIFACT_REGION is required when GANTRY_FLEET_SETTINGS_AUTO=1}"
+
+  umask 077
+  cat >"$settings_file" <<EOF
+runtime:
+  deployment_mode: fleet
+  queue:
+    max_message_runs: 6
+    max_job_runs: 2
+  sandbox:
+    provider: sandbox_runtime
+    resource_limits:
+      memory_mb: 512
+      max_processes: 64
+  artifact_store:
+    driver: s3
+    bucket: $artifact_bucket
+    region: $artifact_region
+storage:
+  postgres:
+    url_env: GANTRY_DATABASE_URL
+    schema: $schema
+EOF
+  log "seeded fleet settings file: $settings_file"
+}
+
 prepare_runtime_home_and_drop_privileges "$@"
 
 if [ "${GANTRY_FLEET_REHEARSAL_AUTO_SECRETS:-0}" = "1" ]; then
   load_or_create_rehearsal_secrets
   export SECRET_ENCRYPTION_KEY GANTRY_IPC_AUTH_SECRET GANTRY_CONTROL_API_KEYS_JSON
   log "loaded shared rehearsal-only runtime secrets"
+fi
+
+if [ "${GANTRY_FLEET_SETTINGS_AUTO:-0}" = "1" ]; then
+  seed_fleet_settings_file
 fi
 
 BOOTSTRAPPED_SETTINGS_FILE=0
@@ -178,6 +223,10 @@ if [ "$BOOTSTRAPPED_SETTINGS_FILE" = "1" ] && [ "$BOOTSTRAPPED_SETTINGS_DEPLOYME
   log "seeding initial fleet settings revision from bootstrap settings.yaml"
   node /app/ops/docker/fleet-settings-seed.mjs "${GANTRY_HOME:-/var/lib/gantry}/settings.yaml"
   log "fleet settings seed complete"
+elif [ "${GANTRY_FLEET_SETTINGS_AUTO:-0}" = "1" ]; then
+  GANTRY_FLEET_SETTINGS_SEED_IF_EMPTY=1 \
+    node /app/ops/docker/fleet-settings-seed.mjs "${GANTRY_HOME:-/var/lib/gantry}/settings.yaml"
+  log "fleet settings revision seed complete"
 fi
 
 # ---------------------------------------------------------------------------

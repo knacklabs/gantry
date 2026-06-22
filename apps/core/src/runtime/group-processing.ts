@@ -137,12 +137,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     );
     let streamGeneration = (streamingGenerationCounter += 1);
     let progressGeneration = streamGeneration;
+    const turnOptions = createGroupTurnOptionBuilders({
+      activeThreadId,
+      streamGeneration: () => streamGeneration,
+      progressGeneration: () => progressGeneration,
+    });
     const { buildMessageOptions, buildStreamingOptions, buildProgressOptions } =
-      createGroupTurnOptionBuilders({
-        activeThreadId,
-        streamGeneration: () => streamGeneration,
-        progressGeneration: () => progressGeneration,
-      });
+      turnOptions;
     const sendMessageToChannel = async (
       text: string,
       options?: MessageSendOptions,
@@ -733,6 +734,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             options.existingRunLeaseWorkerInstanceId,
           existingRunLeaseFencingVersion:
             options.existingRunLeaseFencingVersion,
+          liveStopActionToken: turnOptions.liveStopActionToken,
         },
       );
     } finally {
@@ -797,7 +799,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         terminal: true,
       });
     }
-
     const finalProgressState = resolveGroupTurnFinalProgressState({
       output,
       hadError,
@@ -823,6 +824,5 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     options?.onRunResult?.(output);
     return resultOk;
   }
-
   return { processGroupMessages };
 }

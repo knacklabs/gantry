@@ -142,6 +142,10 @@ export function formatTelegramStreamingText(
   return done ? parseTextStyles(text, 'telegram-html') : text;
 }
 
+export type TelegramSendMessageOptions = NonNullable<
+  Parameters<Api['sendMessage']>[2]
+>;
+
 /**
  * Send a message with Telegram MarkdownV2, then plain text.
  */
@@ -149,7 +153,7 @@ export async function sendTelegramMessage(
   api: { sendMessage: Api['sendMessage'] },
   chatId: string | number,
   text: string,
-  options: { message_thread_id?: number } = {},
+  options: TelegramSendMessageOptions = {},
 ): Promise<void> {
   await sendTelegramMessageWithResult(api, chatId, text, options);
 }
@@ -162,7 +166,7 @@ export async function sendTelegramMessageWithResult(
   api: { sendMessage: Api['sendMessage'] },
   chatId: string | number,
   text: string,
-  options: { message_thread_id?: number } = {},
+  options: TelegramSendMessageOptions = {},
   escapeOptions: TelegramMarkdownEscapeOptions = {},
 ): Promise<number | undefined> {
   try {
@@ -205,10 +209,12 @@ export async function editTelegramMessage(
   messageId: number,
   text: string,
   escapeOptions: TelegramMarkdownEscapeOptions = {},
+  editOptions: Record<string, unknown> = {},
 ): Promise<void> {
   try {
     await api.editMessageText(chatId, messageId, text, {
       parse_mode: 'MarkdownV2',
+      ...editOptions,
     });
     return;
   } catch (errV2Raw) {
@@ -227,6 +233,7 @@ export async function editTelegramMessage(
       escapeTelegramMarkdownV2(text, escapeOptions),
       {
         parse_mode: 'MarkdownV2',
+        ...editOptions,
       },
     );
     return;
@@ -243,7 +250,7 @@ export async function editTelegramMessage(
   }
 
   try {
-    await api.editMessageText(chatId, messageId, text);
+    await api.editMessageText(chatId, messageId, text, editOptions);
   } catch (errPlain) {
     const msg = errPlain instanceof Error ? errPlain.message : String(errPlain);
     if (/message is not modified/i.test(msg)) return;

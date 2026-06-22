@@ -5,7 +5,6 @@ import {
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalRequest,
-  ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../../domain/types.js';
 import {
@@ -75,6 +74,8 @@ import { sanitizeRetryTailForCanonicalDestination } from './runtime-services-des
 import { nowIso } from '../../shared/time/datetime.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import { authorizeConversationApprover } from './channel-wiring-approver.js';
+import { createChannelMessageActionRouter } from './channel-message-action-router.js';
+import { createChannelProgressSender } from './channel-progress-sender.js';
 export type { ChannelWiring } from './channel-wiring-types.js';
 
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
@@ -101,6 +102,7 @@ export function createChannelWiring(
   const connectedChannelLeases: RuntimeLease[] = [];
   let enqueueRetryTailRecovery: RetryTailRecoveryEnqueue | undefined;
   let durableOutboundAttemptFactory: DurableOutboundAttemptFactory | undefined;
+  const messageActionRouter = createChannelMessageActionRouter();
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
   const optionalOps = () => {
@@ -167,6 +169,11 @@ export function createChannelWiring(
       asAgentTodoSurface(channel as ChannelAdapter),
     logger: resolved.logger,
   });
+  const sendProgressUpdate = createChannelProgressSender({
+    findBoundChannel,
+    messageActionRouter,
+    logger: resolved.logger,
+  });
   const channelOpts = {
     ...createChannelPersistenceHandlers({
       app,
@@ -176,11 +183,10 @@ export function createChannelWiring(
     }),
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
-    runtimeLease: {
-      tryAcquire: tryAcquireRuntimeAdvisoryLease,
-    },
+    runtimeLease: { tryAcquire: tryAcquireRuntimeAdvisoryLease },
     runtimeSecrets: resolved.runtimeSecrets,
     isControlApproverAllowed,
+    onMessageAction: messageActionRouter.handle,
   };
 
   async function connectEnabledChannels(
@@ -671,38 +677,6 @@ export function createChannelWiring(
     await typingSink.setTyping(jid, isTyping);
   }
 
-  async function sendProgressUpdate(
-    jid: string,
-    text: string,
-    options?: ProgressUpdateOptions,
-  ): Promise<void> {
-    const channel = findBoundChannel(jid);
-    if (!channel) {
-      resolved.logger.info(
-        { jid, progressText: text, options },
-        'Progress lifecycle channel-wiring skipped without channel',
-      );
-      return;
-    }
-    const sink = asProgressSink(channel);
-    if (!sink) {
-      resolved.logger.info(
-        { jid, progressText: text, options },
-        'Progress lifecycle channel-wiring skipped without progress sink',
-      );
-      return;
-    }
-    resolved.logger.info(
-      { jid, progressText: text, options },
-      'Progress lifecycle channel-wiring send attempt',
-    );
-    await sink.sendProgressUpdate(jid, text, options);
-    resolved.logger.info(
-      { jid, progressText: text, options },
-      'Progress lifecycle channel-wiring send complete',
-    );
-  }
-
   async function syncGroups(force: boolean): Promise<void> {
     const syncSources = connectedChannels
       .map(asGroupDiscoverySource)
@@ -740,6 +714,7 @@ export function createChannelWiring(
     createRecoveryDispatchPermit,
     setRetryTailRecoveryEnqueue,
     setDurableOutboundAttemptFactory,
+    setMessageActionHandler: messageActionRouter.set,
     sendStreamingChunk,
     resetStreaming,
     setTyping,

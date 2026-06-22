@@ -8,6 +8,80 @@ import { normalizeProviderId } from './provider-registry.js';
 
 const TOKEN_BOUND_HTTP_GUIDANCE = 'Verify provider credentials and retry.';
 const TELEGRAM_BOT_TOKEN_PATTERN = /^\d+:[A-Za-z0-9_-]+$/;
+const DISCORD_ADMINISTRATOR = 1n << 3n;
+const DISCORD_VIEW_CHANNEL = 1n << 10n;
+const DISCORD_SEND_MESSAGES = 1n << 11n;
+const DISCORD_READ_MESSAGE_HISTORY = 1n << 16n;
+
+export const DISCORD_RUNTIME_CHANNEL_PERMISSION_BITS =
+  DISCORD_VIEW_CHANNEL | DISCORD_SEND_MESSAGES | DISCORD_READ_MESSAGE_HISTORY;
+
+function discordBits(value: string | number | bigint | undefined): bigint {
+  try {
+    return BigInt(value ?? 0);
+  } catch {
+    return 0n;
+  }
+}
+
+function applyDiscordOverwrite(
+  permissions: bigint,
+  overwrite?: { allow?: string; deny?: string },
+): bigint {
+  if (!overwrite) return permissions;
+  return (
+    (permissions & ~discordBits(overwrite.deny)) | discordBits(overwrite.allow)
+  );
+}
+
+export function discordMemberHasChannelPermissions(input: {
+  guildId: string;
+  userId: string;
+  memberRoles: string[];
+  roles: Array<{ id?: string; permissions?: string }>;
+  overwrites: Array<{
+    id?: string;
+    type?: number;
+    allow?: string;
+    deny?: string;
+  }>;
+  requiredPermissions?: bigint;
+}): boolean {
+  const rolePermissions = new Map(
+    input.roles.map((role) => [role.id || '', discordBits(role.permissions)]),
+  );
+  let permissions = rolePermissions.get(input.guildId) ?? 0n;
+  for (const roleId of input.memberRoles) {
+    permissions |= rolePermissions.get(roleId) ?? 0n;
+  }
+  if ((permissions & DISCORD_ADMINISTRATOR) === DISCORD_ADMINISTRATOR)
+    return true;
+  permissions = applyDiscordOverwrite(
+    permissions,
+    input.overwrites.find((overwrite) => overwrite.id === input.guildId),
+  );
+  let roleAllow = 0n;
+  let roleDeny = 0n;
+  for (const overwrite of input.overwrites) {
+    if (
+      overwrite.type !== 0 ||
+      !input.memberRoles.includes(overwrite.id || '')
+    ) {
+      continue;
+    }
+    roleAllow |= discordBits(overwrite.allow);
+    roleDeny |= discordBits(overwrite.deny);
+  }
+  permissions = (permissions & ~roleDeny) | roleAllow;
+  permissions = applyDiscordOverwrite(
+    permissions,
+    input.overwrites.find(
+      (overwrite) => overwrite.type === 1 && overwrite.id === input.userId,
+    ),
+  );
+  const required = input.requiredPermissions ?? DISCORD_VIEW_CHANNEL;
+  return (permissions & required) === required;
+}
 
 export class RuntimeSecretConversationMembershipValidator implements ConversationMembershipValidator {
   constructor(private readonly secrets: RuntimeSecretProvider) {}
@@ -18,6 +92,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     const providerId = normalizeProviderId(String(input.providerId));
     if (providerId === 'telegram') return this.validateTelegram(input);
     if (providerId === 'slack') return this.validateSlack(input);
+    if (providerId === 'discord') return this.validateDiscord(input);
     if (providerId === 'teams') return this.validateTeams(input);
     return {
       validUserIds: [],
@@ -144,6 +219,96 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
       cursor = payload.response_metadata?.next_cursor || '';
     } while (cursor);
     return members;
+  }
+
+  private async validateDiscord(
+    input: ConversationMembershipValidationInput,
+  ): Promise<ConversationMembershipValidationResult> {
+    const botToken = this.resolveSecret(
+      input.providerConnection.runtimeSecretRefs,
+      ['DISCORD_BOT_TOKEN'],
+    );
+    if (!botToken) {
+      return {
+        validUserIds: [],
+        invalidUserIds: input.userIds,
+        reason: 'Discord bot token is not configured.',
+      };
+    }
+    try {
+      const channelId = externalConversationValue(input).replace(/^dc:/, '');
+      const channelResponse = await fetchWithTimeout(
+        `https://discord.com/api/v10/channels/${encodeURIComponent(channelId)}`,
+        {
+          headers: { authorization: `Bot ${botToken}` },
+        },
+      );
+      if (!channelResponse.ok) {
+        throw new Error('Discord channel lookup failed');
+      }
+      const channel = (await channelResponse.json()) as {
+        guild_id?: string;
+        permission_overwrites?: Array<{
+          id?: string;
+          type?: number;
+          allow?: string;
+          deny?: string;
+        }>;
+      };
+      if (!channel.guild_id) {
+        throw new Error('Discord guild id missing');
+      }
+      if (!Array.isArray(channel.permission_overwrites)) {
+        throw new Error('Discord channel permission overwrites missing');
+      }
+      const rolesResponse = await fetchWithTimeout(
+        `https://discord.com/api/v10/guilds/${encodeURIComponent(channel.guild_id)}/roles`,
+        { headers: { authorization: `Bot ${botToken}` } },
+      );
+      if (!rolesResponse.ok) throw new Error('Discord role lookup failed');
+      const roles = (await rolesResponse.json()) as Array<{
+        id?: string;
+        permissions?: string;
+      }>;
+      const checks = await Promise.all(
+        input.userIds.map(async (userId) => {
+          try {
+            const response = await fetchWithTimeout(
+              `https://discord.com/api/v10/guilds/${encodeURIComponent(channel.guild_id || '')}/members/${encodeURIComponent(userId)}`,
+              { headers: { authorization: `Bot ${botToken}` } },
+            );
+            if (!response.ok) return { userId, valid: false };
+            const member = (await response.json()) as { roles?: string[] };
+            return {
+              userId,
+              valid: discordMemberHasChannelPermissions({
+                guildId: channel.guild_id || '',
+                userId,
+                memberRoles: member.roles ?? [],
+                roles,
+                overwrites: channel.permission_overwrites ?? [],
+              }),
+            };
+          } catch {
+            return { userId, valid: false };
+          }
+        }),
+      );
+      return {
+        validUserIds: checks
+          .filter((entry) => entry.valid)
+          .map((entry) => entry.userId),
+        invalidUserIds: checks
+          .filter((entry) => !entry.valid)
+          .map((entry) => entry.userId),
+      };
+    } catch {
+      return {
+        validUserIds: [],
+        invalidUserIds: input.userIds,
+        reason: TOKEN_BOUND_HTTP_GUIDANCE,
+      };
+    }
   }
 
   private async validateTeams(

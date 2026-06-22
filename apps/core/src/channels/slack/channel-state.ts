@@ -117,6 +117,7 @@ export abstract class SlackChannelState {
     | 'conversationRoutes'
     | 'runtimeSettings'
     | 'isControlApproverAllowed'
+    | 'onMessageAction'
   >;
   protected botUserId: string | null = null;
   protected userNameCache = new Map<string, string>();

@@ -143,7 +143,7 @@ function capabilityGuidancePrompt(
     '- Memory tools store durable evidence only; temporary task state does not belong in memory.',
     '- Use todo_update for any multi-step task: publish a short plan and keep it current as items move pending -> inProgress -> completed. It renders as one live, in-place list per channel, so do not restate the same progress in separate messages. It is display-only, non-authority state and does not grant tools or trigger work.',
     '- Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
-    '- Final answers that used delegation must include exactly: Completed: <short outcome>, Used: <tools/capabilities>, Changed: <files/accounts/channels or none>, Delegated: yes, Needs attention: <blocker or none>.',
+    '- Final answers use adaptive receipts: pure chat answers need no receipt; work with no tools, changes, delegation, or blocker may use only Completed: <short outcome>; delegated work must include the full receipt with Used, Changed, Delegated, and Needs attention.',
     '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
   ];
   if (persona === 'developer') {

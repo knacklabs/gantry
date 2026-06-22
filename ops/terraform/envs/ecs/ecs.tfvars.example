@@ -1,0 +1,76 @@
+# Example ECS tfvars. Copy to ecs.auto.tfvars (gitignored) or pass with
+# -var-file. Replace every REPLACE_ME. NO secret VALUES here — only ARNs.
+
+region          = "us-east-1"
+name_prefix     = "gantry-ecs"
+deployment_type = "all" # api-only | chat-only | jobs-only | all
+
+# Container image (pin by digest in production).
+image_ref = "ghcr.io/REPLACE_ME_ORG/gantry@sha256:REPLACE_ME"
+
+# Empty uses the latest AL2023 ECS-optimized AMI from SSM.
+ecs_capacity_ami_id          = ""
+ecs_capacity_instance_type   = "c7i.2xlarge"
+ecs_capacity_min_size        = 1
+ecs_capacity_max_size        = 6
+ecs_capacity_desired_capacity = 2
+
+# --- Secret REFERENCES (ARNs). Create the secret values first (see runbook). ---
+runtime_database_url_secret_arn         = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/runtime-db-url-REPLACE"
+db_proxy_secret_arn                     = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/db-proxy-runtime-role-REPLACE"
+secret_encryption_key_secret_arn        = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/secret-encryption-key-REPLACE"
+gantry_ipc_auth_secret_arn              = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/ipc-auth-secret-REPLACE"
+gantry_control_api_keys_json_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/control-api-keys-json-REPLACE"
+
+# Optional: migration role distinct from runtime role.
+# migration_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/migration-db-url-REPLACE"
+
+# Optional: channel/provider credentials.
+# additional_runtime_secret_refs = [
+#   { env_name = "SLACK_BOT_TOKEN", secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/slack-bot-token-REPLACE" },
+# ]
+
+# --- Database ---
+db_engine_version      = "16.8"
+db_instance_class      = "db.t4g.medium"
+db_multi_az            = true
+db_deletion_protection = true
+
+# --- ECS service sizing. Defaults are a first production-test shape, not a
+# capacity claim. Tune min/max and task memory after the benchmark evidence gate.
+service_configs = {
+  control = {
+    desired_count       = 1
+    min_capacity        = 1
+    max_capacity        = 2
+    autoscaling_enabled = true
+    cpu_target_value    = 60
+    task_cpu            = 512
+    task_memory         = 1024
+  }
+  live-worker = {
+    desired_count       = 2
+    min_capacity        = 2
+    max_capacity        = 6
+    autoscaling_enabled = true
+    cpu_target_value    = 60
+    task_cpu            = 4096
+    task_memory         = 8192
+  }
+  job-worker = {
+    desired_count       = 1
+    min_capacity        = 1
+    max_capacity        = 4
+    autoscaling_enabled = true
+    cpu_target_value    = 60
+    task_cpu            = 4096
+    task_memory         = 8192
+  }
+}
+
+# Required for api-only, chat-only, and all. Leave empty only for jobs-only.
+# certificate_arn = "arn:aws:acm:us-east-1:REPLACE_ME:certificate/REPLACE_ME"
+
+tags = {
+  Owner = "REPLACE_ME"
+}

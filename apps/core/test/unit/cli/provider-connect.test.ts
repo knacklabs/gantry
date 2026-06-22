@@ -55,4 +55,20 @@ describe('runProviderConnectCommand', () => {
     expect(code).toBe(0);
     expect(runTeamsConnectCommand).toHaveBeenCalledWith(runtimeHome);
   });
+
+  it('dispatches Discord connect through its built-in setup command', async () => {
+    vi.resetModules();
+    const runDiscordConnectCommand = vi.fn(async () => 0);
+    vi.doMock('@core/cli/discord.js', () => ({
+      runDiscordConnectCommand,
+    }));
+    const { runProviderConnectCommand: runConnect } =
+      await import('@core/cli/provider-connect.js');
+    const runtimeHome = makeRuntimeHome();
+
+    const code = await runConnect(runtimeHome, 'discord');
+
+    expect(code).toBe(0);
+    expect(runDiscordConnectCommand).toHaveBeenCalledWith(runtimeHome);
+  });
 });

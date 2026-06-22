@@ -371,6 +371,13 @@
     "maxViolations": 4
   },
   {
+    "file": "apps/core/src/cli/discord.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Discord setup follows the existing CLI setup adapter pattern for env/settings persistence while the REST discovery seam lives under channels; capped so additional config imports fail until the boundary slice extracts setup persistence.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 4
+  },
+  {
     "file": "apps/core/src/config/env/index.ts",
     "rule": "provider_specific_path",
     "reason": "Exact config provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",

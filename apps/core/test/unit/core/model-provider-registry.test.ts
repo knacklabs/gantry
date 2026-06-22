@@ -515,7 +515,20 @@ describe('model provider registry', () => {
     expect(bedrock).toBeDefined();
     expect(bedrock!.responseFamily).toBe('openai');
     expect(bedrock!.gateway.pathSegment).toBe('bedrock');
+    expect(bedrock!.gateway.upstreamPathPrefix).toBe('/v1');
     expect(bedrock!.gateway.upstreamResolver).toBeDefined();
+    expect(
+      bedrock!.gateway.upstreamResolver!({
+        authMode: 'bedrock_api_key',
+        payload: {
+          region: 'ap-south-1',
+          apiKey: 'bedrock-key',
+        },
+      }),
+    ).toEqual({
+      origin: 'https://bedrock-runtime.ap-south-1.amazonaws.com',
+      pathPrefix: '/v1',
+    });
     expect(bedrock!.cacheSupport.prompt.mode).toBe('none');
     expect(bedrock!.supportedWorkloads).toEqual([
       'chat',

@@ -33,7 +33,7 @@ provider string:
   `upstreamPathPrefix`: groq `/openai/v1`, fireworks `/inference/v1`,
   perplexity no extra prefix, gemini `/v1beta/openai`, and
   deepseek/xai/together/cerebras `/v1`. Bedrock resolves to the regional
-  Bedrock Runtime `/openai/v1` endpoint and, for this OpenAI-compatible route,
+  Bedrock Runtime `/v1` endpoint and, for this OpenAI-compatible route,
   accepts only the Amazon Bedrock API-key credential mode; AWS credentials,
   SigV4, and default-chain identity require a separate non-OpenAI Bedrock API
   family lane. Vertex resolves its upstream prefix from encrypted Model Access
@@ -55,6 +55,11 @@ provider string:
   `ChatOpenRouter.buildUrl()` appends `/chat/completions` to `baseURL`, so the
   factory passes `<gateway>/v1` -> loopback `/openrouter/v1/chat/completions` ->
   `openrouter.ai/api/v1/chat/completions` (bearer auth).
+  Optional catalog `providerRouting.openrouter` metadata is host-projected as
+  `GANTRY_DEEPAGENTS_OPENROUTER_PROVIDER_ROUTING` and passed to
+  `ChatOpenRouter`'s request-body `provider` object. Keep those preferences
+  OpenRouter-route-only; do not model them as Gantry regions, locations, raw
+  user-facing aliases, or durable authority.
 - `anthropic` is NOT accepted by this adapter today; the factory throws. Do not
   route Claude OAuth/subscription here. Any future Anthropic API-key DeepAgents
   route must be explicit, official-doc-backed, gateway-brokered, and tested.

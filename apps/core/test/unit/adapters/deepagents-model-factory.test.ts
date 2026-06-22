@@ -128,6 +128,32 @@ describe('deepagents model factory', () => {
     expect(model.sessionId).toBe('durable-session-123');
   });
 
+  it('threads OpenRouter provider preferences into the request body', async () => {
+    const providerRouting = {
+      only: ['moonshotai'],
+      allow_fallbacks: false,
+      require_parameters: true,
+      data_collection: 'deny' as const,
+      sort: 'latency' as const,
+    };
+    const resolved = await buildRunnerModel({
+      provider: 'openrouter',
+      modelId: 'moonshotai/kimi-k2.6',
+      gatewayBaseUrl: openrouterBaseUrl,
+      gatewayToken,
+      openRouterProviderRouting: providerRouting,
+    });
+
+    const model = resolved.model as unknown as {
+      provider?: unknown;
+      invocationParams: (options: Record<string, unknown>) => {
+        provider?: unknown;
+      };
+    };
+    expect(model.provider).toEqual(providerRouting);
+    expect(model.invocationParams({}).provider).toEqual(providerRouting);
+  });
+
   it('omits sessionId for the openai lane (session_id is OpenRouter-only)', async () => {
     const resolved = await buildRunnerModel({
       provider: 'openai',

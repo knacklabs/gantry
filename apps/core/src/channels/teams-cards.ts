@@ -1,4 +1,5 @@
 import type {
+  MessageActionAffordance,
   PermissionApprovalRequest,
   UserQuestionRequest,
 } from '../domain/types.js';
@@ -23,14 +24,22 @@ export interface TeamsAdaptiveCardAction {
   type: 'Action.Execute';
   title: string;
   verb: string;
-  data: {
-    action: 'permission_decision';
-    requestId: string;
-    decision: string;
-    sourceAgentFolder: string;
-    targetJid?: string;
-    threadId?: string;
-  };
+  data:
+    | {
+        action: 'permission_decision';
+        requestId: string;
+        decision: string;
+        sourceAgentFolder: string;
+        targetJid?: string;
+        threadId?: string;
+      }
+    | {
+        action: 'message_action';
+        kind: 'live_turn_stop';
+        actionToken: string;
+        targetJid: string;
+        threadId?: string;
+      };
 }
 
 export interface TeamsAdaptiveCardSubmitAction {
@@ -149,6 +158,38 @@ export function buildTeamsAgentTodoCard(
       },
     ],
     actions: [],
+  };
+}
+
+export function buildTeamsMessageCard(options: {
+  text: string;
+  targetJid: string;
+  threadId?: string;
+  actionAffordances?: MessageActionAffordance[];
+}): TeamsAdaptiveCardPayload {
+  const actions = (options.actionAffordances ?? [])
+    .map((action): TeamsAdaptiveCardAction | null => {
+      if (action.kind !== 'live_turn_stop' || !action.label.trim()) return null;
+      return {
+        type: 'Action.Execute',
+        title: action.label.trim(),
+        verb: 'gantry.live.stop',
+        data: {
+          action: 'message_action',
+          kind: 'live_turn_stop',
+          actionToken: action.actionToken,
+          targetJid: options.targetJid,
+          ...(options.threadId ? { threadId: options.threadId } : {}),
+        },
+      };
+    })
+    .filter((action): action is TeamsAdaptiveCardAction => action !== null);
+  return {
+    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+    type: 'AdaptiveCard',
+    version: '1.5',
+    body: [{ type: 'TextBlock', text: options.text, wrap: true }],
+    actions,
   };
 }
 

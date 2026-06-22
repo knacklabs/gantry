@@ -84,7 +84,10 @@ export interface TeamsChannelDependencies {
 
 export type TeamsChannelOpts = Pick<
   ChannelOpts,
-  'onMessage' | 'onChatMetadata' | 'isControlApproverAllowed'
+  | 'onMessage'
+  | 'onChatMetadata'
+  | 'isControlApproverAllowed'
+  | 'onMessageAction'
 >;
 
 export interface PendingTeamsPermissionPrompt {

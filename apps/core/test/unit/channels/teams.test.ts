@@ -277,6 +277,147 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.stop).toHaveBeenCalled();
   });
 
+  it('routes Teams live stop card actions through the neutral message action callback', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const onMessageAction = vi.fn(async () => {});
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-stop-card',
+      })),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      { ...makeOpts(), onMessageAction },
+      sdkClient,
+    );
+    await channel.connect();
+
+    await channel.sendMessage('teams:19:abc@thread.v2', 'Running...', {
+      threadId: 'root-message',
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop',
+          label: 'Stop',
+          actionToken: 'token-1',
+        },
+      ],
+    });
+
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        threadId: 'root-message',
+        card: expect.objectContaining({
+          actions: [
+            expect.objectContaining({
+              type: 'Action.Execute',
+              verb: 'gantry.live.stop',
+              data: expect.objectContaining({
+                action: 'message_action',
+                kind: 'live_turn_stop',
+                actionToken: 'token-1',
+                targetJid: 'teams:19:abc@thread.v2',
+                threadId: 'root-message',
+              }),
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        data: {
+          action: 'message_action',
+          kind: 'live_turn_stop',
+          actionToken: 'token-1',
+          targetJid: 'teams:19:abc@thread.v2',
+          threadId: 'root-message',
+        },
+      },
+    });
+
+    expect(onMessageAction).toHaveBeenCalledWith({
+      kind: 'live_turn_stop',
+      conversationJid: 'teams:19:abc@thread.v2',
+      threadId: 'root-message',
+      userId: 'teams-user-1',
+      actionToken: 'token-1',
+    });
+  });
+
+  it('updates Teams progress cards and clears stop actions when done', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'progress-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    await channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Working...', {
+      threadId: 'root-message',
+      generation: 7,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop',
+          label: 'Stop',
+          actionToken: 'token-7',
+        },
+      ],
+    });
+    await channel.sendProgressUpdate('teams:19:abc@thread.v2', 'Done.', {
+      threadId: 'root-message',
+      generation: 7,
+      done: true,
+      replaceOnly: true,
+      actionAffordances: [
+        {
+          kind: 'live_turn_stop',
+          label: 'Stop',
+          actionToken: 'token-7',
+        },
+      ],
+    });
+
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        messageId: 'progress-card-1',
+        threadId: 'root-message',
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'Done.' })],
+          actions: [],
+        }),
+      }),
+    );
+  });
+
   it('starts the SDK for outbound messages without processing inbound activities in outbound-only mode', async () => {
     let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
       undefined;

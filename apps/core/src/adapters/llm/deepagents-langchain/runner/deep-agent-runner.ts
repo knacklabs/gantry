@@ -4,7 +4,10 @@ import { HumanMessage } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 
-import { buildRunnerModel } from './model-factory.js';
+import {
+  buildRunnerModel,
+  type OpenRouterProviderPreferences,
+} from './model-factory.js';
 import {
   applyCachePromptControl,
   parseCachePromptControlMode,
@@ -85,6 +88,7 @@ export async function runDeepAgentTurn(input: {
   // to the model profile's `maxInputTokens` for window-aware compaction +
   // context-usage. Undefined for ids with a real library profile.
   maxInputTokens?: number;
+  openRouterProviderRouting?: OpenRouterProviderPreferences;
   newSessionId: string;
   threadId?: string;
   checkpointer?: DeepAgentCheckpointSaver;
@@ -121,6 +125,9 @@ export async function runDeepAgentTurn(input: {
       sessionId: stickySessionId,
       ...(input.maxInputTokens !== undefined
         ? { maxInputTokens: input.maxInputTokens }
+        : {}),
+      ...(input.openRouterProviderRouting
+        ? { openRouterProviderRouting: input.openRouterProviderRouting }
         : {}),
     }),
   );
