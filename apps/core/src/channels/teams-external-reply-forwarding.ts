@@ -6,21 +6,21 @@ import type { TeamsInboundMessage } from './teams.js';
 
 const HOOK_PATH = '/hooks/gantry/teams-reply';
 
-export async function forwardExternalTenderChatReply(
+export async function forwardExternalTeamsReply(
   message: TeamsInboundMessage,
 ): Promise<boolean> {
-  const hookUrl = resolveTenderChatHookUrl();
+  const hookUrl = resolveTeamsReplyHookUrl();
   if (!hookUrl) return false;
 
-  const body = buildTenderChatHookBody(message);
+  const body = buildTeamsReplyHookBody(message);
   if (!body) return false;
 
   const rawBody = JSON.stringify(body);
   const timestamp = String(Date.now());
   const nonce = randomUUID();
-  const secret = resolveTenderChatHookSecret();
+  const secret = resolveTeamsReplyHookSecret();
   if (!secret) {
-    logger.warn('Tender chat hook is configured without a signing secret');
+    logger.warn('External Teams reply hook is configured without a signing secret');
     return true;
   }
 
@@ -30,7 +30,7 @@ export async function forwardExternalTenderChatReply(
       'content-type': 'application/json',
       'x-gantry-teams-reply-timestamp': timestamp,
       'x-gantry-teams-reply-nonce': nonce,
-      'x-gantry-teams-reply-signature': signTenderChatHookRequest({
+      'x-gantry-teams-reply-signature': signTeamsReplyHookRequest({
         secret,
         method: 'POST',
         path: new URL(hookUrl).pathname,
@@ -41,7 +41,7 @@ export async function forwardExternalTenderChatReply(
     },
     body: rawBody,
     signal: AbortSignal.timeout(
-      Number(envValueDynamic('GANTRY_EXTERNAL_TENDER_CHAT_TIMEOUT_MS')) || 5000,
+      Number(envValueDynamic('GANTRY_EXTERNAL_TEAMS_REPLY_TIMEOUT_MS')) || 5000,
     ),
   });
   if (!response.ok) {
@@ -51,13 +51,13 @@ export async function forwardExternalTenderChatReply(
         conversationId: message.conversationId,
         messageId: message.id,
       },
-      'External tender chat hook failed',
+      'External Teams reply hook failed',
     );
   }
   return true;
 }
 
-function buildTenderChatHookBody(
+function buildTeamsReplyHookBody(
   message: TeamsInboundMessage,
 ): Record<string, string> | null {
   const text = message.text?.trim();
@@ -89,8 +89,8 @@ function buildTenderChatHookBody(
   };
 }
 
-function resolveTenderChatHookUrl(): string | null {
-  const explicit = envValueDynamic('GANTRY_EXTERNAL_TENDER_CHAT_URL');
+function resolveTeamsReplyHookUrl(): string | null {
+  const explicit = envValueDynamic('GANTRY_EXTERNAL_TEAMS_REPLY_URL');
   if (explicit) return explicit;
   const platformGraphqlUrl = envValueDynamic(
     'GANTRY_EXTERNAL_PLATFORM_GRAPHQL_URL',
@@ -103,15 +103,15 @@ function resolveTenderChatHookUrl(): string | null {
   return url.toString();
 }
 
-function resolveTenderChatHookSecret(): string | null {
+function resolveTeamsReplyHookSecret(): string | null {
   return (
-    envValueDynamic('GANTRY_EXTERNAL_TENDER_CHAT_SECRET') ||
+    envValueDynamic('GANTRY_EXTERNAL_TEAMS_REPLY_SECRET') ||
     envValueDynamic('GANTRY_EXTERNAL_EVENT_SECRET') ||
     null
   );
 }
 
-function signTenderChatHookRequest(input: {
+function signTeamsReplyHookRequest(input: {
   secret: string;
   method: string;
   path: string;
@@ -148,8 +148,8 @@ function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-export const _testExternalTenderChat = {
-  buildTenderChatHookBody,
+export const _testExternalTeamsReplyForwarding = {
+  buildTeamsReplyHookBody,
   canonicalTeamsConversationId,
   teamsMessageIdFromConversationId,
 };

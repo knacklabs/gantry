@@ -16,6 +16,7 @@ import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-cap
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
   validateBrowserIpcAuthRequest,
+  validateConversationHistoryIpcAuthRequest,
   validateIpcAuthRequest,
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
@@ -23,6 +24,8 @@ import {
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const PERMISSION_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const BROWSER_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const CONVERSATION_HISTORY_IPC_REQUEST_ID_PATTERN =
+  /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const USER_QUESTION_IPC_REQUEST_ID_PATTERN =
   /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const PUBLIC_BROWSER_GATEWAY_TOOL_NAMES = new Set([
@@ -70,6 +73,18 @@ export interface ParsedBrowserIpcRequest {
   agentId?: string;
   publicToolName?: string;
   timeoutMs?: number;
+  deadlineAtMs?: number;
+}
+
+export interface ParsedConversationHistoryIpcRequest {
+  requestId: string;
+  chatJid: string;
+  threadId: string;
+  responseKeyId?: string;
+  appId?: string;
+  agentId?: string;
+  limit?: number;
+  maxChars?: number;
   deadlineAtMs?: number;
 }
 
@@ -409,6 +424,49 @@ export function parseMemoryIpcRequest(
           },
         }
       : {}),
+  };
+}
+
+export function parseConversationHistoryIpcRequest(
+  raw: unknown,
+  sourceAgentFolder: string,
+): ParsedConversationHistoryIpcRequest {
+  if (!isPlainObject(raw)) {
+    throw new Error('Invalid conversation history IPC payload');
+  }
+  const binding = validateConversationHistoryIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    'conversation history IPC',
+  );
+  if (!binding.responseKeyId) {
+    throw new Error('conversation history IPC responseKeyId is required');
+  }
+  if (!binding.authThreadId) {
+    throw new Error('conversation history IPC threadId is required');
+  }
+  const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
+  if (
+    !requestId ||
+    !CONVERSATION_HISTORY_IPC_REQUEST_ID_PATTERN.test(requestId)
+  ) {
+    throw new Error('Invalid conversation history IPC requestId');
+  }
+  const payload = isPlainObject(raw.payload) ? raw.payload : {};
+  const limit = toPositiveInteger(payload.limit);
+  const maxChars = toPositiveInteger(payload.maxChars);
+  const rawExpiresAt = typeof raw.expiresAt === 'string' ? raw.expiresAt : '';
+  const deadlineAtMs = Date.parse(rawExpiresAt);
+  return {
+    requestId,
+    chatJid: binding.chatJid,
+    threadId: binding.authThreadId,
+    ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
+    ...(binding.appId ? { appId: binding.appId } : {}),
+    ...(binding.agentId ? { agentId: binding.agentId } : {}),
+    ...(limit ? { limit } : {}),
+    ...(maxChars ? { maxChars } : {}),
+    ...(Number.isFinite(deadlineAtMs) ? { deadlineAtMs } : {}),
   };
 }
 

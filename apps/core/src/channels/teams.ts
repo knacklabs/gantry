@@ -26,7 +26,7 @@ import {
 } from './permission-interaction.js';
 import { sendTeamsTextMessage } from './teams-delivery.js';
 import { handleExternalCardAction } from './teams-external-card-actions.js';
-import { forwardExternalTenderChatReply } from './teams-external-tender-chat.js';
+import { forwardExternalTeamsReply } from './teams-external-reply-forwarding.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { createTeamsBotFrameworkSdkClient } from './teams-bot-framework-client.js';
 import { readTeamsPermissionDecision } from './teams-permission-submit.js';
@@ -282,7 +282,7 @@ export class TeamsChannel implements ChannelAdapter {
 
     const content = message.text?.trim() || '';
     if (!content) return;
-    if (await forwardExternalTenderChatReply(message)) {
+    if (await forwardExternalTeamsReply(message)) {
       return;
     }
 

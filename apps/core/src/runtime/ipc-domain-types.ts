@@ -47,6 +47,20 @@ export interface IpcDeps {
     group: ConversationRoute,
   ) => Promise<void> | void;
   syncGroups: (force: boolean) => Promise<void>;
+  getConversationThreadHistory?: (input: {
+    sourceAgentFolder: string;
+    chatJid: string;
+    threadId: string;
+    limit: number;
+  }) => Promise<{
+    messages: Array<{
+      id: string;
+      createdAt: string;
+      direction: string;
+      senderDisplayName?: string;
+      text: string;
+    }>;
+  }>;
   getAvailableGroups: () => Promise<AvailableGroup[]> | AvailableGroup[];
   writeGroupsSnapshot: (
     workspaceFolder: string,

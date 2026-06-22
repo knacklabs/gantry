@@ -19,12 +19,9 @@ const envelope = {
   },
   payload: {
     eventType: 'notification.card.requested',
-    resourceId: 'resource-1',
-    title: 'MRI scanner maintenance tender',
-    referenceNo: 'MPL-001',
-    organization: 'External Hospital',
-    deadline: '2026-05-31',
-    sourceUrl: 'https://example.test/tender',
+    subjectId: 'subject-1',
+    title: 'MRI scanner maintenance notice',
+    sourceUrl: 'https://example.test/resource',
     documentAttachment: {
       downloadStatus: 'missing',
     },
@@ -44,78 +41,58 @@ const cardEnvelope = {
         adaptiveCardVersion: '1.2',
         requiresBotForSubmitActions: true,
       },
-      resourceId: 'resource-1',
-      title: 'MRI scanner maintenance tender',
-      referenceNo: 'MPL-001',
-      organization: 'External Hospital',
-      location: 'Bengaluru',
-      deadline: '2026-05-31',
-      publishedDate: '2026-05-18',
-      emd: 50000,
-      currency: 'INR',
-      summary: 'Maintenance tender for matched biomedical workspace.',
-      sourceUrl: 'https://example.test/tender',
-      workspace: {
-        workspaceId: 'workspace-1',
-        workspaceName: 'Biomedical',
-        teamsChannelId: '19:channel@thread.v2',
-        matchedKeywords: ['mri'],
-      },
-      primaryDocument: {
-        signedDownloadUrl: 'https://example.test/documents/notice.pdf',
-      },
-      documents: [
-        {
-          documentLabel: 'notice.pdf',
-          fileName: 'notice.pdf',
-          downloadStatus: 'downloaded',
-          signedDownloadUrl: 'https://example.test/documents/notice.pdf',
-        },
-        {
-          documentLabel: 'missing.pdf',
-          fileName: 'missing.pdf',
-          downloadStatus: 'missing',
-          signedDownloadUrl: null,
-        },
+      subjectId: 'subject-1',
+      scopeId: 'scope-1',
+      sourceConversationId: '19:channel@thread.v2',
+      teamsTenantId: 'tenant-1',
+      title: 'MRI scanner maintenance notice',
+      summary: 'Maintenance notice for matched biomedical scope.',
+      facts: [
+        { label: 'Resource ID', value: 'subject-1' },
+        { label: 'Amount', value: 'INR 50,000' },
+        { label: 'Scope', value: 'Biomedical' },
+        { label: 'Organization', value: 'External Hospital' },
+        { label: 'Location', value: 'Bengaluru' },
+        { label: 'Due date', value: '2026-05-31' },
+        { label: 'Published', value: '2026-05-18' },
+      ],
+      links: [
+        { label: 'notice.pdf', url: 'https://example.test/documents/notice.pdf' },
       ],
       actions: [
         {
-          actionType: 'mark_watching',
+          actionType: 'track_subject',
           label: 'Watch',
           presentation: 'submit',
           platformOperation: 'mark_resource',
           requiresActionCapableTeamsSurface: true,
         },
         {
-          actionType: 'request_analysis',
+          actionType: 'request_review',
           label: 'Request analysis',
           presentation: 'submit',
-          platformOperation: 'request_analysis',
+          platformOperation: 'request_review',
           requiresActionCapableTeamsSurface: true,
         },
       ],
-      fallbackText: 'Tender notice: MRI scanner maintenance tender',
+      fallbackText: 'Notification: MRI scanner maintenance notice',
     },
   },
 };
 
-const adminNotificationEnvelope = {
+const messageNotificationEnvelope = {
   integrationId: 'integration-test',
-  eventId: 'admin-outbox-1',
-  eventType: 'deep_analysis_admin_notification_requested',
+  eventId: 'message-outbox-1',
+  eventType: 'notification.message.requested',
   occurredAt: '2026-05-18T10:00:00.000Z',
+  target: {
+    teamsChannelId: '19:channel@thread.v2',
+  },
   payload: {
-    eventType: 'deep_analysis_admin_notification_requested',
-    requestId: 'request-1',
-    tenderId: 'resource-1',
-    tenderTitle: 'MRI scanner maintenance tender',
-    workspaceId: 'workspace-1',
-    workspaceName: 'Biomedical',
-    requestedByExternalUserId: 'teams-user-1',
-    requestedByDisplayName: 'Platform User',
-    sourceChannelId: '19:channel@thread.v2',
-    requestedAt: '2026-05-18T10:00:00.000Z',
-    requestReason: 'Need deeper analysis',
+    eventType: 'notification.message.requested',
+    message: 'Platform User, the requested review for subject-1 is completed.',
+    threadId: 'reply-1',
+    occurredAt: '2026-05-18T10:05:00.000Z',
   },
 };
 
@@ -187,24 +164,24 @@ describe('External platform event adapter helpers', () => {
   });
 
   it('builds deterministic Teams text for card notification events', () => {
-    expect(buildExternalPlatformMessage(envelope)).toContain(
-      'Notification: MRI scanner maintenance tender',
+    expect(buildExternalPlatformMessage(cardEnvelope)).toContain(
+      'Notification: MRI scanner maintenance notice',
     );
-    expect(buildExternalPlatformMessage(envelope)).toContain(
-      'Organisation Details: External Hospital',
+    expect(buildExternalPlatformMessage(cardEnvelope)).toContain(
+      'Organization: External Hospital',
     );
-    expect(buildExternalPlatformMessage(envelope)).not.toContain('Reference');
+    expect(buildExternalPlatformMessage(cardEnvelope)).not.toContain('Reference');
   });
 
-  it('builds deterministic Teams text for admin deep-analysis requests', () => {
-    const text = buildExternalPlatformMessage(adminNotificationEnvelope);
-    expect(text).toContain('Deeper analysis requested');
+  it('builds thread-targeted Teams text for generic message notifications', () => {
+    const text = buildExternalPlatformMessage(messageNotificationEnvelope);
     expect(text).toContain(
-      'Platform User requested deeper analysis for MRI scanner maintenance tender.',
+      'Platform User, the requested review for subject-1 is completed.',
     );
-    expect(text).toContain('Tender ID: resource-1');
-    expect(text).toContain('Workspace: Biomedical');
-    expect(text).toContain('Reason: Need deeper analysis');
+
+    const delivery = buildExternalPlatformDelivery(messageNotificationEnvelope);
+    expect(delivery.kind).toBe('text');
+    expect(delivery.threadId).toBe('reply-1');
   });
 
   it('builds an Adaptive Card delivery when notification card data is present', () => {
@@ -214,24 +191,22 @@ describe('External platform event adapter helpers', () => {
     expect(delivery.card.version).toBe('1.2');
     expect(delivery.card.body[0]).toMatchObject({
       type: 'TextBlock',
-      text: 'MRI scanner maintenance tender',
+      text: 'MRI scanner maintenance notice',
     });
-    expect(JSON.stringify(delivery.card.body)).toContain('Tender ID');
-    expect(JSON.stringify(delivery.card.body)).toContain('resource-1');
-    expect(JSON.stringify(delivery.card.body)).toContain('EMD');
+    expect(JSON.stringify(delivery.card.body)).toContain('Resource ID');
+    expect(JSON.stringify(delivery.card.body)).toContain('subject-1');
+    expect(JSON.stringify(delivery.card.body)).toContain('Amount');
     expect(JSON.stringify(delivery.card.body)).toContain('INR 50,000');
-    expect(JSON.stringify(delivery.card.body)).toContain('Workspace matched');
-    expect(JSON.stringify(delivery.card.body)).toContain(
-      'Organisation Details',
-    );
-    expect(JSON.stringify(delivery.card.body)).toContain('Location Details');
-    expect(JSON.stringify(delivery.card.body)).toContain('Dead Line Date');
-    expect(JSON.stringify(delivery.card.body)).toContain('Published Date');
+    expect(JSON.stringify(delivery.card.body)).toContain('Scope');
+    expect(JSON.stringify(delivery.card.body)).toContain('Organization');
+    expect(JSON.stringify(delivery.card.body)).toContain('Location');
+    expect(JSON.stringify(delivery.card.body)).toContain('Due date');
+    expect(JSON.stringify(delivery.card.body)).toContain('Published');
     expect(JSON.stringify(delivery.card.body)).not.toContain('Reference');
     expect(JSON.stringify(delivery.card.body)).not.toContain(
       'Matched keywords',
     );
-    expect(JSON.stringify(delivery.card.body)).toContain('Documents');
+    expect(JSON.stringify(delivery.card.body)).toContain('Links');
     expect(JSON.stringify(delivery.card.body)).toContain(
       '[notice.pdf](https://example.test/documents/notice.pdf)',
     );
@@ -241,11 +216,12 @@ describe('External platform event adapter helpers', () => {
         title: 'Watch',
         data: expect.objectContaining({
           action: 'external_card_action',
-          actionType: 'mark_watching',
+          actionType: 'track_subject',
           platformOperation: 'mark_resource',
           integrationId: 'integration-test',
-          resourceId: 'resource-1',
-          sourceChannelId: '19:channel@thread.v2',
+          subjectId: 'subject-1',
+          scopeId: 'scope-1',
+          sourceConversationId: '19:channel@thread.v2',
           teamsTenantId: 'tenant-1',
           nonce: expect.any(String),
           expiresAt: expect.any(String),
@@ -256,8 +232,8 @@ describe('External platform event adapter helpers', () => {
         type: 'Action.Submit',
         title: 'Request analysis',
         data: expect.objectContaining({
-          actionType: 'request_analysis',
-          platformOperation: 'request_analysis',
+          actionType: 'request_review',
+          platformOperation: 'request_review',
         }),
       },
     ]);
@@ -270,30 +246,18 @@ describe('External platform event adapter helpers', () => {
         ...cardEnvelope.payload,
         notificationCard: {
           ...cardEnvelope.payload.notificationCard,
-          documents: [
+          links: [
             {
-              documentLabel: 'Spec [final] (v2).pdf',
-              fileName: 'Spec [final] (v2).pdf',
-              downloadStatus: 'downloaded',
-              signedDownloadUrl: 'https://example.test/documents/spec(1).pdf',
+              label: 'Spec [final] (v2).pdf',
+              url: 'https://example.test/documents/spec(1).pdf',
             },
             {
-              documentLabel: 'bad.pdf',
-              fileName: 'bad.pdf',
-              downloadStatus: 'downloaded',
-              signedDownloadUrl: 'ftp://example.test/bad.pdf',
+              label: 'bad.pdf',
+              url: 'ftp://example.test/bad.pdf',
             },
             {
-              documentLabel: 'missing.pdf',
-              fileName: 'missing.pdf',
-              downloadStatus: 'missing',
-              signedDownloadUrl: null,
-            },
-            {
-              documentLabel: 'boq.pdf',
-              fileName: 'boq.pdf',
-              downloadStatus: 'downloaded',
-              signedDownloadUrl: 'https://example.test/documents/boq.pdf',
+              label: 'boq.pdf',
+              url: 'https://example.test/documents/boq.pdf',
             },
           ],
         },
@@ -318,7 +282,16 @@ describe('External platform event adapter helpers', () => {
     delete process.env.GANTRY_EXTERNAL_TEAMS_TENANT_ID;
     delete process.env.TEAMS_TENANT_ID;
 
-    const delivery = buildExternalPlatformDelivery(cardEnvelope);
+    const delivery = buildExternalPlatformDelivery({
+      ...cardEnvelope,
+      payload: {
+        ...cardEnvelope.payload,
+        notificationCard: {
+          ...cardEnvelope.payload.notificationCard,
+          teamsTenantId: null,
+        },
+      },
+    });
     expect(delivery.kind).toBe('adaptive_card');
     if (delivery.kind !== 'adaptive_card') return;
     expect(JSON.stringify(delivery.card.body)).toContain(

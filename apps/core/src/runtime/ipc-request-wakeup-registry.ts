@@ -10,6 +10,7 @@ const DEFAULT_WATCHED_REQUEST_LANES: readonly RunnerControlRequestLane[] = [
   'messages',
   'tasks',
   'memory-requests',
+  'conversation-history-requests',
   'browser-requests',
   'permission-requests',
   'user-questions',

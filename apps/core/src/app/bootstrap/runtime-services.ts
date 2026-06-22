@@ -48,8 +48,10 @@ import type { SessionMemoryCollector } from '../../domain/ports/session-memory-c
 import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
 import type { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { ChannelWiring } from './channel-wiring.js';
+import { getRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import { collectRuntimeSessionMemory } from './runtime-app.js';
 import type { RuntimeApp, RuntimeAppRepository } from './runtime-app.js';
+import type { Message } from '../../domain/messages/messages.js';
 import { OutboundDeliveryService } from '../../application/outbound-delivery/outbound-delivery-service.js';
 import {
   getPartialMessageDeliveryMetadata,
@@ -67,6 +69,7 @@ import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/pla
 import {
   LIVE_SEND_PROFILE_ID,
   RETRY_TAIL_PROFILE_ID,
+  canonicalConversationIdForJid,
   canonicalThreadIdFor,
   normalizeDestinationHintAgainstCanonical,
   resolveDurableOutboundTarget,
@@ -464,6 +467,11 @@ export async function startRuntimeServices(
     conversationRoutes: () => app.getConversationRoutes(),
     registerGroup: app.registerGroup,
     syncGroups: (force: boolean) => channelWiring.syncGroups(force),
+    getConversationThreadHistory: (input) =>
+      readCurrentConversationThreadHistory({
+        ...input,
+        conversationRoutes: app.getConversationRoutes(),
+      }),
     getAvailableGroups: app.getAvailableGroups,
     writeGroupsSnapshot: (folder, availableGroups, registeredJids) =>
       resolved.writeGroupsSnapshot(folder, availableGroups, registeredJids),
@@ -1085,4 +1093,79 @@ export async function startRuntimeServices(
     info: (obj, msg) => resolved.logger.info(obj as never, msg as never),
     warn: (context, message) => resolved.logger.warn(context, message),
   });
+}
+
+async function readCurrentConversationThreadHistory(input: {
+  sourceAgentFolder: string;
+  chatJid: string;
+  threadId: string;
+  limit: number;
+  conversationRoutes: ReturnType<RuntimeApp['getConversationRoutes']>;
+}): Promise<{
+  messages: Array<{
+    id: string;
+    createdAt: string;
+    direction: string;
+    senderDisplayName?: string;
+    text: string;
+  }>;
+}> {
+  const route = input.conversationRoutes[input.chatJid];
+  if (!route || route.folder !== input.sourceAgentFolder) {
+    throw new Error(
+      'Conversation history request does not belong to the requesting agent folder',
+    );
+  }
+  const conversationId = canonicalConversationIdForJid(input.chatJid) as never;
+  const threadId = canonicalThreadIdFor({
+    jid: input.chatJid,
+    threadId: input.threadId,
+  }) as never;
+  if (!threadId) {
+    throw new Error('Conversation history thread not found');
+  }
+  const repositories = getRuntimeStorage().repositories;
+  const [conversation, thread] = await Promise.all([
+    repositories.conversations.getConversation(conversationId),
+    repositories.conversations.getThread(threadId),
+  ]);
+  if (!conversation) {
+    throw new Error('Conversation history conversation not found');
+  }
+  if (!thread || thread.conversationId !== conversation.id) {
+    throw new Error('Conversation history thread not found');
+  }
+  const messages = await repositories.messages.listRecentMessages({
+    conversationId: conversation.id,
+    threadId: thread.id,
+    limit: input.limit,
+  });
+  return {
+    messages: messages.map((message: Message) => ({
+      id: message.id,
+      createdAt: message.createdAt,
+      direction: message.direction,
+      ...(message.senderDisplayName
+        ? { senderDisplayName: message.senderDisplayName }
+        : {}),
+      text: textFromMessage(message),
+    })),
+  };
+}
+
+function textFromMessage(message: Message): string {
+  return message.parts
+    .map((part) => {
+      if (part.kind === 'text') return part.text;
+      if (part.kind === 'markdown') return part.markdown;
+      if (part.kind === 'code') {
+        return part.language
+          ? `\`\`\`${part.language}\n${part.code}\n\`\`\``
+          : part.code;
+      }
+      return '';
+    })
+    .filter((text) => text.trim().length > 0)
+    .join('\n')
+    .trim();
 }

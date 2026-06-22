@@ -70,8 +70,8 @@ export class GantryClient {
           input.target.teamsChannelId,
           'target.teamsChannelId',
         ),
-        workspaceId: input.target.workspaceId ?? null,
-        workspaceName: input.target.workspaceName ?? null,
+        scopeId: input.target.scopeId ?? null,
+        scopeName: input.target.scopeName ?? null,
       },
       payload: input.payload,
     });

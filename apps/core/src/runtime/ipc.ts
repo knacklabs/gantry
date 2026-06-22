@@ -12,7 +12,7 @@ import type { IpcDeps } from './ipc-domain-types.js';
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
 // prettier-ignore
-import { parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
+import { parseConversationHistoryIpcRequest, parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import {
   isLongRunningTask,
@@ -20,6 +20,10 @@ import {
 } from './ipc-long-running-task.js';
 import { clearConsumedIpcRequestIds } from './ipc-auth-validation.js';
 import { processBrowserRequestDirectory } from './ipc-browser-requests.js';
+import {
+  processConversationHistoryRequest,
+  writeConversationHistoryResponse,
+} from './ipc-conversation-history.js';
 import { canProcessIpcFile, clearIpcRateLimitState } from './ipc-rate-limit.js';
 // prettier-ignore
 import { validatePermissionIpcJobExecutionTarget, validateUserQuestionIpcJobExecutionTarget } from './ipc-scheduled-interaction-validation.js';
@@ -269,6 +273,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
           sourceAgentFolder,
           'memory-requests',
         );
+        const conversationHistoryRequestsDir = runnerControlPort.requestDir(
+          sourceAgentFolder,
+          'conversation-history-requests',
+        );
         const browserRequestsDir = runnerControlPort.requestDir(
           sourceAgentFolder,
           'browser-requests',
@@ -506,6 +514,90 @@ export function startIpcWatcher(deps: IpcDeps): void {
           logger.error(
             { err, sourceAgentFolder },
             'Error reading memory IPC requests directory',
+          );
+        }
+
+        // Process conversation history request/response IPC for this group
+        try {
+          if (
+            shouldProcessRequestLane(
+              sourceAgentFolder,
+              'conversation-history-requests',
+            ) &&
+            runnerControlPort.isTrustedRequestDir(
+              sourceAgentFolder,
+              'conversation-history-requests',
+            )
+          ) {
+            const historyFiles = runnerControlPort.listPendingRequests(
+              sourceAgentFolder,
+              'conversation-history-requests',
+            );
+            for (const file of historyFiles) {
+              let claimedPath = path.join(conversationHistoryRequestsDir, file);
+              try {
+                if (
+                  !canProcessIpcFile(sourceAgentFolder, 'conversation-history')
+                ) {
+                  throw new Error(
+                    'Conversation history IPC rate limit exceeded',
+                  );
+                }
+                const claimed = runnerControlPort.claimRequest(
+                  sourceAgentFolder,
+                  'conversation-history-requests',
+                  file,
+                );
+                claimedPath = claimed.claimedPath;
+                const request = parseConversationHistoryIpcRequest(
+                  claimed.raw,
+                  sourceAgentFolder,
+                );
+                const response = await processConversationHistoryRequest({
+                  request,
+                  sourceAgentFolder,
+                  deps,
+                });
+                writeConversationHistoryResponse({
+                  ipcBaseDir,
+                  sourceAgentFolder,
+                  requestId: request.requestId,
+                  response,
+                  privateKeyPem: getIpcResponseSigningPrivateKey(
+                    sourceAgentFolder,
+                    request.threadId,
+                    request.responseKeyId,
+                  ),
+                });
+                runnerControlPort.removeClaimedRequest(claimedPath);
+              } catch (err) {
+                logger.error(
+                  { file, sourceAgentFolder, err },
+                  'Error processing conversation history IPC request',
+                );
+                runnerControlPort.archiveFailedRequest(
+                  sourceAgentFolder,
+                  file,
+                  claimedPath,
+                );
+              }
+            }
+          } else if (
+            processScope === 'all' &&
+            runnerControlPort.requestDirExists(
+              sourceAgentFolder,
+              'conversation-history-requests',
+            )
+          ) {
+            logger.warn(
+              { sourceAgentFolder, conversationHistoryRequestsDir },
+              'Ignoring untrusted conversation history IPC requests directory',
+            );
+          }
+        } catch (err) {
+          logger.error(
+            { err, sourceAgentFolder },
+            'Error reading conversation history IPC requests directory',
           );
         }
 

@@ -16,6 +16,9 @@ import {
   BROWSER_REQUESTS_DIR,
   BROWSER_RESPONSES_DIR,
   BROWSER_IPC_AUTH_TOKEN,
+  CONVERSATION_HISTORY_IPC_AUTH_TOKEN,
+  CONVERSATION_HISTORY_REQUESTS_DIR,
+  CONVERSATION_HISTORY_RESPONSES_DIR,
   IPC_AUTH_TOKEN,
   IPC_RESPONSE_KEY_ID,
   IPC_RESPONSE_VERIFY_KEY,
@@ -291,6 +294,103 @@ export async function requestBrowserAction(
   return {
     ok: false,
     error: `Browser IPC timeout after ${formatDuration(timeoutMs)} waiting for browser service response`,
+  };
+}
+
+export async function requestConversationThreadHistory(payload: {
+  limit?: number;
+  maxChars?: number;
+}): Promise<{
+  ok: boolean;
+  data?: unknown;
+  error?: string;
+}> {
+  ensurePrivateDirSync(CONVERSATION_HISTORY_REQUESTS_DIR);
+  ensurePrivateDirSync(CONVERSATION_HISTORY_RESPONSES_DIR);
+
+  const timeoutMs = 15_000;
+  const requestId = makeIpcId('convhist');
+  const reqPath = path.join(
+    CONVERSATION_HISTORY_REQUESTS_DIR,
+    `${requestId}.json`,
+  );
+  const tmpReqPath = `${reqPath}.tmp`;
+  const requestPayload = {
+    requestId,
+    payload,
+    context: {
+      chatJid,
+      ...(threadId ? { threadId } : {}),
+      ...(appId ? { appId } : {}),
+      ...(agentId ? { agentId } : {}),
+      ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
+    },
+    expiresAt: toIso(currentTimeMs() + timeoutMs),
+  };
+  const requestEnvelope = createSignedIpcRequestEnvelope(
+    CONVERSATION_HISTORY_IPC_AUTH_TOKEN,
+    requestPayload,
+  );
+  writePrivateFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
+  fs.renameSync(tmpReqPath, reqPath);
+
+  const deadline = nowMs() + timeoutMs;
+  const responsePath = path.join(
+    CONVERSATION_HISTORY_RESPONSES_DIR,
+    `${requestId}.json`,
+  );
+
+  if (await waitForIpcResponseFile({ responsePath, deadlineMs: deadline })) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8')) as Record<
+        string,
+        unknown
+      >;
+      const responseRequestId =
+        typeof raw.requestId === 'string' ? raw.requestId : '';
+      if (responseRequestId !== requestId) {
+        throw new Error('Mismatched conversation history response requestId');
+      }
+      const data = {
+        ok: Boolean(raw.ok),
+        ...(Object.prototype.hasOwnProperty.call(raw, 'data')
+          ? { data: raw.data }
+          : {}),
+        ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
+      };
+      const signedPayload: Record<string, unknown> = {
+        ok: data.ok,
+        requestId,
+        ...(Object.prototype.hasOwnProperty.call(data, 'data')
+          ? { data: data.data }
+          : {}),
+        ...(data.error ? { error: data.error } : {}),
+      };
+      if (!hasValidIpcResponseSignature(raw, signedPayload)) {
+        throw new Error('Invalid conversation history response signature');
+      }
+      fs.unlinkSync(responsePath);
+      return data;
+    } catch (err) {
+      try {
+        fs.unlinkSync(responsePath);
+      } catch {
+        // ignore
+      }
+      return {
+        ok: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Failed to parse conversation history response',
+      };
+    }
+  }
+
+  removeStaleRequestFile(reqPath);
+  return {
+    ok: false,
+    error: `Conversation history IPC timeout after ${formatDuration(timeoutMs)} waiting for host response`,
   };
 }
 

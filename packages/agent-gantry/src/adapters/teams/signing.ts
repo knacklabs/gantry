@@ -92,9 +92,10 @@ export function verifyExternalCardAction(
     secret: input.secret,
     integrationId: input.action.integrationId,
     eventId: input.action.eventId,
-    resourceId: input.action.resourceId,
-    workspaceId: input.action.workspaceId,
-    sourceChannelId: input.action.sourceChannelId,
+    subjectId: input.action.subjectId,
+    scopeId: input.action.scopeId,
+    sourceScopeId: input.action.sourceScopeId ?? input.action.scopeId,
+    sourceConversationId: input.action.sourceConversationId,
     teamsTenantId: input.action.teamsTenantId,
     actionType: input.action.actionType,
     platformOperation:
@@ -124,10 +125,10 @@ export function parseExternalCardAction(
   const action = {
     integrationId: readStringValue(record.integrationId),
     eventId: readStringValue(record.eventId),
-    resourceId: readStringValue(record.resourceId),
-    workspaceId: readStringValue(record.workspaceId),
-    sourceWorkspaceId: readStringValue(record.sourceWorkspaceId) || null,
-    sourceChannelId: readStringValue(record.sourceChannelId),
+    subjectId: readStringValue(record.subjectId),
+    scopeId: readStringValue(record.scopeId),
+    sourceScopeId: readStringValue(record.sourceScopeId) || null,
+    sourceConversationId: readStringValue(record.sourceConversationId),
     teamsTenantId: readStringValue(record.teamsTenantId),
     actionType: readStringValue(record.actionType),
     platformOperation: readStringValue(record.platformOperation),
@@ -143,9 +144,9 @@ export function parseExternalCardAction(
   if (
     !action.integrationId ||
     !action.eventId ||
-    !action.resourceId ||
-    !action.workspaceId ||
-    !action.sourceChannelId ||
+    !action.subjectId ||
+    !action.scopeId ||
+    !action.sourceConversationId ||
     !action.teamsTenantId ||
     !action.actionType ||
     !action.platformOperation ||
@@ -218,9 +219,10 @@ function unwrapExternalCardActionValue(
 function stableCardActionPayload(input: {
   readonly integrationId: string;
   readonly eventId: string;
-  readonly resourceId: string | null;
-  readonly workspaceId: string | null;
-  readonly sourceChannelId: string | null;
+  readonly subjectId: string | null;
+  readonly scopeId: string | null;
+  readonly sourceScopeId?: string | null;
+  readonly sourceConversationId: string | null;
   readonly teamsTenantId: string | null;
   readonly actionType: string;
   readonly platformOperation?: string | null;
@@ -232,9 +234,10 @@ function stableCardActionPayload(input: {
   const payload: Record<string, unknown> = {
     integrationId: input.integrationId,
     eventId: input.eventId,
-    resourceId: input.resourceId,
-    workspaceId: input.workspaceId,
-    sourceChannelId: input.sourceChannelId,
+    subjectId: input.subjectId,
+    scopeId: input.scopeId,
+    sourceScopeId: input.sourceScopeId ?? input.scopeId,
+    sourceConversationId: input.sourceConversationId,
     teamsTenantId: input.teamsTenantId,
     actionType: input.actionType,
     nonce: input.nonce,

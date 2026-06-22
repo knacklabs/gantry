@@ -78,6 +78,7 @@ export function buildBaseRunnerEnv(input: {
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   browserIpcAuthToken?: string;
+  conversationHistoryIpcAuthToken: string;
   memoryIpcAuthToken: string;
   memoryIpcAllowedActions: readonly string[];
   responseVerifyKey: string;
@@ -141,6 +142,8 @@ export function buildBaseRunnerEnv(input: {
     ...(input.browserIpcAuthToken
       ? { GANTRY_BROWSER_IPC_AUTH_TOKEN: input.browserIpcAuthToken }
       : {}),
+    GANTRY_CONVERSATION_HISTORY_IPC_AUTH_TOKEN:
+      input.conversationHistoryIpcAuthToken,
     GANTRY_MEMORY_IPC_AUTH_TOKEN: input.memoryIpcAuthToken,
     GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
       input.memoryIpcAllowedActions,

@@ -17,6 +17,7 @@ import {
 import { ensurePrivateDirSync } from '../shared/private-fs.js';
 import {
   computeBrowserIpcAuthToken,
+  computeConversationHistoryIpcAuthToken,
   computeIpcAuthToken,
   computeMemoryIpcAuthToken,
 } from './ipc-auth.js';
@@ -30,6 +31,10 @@ interface IpcThreadBinding {
 }
 
 interface IpcBrowserBinding extends IpcThreadBinding {
+  chatJid: string;
+}
+
+interface IpcConversationHistoryBinding extends IpcThreadBinding {
   chatJid: string;
 }
 
@@ -322,6 +327,48 @@ export function validateBrowserIpcAuthRequest(
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
     const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${chatJid}:${requestId}`;
+    reserveFreshIpcRequestId(
+      replayKey,
+      nowMs() + IPC_REQUEST_MAX_AGE_MS,
+      label,
+    );
+  }
+  return { ...binding, chatJid };
+}
+
+export function validateConversationHistoryIpcAuthRequest(
+  raw: Record<string, unknown>,
+  sourceAgentFolder: string,
+  label: string,
+): IpcConversationHistoryBinding {
+  const binding = readTrustedThreadBinding(raw, label);
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const chatJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
+  if (!chatJid) {
+    throw new Error(`${label} context.chatJid is required`);
+  }
+  if (!binding.authThreadId) {
+    throw new Error(`${label} context.threadId is required`);
+  }
+  const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
+  const payload = { ...raw };
+  delete payload.signature;
+  delete payload.authToken;
+  const requestSigningKey = computeConversationHistoryIpcAuthToken(
+    sourceAgentFolder,
+    chatJid,
+    binding.authThreadId,
+  );
+  if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
+    throw new Error(`Invalid ${label} signature`);
+  }
+  const freshness = validateIpcRequestFreshness(payload);
+  if (!freshness.ok) {
+    throw new Error(`Invalid ${label} freshness: ${freshness.reason}`);
+  }
+  const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
+  if (requestId) {
+    const replayKey = `${sourceAgentFolder}:${binding.authThreadId}:${chatJid}:conversation-history:${requestId}`;
     reserveFreshIpcRequestId(
       replayKey,
       nowMs() + IPC_REQUEST_MAX_AGE_MS,

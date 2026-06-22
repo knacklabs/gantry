@@ -23,7 +23,7 @@ const DELIVERY_RETRY_BASE_DELAY_MS = 5000;
 const DELIVERY_RETRY_MAX_DELAY_MS = 60_000;
 const EVENT_TYPES = new Set([
   'notification.card.requested',
-  'deep_analysis_admin_notification_requested',
+  'notification.message.requested',
 ]);
 
 type ExternalPlatformEventRow = {
@@ -148,69 +148,32 @@ export function buildExternalPlatformMessage(
   envelope: PlatformEventEnvelope,
 ): string {
   const payload = envelope.payload;
+  if (envelope.eventType === 'notification.message.requested') {
+    const message =
+      readOptionalString(payload.message) ??
+      readOptionalString(payload.text) ??
+      readOptionalString(payload.fallbackText);
+    if (message) return message;
+    const title = readOptionalString(payload.title) ?? 'New notification';
+    const summary =
+      readOptionalString(payload.summary) ??
+      readOptionalString(payload.description);
+    return [title, summary].filter(Boolean).join('\n');
+  }
   if (envelope.eventType === 'notification.card.requested') {
     const card = readRecord(payload.notificationCard);
     const title =
       readOptionalString(card?.title) ??
       readOptionalString(payload.title) ??
       'New notification';
-    const resourceId =
-      readOptionalString(card?.resourceId) ??
-      readOptionalString(payload.resourceId);
     const summary =
       readOptionalString(card?.summary) ??
       readOptionalString(payload.noticeSummary);
-    const emd = formatMessageAmount(
-      readOptionalNumberOrString(card?.emd) ??
-        readOptionalNumberOrString(payload.emd),
-      readOptionalString(card?.currency) ??
-        readOptionalString(payload.currency),
-    );
-    const workspace = readRecord(card?.workspace);
-    const workspaceName =
-      readOptionalString(workspace?.workspaceName) ??
-      readWorkspaceName(payload.workspaceTargets);
-    const organization = readOptionalString(payload.organization);
-    const location =
-      readOptionalString(card?.location) ??
-      readOptionalString(payload.location);
-    const deadline =
-      readOptionalString(card?.deadline) ??
-      readOptionalString(payload.deadline);
-    const publishedDate =
-      readOptionalString(card?.publishedDate) ??
-      readOptionalString(payload.publishedDate);
+    const facts = readMessageFacts(card?.facts);
     return [
       `Notification: ${title}`,
-      resourceId ? `Tender ID: ${resourceId}` : undefined,
-      summary ? `Notice: ${summary}` : undefined,
-      emd ? `EMD: ${emd}` : undefined,
-      workspaceName ? `Workspace matched: ${workspaceName}` : undefined,
-      organization ? `Organisation Details: ${organization}` : undefined,
-      location ? `Location Details: ${location}` : undefined,
-      deadline ? `Dead Line Date: ${deadline}` : undefined,
-      publishedDate ? `Published Date: ${publishedDate}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n');
-  }
-  if (envelope.eventType === 'deep_analysis_admin_notification_requested') {
-    const requester =
-      readOptionalString(payload.requestedByDisplayName) ??
-      readOptionalString(payload.requestedByExternalUserId) ??
-      'A workspace user';
-    const title = readOptionalString(payload.tenderTitle) ?? 'Unknown tender';
-    const tenderId = readOptionalString(payload.tenderId);
-    const workspace = readOptionalString(payload.workspaceName);
-    const requestedAt = readOptionalString(payload.requestedAt);
-    const reason = readOptionalString(payload.requestReason);
-    return [
-      'Deeper analysis requested',
-      `${requester} requested deeper analysis for ${title}.`,
-      tenderId ? `Tender ID: ${tenderId}` : undefined,
-      workspace ? `Workspace: ${workspace}` : undefined,
-      requestedAt ? `Requested at: ${requestedAt}` : undefined,
-      reason ? `Reason: ${reason}` : undefined,
+      summary ? `Summary: ${summary}` : undefined,
+      ...facts,
     ]
       .filter(Boolean)
       .join('\n');
@@ -231,28 +194,22 @@ export function buildExternalPlatformDelivery(
         buildExternalPlatformMessage(envelope),
     };
   }
-  return { kind: 'text', message: buildExternalPlatformMessage(envelope) };
+  return {
+    kind: 'text',
+    message: buildExternalPlatformMessage(envelope),
+    threadId: resolveExternalThreadId(envelope),
+  };
 }
 
-function readWorkspaceName(value: unknown): string | null {
-  if (!Array.isArray(value)) return null;
-  const firstTarget = readRecord(value[0]);
-  return readOptionalString(firstTarget?.workspaceName);
-}
-
-function readOptionalNumberOrString(value: unknown): number | string | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  return readOptionalString(value);
-}
-
-function formatMessageAmount(
-  value: number | string | null,
-  currency: string | null,
-): string | null {
-  if (typeof value === 'number') {
-    return `${currency || 'INR'} ${value.toLocaleString('en-IN')}`;
-  }
-  return value;
+function readMessageFacts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const record = readRecord(entry);
+    const label =
+      readOptionalString(record?.label) ?? readOptionalString(record?.title);
+    const factValue = readOptionalString(record?.value);
+    return label && factValue ? [`${label}: ${factValue}`] : [];
+  });
 }
 
 function buildExternalSignaturePayload(input: {
@@ -399,27 +356,6 @@ async function acceptExternalEvent(
   if (!duplicate) {
     if (targetJid) {
       await dispatchExternalEventToRuntime(ctx, envelope, targetJid);
-    } else if (
-      envelope.eventType === 'deep_analysis_admin_notification_requested'
-    ) {
-      const deliveredAt = new Date().toISOString();
-      const error = 'admin_dm_not_configured';
-      await updateExternalEventStatus({
-        eventId: envelope.eventId,
-        status: 'failed',
-        error,
-        response: {},
-        attemptCount: 0,
-        nextAttemptAt: null,
-        deliveredAt,
-      });
-      await completeExternalDeliveryCallback({
-        eventId: envelope.eventId,
-        platformStatus: 'failed',
-        deliveredAt,
-        error,
-        response: {},
-      });
     }
   }
   return {
@@ -490,12 +426,15 @@ async function sendExternalDelivery(
       durability: 'required',
       fallbackText: delivery.fallbackText,
       throwOnMissing: true,
+      ...(delivery.threadId ? { threadId: delivery.threadId } : {}),
     })) as MessageDeliveryResult | void;
   }
   if (delivery.kind === 'adaptive_card') {
     throw new Error('Adaptive Card delivery is required but unavailable');
   }
-  return await ctx.app.sendChannelMessage(targetJid, delivery.message);
+  return await ctx.app.sendChannelMessage(targetJid, delivery.message, {
+    ...(delivery.threadId ? { threadId: delivery.threadId } : {}),
+  });
 }
 
 async function ensureExternalRuntimeConversation(
@@ -792,25 +731,24 @@ export function resolveExternalDeliveryRetryDelayMs(
 }
 
 function resolveTargetJid(envelope: PlatformEventEnvelope): string | null {
-  if (envelope.eventType === 'deep_analysis_admin_notification_requested') {
-    return resolveExternalAdminDmJid();
-  }
   const target = envelope.target ?? readRecord(envelope.payload.target);
   const raw =
     readOptionalString(target?.jid) ??
     readOptionalString(target?.teamsChannelId) ??
     readOptionalString(target?.conversationId) ??
-    readOptionalString(target?.channelId);
+    readOptionalString(target?.channelId) ??
+    readOptionalString(envelope.payload.conversationId) ??
+    readOptionalString(envelope.payload.channelId);
   if (raw) return normalizeTeamsJid(raw);
   return null;
 }
 
-function resolveExternalAdminDmJid(): string | null {
-  const configured =
-    readOptionalString(envValueDynamic('GANTRY_EXTERNAL_ADMIN_DM_JID')) ??
-    readOptionalString(envValueDynamic('GANTRY_EXTERNAL_ADMIN_DM_JIDS'));
-  if (!configured) return null;
-  return normalizeTeamsJid(configured.split(',')[0]?.trim());
+function resolveExternalThreadId(envelope: PlatformEventEnvelope): string | null {
+  return (
+    readOptionalString(envelope.payload.threadId) ??
+    readOptionalString(envelope.payload.replyToId) ??
+    readOptionalString(envelope.payload.messageId)
+  );
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

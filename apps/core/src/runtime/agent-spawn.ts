@@ -29,6 +29,7 @@ import { ensureWorkspaceIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
+  computeConversationHistoryIpcAuthToken,
   createIpcAuthEnvelope,
   computeMemoryIpcAuthToken,
   registerBrowserIpcAuthorization,
@@ -532,6 +533,11 @@ export async function spawnAgent(
             input.threadId,
           )
         : undefined,
+      conversationHistoryIpcAuthToken: computeConversationHistoryIpcAuthToken(
+        group.folder,
+        input.chatJid,
+        input.threadId,
+      ),
       memoryIpcAuthToken: computeMemoryIpcAuthToken(group.folder, {
         chatJid: input.chatJid,
         userId: input.memoryUserId,

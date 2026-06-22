@@ -8,10 +8,10 @@ import type { TeamsInboundMessage, TeamsSdkClient } from './teams.js';
 export type ExternalCardAction = {
   integrationId: string;
   eventId: string;
-  resourceId: string;
-  workspaceId: string;
-  sourceWorkspaceId?: string | null;
-  sourceChannelId: string;
+  subjectId: string;
+  scopeId: string;
+  sourceScopeId?: string | null;
+  sourceConversationId: string;
   teamsTenantId: string;
   actionType: string;
   platformOperation: string;
@@ -46,8 +46,8 @@ export async function handleExternalCardAction(input: {
         eventId: action.eventId,
         integrationId: action.integrationId,
         platformOperation: action.platformOperation,
-        sourceChannelId: action.sourceChannelId,
-        workspaceId: action.workspaceId,
+        sourceConversationId: action.sourceConversationId,
+        scopeId: action.scopeId,
       },
       'Teams external card action received',
     );
@@ -72,8 +72,8 @@ export async function handleExternalCardAction(input: {
       canonicalTeamsConversationId(conversationId);
     if (
       !canonicalConversationId ||
-      canonicalConversationId !==
-        canonicalTeamsConversationId(action.sourceChannelId)
+        canonicalConversationId !==
+        canonicalTeamsConversationId(action.sourceConversationId)
     ) {
       throw new Error(
         'This card action belongs to a different Teams conversation',
@@ -93,8 +93,8 @@ export async function handleExternalCardAction(input: {
         eventId: action.eventId,
         integrationId: action.integrationId,
         platformOperation: action.platformOperation,
-        sourceChannelId: action.sourceChannelId,
-        workspaceId: action.workspaceId,
+        sourceConversationId: action.sourceConversationId,
+        scopeId: action.scopeId,
       },
       'Teams external card action forwarded to external platform',
     );
@@ -111,8 +111,8 @@ export async function handleExternalCardAction(input: {
         eventId: action.eventId,
         integrationId: action.integrationId,
         platformOperation: action.platformOperation,
-        sourceChannelId: action.sourceChannelId,
-        workspaceId: action.workspaceId,
+        sourceConversationId: action.sourceConversationId,
+        scopeId: action.scopeId,
       },
       'Teams external card action failed',
     );
@@ -150,7 +150,7 @@ async function recordExternalCardActionStarted(
   if (!['delivered', 'completed', 'callback_failed'].includes(row.status)) {
     throw new Error('Card action event has not been delivered');
   }
-  if (row.target_jid !== `teams:${action.sourceChannelId}`) {
+  if (row.target_jid !== `teams:${action.sourceConversationId}`) {
     throw new Error('Card action event belongs to a different channel');
   }
   const now = new Date().toISOString();
@@ -165,7 +165,7 @@ async function recordExternalCardActionStarted(
       action.eventId,
       action.actionType,
       actorId,
-      action.sourceChannelId,
+      action.sourceConversationId,
       now,
     ],
   );
@@ -199,10 +199,10 @@ function readExternalCardAction(value: unknown): ExternalCardAction | null {
   const action = {
     integrationId: readString(record.integrationId),
     eventId: readString(record.eventId),
-    resourceId: readString(record.resourceId),
-    workspaceId: readString(record.workspaceId),
-    sourceWorkspaceId: readString(record.sourceWorkspaceId) || null,
-    sourceChannelId: readString(record.sourceChannelId),
+    subjectId: readString(record.subjectId),
+    scopeId: readString(record.scopeId),
+    sourceScopeId: readString(record.sourceScopeId) || null,
+    sourceConversationId: readString(record.sourceConversationId),
     teamsTenantId: readString(record.teamsTenantId),
     actionType: readString(record.actionType),
     platformOperation: readString(record.platformOperation),
@@ -216,9 +216,9 @@ function readExternalCardAction(value: unknown): ExternalCardAction | null {
   const requiredValues = [
     action.integrationId,
     action.eventId,
-    action.resourceId,
-    action.workspaceId,
-    action.sourceChannelId,
+    action.subjectId,
+    action.scopeId,
+    action.sourceConversationId,
     action.teamsTenantId,
     action.actionType,
     action.platformOperation,
@@ -261,9 +261,9 @@ function describeExternalCardActionParseMiss(value: unknown): {
   const missingFields = [
     'integrationId',
     'eventId',
-    'resourceId',
-    'workspaceId',
-    'sourceChannelId',
+    'subjectId',
+    'scopeId',
+    'sourceConversationId',
     'teamsTenantId',
     'actionType',
     'platformOperation',
@@ -317,9 +317,10 @@ function verifyExternalCardActionSignature(action: ExternalCardAction): void {
           Object.entries({
             integrationId: action.integrationId,
             eventId: action.eventId,
-            resourceId: action.resourceId,
-            workspaceId: action.workspaceId,
-            sourceChannelId: action.sourceChannelId,
+            subjectId: action.subjectId,
+            scopeId: action.scopeId,
+            sourceScopeId: action.sourceScopeId ?? action.scopeId,
+            sourceConversationId: action.sourceConversationId,
             teamsTenantId: action.teamsTenantId,
             actionType: action.actionType,
             nonce: action.nonce,
@@ -396,10 +397,10 @@ export function buildExternalCardActionGraphqlRequest(input: {
       input: {
         integrationId: string;
         eventId: string;
-        resourceId: string;
-        workspaceId: string;
-        sourceWorkspaceId: string;
-        sourceChannelId: string;
+        subjectId: string;
+        scopeId: string;
+        sourceScopeId: string;
+        sourceConversationId: string;
         teamsTenantId: string;
         actionType: string;
         platformOperation: string;
@@ -414,7 +415,7 @@ export function buildExternalCardActionGraphqlRequest(input: {
     headers: {
       authorization: `Bearer ${resolveExternalPlatformServiceToken()}`,
       'content-type': 'application/json',
-      'x-channel-id': input.action.sourceChannelId,
+      'x-channel-id': input.action.sourceConversationId,
       'x-integration-id': input.action.integrationId,
     },
     body: {
@@ -427,10 +428,10 @@ export function buildExternalCardActionGraphqlRequest(input: {
         input: {
           integrationId: input.action.integrationId,
           eventId: input.action.eventId,
-          resourceId: input.action.resourceId,
-          workspaceId: input.action.workspaceId,
-          sourceWorkspaceId: input.action.workspaceId,
-          sourceChannelId: input.action.sourceChannelId,
+          subjectId: input.action.subjectId,
+          scopeId: input.action.scopeId,
+          sourceScopeId: input.action.sourceScopeId ?? input.action.scopeId,
+          sourceConversationId: input.action.sourceConversationId,
           teamsTenantId: input.teamsTenantId,
           actionType: input.action.actionType,
           platformOperation: input.action.platformOperation,

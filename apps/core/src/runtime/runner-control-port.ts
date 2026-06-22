@@ -2,6 +2,7 @@ export type RunnerControlRequestLane =
   | 'messages'
   | 'tasks'
   | 'memory-requests'
+  | 'conversation-history-requests'
   | 'browser-requests'
   | 'permission-requests'
   | 'user-questions';
@@ -9,6 +10,7 @@ export type RunnerControlRequestLane =
 export type RunnerControlResponseLane =
   | 'browser-responses'
   | 'memory-responses'
+  | 'conversation-history-responses'
   | 'permission-responses'
   | 'task-responses'
   | 'user-answers';

@@ -38,6 +38,14 @@ export const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 export const TASKS_DIR = path.join(IPC_DIR, 'tasks');
 export const MEMORY_REQUESTS_DIR = path.join(IPC_DIR, 'memory-requests');
 export const MEMORY_RESPONSES_DIR = path.join(IPC_DIR, 'memory-responses');
+export const CONVERSATION_HISTORY_REQUESTS_DIR = path.join(
+  IPC_DIR,
+  'conversation-history-requests',
+);
+export const CONVERSATION_HISTORY_RESPONSES_DIR = path.join(
+  IPC_DIR,
+  'conversation-history-responses',
+);
 export const BROWSER_REQUESTS_DIR = path.join(IPC_DIR, 'browser-requests');
 export const BROWSER_RESPONSES_DIR = path.join(IPC_DIR, 'browser-responses');
 export const TASK_RESPONSES_DIR = path.join(IPC_DIR, 'task-responses');
@@ -46,6 +54,8 @@ export const BROWSER_IPC_AUTH_TOKEN =
   process.env.GANTRY_BROWSER_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
 export const MEMORY_IPC_AUTH_TOKEN =
   process.env.GANTRY_MEMORY_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
+export const CONVERSATION_HISTORY_IPC_AUTH_TOKEN =
+  process.env.GANTRY_CONVERSATION_HISTORY_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.GANTRY_IPC_RESPONSE_KEY_ID || '';
@@ -239,6 +249,7 @@ export function capabilityStatusText(): string {
       toolName === 'memory_search' ||
       toolName === 'memory_save' ||
       toolName === 'continuity_summary' ||
+      toolName === 'conversation_thread_history' ||
       toolName === 'procedure_save' ||
       toolName === 'file' ||
       toolName === 'request_access' ||

@@ -65,6 +65,7 @@ export interface AgentCapabilityContext {
   ipcDir?: string;
   ipcAuthToken?: string;
   browserIpcAuthToken?: string;
+  conversationHistoryIpcAuthToken?: string;
   memoryIpcAuthToken?: string;
   ipcResponseVerifyKey?: string;
   ipcResponseKeyId?: string;
@@ -294,6 +295,12 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ...(ctx.browserIpcAuthToken &&
       (ctx.configuredAllowedTools ?? []).some(isCanonicalBrowserCapabilityRule)
         ? { GANTRY_BROWSER_IPC_AUTH_TOKEN: ctx.browserIpcAuthToken }
+        : {}),
+      ...(ctx.conversationHistoryIpcAuthToken
+        ? {
+            GANTRY_CONVERSATION_HISTORY_IPC_AUTH_TOKEN:
+              ctx.conversationHistoryIpcAuthToken,
+          }
         : {}),
       ...(ctx.memoryIpcAuthToken
         ? { GANTRY_MEMORY_IPC_AUTH_TOKEN: ctx.memoryIpcAuthToken }

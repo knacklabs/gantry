@@ -104,6 +104,18 @@ export function computeBrowserIpcAuthToken(
     .digest('hex');
 }
 
+export function computeConversationHistoryIpcAuthToken(
+  workspaceKey: string,
+  chatJid: string,
+  threadId?: string | null,
+): string {
+  return createHmac('sha256', IPC_AUTH_SECRET)
+    .update(
+      `conversation-history\0${authScope(workspaceKey, threadId)}\0chat\0${chatJid}`,
+    )
+    .digest('hex');
+}
+
 function browserIpcAuthorizationKey(input: {
   workspaceKey: string;
   chatJid: string;

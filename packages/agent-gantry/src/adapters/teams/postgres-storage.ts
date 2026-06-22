@@ -50,7 +50,7 @@ export function createPgGantryRuntimeStorage(
       const key = normalizeUserConversationStateKey(input);
       const result = await config.pool.query(
         `select provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id,
-                summary_text, state_json, last_tender_id, last_seen_at, expires_at, created_at, updated_at
+                summary_text, state_json, last_subject_id, last_seen_at, expires_at, created_at, updated_at
          from "${schema}"."user_conversation_state"
          where provider = $1
            and tenant_id = $2
@@ -77,19 +77,19 @@ export function createPgGantryRuntimeStorage(
       const result = await config.pool.query(
         `insert into "${schema}"."user_conversation_state" (
             provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id,
-            summary_text, state_json, last_tender_id, last_seen_at, expires_at, created_at, updated_at
+            summary_text, state_json, last_subject_id, last_seen_at, expires_at, created_at, updated_at
           )
           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, coalesce($12::timestamptz, now()), $12)
           on conflict (provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id)
           do update set
             summary_text = excluded.summary_text,
             state_json = excluded.state_json,
-            last_tender_id = excluded.last_tender_id,
+            last_subject_id = excluded.last_subject_id,
             last_seen_at = excluded.last_seen_at,
             expires_at = excluded.expires_at,
             updated_at = excluded.updated_at
           returning provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id,
-                    summary_text, state_json, last_tender_id, last_seen_at, expires_at, created_at, updated_at`,
+                    summary_text, state_json, last_subject_id, last_seen_at, expires_at, created_at, updated_at`,
         [
           key.provider,
           key.tenantId,
@@ -99,7 +99,7 @@ export function createPgGantryRuntimeStorage(
           key.conversationScopeId,
           input.summaryText ?? '',
           JSON.stringify(input.stateJson ?? {}),
-          input.lastTenderId ?? null,
+          input.lastSubjectId ?? null,
           input.lastSeenAt,
           input.expiresAt,
           updatedAt,
@@ -113,7 +113,7 @@ export function createPgGantryRuntimeStorage(
       const result = await config.pool.query(
         `insert into "${schema}"."user_conversation_state" (
             provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id,
-            summary_text, state_json, last_tender_id, last_seen_at, expires_at, created_at, updated_at
+            summary_text, state_json, last_subject_id, last_seen_at, expires_at, created_at, updated_at
           )
           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, coalesce($12::timestamptz, now()), $12)
           on conflict (provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id)
@@ -124,12 +124,12 @@ export function createPgGantryRuntimeStorage(
               else left("${schema}"."user_conversation_state".summary_text || E'\n' || excluded.summary_text, 2000)
             end,
             state_json = "${schema}"."user_conversation_state".state_json || excluded.state_json,
-            last_tender_id = coalesce(excluded.last_tender_id, "${schema}"."user_conversation_state".last_tender_id),
+            last_subject_id = coalesce(excluded.last_subject_id, "${schema}"."user_conversation_state".last_subject_id),
             last_seen_at = greatest("${schema}"."user_conversation_state".last_seen_at, excluded.last_seen_at),
             expires_at = greatest("${schema}"."user_conversation_state".expires_at, excluded.expires_at),
             updated_at = greatest("${schema}"."user_conversation_state".updated_at, excluded.updated_at)
           returning provider, tenant_id, user_id, conversation_id, conversation_scope_type, conversation_scope_id,
-                    summary_text, state_json, last_tender_id, last_seen_at, expires_at, created_at, updated_at`,
+                    summary_text, state_json, last_subject_id, last_seen_at, expires_at, created_at, updated_at`,
         [
           key.provider,
           key.tenantId,
@@ -139,7 +139,7 @@ export function createPgGantryRuntimeStorage(
           key.conversationScopeId,
           input.summaryText ?? '',
           JSON.stringify(input.stateJson ?? {}),
-          input.lastTenderId ?? null,
+          input.lastSubjectId ?? null,
           input.lastSeenAt,
           input.expiresAt,
           updatedAt,
@@ -304,8 +304,8 @@ function mapUserConversationStateRow(
     conversationScopeId: String(row.conversation_scope_id ?? ''),
     summaryText: typeof row.summary_text === 'string' ? row.summary_text : '',
     stateJson: asRecord(row.state_json) ?? {},
-    lastTenderId:
-      typeof row.last_tender_id === 'string' ? row.last_tender_id : null,
+    lastSubjectId:
+      typeof row.last_subject_id === 'string' ? row.last_subject_id : null,
     lastSeenAt: normalizeDateLike(row.last_seen_at),
     expiresAt: normalizeDateLike(row.expires_at),
     createdAt: normalizeDateLike(row.created_at),

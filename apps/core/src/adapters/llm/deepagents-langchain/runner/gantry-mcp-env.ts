@@ -94,6 +94,7 @@ export function buildGantryMcpProjection(
       ? { GANTRY_MEMORY_CONTEXT_BLOCK: input.memoryBlock }
       : {}),
     ...passthrough(env, 'GANTRY_MEMORY_IPC_AUTH_TOKEN'),
+    ...passthrough(env, 'GANTRY_CONVERSATION_HISTORY_IPC_AUTH_TOKEN'),
     ...passthrough(env, 'GANTRY_BROWSER_PROFILE_NAME'),
     ...passthrough(env, 'GANTRY_AGENT_ACCESS_PRESET'),
     ...passthrough(env, 'GANTRY_DEPLOYMENT_MODE'),

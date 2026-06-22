@@ -11,6 +11,8 @@ export const IPC_WORKSPACE_SUBDIRS = [
   'input',
   'memory-requests',
   'memory-responses',
+  'conversation-history-requests',
+  'conversation-history-responses',
   'browser-requests',
   'browser-responses',
   'permission-requests',

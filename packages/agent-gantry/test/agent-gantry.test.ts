@@ -33,8 +33,8 @@ describe('@cawstudios/agent-gantry', () => {
           JSON.stringify({
             results: [
               {
-                url: 'https://example.gov/tenders',
-                title: 'Tenders',
+                url: 'https://example.gov/Resources',
+                title: 'Resources',
                 content: 'Bid notices',
               },
             ],
@@ -44,13 +44,13 @@ describe('@cawstudios/agent-gantry', () => {
     });
 
     await expect(
-      provider.search({ query: 'karnataka tenders', limit: 1 }),
+      provider.search({ query: 'karnataka Resources', limit: 1 }),
     ).resolves.toMatchObject({
       provider: 'tavily',
       items: [
         {
-          url: 'https://example.gov/tenders',
-          title: 'Tenders',
+          url: 'https://example.gov/Resources',
+          title: 'Resources',
           snippet: 'Bid notices',
         },
       ],
@@ -67,8 +67,8 @@ describe('@cawstudios/agent-gantry', () => {
           JSON.stringify({
             data: [
               {
-                url: 'https://example.gov/tenders',
-                title: 'Tenders',
+                url: 'https://example.gov/Resources',
+                title: 'Resources',
                 markdown: 'Bid notices and procurement updates',
               },
             ],
@@ -79,18 +79,18 @@ describe('@cawstudios/agent-gantry', () => {
     });
 
     await expect(
-      provider.search({ query: 'karnataka tenders', limit: 1 }),
+      provider.search({ query: 'karnataka Resources', limit: 1 }),
     ).resolves.toMatchObject({
       provider: 'firecrawl-search',
       items: [
         {
-          url: 'https://example.gov/tenders',
-          title: 'Tenders',
+          url: 'https://example.gov/Resources',
+          title: 'Resources',
           snippet: 'Bid notices and procurement updates',
         },
       ],
     });
-    expect(requestBody).toEqual({ query: 'karnataka tenders', limit: 1 });
+    expect(requestBody).toEqual({ query: 'karnataka Resources', limit: 1 });
   });
 
   it('maps Firecrawl map responses into structured link results', async () => {
@@ -100,7 +100,7 @@ describe('@cawstudios/agent-gantry', () => {
         new Response(
           JSON.stringify({
             links: [
-              'https://example.gov/tenders',
+              'https://example.gov/Resources',
               { url: 'https://example.gov/procurement', title: 'Procurement' },
             ],
           }),
@@ -114,7 +114,7 @@ describe('@cawstudios/agent-gantry', () => {
       startUrl: 'https://example.gov',
       provider: 'firecrawl-map',
       links: [
-        { url: 'https://example.gov/tenders' },
+        { url: 'https://example.gov/Resources' },
         { url: 'https://example.gov/procurement', title: 'Procurement' },
       ],
     });
@@ -238,7 +238,7 @@ describe('@cawstudios/agent-gantry', () => {
         new Response(
           JSON.stringify({
             data: {
-              markdown: 'Public tender notices',
+              markdown: 'Public resource notices',
               metadata: {
                 sourceURL: 'https://example.gov',
                 title: 'Procurement Portal',
@@ -254,7 +254,7 @@ describe('@cawstudios/agent-gantry', () => {
     ).resolves.toMatchObject({
       url: 'https://example.gov',
       title: 'Procurement Portal',
-      text: 'Public tender notices',
+      text: 'Public resource notices',
       provider: 'firecrawl-scrape',
     });
   });
@@ -267,10 +267,10 @@ describe('@cawstudios/agent-gantry', () => {
           JSON.stringify({
             data: [
               {
-                markdown: 'Tender page',
+                markdown: 'Resource page',
                 metadata: {
-                  sourceURL: 'https://example.gov/tenders',
-                  title: 'Tenders',
+                  sourceURL: 'https://example.gov/Resources',
+                  title: 'Resources',
                 },
               },
             ],
@@ -286,9 +286,9 @@ describe('@cawstudios/agent-gantry', () => {
       provider: 'firecrawl',
       pages: [
         {
-          url: 'https://example.gov/tenders',
-          title: 'Tenders',
-          text: 'Tender page',
+          url: 'https://example.gov/Resources',
+          title: 'Resources',
+          text: 'Resource page',
         },
       ],
     });
@@ -355,25 +355,22 @@ describe('@cawstudios/agent-gantry', () => {
 
   it('renders signed Teams submit actions for embedded notification cards', () => {
     const card = buildExternalNotificationAdaptiveCard({
-      integrationId: 'manipal-tender-bot',
+      integrationId: 'external-workflow-bot',
       eventId: 'outbox-1',
       actionSecret: 'secret',
       nowMs: 1000,
       payload: {
-        resourceId: 'tender-1',
+        subjectId: 'subject-1',
         notificationCard: {
           schemaVersion: 'external.notification.card.v1',
           renderer: 'gantry_adaptive_card',
-          title: 'Tender',
-          workspace: {
-            workspaceId: 'workspace-1',
-            workspaceName: 'Workspace',
-            teamsChannelId: '19:workspace',
-            teamsTenantId: 'tenant-1',
-          },
+          title: 'Resource',
+          scopeId: 'scope-1',
+          sourceConversationId: '19:conversation',
+          teamsTenantId: 'tenant-1',
           actions: [
             {
-              actionType: 'mark_watching',
+              actionType: 'track_subject',
               label: 'Watch',
               presentation: 'submit',
               platformOperation: 'mark_resource',
@@ -386,14 +383,14 @@ describe('@cawstudios/agent-gantry', () => {
     const action = (card?.actions as Array<{ data: unknown }>)[0]?.data;
     const parsed = parseExternalCardAction(action);
     expect(parsed).toMatchObject({
-      integrationId: 'manipal-tender-bot',
+      integrationId: 'external-workflow-bot',
       eventId: 'outbox-1',
-      resourceId: 'tender-1',
-      workspaceId: 'workspace-1',
-      sourceWorkspaceId: 'workspace-1',
-      sourceChannelId: '19:workspace',
+      subjectId: 'subject-1',
+      scopeId: 'scope-1',
+      sourceScopeId: 'scope-1',
+      sourceConversationId: '19:conversation',
       teamsTenantId: 'tenant-1',
-      actionType: 'mark_watching',
+      actionType: 'track_subject',
       platformOperation: 'mark_resource',
     });
     expect(
@@ -410,30 +407,30 @@ describe('@cawstudios/agent-gantry', () => {
     const signed = signExternalCardAction({
       secret: 'secret',
       signatureVersion: 'v2',
-      integrationId: 'manipal-tender-bot',
-      eventId: 'outbox-admin-1',
+      integrationId: 'external-workflow-bot',
+      eventId: 'outbox-review-1',
       requestId: 'request-1',
-      resourceId: 'tender-1',
-      workspaceId: 'workspace-1',
-      sourceChannelId: '19:workspace',
+      subjectId: 'resource-1',
+      scopeId: 'workspace-1',
+      sourceConversationId: '19:workspace',
       teamsTenantId: 'tenant-1',
-      actionType: 'approve_deep_analysis',
-      platformOperation: 'requestTenderProcessing',
+      actionType: 'approve_request',
+      platformOperation: 'approveRequest',
       nowMs: 1000,
     });
     const action = parseExternalCardAction({
       action: 'external_card_action',
       signatureVersion: signed.signatureVersion,
-      integrationId: 'manipal-tender-bot',
-      eventId: 'outbox-admin-1',
+      integrationId: 'external-workflow-bot',
+      eventId: 'outbox-review-1',
       requestId: 'request-1',
-      resourceId: 'tender-1',
-      workspaceId: 'workspace-1',
-      sourceWorkspaceId: 'workspace-1',
-      sourceChannelId: '19:workspace',
+      subjectId: 'resource-1',
+      scopeId: 'workspace-1',
+      sourcescopeId: 'workspace-1',
+      sourceConversationId: '19:workspace',
       teamsTenantId: 'tenant-1',
-      actionType: 'approve_deep_analysis',
-      platformOperation: 'requestTenderProcessing',
+      actionType: 'approve_request',
+      platformOperation: 'approveRequest',
       nonce: signed.nonce,
       expiresAt: signed.expiresAt,
       signature: signed.signature,
@@ -442,7 +439,7 @@ describe('@cawstudios/agent-gantry', () => {
     expect(action).toMatchObject({
       signatureVersion: 'v2',
       requestId: 'request-1',
-      platformOperation: 'requestTenderProcessing',
+      platformOperation: 'approveRequest',
     });
     expect(
       action &&
@@ -453,7 +450,7 @@ describe('@cawstudios/agent-gantry', () => {
         verifyExternalCardAction({
           action: {
             ...action,
-            platformOperation: 'declineTenderProcessingApproval',
+            platformOperation: 'rejectRequest',
           },
           secret: 'secret',
           nowMs: 1000,
@@ -465,15 +462,15 @@ describe('@cawstudios/agent-gantry', () => {
     const baseAction = {
       action: 'external_card_action',
       signatureVersion: 'v2' as const,
-      integrationId: 'manipal-tender-bot',
+      integrationId: 'external-workflow-bot',
       eventId: 'outbox-1',
-      resourceId: 'tender-1',
-      workspaceId: 'workspace-1',
-      sourceWorkspaceId: 'workspace-1',
-      sourceChannelId: '19:workspace',
+      subjectId: 'subject-1',
+      scopeId: 'workspace-1',
+      sourcescopeId: 'workspace-1',
+      sourceConversationId: '19:workspace',
       teamsTenantId: 'tenant-1',
-      actionType: 'request_analysis',
-      platformOperation: 'requestAdminProcessingApproval',
+      actionType: 'request_review',
+      platformOperation: 'requestReviewApproval',
     };
     const signedWithMilliseconds = signExternalCardAction({
       secret: 'secret',
@@ -530,28 +527,28 @@ describe('@cawstudios/agent-gantry', () => {
     const signed = signExternalCardAction({
       secret: 'secret',
       signatureVersion: 'v2',
-      integrationId: 'manipal-tender-bot',
+      integrationId: 'external-workflow-bot',
       eventId: 'outbox-1',
-      resourceId: 'tender-1',
-      workspaceId: 'workspace-1',
-      sourceChannelId: '19:workspace',
+      subjectId: 'subject-1',
+      scopeId: 'workspace-1',
+      sourceConversationId: '19:workspace',
       teamsTenantId: 'tenant-1',
-      actionType: 'request_analysis',
-      platformOperation: 'requestAdminProcessingApproval',
+      actionType: 'request_review',
+      platformOperation: 'requestReviewApproval',
       nonce: 'nonce-1',
       expiresAt: '2099-01-01T00:00:00.000Z',
     });
     const action = parseExternalCardAction({
       action: 'external_card_action',
       signatureVersion: signed.signatureVersion,
-      integrationId: 'manipal-tender-bot',
+      integrationId: 'external-workflow-bot',
       eventId: 'outbox-1',
-      resourceId: 'tender-1',
-      workspaceId: 'workspace-1',
-      sourceChannelId: '19:workspace',
+      subjectId: 'subject-1',
+      scopeId: 'workspace-1',
+      sourceConversationId: '19:workspace',
       teamsTenantId: 'tenant-1',
-      actionType: 'request_analysis',
-      platformOperation: 'requestAdminProcessingApproval',
+      actionType: 'request_review',
+      platformOperation: 'requestReviewApproval',
       nonce: signed.nonce,
       expiresAt: '2099-01-01T00:00:00Z',
       signature: signed.signature,
@@ -560,7 +557,7 @@ describe('@cawstudios/agent-gantry', () => {
     expect(
       action &&
         verifyExternalCardAction({
-          action: { ...action, platformOperation: 'markTenderWatching' },
+          action: { ...action, platformOperation: 'trackSubject' },
           secret: 'secret',
           nowMs: Date.parse('2026-05-27T00:00:00Z'),
         }),
@@ -568,7 +565,7 @@ describe('@cawstudios/agent-gantry', () => {
     expect(
       action &&
         verifyExternalCardAction({
-          action: { ...action, resourceId: 'tender-2' },
+          action: { ...action, subjectId: 'subject-2' },
           secret: 'secret',
           nowMs: Date.parse('2026-05-27T00:00:00Z'),
         }),
@@ -585,14 +582,14 @@ describe('@cawstudios/agent-gantry', () => {
       signExternalCardAction({
         secret: 'secret',
         signatureVersion: 'v2',
-        integrationId: 'manipal-tender-bot',
+        integrationId: 'external-workflow-bot',
         eventId: 'outbox-1',
-        resourceId: 'tender-1',
-        workspaceId: 'workspace-1',
-        sourceChannelId: '19:workspace',
+        subjectId: 'subject-1',
+        scopeId: 'workspace-1',
+        sourceConversationId: '19:workspace',
         teamsTenantId: 'tenant-1',
-        actionType: 'request_analysis',
-        platformOperation: 'requestAdminProcessingApproval',
+        actionType: 'request_review',
+        platformOperation: 'requestReviewApproval',
         expiresAt: 'not-a-date',
       }),
     ).toThrow('External card action expiration timestamp is invalid.');
@@ -613,11 +610,11 @@ describe('@cawstudios/agent-gantry', () => {
     });
 
     const result = await client.notifications.sendCard({
-      integrationId: 'manipal-tender-bot',
+      integrationId: 'external-workflow-bot',
       eventId: 'evt_1',
       occurredAt: '2026-05-24T00:00:00.000Z',
-      target: { teamsChannelId: 'channel', workspaceId: 'workspace' },
-      payload: { resourceId: 'tender' },
+      target: { teamsChannelId: 'channel', scopeId: 'workspace' },
+      payload: { subjectId: 'subject-1' },
     });
 
     expect(result.statusCode).toBe(202);
@@ -674,11 +671,11 @@ describe('@cawstudios/agent-gantry', () => {
 
     await expect(
       client.notifications.sendEvent({
-        integrationId: 'manipal-tender-bot',
+        integrationId: 'external-workflow-bot',
         eventId: 'evt_1',
-        eventType: 'tender_processing_failed',
+        eventType: 'resource_processing_failed',
         occurredAt: '2026-05-24T00:00:00.000Z',
-        payload: { tenderId: 'tender_1' },
+        payload: { subjectId: 'subject_1' },
       }),
     ).resolves.toMatchObject({ statusCode: 202 });
   });
@@ -777,7 +774,7 @@ describe('@cawstudios/agent-gantry', () => {
         conversationType: 'channel',
       },
       from: { aadObjectId: 'teams-user-1', id: '29:user', name: 'User' },
-      recipient: { id: '28:bot', name: 'Tender Bot' },
+      recipient: { id: '28:bot', name: 'Workflow Bot' },
       channelData: {
         channel: { id: '19:channel@thread.tacv2' },
         tenant: { id: 'tenant-1' },
@@ -1165,7 +1162,7 @@ describe('@cawstudios/agent-gantry', () => {
                 conversation_scope_id: 'reply-1',
                 summary_text: 'Safe UX summary',
                 state_json: { last_intent: 'document_qa' },
-                last_tender_id: 'tender-1',
+                last_subject_id: 'subject-1',
                 last_seen_at: new Date('2026-06-01T00:00:00.000Z'),
                 expires_at: new Date('2026-07-01T00:00:00.000Z'),
                 created_at: new Date('2026-06-01T00:00:00.000Z'),
@@ -1190,7 +1187,7 @@ describe('@cawstudios/agent-gantry', () => {
         ...key,
         summaryText: 'Safe UX summary',
         stateJson: { last_intent: 'document_qa' },
-        lastTenderId: 'tender-1',
+        lastSubjectId: 'subject-1',
         lastSeenAt: '2026-06-01T00:00:00.000Z',
         expiresAt: '2026-07-01T00:00:00.000Z',
       }),
@@ -1259,8 +1256,8 @@ describe('@cawstudios/agent-gantry', () => {
             provider: 'firecrawl-search',
             items: [
               {
-                url: 'https://example.gov/tenders',
-                title: 'Tender portal',
+                url: 'https://example.gov/Resources',
+                title: 'Resource portal',
                 snippet: 'Open bid notices',
               },
             ],
@@ -1301,12 +1298,12 @@ describe('@cawstudios/agent-gantry', () => {
     await expect(
       runner.runStructuredTask({
         taskType: 'source_discovery',
-        instructions: 'find tender sources',
+        instructions: 'find resource sources',
         input: {
           toolRequests: {
-            search: [{ query: 'state tender portal', limit: 1 }],
-            fetch: [{ url: 'https://example.gov/tenders' }],
-            crawl: [{ url: 'https://example.gov/tenders' }],
+            search: [{ query: 'state Resource portal', limit: 1 }],
+            fetch: [{ url: 'https://example.gov/Resources' }],
+            crawl: [{ url: 'https://example.gov/Resources' }],
           },
         },
         correlationId: 'source-discovery',
@@ -1316,34 +1313,34 @@ describe('@cawstudios/agent-gantry', () => {
       output: {
         candidatesJson: [
           {
-            url: 'https://example.gov/tenders',
-            title: 'Tender portal',
+            url: 'https://example.gov/Resources',
+            title: 'Resource portal',
             confidence: 0.8,
           },
         ],
         toolContext: {
           search: [
             {
-              query: 'state tender portal',
+              query: 'state Resource portal',
               provider: 'firecrawl-search',
               items: [
                 {
-                  url: 'https://example.gov/tenders',
-                  title: 'Tender portal',
+                  url: 'https://example.gov/Resources',
+                  title: 'Resource portal',
                 },
               ],
             },
           ],
           fetch: [
             {
-              requestedUrl: 'https://example.gov/tenders',
+              requestedUrl: 'https://example.gov/Resources',
               toolFailure: true,
               error: 'This operation was aborted',
             },
           ],
           crawl: [
             {
-              requestedUrl: 'https://example.gov/tenders',
+              requestedUrl: 'https://example.gov/Resources',
               toolFailure: true,
               error: 'This operation was aborted',
             },

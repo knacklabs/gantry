@@ -181,7 +181,7 @@ export interface GantryUserConversationStateKey {
 export interface GantryUserConversationState extends GantryUserConversationStateKey {
   readonly summaryText: string;
   readonly stateJson: Record<string, unknown>;
-  readonly lastTenderId?: string | null;
+  readonly lastSubjectId?: string | null;
   readonly lastSeenAt: string;
   readonly expiresAt: string;
   readonly createdAt: string;
@@ -191,7 +191,7 @@ export interface GantryUserConversationState extends GantryUserConversationState
 export interface GantryUserConversationStateUpsertInput extends GantryUserConversationStateKey {
   readonly summaryText?: string | null;
   readonly stateJson?: Record<string, unknown> | null;
-  readonly lastTenderId?: string | null;
+  readonly lastSubjectId?: string | null;
   readonly lastSeenAt: string;
   readonly expiresAt: string;
   readonly updatedAt?: string | null;
@@ -205,8 +205,8 @@ export interface GantryExternalNotificationCardRequest {
   readonly occurredAt: string;
   readonly target: {
     readonly teamsChannelId: string;
-    readonly workspaceId?: string | null;
-    readonly workspaceName?: string | null;
+    readonly scopeId?: string | null;
+    readonly scopeName?: string | null;
   };
   readonly payload: Record<string, unknown>;
 }
@@ -280,10 +280,10 @@ export interface GantryPgRuntimeStorageConfig {
 export interface GantryExternalCardAction {
   readonly integrationId: string;
   readonly eventId: string;
-  readonly resourceId: string;
-  readonly workspaceId: string;
-  readonly sourceWorkspaceId?: string | null;
-  readonly sourceChannelId: string;
+  readonly subjectId: string;
+  readonly scopeId: string;
+  readonly sourceScopeId?: string | null;
+  readonly sourceConversationId: string;
   readonly teamsTenantId: string;
   readonly actionType: string;
   readonly platformOperation: string;
@@ -297,9 +297,10 @@ export interface GantryExternalCardAction {
 export interface GantryExternalCardActionSigningInput {
   readonly integrationId: string;
   readonly eventId: string;
-  readonly resourceId: string | null;
-  readonly workspaceId: string | null;
-  readonly sourceChannelId: string | null;
+  readonly subjectId: string | null;
+  readonly scopeId: string | null;
+  readonly sourceScopeId?: string | null;
+  readonly sourceConversationId: string | null;
   readonly teamsTenantId: string | null;
   readonly actionType: string;
   readonly platformOperation?: string | null;

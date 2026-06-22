@@ -24,28 +24,14 @@ type NotificationCardAction = {
 type NotificationCard = {
   schemaVersion: string;
   renderer: string;
-  resourceId?: string | null;
+  subjectId?: string | null;
+  scopeId?: string | null;
+  sourceConversationId?: string | null;
+  teamsTenantId?: string | null;
   title: string;
-  referenceNo?: string | null;
-  organization?: string | null;
-  location?: string | null;
-  deadline?: string | null;
-  publishedDate?: string | null;
-  emd?: number | string | null;
-  currency?: string | null;
   summary?: string | null;
-  sourceUrl?: string | null;
-  workspace?: {
-    workspaceId?: string;
-    workspaceName?: string;
-    teamsChannelId?: string;
-    teamsTenantId?: string;
-    matchedKeywords?: unknown;
-  };
-  primaryDocument?: {
-    signedDownloadUrl?: string | null;
-  };
-  documents?: unknown;
+  facts?: unknown;
+  links?: unknown;
   actions?: unknown;
   fallbackText?: string | null;
 };
@@ -55,10 +41,12 @@ export type ExternalPlatformDelivery =
       kind: 'adaptive_card';
       card: AdaptiveCardPayload;
       fallbackText: string;
+      threadId?: string | null;
     }
   | {
       kind: 'text';
       message: string;
+      threadId?: string | null;
     };
 
 export function buildExternalNotificationAdaptiveCard(
@@ -67,20 +55,7 @@ export function buildExternalNotificationAdaptiveCard(
   if (envelope.eventType !== 'notification.card.requested') return null;
   const card = readNotificationCard(envelope.payload.notificationCard);
   if (!card) return null;
-  const resourceId =
-    readOptionalString(card.resourceId) ||
-    readOptionalString(envelope.payload.resourceId);
-  const facts = [
-    fact('Tender ID', resourceId),
-    fact('EMD', formatAmount(card.emd, card.currency)),
-    fact('Workspace matched', card.workspace?.workspaceName),
-    fact('Organisation Details', card.organization),
-    fact('Location Details', card.location),
-    fact('Dead Line Date', card.deadline),
-    fact('Published Date', card.publishedDate),
-  ].filter((entry): entry is { title: string; value: string } =>
-    Boolean(entry),
-  );
+  const facts = readNotificationFacts(card.facts);
   const summary = sanitizeSummary(card.summary ?? null);
   const body: Array<Record<string, unknown>> = [
     {
@@ -107,7 +82,7 @@ export function buildExternalNotificationAdaptiveCard(
           },
         ]
       : []),
-    ...buildDocumentLinkBlocks(card),
+    ...buildLinkBlocks(card.links),
   ];
 
   return {
@@ -142,6 +117,16 @@ function buildTeamsAction(
   if (!operation) return null;
   const teamsTenantId = expectedTeamsTenantId(envelope, card);
   if (!teamsTenantId) return null;
+  const subjectId =
+    readOptionalString(card.subjectId) ??
+    readOptionalString(envelope.payload.subjectId);
+  const scopeId =
+    readOptionalString(card.scopeId) ?? readOptionalString(envelope.payload.scopeId);
+  const sourceConversationId =
+    readOptionalString(card.sourceConversationId) ??
+    readOptionalString(envelope.target?.teamsChannelId) ??
+    readOptionalString(envelope.target?.conversationId);
+  if (!subjectId || !scopeId || !sourceConversationId) return null;
   return {
     type: 'Action.Submit',
     title: action.label,
@@ -151,17 +136,18 @@ function buildTeamsAction(
       platformOperation: operation,
       integrationId: envelope.integrationId,
       eventId: envelope.eventId,
-      resourceId: readOptionalString(envelope.payload.resourceId),
-      workspaceId: readOptionalString(card.workspace?.workspaceId),
-      sourceWorkspaceId: readOptionalString(card.workspace?.workspaceId),
-      sourceChannelId: readOptionalString(card.workspace?.teamsChannelId),
+      subjectId,
+      scopeId,
+      sourceScopeId: scopeId,
+      sourceConversationId,
       teamsTenantId,
       ...signExternalCardAction({
         integrationId: envelope.integrationId,
         eventId: envelope.eventId,
-        resourceId: readOptionalString(envelope.payload.resourceId),
-        workspaceId: readOptionalString(card.workspace?.workspaceId),
-        sourceChannelId: readOptionalString(card.workspace?.teamsChannelId),
+        subjectId,
+        scopeId,
+        sourceScopeId: scopeId,
+        sourceConversationId,
         teamsTenantId,
         actionType: action.actionType,
         platformOperation: operation,
@@ -171,21 +157,31 @@ function buildTeamsAction(
   };
 }
 
-function buildDocumentLinkBlocks(
-  card: NotificationCard,
-): Record<string, unknown>[] {
-  if (!Array.isArray(card.documents)) return [];
-  const links = card.documents
+function readNotificationFacts(value: unknown): { title: string; value: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const record = entry as Record<string, unknown>;
+    const title =
+      readOptionalString(record.label) ?? readOptionalString(record.title);
+    const factValue = readOptionalString(record.value);
+    return title && factValue ? [{ title, value: factValue }] : [];
+  });
+}
+
+function buildLinkBlocks(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  const links = value
     .flatMap((entry, index): string[] => {
       if (!entry || typeof entry !== 'object') return [];
-      const document = entry as Record<string, unknown>;
-      const url = normalizeHttpUrl(document.signedDownloadUrl);
+      const link = entry as Record<string, unknown>;
+      const url = normalizeHttpUrl(link.url);
       if (!url) return [];
       return [
         `[${escapeMarkdownLinkLabel(
-          readOptionalString(document.documentLabel) ||
-            readOptionalString(document.fileName) ||
-            `Document ${index + 1}`,
+          readOptionalString(link.label) ||
+            readOptionalString(link.title) ||
+            `Link ${index + 1}`,
         )}](${escapeMarkdownLinkUrl(url)})`,
       ];
     })
@@ -195,7 +191,7 @@ function buildDocumentLinkBlocks(
   return [
     {
       type: 'TextBlock',
-      text: 'Documents',
+      text: 'Links',
       weight: 'Bolder',
       wrap: true,
       spacing: 'Medium',
@@ -238,9 +234,10 @@ function escapeMarkdownLinkUrl(value: string): string {
 function signExternalCardAction(input: {
   integrationId: string;
   eventId: string;
-  resourceId: string | null;
-  workspaceId: string | null;
-  sourceChannelId: string | null;
+  subjectId: string | null;
+  scopeId: string | null;
+  sourceScopeId?: string | null;
+  sourceConversationId: string | null;
   teamsTenantId: string | null;
   actionType: string;
   platformOperation?: string | null;
@@ -280,9 +277,10 @@ function signExternalCardAction(input: {
 export function signExternalCardActionForVerification(input: {
   integrationId: string;
   eventId: string;
-  resourceId: string | null;
-  workspaceId: string | null;
-  sourceChannelId: string | null;
+  subjectId: string | null;
+  scopeId: string | null;
+  sourceScopeId?: string | null;
+  sourceConversationId: string | null;
   teamsTenantId: string | null;
   actionType: string;
   platformOperation?: string | null;
@@ -300,9 +298,10 @@ export function signExternalCardActionForVerification(input: {
       stableActionPayload({
         integrationId: input.integrationId,
         eventId: input.eventId,
-        resourceId: input.resourceId,
-        workspaceId: input.workspaceId,
-        sourceChannelId: input.sourceChannelId,
+        subjectId: input.subjectId,
+        scopeId: input.scopeId,
+        sourceScopeId: input.sourceScopeId ?? input.scopeId,
+        sourceConversationId: input.sourceConversationId,
         teamsTenantId: input.teamsTenantId,
         actionType: input.actionType,
         ...(input.signatureVersion === 'v2'
@@ -342,7 +341,7 @@ function expectedTeamsTenantId(
       ? envelope.target
       : {};
   return (
-    readOptionalString(card.workspace?.teamsTenantId) ||
+    readOptionalString(card.teamsTenantId) ||
     readOptionalString(target.teamsTenantId) ||
     readOptionalString(envValueDynamic('GANTRY_EXTERNAL_TEAMS_TENANT_ID')) ||
     readOptionalString(envValueDynamic('TEAMS_TENANT_ID'))
@@ -363,25 +362,13 @@ function readNotificationCard(value: unknown): NotificationCard | null {
     schemaVersion: card.schemaVersion,
     renderer: card.renderer,
     title: readOptionalString(card.title) ?? 'New notification',
-    resourceId: readOptionalString(card.resourceId),
-    referenceNo: readOptionalString(card.referenceNo),
-    organization: readOptionalString(card.organization),
-    location: readOptionalString(card.location),
-    deadline: readOptionalString(card.deadline),
-    publishedDate: readOptionalString(card.publishedDate),
-    emd: readOptionalNumberOrString(card.emd),
-    currency: readOptionalString(card.currency),
+    subjectId: readOptionalString(card.subjectId),
+    scopeId: readOptionalString(card.scopeId),
+    sourceConversationId: readOptionalString(card.sourceConversationId),
+    teamsTenantId: readOptionalString(card.teamsTenantId),
     summary: sanitizeSummary(readOptionalString(card.summary)),
-    sourceUrl: readOptionalString(card.sourceUrl),
-    workspace:
-      card.workspace && typeof card.workspace === 'object'
-        ? card.workspace
-        : undefined,
-    primaryDocument:
-      card.primaryDocument && typeof card.primaryDocument === 'object'
-        ? card.primaryDocument
-        : undefined,
-    documents: Array.isArray(card.documents) ? card.documents : [],
+    facts: Array.isArray(card.facts) ? card.facts : [],
+    links: Array.isArray(card.links) ? card.links : [],
     actions: card.actions,
     fallbackText: readOptionalString(card.fallbackText),
   };
@@ -410,55 +397,17 @@ function readActions(value: unknown): NotificationCardAction[] {
   });
 }
 
-function fact(
-  title: string,
-  value: string | null | undefined,
-): { title: string; value: string } | null {
-  const normalized = readOptionalString(value);
-  return normalized ? { title, value: normalized } : null;
-}
-
 function readOptionalString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function readOptionalNumberOrString(value: unknown): number | string | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  return readOptionalString(value);
-}
-
-function formatAmount(
-  amount: number | string | null | undefined,
-  currency: string | null | undefined,
-): string | null {
-  if (amount === null || amount === undefined || amount === '') return null;
-  if (typeof amount === 'number') {
-    return `${currency || 'INR'} ${amount.toLocaleString('en-IN')}`;
-  }
-  return amount;
 }
 
 const summaryNoisePatterns = [
   /^screen reader access$/i,
   /^search\s*\|/i,
-  /active tenders/i,
-  /corrigendum/i,
-  /results of tenders/i,
   /^text$/i,
   /^basic details$/i,
-  /^mis reports$/i,
-  /^tenders by /i,
-  /^tenders in archive$/i,
-  /^tenders status$/i,
-  /^cancelled\/retendered$/i,
   /^downloads$/i,
-  /^department list$/i,
   /^announcements$/i,
-  /^recognitions$/i,
-  /^site compatibility$/i,
-  /^view more details$/i,
-  /^tender details$/i,
-  /eprocurement system/i,
 ];
 
 function sanitizeSummary(value: string | null): string | null {

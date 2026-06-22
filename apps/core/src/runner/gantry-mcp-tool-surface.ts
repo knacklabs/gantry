@@ -79,6 +79,10 @@ export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [
   'memory_review_decision',
 ] as const;
 
+export const EXPLICIT_GANTRY_MCP_TOOL_NAMES = [
+  'conversation_thread_history',
+] as const;
+
 const REVIEWER_MEMORY_REVIEW_GANTRY_MCP_TOOL_NAMES = [
   'memory_review_pending',
   'memory_review_decision',
@@ -124,6 +128,7 @@ export const DEFAULT_GANTRY_MCP_TOOL_NAMES = [
 
 export const ALL_GANTRY_MCP_TOOL_NAMES = [
   ...DEFAULT_GANTRY_MCP_TOOL_NAMES,
+  ...EXPLICIT_GANTRY_MCP_TOOL_NAMES,
   ...ASYNC_TASK_GANTRY_MCP_TOOL_NAMES,
   ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
   ...GATED_GANTRY_MCP_TOOL_NAMES,
