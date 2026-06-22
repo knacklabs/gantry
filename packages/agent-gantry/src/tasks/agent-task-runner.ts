@@ -9,9 +9,9 @@ import type {
 } from '../shared/types.js';
 import { asRecord, parseJsonRecord } from '../shared/helpers.js';
 import {
+  buildAgentStepInstructions,
   buildAgentPromptMetrics,
   buildGenericAgentActionSchema,
-  buildGenericAgentStepInstructions,
   cloneJsonRecord,
   compactAgentLoopState,
   normalizeAgentMaxSteps,
@@ -42,6 +42,38 @@ export async function runGenericAgentTask(
     input: input.input,
     observations: [],
   };
+
+  const validateFinalOutput = async (request: {
+    readonly step: number;
+    readonly output: Record<string, unknown>;
+    readonly source: 'model_final' | 'tool_final_output';
+    readonly toolName?: string | null;
+  }): Promise<boolean> => {
+    if (!input.validateFinal) return true;
+    const validation = await input.validateFinal({
+      taskType: input.taskType,
+      correlationId: input.correlationId,
+      step: request.step,
+      state,
+      output: request.output,
+      source: request.source,
+      toolName: request.toolName ?? null,
+    });
+    if (validation.accepted) return true;
+    const feedback = {
+      source: request.source,
+      toolName: request.toolName ?? null,
+      reason: validation.reason ?? 'agent_final_output_rejected',
+      instruction:
+        validation.instruction ??
+        'Continue gathering evidence before returning final output.',
+      details: validation.details ?? null,
+    };
+    state.finalValidationFeedback = feedback;
+    warnings.push(`agent_final_output_rejected:${feedback.reason}`);
+    return false;
+  };
+
   const recordStep = async (stepEntry: GantryAgentTaskStep): Promise<void> => {
     steps.push(stepEntry);
     if (!input.onStep) return;
@@ -142,7 +174,12 @@ export async function runGenericAgentTask(
     let action: Record<string, unknown>;
     let promptMetrics: Record<string, unknown> | null = null;
     try {
-      const instructions = buildGenericAgentStepInstructions(input, step);
+      const instructions = await buildAgentStepInstructions(input, {
+        taskType: input.taskType,
+        correlationId: input.correlationId,
+        step,
+        state,
+      });
       const actionSchema = buildGenericAgentActionSchema();
       const modelInput = {
         state: cloneJsonRecord(compactAgentLoopState(state)),
@@ -205,14 +242,22 @@ export async function runGenericAgentTask(
     const parsed = parseGenericAgentAction(action);
     if (parsed.action === 'final') {
       const output = parsed.output;
+      const finalAccepted = await validateFinalOutput({
+        step,
+        output,
+        source: 'model_final',
+      });
       await recordStep({
         step,
         actionType: 'final',
-        status: 'completed',
+        status: finalAccepted ? 'completed' : 'failed',
         startedAt: stepStartedIso,
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - stepStartedAt,
         observation: summarizeAgentObservation(output),
+        error: finalAccepted
+          ? undefined
+          : 'agent_final_output_rejected',
         promptMetrics,
         auditNote: parsed.auditNote,
         whyThisStep: parsed.whyThisStep,
@@ -224,6 +269,7 @@ export async function runGenericAgentTask(
         expectedStateChange: parsed.expectedStateChange,
         fallbackIfWrong: parsed.fallbackIfWrong,
       });
+      if (!finalAccepted) continue;
       const status =
         output.status === 'needs_review' || output.status === 'failed'
           ? output.status
@@ -462,6 +508,13 @@ export async function runGenericAgentTask(
       });
       const finalOutput = asRecord(observation.finalOutput);
       if (finalOutput) {
+        const finalAccepted = await validateFinalOutput({
+          step,
+          output: finalOutput,
+          source: 'tool_final_output',
+          toolName: tool.name,
+        });
+        if (!finalAccepted) continue;
         const status =
           finalOutput.status === 'needs_review' ||
           finalOutput.status === 'failed'

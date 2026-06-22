@@ -101,6 +101,14 @@ export interface GantryAgentTaskInput {
   ) =>
     | Promise<readonly GantryAgentTaskAttachment[]>
     | readonly GantryAgentTaskAttachment[];
+  readonly buildStepInstructions?: (
+    input: GantryAgentTaskStepInstructionsRequest,
+  ) => Promise<string> | string;
+  readonly validateFinal?: (
+    input: GantryAgentTaskFinalValidationRequest,
+  ) =>
+    | Promise<GantryAgentTaskFinalValidationResult>
+    | GantryAgentTaskFinalValidationResult;
   readonly shouldCancel?: (
     input: GantryAgentTaskCancellationRequest,
   ) => Promise<boolean> | boolean;
@@ -130,6 +138,30 @@ export interface GantryAgentTaskAttachmentRequest {
   readonly correlationId?: string | null;
   readonly step: number;
   readonly state: Record<string, unknown>;
+}
+
+export interface GantryAgentTaskStepInstructionsRequest {
+  readonly taskType: string;
+  readonly correlationId?: string | null;
+  readonly step: number;
+  readonly state: Record<string, unknown>;
+}
+
+export interface GantryAgentTaskFinalValidationRequest {
+  readonly taskType: string;
+  readonly correlationId?: string | null;
+  readonly step: number;
+  readonly state: Record<string, unknown>;
+  readonly output: Record<string, unknown>;
+  readonly source: 'model_final' | 'tool_final_output';
+  readonly toolName?: string | null;
+}
+
+export interface GantryAgentTaskFinalValidationResult {
+  readonly accepted: boolean;
+  readonly reason?: string | null;
+  readonly instruction?: string | null;
+  readonly details?: Record<string, unknown> | null;
 }
 
 export interface GantryAgentTaskStep {

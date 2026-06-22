@@ -92,6 +92,30 @@ export function buildGenericAgentStepInstructions(
   ].join('\n');
 }
 
+export async function buildAgentStepInstructions(
+  input: GantryAgentTaskInput,
+  request: {
+    readonly taskType: string;
+    readonly correlationId?: string | null;
+    readonly step: number;
+    readonly state: Record<string, unknown>;
+  },
+): Promise<string> {
+  const genericInstructions = buildGenericAgentStepInstructions(
+    input,
+    request.step,
+  );
+  if (!input.buildStepInstructions) return genericInstructions;
+  const customInstructions = await input.buildStepInstructions(request);
+  if (!customInstructions.trim()) return genericInstructions;
+  return [
+    genericInstructions,
+    '',
+    'Task-specific step guidance:',
+    customInstructions,
+  ].join('\n');
+}
+
 export function buildGenericAgentActionSchema(): Record<string, unknown> {
   return {
     type: 'object',
