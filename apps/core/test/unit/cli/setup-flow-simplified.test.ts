@@ -263,6 +263,7 @@ async function loadGroupStep() {
   const settings = {};
   const spinner = { start: vi.fn(), stop: vi.fn() };
   const ensureConfiguredConversationBinding = vi.fn();
+  const saveRuntimeSettings = vi.fn();
   const registerSlackMainGroup = vi.fn(async () => ({
     folder: 'main_agent',
     groupName: 'Gantry',
@@ -296,7 +297,7 @@ async function loadGroupStep() {
   }));
   vi.doMock('@core/config/settings/runtime-settings.js', () => ({
     loadRuntimeSettings: vi.fn(() => settings),
-    saveRuntimeSettings: vi.fn(),
+    saveRuntimeSettings,
     ensureConfiguredConversationBinding,
   }));
   const { runGroupStep } = await import('@core/cli/setup-flow-final-steps.js');
@@ -304,6 +305,7 @@ async function loadGroupStep() {
     runGroupStep,
     ensureConfiguredConversationBinding,
     registerSlackMainGroup,
+    saveRuntimeSettings,
   };
 }
 
@@ -313,6 +315,7 @@ describe('conversation binding labels', () => {
       runGroupStep,
       ensureConfiguredConversationBinding,
       registerSlackMainGroup,
+      saveRuntimeSettings,
     } = await loadGroupStep();
     const draft = {
       primaryProvider: 'slack',
@@ -327,15 +330,8 @@ describe('conversation binding labels', () => {
       type: 'next',
     });
 
-    expect(ensureConfiguredConversationBinding).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        agentName: 'Gantry',
-        jid: 'sl:C0123456789',
-        displayName: 'ops-room',
-        approverIds: ['U123'],
-      }),
-    );
+    expect(ensureConfiguredConversationBinding).not.toHaveBeenCalled();
+    expect(saveRuntimeSettings).not.toHaveBeenCalled();
     expect(registerSlackMainGroup).toHaveBeenCalledWith(
       expect.objectContaining({
         chatJid: 'sl:C0123456789',

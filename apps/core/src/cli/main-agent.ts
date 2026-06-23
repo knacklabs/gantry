@@ -22,6 +22,9 @@ export function allocateDefaultAgentFolder(
   runtimeHome: string,
   existing: Record<string, { folder: string }>,
 ): string {
+  const hasSeededDefaultPlaceholder = Object.entries(existing).some(
+    ([jid, group]) => isSeededDefaultPlaceholderRoute(jid, group),
+  );
   const used = new Set(
     Object.entries(existing)
       .filter(([jid, group]) => !isSeededDefaultPlaceholderRoute(jid, group))
@@ -32,7 +35,7 @@ export function allocateDefaultAgentFolder(
 
   if (
     !used.has(DEFAULT_AGENT_FOLDER) &&
-    !hasOnDiskFolder(DEFAULT_AGENT_FOLDER)
+    (!hasOnDiskFolder(DEFAULT_AGENT_FOLDER) || hasSeededDefaultPlaceholder)
   ) {
     return DEFAULT_AGENT_FOLDER;
   }

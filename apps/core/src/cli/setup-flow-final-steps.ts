@@ -127,18 +127,6 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
         conversationDisplayName: conversationLabel,
         approverIds,
       });
-      const settings = loadRuntimeSettings(draft.runtimeHome);
-      ensureConfiguredConversationBinding(settings, {
-        agentId: result.folder,
-        agentName: result.groupName,
-        agentFolder: result.folder,
-        jid: draft.slackChatJid,
-        displayName: conversationLabel,
-        trigger: `@${result.groupName}`,
-        requiresTrigger: false,
-        approverIds,
-      });
-      saveRuntimeSettings(draft.runtimeHome, settings);
       draft.workspaceKey = result.folder;
       draft.conversationLabel = conversationLabel;
       spinner.stop(`Registered ${result.groupName} (${result.folder})`);

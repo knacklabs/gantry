@@ -70,6 +70,19 @@ describe('default-agent helpers', () => {
     ).toBe(DEFAULT_AGENT_FOLDER);
   });
 
+  it('reuses the seeded default app route folder when it exists on disk', () => {
+    const runtimeHome = makeRuntimeHome();
+    fs.mkdirSync(path.join(runtimeHome, 'agents', DEFAULT_AGENT_FOLDER), {
+      recursive: true,
+    });
+
+    expect(
+      allocateDefaultAgentFolder(runtimeHome, {
+        'app:default': { folder: DEFAULT_AGENT_FOLDER },
+      }),
+    ).toBe(DEFAULT_AGENT_FOLDER);
+  });
+
   it('treats on-disk folders as collisions when allocating', () => {
     const runtimeHome = makeRuntimeHome();
     fs.mkdirSync(path.join(runtimeHome, 'agents', DEFAULT_AGENT_FOLDER), {

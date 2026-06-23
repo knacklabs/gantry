@@ -389,11 +389,6 @@ export async function registerSlackMainGroup(options: {
       agentConfig: existingGroup?.agentConfig,
     };
     await db.setConversationRoute(options.chatJid, route);
-    await new PromptProfileService({
-      fileArtifactStore: () => db.getFileArtifactStore(),
-      mirrorProfileFile: createProfileFileMirrorWriter(options.runtimeHome),
-      mirrorFileExists: createProfileFileMirrorExists(options.runtimeHome),
-    }).ensureAgentDefaults({ agentFolder: folder, agentName: groupName });
 
     const settings = loadRuntimeSettings(options.runtimeHome);
     const previousSettings = structuredClone(settings);
@@ -412,6 +407,12 @@ export async function registerSlackMainGroup(options: {
       settings,
       previousSettings,
     });
+
+    await new PromptProfileService({
+      fileArtifactStore: () => db.getFileArtifactStore(),
+      mirrorProfileFile: createProfileFileMirrorWriter(options.runtimeHome),
+      mirrorFileExists: createProfileFileMirrorExists(options.runtimeHome),
+    }).ensureAgentDefaults({ agentFolder: folder, agentName: groupName });
 
     return { folder, groupName };
   } finally {
@@ -518,6 +519,7 @@ export async function runSlackConnectCommand(
   const approverIds = parseSlackApproverIds(approverInput || '');
   let registeredFolder = '';
   let conversationRouteName = '';
+  let conversationDisplayName = '';
 
   if (normalizedChatJid) {
     const access = await verifySlackChatAccess({
@@ -530,11 +532,13 @@ export async function runSlackConnectCommand(
       if (access.nextAction) p.log.info(access.nextAction);
       return 1;
     }
+    conversationDisplayName = access.chatTitle || normalizedChatJid;
 
     const registered = await registerSlackMainGroup({
       runtimeHome,
       chatJid: normalizedChatJid,
       displayName: loadRuntimeSettings(runtimeHome).agent.name,
+      conversationDisplayName,
       approverIds,
     });
     registeredFolder = registered.folder;
@@ -558,7 +562,8 @@ export async function runSlackConnectCommand(
       agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
       jid: normalizedChatJid,
-      displayName: conversationRouteName || settings.agent.name,
+      displayName:
+        conversationDisplayName || conversationRouteName || settings.agent.name,
       trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       approverIds,

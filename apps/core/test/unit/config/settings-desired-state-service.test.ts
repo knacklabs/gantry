@@ -957,7 +957,7 @@ describe('SettingsDesiredStateService', () => {
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
       'sl:C123',
       expect.objectContaining({
-        name: 'Sales Slack',
+        name: 'Main',
         folder: 'main_agent',
         trigger: '@main',
       }),
