@@ -1,17 +1,14 @@
 // Race-safe migration runner for the Gantry container entrypoint.
 //
-// Runs the SAME migration path the runtime uses on boot
+// Runs the SAME migration path the runtime uses on non-container boot
 // (PostgresStorageService.migrate at
 //  dist/adapters/storage/postgres/storage-service.js).
 //
 // Serialization: migrate() itself takes a session-scoped Postgres advisory
 // lock (RUNTIME_MIGRATION_LOCK_NAMESPACE/KEY in storage-service) around the
-// drizzle migrator. That single lock identity serializes EVERY migrator —
-// entrypoint passes like this one AND runtime boot-time migrate() calls — so
-// N instances booting at once are safe in any mix: the lock holder migrates,
-// the rest block then find nothing pending. Do NOT add an outer lock here:
-// taking the same advisory lock on a second session before calling migrate()
-// would self-deadlock against the lock inside migrate().
+// drizzle migrator. Do NOT add an outer lock here: taking the same advisory lock
+// on a second session before calling migrate() would self-deadlock against the
+// lock inside migrate().
 //
 // Why this is safe for N workers that all run it:
 //   - migrate() is idempotent — drizzle records applied migrations in
@@ -21,49 +18,63 @@
 //     the holder disconnects, even on crash, so a dead migrator cannot wedge
 //     the fleet.
 //   - Because the entrypoint completes migration before exec-ing the runtime,
-//     the runtime's own boot-time migrate() finds nothing pending and is a
-//     fast no-op against the already-migrated schema.
+//     it sets GANTRY_SKIP_RUNTIME_MIGRATIONS=1 so the long-lived runtime only
+//     health-checks the already-migrated schema.
 //
-// Connection URL precedence (migration role may differ from the runtime role):
-//   MIGRATION_DATABASE_URL  ->  GANTRY_DATABASE_URL
+// Connection URL precedence:
+//   GANTRY_BOOTSTRAP_DATABASE_URL -> GANTRY_DATABASE_URL
 // Schema precedence mirrors the ECS settings bootstrap:
 //   GANTRY_SETTINGS_POSTGRES_SCHEMA
-//   schema= query parameter in MIGRATION_DATABASE_URL / GANTRY_DATABASE_URL
+//   schema= query parameter in GANTRY_DATABASE_URL
+//   schema= query parameter in GANTRY_BOOTSTRAP_DATABASE_URL
 //   GANTRY_DB_SCHEMA
 //   "gantry" (matches DEFAULT_STORAGE_POSTGRES_SCHEMA)
 
 import { PostgresStorageService } from '../../dist/adapters/storage/postgres/storage-service.js';
 import { fleetRehearsalPlaintextPostgresHosts } from '../../dist/adapters/storage/postgres/url.js';
 
-function resolveMigrationUrl() {
+function resolveDatabaseUrl() {
   const url =
-    process.env.MIGRATION_DATABASE_URL?.trim() ||
+    process.env.GANTRY_BOOTSTRAP_DATABASE_URL?.trim() ||
     process.env.GANTRY_DATABASE_URL?.trim();
   if (!url) {
     throw new Error(
-      'No database URL: set MIGRATION_DATABASE_URL or GANTRY_DATABASE_URL.',
+      'No database URL: set GANTRY_DATABASE_URL or GANTRY_BOOTSTRAP_DATABASE_URL.',
     );
   }
   return url;
 }
 
-function resolveSchema(url) {
+function resolveSchema() {
   const explicit = process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA?.trim();
   if (explicit) return explicit;
 
-  try {
-    const schema = new URL(url).searchParams.get('schema')?.trim();
-    if (schema) return schema;
-  } catch {
-    // Let PostgresStorageService report malformed URLs below.
+  const url = process.env.GANTRY_DATABASE_URL?.trim();
+  if (url) {
+    try {
+      const schema = new URL(url).searchParams.get('schema')?.trim();
+      if (schema) return schema;
+    } catch {
+      // Let PostgresStorageService report malformed URLs below.
+    }
+  }
+
+  const bootstrapUrl = process.env.GANTRY_BOOTSTRAP_DATABASE_URL?.trim();
+  if (bootstrapUrl) {
+    try {
+      const schema = new URL(bootstrapUrl).searchParams.get('schema')?.trim();
+      if (schema) return schema;
+    } catch {
+      // Let PostgresStorageService report malformed URLs below.
+    }
   }
 
   return process.env.GANTRY_DB_SCHEMA?.trim() || 'gantry';
 }
 
 async function main() {
-  const url = resolveMigrationUrl();
-  const schema = resolveSchema(url);
+  const url = resolveDatabaseUrl();
+  const schema = resolveSchema();
 
   const service = new PostgresStorageService(url, schema, {
     plaintextHostAllowlist: fleetRehearsalPlaintextPostgresHosts(),

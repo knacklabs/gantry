@@ -97,6 +97,12 @@ variable "runtime_secret_env_refs" {
   default = []
 }
 
+variable "skip_migrations" {
+  description = "Set GANTRY_SKIP_MIGRATIONS=1 for this worker pool. Use when another role or an external one-shot migrator has already applied schema changes."
+  type        = bool
+  default     = false
+}
+
 variable "artifact_bucket_name" {
   description = "S3 artifact bucket name seeded into fleet settings.yaml for runtime.artifact_store."
   type        = string

@@ -100,12 +100,21 @@ function resolveBootstrapSettingsSchema(): string {
   ).trim();
   if (explicit) return explicit;
 
-  const url =
-    runtimeEnvValueDynamic('MIGRATION_DATABASE_URL').trim() ||
-    runtimeEnvValueDynamic('GANTRY_DATABASE_URL').trim();
+  const url = runtimeEnvValueDynamic('GANTRY_DATABASE_URL').trim();
   if (url) {
     try {
       const schema = new URL(url).searchParams.get('schema')?.trim();
+      if (schema) return schema;
+    } catch {
+      // Let the normal Postgres URL validation report malformed URLs.
+    }
+  }
+  const bootstrapUrl = runtimeEnvValueDynamic(
+    'GANTRY_BOOTSTRAP_DATABASE_URL',
+  ).trim();
+  if (bootstrapUrl) {
+    try {
+      const schema = new URL(bootstrapUrl).searchParams.get('schema')?.trim();
       if (schema) return schema;
     } catch {
       // Let the normal Postgres URL validation report malformed URLs.

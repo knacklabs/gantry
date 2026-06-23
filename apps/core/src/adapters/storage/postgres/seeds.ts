@@ -14,9 +14,17 @@ import {
 
 export const DEFAULT_APP_ID = 'default';
 export const DEFAULT_AGENT_ID = 'agent:main_agent';
+export const DEFAULT_AGENT_CONFIG_VERSION_ID = `config:${DEFAULT_AGENT_ID}:1`;
 export const DEFAULT_LLM_PROFILE_ID = 'llm:default';
 export const DEFAULT_PERMISSION_POLICY_ID = 'permission-policy:default';
+export const DEFAULT_PERMISSION_RULE_ID =
+  'permission-rule:default:approval-required';
 export const DEFAULT_SANDBOX_PROFILE_ID = 'sandbox-profile:local-dev';
+export const DEFAULT_SKILL_CATALOG = [
+  { id: 'skill:memory', name: 'memory' },
+  { id: 'skill:scheduler', name: 'scheduler' },
+  { id: 'skill:browser', name: 'browser' },
+] as const;
 
 export async function seedDefaultRuntimeData(
   db: NodePgDatabase<typeof pgSchema>,
@@ -66,24 +74,26 @@ export async function seedDefaultRuntimeData(
       })
       .onConflictDoNothing();
 
-    const configVersionId = `config:${DEFAULT_AGENT_ID}:1`;
     await tx
       .insert(pgSchema.agentsPostgres)
       .values({
         id: DEFAULT_AGENT_ID,
         appId: DEFAULT_APP_ID,
         name: 'Default Agent',
-        currentConfigVersionId: configVersionId,
+        currentConfigVersionId: DEFAULT_AGENT_CONFIG_VERSION_ID,
       })
       .onConflictDoUpdate({
         target: pgSchema.agentsPostgres.id,
-        set: { currentConfigVersionId: configVersionId, updatedAt: sql`now()` },
+        set: {
+          currentConfigVersionId: DEFAULT_AGENT_CONFIG_VERSION_ID,
+          updatedAt: sql`now()`,
+        },
       });
 
     await tx
       .insert(pgSchema.agentConfigVersionsPostgres)
       .values({
-        id: configVersionId,
+        id: DEFAULT_AGENT_CONFIG_VERSION_ID,
         appId: DEFAULT_APP_ID,
         agentId: DEFAULT_AGENT_ID,
         version: 1,
@@ -107,7 +117,7 @@ export async function seedDefaultRuntimeData(
     await tx
       .insert(pgSchema.permissionRulesPostgres)
       .values({
-        id: 'permission-rule:default:approval-required',
+        id: DEFAULT_PERMISSION_RULE_ID,
         appId: DEFAULT_APP_ID,
         policyId: DEFAULT_PERMISSION_POLICY_ID,
         priority: 100,
@@ -140,11 +150,7 @@ export async function seedDefaultRuntimeData(
         .onConflictDoNothing();
     }
 
-    for (const skill of [
-      { id: 'skill:memory', name: 'memory' },
-      { id: 'skill:scheduler', name: 'scheduler' },
-      { id: 'skill:browser', name: 'browser' },
-    ]) {
+    for (const skill of DEFAULT_SKILL_CATALOG) {
       await tx
         .insert(pgSchema.skillCatalogPostgres)
         .values({
@@ -158,7 +164,7 @@ export async function seedDefaultRuntimeData(
   });
 }
 
-const DEFAULT_TOOL_CATALOG = [
+export const DEFAULT_TOOL_CATALOG = [
   {
     id: 'tool:Browser',
     name: 'Browser',

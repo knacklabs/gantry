@@ -70,6 +70,7 @@ NODE_ENV=production
 GANTRY_SECURITY_POSTURE=production
 GANTRY_CONTROL_HOST=0.0.0.0
 GANTRY_CONTROL_PORT=$CONTROL_PORT
+GANTRY_SKIP_MIGRATIONS=${skip_migrations ? "1" : "0"}
 # Process role (deployment-owned, not settings): one image runs as differentiated
 # services. all|control|live-worker|job-worker. The runtime throws at boot on any
 # other value (fail loud on a wrong-lane deployment env).

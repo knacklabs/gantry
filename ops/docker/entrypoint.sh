@@ -41,16 +41,18 @@ if (explicit) {
   process.stdout.write(explicit);
   process.exit(0);
 }
-const url = process.env.MIGRATION_DATABASE_URL?.trim() || process.env.GANTRY_DATABASE_URL?.trim() || '';
-if (url) {
-  try {
-    const schema = new URL(url).searchParams.get('schema')?.trim();
-    if (schema) {
-      process.stdout.write(schema);
-      process.exit(0);
+for (const name of ['GANTRY_DATABASE_URL', 'GANTRY_BOOTSTRAP_DATABASE_URL']) {
+  const url = process.env[name]?.trim() || '';
+  if (url) {
+    try {
+      const schema = new URL(url).searchParams.get('schema')?.trim();
+      if (schema) {
+        process.stdout.write(schema);
+        process.exit(0);
+      }
+    } catch {
+      // Fall through to env/default; migrate.mjs will report malformed URLs.
     }
-  } catch {
-    // Fall through to env/default; migrate.mjs will report malformed URLs.
   }
 }
 process.stdout.write(process.env.GANTRY_DB_SCHEMA?.trim() || 'gantry');
@@ -192,30 +194,31 @@ bootstrap_settings_if_missing "$@"
 # ---------------------------------------------------------------------------
 # Migrations.
 #
-# Default: every instance runs migrations. The advisory lock inside migrate()
-# itself (storage-service) serializes every migrator — explicit passes like
-# this one and runtime boot-time migrations alike — and migrate() is
-# idempotent (drizzle tracks applied migrations), so N workers booting at once
-# is safe: the lock holder migrates, the rest block then find nothing pending.
+# Default: run explicit migrations before the runtime starts. The advisory lock
+# inside migrate() itself (storage-service) serializes every explicit migrator,
+# and migrate() is idempotent (drizzle tracks applied migrations), so N workers
+# booting at once is safe: the lock holder migrates, the rest block then find
+# nothing pending.
 #
-# GANTRY_SKIP_MIGRATIONS=1: skip the explicit migrate step. Use this for an
-# N-worker fleet where one dedicated migrator (or the first booting worker)
-# already applied the schema. Still safe under concurrent boots: the runtime's
-# boot-time migrate() takes the same advisory lock, so skipping here only
-# avoids the redundant explicit pass.
+# GANTRY_SKIP_MIGRATIONS=1: skip both explicit and runtime boot migration. Use
+# this for worker roles where control or another one-shot migrator already
+# applied the schema. Readiness fails closed if required tables/extensions are
+# missing.
 # ---------------------------------------------------------------------------
 if [ "${GANTRY_SKIP_MIGRATIONS:-0}" = "1" ]; then
   log "GANTRY_SKIP_MIGRATIONS=1 — skipping explicit migration step"
+  export GANTRY_SKIP_RUNTIME_MIGRATIONS="${GANTRY_SKIP_RUNTIME_MIGRATIONS:-1}"
+  unset GANTRY_BOOTSTRAP_DATABASE_URL
 else
-  # The migration role may differ from the runtime role: migrate.mjs prefers
-  # MIGRATION_DATABASE_URL, falling back to GANTRY_DATABASE_URL.
-  if [ -n "${MIGRATION_DATABASE_URL:-}" ]; then
-    log "running migrations (MIGRATION_DATABASE_URL)"
+  if [ -n "${GANTRY_BOOTSTRAP_DATABASE_URL:-}" ]; then
+    log "running migrations (GANTRY_BOOTSTRAP_DATABASE_URL)"
   else
     log "running migrations (GANTRY_DATABASE_URL)"
   fi
   # Non-zero exit here aborts the container before the runtime starts.
   node /app/ops/docker/migrate.mjs
+  export GANTRY_SKIP_RUNTIME_MIGRATIONS="${GANTRY_SKIP_RUNTIME_MIGRATIONS:-1}"
+  unset GANTRY_BOOTSTRAP_DATABASE_URL
   log "migrations complete"
 fi
 

@@ -13,13 +13,11 @@ worker_ami_id = "ami-REPLACE_ME"
 
 # --- Secret REFERENCES (ARNs). Create the secret values first (see runbook). ---
 runtime_database_url_secret_arn            = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/runtime-db-url-REPLACE"
+bootstrap_database_url_secret_arn          = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/bootstrap-db-url-REPLACE"
 db_proxy_secret_arn                        = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/db-proxy-runtime-role-REPLACE"
 secret_encryption_key_secret_arn           = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/secret-encryption-key-REPLACE"
 gantry_ipc_auth_secret_arn                 = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/ipc-auth-secret-REPLACE"
 gantry_control_api_keys_json_secret_arn    = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/control-api-keys-json-REPLACE"
-
-# Optional: migration role distinct from runtime role.
-# migration_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/fleet/migration-db-url-REPLACE"
 
 # Optional: channel/provider credentials.
 # additional_runtime_secret_refs = [

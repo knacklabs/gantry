@@ -100,6 +100,7 @@ locals {
     aws_region              = data.aws_region.current.name
     process_role            = var.process_role
     runtime_secret_env_refs = var.runtime_secret_env_refs
+    skip_migrations         = var.skip_migrations
     artifact_bucket_name    = var.artifact_bucket_name
   })
 }

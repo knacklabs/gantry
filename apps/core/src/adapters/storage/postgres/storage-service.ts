@@ -3,13 +3,25 @@ import { fileURLToPath } from 'url';
 
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
 import { migrate as migratePostgres } from 'drizzle-orm/node-postgres/migrator';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { PgBoss } from 'pg-boss';
 import { Pool, type PoolConfig } from 'pg';
 
 import { isLocalPostgresHost, parsePostgresConnectionUrl } from './url.js';
 import * as pgSchema from './schema/schema.js';
-import { seedDefaultRuntimeData } from './seeds.js';
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_AGENT_CONFIG_VERSION_ID,
+  DEFAULT_APP_ID,
+  DEFAULT_LLM_PROFILE_ID,
+  DEFAULT_PERMISSION_POLICY_ID,
+  DEFAULT_PERMISSION_RULE_ID,
+  DEFAULT_SANDBOX_PROFILE_ID,
+  DEFAULT_SKILL_CATALOG,
+  DEFAULT_TOOL_CATALOG,
+  seedDefaultRuntimeData,
+} from './seeds.js';
 
 const storageDir = path.dirname(fileURLToPath(import.meta.url));
 export const postgresMigrationsFolder = path.join(
@@ -20,12 +32,16 @@ export const postgresMigrationsFolder = path.join(
 const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
 const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
 const RUNTIME_POSTGRES_POOL_MAX = 20;
-// Cross-instance "run gantry migrations" lock. One identity serializes EVERY
-// migrator — the container entrypoint (ops/docker/migrate.mjs) and the
-// runtime's boot-time migrate() — so concurrent boots cannot race the drizzle
-// migrator even when GANTRY_SKIP_MIGRATIONS=1 bypassed the entrypoint pass.
+// Cross-instance "run gantry migrations" lock. One identity serializes every
+// migrator using PostgresStorageService.migrate(), including container
+// entrypoint passes (ops/docker/migrate.mjs) and non-container runtime boots.
 export const RUNTIME_MIGRATION_LOCK_NAMESPACE = 1_340_193_180;
 export const RUNTIME_MIGRATION_LOCK_KEY = 2;
+
+interface LatestPostgresMigration {
+  createdAt: number;
+  hash: string;
+}
 
 export interface StorageCapabilities {
   lexicalSearch: boolean;
@@ -65,6 +81,19 @@ export function quotePostgresIdentifier(identifier: string): string {
     );
   }
   return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function readLatestPostgresMigration(): LatestPostgresMigration {
+  const latest = readMigrationFiles({
+    migrationsFolder: postgresMigrationsFolder,
+  }).at(-1);
+  if (!latest) {
+    throw new Error('No Postgres migrations are registered.');
+  }
+  return {
+    createdAt: latest.folderMillis,
+    hash: latest.hash,
+  };
 }
 
 export function resolvePostgresPoolConfig(
@@ -127,6 +156,78 @@ export class PostgresStorageService implements StorageService {
     await this.runSchemaMigrationsUnderLock();
     await seedDefaultRuntimeData(this.db);
     await this.migratePgBoss();
+  }
+
+  async assertMigrationsCurrent(): Promise<void> {
+    const latest = readLatestPostgresMigration();
+    const migrationsTable = `${quotePostgresIdentifier(
+      this.schemaName,
+    )}.${quotePostgresIdentifier('__drizzle_migrations')}`;
+    let result: {
+      rows: Array<{ applied: number }>;
+    };
+    try {
+      result = await this.pool.query<{ applied: number }>(
+        `SELECT 1 AS applied FROM ${migrationsTable} WHERE created_at = $1 AND hash = $2 LIMIT 1`,
+        [latest.createdAt, latest.hash],
+      );
+    } catch (err) {
+      throw new Error(
+        `Postgres schema migrations are not current: expected migration timestamp ${latest.createdAt} before runtime starts.`,
+        { cause: err },
+      );
+    }
+
+    if (!result.rows[0]) {
+      throw new Error(
+        `Postgres schema migrations are not current: expected migration timestamp ${latest.createdAt} before runtime starts.`,
+      );
+    }
+    await this.assertDefaultRuntimeDataSeeded();
+  }
+
+  private async assertDefaultRuntimeDataSeeded(): Promise<void> {
+    const table = (name: string) =>
+      `${quotePostgresIdentifier(this.schemaName)}.${quotePostgresIdentifier(name)}`;
+    const expectedToolIds = DEFAULT_TOOL_CATALOG.map((tool) => tool.id);
+    const expectedSkillIds = DEFAULT_SKILL_CATALOG.map((skill) => skill.id);
+    const result = await this.pool.query<{ ready: boolean }>(
+      `SELECT (
+          EXISTS (SELECT 1 FROM ${table('apps')} WHERE id = $1)
+          AND EXISTS (SELECT 1 FROM ${table('llm_profiles')} WHERE id = $2)
+          AND EXISTS (SELECT 1 FROM ${table('sandbox_profiles')} WHERE id = $3)
+          AND EXISTS (SELECT 1 FROM ${table('agents')} WHERE id = $4)
+          AND EXISTS (SELECT 1 FROM ${table('permission_policies')} WHERE id = $5)
+          AND EXISTS (SELECT 1 FROM ${table('agent_config_versions')} WHERE id = $6)
+          AND EXISTS (SELECT 1 FROM ${table('permission_rules')} WHERE id = $7)
+          AND (
+            SELECT count(*)::int FROM ${table('tool_catalog')}
+            WHERE id = ANY($8::text[])
+          ) = $9
+          AND (
+            SELECT count(*)::int FROM ${table('skill_catalog')}
+            WHERE id = ANY($10::text[])
+          ) = $11
+        ) AS ready`,
+      [
+        DEFAULT_APP_ID,
+        DEFAULT_LLM_PROFILE_ID,
+        DEFAULT_SANDBOX_PROFILE_ID,
+        DEFAULT_AGENT_ID,
+        DEFAULT_PERMISSION_POLICY_ID,
+        DEFAULT_AGENT_CONFIG_VERSION_ID,
+        DEFAULT_PERMISSION_RULE_ID,
+        expectedToolIds,
+        expectedToolIds.length,
+        expectedSkillIds,
+        expectedSkillIds.length,
+      ],
+    );
+    if (!result.rows[0]?.ready) {
+      throw new Error(
+        'Postgres runtime seed data is not current; run bootstrap migrations before starting this runtime role.',
+      );
+    }
   }
 
   /**

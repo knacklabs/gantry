@@ -16,12 +16,15 @@ locals {
       { env_name = "GANTRY_IPC_AUTH_SECRET", secret_arn = var.gantry_ipc_auth_secret_arn },
       { env_name = "GANTRY_CONTROL_API_KEYS_JSON", secret_arn = var.gantry_control_api_keys_json_secret_arn },
     ],
-    var.migration_database_url_secret_arn != "" ?
-    [{ env_name = "MIGRATION_DATABASE_URL", secret_arn = var.migration_database_url_secret_arn }] : [],
     var.additional_runtime_secret_refs,
   )
 
-  worker_secret_arns = distinct([for r in local.base_runtime_refs : r.secret_arn])
+  bootstrap_runtime_refs = var.bootstrap_database_url_secret_arn != "" ? [
+    { env_name = "GANTRY_BOOTSTRAP_DATABASE_URL", secret_arn = var.bootstrap_database_url_secret_arn },
+  ] : []
+  worker_runtime_refs = concat(local.base_runtime_refs, local.bootstrap_runtime_refs)
+
+  worker_secret_arns = distinct([for r in local.worker_runtime_refs : r.secret_arn])
 }
 
 module "network" {
@@ -85,12 +88,12 @@ module "worker" {
     module.control.control_target_group_arn,
     module.control.live_target_group_arn,
   ]
-  alb_security_group_id   = module.control.alb_security_group_id
+  alb_security_group_id = module.control.alb_security_group_id
   instance_policy_arns = concat(
     local.worker_instance_policy_arns,
     [module.storage.bake_rw_policy_arn],
   )
-  runtime_secret_env_refs = local.base_runtime_refs
+  runtime_secret_env_refs = local.worker_runtime_refs
   artifact_bucket_name    = module.storage.bucket_name
   tags                    = var.tags
 }
