@@ -198,6 +198,8 @@ export function registerServiceTools(server: McpServer): void {
     listCapabilities: () => availableSemanticCapabilities,
     isCapabilitySelected: (capabilityId) =>
       currentConfiguredAllowedTools().includes(`capability:${capabilityId}`),
+    isToolSelected: (toolName) =>
+      currentConfiguredAllowedTools().includes(toolName),
     validateRunCommandFallback: ({ argvPattern }) => {
       const currentAllowedTools = currentConfiguredAllowedTools();
       const selectedMcpCapabilities = availableSemanticCapabilities.filter(

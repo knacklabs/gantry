@@ -31,8 +31,7 @@ function logProgressLifecycle(
 export function startInitialGroupProgress(input: {
   supportsProgress: boolean;
   groupName: string;
-  buildMessageOptions: (threadId?: string) => MessageSendOptions | undefined;
-  buildProgressOptions?: () => ProgressUpdateOptions | undefined;
+  buildProgressOptions: () => ProgressUpdateOptions | undefined;
   sendProgressToChannel(
     text: string,
     options?: ProgressUpdateOptions,
@@ -75,10 +74,7 @@ export function startInitialGroupProgress(input: {
       'Progress lifecycle initial sending',
     );
     sendStarted = input
-      .sendProgressToChannel(
-        'Working on it...',
-        input.buildProgressOptions?.() ?? input.buildMessageOptions(),
-      )
+      .sendProgressToChannel('⏳ Working', input.buildProgressOptions())
       .then(() =>
         logProgressLifecycle(
           input.log,
@@ -168,8 +164,7 @@ export function startGroupProgressHeartbeats(input: {
   channelRuntime: {
     setTyping(jid: string, isTyping: boolean): Promise<void>;
   };
-  buildMessageOptions: (threadId?: string) => MessageSendOptions | undefined;
-  buildProgressOptions?: () => ProgressUpdateOptions | undefined;
+  buildProgressOptions: () => ProgressUpdateOptions | undefined;
   sendProgressToChannel(
     text: string,
     options?: ProgressUpdateOptions,
@@ -185,6 +180,15 @@ export function startGroupProgressHeartbeats(input: {
   let lastElapsedProgressAt = currentTimeMs();
   let lastNoOutputWarningAt = 0;
   let paused = false;
+  const sendHeartbeatProgress = (elapsedMs: number, failureMessage: string) =>
+    input
+      .sendProgressToChannel(
+        `⏳ Working · ${formatElapsed(elapsedMs)}`,
+        input.buildProgressOptions(),
+      )
+      .catch((err) =>
+        input.log.debug({ err, group: input.groupName }, failureMessage),
+      );
   const typingHeartbeatTimer = setInterval(() => {
     if (paused || !input.isTypingActive()) return;
     void input.channelRuntime
@@ -201,43 +205,24 @@ export function startGroupProgressHeartbeats(input: {
       if (!input.supportsProgress || paused || !input.isTypingActive()) return;
       const now = currentTimeMs();
       const elapsedMs = input.getElapsedMs();
-      if (
-        !input.hasVisibleOutput?.() &&
-        now - lastElapsedProgressAt >= ELAPSED_PROGRESS_INTERVAL_MS
-      ) {
+      if (now - lastElapsedProgressAt >= ELAPSED_PROGRESS_INTERVAL_MS) {
         lastElapsedProgressAt = now;
-        const progressOptions =
-          input.buildProgressOptions?.() ?? input.buildMessageOptions();
-        void input
-          .sendProgressToChannel(
-            `Still working (${formatElapsed(elapsedMs)})...`,
-            progressOptions,
-          )
-          .catch((err) =>
-            input.log.debug(
-              { err, group: input.groupName },
-              'Failed to send elapsed progress update',
-            ),
-          );
+        void sendHeartbeatProgress(
+          elapsedMs,
+          'Failed to send elapsed progress update',
+        );
+        return;
       }
       if (
+        !input.hasVisibleOutput?.() &&
         now - input.getLastAgentProgressAt() >= NO_OUTPUT_WARNING_INTERVAL_MS &&
         now - lastNoOutputWarningAt >= NO_OUTPUT_WARNING_INTERVAL_MS
       ) {
         lastNoOutputWarningAt = now;
-        const progressOptions =
-          input.buildProgressOptions?.() ?? input.buildMessageOptions();
-        void input
-          .sendProgressToChannel(
-            `No new output yet, still running (${formatElapsed(elapsedMs)})...`,
-            progressOptions,
-          )
-          .catch((err) =>
-            input.log.debug(
-              { err, group: input.groupName },
-              'Failed to send no-output warning',
-            ),
-          );
+        void sendHeartbeatProgress(
+          elapsedMs,
+          'Failed to send no-output warning',
+        );
       }
     })();
   }, 5_000);

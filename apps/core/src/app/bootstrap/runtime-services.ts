@@ -394,9 +394,7 @@ export async function startRuntimeServices(
         channelWiring.sendMessage(jid, rawText, {
           durability: 'required',
           throwOnMissing: true,
-          ...(options?.threadId
-            ? { messageOptions: { threadId: options.threadId } }
-            : {}),
+          ...(options ? { messageOptions: options } : {}),
         }),
       sendStreamingChunk: channelWiring.sendStreamingChunk,
       resetStreaming: channelWiring.resetStreaming,
@@ -457,9 +455,7 @@ export async function startRuntimeServices(
       channelWiring.sendMessage(jid, text, {
         durability: 'required',
         throwOnMissing: true,
-        ...(options?.threadId
-          ? { messageOptions: { threadId: options.threadId } }
-          : {}),
+        ...(options ? { messageOptions: options } : {}),
       }),
     conversationRoutes: () => app.getConversationRoutes(),
     registerGroup: app.registerGroup,
@@ -503,7 +499,7 @@ export async function startRuntimeServices(
     renderAgentTodo: (jid, render) =>
       liveTurnsEnabled && liveExecution
         ? channelWiring.renderAgentTodo(jid, render)
-        : Promise.resolve(),
+        : Promise.resolve(false),
     mcpHostnameLookup: resolved.mcpHostnameLookup,
   });
   syncGroupSnapshots();

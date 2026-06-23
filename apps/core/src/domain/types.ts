@@ -532,6 +532,14 @@ export type OnMessageAction = (
 export interface MessageSendOptions {
   threadId?: string;
   actionAffordances?: MessageActionAffordance[];
+  files?: MessageFileAttachment[];
+}
+
+export interface MessageFileAttachment {
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  content: Uint8Array;
 }
 
 export type MessageDeliveryStatus =

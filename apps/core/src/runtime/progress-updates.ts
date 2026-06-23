@@ -41,11 +41,11 @@ export async function sendFinalProgressUpdate(args: {
   if (!args.enabled) return;
   const status =
     args.state === 'failed'
-      ? `Failed after ${args.elapsed}.`
+      ? `❌ Failed · ${args.elapsed}`
       : args.state === 'delivery_incomplete'
-        ? `Delivery incomplete after ${args.elapsed}.`
+        ? `❌ Delivery incomplete · ${args.elapsed}`
         : args.state === 'stopped'
-          ? `Stopped after ${args.elapsed}.`
-          : `Done in ${args.elapsed}.`;
+          ? `🛑 Stopped · ${args.elapsed}`
+          : `✅ Done · ${args.elapsed}`;
   await args.send(status, args.options).catch((err) => args.onError?.(err));
 }

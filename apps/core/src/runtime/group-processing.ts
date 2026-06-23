@@ -18,9 +18,8 @@ import {
   isAgentTurnCompleteMarker,
 } from './agent-output-callbacks.js';
 import {
-  buildDoneProgressOptions,
-  FinalProgressState,
   sendFinalProgressUpdate,
+  type FinalProgressState,
 } from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
 import {
@@ -367,21 +366,25 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let backgroundDemoted = false;
     const turnUiToken = Symbol(queueJid);
     const supportsProgress = deps.channelRuntime.supportsProgress(chatJid);
+    const sendRunningProgress = async () => {
+      if (!supportsProgress) return;
+      await sendProgressToChannel('⏳ Working', buildProgressOptions()).catch(
+        () => undefined,
+      );
+    };
     const sendDoneProgress = async (state: FinalProgressState) => {
-      finalizingProgressGenerations.add(progressGeneration);
+      if (!supportsProgress) return;
+      const generation = progressGeneration;
+      finalizingProgressGenerations.add(generation);
       await sendFinalProgressUpdate({
-        enabled: supportsProgress,
+        enabled: true,
         state,
         elapsed: formatElapsed(activeElapsedMs()),
-        options: buildDoneProgressOptions(
-          activeThreadId,
-          false,
-          progressGeneration,
-        ),
+        options: buildProgressOptions({ done: true }),
         send: sendProgressToChannel,
         onError: (err) =>
           logger.warn(
-            { err, chatJid, group: group.name, state },
+            { err, chatJid, group: group.name },
             'Progress lifecycle final failed',
           ),
       });
@@ -411,12 +414,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         .catch((err) =>
           logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
         );
-      if (supportsProgress) {
-        void sendProgressToChannel(
-          'Working on it...',
-          buildProgressOptions(),
-        ).catch(() => undefined);
-      }
+      void sendRunningProgress();
     };
     const sendWaitingForUserResponseProgress = async () => {
       if (!supportsProgress) return;
@@ -438,7 +436,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const initialProgress = startInitialGroupProgress({
       supportsProgress,
       groupName: group.name,
-      buildMessageOptions,
       buildProgressOptions,
       sendProgressToChannel,
       log: logger,
@@ -452,7 +449,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       chatJid,
       groupName: group.name,
       channelRuntime: deps.channelRuntime,
-      buildMessageOptions,
       buildProgressOptions,
       sendProgressToChannel,
       log: logger,

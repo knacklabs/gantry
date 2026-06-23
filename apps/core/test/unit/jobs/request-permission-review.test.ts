@@ -181,7 +181,13 @@ describe('request permission review helpers', () => {
   });
 
   it('suggests exact Gantry facade grants for durable request_permission tool requests', () => {
-    for (const toolName of ['WebRead', 'FileRead', 'FileEdit', 'FileWrite']) {
+    for (const toolName of [
+      'WebRead',
+      'FileRead',
+      'FileEdit',
+      'FileWrite',
+      'AgentDelegation',
+    ]) {
       expect(
         requestPermissionReviewSuggestions({
           permissionKind: 'tool',

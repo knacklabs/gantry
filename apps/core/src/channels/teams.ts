@@ -32,6 +32,7 @@ import {
   buildTeamsApprovalAdaptiveCard,
   buildTeamsUserQuestionCard,
   buildTeamsUserQuestionReceiptCard,
+  formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
   type TeamsAdaptiveCardPayload,
 } from './teams-cards.js';
 import { handleTeamsMessageAction } from './teams-message-actions.js';
@@ -40,6 +41,7 @@ import {
   sendTeamsTextOrActionMessage,
   type TeamsProgressMessages,
 } from './teams-progress.js';
+import { bindTeamsPermissionPromptMessage } from './teams-prompt-binding.js';
 import { renderTeamsAgentTodo, type TeamsTodoMessages } from './teams-todos.js';
 import {
   formatTeamsUserQuestionReceipt,
@@ -83,9 +85,6 @@ export {
   type TeamsInboundMessage,
   type TeamsSdkClient,
 } from './teams-types.js';
-
-const TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
-const TEAMS_USER_QUESTION_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 
 export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
@@ -189,7 +188,7 @@ export class TeamsChannel implements ChannelAdapter {
     return sendTeamsTextOrActionMessage({
       sdkClient: this.sdkClient,
       jid,
-      text,
+      text: teamsTextWithAttachmentNotice(text, Boolean(options.files?.length)),
       options,
     });
   }
@@ -209,9 +208,12 @@ export class TeamsChannel implements ChannelAdapter {
     });
   }
 
-  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
-    if (!this.outboundReady) return;
-    await renderTeamsAgentTodo({
+  async renderAgentTodo(
+    jid: string,
+    render: AgentTodoRender,
+  ): Promise<boolean> {
+    if (!this.outboundReady) return false;
+    return renderTeamsAgentTodo({
       sdkClient: this.sdkClient,
       pendingTodos: this.pendingTodos,
       jid,
@@ -294,11 +296,13 @@ export class TeamsChannel implements ChannelAdapter {
 
     const approvalRequest = { ...request, targetJid: request.targetJid ?? jid };
     try {
-      await this.sdkClient.sendAdaptiveCard({
+      const sent = await this.sdkClient.sendAdaptiveCard({
         conversationId,
         card: buildTeamsApprovalAdaptiveCard(approvalRequest),
         ...(request.threadId ? { threadId: request.threadId } : {}),
       });
+      const messageId = sent.externalMessageId;
+      bindTeamsPermissionPromptMessage(request, conversationId, messageId);
       return await new Promise<PermissionApprovalDecision>((resolve) => {
         const timer = setTimeout(() => {
           void this.resolvePermissionPrompt(request.requestId, {
@@ -306,7 +310,7 @@ export class TeamsChannel implements ChannelAdapter {
             decidedBy: 'system',
             reason: 'timed out',
           });
-        }, TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS);
+        }, PERMISSION_APPROVAL_TIMEOUT_MS);
         this.pendingPermissionPrompts.set(request.requestId, {
           conversationId,
           sourceAgentFolder: request.sourceAgentFolder,
@@ -360,7 +364,7 @@ export class TeamsChannel implements ChannelAdapter {
             answers: {},
             answeredBy: 'system',
           });
-        }, TEAMS_USER_QUESTION_TIMEOUT_MS);
+        }, PERMISSION_APPROVAL_TIMEOUT_MS);
         this.pendingUserQuestions.set(request.requestId, {
           conversationId,
           sourceAgentFolder: request.sourceAgentFolder,

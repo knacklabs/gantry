@@ -60,7 +60,7 @@ export function buildRequestableAdminToolAccess(
     return {
       tool: fullName,
       toolId: adminMcpToolIdForFullName(fullName),
-      requestPermission: `target.kind=capability target.id="<reviewed admin capability id>" temporaryOnly=false reason="<why this agent needs ${toolName}>"`,
+      requestPermission: `target.kind=tool target.name="${fullName}" temporaryOnly=false reason="<why this agent needs ${toolName}>"`,
     };
   });
 }

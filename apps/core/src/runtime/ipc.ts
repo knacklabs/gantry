@@ -24,6 +24,7 @@ import { canProcessIpcFile, clearIpcRateLimitState } from './ipc-rate-limit.js';
 // prettier-ignore
 import { validatePermissionIpcJobExecutionTarget, validateUserQuestionIpcJobExecutionTarget } from './ipc-scheduled-interaction-validation.js';
 import type { ConversationRoute as RuntimeGroupRecord } from '../domain/types.js';
+import { resolveOwnedFileArtifactMessage } from './ipc-message-files.js';
 import { FilesystemRunnerControlPort } from './filesystem-runner-control-port.js';
 import {
   IpcRequestWakeupRegistry,
@@ -309,12 +310,22 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 // Authorization: verify this group can send to this chatJid
                 const targetGroup = groupRegistry[data.chatJid];
                 if (targetGroup && targetGroup.folder === sourceAgentFolder) {
+                  const message = await resolveOwnedFileArtifactMessage({
+                    deps,
+                    appId: data.appId,
+                    sourceAgentFolder,
+                    text: data.text,
+                    files: data.files,
+                  });
                   if (data.threadId) {
-                    await deps.sendMessage(data.chatJid, data.text, {
+                    await deps.sendMessage(data.chatJid, message.text, {
                       threadId: data.threadId,
+                      files: message.files,
                     });
                   } else {
-                    await deps.sendMessage(data.chatJid, data.text);
+                    await deps.sendMessage(data.chatJid, message.text, {
+                      files: message.files,
+                    });
                   }
                   logger.info(
                     { chatJid: data.chatJid, sourceAgentFolder },

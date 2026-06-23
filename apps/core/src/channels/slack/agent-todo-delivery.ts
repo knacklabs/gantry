@@ -1,5 +1,9 @@
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import {
+  formatAgentTodoHeader,
+  hasAgentTodoCardHeader,
+} from '../agent-todo-render.js';
 import { buildAgentTodoBlocks } from './agent-todo-blocks.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 
@@ -19,11 +23,10 @@ export async function renderSlackAgentTodo(input: {
   render: AgentTodoRender;
   todoKey: string;
   pendingTodos: Map<string, { channel: string; ts: string }>;
-}): Promise<void> {
+}): Promise<boolean> {
   const blocks = buildAgentTodoBlocks(input.render);
-  const text = input.render.summary?.trim()
-    ? `📋 ${input.render.summary.trim()}`
-    : '📋 Plan';
+  const title = formatAgentTodoHeader(input.render);
+  const text = hasAgentTodoCardHeader(input.render) ? title : `📋 ${title}`;
   const threadTs = slackThreadTsFromThreadId(input.render.threadId);
   const existing = input.pendingTodos.get(input.todoKey);
   if (existing) {
@@ -34,7 +37,7 @@ export async function renderSlackAgentTodo(input: {
         text,
         blocks: blocks as any,
       });
-      return;
+      return true;
     } catch (err) {
       logger.debug(
         { jid: input.jid, threadId: input.render.threadId, err },
@@ -55,8 +58,10 @@ export async function renderSlackAgentTodo(input: {
         channel: input.channelId,
         ts: result.ts,
       });
+      return true;
     }
   } catch (err) {
     logger.warn({ jid: input.jid, err }, 'Failed to send Slack todo message');
   }
+  return false;
 }

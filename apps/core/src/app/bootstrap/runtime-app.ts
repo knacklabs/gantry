@@ -509,6 +509,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         channelRuntime.setTyping(chatJid, isTyping),
       sendProgressUpdate: (chatJid, text, options) =>
         channelRuntime.sendProgressUpdate(chatJid, text, options),
+      renderAgentTodo: (chatJid, render) =>
+        channelRuntime.renderAgentTodo?.(chatJid, render) ??
+        Promise.resolve(false),
       isControlApproverAllowed: (input) =>
         channelRuntime.isControlApproverAllowed?.(input) ??
         Promise.resolve(false),

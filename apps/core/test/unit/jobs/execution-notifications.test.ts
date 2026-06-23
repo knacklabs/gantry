@@ -169,6 +169,11 @@ describe('jobs/execution-notifications', () => {
     expect(message).not.toContain('##');
     expect(message).not.toContain('*Mode*');
     expect(message).not.toContain('T08:35:00.000Z');
+    expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
+      actionAffordances: [
+        { kind: 'scheduler_run_now', label: 'Run again', jobId: 'job-1' },
+      ],
+    });
   });
 
   it('turns queue bookkeeping JSON into a human memory maintenance outcome', async () => {
@@ -219,14 +224,24 @@ describe('jobs/execution-notifications', () => {
       expect.stringContaining(
         '**📝 Needs memory review** · Memory Dreaming (main_agent tg:5759865942)',
       ),
-      { threadId: 'thread-1' },
+      expect.objectContaining({
+        threadId: 'thread-1',
+        actionAffordances: [
+          {
+            kind: 'scheduler_run_now',
+            label: 'Run again',
+            jobId: 'job-1',
+            runId: 'run-1',
+          },
+        ],
+      }),
     );
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain(
       'Memory dreaming completed: 3 promoted, 4 sent to review.',
     );
     expect(message).toContain(
-      'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
+      'Needs attention: 4 memory changes need your review.',
     );
     expect(message).not.toContain('memory_review_pending');
   });
@@ -267,7 +282,7 @@ describe('jobs/execution-notifications', () => {
       'Memory dreaming completed with no memory changes. 7 pending memory reviews need review.',
     );
     expect(summaryMessage).toContain(
-      'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
+      'Needs attention: 7 memory changes need your review.',
     );
     expect(summaryMessage).not.toContain('memory_review_pending');
   });
@@ -292,7 +307,7 @@ describe('jobs/execution-notifications', () => {
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('Missing Browser access for this job.');
     expect(message).toContain(
-      'Action: Approve the missing access, then retry the job.',
+      'Needs attention: Approve the missing access, then retry the job.',
     );
     expect(message).not.toContain('Diagnostics:');
     expect(message).not.toContain('lastTool=');
@@ -361,7 +376,9 @@ describe('jobs/execution-notifications', () => {
     expect(message).toContain('**🔐 Needs permission**');
     expect(message).toContain('· Daily summary');
     expect(message).toContain('Could not use the browser');
-    expect(message).toContain('Action: Browser access needs approval.');
+    expect(message).toContain(
+      'Needs attention: Browser access needs approval.',
+    );
     expect(message).not.toContain('request_permission');
     expect(options).toMatchObject({
       threadId: 'thread-1',
@@ -454,7 +471,7 @@ describe('jobs/execution-notifications', () => {
     expect(message).toContain('· Daily summary');
     expect(message).toContain('Scheduler run lease expired before completion.');
     expect(message).toContain(
-      'Action: Rerun with a longer job timeout if this work is expected to take more time.',
+      'Needs attention: Rerun with a longer job timeout if this work is expected to take more time.',
     );
     expect(message).not.toContain('Narrow the job scope');
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({

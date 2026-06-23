@@ -169,6 +169,7 @@ describe('agent capability composition', () => {
     expect(profile.mcpServers.gantry).toEqual({
       command: 'node',
       args: ['/tmp/ipc-mcp-stdio.js'],
+      timeout: 300_000,
       alwaysLoad: true,
       env: {
         GANTRY_APP_ID: 'app-main',

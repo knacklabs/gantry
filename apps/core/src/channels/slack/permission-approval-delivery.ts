@@ -9,6 +9,7 @@ import {
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { bindPendingPermissionInteractionMessage } from '../../application/interactions/pending-interaction-durability.js';
 import { buildPermissionPromptContentBlocks } from './permission-blocks.js';
 import { slackPermissionDecisionActionId } from './permission-action-id.js';
 import type { PendingPermissionPrompt } from './channel-state.js';
@@ -113,6 +114,15 @@ export async function requestSlackPermissionApproval(input: {
         reason: 'Slack did not accept the approval prompt.',
       };
     }
+    void bindPendingPermissionInteractionMessage({
+      sourceAgentFolder: input.request.sourceAgentFolder,
+      requestId: input.request.requestId,
+      appId: input.request.appId,
+      externalMessageId: messageTs,
+      provider: 'slack',
+      conversationId: input.channelId,
+      ...(input.request.threadId ? { threadId: input.request.threadId } : {}),
+    });
 
     return await new Promise<PermissionApprovalDecision>((resolve) => {
       const timer = setTimeout(() => {

@@ -504,7 +504,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      'Allowed for future: LinkedIn posting. Saved for Main Agent. You can remove it from Agent Access.',
+      'Allowed for future: LinkedIn posting. Saved for Main Agent. Manage access to revoke it later.',
     );
   });
 
@@ -1282,7 +1282,7 @@ describe('permission interaction', () => {
       },
     );
     expect(persistentReceipt).toBe(
-      'Allowed for future: Command (npm test). Saved for Kai Group. You can remove it from Agent Access.',
+      'Allowed for future: Command (npm test). Saved for Kai Group. Manage access to revoke it later.',
     );
   });
 
@@ -1341,7 +1341,7 @@ describe('permission interaction', () => {
     );
 
     expect(receipt).toContain(
-      'Allowed for future: Command (curl https://api.example.com/leads > /tmp/out). Saved for Kai Group. You can remove it from Agent Access.',
+      'Allowed for future: Command (curl https://api.example.com/leads > /tmp/out). Saved for Kai Group. Manage access to revoke it later.',
     );
     expect(receipt).not.toContain('RunCommand(curl https://api.example.com/*)');
     expect(receipt).not.toContain('RunCommand(jq -r *)');

@@ -1,6 +1,10 @@
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { agentTodoLines, buildTeamsAgentTodoCard } from './teams-cards.js';
+import {
+  formatAgentTodoHeader,
+  hasAgentTodoCardHeader,
+} from './agent-todo-render.js';
 import { sendTeamsTextMessage } from './teams-delivery.js';
 import type { TeamsSdkClient } from './teams-types.js';
 import { teamsConversationIdFromJid } from './teams-types.js';
@@ -15,11 +19,11 @@ export async function renderTeamsAgentTodo(input: {
   pendingTodos: TeamsTodoMessages;
   jid: string;
   render: AgentTodoRender;
-}): Promise<void> {
+}): Promise<boolean> {
   const conversationId = teamsConversationIdFromJid(input.jid);
-  if (!conversationId) return;
-  const card = buildTeamsAgentTodoCard(input.render);
-  const todoKey = `${input.jid}:${input.render.threadId || ''}`;
+  if (!conversationId) return false;
+  const card = buildTeamsAgentTodoCard(input.render, input.jid);
+  const todoKey = `${input.jid}:${input.render.cardKind ?? 'todo'}:${input.render.threadId || ''}`;
 
   const existing = input.pendingTodos.get(todoKey);
   if (existing?.messageId && input.sdkClient.updateAdaptiveCard) {
@@ -30,7 +34,7 @@ export async function renderTeamsAgentTodo(input: {
         card,
         ...(input.render.threadId ? { threadId: input.render.threadId } : {}),
       });
-      return;
+      return true;
     } catch (err) {
       logger.debug(
         { jid: input.jid, threadId: input.render.threadId, err },
@@ -50,16 +54,16 @@ export async function renderTeamsAgentTodo(input: {
       conversationId,
       messageId: result.externalMessageId,
     });
-    return;
+    return true;
   }
 
-  const title = input.render.summary?.trim()
-    ? input.render.summary.trim()
-    : 'Plan';
+  const title = formatAgentTodoHeader(input.render);
+  const heading = hasAgentTodoCardHeader(input.render) ? title : `📋 ${title}`;
   await sendTeamsTextMessage(
     input.sdkClient,
     conversationId,
-    [`📋 ${title}`, ...agentTodoLines(input.render)].join('\n'),
+    [heading, ...agentTodoLines(input.render)].join('\n'),
     { ...(input.render.threadId ? { threadId: input.render.threadId } : {}) },
   );
+  return true;
 }

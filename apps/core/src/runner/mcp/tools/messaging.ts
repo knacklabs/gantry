@@ -101,6 +101,19 @@ export function registerMessagingTools(server: McpServer): void {
     "Send a message to the user or group immediately while you're still running. Use this for live progress updates or to send multiple messages. In scheduled jobs, the scheduler sends the completion notification, so do not use this for job results.",
     {
       text: z.string().describe('The message text to send'),
+      files: z
+        .array(
+          z.object({
+            scope: z.string().optional().describe('FileArtifact scope'),
+            path: z.string().describe('FileArtifact virtual path'),
+            version: z.number().int().positive().optional(),
+          }),
+        )
+        .max(5)
+        .optional()
+        .describe(
+          'Owned FileArtifacts to send with the message. Gantry resolves ownership in the host and degrades safely when the channel cannot attach files.',
+        ),
       sender: z
         .string()
         .optional()
@@ -124,13 +137,14 @@ export function registerMessagingTools(server: McpServer): void {
           ],
         };
       }
-      const data: Record<string, string | undefined> = {
+      const data: Record<string, unknown> = {
         type: 'message',
         chatJid,
         text: args.text,
         sender: args.sender || undefined,
         workspaceFolder,
         timestamp: nowIso(),
+        files: args.files,
       };
 
       writeIpcFile(MESSAGES_DIR, data);

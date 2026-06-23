@@ -25,6 +25,76 @@ export function progressActionOptions(options: ProgressUpdateOptions): {
   };
 }
 
+export function prepareTelegramProgressHandle(input: {
+  activeProgressMessages: Map<string, ActiveProgressState>;
+  persistProgressMessages: () => void;
+  jid: string;
+  key: string;
+  existing?: ActiveProgressState;
+  chatId: string;
+  threadId?: number;
+  options: ProgressUpdateOptions;
+}): { accepted: boolean; existing?: ActiveProgressState } {
+  let existing = input.existing;
+  if (
+    existing &&
+    (existing.chatId !== input.chatId || existing.threadId !== input.threadId)
+  ) {
+    logger.warn(
+      {
+        jid: input.jid,
+        key: input.key,
+        storedChatId: existing.chatId,
+        storedThreadId: existing.threadId,
+        expectedChatId: input.chatId,
+        expectedThreadId: input.threadId,
+      },
+      'Progress lifecycle telegram dropped mismatched persisted handle',
+    );
+    input.activeProgressMessages.delete(input.key);
+    input.persistProgressMessages();
+    existing = undefined;
+  }
+  if (
+    !existing ||
+    input.options.generation === undefined ||
+    existing.generation === undefined ||
+    existing.generation === input.options.generation
+  ) {
+    return { accepted: true, existing };
+  }
+  if (input.options.generation < existing.generation) {
+    logger.info(
+      {
+        jid: input.jid,
+        key: input.key,
+        done: input.options.done ?? false,
+        replaceOnly: input.options.replaceOnly ?? false,
+        generation: input.options.generation,
+        existingGeneration: existing.generation,
+      },
+      'Progress lifecycle telegram dropped generation mismatch',
+    );
+    return { accepted: false, existing };
+  }
+  if (!input.options.done && !input.options.replaceOnly) {
+    logger.info(
+      {
+        jid: input.jid,
+        key: input.key,
+        done: input.options.done ?? false,
+        generation: input.options.generation,
+        existingGeneration: existing.generation,
+      },
+      'Progress lifecycle telegram generation rollover',
+    );
+    input.activeProgressMessages.delete(input.key);
+    input.persistProgressMessages();
+    existing = undefined;
+  }
+  return { accepted: true, existing };
+}
+
 export async function clearProgressActions(input: {
   api: Parameters<typeof editTelegramMessage>[0];
   chatId: string;

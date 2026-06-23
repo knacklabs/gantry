@@ -587,6 +587,7 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(call?.options.mcpServers.gantry).toEqual({
       command: 'node',
       args: [env.mcpServerPath],
+      timeout: 300_000,
       alwaysLoad: true,
       env: {
         GANTRY_CHAT_JID: 'tg:group',

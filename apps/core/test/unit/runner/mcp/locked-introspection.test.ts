@@ -98,6 +98,7 @@ describe('capabilityStatusText access projection', () => {
     const text = capabilityStatusText();
     expect(text).toContain('Agent access model:');
     expect(text).toContain('request_access target.kind=capability');
+    expect(text).toContain('request_access target.kind=tool');
     expect(text).toContain('Gantry admin tool capabilities:');
     expect(text).toContain('- requestable: mcp__gantry__register_agent');
     expect(text).toContain('- available: mcp__gantry__service_restart');

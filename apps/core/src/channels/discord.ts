@@ -7,8 +7,10 @@ import {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
+import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
+  bindPendingPermissionInteractionMessage,
   findDurablePermissionInteractionByRequestId,
   findDurableQuestionInteractionByRequestId,
   resolveDurablePermissionInteractionByRequestId,
@@ -33,11 +35,13 @@ import {
   questionComponents,
 } from './discord-components.js';
 import {
+  formatDiscordAgentTodo,
   postDiscordMessageParts,
   splitDiscordText,
 } from './discord-delivery.js';
 import { sendDiscordProgressUpdate } from './discord-progress.js';
 import { DiscordGatewayConnection } from './discord-gateway.js';
+import { agentTodoStopActions } from './agent-todo-render.js';
 import type {
   DiscordInteraction,
   DiscordInteractionOption,
@@ -119,6 +123,10 @@ export class DiscordChannel implements ChannelAdapter {
       timeout: ReturnType<typeof setTimeout>;
     }
   >();
+  private pendingTodos = new Map<
+    string,
+    { channelId: string; messageId: string }
+  >();
 
   constructor(
     private readonly botToken: string,
@@ -164,6 +172,9 @@ export class DiscordChannel implements ChannelAdapter {
       channelId,
       parts: splitDiscordText(text),
       components: discordActionComponents(options),
+      files: options.files,
+      apiRoot: DISCORD_API_ROOT,
+      botToken: this.botToken,
       post: (target, body) => this.postMessage(target, body),
     });
   }
@@ -191,12 +202,51 @@ export class DiscordChannel implements ChannelAdapter {
     });
   }
 
+  async renderAgentTodo(
+    jid: string,
+    render: AgentTodoRender,
+  ): Promise<boolean> {
+    const channelId = render.threadId || discordChannelIdFromJid(jid);
+    if (!channelId) return false;
+    const todoKey = `${jid}:${render.cardKind ?? 'todo'}:${render.threadId || ''}`;
+    const components =
+      discordActionComponents({
+        actionAffordances: render.threadId
+          ? undefined
+          : agentTodoStopActions(render),
+      }) ?? [];
+    const body = {
+      content: formatDiscordAgentTodo(render),
+      allowed_mentions: { parse: [] },
+      components,
+    };
+    const existing = this.pendingTodos.get(todoKey);
+    if (existing) {
+      try {
+        await this.patchMessage(existing.channelId, existing.messageId, body);
+        return true;
+      } catch (err) {
+        logger.debug(
+          { jid, threadId: render.threadId, err },
+          'Discord todo update failed; posting a fresh message',
+        );
+        this.pendingTodos.delete(todoKey);
+      }
+    }
+    const posted = await this.postMessage(channelId, body);
+    if (posted.id) {
+      this.pendingTodos.set(todoKey, { channelId, messageId: posted.id });
+      return true;
+    }
+    return false;
+  }
+
   async requestPermissionApproval(
     jid: string,
     request: PermissionApprovalRequest,
   ): Promise<PermissionApprovalDecision> {
     const modes = permissionDecisionOptions(request);
-    await this.sendDiscordPrompt(
+    const sent = await this.sendDiscordPrompt(
       jid,
       formatPermissionPromptText(request, DISCORD_INTERACTION_TIMEOUT_MS),
       {
@@ -210,6 +260,17 @@ export class DiscordChannel implements ChannelAdapter {
         ),
       },
     );
+    if (sent.externalMessageId) {
+      void bindPendingPermissionInteractionMessage({
+        sourceAgentFolder: request.sourceAgentFolder,
+        requestId: request.requestId,
+        appId: request.appId,
+        externalMessageId: sent.externalMessageId,
+        provider: 'discord',
+        conversationId: discordChannelIdFromJid(jid) || jid,
+        ...(request.threadId ? { threadId: request.threadId } : {}),
+      });
+    }
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         this.pendingPermissions.delete(request.requestId);
@@ -423,7 +484,7 @@ export class DiscordChannel implements ChannelAdapter {
       );
       return;
     }
-    await this.ackInteraction(interaction, 'Working on it.');
+    await this.ackInteraction(interaction, 'Processing.');
     const user = interaction.member?.user || interaction.user;
     if (!pending) {
       const durable = await findDurablePermissionInteractionByRequestId({
@@ -477,7 +538,7 @@ export class DiscordChannel implements ChannelAdapter {
       );
       return;
     }
-    await this.ackInteraction(interaction, 'Working on it.');
+    await this.ackInteraction(interaction, 'Processing.');
     const user = interaction.member?.user || interaction.user;
     if (!pending) {
       const durable = await findDurableQuestionInteractionByRequestId({

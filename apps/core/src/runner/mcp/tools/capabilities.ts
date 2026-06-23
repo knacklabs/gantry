@@ -7,10 +7,18 @@ import {
 } from '../../../shared/semantic-capabilities.js';
 import { SOURCE_INVENTORY_AUTHORITY_GUIDANCE } from '../../../shared/capability-guidance.js';
 import {
+  type GantryFacadeExactToolName,
+  isGantryFacadeExactToolName,
+  parseReadableScopedToolRule,
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
 } from '../../../shared/agent-tool-references.js';
 import { validateDurableAccessRule } from '../../../shared/durable-access-policy.js';
+import {
+  adminMcpToolFullName,
+  isAdminMcpToolFullName,
+  isAdminMcpToolName,
+} from '../../../shared/admin-mcp-tools.js';
 
 type ToolResponse = {
   content: { type: 'text'; text: string }[];
@@ -49,12 +57,23 @@ const RunCommandTargetSchema = z.object({
     ),
 });
 
+const ExactToolTargetSchema = z.object({
+  kind: z.literal('tool'),
+  name: z
+    .string()
+    .min(1)
+    .describe(
+      'Exact durable Gantry tool rule, such as AgentDelegation or mcp__gantry__request_settings_update. Use run_command for scoped commands.',
+    ),
+});
+
 export function registerAccessRequestTool(
   server: McpServer,
   submitCapabilityReviewTask: CapabilityReviewSubmitter,
   options: {
     listCapabilities?: SemanticCapabilityProvider;
     isCapabilitySelected?: (capabilityId: string) => boolean;
+    isToolSelected?: (toolName: string) => boolean;
     validateRunCommandFallback?: RunCommandFallbackValidator;
   } = {},
 ): void {
@@ -63,6 +82,7 @@ export function registerAccessRequestTool(
     [
       'Request agent access for review. Use this as the normal path when an action is missing.',
       'target.kind=capability requests an already-reviewed semantic capability by id.',
+      'target.kind=tool requests an exact durable Gantry tool rule such as AgentDelegation or mcp__gantry__request_settings_update.',
       'target.kind=run_command requests a scoped temporary exact-command fallback such as "npm test *" when no reviewed capability fits.',
       'Set temporaryOnly=true for one-off transient access; leave it false for durable grants.',
       'Source setup and raw skill, MCP, CLI, browser, or network details are review metadata, not durable authority.',
@@ -70,6 +90,7 @@ export function registerAccessRequestTool(
     {
       target: z.discriminatedUnion('kind', [
         CapabilityTargetSchema,
+        ExactToolTargetSchema,
         RunCommandTargetSchema,
       ]),
       reason: z.string().describe('Why this access is needed'),
@@ -96,6 +117,15 @@ export function registerAccessRequestTool(
             (candidate) => candidate.capabilityId === target.id,
           );
           if (!approved) {
+            const toolName = normalizeExactRequestableToolName(target.id);
+            if (toolName) {
+              return submitExactToolRequest({
+                toolName,
+                args,
+                options,
+                submitCapabilityReviewTask,
+              });
+            }
             return {
               isError: true,
               content: [
@@ -151,6 +181,30 @@ export function registerAccessRequestTool(
               reason: args.reason,
             },
           );
+        }
+        case 'tool': {
+          const toolName = normalizeExactRequestableToolName(target.name);
+          if (!toolName) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text' as const,
+                  text: [
+                    `No exact requestable Gantry tool matches "${target.name}".`,
+                    'Use target.kind=tool only for exact Gantry facade tools such as AgentDelegation or exact Gantry admin tools such as mcp__gantry__request_settings_update.',
+                    'Use target.kind=capability for reviewed semantic capability ids, and target.kind=run_command for scoped command access.',
+                  ].join('\n'),
+                },
+              ],
+            };
+          }
+          return submitExactToolRequest({
+            toolName,
+            args,
+            options,
+            submitCapabilityReviewTask,
+          });
         }
         case 'run_command': {
           const rule = `${RUN_COMMAND_TOOL_NAME}(${target.argvPattern})`;
@@ -213,4 +267,57 @@ async function availableSemanticCapabilities(options: {
     const validation = validateSemanticCapabilityDefinition(capability);
     return validation.ok;
   });
+}
+
+function submitExactToolRequest(input: {
+  toolName: string;
+  args: {
+    temporaryOnly?: boolean;
+    broadAccess?: boolean;
+    riskClass?: 'low' | 'medium' | 'high' | 'critical';
+    reason: string;
+  };
+  options: { isToolSelected?: (toolName: string) => boolean };
+  submitCapabilityReviewTask: CapabilityReviewSubmitter;
+}): Promise<ToolResponse> | ToolResponse {
+  if (input.options.isToolSelected?.(input.toolName)) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text' as const,
+          text: [
+            `Tool "${input.toolName}" is already selected for this run.`,
+            input.toolName === 'AgentDelegation'
+              ? 'Use delegate_task when it is mounted. If delegate_task is still missing, the delegated-task executor is unavailable for this run.'
+              : 'Use the available action directly instead of requesting the same access again.',
+          ].join('\n'),
+        },
+      ],
+    };
+  }
+  return input.submitCapabilityReviewTask('request_permission', 'Permission', {
+    permissionKind: 'tool',
+    capabilityRequestSource: 'request_access',
+    toolName: input.toolName,
+    temporaryOnly: input.args.temporaryOnly ?? false,
+    broadAccess: input.args.broadAccess,
+    riskClass: input.args.riskClass,
+    reason: input.args.reason,
+  });
+}
+
+function normalizeExactRequestableToolName(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || parseReadableScopedToolRule(trimmed)) return null;
+  if (trimmed === 'delegate_task' || trimmed === 'task_message') {
+    return 'AgentDelegation';
+  }
+  if (isAdminMcpToolFullName(trimmed)) return trimmed;
+  if (isAdminMcpToolName(trimmed)) return adminMcpToolFullName(trimmed);
+  if (isGantryFacadeExactToolName(trimmed)) {
+    const validation = validateDurableAccessRule(trimmed);
+    return validation.ok ? (trimmed as GantryFacadeExactToolName) : null;
+  }
+  return null;
 }

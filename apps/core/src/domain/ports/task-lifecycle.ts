@@ -11,12 +11,28 @@ export interface AgentTodoItem {
   note?: string;
 }
 
+export type AgentTodoCardStatus =
+  | 'running'
+  | 'waiting'
+  | 'done'
+  | 'failed'
+  | 'stopped';
+
 /** Channel-agnostic payload for rendering an agent's live todo/plan. */
 export interface AgentTodoRender {
   summary: string | null;
   items: AgentTodoItem[];
+  headline?: string | null;
+  status?: AgentTodoCardStatus;
+  elapsed?: string | null;
+  stop?: {
+    label?: string;
+    actionToken: string;
+  };
   threadId?: string | null;
   updatedAt?: string;
+  flush?: boolean;
+  cardKind?: 'todo' | 'progress';
 }
 
 /**
@@ -24,5 +40,8 @@ export interface AgentTodoRender {
  * todo/plan for a conversation. Channels that do not implement it are skipped.
  */
 export interface AgentTodoSink {
-  renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void>;
+  renderAgentTodo(
+    jid: string,
+    render: AgentTodoRender,
+  ): Promise<void | boolean>;
 }

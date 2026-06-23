@@ -22,6 +22,7 @@ import {
   applyRecoveredPersistentPermissionGrant,
   type PermissionPersistenceBackend,
 } from './pending-interaction-permission-recovery.js';
+import { configurePendingInteractionPromptBinding } from './pending-interaction-prompt-binding.js';
 import {
   QUESTION_SELECTIONS_PAYLOAD_KEY,
   questionSelectionsFromPayload,
@@ -52,6 +53,7 @@ export function configurePendingInteractionDurability(
   next: InteractionDurabilityBackend | null,
 ): void {
   backend = next;
+  configurePendingInteractionPromptBinding(next);
 }
 export function configurePendingInteractionPermissionPersistence(
   next: PermissionPersistenceBackend | null,
@@ -266,6 +268,12 @@ export async function findDurablePermissionInteractionByRequestId(input: {
     return null;
   }
 }
+
+export {
+  bindPendingPermissionInteractionMessage,
+  findDurablePermissionInteractionByPromptMessage,
+} from './pending-interaction-prompt-binding.js';
+export type { DurablePermissionPromptMessageContext } from './pending-interaction-prompt-binding.js';
 
 function sourceAgentFolderFromPendingPayload(
   payload: Record<string, unknown> | undefined,

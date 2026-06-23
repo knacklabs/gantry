@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildJobToolAccessView,
+  buildRequestableAdminToolAccess,
   buildRequestableBrowserToolAccess,
   BROWSER_REQUEST_PERMISSION_ARGS,
 } from '@core/shared/tool-access-view.js';
@@ -35,6 +36,18 @@ describe('tool access view', () => {
         configuredTools: ['mcp__gantry__browser_act'],
       }),
     ).toHaveLength(1);
+  });
+
+  it('lists admin tools as requestable exact Gantry tool grants', () => {
+    const requestable = buildRequestableAdminToolAccess(new Set());
+
+    expect(requestable).toContainEqual(
+      expect.objectContaining({
+        tool: 'mcp__gantry__request_settings_update',
+        requestPermission:
+          'target.kind=tool target.name="mcp__gantry__request_settings_update" temporaryOnly=false reason="<why this agent needs request_settings_update>"',
+      }),
+    );
   });
 
   it('projects canonical Browser and facade authority into runtime tools for jobs', () => {

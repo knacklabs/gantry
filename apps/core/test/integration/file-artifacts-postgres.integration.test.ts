@@ -146,6 +146,20 @@ maybeDescribe('Postgres file artifact store', () => {
         virtualPath: owner.virtualPath,
       }),
     ).resolves.toMatchObject({ content: 'second version' });
+    await expect(
+      store.listFileArtifacts({
+        appId: owner.appId,
+        agentId: owner.agentId,
+        virtualScope: owner.virtualScope,
+        virtualPath: owner.virtualPath,
+        version: 1,
+      }),
+    ).resolves.toMatchObject([
+      expect.objectContaining({
+        id: first.id,
+        version: 1,
+      }),
+    ]);
   });
 
   it('allocates versions atomically for concurrent writers', async () => {

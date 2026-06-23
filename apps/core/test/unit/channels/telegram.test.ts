@@ -34,6 +34,12 @@ type Handler = (...args: any[]) => any;
 const botRef = vi.hoisted(() => ({ current: null as any }));
 
 vi.mock('grammy', () => ({
+  InputFile: class MockInputFile {
+    constructor(
+      readonly data: unknown,
+      readonly filename?: string,
+    ) {}
+  },
   Bot: class MockBot {
     token: string;
     pollingRunning = false;
@@ -43,6 +49,7 @@ vi.mock('grammy', () => ({
 
     api = {
       sendMessage: vi.fn().mockResolvedValue({ message_id: 987 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 988 }),
       sendMessageDraft: vi.fn().mockResolvedValue(true),
       sendChatAction: vi.fn().mockResolvedValue(undefined),
       getFile: vi.fn().mockResolvedValue({ file_path: 'photos/file_0.jpg' }),
@@ -336,6 +343,10 @@ describe('TelegramChannel', () => {
 
     await channel.renderAgentTodo('tg:-100123', {
       threadId: '42',
+      headline: 'Searching the web',
+      status: 'running',
+      elapsed: '2m 14s',
+      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('tg:-100123', {
@@ -350,8 +361,15 @@ describe('TelegramChannel', () => {
     expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
       1,
       '-100123',
-      expect.any(String),
-      expect.objectContaining({ message_thread_id: 42 }),
+      expect.stringContaining('⏳ Searching the web · 2m 14s'),
+      expect.objectContaining({
+        message_thread_id: 42,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Stop', callback_data: 'lt:stop:stop-token-1' }],
+          ],
+        },
+      }),
     );
     expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
       2,
@@ -1512,6 +1530,80 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('uploads message files as Telegram documents', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendMessage('tg:100200300', 'Report attached', {
+        files: [
+          {
+            filename: 'report.txt',
+            contentType: 'text/plain',
+            sizeBytes: 6,
+            content: new TextEncoder().encode('report'),
+          },
+        ],
+      });
+
+      expect(currentBot().api.sendDocument).toHaveBeenCalledWith(
+        '100200300',
+        expect.objectContaining({ filename: 'report.txt' }),
+        expect.objectContaining({ caption: 'report.txt' }),
+      );
+    });
+
+    it('keeps Telegram text delivery when document upload fails', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      currentBot().api.sendDocument.mockRejectedValueOnce(
+        new Error('upload failed'),
+      );
+
+      await expect(
+        channel.sendMessage('tg:100200300', 'Report attached', {
+          files: [
+            {
+              filename: 'report.txt',
+              contentType: 'text/plain',
+              sizeBytes: 6,
+              content: new TextEncoder().encode('report'),
+            },
+          ],
+        }),
+      ).resolves.toMatchObject({ externalMessageId: '987' });
+      expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
+        '100200300',
+        'Attachment unavailable in Telegram: report.txt upload failed.',
+        {},
+      );
+    });
+
+    it('announces Telegram documents that exceed the upload cap', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendMessage('tg:100200300', 'Report attached', {
+        files: [
+          {
+            filename: 'large.txt',
+            contentType: 'text/plain',
+            sizeBytes: 51 * 1024 * 1024,
+            content: new Uint8Array(),
+          },
+        ],
+      });
+
+      expect(currentBot().api.sendDocument).not.toHaveBeenCalled();
+      expect(currentBot().api.sendMessage).toHaveBeenLastCalledWith(
+        '100200300',
+        'Attachment unavailable in Telegram: large.txt exceeds 50 MB.',
+        {},
+      );
+    });
+
     it('renders scheduler dead-letter action affordances as Telegram buttons', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -2408,30 +2500,130 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('restores progress handles after process restart', async () => {
+    it('lets newer replace-only progress take over the existing generation', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Waiting...', {
+        generation: 4,
+      });
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Waiting...', {
+        replaceOnly: true,
+        generation: 7,
+      });
+      await channel.sendProgressUpdate('tg:100200300', 'Stale waiting...', {
+        replaceOnly: true,
+        generation: 6,
+      });
+
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Continuing...', {
+        replaceOnly: true,
+        generation: 8,
+      });
+
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        987,
+        'Continuing...',
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+      );
+    });
+
+    it('restores progress handles after restart for newer replace-only generations', async () => {
       const runtimeHome = fs.mkdtempSync('/tmp/gantry-tg-progress-');
       const savedHome = process.env.GANTRY_HOME;
       process.env.GANTRY_HOME = runtimeHome;
       try {
         const first = new TelegramChannel('test-token', createTestOpts());
         await first.connect();
-        await first.sendProgressUpdate('tg:100200300', 'Working on it...');
+        await first.sendProgressUpdate('tg:100200300', 'Waiting...', {
+          generation: 4,
+        });
 
         const second = new TelegramChannel('test-token', createTestOpts());
         await second.connect();
         currentBot().api.sendMessage.mockClear();
-        await second.sendProgressUpdate('tg:100200300', 'Done in 1s.', {
-          done: true,
+        currentBot().api.editMessageText.mockClear();
+        await second.sendProgressUpdate('tg:100200300', 'Waiting...', {
           replaceOnly: true,
+          generation: 7,
+        });
+        await second.sendProgressUpdate('tg:100200300', 'Stale waiting...', {
+          replaceOnly: true,
+          generation: 6,
         });
 
         expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+        expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+        await second.sendProgressUpdate('tg:100200300', 'Continuing...', {
+          replaceOnly: true,
+          generation: 8,
+        });
+
         expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
           '100200300',
           987,
-          'Done in 1s.',
+          'Continuing...',
           expect.objectContaining({ parse_mode: 'MarkdownV2' }),
         );
+      } finally {
+        if (savedHome === undefined) delete process.env.GANTRY_HOME;
+        else process.env.GANTRY_HOME = savedHome;
+        fs.rmSync(runtimeHome, { recursive: true, force: true });
+      }
+    });
+
+    it('drops persisted Telegram progress handles for a different thread', async () => {
+      const runtimeHome = fs.mkdtempSync('/tmp/gantry-tg-progress-');
+      const savedHome = process.env.GANTRY_HOME;
+      process.env.GANTRY_HOME = runtimeHome;
+      try {
+        const first = new TelegramChannel('test-token', createTestOpts());
+        await first.connect();
+        await first.sendProgressUpdate('tg:100200300', 'Waiting...', {
+          threadId: '42',
+          generation: 4,
+        });
+
+        const runDir = `${runtimeHome}/run`;
+        const stateFile = fs
+          .readdirSync(runDir)
+          .find((name) => name.startsWith('telegram-progress-state-'));
+        expect(stateFile).toBeTruthy();
+        const statePath = `${runDir}/${stateFile}`;
+        const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+        entries[0][1].threadId = 99;
+        fs.writeFileSync(statePath, JSON.stringify(entries));
+
+        const second = new TelegramChannel('test-token', createTestOpts());
+        await second.connect();
+        currentBot().api.sendMessage.mockClear();
+        currentBot().api.editMessageText.mockClear();
+
+        await second.sendProgressUpdate('tg:100200300', 'Continuing...', {
+          threadId: '42',
+          replaceOnly: true,
+          generation: 5,
+        });
+
+        expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+        expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+        await second.sendProgressUpdate('tg:100200300', 'Working again...', {
+          threadId: '42',
+          generation: 6,
+        });
+
+        expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+        expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
       } finally {
         if (savedHome === undefined) delete process.env.GANTRY_HOME;
         else process.env.GANTRY_HOME = savedHome;

@@ -1,9 +1,13 @@
 import type { AgentTodoRender } from '../../domain/ports/task-lifecycle.js';
 import {
+  agentTodoStopActions,
   countCompletedAgentTodos,
+  formatAgentTodoHeader,
   formatAgentTodoLine,
+  hasAgentTodoCardHeader,
 } from '../agent-todo-render.js';
 import { truncateSlackText } from './channel-user-question-utils.js';
+import { slackMessageActionBlocks } from './message-action-affordances.js';
 
 type SlackBlock = Record<string, unknown>;
 
@@ -26,7 +30,8 @@ function escapeSlackMrkdwn(text: string): string {
  * in-place `chat.update`.
  */
 export function buildAgentTodoBlocks(render: AgentTodoRender): SlackBlock[] {
-  const title = render.summary?.trim() ? render.summary.trim() : 'Plan';
+  const title = formatAgentTodoHeader(render);
+  const heading = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const lines: string[] = [];
   let used = 0;
   let dropped = 0;
@@ -42,12 +47,12 @@ export function buildAgentTodoBlocks(render: AgentTodoRender): SlackBlock[] {
   }
   if (dropped > 0) lines.push(`… (${dropped} more)`);
   const done = countCompletedAgentTodos(render);
-  return [
+  const blocks: SlackBlock[] = [
     {
       type: 'header',
       text: {
         type: 'plain_text',
-        text: truncateSlackText(`📋 ${title}`, 150),
+        text: truncateSlackText(heading, 150),
         emoji: true,
       },
     },
@@ -62,4 +67,9 @@ export function buildAgentTodoBlocks(render: AgentTodoRender): SlackBlock[] {
       ],
     },
   ];
+  const actionBlocks = slackMessageActionBlocks(
+    '',
+    agentTodoStopActions(render),
+  )?.filter((block) => block.type === 'actions');
+  return actionBlocks ? [...blocks, ...actionBlocks] : blocks;
 }

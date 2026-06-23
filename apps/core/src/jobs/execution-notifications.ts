@@ -62,6 +62,20 @@ function recoveryActionAffordances(input: {
   ];
 }
 
+function runAgainActionAffordances(input: {
+  job: Job;
+  runId: string;
+}): MessageActionAffordance[] {
+  return [
+    {
+      kind: 'scheduler_run_now',
+      label: 'Run again',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+  ];
+}
+
 export function logMemoryDreamJobFailure(input: {
   job: Job;
   runId: string;
@@ -197,7 +211,7 @@ export async function notifySchedulerTerminalRunState(input: {
   if (updateResult === 'updated') return true;
   const actionAffordances =
     input.runStatus === 'completed'
-      ? undefined
+      ? runAgainActionAffordances({ job: input.job, runId: input.runId })
       : recoveryActionAffordances({ job: input.job, runId: input.runId });
   return sendJobNotification({
     job: input.job,

@@ -157,4 +157,19 @@ describe('job tool access requirements', () => {
       '"argvPattern":"RunCommand(acme records append *)"',
     );
   });
+
+  it('builds durable recovery actions for exact Gantry tool requirements', () => {
+    const delegationAction =
+      toolAccessRequirementRecoveryAction('AgentDelegation');
+    expect(delegationAction).toContain('"kind":"tool"');
+    expect(delegationAction).toContain('"name":"AgentDelegation"');
+
+    const adminAction = toolAccessRequirementRecoveryAction(
+      'mcp__gantry__request_settings_update',
+    );
+    expect(adminAction).toContain('"kind":"tool"');
+    expect(adminAction).toContain(
+      '"name":"mcp__gantry__request_settings_update"',
+    );
+  });
 });

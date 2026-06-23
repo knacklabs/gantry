@@ -39,7 +39,13 @@ describe('job status formatting', () => {
     expect(message).toContain('**📝 Needs memory review**');
     expect(message).toContain('· Memory Dreaming');
     expect(message).toContain(
-      'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
+      'Completed: Memory dreaming completed: 3 promoted, 4 sent to review.',
+    );
+    expect(message).toContain('Used: scheduler job');
+    expect(message).toContain('Changed: not reported');
+    expect(message).toContain('Delegated: no');
+    expect(message).toContain(
+      'Needs attention: 4 memory changes need your review.',
     );
     expect(message).not.toContain('memory_review_pending');
   });
@@ -60,9 +66,11 @@ describe('job status formatting', () => {
     expect(message).toContain('**⏱️ Timed out**');
     expect(message).toContain('· Memory Dreaming');
     expect(message).toContain(
-      'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
+      'Needs attention: 2 memory changes need your review.',
     );
-    expect(message).not.toContain('Action: Rerun with a longer job timeout');
+    expect(message).not.toContain(
+      'Needs attention: Rerun with a longer job timeout',
+    );
     expect(message).not.toContain('memory_review_pending');
   });
 });

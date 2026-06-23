@@ -7,7 +7,10 @@ import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../shared/permission-timeout.js';
 import {
   agentTodoLines,
+  agentTodoStopActions,
   countCompletedAgentTodos,
+  formatAgentTodoHeader,
+  hasAgentTodoCardHeader,
 } from './agent-todo-render.js';
 
 export { agentTodoLines } from './agent-todo-render.js';
@@ -19,6 +22,9 @@ import {
 
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
   'application/vnd.microsoft.card.adaptive';
+const GENERIC_ATTACHMENT_UNAVAILABLE_LINE = '- Attachment unavailable.';
+const TEAMS_ATTACHMENT_UNAVAILABLE_LINE =
+  '- Attachment unavailable in Teams until signed artifact links are added.';
 
 export interface TeamsAdaptiveCardAction {
   type: 'Action.Execute';
@@ -69,6 +75,26 @@ export interface TeamsAdaptiveCardDescriptorPayload {
       content: TeamsAdaptiveCardPayload;
     },
   ];
+}
+
+export function formatTeamsAttachmentUnavailableCopy(
+  text: string,
+  filesUnavailable = false,
+): string {
+  let inAttachments = false;
+  return text
+    .split('\n')
+    .map((line) => {
+      if (line === 'Attachments:') inAttachments = true;
+      if (
+        line === GENERIC_ATTACHMENT_UNAVAILABLE_LINE ||
+        (filesUnavailable && inAttachments && line.startsWith('- '))
+      ) {
+        return TEAMS_ATTACHMENT_UNAVAILABLE_LINE;
+      }
+      return line;
+    })
+    .join('\n');
 }
 
 export function buildTeamsApprovalAdaptiveCard(
@@ -126,9 +152,12 @@ export function buildTeamsApprovalDescriptorPayload(
 
 export function buildTeamsAgentTodoCard(
   render: AgentTodoRender,
+  targetJid = '',
 ): TeamsAdaptiveCardPayload {
-  const title = render.summary?.trim() ? render.summary.trim() : 'Plan';
+  const title = formatAgentTodoHeader(render);
+  const heading = hasAgentTodoCardHeader(render) ? title : `📋 ${title}`;
   const done = countCompletedAgentTodos(render);
+  const stopAction = agentTodoStopActions(render)?.[0];
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
@@ -138,7 +167,7 @@ export function buildTeamsAgentTodoCard(
         type: 'TextBlock',
         size: 'Medium',
         weight: 'Bolder',
-        text: `📋 ${title}`,
+        text: heading,
         wrap: true,
       },
       {
@@ -157,7 +186,23 @@ export function buildTeamsAgentTodoCard(
         wrap: true,
       },
     ],
-    actions: [],
+    actions:
+      stopAction?.kind === 'live_turn_stop'
+        ? [
+            {
+              type: 'Action.Execute',
+              title: stopAction.label,
+              verb: 'gantry.live.stop',
+              data: {
+                action: 'message_action',
+                kind: 'live_turn_stop',
+                actionToken: stopAction.actionToken,
+                targetJid,
+                ...(render.threadId ? { threadId: render.threadId } : {}),
+              },
+            },
+          ]
+        : [],
   };
 }
 

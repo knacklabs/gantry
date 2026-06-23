@@ -31,6 +31,7 @@ import type { FamilyOrderOverrides } from '../shared/model-families.js';
 import type { AgentHarness } from '../shared/agent-engine.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../domain/ports/pattern-candidates.js';
+import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
@@ -71,6 +72,10 @@ export interface GroupProcessingDeps {
       text: string,
       options?: ProgressUpdateOptions,
     ) => Promise<void>;
+    renderAgentTodo?: (
+      chatJid: string,
+      render: AgentTodoRender,
+    ) => Promise<boolean>;
     isControlApproverAllowed?: (input: {
       conversationJid: string;
       userId: string;

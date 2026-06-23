@@ -404,6 +404,24 @@ export async function sendSlackProgressUpdate(input: {
 
   let existing = input.activeProgress.get(input.key);
   const threadTs = slackThreadTsFromThreadId(input.options.threadId);
+  if (
+    existing &&
+    (existing.channelId !== input.channelId || existing.threadId !== threadTs)
+  ) {
+    logger.warn(
+      {
+        channelId: input.channelId,
+        key: input.key,
+        storedChannelId: existing.channelId,
+        storedThreadId: existing.threadId,
+        expectedThreadId: threadTs,
+      },
+      'Progress lifecycle slack dropped mismatched persisted handle',
+    );
+    input.activeProgress.delete(input.key);
+    input.persistProgress();
+    existing = undefined;
+  }
   logger.info(
     {
       channelId: input.channelId,
@@ -422,10 +440,9 @@ export async function sendSlackProgressUpdate(input: {
     existing &&
     input.options.generation !== undefined &&
     existing.generation !== undefined &&
-    existing.generation !== input.options.generation &&
-    !(input.options.done && input.options.generation > existing.generation)
+    existing.generation !== input.options.generation
   ) {
-    if (input.options.done || input.options.replaceOnly) {
+    if (input.options.generation < existing.generation) {
       logger.info(
         {
           channelId: input.channelId,
@@ -439,19 +456,21 @@ export async function sendSlackProgressUpdate(input: {
       );
       return;
     }
-    logger.info(
-      {
-        channelId: input.channelId,
-        key: input.key,
-        done: input.options.done ?? false,
-        generation: input.options.generation,
-        existingGeneration: existing.generation,
-      },
-      'Progress lifecycle slack generation rollover',
-    );
-    input.activeProgress.delete(input.key);
-    input.persistProgress();
-    if (!input.options.done) existing = undefined;
+    if (!input.options.done && !input.options.replaceOnly) {
+      logger.info(
+        {
+          channelId: input.channelId,
+          key: input.key,
+          done: input.options.done ?? false,
+          generation: input.options.generation,
+          existingGeneration: existing.generation,
+        },
+        'Progress lifecycle slack generation rollover',
+      );
+      input.activeProgress.delete(input.key);
+      input.persistProgress();
+      existing = undefined;
+    }
   }
   if (!existing && input.options.replaceOnly) {
     logger.info(
@@ -536,6 +555,11 @@ export async function sendSlackProgressUpdate(input: {
         'Progress lifecycle slack cleared unchanged done',
       );
     } else {
+      if (input.options.generation !== undefined) {
+        existing.generation = input.options.generation;
+        input.activeProgress.set(input.key, existing);
+        input.persistProgress();
+      }
       logger.info(
         {
           channelId: input.channelId,

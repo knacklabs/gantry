@@ -28,11 +28,14 @@ import {
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import {
   clearProgressActions,
+  prepareTelegramProgressHandle,
   progressActionOptions,
   sendNewProgressMessage,
 } from './progress-message-actions.js';
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
-import { renderTelegramAgentTodo } from './agent-todo-delivery.js';
+import { appendTelegramDocumentMessageIds as appendDocIds } from './file-delivery.js';
+import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
+import { bindTelegramPermissionPromptMessage } from './prompt-binding.js';
 import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
 export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
@@ -139,6 +142,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           throw err;
         }
       }
+      await appendDocIds(externalMessageIds, this.bot.api, numericId, options);
       logger.info(
         { jid, length: text.length, threadId: options.threadId },
         'Telegram message sent',
@@ -303,42 +307,18 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     ) {
       return;
     }
-    let existing = this.activeProgressMessages.get(key);
-    if (
-      existing &&
-      options.generation !== undefined &&
-      existing.generation !== undefined &&
-      existing.generation !== options.generation &&
-      !(options.done && options.generation > existing.generation)
-    ) {
-      if (options.done || options.replaceOnly) {
-        logger.info(
-          {
-            jid,
-            key,
-            done: options.done ?? false,
-            replaceOnly: options.replaceOnly ?? false,
-            generation: options.generation,
-            existingGeneration: existing.generation,
-          },
-          'Progress lifecycle telegram dropped generation mismatch',
-        );
-        return;
-      }
-      logger.info(
-        {
-          jid,
-          key,
-          done: options.done ?? false,
-          generation: options.generation,
-          existingGeneration: existing.generation,
-        },
-        'Progress lifecycle telegram generation rollover',
-      );
-      this.activeProgressMessages.delete(key);
-      this.persistProgressMessages();
-      if (!options.done) existing = undefined;
-    }
+    const prepared = prepareTelegramProgressHandle({
+      activeProgressMessages: this.activeProgressMessages,
+      persistProgressMessages: () => this.persistProgressMessages(),
+      jid,
+      key,
+      existing: this.activeProgressMessages.get(key),
+      chatId: numericId,
+      threadId: Number.isFinite(parsedThreadId) ? parsedThreadId : undefined,
+      options,
+    });
+    if (!prepared.accepted) return;
+    let existing = prepared.existing;
     if (!nextText) {
       if (options.done) {
         this.activeProgressMessages.delete(key);
@@ -401,9 +381,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           nextText,
           sendOptions,
         );
-        if (options.generation !== undefined) {
+        if (options.generation !== undefined)
           existing.generation = options.generation;
-        }
         this.activeProgressMessages.set(key, existing);
         this.persistProgressMessages();
         logger.info(
@@ -416,6 +395,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           'Progress lifecycle telegram refreshed unchanged initial message',
         );
       } else {
+        if (options.generation !== undefined) {
+          existing.generation = options.generation;
+          this.activeProgressMessages.set(key, existing);
+          this.persistProgressMessages();
+        }
         logger.info(
           { jid, key, generation: options.generation },
           'Progress lifecycle telegram skipped unchanged text',
@@ -532,6 +516,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         timeoutMs,
         threadOpts: telegramThreadOptionsFromString(request.threadId),
       });
+      bindTelegramPermissionPromptMessage(request, chatId, sent.message_id);
       return await new Promise<PermissionApprovalDecision>((resolve) => {
         const timer = setTimeout(() => {
           void this.resolvePermissionPrompt(request.requestId, {
@@ -677,14 +662,14 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     };
   }
 
-  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
-    if (!this.bot) return;
-    const threadId = render.threadId ?? undefined;
-    await renderTelegramAgentTodo({
+  async renderAgentTodo(jid: string, render: AgentTodoRender) {
+    if (!this.bot) return false;
+    return renderTelegramChannelAgentTodo({
       api: this.bot.api,
       jid,
       render,
-      todoKey: this.buildDraftStreamKey(jid, threadId),
+      buildDraftStreamKey: (key, threadId) =>
+        this.buildDraftStreamKey(key, threadId),
       pendingTodos: this.pendingTodos,
       sanitizeErrorMessage: (err) => this.sanitizeErrorMessage(err),
     });

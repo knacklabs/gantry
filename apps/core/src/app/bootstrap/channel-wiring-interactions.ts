@@ -30,7 +30,10 @@ interface UserQuestionSurfaceLike {
 }
 
 interface AgentTodoSurfaceLike {
-  renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<void>;
+  renderAgentTodo: (
+    jid: string,
+    render: AgentTodoRender,
+  ) => Promise<void | boolean>;
 }
 
 interface PermissionApprovalTargetResolution {
@@ -229,29 +232,37 @@ export function createAgentTodoRenderer(input: {
     channel: ChannelLike,
   ) => AgentTodoSurfaceLike | undefined;
   logger: Pick<ChannelWiringInteractionsLogger, 'error'>;
-}): (jid: string, render: AgentTodoRender) => Promise<void> {
+}): (jid: string, render: AgentTodoRender) => Promise<boolean> {
   const windows = new Map<
     string,
     { pending: AgentTodoRender | null; timer: ReturnType<typeof setTimeout> }
   >();
 
-  const flush = async (jid: string, render: AgentTodoRender): Promise<void> => {
+  const getSurface = (jid: string): AgentTodoSurfaceLike | undefined => {
     const channel = input.findBoundChannel(jid);
-    const surface = channel ? input.asAgentTodoSurface(channel) : undefined;
-    if (!surface) return;
+    return channel ? input.asAgentTodoSurface(channel) : undefined;
+  };
+
+  const flush = async (
+    jid: string,
+    render: AgentTodoRender,
+  ): Promise<boolean> => {
+    const surface = getSurface(jid);
+    if (!surface) return false;
     try {
-      await surface.renderAgentTodo(jid, render);
+      return (await surface.renderAgentTodo(jid, render)) !== false;
     } catch (err) {
       input.logger.error({
         err,
         jid,
         message: 'Target channel agent todo render failed',
       });
+      return false;
     }
   };
 
   const renderKey = (jid: string, render: AgentTodoRender): string =>
-    `${jid}:${render.threadId ?? ''}`;
+    `${jid}:${render.threadId ?? ''}:${render.cardKind ?? 'todo'}`;
 
   const openWindow = (key: string, jid: string): void => {
     const timer = setTimeout(() => {
@@ -271,16 +282,24 @@ export function createAgentTodoRenderer(input: {
     windows.set(key, { pending: windows.get(key)?.pending ?? null, timer });
   };
 
-  return async (jid: string, render: AgentTodoRender): Promise<void> => {
-    if (!jid) return;
+  return async (jid: string, render: AgentTodoRender): Promise<boolean> => {
+    if (!jid || !getSurface(jid)) return false;
     const key = renderKey(jid, render);
+    if (render.flush) {
+      const existing = windows.get(key);
+      if (existing) {
+        clearTimeout(existing.timer);
+        windows.delete(key);
+      }
+      return flush(jid, render);
+    }
     const existing = windows.get(key);
     if (existing) {
       // Within the throttle window: keep only the latest plan; it flushes on close.
       existing.pending = render;
-      return;
+      return true;
     }
     openWindow(key, jid);
-    await flush(jid, render);
+    return flush(jid, render);
   };
 }

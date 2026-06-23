@@ -265,6 +265,7 @@ export function capabilityStatusText(): string {
           'Agent access model:',
           '- Use an available action when one fits.',
           '- If the action is missing, request_access target.kind=capability for the reviewed capability id.',
+          '- If an exact Gantry facade or admin tool is missing, request_access target.kind=tool with a durable Gantry tool name such as AgentDelegation or mcp__gantry__request_settings_update.',
           '- If setup is missing, request source setup through the Gantry access flow; setup records inventory, not authority.',
           '- Use request_access target.kind=run_command only as a temporary exact-command fallback when no reviewed capability fits.',
           '- Use admin_permission_list (read-only, no grant needed) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',

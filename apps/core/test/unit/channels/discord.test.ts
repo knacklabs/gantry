@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const durabilityMocks = vi.hoisted(() => ({
+  bindPendingPermissionInteractionMessage: vi.fn(),
   findDurablePermissionInteractionByRequestId: vi.fn(),
   findDurableQuestionInteractionByRequestId: vi.fn(),
   resolveDurablePermissionInteractionByRequestId: vi.fn(),
@@ -58,6 +59,7 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
     durabilityMocks.findDurablePermissionInteractionByRequestId.mockReset();
     durabilityMocks.findDurableQuestionInteractionByRequestId.mockReset();
+    durabilityMocks.bindPendingPermissionInteractionMessage.mockReset();
     durabilityMocks.resolveDurablePermissionInteractionByRequestId.mockReset();
     durabilityMocks.resolveDurableQuestionInteractionByRequestId.mockReset();
   });
@@ -99,6 +101,182 @@ describe('DiscordChannel', () => {
         }),
       }),
     );
+    fetchMock.mockRestore();
+  });
+
+  it('uploads message files with Discord multipart delivery', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({ id: 'file-message-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendMessage('dc:channel-1', 'Report attached', {
+      files: [
+        {
+          filename: 'report.txt',
+          contentType: 'text/plain',
+          sizeBytes: 6,
+          content: new TextEncoder().encode('report'),
+        },
+      ],
+    });
+
+    const body = fetchMock.mock.calls[0]?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('payload_json')).toContain('report.txt');
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      'content-type',
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('uploads valid Discord files on the user message before oversized warnings', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'file-message-1' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'warning-message-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendMessage('dc:channel-1', 'Report attached', {
+      files: [
+        {
+          filename: 'report.txt',
+          contentType: 'text/plain',
+          sizeBytes: 6,
+          content: new TextEncoder().encode('report'),
+        },
+        {
+          filename: 'large.txt',
+          contentType: 'text/plain',
+          sizeBytes: 26 * 1024 * 1024,
+          content: new Uint8Array(),
+        },
+      ],
+    });
+
+    const payload = (fetchMock.mock.calls[0]?.[1]?.body as FormData).get(
+      'payload_json',
+    );
+    expect(payload).toContain('Report attached');
+    expect(payload).toContain('report.txt');
+    const warning = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(warning.content).toBe(
+      'Attachment unavailable in Discord: large.txt exceeds 25 MB.',
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('keeps Discord text delivery when multipart file upload fails', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('upload failed'))
+      .mockResolvedValueOnce(jsonResponse({ id: 'text-message-1' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'warning-message-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await expect(
+      channel.sendMessage('dc:channel-1', 'Report attached', {
+        files: [
+          {
+            filename: 'report.txt',
+            contentType: 'text/plain',
+            sizeBytes: 6,
+            content: new TextEncoder().encode('report'),
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({ externalMessageId: 'text-message-1' });
+
+    const textBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(textBody.content).toBe('Report attached');
+    const warningBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(warningBody.content).toBe(
+      'Attachment unavailable in Discord: file upload failed.',
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('keeps Discord text delivery when files exceed the upload cap', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.sendMessage('dc:channel-1', 'Report attached', {
+      files: [
+        {
+          filename: 'large.txt',
+          contentType: 'text/plain',
+          sizeBytes: 26 * 1024 * 1024,
+          content: new Uint8Array(),
+        },
+      ],
+    });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        content: 'Report attached',
+        allowed_mentions: { parse: [] },
+        components: undefined,
+      }),
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe(
+      JSON.stringify({
+        content: 'Attachment unavailable in Discord: large.txt exceeds 25 MB.',
+        allowed_mentions: { parse: [] },
+        components: undefined,
+      }),
+    );
+    fetchMock.mockRestore();
+  });
+
+  it('renders todo messages in place with Stop buttons', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'todo-1' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'todo-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.renderAgentTodo('dc:channel-1', {
+      headline: 'Searching the web',
+      status: 'running',
+      elapsed: '2m 14s',
+      stop: { label: 'Stop', actionToken: 'stop-token-1' },
+      items: [{ id: '1', title: 'First', status: 'pending' }],
+    });
+    await channel.renderAgentTodo('dc:channel-1', {
+      headline: 'Done',
+      status: 'done',
+      elapsed: '2m 20s',
+      items: [{ id: '1', title: 'First', status: 'completed' }],
+    });
+
+    const posted = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(posted.content).toContain('⏳ Searching the web · 2m 14s');
+    expect(JSON.stringify(posted.components)).toContain('stop-token-1');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'https://discord.com/api/v10/channels/channel-1/messages/todo-1',
+    );
+    const updated = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(updated.content).toContain('✅ Done · 2m 20s');
+  });
+
+  it('omits broken Stop buttons on threaded todo messages', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ id: 'todo-1' }));
+    const channel = new DiscordChannel('bot-token', 'app-id', opts());
+
+    await channel.renderAgentTodo('dc:channel-1', {
+      headline: 'Searching the web',
+      status: 'running',
+      threadId: 'thread-1',
+      stop: { label: 'Stop', actionToken: 'stop-token-1' },
+      items: [{ id: '1', title: 'First', status: 'pending' }],
+    });
+
+    const posted = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(posted.components).toEqual([]);
     fetchMock.mockRestore();
   });
 

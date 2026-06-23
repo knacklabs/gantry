@@ -27,7 +27,10 @@ export function formatRunStatusMessage(args: {
   const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const lines = [
     `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
-    summary,
+    `Completed: ${summary}`,
+    'Used: scheduler job',
+    'Changed: not reported',
+    'Delegated: no',
   ];
   const action = notificationAction(
     args.runStatus,
@@ -35,7 +38,7 @@ export function formatRunStatusMessage(args: {
     denial,
     args.pauseReason,
   );
-  if (action) lines.push(`Action: ${action}`);
+  lines.push(`Needs attention: ${action ?? 'none'}`);
   const next = nextRunLabel(args.nextRun, args.runStatus);
   if (next) lines.push(`Next: ${next}`);
   return lines.join('\n');
@@ -211,7 +214,10 @@ function notificationAction(
     return 'Approve the missing access, then retry the job.';
   }
   if (hasPendingMemoryReviewSummary(summary)) {
-    return 'Ask the agent to show pending memory reviews, then approve, reject, or edit by number.';
+    const count = pendingMemoryReviewCount(summary);
+    return count
+      ? `${count} memory changes need your review.`
+      : 'Memory changes need your review.';
   }
   if (status === 'timeout' && isRestartInterruptedRun(summary)) {
     return 'Rerun the job when ready. If this repeats without restarts, increase the job timeout.';
@@ -238,6 +244,15 @@ function hasPendingMemoryReviewSummary(summary: string): boolean {
       summary,
     )
   );
+}
+
+function pendingMemoryReviewCount(summary: string): number | null {
+  const match =
+    summary.match(/\b(\d+)\s+sent to review\b/i) ||
+    summary.match(/\b(\d+)\s+(?:pending\s+)?memory reviews?\b/i);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function nextRunLabel(

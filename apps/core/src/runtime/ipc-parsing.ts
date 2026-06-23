@@ -10,8 +10,10 @@ import {
 } from '../domain/types.js';
 import {
   BROWSER_BACKEND_ACTIONS,
+  PUBLIC_BROWSER_GATEWAY_TOOL_NAMES,
   type BrowserBackendAction,
 } from '../shared/browser-backend-actions.js';
+import { parseIpcMessageFiles } from './ipc-message-files.js';
 import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-capabilities.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
@@ -20,25 +22,15 @@ import {
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
 
-const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const PERMISSION_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const BROWSER_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const USER_QUESTION_IPC_REQUEST_ID_PATTERN =
-  /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const PUBLIC_BROWSER_GATEWAY_TOOL_NAMES = new Set([
-  'browser_status',
-  'browser_open',
-  'browser_inspect',
-  'browser_act',
-  'browser_close',
-]);
-
+const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 export interface ParsedIpcMessage {
   type: 'message';
+  appId?: string;
   chatJid: string;
   text: string;
   sender?: string;
   threadId?: string;
+  files?: ReturnType<typeof parseIpcMessageFiles>;
 }
 
 export interface ParsedMemoryIpcRequest {
@@ -330,7 +322,7 @@ export function parseIpcMessage(
   sourceAgentFolder: string,
 ): ParsedIpcMessage {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC message payload');
-  const { authThreadId: threadId } = validateIpcAuthRequest(
+  const { appId, authThreadId: threadId } = validateIpcAuthRequest(
     raw,
     sourceAgentFolder,
     'IPC message',
@@ -341,12 +333,15 @@ export function parseIpcMessage(
   const text = toTrimmedString(raw.text, { maxLen: 20000 });
   if (!chatJid || !text) throw new Error('Invalid IPC message fields');
   const sender = toTrimmedString(raw.sender, { maxLen: 255 });
+  const files = parseIpcMessageFiles(raw.files);
   return {
     type: 'message',
+    ...(appId ? { appId } : {}),
     chatJid,
     text,
     ...(sender ? { sender } : {}),
     ...(threadId ? { threadId } : {}),
+    ...(files.length > 0 ? { files } : {}),
   };
 }
 
@@ -372,7 +367,7 @@ export function parseMemoryIpcRequest(
   if (!requestId || !action) {
     throw new Error('Invalid memory IPC request envelope');
   }
-  if (!MEMORY_IPC_REQUEST_ID_PATTERN.test(requestId)) {
+  if (!IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid memory IPC requestId');
   }
   if (!MEMORY_IPC_ACTIONS.includes(action as MemoryIpcAction)) {
@@ -430,7 +425,7 @@ export function parsePermissionIpcRequest(
     throw new Error('permission IPC responseKeyId is required');
   }
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
-  if (!requestId || !PERMISSION_IPC_REQUEST_ID_PATTERN.test(requestId)) {
+  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid permission IPC requestId');
   }
   const responseNonce = toTrimmedString(raw.responseNonce, { maxLen: 128 });
@@ -559,7 +554,7 @@ export function parseUserQuestionIpcRequest(
   }
 
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
-  if (!requestId || !USER_QUESTION_IPC_REQUEST_ID_PATTERN.test(requestId)) {
+  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid user question IPC requestId');
   }
   const context = isPlainObject(raw.context) ? raw.context : undefined;
@@ -714,7 +709,7 @@ export function parseBrowserIpcRequest(
   if (!requestId || !rawAction) {
     throw new Error('Invalid browser IPC request envelope');
   }
-  if (!BROWSER_IPC_REQUEST_ID_PATTERN.test(requestId)) {
+  if (!IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid browser IPC requestId');
   }
   const action = normalizeBrowserBackendAction(rawAction);

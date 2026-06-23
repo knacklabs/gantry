@@ -200,7 +200,7 @@ export function formatPermissionReceiptText(
       ? formatPermissionAgentDisplayName(request.sourceAgentFolder)
       : 'this agent';
     return limitPermissionMessage(
-      `Allowed for future: ${summary}. Saved for ${agentName}. You can remove it from Agent Access.`,
+      `Allowed for future: ${summary}. Saved for ${agentName}. Manage access to revoke it later.`,
     );
   }
   return limitPermissionMessage(

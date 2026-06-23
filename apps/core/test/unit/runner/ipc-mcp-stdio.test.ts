@@ -1219,6 +1219,35 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     },
   );
 
+  it('submits request_access for AgentDelegation as an exact built-in facade review task', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'capability', id: 'AgentDelegation' },
+      reason: 'Delegate async subtasks through Gantry task lifecycle wrappers.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(path.join(taskDir, taskFiles[0]), 'utf-8'),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        permissionKind: 'tool',
+        toolName: 'AgentDelegation',
+        temporaryOnly: false,
+        reason:
+          'Delegate async subtasks through Gantry task lifecycle wrappers.',
+      },
+    });
+  });
+
   it('rejects broad durable request_access run_command fallbacks before queuing review', async () => {
     const fixture = createMcpFixture();
 
@@ -1540,6 +1569,141 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       payload: {
         capabilityRequestSource: 'request_access',
         capabilityId: 'acme.records.append',
+      },
+    });
+  });
+
+  it('submits request_access exact Gantry tool targets as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'AgentDelegation' },
+      reason: 'Delegate bounded async work to a child agent.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'AgentDelegation',
+      },
+    });
+  });
+
+  it('rejects unknown exact Gantry tool requests before queuing review', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'DefinitelyNotAGantryTool' },
+      reason: 'Try to request a made-up tool.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'No exact requestable Gantry tool matches "DefinitelyNotAGantryTool".',
+    );
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+  });
+
+  it('rejects duplicate exact Gantry tool requests when already selected', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'request_access',
+      {
+        target: { kind: 'tool', name: 'AgentDelegation' },
+        reason: 'Delegate bounded async work to a child agent.',
+      },
+      { GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: '["AgentDelegation"]' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'Tool "AgentDelegation" is already selected for this run.',
+    );
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+  });
+
+  it('normalizes delegate_task access requests to AgentDelegation', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'delegate_task' },
+      reason: 'Use the durable delegated-task executor.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task.payload.toolName).toBe('AgentDelegation');
+  });
+
+  it('normalizes tool-shaped capability requests to exact Gantry tool access', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'capability', id: 'delegate_task' },
+      reason: 'Use the durable delegated-task executor.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task.payload.toolName).toBe('AgentDelegation');
+  });
+
+  it('submits request_access Gantry admin tool targets as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'request_settings_update' },
+      reason: 'Submit reviewed local settings changes.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__request_settings_update',
       },
     });
   });

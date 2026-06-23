@@ -849,7 +849,7 @@ describe('jobs/execution', () => {
     expect(failureMessage).toContain(
       '**⏸️ Paused after failures** · Daily summary',
     );
-    expect(failureMessage).toContain('Action:');
+    expect(failureMessage).toContain('Needs attention:');
     expect(failureMessage).toContain('[REDACTED]');
     expect(failureMessage).not.toContain('provider-session:raw-error');
     expect(failureMessage).not.toContain('claude-session-error');
@@ -941,7 +941,7 @@ describe('jobs/execution', () => {
       2,
       'tg:scheduler',
       expect.stringContaining('**✅ Completed** · Daily summary'),
-      { threadId: 'thread-scheduled' },
+      expect.objectContaining({ threadId: 'thread-scheduled' }),
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),
@@ -1406,7 +1406,7 @@ describe('jobs/execution', () => {
         [
           'tg:scheduler',
           expect.stringContaining('**✅ Completed** · Daily summary'),
-          { threadId: 'thread-scheduled' },
+          expect.objectContaining({ threadId: 'thread-scheduled' }),
         ],
       ]),
     );
@@ -1461,12 +1461,12 @@ describe('jobs/execution', () => {
     expect(sendMessage).toHaveBeenLastCalledWith(
       'tg:scheduler',
       expect.not.stringContaining('HEAD-'),
-      { threadId: 'thread-scheduled' },
+      expect.objectContaining({ threadId: 'thread-scheduled' }),
     );
     expect(sendMessage).toHaveBeenLastCalledWith(
       'tg:scheduler',
       expect.not.stringContaining('[output truncated; showing tail]'),
-      { threadId: 'thread-scheduled' },
+      expect.objectContaining({ threadId: 'thread-scheduled' }),
     );
   });
 
@@ -1514,7 +1514,7 @@ describe('jobs/execution', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining('first visible chunk second visible chunk'),
-      { threadId: 'thread-scheduled' },
+      expect.objectContaining({ threadId: 'thread-scheduled' }),
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
       expect.any(String),

@@ -21,3 +21,8 @@ Current decisions:
 - [2026-04-17 — Settings And Runtime Truth](./2026-04-17-settings-runtime-truth.md)
 - [2026-04-21 — App-Wide Storage Backend Cutover](./2026-04-21-storage-backend-cutover.md)
 - [2026-06-12 — Agent Engine Selection](./2026-06-12-agent-engine-selection.md)
+- [2026-06-23 — Agent Communication Reaction Binding](./2026-06-23-agent-communication-reaction-binding.md)
+- [2026-06-23 — Agent Communication Reasoning Safety](./2026-06-23-agent-communication-reasoning-safety.md)
+- [2026-06-23 — Teams Reactions Deferred](./2026-06-23-teams-reactions-deferred.md)
+- [2026-06-23 — Send Message Files Authority](./2026-06-23-send-message-files-authority.md)
+- [2026-06-23 — Signed Artifact Links Deferred](./2026-06-23-signed-artifact-links-deferred.md)

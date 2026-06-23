@@ -80,12 +80,14 @@ export type McpServerConfig =
       command: string;
       args?: string[];
       env?: Record<string, string>;
+      timeout?: number;
       alwaysLoad?: boolean;
     }
   | {
       type: 'http' | 'sse';
       url: string;
       headers?: Record<string, string>;
+      timeout?: number;
       alwaysLoad?: boolean;
     };
 
@@ -311,6 +313,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         gantry: {
           command: 'node',
           args: [ctx.mcpServerPath],
+          timeout: 300_000,
           alwaysLoad: true,
           env,
         },

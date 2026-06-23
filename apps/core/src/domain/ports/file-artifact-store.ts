@@ -26,6 +26,7 @@ export interface FileArtifactWriteInput extends FileArtifactOwner {
 export interface FileArtifactListInput extends FileArtifactOwner {
   virtualScope?: string;
   virtualPath?: string;
+  version?: number;
   includeDeleted?: boolean;
   limit?: number;
 }

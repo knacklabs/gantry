@@ -48,7 +48,10 @@ import { Provider } from '@core/channels/provider-registry.js';
 import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
-import { createPermissionApprovalRequester } from '@core/app/bootstrap/channel-wiring-interactions.js';
+import {
+  createAgentTodoRenderer,
+  createPermissionApprovalRequester,
+} from '@core/app/bootstrap/channel-wiring-interactions.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '@core/config/index.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
@@ -1789,6 +1792,21 @@ describe('createChannelWiring', () => {
       'Working on it...',
       { threadId: 'thread-1' },
     );
+  });
+
+  it('reports agent todo render failure when the channel surface returns false', async () => {
+    const renderAgentTodo = vi.fn(async () => false);
+    const render = createAgentTodoRenderer({
+      findBoundChannel: () => makeChannel({ renderAgentTodo }),
+      asAgentTodoSurface: (channel) => channel,
+      logger: { error: vi.fn() },
+    });
+
+    await expect(
+      render('tg:group', {
+        items: [{ id: '1', title: 'Work', status: 'pending' }],
+      }),
+    ).resolves.toBe(false);
   });
 
   it('does not emit user-question receipts through progress or direct sends', async () => {

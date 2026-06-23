@@ -459,6 +459,27 @@ function formatKnownToolInputFields(
   // Admin request tools carry rich structured payloads; render a clean,
   // human-readable summary instead of dumping raw JSON (which also leaks
   // internal ids like skillId, sandboxProfileId, raw jids, and folders).
+  if (toolName === 'request_skill_dependency_install') {
+    add('Ecosystem', input.ecosystem, 40);
+    addList('Packages', input.packages);
+    add('Reason', input.reason, 300);
+    add('Activation', input.activation, 80);
+    if (Array.isArray(input.commandArgv) && input.commandArgv.length > 0) {
+      const argv = input.commandArgv
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter(Boolean);
+      if (argv.length > 0) {
+        lines.push(
+          'Command:',
+          '```',
+          escapeMarkdownFenceDelimiters(
+            sanitizePermissionText(argv.join(' '), 900, 300),
+          ),
+          '```',
+        );
+      }
+    }
+  }
   if (
     toolName === 'request_skill_install' ||
     toolName === 'request_skill_proposal'

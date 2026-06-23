@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  bindPendingPermissionInteractionMessage,
   configurePendingInteractionDurability,
+  findDurablePermissionInteractionByPromptMessage,
   findDurablePermissionInteractionByRequestId,
   isActiveRunLeaseForInteraction,
   resolveDurableQuestionInteractionByRequestId,
@@ -68,6 +70,152 @@ describe('pending interaction durability', () => {
         runLeaseFencingVersion: 1,
       }),
     ).resolves.toBe(false);
+  });
+
+  it('binds a permission prompt to the exact provider message id', async () => {
+    const pending = {
+      id: 'pending-permission-1',
+      appId: 'default',
+      runId: 'run-1',
+      kind: 'permission',
+      status: 'pending',
+      payload: {
+        requestId: 'perm-1',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+      },
+      callbackRoute: null,
+      idempotencyKey: 'permission:main_agent:perm-1',
+      approverRef: null,
+      resolution: null,
+      createdAt: '2026-06-23T00:00:00.000Z',
+      expiresAt: '2026-06-24T00:00:00.000Z',
+      resolvedAt: null,
+    };
+    const repository = {
+      listPendingInteractions: vi.fn(async () => [pending]),
+      updatePendingInteractionPayload: vi.fn(async () => true),
+    };
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+
+    await expect(
+      bindPendingPermissionInteractionMessage({
+        sourceAgentFolder: 'main_agent',
+        requestId: 'perm-1',
+        externalMessageId: '1710000000.400500',
+        provider: 'slack',
+        conversationId: 'C123',
+        threadId: '1710000000.111111',
+      }),
+    ).resolves.toBe(true);
+
+    expect(repository.updatePendingInteractionPayload).toHaveBeenCalledWith({
+      idempotencyKey: 'permission:main_agent:perm-1',
+      payload: {
+        requestId: 'perm-1',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+        externalPromptMessageId: '1710000000.400500',
+        externalPromptProvider: 'slack',
+        externalPromptConversationId: 'C123',
+        externalPromptThreadId: '1710000000.111111',
+      },
+    });
+  });
+
+  it('binds permission prompt messages in the request app scope', async () => {
+    const repository = {
+      listPendingInteractions: vi.fn(async () => [
+        {
+          id: 'pending-permission-2',
+          appId: 'app:two',
+          kind: 'permission',
+          status: 'pending',
+          payload: { requestId: 'perm-2', sourceAgentFolder: 'main_agent' },
+          callbackRoute: null,
+          idempotencyKey: 'permission:main_agent:perm-2',
+          approverRef: null,
+          resolution: null,
+          createdAt: '2026-06-23T00:00:00.000Z',
+          expiresAt: '2026-06-24T00:00:00.000Z',
+          resolvedAt: null,
+        },
+      ]),
+      updatePendingInteractionPayload: vi.fn(async () => true),
+    };
+    configurePendingInteractionDurability({ repository: repository as never });
+
+    await expect(
+      bindPendingPermissionInteractionMessage({
+        sourceAgentFolder: 'main_agent',
+        requestId: 'perm-2',
+        appId: 'app:two',
+        externalMessageId: 'message-2',
+      }),
+    ).resolves.toBe(true);
+
+    expect(repository.listPendingInteractions).toHaveBeenCalledWith({
+      appId: 'app:two',
+    });
+  });
+
+  it('finds a permission prompt only by exact provider message binding', async () => {
+    const repository = {
+      listPendingInteractions: vi.fn(async () => [
+        {
+          id: 'pending-permission-1',
+          appId: 'default',
+          runId: 'run-1',
+          kind: 'permission',
+          status: 'pending',
+          payload: {
+            requestId: 'perm-1',
+            sourceAgentFolder: 'main_agent',
+            conversationId: 'sl:C123',
+            decisionPolicy: 'same_channel',
+            externalPromptProvider: 'slack',
+            externalPromptConversationId: 'C123',
+            externalPromptMessageId: '1710000000.400500',
+            externalPromptThreadId: '1710000000.111111',
+          },
+          callbackRoute: null,
+          idempotencyKey: 'permission:main_agent:perm-1',
+          approverRef: null,
+          resolution: null,
+          createdAt: '2026-06-23T00:00:00.000Z',
+          expiresAt: '2026-06-24T00:00:00.000Z',
+          resolvedAt: null,
+        },
+      ]),
+    };
+    configurePendingInteractionDurability({
+      repository: repository as never,
+    });
+
+    await expect(
+      findDurablePermissionInteractionByPromptMessage({
+        provider: 'slack',
+        conversationId: 'C123',
+        externalMessageId: '1710000000.400500',
+        threadId: '1710000000.111111',
+      }),
+    ).resolves.toEqual({
+      requestId: 'perm-1',
+      sourceAgentFolder: 'main_agent',
+      targetJid: 'sl:C123',
+      decisionPolicy: 'same_channel',
+    });
+
+    await expect(
+      findDurablePermissionInteractionByPromptMessage({
+        provider: 'slack',
+        conversationId: 'C999',
+        externalMessageId: '1710000000.400500',
+        threadId: '1710000000.111111',
+      }),
+    ).resolves.toBeNull();
   });
 
   it('returns false when the pending interaction row is not resolved', async () => {

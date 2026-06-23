@@ -99,12 +99,18 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     });
   }
 
-  async renderAgentTodo(jid: string, render: AgentTodoRender): Promise<void> {
-    if (!this.app) return;
+  async renderAgentTodo(
+    jid: string,
+    render: AgentTodoRender,
+  ): Promise<boolean> {
+    if (!this.app) return false;
     const parsed = this.parseJid(jid);
-    if (!parsed) return;
-    const todoKey = this.streamKey(jid, render.threadId ?? undefined);
-    await renderSlackAgentTodo({
+    if (!parsed) return false;
+    const todoKey = this.streamKey(
+      `${jid}:${render.cardKind ?? 'todo'}`,
+      render.threadId ?? undefined,
+    );
+    return renderSlackAgentTodo({
       app: this.app,
       jid,
       channelId: parsed.channelId,

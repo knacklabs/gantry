@@ -29,6 +29,7 @@ import type { BrowserSessionStatus } from './browser-capability-types.js';
 import type { BrowserUsageSettings } from './browser-usage-governor.js';
 import type { EgressSettings } from '../shared/egress-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import type { MessageSendOptions } from '../domain/types.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
@@ -39,7 +40,7 @@ export interface IpcDeps {
   sendMessage: (
     jid: string,
     text: string,
-    options?: { threadId?: string },
+    options?: MessageSendOptions,
   ) => Promise<void>;
   conversationRoutes: () => Record<string, ConversationRoute>;
   registerGroup: (
@@ -60,7 +61,7 @@ export interface IpcDeps {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
-  renderAgentTodo?: (jid: string, render: AgentTodoRender) => Promise<void>;
+  renderAgentTodo?: (jid: string, render: AgentTodoRender) => Promise<boolean>;
   mcpHostnameLookup?: HostnameLookup;
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;

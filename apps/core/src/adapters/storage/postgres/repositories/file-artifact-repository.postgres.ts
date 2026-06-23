@@ -182,7 +182,12 @@ export class PostgresFileArtifactStore implements FileArtifactStore {
   }
 
   async listFileArtifacts(input: FileArtifactListInput) {
-    const rows = await this.queryRows(input, input.limit ?? 50);
+    const rows = await this.queryRows(
+      input,
+      input.limit ?? 50,
+      undefined,
+      input.version,
+    );
     return rows.map((row) => describeFileArtifact(this.fromRow(row)));
   }
 

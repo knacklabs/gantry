@@ -118,6 +118,7 @@ export async function startGantryRuntime(
     resetStreaming: channelWiring.resetStreaming,
     setTyping: channelWiring.setTyping,
     sendProgressUpdate: channelWiring.sendProgressUpdate,
+    renderAgentTodo: channelWiring.renderAgentTodo,
     isControlApproverAllowed: channelWiring.isControlApproverAllowed,
   });
 

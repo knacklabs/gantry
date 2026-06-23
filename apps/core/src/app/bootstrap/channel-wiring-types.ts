@@ -173,7 +173,7 @@ export interface ChannelWiring {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
-  renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<void>;
+  renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<boolean>;
   isControlApproverAllowed: (input: {
     conversationJid: string;
     userId: string;

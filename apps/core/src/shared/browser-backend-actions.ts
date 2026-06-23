@@ -27,6 +27,14 @@ export const BROWSER_BACKEND_ACTIONS = [
 
 export type BrowserBackendAction = (typeof BROWSER_BACKEND_ACTIONS)[number];
 
+export const PUBLIC_BROWSER_GATEWAY_TOOL_NAMES = new Set([
+  'browser_status',
+  'browser_open',
+  'browser_inspect',
+  'browser_act',
+  'browser_close',
+]);
+
 const BROWSER_INSPECT_BACKEND_ACTIONS = new Set<BrowserBackendAction>([
   'snapshot',
   'tabs',

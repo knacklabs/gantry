@@ -715,6 +715,10 @@ describe('Slack channel', () => {
     await channel.renderAgentTodo('sl:C1234567890', {
       threadId: '1710000000.000111',
       summary: 'Thread one',
+      headline: 'Searching the web',
+      status: 'running',
+      elapsed: '2m 14s',
+      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: 'a', title: 'A', status: 'pending' }],
     });
     await channel.renderAgentTodo('sl:C1234567890', {
@@ -734,6 +738,12 @@ describe('Slack channel', () => {
         channel: 'C1234567890',
         thread_ts: '1710000000.000111',
       }),
+    );
+    expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
+      '⏳ Searching the web · 2m 14s',
+    );
+    expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
+      'stop-token-1',
     );
     expect(postMessage.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
@@ -1193,7 +1203,46 @@ describe('Slack channel', () => {
     });
   });
 
-  it('restores Slack progress handles after process restart', async () => {
+  it('lets newer replace-only Slack progress take over the existing generation', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
+      generation: 4,
+    });
+    appRef.current.client.chat.postMessage.mockClear();
+    appRef.current.client.chat.update.mockClear();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
+      replaceOnly: true,
+      generation: 7,
+    });
+    await channel.sendProgressUpdate('sl:C1234567890', 'Stale waiting...', {
+      replaceOnly: true,
+      generation: 6,
+    });
+
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Continuing...', {
+      replaceOnly: true,
+      generation: 8,
+    });
+
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: 'Continuing...',
+      blocks: [],
+    });
+  });
+
+  it('restores Slack progress handles after restart for newer replace-only generations', async () => {
     const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
     const savedHome = process.env.GANTRY_HOME;
     process.env.GANTRY_HOME = runtimeHome;
@@ -1204,7 +1253,9 @@ describe('Slack channel', () => {
         createOpts() as any,
       );
       await first.connect();
-      await first.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
+        generation: 4,
+      });
 
       const second = new SlackChannel(
         'xoxb-token',
@@ -1213,18 +1264,92 @@ describe('Slack channel', () => {
       );
       await second.connect();
       appRef.current.client.chat.postMessage.mockClear();
-      await second.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
-        done: true,
+      appRef.current.client.chat.update.mockClear();
+      await second.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
         replaceOnly: true,
+        generation: 7,
+      });
+      await second.sendProgressUpdate('sl:C1234567890', 'Stale waiting...', {
+        replaceOnly: true,
+        generation: 6,
       });
 
       expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Continuing...', {
+        replaceOnly: true,
+        generation: 8,
+      });
+
       expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
         channel: 'C1234567890',
         ts: '1710000000.100200',
-        text: 'Done in 1s.',
+        text: 'Continuing...',
         blocks: [],
       });
+    } finally {
+      if (savedHome === undefined) delete process.env.GANTRY_HOME;
+      else process.env.GANTRY_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('drops persisted Slack progress handles for a different channel', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/gantry-slack-progress-');
+    const savedHome = process.env.GANTRY_HOME;
+    process.env.GANTRY_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Waiting...', {
+        threadId: '1710000000.000111',
+        generation: 4,
+      });
+
+      const runDir = `${runtimeHome}/run`;
+      const stateFile = fs
+        .readdirSync(runDir)
+        .find((name) => name.startsWith('slack-progress-state-'));
+      expect(stateFile).toBeTruthy();
+      const statePath = `${runDir}/${stateFile}`;
+      const entries = JSON.parse(fs.readFileSync(statePath, 'utf8')) as any[];
+      entries[0][1].channelId = 'C9999999999';
+      fs.writeFileSync(statePath, JSON.stringify(entries));
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      appRef.current.client.chat.update.mockClear();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Continuing...', {
+        threadId: '1710000000.000111',
+        replaceOnly: true,
+        generation: 5,
+      });
+
+      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+
+      await second.sendProgressUpdate('sl:C1234567890', 'Working again...', {
+        threadId: '1710000000.000111',
+        generation: 6,
+      });
+
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        text: 'Working again...',
+        thread_ts: '1710000000.000111',
+      });
+      expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
     } finally {
       if (savedHome === undefined) delete process.env.GANTRY_HOME;
       else process.env.GANTRY_HOME = savedHome;

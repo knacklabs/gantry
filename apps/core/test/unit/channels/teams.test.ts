@@ -14,6 +14,7 @@ import {
   normalizeTeamsJid,
   teamsConversationIdFromJid,
 } from '@core/channels/teams.js';
+import { formatTeamsAttachmentUnavailableCopy } from '@core/channels/teams-cards.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 
@@ -53,6 +54,24 @@ function makeOpts(): ChannelOpts {
 }
 
 describe('Teams built-in provider', () => {
+  it('uses the locked no-link copy for unavailable attachments', () => {
+    expect(
+      formatTeamsAttachmentUnavailableCopy(
+        'Ship the note.\n\nAttachments:\n- Attachment unavailable.',
+      ),
+    ).toBe(
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable in Teams until signed artifact links are added.',
+    );
+    expect(
+      formatTeamsAttachmentUnavailableCopy(
+        'Ship the note.\n\nAttachments:\n- daily.md (text/markdown, 1024 bytes)',
+        true,
+      ),
+    ).toBe(
+      'Ship the note.\n\nAttachments:\n- Attachment unavailable in Teams until signed artifact links are added.',
+    );
+  });
+
   it('registers Teams provider metadata and ownership prefix', () => {
     const provider = getProvider('teams');
 
@@ -164,6 +183,10 @@ describe('TeamsChannel adapter scaffold', () => {
 
     await channel.renderAgentTodo('teams:19:abc@thread.v2', {
       threadId: 'reply-a',
+      headline: 'Searching the web',
+      status: 'running',
+      elapsed: '2m 14s',
+      stop: { label: 'Stop', actionToken: 'stop-token-1' },
       items: [{ id: '1', title: 'First', status: 'pending' }],
     });
     await channel.renderAgentTodo('teams:19:abc@thread.v2', {
@@ -178,6 +201,15 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.sendAdaptiveCard).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ threadId: 'reply-a' }),
+    );
+    const firstCard = vi.mocked(sdkClient.sendAdaptiveCard).mock.calls[0]?.[0]
+      ?.card as any;
+    expect(JSON.stringify(firstCard)).toContain(
+      '⏳ Searching the web · 2m 14s',
+    );
+    expect(JSON.stringify(firstCard.actions)).toContain('stop-token-1');
+    expect(JSON.stringify(firstCard.actions)).toContain(
+      'teams:19:abc@thread.v2',
     );
     expect(sdkClient.sendAdaptiveCard).toHaveBeenNthCalledWith(
       2,

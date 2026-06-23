@@ -735,7 +735,7 @@ describe('createGroupProcessor', () => {
       expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
       expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
-        expect.stringMatching(/^Done in /),
+        expect.stringMatching(/^✅ Done · /),
         expect.objectContaining({ done: true }),
       );
 
@@ -744,7 +744,8 @@ describe('createGroupProcessor', () => {
       const doneCalls = (
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.filter(
-        (call) => typeof call[1] === 'string' && call[1].startsWith('Done in '),
+        (call) =>
+          typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
       );
       expect(doneCalls).toHaveLength(1);
     });
@@ -1049,7 +1050,7 @@ describe('createGroupProcessor', () => {
           (call) =>
             call[0] === 'group1@g.us' &&
             typeof call[1] === 'string' &&
-            call[1].startsWith('Delivery incomplete after ') &&
+            call[1].startsWith('❌ Delivery incomplete · ') &&
             call[2]?.done === true,
         ),
       ).toBe(true);
@@ -1867,11 +1868,6 @@ describe('createGroupProcessor', () => {
       expect(
         (channel.setTyping as ReturnType<typeof vi.fn>).mock.calls.length,
       ).toBeGreaterThan(3);
-      expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
-        'group1@g.us',
-        'Working on it...',
-        expect.objectContaining({ generation: expect.any(Number) }),
-      );
       expect(
         (
           channel.sendProgressUpdate as ReturnType<typeof vi.fn>
@@ -1879,7 +1875,7 @@ describe('createGroupProcessor', () => {
           (call) =>
             call[0] === 'group1@g.us' &&
             typeof call[1] === 'string' &&
-            call[1].startsWith('Still working ('),
+            call[1].startsWith('⏳ Working · 2m '),
         ),
       ).toBe(true);
       expect(
@@ -1889,13 +1885,12 @@ describe('createGroupProcessor', () => {
           (call) =>
             call[0] === 'group1@g.us' &&
             typeof call[1] === 'string' &&
-            call[1].startsWith('Done in ') &&
-            call[2]?.done === true,
+            call[1].startsWith('✅ Done · '),
         ),
       ).toBe(true);
     });
 
-    it('does not post elapsed progress after visible output is already shown', async () => {
+    it('keeps elapsed progress updating after visible output is already shown', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -1930,9 +1925,9 @@ describe('createGroupProcessor', () => {
         ).mock.calls.some(
           (call) =>
             typeof call[1] === 'string' &&
-            call[1].startsWith('Still working ('),
+            call[1].startsWith('⏳ Working · 2m '),
         ),
-      ).toBe(false);
+      ).toBe(true);
     });
 
     it('resets elapsed progress when a continuation message starts a new visible turn', async () => {
@@ -1966,12 +1961,22 @@ describe('createGroupProcessor', () => {
       continuationHandler?.();
       await vi.advanceTimersByTimeAsync(65_000);
 
-      const progressTexts = (
+      const progressCalls = (
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
-      ).mock.calls.map((call) => String(call[1]));
-      expect(progressTexts).toContain('Working on it...');
+      ).mock.calls;
+      const progressTexts = progressCalls.map((call) => String(call[1]));
       expect(
-        progressTexts.some((text) => text.startsWith('Still working (1m ')),
+        progressCalls.some(
+          (call) =>
+            call[1] === '⏳ Working' &&
+            call[2]?.actionAffordances?.some(
+              (action: { kind?: string; label?: string }) =>
+                action.kind === 'live_turn_stop' && action.label === 'Stop',
+            ),
+        ),
+      ).toBe(true);
+      expect(
+        progressTexts.some((text) => text.startsWith('⏳ Working · 1m ')),
       ).toBe(true);
       expect(progressTexts.some((text) => text.includes('20m'))).toBe(false);
 
@@ -2011,10 +2016,10 @@ describe('createGroupProcessor', () => {
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls
         .map((call) => String(call[1]))
-        .filter((text) => text.startsWith('Done in '));
+        .filter((text) => text.startsWith('✅ Done · '));
 
       expect(doneProgressTexts.length).toBeGreaterThanOrEqual(2);
-      expect(doneProgressTexts.at(-1)).toBe('Done in 0s.');
+      expect(doneProgressTexts.at(-1)).toBe('✅ Done · 0s');
       expect(doneProgressTexts.some((text) => text.includes('10m'))).toBe(
         false,
       );
@@ -2049,8 +2054,7 @@ describe('createGroupProcessor', () => {
           channel.sendProgressUpdate as ReturnType<typeof vi.fn>
         ).mock.calls.some(
           (call) =>
-            typeof call[1] === 'string' &&
-            call[1].startsWith('Still working ('),
+            typeof call[1] === 'string' && call[1].startsWith('⏳ Working · '),
         ),
       ).toBe(false);
     });
@@ -2084,7 +2088,7 @@ describe('createGroupProcessor', () => {
           .some(
             (call) =>
               typeof call[1] === 'string' &&
-              call[1].startsWith('Still working ('),
+              call[1].startsWith('⏳ Working · '),
           ),
       ).toBe(false);
 
@@ -2114,9 +2118,9 @@ describe('createGroupProcessor', () => {
       await vi.advanceTimersByTimeAsync(1_000);
 
       expect(visibleProgress).not.toContain('Working on it...');
-      expect(visibleProgress.some((item) => item.startsWith('Done in '))).toBe(
-        true,
-      );
+      expect(
+        visibleProgress.some((item) => item.startsWith('✅ Done · ')),
+      ).toBe(true);
     });
 
     it('posts no-output warning for long silent runs without auto-failing', async () => {
@@ -2151,7 +2155,7 @@ describe('createGroupProcessor', () => {
           (call) =>
             call[0] === 'group1@g.us' &&
             typeof call[1] === 'string' &&
-            call[1].startsWith('No new output yet, still running'),
+            call[1].startsWith('⏳ Working · 3m '),
         ),
       ).toBe(true);
     });
@@ -2499,7 +2503,8 @@ describe('createGroupProcessor', () => {
       const progressCalls = (
         streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.filter(
-        (call) => typeof call[1] === 'string' && call[1].startsWith('Done in '),
+        (call) =>
+          typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
       );
       expect(progressCalls).toHaveLength(2);
       expect(progressCalls[0]?.[2]).toEqual(
@@ -2561,7 +2566,8 @@ describe('createGroupProcessor', () => {
       const doneProgressCalls = (
         streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.filter(
-        (call) => typeof call[1] === 'string' && call[1].startsWith('Done in '),
+        (call) =>
+          typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
       );
       expect(doneProgressCalls).toHaveLength(1);
       expect(doneProgressCalls[0]?.[2]).toEqual(
@@ -2600,7 +2606,7 @@ describe('createGroupProcessor', () => {
       expect(streamGeneration).toEqual(expect.any(Number));
       expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
-        'Done in 0s.',
+        '✅ Done · 0s',
         expect.objectContaining({
           done: true,
           generation: streamGeneration,
@@ -2609,7 +2615,7 @@ describe('createGroupProcessor', () => {
       expect(
         (
           streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
-        ).mock.calls.find((call) => call[1] === 'Done in 0s.')?.[2]
+        ).mock.calls.find((call) => call[1] === '✅ Done · 0s')?.[2]
           ?.replaceOnly,
       ).toBeUndefined();
     });
@@ -2645,14 +2651,14 @@ describe('createGroupProcessor', () => {
       );
       expect(progressCalls).toContainEqual([
         'group1@g.us',
-        'Done in 0s.',
+        '✅ Done · 0s',
         expect.objectContaining({
           done: true,
           generation: expect.any(Number),
         }),
       ]);
       expect(
-        progressCalls.find((call) => call[1] === 'Done in 0s.')?.[2]
+        progressCalls.find((call) => call[1] === '✅ Done · 0s')?.[2]
           ?.replaceOnly,
       ).toBeUndefined();
     });
@@ -2678,8 +2684,8 @@ describe('createGroupProcessor', () => {
       const progressTexts = (
         streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.map((call) => call[1]);
-      expect(progressTexts).toContain('Stopped after 0s.');
-      expect(progressTexts).not.toContain('Failed after 0s.');
+      expect(progressTexts).toContain('🛑 Stopped · 0s');
+      expect(progressTexts).not.toContain('❌ Failed · 0s');
     });
 
     it('does not treat compact boundary markers as turn completion', async () => {
@@ -2838,7 +2844,7 @@ describe('createGroupProcessor', () => {
       expect(progressTexts).toContain('Waiting for your response (0s).');
       expect(
         progressTexts.some(
-          (text) => typeof text === 'string' && text.startsWith('Done in '),
+          (text) => typeof text === 'string' && text.startsWith('✅ Done · '),
         ),
       ).toBe(false);
     });
@@ -2878,7 +2884,7 @@ describe('createGroupProcessor', () => {
       ).mock.calls.map((call) => call[1]);
       expect(
         progressTexts.some(
-          (text) => typeof text === 'string' && text.startsWith('Done in '),
+          (text) => typeof text === 'string' && text.startsWith('✅ Done · '),
         ),
       ).toBe(true);
       expect(progressTexts).not.toContain('Waiting for your response (0s).');
@@ -2916,7 +2922,7 @@ describe('createGroupProcessor', () => {
       ).mock.calls.map((call) => call[1]);
       expect(
         progressTexts.some(
-          (text) => typeof text === 'string' && text.startsWith('Done in '),
+          (text) => typeof text === 'string' && text.startsWith('✅ Done · '),
         ),
       ).toBe(true);
       expect(progressTexts).not.toContain('Waiting for your response (0s).');
@@ -2961,7 +2967,7 @@ describe('createGroupProcessor', () => {
       );
       expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
-        'Done in 0s.',
+        '✅ Done · 0s',
         expect.objectContaining({ done: true }),
       );
       vi.useRealTimers();
@@ -3493,7 +3499,7 @@ describe('createGroupProcessor', () => {
       expect(streamingChannel.sendMessage).not.toHaveBeenCalled();
       expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
-        expect.stringMatching(/^Delivery incomplete after /),
+        expect.stringMatching(/^❌ Delivery incomplete · /),
         expect.objectContaining({ done: true }),
       );
     });
