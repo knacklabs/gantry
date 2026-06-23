@@ -84,6 +84,36 @@ describe('persistReplyTrace', () => {
     expect(saved[0].createdAt).toBe('2026-06-14T00:00:00.000Z');
   });
 
+  it('persists exact SDK-reported reply LLM cost in timingsJson when present', async () => {
+    const saved: MessageTraceRow[] = [];
+    const port = makePort(saved);
+
+    await persistReplyTrace({
+      replyTrace: port,
+      kind: 'reply',
+      chatJid: 'wa:42',
+      appId: 'app:test',
+      outboundMessageId: 'outbound:cost',
+      llmTurns: [
+        {
+          ms: 300,
+          startedAt: 18,
+          detail: {
+            model: 'sonnet',
+            stopReason: 'end_turn',
+            tokens: { in: 10, out: 2, cacheRead: 8, cacheWrite: 0 },
+          },
+        },
+      ],
+      llmUsage: { costUsd: 0.0042 },
+    });
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].timingsJson).toMatchObject({
+      llmUsage: { costUsd: 0.0042 },
+    });
+  });
+
   it('populates payloadsJson only when payloads are enabled', async () => {
     const saved: MessageTraceRow[] = [];
     const port = makePort(saved, {

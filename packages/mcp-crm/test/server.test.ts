@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoondiCrmEnv } from '../src/env.js';
 import type { Logger } from '../src/logger.js';
 import { startHttpServer } from '../src/server.js';
+import { createPool } from '../src/db/pool.js';
 import { makeFakePool } from './helpers/fakes.js';
 import { runManualConversationExtraction } from '../src/watcher/index.js';
 import { createAnthropicExtractorLlm } from '../src/extractor/llm-client.js';
@@ -472,6 +473,33 @@ describe('Boondi CRM admin auth routes', () => {
     });
   });
 
+  it('returns internal_error instead of crashing when login storage fails', async () => {
+    const { pool } = makeFakePool(() => {
+      throw new Error('db socket closed');
+    });
+    const server = await startTestServer();
+    await server.running.close();
+    const running = await startHttpServer({
+      env: server.env,
+      logger: makeLogger(),
+      pool,
+    });
+    closeCurrent = running.close;
+
+    const response = await fetch(`${server.url}/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@boondi.local',
+        password: 'correct horse battery',
+      }),
+      signal: AbortSignal.timeout(500),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'internal_error' });
+  });
+
   it('rejects user management when caller is not super_admin', async () => {
     const { pool } = makeFakePool((sql, params) => {
       if (sql.includes('FROM boondi_admin_users')) {
@@ -590,5 +618,173 @@ describe('Boondi CRM admin auth routes', () => {
     });
     expect(String(insertParams?.[2])).toMatch(/^scrypt\$/);
     expect(JSON.stringify(body)).not.toContain('passwordHash');
+  });
+
+  it('returns 400 instead of crashing when creating a user with a password shorter than four characters', async () => {
+    const { pool } = makeFakePool((sql, params) => {
+      if (sql.includes('FROM boondi_admin_users')) {
+        return {
+          rows: [
+            {
+              id: 'admin_user_owner',
+              email: params?.[0],
+              role: 'super_admin',
+              status: 'active',
+              created_at: '2026-06-23T00:00:00.000Z',
+              updated_at: '2026-06-23T00:00:00.000Z',
+              last_login_at: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const server = await startTestServer({
+      identity: { mode: 'required', secret: 'test-secret', maxAgeSec: 120 },
+      requireVerifiedIdentity: true,
+    } as Partial<BoondiCrmEnv>);
+    await server.running.close();
+    const running = await startHttpServer({
+      env: server.env,
+      logger: makeLogger(),
+      pool,
+    });
+    closeCurrent = running.close;
+
+    const response = await fetch(`${server.url}/admin/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Caller-Identity': signedEmailHeader('owner@boondi.local'),
+      },
+      body: JSON.stringify({
+        email: 'new.admin@boondi.local',
+        password: '123',
+        role: 'viewer',
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'invalid_request',
+      detail: 'Password must be at least 4 characters.',
+    });
+  });
+
+  it('returns 400 instead of crashing when resetting a password shorter than four characters', async () => {
+    const { pool } = makeFakePool((sql, params) => {
+      if (sql.includes('FROM boondi_admin_users')) {
+        return {
+          rows: [
+            {
+              id: 'admin_user_owner',
+              email: params?.[0],
+              role: 'super_admin',
+              status: 'active',
+              created_at: '2026-06-23T00:00:00.000Z',
+              updated_at: '2026-06-23T00:00:00.000Z',
+              last_login_at: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+    const server = await startTestServer({
+      identity: { mode: 'required', secret: 'test-secret', maxAgeSec: 120 },
+      requireVerifiedIdentity: true,
+    } as Partial<BoondiCrmEnv>);
+    await server.running.close();
+    const running = await startHttpServer({
+      env: server.env,
+      logger: makeLogger(),
+      pool,
+    });
+    closeCurrent = running.close;
+
+    const response = await fetch(
+      `${server.url}/admin/users/admin_user_new/password`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Caller-Identity': signedEmailHeader('owner@boondi.local'),
+        },
+        body: JSON.stringify({ password: '123' }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'invalid_request',
+      detail: 'Password must be at least 4 characters.',
+    });
+  });
+});
+
+describe('Boondi CRM server lifecycle', () => {
+  it('rejects cleanly when the configured port is already in use', async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject);
+      blocker.listen(0, '127.0.0.1', resolve);
+    });
+    const address = blocker.address();
+    if (!address || typeof address === 'string') {
+      blocker.close();
+      throw new Error('No TCP port assigned');
+    }
+    const env: BoondiCrmEnv = {
+      port: address.port,
+      databaseUrl: 'postgres://test:test@127.0.0.1:5432/test',
+      dbSchema: 'boondi_crm',
+      gantrySchema: 'gantry',
+      identity: { mode: 'disabled' },
+      requireVerifiedIdentity: false,
+      identityMaxAgeSec: 120,
+      logLevel: 'fatal',
+      logFormat: 'json',
+      crmLeadQueryExtractionWatcher: {
+        enabled: true,
+        pollIntervalMs: 1,
+        model: 'test-model',
+      },
+      reconcileAgentId: 'agent:boondi_support',
+      modelAppId: 'default',
+      anthropicApiKey: 'test-key',
+    };
+    const { pool } = makeFakePool(() => ({ rows: [] }));
+
+    try {
+      await expect(
+        startHttpServer({ env, logger: makeLogger(), pool }),
+      ).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        blocker.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
+  });
+});
+
+describe('Boondi CRM Postgres pool', () => {
+  it('handles idle client errors without throwing', async () => {
+    const logger = makeLogger();
+    const pool = createPool(
+      'postgres://test:test@127.0.0.1:5432/test',
+      'boondi_crm',
+      2,
+      logger,
+    );
+
+    expect(() => {
+      pool.emit('error', new Error('Connection terminated unexpectedly'));
+    }).not.toThrow();
+    expect(logger.warn).toHaveBeenCalledWith(
+      { err: 'Connection terminated unexpectedly' },
+      'boondi_crm_postgres_pool_error',
+    );
+
+    await pool.end();
   });
 });

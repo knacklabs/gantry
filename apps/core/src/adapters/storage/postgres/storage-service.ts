@@ -10,6 +10,7 @@ import { Pool, type PoolConfig } from 'pg';
 import { isLocalPostgresHost, parsePostgresConnectionUrl } from './url.js';
 import * as pgSchema from './schema/schema.js';
 import { seedDefaultRuntimeData } from './seeds.js';
+import { logger } from '../../../infrastructure/logging/logger.js';
 
 const storageDir = path.dirname(fileURLToPath(import.meta.url));
 export const postgresMigrationsFolder = path.join(
@@ -94,6 +95,9 @@ export class PostgresStorageService implements StorageService {
     private readonly schemaName: string,
   ) {
     this.pool = new Pool(resolvePostgresPoolConfig(url, schemaName));
+    this.pool.on('error', (err) => {
+      logger.warn({ err }, 'Postgres pool idle client error');
+    });
     this.db = drizzlePg(this.pool, { schema: pgSchema });
   }
 

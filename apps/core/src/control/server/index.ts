@@ -63,6 +63,7 @@ import { isPrivateAddress } from './webhook-target.js';
 import { nowIso } from '../../shared/time/datetime.js';
 
 export interface ControlServerHandle {
+  ready: Promise<void>;
   close: () => Promise<void>;
 }
 
@@ -255,10 +256,58 @@ export function startControlServer(input: {
     socket.destroy();
   });
 
-  if (port > 0) {
-    server.listen(port, host);
-    logger.info({ host, port }, 'Control server listening on TCP');
-  } else {
+  let deliveryInterval: ReturnType<typeof setInterval> | undefined;
+  let ingressMaintenanceInFlight = false;
+  let ingressMaintenanceInterval: ReturnType<typeof setInterval> | undefined;
+
+  const ready = new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      reject(error);
+    };
+    const markReady = () => {
+      server.off('error', onError);
+      server.on('error', (error) => {
+        logger.error({ err: error }, 'Control server socket error');
+      });
+      if (port > 0) {
+        logger.info({ host, port }, 'Control server listening on TCP');
+      } else {
+        logger.info({ socketPath }, 'Control server listening on unix socket');
+      }
+      deliveryInterval = setInterval(() => {
+        if (webhookFlushInFlight) return;
+        webhookFlushInFlight = true;
+        void flushWebhookDeliveries()
+          .catch(logWebhookFlushFailure)
+          .finally(() => {
+            webhookFlushInFlight = false;
+          });
+      }, 1000);
+      ingressMaintenanceInterval = setInterval(() => {
+        if (ingressMaintenanceInFlight) return;
+        ingressMaintenanceInFlight = true;
+        void getRuntimeControlRepository()
+          .sweepExpiredExternalIngressState({
+            now: nowIso(),
+          })
+          .catch((error) => {
+            logger.warn(
+              { err: error },
+              'Failed sweeping expired external ingress state',
+            );
+          })
+          .finally(() => {
+            ingressMaintenanceInFlight = false;
+          });
+      }, 60_000);
+      resolve();
+    };
+
+    server.once('error', onError);
+    if (port > 0) {
+      server.listen(port, host, markReady);
+      return;
+    }
     fs.mkdirSync(path.dirname(socketPath), { recursive: true });
     if (fs.existsSync(socketPath)) {
       try {
@@ -270,51 +319,33 @@ export function startControlServer(input: {
         );
       }
     }
-    server.listen(socketPath, () => applyControlSocketMode(socketPath, server));
-    logger.info({ socketPath }, 'Control server listening on unix socket');
-  }
-
-  const deliveryInterval = setInterval(() => {
-    if (webhookFlushInFlight) return;
-    webhookFlushInFlight = true;
-    void flushWebhookDeliveries()
-      .catch(logWebhookFlushFailure)
-      .finally(() => {
-        webhookFlushInFlight = false;
-      });
-  }, 1000);
-  let ingressMaintenanceInFlight = false;
-  const ingressMaintenanceInterval = setInterval(() => {
-    if (ingressMaintenanceInFlight) return;
-    ingressMaintenanceInFlight = true;
-    void getRuntimeControlRepository()
-      .sweepExpiredExternalIngressState({
-        now: nowIso(),
-      })
-      .catch((error) => {
-        logger.warn(
-          { err: error },
-          'Failed sweeping expired external ingress state',
-        );
-      })
-      .finally(() => {
-        ingressMaintenanceInFlight = false;
-      });
-  }, 60_000);
+    server.listen(socketPath, () => {
+      if (!applyControlSocketMode(socketPath, server)) {
+        server.off('error', onError);
+        reject(new Error(`Failed to secure control socket: ${socketPath}`));
+        return;
+      }
+      markReady();
+    });
+  });
 
   return {
+    ready,
     async close() {
-      clearInterval(deliveryInterval);
-      clearInterval(ingressMaintenanceInterval);
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
+      if (deliveryInterval) clearInterval(deliveryInterval);
+      if (ingressMaintenanceInterval) clearInterval(ingressMaintenanceInterval);
+      await ready.catch(() => undefined);
+      if (server.listening) {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
         });
-      });
+      }
       if (port === 0) {
         if (fs.existsSync(socketPath)) {
           try {

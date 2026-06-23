@@ -28,10 +28,16 @@ describe('admin auth helpers', () => {
     );
   });
 
-  it('accepts five character bootstrap passwords', async () => {
-    const hash = await hashAdminPassword('12345');
+  it('accepts four character bootstrap passwords', async () => {
+    const hash = await hashAdminPassword('1234');
 
-    await expect(verifyAdminPassword('12345', hash)).resolves.toBe(true);
+    await expect(verifyAdminPassword('1234', hash)).resolves.toBe(true);
+  });
+
+  it('rejects passwords shorter than four characters', async () => {
+    await expect(hashAdminPassword('123')).rejects.toThrow(
+      'Password must be at least 4 characters.',
+    );
   });
 
   it('accepts only known roles and statuses', () => {

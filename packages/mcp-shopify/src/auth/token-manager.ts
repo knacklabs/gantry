@@ -134,7 +134,15 @@ export class TokenManager {
       );
     }
 
-    const payload = (await response.json()) as TokenResponse;
+    let payload: TokenResponse;
+    try {
+      payload = (await response.json()) as TokenResponse;
+    } catch (err) {
+      throw new ShopifyAdapterError(
+        'INVALID_REQUEST',
+        `Token endpoint returned invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     if (!payload?.access_token) {
       throw new ShopifyAdapterError(
         'INVALID_REQUEST',

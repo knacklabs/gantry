@@ -138,6 +138,7 @@ describe('McpToolProxy', () => {
   afterEach(() => {
     sdkMocks.clients.length = 0;
     sdkMocks.pendingCalls.length = 0;
+    vi.restoreAllMocks();
   });
 
   it('keeps a shared MCP client open while another concurrent call is still running', async () => {
@@ -182,6 +183,30 @@ describe('McpToolProxy', () => {
     expect(slowCall).toBeDefined();
     slowCall!.resolve({ content: [] });
     await expect(slow).resolves.toEqual({ content: [] });
+    await vi.waitFor(() =>
+      expect(sdkMocks.clients[0]!.close).toHaveBeenCalled(),
+    );
+  });
+
+  it('does not reject the tool call when idle MCP client close fails', async () => {
+    const repository = mcpRepositoryForProxyTest();
+    const proxy = new McpToolProxy(repository, {
+      tools: {} as never,
+      credentialEnv: {},
+    });
+
+    const call = proxy.callTool({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      serverName: 'shopify-api',
+      toolName: 'get_products',
+      arguments: {},
+    });
+    await vi.waitFor(() => expect(sdkMocks.pendingCalls).toHaveLength(1));
+    sdkMocks.clients[0]!.close.mockRejectedValueOnce(new Error('close failed'));
+    sdkMocks.pendingCalls[0]!.resolve({ content: [] });
+
+    await expect(call).resolves.toEqual({ content: [] });
     await vi.waitFor(() =>
       expect(sdkMocks.clients[0]!.close).toHaveBeenCalled(),
     );

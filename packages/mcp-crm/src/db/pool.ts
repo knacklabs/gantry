@@ -1,5 +1,6 @@
 import pg from 'pg';
 import type { Pool } from 'pg';
+import type { Logger } from '../logger.js';
 
 const { Pool: PgPool } = pg;
 
@@ -12,10 +13,18 @@ export function createPool(
   databaseUrl: string,
   schema: string,
   maxConnections: number,
+  logger?: Pick<Logger, 'warn'>,
 ): Pool {
-  return new PgPool({
+  const pool = new PgPool({
     connectionString: databaseUrl,
     max: maxConnections,
     options: `-c search_path=${schema} -c application_name=boondi-crm`,
   });
+  pool.on('error', (err) => {
+    logger?.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'boondi_crm_postgres_pool_error',
+    );
+  });
+  return pool;
 }

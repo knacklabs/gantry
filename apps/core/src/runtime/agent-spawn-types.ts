@@ -100,6 +100,8 @@ export interface AgentOutputToolCall {
 export interface AgentOutput {
   status: 'success' | 'error';
   result: string | null;
+  /** Text emitted by a just-finished LLM turn before trace metadata follows. */
+  llmTurnOutput?: { stopReason?: string };
   newSessionId?: string;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';

@@ -141,6 +141,27 @@ describe('TokenManager', () => {
     mgr.stop();
   });
 
+  it('rejects with INVALID_REQUEST when token endpoint returns invalid JSON', async () => {
+    const { fn } = makeFetch([
+      new Response('{bad json', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ]);
+    const mgr = new TokenManager({
+      shopDomain: 'shop.myshopify.com',
+      clientId: 'cid',
+      clientSecret: 'sec',
+      fetchImpl: fn,
+      now: () => 1_000_000,
+    });
+
+    await expect(mgr.getToken()).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
+    mgr.stop();
+  });
+
   it('coalesces concurrent in-flight refreshes', async () => {
     let resolveOnce: ((value: Response) => void) | null = null;
     const fn = vi.fn(

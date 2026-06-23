@@ -616,6 +616,207 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('does not send non-final LLM progress output when the Boondi progress flag is off', async () => {
+      const previous = process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+      delete process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+      try {
+        const agentOutput: AgentOutput = {
+          status: 'success',
+          result: 'Final answer.',
+          turns: [
+            {
+              ms: 300,
+              startedAt: 100,
+              detail: { stopReason: 'tool_use' },
+              output: 'Let me check your recent orders.',
+            },
+            {
+              ms: 200,
+              startedAt: 500,
+              detail: { stopReason: 'end_turn' },
+              output: 'Final answer.',
+            },
+          ],
+        };
+        const { deps, channel } = setupHappyPath({ agentOutput });
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('group1@g.us');
+
+        expect(channel.sendMessage).toHaveBeenCalledTimes(1);
+        expect(channel.sendMessage).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Final answer.',
+        );
+      } finally {
+        if (previous === undefined) {
+          delete process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+        } else {
+          process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = previous;
+        }
+      }
+    });
+
+    it('sends guarded non-final LLM output as a progress message when enabled', async () => {
+      const previous = process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+      process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = '1';
+      try {
+        const agentOutput: AgentOutput = {
+          status: 'success',
+          result: 'Your latest order is #123.',
+          turns: [
+            {
+              ms: 300,
+              startedAt: 100,
+              detail: { stopReason: 'tool_use' },
+              output: 'Let me check your recent orders.',
+            },
+            {
+              ms: 200,
+              startedAt: 500,
+              detail: { stopReason: 'end_turn' },
+              output: 'Your latest order is #123.',
+            },
+          ],
+        };
+        const { deps, channel } = setupHappyPath({ agentOutput });
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('group1@g.us');
+
+        expect(channel.sendMessage).toHaveBeenNthCalledWith(
+          1,
+          'group1@g.us',
+          'Let me check your recent orders.',
+        );
+        expect(channel.sendMessage).toHaveBeenNthCalledWith(
+          2,
+          'group1@g.us',
+          'Your latest order is #123.',
+        );
+        expect(channel.sendMessage).toHaveBeenCalledTimes(2);
+      } finally {
+        if (previous === undefined) {
+          delete process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+        } else {
+          process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = previous;
+        }
+      }
+    });
+
+    it('sends text-only non-final LLM progress before the final reply returns', async () => {
+      const previous = process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+      process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = '1';
+      try {
+        const allowFinal = deferred<AgentOutput>();
+        const progressHandled = deferred();
+        const finalOutput: AgentOutput = {
+          status: 'success',
+          result: 'Final answer.',
+          turns: [
+            {
+              ms: 300,
+              startedAt: 100,
+              detail: { stopReason: 'tool_use' },
+              output: 'Let me check your recent orders.',
+            },
+            {
+              ms: 200,
+              startedAt: 500,
+              detail: { stopReason: 'end_turn' },
+              output: 'Final answer.',
+            },
+          ],
+        };
+        const { deps, channel } = setupHappyPath({ agentOutput: finalOutput });
+        mockSpawnAgent.mockImplementation(
+          async (
+            _group: ConversationRoute,
+            _input: unknown,
+            _onProc: unknown,
+            onOutput?: (output: AgentOutput) => Promise<void>,
+          ) => {
+            await onOutput?.({
+              status: 'success',
+              result: 'Let me check your recent orders.',
+              llmTurnOutput: { stopReason: 'tool_use' },
+            });
+            progressHandled.resolve();
+            const output = await allowFinal.promise;
+            await onOutput?.(output);
+            return output;
+          },
+        );
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        const processing = processGroupMessages('group1@g.us');
+        await progressHandled.promise;
+
+        expect(channel.sendMessage).toHaveBeenCalledOnce();
+        expect(channel.sendMessage).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Let me check your recent orders.',
+        );
+
+        allowFinal.resolve(finalOutput);
+        await processing;
+
+        expect(channel.sendMessage).toHaveBeenNthCalledWith(
+          2,
+          'group1@g.us',
+          'Final answer.',
+        );
+        expect(channel.sendMessage).toHaveBeenCalledTimes(2);
+      } finally {
+        if (previous === undefined) {
+          delete process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+        } else {
+          process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = previous;
+        }
+      }
+    });
+
+    it('skips non-final LLM progress output longer than 160 characters', async () => {
+      const previous = process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+      process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = '1';
+      try {
+        const agentOutput: AgentOutput = {
+          status: 'success',
+          result: 'Final answer.',
+          turns: [
+            {
+              ms: 300,
+              startedAt: 100,
+              detail: { stopReason: 'tool_use' },
+              output: 'x'.repeat(161),
+            },
+            {
+              ms: 200,
+              startedAt: 500,
+              detail: { stopReason: 'end_turn' },
+              output: 'Final answer.',
+            },
+          ],
+        };
+        const { deps, channel } = setupHappyPath({ agentOutput });
+
+        const { processGroupMessages } = createGroupProcessor(deps);
+        await processGroupMessages('group1@g.us');
+
+        expect(channel.sendMessage).toHaveBeenCalledTimes(1);
+        expect(channel.sendMessage).toHaveBeenCalledWith(
+          'group1@g.us',
+          'Final answer.',
+        );
+      } finally {
+        if (previous === undefined) {
+          delete process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES;
+        } else {
+          process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES = previous;
+        }
+      }
+    });
+
     it('calls setTyping true before and false after agent run', async () => {
       const { deps, channel } = setupHappyPath();
 
@@ -1140,6 +1341,70 @@ describe('createGroupProcessor', () => {
   });
 
   describe('reply trace warm-bound first replies', () => {
+    it('passes exact SDK-reported reply cost into the saved trace', async () => {
+      const base = Date.now();
+      const saveTrace = vi
+        .fn<(row: MessageTraceRow) => Promise<void>>()
+        .mockResolvedValue(undefined);
+      const agentOutput = {
+        status: 'success',
+        result: 'costed reply',
+        usage: {
+          model: 'sonnet',
+          provider: 'anthropic',
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 8,
+          cacheWriteTokens: 0,
+          totalBillableInputTokens: 2,
+          estimatedCostUsd: 0.0042,
+          cacheProvider: 'anthropic',
+          cacheStatus: 'hit',
+          at: new Date(base).toISOString(),
+        },
+        turns: [
+          {
+            ms: 300,
+            startedAt: base + 100,
+            detail: {
+              model: 'sonnet',
+              stopReason: 'end_turn',
+              tokens: { in: 10, out: 2, cacheRead: 8, cacheWrite: 0 },
+            },
+          },
+        ],
+      } satisfies AgentOutput;
+      const { deps } = setupHappyPath({
+        group: makeGroup({ requiresTrigger: false }),
+        agentOutput,
+      });
+      deps.replyTrace = {
+        drain: vi.fn(() => []),
+        saveTrace,
+        payloadsEnabled: vi.fn(() => false),
+      };
+      const opsRepository = deps.opsRepository as NonNullable<
+        GroupProcessingDeps['opsRepository']
+      >;
+      opsRepository.getLastBotMessageCursor = vi.fn().mockResolvedValue({
+        id: 'bot-out-cost',
+        timestamp: '1700000002',
+        sendStartedAt: new Date(base + 390).toISOString(),
+        sendCompletedAt: new Date(base + 400).toISOString(),
+      });
+      opsRepository.getLastInboundIngressAtOrBefore = vi
+        .fn()
+        .mockResolvedValue(new Date(base).toISOString());
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+      expect(saveTrace).toHaveBeenCalledOnce();
+      expect(saveTrace.mock.calls[0]?.[0].timingsJson).toMatchObject({
+        llmUsage: { costUsd: 0.0042 },
+      });
+    });
+
     it('excludes cache prewarm from customer reply latency totals', async () => {
       const base = Date.now();
       const cachePrewarmTrace: OperationalTimelineSectionInput = {

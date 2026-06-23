@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { createServer } from 'node:net';
 import { startHttpServer, type RunningHttpServer } from '../../src/server.js';
 import { createLogger } from '../../src/logger.js';
 import type { ShopifyMcpEnv } from '../../src/env.js';
@@ -59,5 +60,31 @@ describe('Shopify MCP /healthz', () => {
     await boot(port);
     const res = await fetch(`http://127.0.0.1:${port}/not-a-route`);
     expect(res.status).toBe(404);
+  });
+
+  it('rejects cleanly when the configured port is already in use', async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject);
+      blocker.listen(0, '127.0.0.1', resolve);
+    });
+    const address = blocker.address();
+    if (!address || typeof address === 'string') {
+      blocker.close();
+      throw new Error('No TCP port assigned');
+    }
+
+    try {
+      await expect(
+        startHttpServer({
+          env: env(address.port),
+          logger: createLogger({ level: 'error', format: 'json' }),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        blocker.close((err) => (err ? reject(err) : resolve()));
+      });
+    }
   });
 });

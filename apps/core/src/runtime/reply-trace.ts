@@ -267,6 +267,10 @@ export interface LatencyTimeline {
   windowEnd: number;
   /** windowEnd - windowStart; the sections sum to exactly this. */
   totalMs: number;
+  /** Exact reply-level LLM usage reported by the SDK, when available. */
+  llmUsage?: {
+    costUsd?: number;
+  };
   sections: TimelineSection[];
 }
 
@@ -279,6 +283,10 @@ export interface AssembleTimelineInput {
   /** Agent-process startup: run-invoke -> first SDK message ready. */
   startup?: { startedAt: number; readyAt: number };
   llmTurns?: readonly LlmTurnRecord[];
+  /** Exact reply-level LLM usage reported by the SDK, when available. */
+  llmUsage?: {
+    costUsd?: number;
+  };
   toolCalls?: readonly ToolCallRecord[];
   /**
    * Runtime pipeline spans that are not LLM/tool/guardrail stages. These are
@@ -492,6 +500,7 @@ function buildTimeline(input: AssembleTimelineInput): BuiltTimeline {
       windowStart,
       windowEnd,
       totalMs: windowEnd - windowStart,
+      ...(input.llmUsage ? { llmUsage: input.llmUsage } : {}),
       sections,
     },
     payloadSources,

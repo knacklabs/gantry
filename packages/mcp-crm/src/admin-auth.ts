@@ -34,8 +34,8 @@ export function parseAdminStatus(input: unknown): AdminStatus {
 }
 
 export function assertValidPassword(password: string): string {
-  if (password.length < 5) {
-    throw new Error('Password must be at least 5 characters.');
+  if (password.length < 4) {
+    throw new Error('Password must be at least 4 characters.');
   }
   if (password.length > 256) {
     throw new Error('Password must be 256 characters or fewer.');

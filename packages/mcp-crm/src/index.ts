@@ -92,6 +92,7 @@ if (isEntry) {
           env.databaseUrl,
           env.dbSchema,
           env.crmLeadQueryExtractionWatcher.dbPoolSize,
+          logger,
         );
         await bootstrapFirstAdminUser({ env, pool, logger });
         return startHttpServer({ env, logger, pool });

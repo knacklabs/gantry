@@ -237,12 +237,15 @@ export async function startHttpServer(
       env.databaseUrl,
       env.dbSchema,
       env.crmLeadQueryExtractionWatcher.dbPoolSize,
-  );
+      logger,
+    );
   const repo = new RecordsRepository(pool);
   const adminUsers = new AdminUsersRepository(pool);
 
-  const httpServer = createServer(
-    async (req: IncomingMessage, res: ServerResponse) => {
+  const handleRequest = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> => {
       const path = parseUrlPath(req.url);
       if (path === '/healthz') {
         sendJson(res, 200, { ok: true });
@@ -331,9 +334,19 @@ export async function startHttpServer(
             });
             return;
           }
+          let passwordHash: string;
+          try {
+            passwordHash = await hashAdminPassword(body.password);
+          } catch (err) {
+            sendJson(res, 400, {
+              error: 'invalid_request',
+              detail: err instanceof Error ? err.message : String(err),
+            });
+            return;
+          }
           const user = await adminUsers.createUser({
             email: body.email,
-            passwordHash: await hashAdminPassword(body.password),
+            passwordHash,
             role: body.role,
           });
           sendJson(res, 200, { ok: true, user });
@@ -384,9 +397,19 @@ export async function startHttpServer(
             });
             return;
           }
+          let passwordHash: string;
+          try {
+            passwordHash = await hashAdminPassword(body.password);
+          } catch (err) {
+            sendJson(res, 400, {
+              error: 'invalid_request',
+              detail: err instanceof Error ? err.message : String(err),
+            });
+            return;
+          }
           const user = await adminUsers.updatePassword({
             id: userPasswordMatch[1],
-            passwordHash: await hashAdminPassword(body.password),
+            passwordHash,
           });
           if (!user) {
             sendJson(res, 404, { error: 'admin_user_not_found' });
@@ -583,12 +606,35 @@ export async function startHttpServer(
           res.end(JSON.stringify({ error: 'internal_error' }));
         }
       }
-    },
-  );
+    };
 
-  await new Promise<void>((resolve) =>
-    httpServer.listen(env.port, '127.0.0.1', resolve),
-  );
+  const httpServer = createServer((req, res) => {
+    void handleRequest(req, res).catch((err) => {
+      logger.error(errToLog(err), 'boondi_crm_request_uncaught');
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: 'internal_error' });
+        return;
+      }
+      res.destroy(err instanceof Error ? err : undefined);
+    });
+  });
+
+  httpServer.on('clientError', (err, socket) => {
+    logger.warn(errToLog(err), 'boondi_crm_client_error');
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error) => reject(err);
+    httpServer.once('error', onError);
+    httpServer.listen(env.port, '127.0.0.1', () => {
+      httpServer.off('error', onError);
+      resolve();
+    });
+  });
+  httpServer.on('error', (err) => {
+    logger.error(errToLog(err), 'boondi_crm_server_error');
+  });
 
   logger.info(
     {

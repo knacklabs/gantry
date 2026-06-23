@@ -1515,6 +1515,42 @@ describe('control server runtime hardening', () => {
     ).toThrow('GANTRY_CONTROL_API_KEYS_JSON must be valid JSON');
   });
 
+  it('rejects ready cleanly when the control TCP port is already in use', async () => {
+    const blocker = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject);
+      blocker.listen(0, '127.0.0.1', resolve);
+    });
+    const address = blocker.address();
+    if (!address || typeof address === 'string') {
+      blocker.close();
+      throw new Error('Could not reserve test port');
+    }
+    process.env.GANTRY_CONTROL_PORT = String(address.port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 't',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as any,
+    });
+    try {
+      await expect(handle.ready).rejects.toMatchObject({
+        code: 'EADDRINUSE',
+      });
+    } finally {
+      await handle.close();
+      await new Promise<void>((resolve, reject) => {
+        blocker.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it('blocks session ensure for mismatched app access', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);

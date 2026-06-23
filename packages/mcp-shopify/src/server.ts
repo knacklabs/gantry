@@ -201,8 +201,10 @@ export async function startHttpServer(
       });
   }
 
-  const httpServer = createServer(
-    async (req: IncomingMessage, res: ServerResponse) => {
+  const handleRequest = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+  ): Promise<void> => {
       const path = parseUrlPath(req.url);
       if (path !== '/mcp') {
         if (path === '/healthz') {
@@ -295,12 +297,36 @@ export async function startHttpServer(
           res.end(JSON.stringify({ error: 'internal_error' }));
         }
       }
-    },
-  );
+    };
 
-  await new Promise<void>((resolve) =>
-    httpServer.listen(env.port, '127.0.0.1', resolve),
-  );
+  const httpServer = createServer((req, res) => {
+    void handleRequest(req, res).catch((err) => {
+      logger.error(errToLog(err), 'shopify_mcp_request_uncaught');
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'internal_error' }));
+        return;
+      }
+      res.destroy(err instanceof Error ? err : undefined);
+    });
+  });
+
+  httpServer.on('clientError', (err, socket) => {
+    logger.warn(errToLog(err), 'shopify_mcp_client_error');
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error) => reject(err);
+    httpServer.once('error', onError);
+    httpServer.listen(env.port, '127.0.0.1', () => {
+      httpServer.off('error', onError);
+      resolve();
+    });
+  });
+  httpServer.on('error', (err) => {
+    logger.error(errToLog(err), 'shopify_mcp_server_error');
+  });
 
   logger.info(
     {

@@ -81,12 +81,18 @@ import {
   isModelAccessAuthFailure,
   sendModelAccessAuthFailureNotice,
 } from './model-access-auth-failure.js';
+import { CUSTOMER_VISIBLE_DECLINE_MESSAGE } from '../shared/user-visible-messages.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const LLM_PROGRESS_MAX_CHARS = 160;
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 type ActiveTurnUiCleanup = { token: symbol; cancel: () => void };
 const activeTurnUiCleanupByQueue = new Map<string, ActiveTurnUiCleanup>();
 const idleRunnerCleanupByQueue = new Map<string, () => void>();
+
+function boondiLlmProgressMessagesEnabled(): boolean {
+  return process.env.BOONDI_SEND_LLM_PROGRESS_MESSAGES?.trim() === '1';
+}
 
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
@@ -392,6 +398,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let traceWarmBound = false;
     let traceRetainedRunner = false;
     let traceCachePrewarm: AgentOutput['cachePrewarmTrace'];
+    let traceLlmUsage: { costUsd?: number } | undefined;
     // Warm continuation: dispatch instant of the reply being generated, taken
     // from the runner envelope (result.dispatchedAt = when the continuation was
     // delivered to the model). Splits a warm reply's leading span into real
@@ -400,6 +407,45 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let persistedTurnCount = 0;
     let persistedRunnerToolCallCount = 0;
     let lastPersistedTraceCursorId: string | undefined;
+    let progressDeliveredTurnCount = 0;
+    const sendLlmProgressText = async (rawText: string): Promise<void> => {
+      if (!boondiLlmProgressMessagesEnabled()) return;
+      const raw = rawText.trim();
+      if (!raw || raw.length > LLM_PROGRESS_MAX_CHARS) return;
+      const guarded = guardCustomerVisibleOutput({
+        text: raw,
+        persona: group.agentConfig?.persona,
+        conversationJid: chatJid,
+        logger,
+      }).trim();
+      if (!guarded || guarded === CUSTOMER_VISIBLE_DECLINE_MESSAGE) return;
+      const text = formatOutboundForChannel(guarded);
+      if (!text || text.length > LLM_PROGRESS_MAX_CHARS) return;
+      await settleDeliveryAttempt(
+        async () => sendMessageToChannel(text, await buildMessageOptions()),
+        { scope: 'runtime-llm-progress-message', target: chatJid },
+      ).catch((err) => {
+        logger.warn(
+          { err, chatJid, group: group.name },
+          'Failed to send LLM progress message',
+        );
+        return 'not_delivered' as const;
+      });
+    };
+    const sendLlmProgressMessages = async (
+      turns: NonNullable<AgentOutput['turns']>,
+    ): Promise<void> => {
+      if (!boondiLlmProgressMessagesEnabled()) {
+        progressDeliveredTurnCount = turns.length;
+        return;
+      }
+      const newTurns = turns.slice(progressDeliveredTurnCount);
+      progressDeliveredTurnCount = turns.length;
+      for (const turn of newTurns) {
+        if (turn.detail.stopReason === 'end_turn') continue;
+        if (turn.output) await sendLlmProgressText(turn.output);
+      }
+    };
     const persistReplyTraceForTurn = async (): Promise<void> => {
       if (!deps.replyTrace || traceTurns.length <= persistedTurnCount) return;
       // best-effort: in a rare concurrent-send race the cursor may resolve a
@@ -457,6 +503,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         runHandle: traceRunHandle,
         ...(slice.guardrail ? { guardrail: slice.guardrail } : {}),
         llmTurns: slice.llmTurns,
+        ...(traceLlmUsage ? { llmUsage: traceLlmUsage } : {}),
         ...(runnerToolCalls.length > 0 ? { toolCalls: runnerToolCalls } : {}),
         ...(windowStart !== undefined ? { windowStart } : {}),
         ...(cursor.sendCompletedAt
@@ -482,6 +529,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           ? { dispatchedAt: traceDispatchedAt }
           : {}),
       });
+      traceLlmUsage = undefined;
     };
     if (guardrailResult.handled) {
       // direct_response (guardrail-canned) reply: it never spawns the agent. Give
@@ -873,11 +921,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       // the latest non-empty snapshot for the latency trace (best-effort).
       if (result.turns && result.turns.length > 0) {
         traceTurns = result.turns;
+        await sendLlmProgressMessages(result.turns);
       }
       if (result.toolCalls && result.toolCalls.length > 0) {
         traceRunnerToolCalls = result.toolCalls;
       }
       if (result.runnerStartup) traceStartup = result.runnerStartup;
+      if (typeof result.usage?.estimatedCostUsd === 'number') {
+        traceLlmUsage = { costUsd: result.usage.estimatedCostUsd };
+      }
       if (result.warmBound) traceWarmBound = true;
       if (result.cachePrewarmTrace && !traceCachePrewarm) {
         traceCachePrewarm = result.cachePrewarmTrace;
@@ -933,6 +985,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           }
         }
         resetIdleTimer();
+        if (
+          boondiLlmProgressMessagesEnabled() &&
+          result.llmTurnOutput &&
+          result.llmTurnOutput.stopReason !== 'end_turn'
+        ) {
+          await finalizeStreamingOutput('llm-progress-output', {
+            done: true,
+            terminal: false,
+          });
+          startNextContentStream();
+          progressDeliveredTurnCount += 1;
+        }
       }
 
       if (result.interactionBoundary) {

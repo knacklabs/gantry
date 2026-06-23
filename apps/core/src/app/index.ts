@@ -460,7 +460,7 @@ export async function startGantryRuntime(
     );
   }
 
-  controlServerRef.current = startControlServer({
+  const controlServer = startControlServer({
     app,
     getBrowserStatus,
     sendConversationIngressProjection: async (input) => {
@@ -473,6 +473,8 @@ export async function startGantryRuntime(
       });
     },
   });
+  await controlServer.ready;
+  controlServerRef.current = controlServer;
 }
 
 const isDirectRun =

@@ -30,6 +30,7 @@ export interface PersistReplyTraceInput {
   runHandle?: string;
   guardrail?: GuardrailRecord;
   llmTurns?: readonly LlmTurnRecord[];
+  llmUsage?: { costUsd?: number };
   toolCalls?: readonly ToolCallRecord[];
   operationalSections?: readonly OperationalTimelineSectionInput[];
   command?: { name: string; ms: number; startedAt: number };
@@ -88,6 +89,7 @@ export async function persistReplyTrace(
       ...(input.guardrail ? { guardrail: input.guardrail } : {}),
       ...(input.startup ? { startup: input.startup } : {}),
       ...(input.llmTurns ? { llmTurns: input.llmTurns } : {}),
+      ...(input.llmUsage ? { llmUsage: input.llmUsage } : {}),
       ...(input.operationalSections
         ? { operationalSections: input.operationalSections }
         : {}),

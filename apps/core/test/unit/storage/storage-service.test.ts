@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { logger } from '@core/infrastructure/logging/logger.js';
 import {
   PostgresStorageService,
   createStorageService,
@@ -7,6 +8,10 @@ import {
 } from '@core/adapters/storage/postgres/storage-service.js';
 
 describe('storage-service', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('points migrations at the packaged schema migrations directory', () => {
     expect(postgresMigrationsFolder).toMatch(/schema[/\\]migrations$/);
   });
@@ -59,6 +64,28 @@ describe('storage-service', () => {
       postgresSchema: 'gantry',
     });
     expect(service).toBeInstanceOf(PostgresStorageService);
+    await service.close();
+  });
+
+  it('handles idle postgres pool errors without throwing', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const service = createStorageService({
+      postgresUrl: 'postgres://user:pass@127.0.0.1:5432/gantry',
+      postgresUrlEnv: 'GANTRY_DATABASE_URL',
+      postgresSchema: 'gantry',
+    });
+
+    expect(() => {
+      service.pool.emit(
+        'error',
+        new Error('Connection terminated unexpectedly'),
+      );
+    }).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(
+      { err: expect.any(Error) },
+      'Postgres pool idle client error',
+    );
+
     await service.close();
   });
 });

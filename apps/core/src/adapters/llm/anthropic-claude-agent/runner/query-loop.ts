@@ -30,6 +30,10 @@ import { MessageStream } from './message-stream.js';
 import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
+import {
+  assistantOutputText,
+  selectToolUsePreamble,
+} from './assistant-output.js';
 import { timingMark } from './timing-probe.js';
 import { LlmTurnAccumulator } from './llm-turn-accumulator.js';
 import {
@@ -176,25 +180,6 @@ function messageContainsToolUse(message: unknown): boolean {
           (block as { type?: unknown }).type === 'tool_use',
       ),
   );
-}
-
-/** Concatenated text of an assistant message (the turn's visible output). */
-function assistantOutputText(message: unknown): string {
-  const content = (message as { message?: { content?: unknown } }).message
-    ?.content;
-  if (!Array.isArray(content)) return '';
-  const parts: string[] = [];
-  for (const block of content) {
-    if (
-      block &&
-      typeof block === 'object' &&
-      (block as { type?: unknown }).type === 'text' &&
-      typeof (block as { text?: unknown }).text === 'string'
-    ) {
-      parts.push((block as { text: string }).text);
-    }
-  }
-  return parts.join('');
 }
 
 function byteLength(value: unknown): number {
@@ -656,6 +641,7 @@ export async function runQuery(
   let resultCount = 0;
   let sawPartialTextSinceLastResult = false;
   let pendingPartialText = '';
+  let pendingPartialStopReason: string | undefined;
   const primeToolAttempts: AgentRunnerToolAttemptOutput[] = [];
   let pendingCachePrewarmTrace: WarmCachePrewarmTrace | undefined;
   // Per-turn LLM latency + token capture for the reply trace (best-effort).
@@ -884,6 +870,7 @@ export async function runQuery(
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
         const assistantReceivedAt = Date.now();
+        const assistantText = assistantOutputText(message);
         // Per-turn latency/usage capture (best-effort). Wall-clock Date.now()
         // is comparable with the core MCP-call timestamps on this single host,
         // so stages merge by start time across the child/core boundary.
@@ -892,7 +879,7 @@ export async function runQuery(
           assistantReceivedAt,
           capturePayloads
             ? {
-                output: assistantOutputText(message),
+                output: assistantText,
                 // The driving message (run prompt, or the warm-run continuation
                 // just piped in) belongs to the turn that answers it; tool-loop
                 // follow-ons of the same message carry no fresh input.
@@ -905,7 +892,24 @@ export async function runQuery(
         sdkToolCalls.onAssistant(message, assistantReceivedAt);
         pendingTurnInput = undefined;
         if (messageContainsToolUse(message)) {
+          // Surface this turn's preamble ("let me look that up…") as an early
+          // progress message. The text and tool_use can arrive split across two
+          // assistant messages, so fall back to the streamed text when this
+          // tool_use message has none of its own (see selectToolUsePreamble).
+          const preamble = selectToolUsePreamble(
+            assistantText,
+            pendingPartialText,
+          );
+          if (preamble.trim()) {
+            writeOutput({
+              status: 'success',
+              result: preamble,
+              llmTurnOutput: { stopReason: 'tool_use' },
+              newSessionId,
+            });
+          }
           pendingPartialText = '';
+          pendingPartialStopReason = undefined;
         }
       }
       if (message.type === 'user') {
@@ -1051,7 +1055,26 @@ export async function runQuery(
         // Apply it to the open LLM turn so the trace shows accurate per-turn
         // tokens. Best-effort.
         if (event?.type === 'message_delta') {
+          const stopReason =
+            typeof event.delta?.stop_reason === 'string'
+              ? event.delta.stop_reason
+              : undefined;
+          pendingPartialStopReason = stopReason;
           llmTurns.onFinalUsage(event.usage, event.delta?.stop_reason);
+          if (
+            stopReason &&
+            stopReason !== 'end_turn' &&
+            pendingPartialText.trim()
+          ) {
+            writeOutput({
+              status: 'success',
+              result: pendingPartialText,
+              llmTurnOutput: { stopReason },
+              newSessionId,
+            });
+            pendingPartialText = '';
+            pendingPartialStopReason = undefined;
+          }
         }
       }
       if (message.type === 'result') {
@@ -1080,6 +1103,7 @@ export async function runQuery(
           writeOutput({
             status: 'success',
             result: pendingPartialText,
+            llmTurnOutput: { stopReason: pendingPartialStopReason },
             newSessionId,
           });
         }
@@ -1118,6 +1142,7 @@ export async function runQuery(
         contextUsageEmitter.emitAfterResult();
         sawPartialTextSinceLastResult = false;
         pendingPartialText = '';
+        pendingPartialStopReason = undefined;
         steeringGate.markTurnBoundary();
       }
     }

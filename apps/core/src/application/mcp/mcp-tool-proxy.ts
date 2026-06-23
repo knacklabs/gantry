@@ -378,7 +378,17 @@ async function closeCachedClient(
   if (!cached) return;
   clientCache.delete(cacheKey);
   if (cached.idleTimer) clearTimeout(cached.idleTimer);
-  await cached.client.close();
+  try {
+    await cached.client.close();
+  } catch (err) {
+    logger.warn(
+      {
+        err: err instanceof Error ? err.message : String(err),
+        serverName: capability.name,
+      },
+      'MCP proxy client close failed',
+    );
+  }
 }
 
 export function createGuardedMcpFetch(input: {
