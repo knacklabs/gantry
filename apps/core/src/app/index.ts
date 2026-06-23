@@ -34,11 +34,13 @@ import {
 } from '../config/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
+import { SettingsRevisionListener } from '../runtime/settings-revision-listener.js';
 import {
   prepareFleetSettings,
   startFleetSubsystems,
   type FleetSubsystems,
 } from './bootstrap/fleet-boot.js';
+import { PostgresSettingsRevisionWakeupSource } from '../config/settings/settings-revision-notify.js';
 import type { AppId } from '../domain/app/app.js';
 import {
   formatRuntimePreflightFailure,
@@ -166,7 +168,28 @@ export async function startGantryRuntime(
         app,
         ops: storage.ops,
         repositories: storage.repositories,
+        appId: 'default' as AppId,
+        settingsRevisions: storage.repositories.settingsRevisions,
+        settingsRevisionPool: storage.service.pool,
       });
+  let settingsRevisionListener: SettingsRevisionListener | undefined;
+  if (!isFleet) {
+    settingsRevisionListener = new SettingsRevisionListener({
+      appId: 'default' as AppId,
+      runtimeHome: GANTRY_HOME,
+      settingsRevisions: storage.repositories.settingsRevisions,
+      ops: storage.ops,
+      repositories: storage.repositories,
+      wakeupSource: new PostgresSettingsRevisionWakeupSource(
+        storage.service.pool,
+        (context, message) => logger.warn(context, message),
+      ),
+      reloadRuntimeState: () => app.loadState(),
+      logWarn: (context, message) => logger.warn(context, message),
+      logInfo: (context, message) => logger.info(context, message),
+    });
+    settingsRevisionListener.start();
+  }
   let fleetSubsystems: FleetSubsystems | undefined;
   const browserToolModulePath = [
     '..',
@@ -214,6 +237,9 @@ export async function startGantryRuntime(
     },
     closeLiveTurnAuthority: shutdownLiveTurnAuthority,
     closeSettingsWatcher: settingsWatcher.close,
+    closeSettingsRevisionListener: async () => {
+      await settingsRevisionListener?.stop();
+    },
     closeLiveRecoveryCoordinatorLease: async () => {
       await liveRecoveryCoordinatorLeaseManager.stop();
     },

@@ -14,7 +14,10 @@ import {
   loadRuntimeSettingsFromPath,
   SettingsDesiredStateService,
 } from '../config/index.js';
-import { importFleetSettingsRevision } from '../config/settings/settings-import-service.js';
+import {
+  importFleetSettingsRevision,
+  importWorkstationSettings,
+} from '../config/settings/settings-import-service.js';
 import type { AppId } from '../domain/app/app.js';
 
 function usage(): string {
@@ -172,21 +175,31 @@ async function runImport(
   const fleet = flags.fleet || getDeploymentMode() === 'fleet';
   if (!fleet) {
     try {
-      await applyRuntimeSettingsDesiredState({
-        runtimeHome,
-        settings: parsed,
-        ops: storage.ops,
-        repositories: storage.repositories,
-        appId: 'default' as AppId,
-        previousSettings: loadRuntimeSettings(runtimeHome),
-      });
+      await importWorkstationSettings(
+        {
+          runtimeHome,
+          ops: storage.ops,
+          repositories: storage.repositories,
+          appId: 'default' as AppId,
+          previousSettings: loadRuntimeSettings(runtimeHome),
+          revisionMirror: {
+            settingsRevisions: storage.repositories.settingsRevisions,
+            pool: storage.service.pool,
+            createdBy: 'cli:settings-import',
+            note: flags.note ?? null,
+          },
+        },
+        parsed,
+      );
     } catch (err) {
       p.log.error(
         `settings import failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       return 1;
     }
-    p.log.success(`Imported ${flags.file} into settings.yaml (workstation).`);
+    p.log.success(
+      `Imported ${flags.file} into settings.yaml and settings revisions (workstation).`,
+    );
     return 0;
   }
 

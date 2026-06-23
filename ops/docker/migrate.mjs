@@ -26,8 +26,11 @@
 //
 // Connection URL precedence (migration role may differ from the runtime role):
 //   MIGRATION_DATABASE_URL  ->  GANTRY_DATABASE_URL
-// Schema precedence:
-//   GANTRY_DB_SCHEMA  ->  "gantry" (matches DEFAULT_STORAGE_POSTGRES_SCHEMA)
+// Schema precedence mirrors the ECS settings bootstrap:
+//   GANTRY_SETTINGS_POSTGRES_SCHEMA
+//   schema= query parameter in MIGRATION_DATABASE_URL / GANTRY_DATABASE_URL
+//   GANTRY_DB_SCHEMA
+//   "reagent"
 
 import { PostgresStorageService } from '../../dist/adapters/storage/postgres/storage-service.js';
 import { fleetRehearsalPlaintextPostgresHosts } from '../../dist/adapters/storage/postgres/url.js';
@@ -44,13 +47,23 @@ function resolveMigrationUrl() {
   return url;
 }
 
-function resolveSchema() {
-  return process.env.GANTRY_DB_SCHEMA?.trim() || 'gantry';
+function resolveSchema(url) {
+  const explicit = process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA?.trim();
+  if (explicit) return explicit;
+
+  try {
+    const schema = new URL(url).searchParams.get('schema')?.trim();
+    if (schema) return schema;
+  } catch {
+    // Let PostgresStorageService report malformed URLs below.
+  }
+
+  return process.env.GANTRY_DB_SCHEMA?.trim() || 'reagent';
 }
 
 async function main() {
   const url = resolveMigrationUrl();
-  const schema = resolveSchema();
+  const schema = resolveSchema(url);
 
   const service = new PostgresStorageService(url, schema, {
     plaintextHostAllowlist: fleetRehearsalPlaintextPostgresHosts(),

@@ -76,14 +76,21 @@ makes concurrent migration safe regardless.
 
 For ECS deployments that mount an empty EBS/EFS runtime home directly into the
 Gantry container instead of running the compose `settings-seed` one-shot, the
-runtime image first-bootstraps a minimal `settings.yaml` when
+runtime image first-bootstraps a minimal workstation `settings.yaml` when
 `GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING=1` (the image default) and the runtime
 command is `node dist/index.js`. The bootstrap writes to `GANTRY_HOME`
 (`/var/lib/gantry` by default), derives the Postgres schema from
 `GANTRY_SETTINGS_POSTGRES_SCHEMA`, the `schema=` query parameter in
-`GANTRY_DATABASE_URL`, or `GANTRY_DB_SCHEMA`, and then seeds the initial fleet
-settings revision after migrations. Existing mounted `settings.yaml` files are
-left untouched.
+`GANTRY_DATABASE_URL`, or `GANTRY_DB_SCHEMA`, falling back to `reagent`. The
+explicit migration pass uses the same schema precedence. Existing mounted
+`settings.yaml` files are left untouched. A fresh workstation bootstrap imports
+the generated file through the normal workstation settings path after
+migrations and mirrors the applied snapshot into `settings_revisions`.
+Workstation and fleet runtimes both materialize the latest settings revision
+back to local `settings.yaml`; fleet additionally treats `settings_revisions`
+as its boot authority. To seed a fleet desired-state revision from the
+bootstrap file, explicitly set
+`GANTRY_BOOTSTRAP_DEPLOYMENT_MODE=fleet`.
 
 Expected sequence in the logs:
 

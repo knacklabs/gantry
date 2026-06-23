@@ -9,9 +9,16 @@ import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-sett
 import {
   CURRENT_SETTINGS_READER_VERSION,
   importFleetSettingsRevision,
+  importWorkstationSettings,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
 } from '@core/config/settings/settings-import-service.js';
+
+const applyRuntimeSettingsDesiredState = vi.hoisted(() => vi.fn());
+
+vi.mock('@core/config/settings/restart-sync.js', () => ({
+  applyRuntimeSettingsDesiredState,
+}));
 
 vi.mock('@core/config/settings/runtime-settings-validation.js', () => ({
   validateLoadedRuntimeSettings: () => ({ ok: true, settings: {} }),
@@ -88,6 +95,45 @@ function baseDeps(repo: SettingsRevisionRepository) {
 }
 
 describe('importFleetSettingsRevision', () => {
+  it('workstation import can mirror the applied settings into settings revisions', async () => {
+    capabilityErrors = [];
+    const inputSettings = createDefaultRuntimeSettings();
+    inputSettings.agent.name = 'Input Agent';
+    const appliedSettings = structuredClone(inputSettings);
+    appliedSettings.agent.name = 'Applied Agent';
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async () => appliedSettings,
+    );
+    const repo = new FakeRevisionRepo();
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:workstation',
+          note: 'mirror',
+        },
+      },
+      inputSettings,
+    );
+
+    expect(outcome).toEqual({ revision: 1 });
+    expect(repo.rows[0]).toMatchObject({
+      revision: 1,
+      createdBy: 'test:workstation',
+      note: 'mirror',
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+    });
+    expect(
+      (repo.rows[0]?.settingsDocument.agent as { name?: string }).name,
+    ).toBe('Applied Agent');
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledOnce();
+  });
+
   it('appends a revision stamped with the current reader version', async () => {
     capabilityErrors = [];
     const repo = new FakeRevisionRepo();

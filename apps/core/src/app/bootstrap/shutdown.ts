@@ -31,12 +31,13 @@ export interface InstallShutdownHandlersOptions {
   closeMessagePolling?: (timeoutMs: number) => Promise<void> | void;
   closeLiveTurnAuthority?: () => Promise<void>;
   closeSettingsWatcher?: () => void;
+  closeSettingsRevisionListener?: () => Promise<void>;
   /** Release the live-recovery-coordinator lease EARLY so a successor can take over. */
   closeLiveRecoveryCoordinatorLease?: () => Promise<void>;
   /**
-   * Stop fleet worker subsystems (bake queue, capability reconciler, settings
-   * revision listener) after intake stops, so their background timers/LISTEN
-   * clients are torn down before exit. No-op in workstation mode.
+   * Stop fleet worker subsystems (bake queue and capability reconciler) after
+   * intake stops, so their background timers/LISTEN clients are torn down
+   * before exit. No-op in workstation mode.
    */
   closeFleetSubsystems?: () => Promise<void>;
   closeBrowserToolBackends?: () => Promise<void>;
@@ -152,6 +153,10 @@ export function installShutdownHandlers(
       'Failed to shutdown live-turn authority during shutdown',
     );
     options.closeSettingsWatcher?.();
+    await runStep(
+      options.closeSettingsRevisionListener,
+      'Failed to stop settings revision listener during shutdown',
+    );
     await runStep(
       options.closeStorage,
       'Failed to close runtime storage during shutdown',

@@ -42,6 +42,15 @@ export interface SettingsImportServiceDeps {
   appId?: AppId;
 }
 
+export interface SettingsRevisionMirror {
+  settingsRevisions: SettingsRevisionRepository;
+  /** Pool used to publish the `pg_notify` wakeup after a successful append. */
+  pool?: Pool;
+  createdBy: string;
+  note?: string | null;
+  logWarn?: (context: Record<string, unknown>, message: string) => void;
+}
+
 /**
  * The single validation path shared by every settings mutation surface (YAML
  * watcher auto-import, CLI `settings import`, and the control-API desired-state
@@ -82,16 +91,17 @@ export async function importWorkstationSettings(
   deps: SettingsImportServiceDeps & {
     previousSettings?: RuntimeSettings;
     reloadRuntimeState?: () => Promise<void>;
+    revisionMirror?: SettingsRevisionMirror;
   },
   settings: RuntimeSettings,
-): Promise<void> {
+): Promise<{ revision?: number }> {
   const validation = await validateSettingsForImport(deps, settings);
   if (!validation.ok) {
     throw new Error(
       ['settings validation failed.', ...validation.errors].join('\n'),
     );
   }
-  await applyRuntimeSettingsDesiredState({
+  const appliedSettings = await applyRuntimeSettingsDesiredState({
     runtimeHome: deps.runtimeHome,
     settings,
     ops: deps.ops,
@@ -100,7 +110,35 @@ export async function importWorkstationSettings(
     previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
   });
-  activateRuntimeModelAliases(settings);
+  activateRuntimeModelAliases(appliedSettings);
+  if (!deps.revisionMirror) return {};
+  const outcome = await importFleetSettingsRevision(
+    {
+      runtimeHome: deps.runtimeHome,
+      ops: deps.ops,
+      repositories: deps.repositories,
+      appId: deps.appId,
+      settingsRevisions: deps.revisionMirror.settingsRevisions,
+      pool: deps.revisionMirror.pool,
+      createdBy: deps.revisionMirror.createdBy,
+      logWarn: deps.revisionMirror.logWarn,
+    },
+    appliedSettings,
+    { note: deps.revisionMirror.note ?? null },
+  );
+  if (outcome.status === 'invalid') {
+    throw new Error(
+      ['settings revision mirror validation failed.', ...outcome.errors].join(
+        '\n',
+      ),
+    );
+  }
+  if (outcome.status === 'conflict') {
+    throw new Error(
+      `settings revision mirror conflict: expected ${outcome.expectedRevision}, current ${outcome.actualRevision}`,
+    );
+  }
+  return { revision: outcome.revision };
 }
 
 export type FleetImportOutcome =

@@ -44,7 +44,7 @@ describe('runtime storage bootstrap', () => {
     }
   });
 
-  it('creates minimal fleet settings when the container starts with an empty runtime home', () => {
+  it('creates minimal workstation settings when the container starts with an empty runtime home', () => {
     withCleanEnv(() => {
       const runtimeHome = fs.mkdtempSync(
         path.join(os.tmpdir(), 'gantry-storage-bootstrap-'),
@@ -60,7 +60,29 @@ describe('runtime storage bootstrap', () => {
       expect(config.postgresSchema).toBe('reagent');
       expect(config.postgresUrl).toBe(process.env.GANTRY_DATABASE_URL);
       expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
-        'deployment_mode: fleet',
+        'deployment_mode: workstation',
+      );
+      expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
+        'schema: reagent',
+      );
+    });
+  });
+
+  it('defaults bootstrap settings to workstation mode and the reagent Postgres schema', () => {
+    withCleanEnv(() => {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-storage-bootstrap-'),
+      );
+      homes.push(runtimeHome);
+
+      process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
+
+      const config = resolveRuntimeStorageConfig(runtimeHome, runtimeHome);
+
+      expect(config.postgresSchema).toBe('reagent');
+      expect(config.postgresUrl).toBeNull();
+      expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
+        'deployment_mode: workstation',
       );
       expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
         'schema: reagent',

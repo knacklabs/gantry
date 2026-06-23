@@ -54,7 +54,7 @@ export interface SettingsRevisionListenerDeps {
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
 /**
- * Worker-side settings-revision listener (fleet mode only). On a NOTIFY wakeup
+ * Runtime-side settings-revision listener. On a NOTIFY wakeup
  * or the interval poll it fetches the latest `settings_revisions` row and:
  *
  *  - holds its last-applied revision and alerts when the revision's
@@ -206,7 +206,7 @@ export class SettingsRevisionListener {
     }
     this.deps.logInfo?.(
       { appId: revision.appId, revision: revision.revision },
-      'Applied fleet settings revision',
+      'Applied settings revision',
     );
   }
 

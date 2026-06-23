@@ -53,7 +53,7 @@ if (url) {
     // Fall through to env/default; migrate.mjs will report malformed URLs.
   }
 }
-process.stdout.write(process.env.GANTRY_DB_SCHEMA?.trim() || 'gantry');
+process.stdout.write(process.env.GANTRY_DB_SCHEMA?.trim() || 'reagent');
 NODE
 }
 
@@ -76,7 +76,7 @@ bootstrap_settings_if_missing() {
 
   mkdir -p "$runtime_home"
   schema="$(resolve_settings_schema)"
-  deployment_mode="${GANTRY_BOOTSTRAP_DEPLOYMENT_MODE:-${GANTRY_DEPLOYMENT_MODE:-fleet}}"
+  deployment_mode="${GANTRY_BOOTSTRAP_DEPLOYMENT_MODE:-${GANTRY_DEPLOYMENT_MODE:-workstation}}"
   sandbox_provider="${GANTRY_BOOTSTRAP_SANDBOX_PROVIDER:-sandbox_runtime}"
   tmp_file="${settings_file}.tmp.$$"
   umask 077
@@ -223,6 +223,10 @@ if [ "$BOOTSTRAPPED_SETTINGS_FILE" = "1" ] && [ "$BOOTSTRAPPED_SETTINGS_DEPLOYME
   log "seeding initial fleet settings revision from bootstrap settings.yaml"
   node /app/ops/docker/fleet-settings-seed.mjs "${GANTRY_HOME:-/var/lib/gantry}/settings.yaml"
   log "fleet settings seed complete"
+elif [ "$BOOTSTRAPPED_SETTINGS_FILE" = "1" ] && [ "$BOOTSTRAPPED_SETTINGS_DEPLOYMENT_MODE" = "workstation" ]; then
+  log "seeding workstation settings projection from bootstrap settings.yaml"
+  node /app/dist/cli/index.js settings import --file "${GANTRY_HOME:-/var/lib/gantry}/settings.yaml"
+  log "workstation settings seed complete"
 elif [ "${GANTRY_FLEET_SETTINGS_AUTO:-0}" = "1" ]; then
   GANTRY_FLEET_SETTINGS_SEED_IF_EMPTY=1 \
     node /app/ops/docker/fleet-settings-seed.mjs "${GANTRY_HOME:-/var/lib/gantry}/settings.yaml"

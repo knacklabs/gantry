@@ -71,7 +71,7 @@ function bootstrapStorageSettingsIfMissing(gantryHome: string): void {
   const deploymentMode =
     runtimeEnvValueDynamic('GANTRY_BOOTSTRAP_DEPLOYMENT_MODE') ||
     runtimeEnvValueDynamic('GANTRY_DEPLOYMENT_MODE') ||
-    'fleet';
+    'workstation';
   const sandboxProvider =
     runtimeEnvValueDynamic('GANTRY_BOOTSTRAP_SANDBOX_PROVIDER') ||
     'sandbox_runtime';
@@ -111,5 +111,5 @@ function resolveBootstrapSettingsSchema(): string {
       // Let the normal Postgres URL validation report malformed URLs.
     }
   }
-  return runtimeEnvValueDynamic('GANTRY_DB_SCHEMA').trim() || 'gantry';
+  return runtimeEnvValueDynamic('GANTRY_DB_SCHEMA').trim() || 'reagent';
 }
