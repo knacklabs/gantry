@@ -141,6 +141,16 @@ class MemoryFileArtifactStore implements FileArtifactStore {
   async promoteScratch(): Promise<FileArtifact> {
     throw new Error('not used');
   }
+
+  removeStoredContentForPath(input: {
+    appId: string;
+    agentId: string;
+    virtualScope: string;
+    virtualPath: string;
+  }): void {
+    const artifact = this.artifacts.get(artifactKey(input));
+    if (artifact) this.contents.delete(artifact.id);
+  }
 }
 
 function createService(store = new MemoryFileArtifactStore()): {
@@ -274,6 +284,92 @@ describe('PromptProfileService', () => {
       virtualPath: 'team/SOUL.md',
     });
     expect(soul.content).toBe('existing soul');
+  });
+
+  it('recreates default prompt artifacts when metadata exists but bytes are missing', async () => {
+    const store = new MemoryFileArtifactStore();
+    const mirrored: Array<{ fileName: string; content: string }> = [];
+    const service = new PromptProfileService({
+      fileArtifactStore: () => store,
+      mirrorFileExists: async () => false,
+      mirrorProfileFile: (input) => {
+        mirrored.push({ fileName: input.fileName, content: input.content });
+      },
+    });
+
+    await service.ensureAgentDefaults({
+      agentFolder: 'team',
+      agentName: 'Kai',
+    });
+    store.removeStoredContentForPath({
+      appId: 'default',
+      agentId: 'agent:team',
+      virtualScope: 'prompt-profile',
+      virtualPath: 'team/AGENTS.md',
+    });
+
+    await service.ensureAgentDefaults({
+      agentFolder: 'team',
+      agentName: 'Kai',
+    });
+
+    const artifacts = await store.listFileArtifacts({
+      appId: 'default',
+      agentId: 'agent:team',
+      virtualScope: 'prompt-profile',
+      virtualPath: 'team/AGENTS.md',
+    });
+    const agentInstructions = await store.readFileArtifact({
+      appId: 'default',
+      agentId: 'agent:team',
+      virtualScope: 'prompt-profile',
+      virtualPath: 'team/AGENTS.md',
+    });
+
+    expect(artifacts[0]?.version).toBe(2);
+    expect(agentInstructions.content).toContain('Diagnose the real blocker');
+    expect(mirrored.map((entry) => entry.fileName)).toContain('AGENTS.md');
+  });
+
+  it('does not recreate default prompt artifacts when bytes are missing but the mirror exists', async () => {
+    const store = new MemoryFileArtifactStore();
+    const mirrored: Array<{ fileName: string; content: string }> = [];
+    const service = new PromptProfileService({
+      fileArtifactStore: () => store,
+      mirrorFileExists: async () => true,
+      mirrorProfileFile: (input) => {
+        mirrored.push({ fileName: input.fileName, content: input.content });
+      },
+    });
+
+    await service.ensureAgentDefaults({
+      agentFolder: 'team',
+      agentName: 'Kai',
+    });
+    store.removeStoredContentForPath({
+      appId: 'default',
+      agentId: 'agent:team',
+      virtualScope: 'prompt-profile',
+      virtualPath: 'team/AGENTS.md',
+    });
+    const mirrorWritesBeforeRepair = mirrored.length;
+
+    await expect(
+      service.ensureAgentDefaults({
+        agentFolder: 'team',
+        agentName: 'Kai',
+      }),
+    ).rejects.toThrow('File artifact not found');
+
+    const artifacts = await store.listFileArtifacts({
+      appId: 'default',
+      agentId: 'agent:team',
+      virtualScope: 'prompt-profile',
+      virtualPath: 'team/AGENTS.md',
+    });
+
+    expect(artifacts[0]?.version).toBe(1);
+    expect(mirrored).toHaveLength(mirrorWritesBeforeRepair);
   });
 
   it('compiles deterministic order without shared context projection', async () => {

@@ -21,6 +21,7 @@ import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
+const fileArtifactState = vi.hoisted(() => ({ failWrites: false }));
 const fileArtifactStore = vi.hoisted(() => ({
   async listFileArtifacts(input: any) {
     return [...fileArtifacts.keys()]
@@ -45,6 +46,16 @@ const fileArtifactStore = vi.hoisted(() => ({
   },
   async writeFileArtifact(input: any) {
     const key = `${input.appId}:${input.agentId}:${input.virtualScope}:${input.virtualPath}`;
+    const agentFolder = String(input.agentId).replace(/^agent:/, '');
+    const hasConversationRoute = Array.from(groupsStore.values()).some(
+      (group) => group.folder === agentFolder,
+    );
+    if (!hasConversationRoute) {
+      throw new Error(`missing conversation route for ${input.agentId}`);
+    }
+    if (fileArtifactState.failWrites) {
+      throw new Error('profile seed failed');
+    }
     fileArtifacts.set(key, String(input.content));
     return {
       id: `file-artifact:test:${fileArtifacts.size}`,
@@ -106,6 +117,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   groupsStore.clear();
   fileArtifacts.clear();
+  fileArtifactState.failWrites = false;
   while (runtimeHomes.length > 0) {
     const runtimeHome = runtimeHomes.pop();
     if (runtimeHome) fs.rmSync(runtimeHome, { recursive: true, force: true });
@@ -505,6 +517,88 @@ describe('cli slack helpers', () => {
     expect(outro).toHaveBeenCalledWith('Slack connect cancelled.');
   });
 
+  it('slack connect preserves the verified conversation display name and approvers', async () => {
+    vi.resetModules();
+    const runtimeHome = makeRuntimeHome();
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            team: 'My Workspace',
+            team_id: 'T123',
+            user_id: 'U123',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            url: 'wss://example.slack.test/socket',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            channel: { id: 'C0123456789', name: 'ops-room' },
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      note: vi.fn(),
+      password: vi
+        .fn()
+        .mockResolvedValueOnce('xoxb-valid-token')
+        .mockResolvedValueOnce('xapp-valid-token'),
+      text: vi.fn().mockResolvedValueOnce('U123'),
+      outro: vi.fn(),
+      log: {
+        success: vi.fn(),
+        info: vi.fn(),
+        error: vi.fn(),
+      },
+    }));
+    vi.doMock('@core/cli/slack-connect-chat-picker.js', () => ({
+      chooseSlackChatForConnect: vi.fn(async () => ({
+        type: 'selected',
+        chatJid: 'sl:C0123456789',
+      })),
+    }));
+
+    const { runSlackConnectCommand } = await import('@core/cli/slack.js');
+    const code = await runSlackConnectCommand(runtimeHome);
+
+    expect(code).toBe(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.conversations?.slack_default_c0123456789).toEqual(
+      expect.objectContaining({
+        displayName: 'ops-room',
+        providerConnection: 'slack_default',
+        externalId: 'C0123456789',
+        controlApprovers: ['U123'],
+      }),
+    );
+  });
+
   it('seeds AGENTS.md and SOUL.md FileArtifacts when registering the main group', async () => {
     const runtimeHome = makeRuntimeHome();
 
@@ -512,6 +606,8 @@ describe('cli slack helpers', () => {
       runtimeHome,
       chatJid: 'sl:C0123456789',
       displayName: 'Kai Slack',
+      conversationDisplayName: 'recruiting-demo',
+      approverIds: ['U123'],
     });
 
     const claude =
@@ -525,6 +621,26 @@ describe('cli slack helpers', () => {
 
     expect(result.groupName).toBe('Kai Slack');
     expect(result.folder).toBe('main_agent');
+    expect(groupsStore.get('sl:C0123456789')).toEqual(
+      expect.objectContaining({
+        name: 'Kai Slack',
+        folder: 'main_agent',
+      }),
+    );
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.conversations?.slack_default_c0123456789).toEqual(
+      expect.objectContaining({
+        displayName: 'recruiting-demo',
+        providerConnection: 'slack_default',
+        externalId: 'C0123456789',
+        controlApprovers: ['U123'],
+      }),
+    );
+    expect(settings.providerConnections?.slack_default).toEqual(
+      expect.objectContaining({
+        provider: 'slack',
+      }),
+    );
     expect(
       fs.existsSync(
         path.join(runtimeHome, 'agents', result.folder, 'CLAUDE.md'),
@@ -549,5 +665,36 @@ describe('cli slack helpers', () => {
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Slack');
     expect(soul).toContain('## Continuity Boundary');
+  });
+
+  it('keeps desired Slack settings when prompt profile seeding fails', async () => {
+    const runtimeHome = makeRuntimeHome();
+    fileArtifactState.failWrites = true;
+
+    await expect(
+      registerSlackMainGroup({
+        runtimeHome,
+        chatJid: 'sl:C0123456789',
+        displayName: 'Kai Slack',
+        conversationDisplayName: 'recruiting-demo',
+        approverIds: ['U123'],
+      }),
+    ).rejects.toThrow('profile seed failed');
+
+    expect(groupsStore.get('sl:C0123456789')).toEqual(
+      expect.objectContaining({
+        name: 'Kai Slack',
+        folder: 'main_agent',
+      }),
+    );
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.conversations?.slack_default_c0123456789).toEqual(
+      expect.objectContaining({
+        displayName: 'recruiting-demo',
+        providerConnection: 'slack_default',
+        externalId: 'C0123456789',
+        controlApprovers: ['U123'],
+      }),
+    );
   });
 });

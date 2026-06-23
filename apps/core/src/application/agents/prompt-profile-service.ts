@@ -468,9 +468,11 @@ export class PromptProfileService {
       virtualPath: input.virtualPath,
       limit: 1,
     });
+    let shouldWriteMirror = true;
     if (existing.length > 0) {
-      await this.reseedMirrorIfMissing(store, input);
-      return;
+      const recovery = await this.reseedMirrorIfMissing(store, input);
+      if (recovery.recovered) return;
+      shouldWriteMirror = !recovery.mirrorPresent;
     }
     await store.writeFileArtifact({
       appId: input.appId,
@@ -482,7 +484,7 @@ export class PromptProfileService {
       createdBy: input.createdBy,
       metadata: input.metadata,
     });
-    if (this.mirrorProfileFile) {
+    if (this.mirrorProfileFile && shouldWriteMirror) {
       await this.mirrorProfileFile({
         agentFolder: input.agentFolder,
         fileName: input.fileName,
@@ -503,13 +505,14 @@ export class PromptProfileService {
       fileName: string;
       virtualPath: string;
     },
-  ): Promise<void> {
-    if (!this.mirrorProfileFile || !this.mirrorFileExists) return;
+  ): Promise<{ recovered: boolean; mirrorPresent: boolean }> {
+    if (!this.mirrorProfileFile || !this.mirrorFileExists) {
+      return { recovered: true, mirrorPresent: true };
+    }
     const present = await this.mirrorFileExists({
       agentFolder: input.agentFolder,
       fileName: input.fileName,
     });
-    if (present) return;
     try {
       const current = await store.readFileArtifact({
         appId: input.appId,
@@ -517,6 +520,7 @@ export class PromptProfileService {
         virtualScope: PROMPT_PROFILE_SCOPE,
         virtualPath: input.virtualPath,
       });
+      if (present) return { recovered: true, mirrorPresent: true };
       const content =
         typeof current.content === 'string'
           ? current.content
@@ -526,8 +530,12 @@ export class PromptProfileService {
         fileName: input.fileName,
         content,
       });
+      return { recovered: true, mirrorPresent: present };
     } catch (err) {
-      if (err instanceof FileArtifactNotFoundError) return;
+      if (err instanceof FileArtifactNotFoundError) {
+        if (present) throw err;
+        return { recovered: false, mirrorPresent: present };
+      }
       throw err;
     }
   }

@@ -263,6 +263,11 @@ async function loadGroupStep() {
   const settings = {};
   const spinner = { start: vi.fn(), stop: vi.fn() };
   const ensureConfiguredConversationBinding = vi.fn();
+  const saveRuntimeSettings = vi.fn();
+  const registerSlackMainGroup = vi.fn(async () => ({
+    folder: 'main_agent',
+    groupName: 'Gantry',
+  }));
   vi.doMock('@clack/prompts', () => ({
     isCancel: () => false,
     note: vi.fn(),
@@ -282,10 +287,7 @@ async function loadGroupStep() {
     persistOnboardingConfig: vi.fn(),
   }));
   vi.doMock('@core/cli/slack.js', () => ({
-    registerSlackMainGroup: vi.fn(async () => ({
-      folder: 'main_agent',
-      groupName: 'Gantry',
-    })),
+    registerSlackMainGroup,
   }));
   vi.doMock('@core/cli/telegram.js', () => ({
     registerTelegramMainGroup: vi.fn(async () => ({
@@ -295,17 +297,26 @@ async function loadGroupStep() {
   }));
   vi.doMock('@core/config/settings/runtime-settings.js', () => ({
     loadRuntimeSettings: vi.fn(() => settings),
-    saveRuntimeSettings: vi.fn(),
+    saveRuntimeSettings,
     ensureConfiguredConversationBinding,
   }));
   const { runGroupStep } = await import('@core/cli/setup-flow-final-steps.js');
-  return { runGroupStep, ensureConfiguredConversationBinding };
+  return {
+    runGroupStep,
+    ensureConfiguredConversationBinding,
+    registerSlackMainGroup,
+    saveRuntimeSettings,
+  };
 }
 
 describe('conversation binding labels', () => {
   it('uses the selected Slack conversation label in the ready draft', async () => {
-    const { runGroupStep, ensureConfiguredConversationBinding } =
-      await loadGroupStep();
+    const {
+      runGroupStep,
+      ensureConfiguredConversationBinding,
+      registerSlackMainGroup,
+      saveRuntimeSettings,
+    } = await loadGroupStep();
     const draft = {
       primaryProvider: 'slack',
       runtimeHome: '/tmp/gantry-group-labels',
@@ -319,12 +330,14 @@ describe('conversation binding labels', () => {
       type: 'next',
     });
 
-    expect(ensureConfiguredConversationBinding).toHaveBeenCalledWith(
-      expect.anything(),
+    expect(ensureConfiguredConversationBinding).not.toHaveBeenCalled();
+    expect(saveRuntimeSettings).not.toHaveBeenCalled();
+    expect(registerSlackMainGroup).toHaveBeenCalledWith(
       expect.objectContaining({
-        agentName: 'Gantry',
-        jid: 'sl:C0123456789',
-        displayName: 'ops-room',
+        chatJid: 'sl:C0123456789',
+        displayName: 'Gantry',
+        conversationDisplayName: 'ops-room',
+        approverIds: ['U123'],
       }),
     );
     expect(draft).toEqual(

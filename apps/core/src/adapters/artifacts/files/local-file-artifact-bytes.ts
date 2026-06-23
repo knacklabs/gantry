@@ -3,7 +3,10 @@ import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { FileArtifactId } from '../../../domain/file-artifacts/file-artifact.js';
+import {
+  FileArtifactNotFoundError,
+  type FileArtifactId,
+} from '../../../domain/file-artifacts/file-artifact.js';
 
 export interface StoredFileArtifactBytes {
   storageRef: string;
@@ -61,7 +64,15 @@ export class LocalFileArtifactBytes {
     storageRef: string,
     expected: { hash: string; sizeBytes: number },
   ): Promise<Buffer> {
-    const content = await fs.readFile(this.resolve(storageRef));
+    let content: Buffer;
+    try {
+      content = await fs.readFile(this.resolve(storageRef));
+    } catch (err) {
+      if (isNodeErrnoException(err) && err.code === 'ENOENT') {
+        throw new FileArtifactNotFoundError();
+      }
+      throw err;
+    }
     const actualHash = hashFileArtifactBytes(content);
     if (actualHash !== expected.hash) {
       throw new Error(
@@ -93,6 +104,10 @@ export class LocalFileArtifactBytes {
     }
     return target;
   }
+}
+
+function isNodeErrnoException(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && 'code' in value;
 }
 
 function normalizeStorageRef(value: string): string {

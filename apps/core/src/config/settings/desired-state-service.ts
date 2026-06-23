@@ -161,7 +161,7 @@ export class SettingsDesiredStateService {
         const conversation = binding.conversation;
         configuredJids.add(binding.jid);
         await this.deps.ops.setConversationRoute(binding.jid, {
-          name: binding.name ?? agent.name,
+          name: agent.name,
           folder,
           trigger: binding.trigger,
           added_at: binding.addedAt,

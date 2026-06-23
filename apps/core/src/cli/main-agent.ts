@@ -22,13 +22,20 @@ export function allocateDefaultAgentFolder(
   runtimeHome: string,
   existing: Record<string, { folder: string }>,
 ): string {
-  const used = new Set(Object.values(existing).map((group) => group.folder));
+  const hasSeededDefaultPlaceholder = Object.entries(existing).some(
+    ([jid, group]) => isSeededDefaultPlaceholderRoute(jid, group),
+  );
+  const used = new Set(
+    Object.entries(existing)
+      .filter(([jid, group]) => !isSeededDefaultPlaceholderRoute(jid, group))
+      .map(([, group]) => group.folder),
+  );
   const hasOnDiskFolder = (folder: string): boolean =>
     fs.existsSync(path.join(runtimeHome, 'agents', folder));
 
   if (
     !used.has(DEFAULT_AGENT_FOLDER) &&
-    !hasOnDiskFolder(DEFAULT_AGENT_FOLDER)
+    (!hasOnDiskFolder(DEFAULT_AGENT_FOLDER) || hasSeededDefaultPlaceholder)
   ) {
     return DEFAULT_AGENT_FOLDER;
   }
@@ -37,6 +44,13 @@ export function allocateDefaultAgentFolder(
     if (!used.has(candidate) && !hasOnDiskFolder(candidate)) return candidate;
   }
   return `${DEFAULT_AGENT_FOLDER}_${currentTimeMs()}`;
+}
+
+function isSeededDefaultPlaceholderRoute(
+  jid: string,
+  group: { folder: string },
+): boolean {
+  return jid === 'app:default' && group.folder === DEFAULT_AGENT_FOLDER;
 }
 
 export function displayAgentName(

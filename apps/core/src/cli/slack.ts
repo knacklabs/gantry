@@ -366,6 +366,8 @@ export async function registerSlackMainGroup(options: {
   runtimeHome: string;
   chatJid: string;
   displayName: string;
+  conversationDisplayName?: string;
+  approverIds?: string[];
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
@@ -378,12 +380,6 @@ export async function registerSlackMainGroup(options: {
 
     const groupName = normalizeDefaultAgentName(options.displayName);
 
-    await new PromptProfileService({
-      fileArtifactStore: () => db.getFileArtifactStore(),
-      mirrorProfileFile: createProfileFileMirrorWriter(options.runtimeHome),
-      mirrorFileExists: createProfileFileMirrorExists(options.runtimeHome),
-    }).ensureAgentDefaults({ agentFolder: folder, agentName: groupName });
-
     const route = {
       name: groupName,
       folder,
@@ -393,6 +389,7 @@ export async function registerSlackMainGroup(options: {
       agentConfig: existingGroup?.agentConfig,
     };
     await db.setConversationRoute(options.chatJid, route);
+
     const settings = loadRuntimeSettings(options.runtimeHome);
     const previousSettings = structuredClone(settings);
     ensureConfiguredConversationBinding(settings, {
@@ -400,15 +397,22 @@ export async function registerSlackMainGroup(options: {
       agentName: groupName,
       agentFolder: folder,
       jid: options.chatJid,
-      displayName: options.displayName,
+      displayName: options.conversationDisplayName || options.displayName,
       trigger: route.trigger,
       requiresTrigger: false,
+      approverIds: options.approverIds,
     });
     await writeDesiredRuntimeSettings({
       runtimeHome: options.runtimeHome,
       settings,
       previousSettings,
     });
+
+    await new PromptProfileService({
+      fileArtifactStore: () => db.getFileArtifactStore(),
+      mirrorProfileFile: createProfileFileMirrorWriter(options.runtimeHome),
+      mirrorFileExists: createProfileFileMirrorExists(options.runtimeHome),
+    }).ensureAgentDefaults({ agentFolder: folder, agentName: groupName });
 
     return { folder, groupName };
   } finally {
@@ -515,6 +519,7 @@ export async function runSlackConnectCommand(
   const approverIds = parseSlackApproverIds(approverInput || '');
   let registeredFolder = '';
   let conversationRouteName = '';
+  let conversationDisplayName = '';
 
   if (normalizedChatJid) {
     const access = await verifySlackChatAccess({
@@ -527,11 +532,14 @@ export async function runSlackConnectCommand(
       if (access.nextAction) p.log.info(access.nextAction);
       return 1;
     }
+    conversationDisplayName = access.chatTitle || normalizedChatJid;
 
     const registered = await registerSlackMainGroup({
       runtimeHome,
       chatJid: normalizedChatJid,
       displayName: loadRuntimeSettings(runtimeHome).agent.name,
+      conversationDisplayName,
+      approverIds,
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -554,7 +562,8 @@ export async function runSlackConnectCommand(
       agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
       jid: normalizedChatJid,
-      displayName: conversationRouteName || settings.agent.name,
+      displayName:
+        conversationDisplayName || conversationRouteName || settings.agent.name,
       trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       approverIds,
