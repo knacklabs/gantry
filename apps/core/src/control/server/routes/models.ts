@@ -42,9 +42,6 @@ function modelToResponse(
     aliases: entry.aliases,
     recommendedAlias: entry.recommendedAlias,
     responseFamily: entry.responseFamily,
-    // The engine + executionProviderId are derived from the provider. Surface
-    // the single derived route as a read-only diagnostic (one-element array for
-    // the stable response shape).
     executionRoutes: executionRoutesForEntry(entry),
     credentialProfileRef: entry.credentialProfileRef,
     modelRoute: {
@@ -65,8 +62,6 @@ function modelToResponse(
     supportsTools: entry.supportsTools,
     inputUsdPerMillionTokens: entry.inputUsdPerMillionTokens,
     outputUsdPerMillionTokens: entry.outputUsdPerMillionTokens,
-    // Availability only when the list endpoint passes the configured set
-    // (modelRoute.id is the provider id the credential is keyed on).
     ...(configuredProviders
       ? { available: configuredProviders.has(entry.modelRoute.id) }
       : {}),
@@ -678,7 +673,11 @@ export async function handleModelRoutes(
           return true;
         }
       }
-      const result = await ctx.patchModelDefaults(body);
+      const result = await ctx.patchModelDefaults(
+        body,
+        auth.appId as AppId,
+        `control-api:${auth.kid}`,
+      );
       if (!result.ok) {
         sendError(res, 400, 'INVALID_REQUEST', result.message);
         return true;

@@ -98,6 +98,8 @@ export type ControlRouteContext = {
   getModelDefaults: () => ControlModelDefaults;
   patchModelDefaults: (
     body: Record<string, unknown>,
+    appId?: AppId,
+    createdBy?: string,
   ) => Promise<ControlModelDefaultsPatchResult>;
   preflightModelPreset: (
     preset: ModelPresetId,

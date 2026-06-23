@@ -37,6 +37,7 @@ let capabilityErrors: string[] = [];
 class FakeRevisionRepo implements SettingsRevisionRepository {
   rows: SettingsRevision[] = [];
   appendError: Error | null = null;
+  lastAppendExpectedRevision: number | null | undefined;
 
   async appendSettingsRevision(input: {
     appId: string;
@@ -46,6 +47,7 @@ class FakeRevisionRepo implements SettingsRevisionRepository {
     note?: string | null;
     expectedRevision?: number | null;
   }): Promise<AppendSettingsRevisionResult> {
+    this.lastAppendExpectedRevision = input.expectedRevision;
     if (this.appendError) throw this.appendError;
     const currentRevision = this.rows.at(-1)?.revision ?? 0;
     if (
@@ -167,6 +169,138 @@ describe('importFleetSettingsRevision', () => {
     expect(logWarn).toHaveBeenCalledWith(
       { err: repo.appendError },
       'settings revision mirror failed after workstation settings applied',
+    );
+  });
+
+  it('required workstation mirror propagates append failure', async () => {
+    capabilityErrors = [];
+    applyRuntimeSettingsDesiredState.mockImplementation(async () =>
+      createDefaultRuntimeSettings(),
+    );
+    const repo = new FakeRevisionRepo();
+    repo.appendError = new Error('settings revisions unavailable');
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings: createDefaultRuntimeSettings(),
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+          },
+          revisionMirrorRequired: true,
+        },
+        createDefaultRuntimeSettings(),
+      ),
+    ).rejects.toThrow('settings revisions unavailable');
+  });
+
+  it('skips a mirrored append when the applied settings already match latest', async () => {
+    capabilityErrors = [];
+    const appliedSettings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async () => appliedSettings,
+    );
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(appliedSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings: createDefaultRuntimeSettings(),
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+      },
+      createDefaultRuntimeSettings(),
+    );
+
+    expect(outcome).toEqual({});
+    expect(repo.rows).toHaveLength(1);
+  });
+
+  it('required workstation mirror appends with the current expected revision', async () => {
+    capabilityErrors = [];
+    const previousSettings = createDefaultRuntimeSettings();
+    const appliedSettings = createDefaultRuntimeSettings();
+    appliedSettings.agent.name = 'new';
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async () => appliedSettings,
+    );
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: settingsToRevisionDocument(previousSettings),
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+      },
+      appliedSettings,
+    );
+
+    expect(repo.lastAppendExpectedRevision).toBe(1);
+    expect(repo.rows).toHaveLength(2);
+  });
+
+  it('treats post-append local apply failure as committed for required mirror', async () => {
+    capabilityErrors = [];
+    const previousSettings = createDefaultRuntimeSettings();
+    const nextSettings = createDefaultRuntimeSettings();
+    nextSettings.agent.name = 'committed';
+    applyRuntimeSettingsDesiredState.mockRejectedValueOnce(
+      new Error('local apply failed'),
+    );
+    const repo = new FakeRevisionRepo();
+    const logWarn = vi.fn();
+
+    await expect(
+      importWorkstationSettings(
+        {
+          runtimeHome: '/tmp/gantry-import-test',
+          ops: {} as never,
+          repositories: {} as never,
+          appId: 'default' as never,
+          previousSettings,
+          revisionMirror: {
+            settingsRevisions: repo,
+            createdBy: 'test:fleet',
+            logWarn,
+          },
+          revisionMirrorRequired: true,
+        },
+        nextSettings,
+      ),
+    ).resolves.toEqual({ revision: 1 });
+    expect(logWarn).toHaveBeenCalledWith(
+      { err: expect.any(Error), revision: 1 },
+      'settings revision appended but local apply failed',
     );
   });
 

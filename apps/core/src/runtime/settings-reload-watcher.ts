@@ -11,7 +11,9 @@ import {
 } from '../config/settings/desired-state-service.js';
 import {
   importWorkstationSettings,
+  settingsMatchesLatestRevision,
   settingsToRevisionDocument,
+  stableJson,
   type SettingsRevisionMirror,
 } from '../config/settings/settings-import-service.js';
 import { invalidateSenderAllowlistCache } from '../platform/sender-allowlist.js';
@@ -176,21 +178,6 @@ export function startSettingsReloadWatcher(
   };
 }
 
-async function settingsMatchesLatestRevision(input: {
-  appId: AppId;
-  settings: ReturnType<typeof loadRuntimeSettings>;
-  settingsRevisions: SettingsRevisionRepository;
-}): Promise<boolean> {
-  const latest = await input.settingsRevisions.getLatestSettingsRevision(
-    input.appId,
-  );
-  if (!latest) return false;
-  return (
-    stableJson(latest.settingsDocument) ===
-    stableJson(settingsToRevisionDocument(input.settings))
-  );
-}
-
 function settingsDocumentsMatch(
   left: ReturnType<typeof loadRuntimeSettings>,
   right: ReturnType<typeof loadRuntimeSettings>,
@@ -199,18 +186,4 @@ function settingsDocumentsMatch(
     stableJson(settingsToRevisionDocument(left)) ===
     stableJson(settingsToRevisionDocument(right))
   );
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .filter(([, nested]) => nested !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
 }

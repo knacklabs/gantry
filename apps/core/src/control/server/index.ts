@@ -238,6 +238,8 @@ export function startControlServer(input: {
     return {
       ops: getRuntimeRepositories(),
       repositories: storage.repositories,
+      settingsRevisions: storage.repositories.settingsRevisions,
+      pool: storage.service.pool,
     };
   });
   const socketPath =
@@ -365,14 +367,19 @@ export function startControlServer(input: {
     },
     sendConversationIngressProjection: input.sendConversationIngressProjection,
     getBrowserStatus: input.getBrowserStatus,
-    syncSettingsFromProjection: (appId: AppId) =>
-      syncRuntimeSettingsFromProjection({
+    syncSettingsFromProjection: (appId: AppId) => {
+      const storage = getRuntimeStorage();
+      return syncRuntimeSettingsFromProjection({
         runtimeHome: GANTRY_HOME,
         ops: getRuntimeRepositories(),
-        repositories: getRuntimeStorage().repositories,
+        repositories: storage.repositories,
         appId,
+        settingsRevisions: storage.repositories.settingsRevisions,
+        pool: storage.service?.pool,
+        createdBy: 'control-api:projection-sync',
         reloadRuntimeState: () => input.app.loadState(),
-      }),
+      });
+    },
     getSelectedAgentHarness: (agentFolder?: string) =>
       getSelectedAgentHarness(agentFolder),
   };

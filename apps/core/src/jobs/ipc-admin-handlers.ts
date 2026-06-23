@@ -844,10 +844,14 @@ async function createMcpProxyForSourceGroup(input: {
 async function syncApprovedCapabilitySettings(
   appId: import('../domain/app/app.js').AppId,
 ): Promise<void> {
+  const storage = getRuntimeStorage();
   await syncRuntimeSettingsFromProjection({
     runtimeHome: GANTRY_HOME,
     ops: getRuntimeRepositories(),
-    repositories: getRuntimeStorage().repositories,
+    repositories: storage.repositories,
+    settingsRevisions: storage.repositories.settingsRevisions,
+    pool: storage.service?.pool,
+    createdBy: 'capability-approval:projection-sync',
     appId,
   });
 }

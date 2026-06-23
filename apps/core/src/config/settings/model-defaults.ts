@@ -8,6 +8,7 @@ import {
   type ModelPresetId,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
+import type { AppId } from '../../domain/app/app.js';
 import {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
@@ -202,6 +203,8 @@ function resetMemoryDefaults(
 export async function updateRuntimeModelDefaults(input: {
   runtimeHome: string;
   body: Record<string, unknown>;
+  appId?: AppId;
+  createdBy?: string;
 }): Promise<RuntimeModelDefaultsPatchResult> {
   const supportedFields = new Set([
     'preset',
@@ -299,6 +302,8 @@ export async function updateRuntimeModelDefaults(input: {
     runtimeHome: input.runtimeHome,
     settings,
     previousSettings,
+    appId: input.appId,
+    createdBy: input.createdBy,
   });
   return { ok: true };
 }

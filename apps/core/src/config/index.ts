@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import { resolveModelAlias } from '../shared/model-catalog.js';
+import type { AppId } from '../domain/app/app.js';
 import {
   AUTO_AGENT_HARNESS,
   type AgentHarness,
@@ -388,10 +389,16 @@ export function getRuntimeModelDefaults() {
   });
 }
 
-export function patchRuntimeModelDefaults(body: Record<string, unknown>) {
+export function patchRuntimeModelDefaults(
+  body: Record<string, unknown>,
+  appId?: AppId,
+  createdBy?: string,
+) {
   return updateRuntimeModelDefaults({
     runtimeHome: GANTRY_HOME,
     body,
+    appId,
+    createdBy,
   });
 }
 export function getEffectiveModelConfig(

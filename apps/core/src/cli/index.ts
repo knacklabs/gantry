@@ -41,6 +41,8 @@ configureDesiredSettingsStorageProvider(async () => {
     return {
       ops: storage.ops,
       repositories: storage.repositories,
+      settingsRevisions: storage.repositories.settingsRevisions,
+      pool: storage.service.pool,
     };
   } catch {
     // CLI invocations usually run outside the runtime process.
@@ -50,6 +52,8 @@ configureDesiredSettingsStorageProvider(async () => {
     return {
       ops: storage.ops,
       repositories: storage.repositories,
+      settingsRevisions: storage.repositories.settingsRevisions,
+      pool: storage.service.pool,
     };
   } catch (err) {
     if (!isStorageUnavailableError(err)) throw err;

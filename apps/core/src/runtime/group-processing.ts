@@ -1,12 +1,4 @@
-import {
-  getDefaultModelConfig,
-  getRuntimeSettingsForConfig,
-  getTriggerPattern,
-  IDLE_TIMEOUT,
-  MAX_MESSAGES_PER_PROMPT,
-  MESSAGE_FETCH_PAGE_SIZE,
-  TIMEZONE,
-} from '../config/index.js';
+import * as config from '../config/index.js';
 import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
@@ -17,10 +9,7 @@ import {
   createSerializedAgentOutputCallbacks,
   isAgentTurnCompleteMarker,
 } from './agent-output-callbacks.js';
-import {
-  sendFinalProgressUpdate,
-  type FinalProgressState,
-} from './progress-updates.js';
+import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
 import {
   formatMessages,
@@ -124,8 +113,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
         chatJid,
         sinceCursor: await deps.getCursor(queueJid),
-        pageSize: MESSAGE_FETCH_PAGE_SIZE,
-        maxMessages: MAX_MESSAGES_PER_PROMPT,
+        pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+        maxMessages: config.MAX_MESSAGES_PER_PROMPT,
         options: scopedQueue ? { threadId: queueThreadId ?? null } : undefined,
       });
     if (missedMessages.length === 0) return true;
@@ -169,13 +158,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const senderCommandPolicy = createSenderCommandPolicy({
       chatJid,
       group,
-      triggerPattern: getTriggerPattern(group.trigger),
+      triggerPattern: config.getTriggerPattern(group.trigger),
     });
     const cmdResult = await handleSessionCommand({
       missedMessages,
       groupName: group.name,
-      triggerPattern: getTriggerPattern(group.trigger),
-      timezone: TIMEZONE,
+      triggerPattern: config.getTriggerPattern(group.trigger),
+      timezone: config.TIMEZONE,
       deps: {
         sendMessage: (text, options) =>
           sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
@@ -209,14 +198,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         }),
         formatMessages,
         getDefaultModel: () =>
-          getDefaultModelConfig('interactive', group.folder).model,
+          config.getDefaultModelConfig('interactive', group.folder).model,
         getJobModelDefaults: () => ({
-          oneTime: getDefaultModelConfig('oneTimeJob', group.folder).model,
-          recurring: getDefaultModelConfig('recurringJob', group.folder).model,
+          oneTime: config.getDefaultModelConfig('oneTimeJob', group.folder)
+            .model,
+          recurring: config.getDefaultModelConfig('recurringJob', group.folder)
+            .model,
         }),
         getConfiguredModelProviders: () =>
           getConfiguredModelProvidersForApp(turnAppId),
-        getModelFamilyOrder: () => getRuntimeSettingsForConfig().modelFamilies,
+        getModelFamilyOrder: () =>
+          config.getRuntimeSettingsForConfig().modelFamilies,
         getGroupModelOverride: () => group.agentConfig?.model,
         setGroupModelOverride: async (value) =>
           deps.setGroupModelOverride(chatJid, value),
@@ -254,7 +246,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             defaultScope: defaultMemoryScope,
           }),
         getMemoryStatus: async () => {
-          const memory = getRuntimeSettingsForConfig().memory;
+          const memory = config.getRuntimeSettingsForConfig().memory;
           return getGroupMemoryStatus(
             {
               folder: group.folder,
@@ -286,14 +278,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       },
     });
     if (cmdResult.handled) {
-      missedMessagesRemain && deps.queue.enqueueMessageCheck(queueJid);
+      if (missedMessagesRemain) deps.queue.enqueueMessageCheck(queueJid);
       return cmdResult.success;
     }
     if (
       !groupTurnHasRequiredTrigger({
         group,
         chatJid,
-        triggerPattern: getTriggerPattern(group.trigger),
+        triggerPattern: config.getTriggerPattern(group.trigger),
         messages: missedMessages,
       })
     ) {
@@ -302,10 +294,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         encodeGroupMessageCursor(toGroupMessageCursor(latestMessage)),
       );
       await deps.saveState();
-      missedMessagesRemain && deps.queue.enqueueMessageCheck(queueJid);
+      if (missedMessagesRemain) deps.queue.enqueueMessageCheck(queueJid);
       return true;
     }
-    const prompt = formatMessages(missedMessages, TIMEZONE);
+    const prompt = formatMessages(missedMessages, config.TIMEZONE);
     const recallQuery = buildMemoryRecallQueryFromMessages(missedMessages);
     const previousCursor = (await deps.getCursor(queueJid)) || '';
     deps.setCursor(
@@ -334,7 +326,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           'Idle timeout, closing agent runner stdin',
         );
         deps.queue.closeStdin(queueJid);
-      }, IDLE_TIMEOUT);
+      }, config.IDLE_TIMEOUT);
     };
     resetIdleTimer();
     let typingActive = false;
@@ -372,11 +364,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         () => undefined,
       );
     };
-    const sendDoneProgress = async (state: FinalProgressState) => {
+    const sendDoneProgress = async (state: progress.FinalProgressState) => {
       if (!supportsProgress) return;
       const generation = progressGeneration;
       finalizingProgressGenerations.add(generation);
-      await sendFinalProgressUpdate({
+      await progress.sendFinalProgressUpdate({
         enabled: true,
         state,
         elapsed: formatElapsed(activeElapsedMs()),
@@ -393,7 +385,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let sentAnyTurnDoneProgress = false;
     let sentTurnDoneProgressGeneration: number | null = null;
     let userVisibleTurnProgressReady: Promise<void> | null = null;
-    const sendTurnDoneProgress = async (state: FinalProgressState) => {
+    const sendTurnDoneProgress = async (state: progress.FinalProgressState) => {
       if (
         !activeGenerationHasOutput ||
         sentTurnDoneProgressGeneration === progressGeneration

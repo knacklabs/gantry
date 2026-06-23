@@ -43,25 +43,18 @@ export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
 };
 
 export const DEFAULT_PROMPT_TOTAL_BUDGET = 26000;
-
-// Locked (public-facing) agents must not know the capability-request machinery
-// exists: every request/approval/admin instruction is replaced by this single
-// fragment, mirroring the parent-side tool-surface policy in config/profiles.
 export type PromptAccessPreset = 'full' | 'locked';
-
 const LOCKED_TOOL_ACCESS_GUIDANCE = [
   '- Work only with the tools and knowledge currently available in this session.',
   '- If something cannot be done with the available tools, say so plainly and offer what you can do instead.',
   '- Never mention internal capability, approval, or permission machinery to the user.',
 ];
-
 const RUNTIME_RULES_COMMON = [
   '# Gantry Runtime Rules',
   '- Follow Gantry safety and execution constraints exactly.',
   '- Keep static profile behavior separate from query-retrieved memory context.',
   '- Treat group boundaries as strict isolation boundaries unless explicitly overridden by host policy.',
 ];
-
 const RUNTIME_RULES_BLOCK = [
   ...RUNTIME_RULES_COMMON,
   '- Use Gantry request tools for capability and settings changes; never install dependencies or edit skills, MCP, settings, or permission config directly.',

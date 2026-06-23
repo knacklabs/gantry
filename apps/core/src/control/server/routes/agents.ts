@@ -156,13 +156,21 @@ export async function handleAgentRoutes(
       updatedAt: now,
     };
     await getRuntimeStorage().repositories.agents.saveAgent(agent);
+    let settingsWritten = false;
     if (parsed.data.agentHarness) {
-      await writeAgentHarnessSetting(ctx.runtimeHome, folder, {
-        name: agent.name,
-        agentHarness: parsed.data.agentHarness,
-      });
+      await writeAgentHarnessSetting(
+        ctx.runtimeHome,
+        auth.appId as AppId,
+        folder,
+        {
+          name: agent.name,
+          agentHarness: parsed.data.agentHarness,
+        },
+      );
+      settingsWritten = true;
     }
-    await ctx.syncSettingsFromProjection(auth.appId as AppId);
+    if (!settingsWritten)
+      await ctx.syncSettingsFromProjection(auth.appId as AppId);
     sendJson(res, 201, agentToResponse(ctx, agent));
     return true;
   }
@@ -379,16 +387,24 @@ export async function handleAgentRoutes(
       return true;
     }
     await repository.saveAgent(updated);
+    let settingsWritten = false;
     if (parsed.data.agentHarness && updated.status === 'active') {
       const folder = folderForAgentId(updated.id);
       if (folder) {
-        await writeAgentHarnessSetting(ctx.runtimeHome, folder, {
-          name: updated.name,
-          agentHarness: parsed.data.agentHarness,
-        });
+        await writeAgentHarnessSetting(
+          ctx.runtimeHome,
+          auth.appId as AppId,
+          folder,
+          {
+            name: updated.name,
+            agentHarness: parsed.data.agentHarness,
+          },
+        );
+        settingsWritten = true;
       }
     }
-    await ctx.syncSettingsFromProjection(auth.appId as AppId);
+    if (!settingsWritten)
+      await ctx.syncSettingsFromProjection(auth.appId as AppId);
     sendJson(res, 200, agentToResponse(ctx, updated));
     return true;
   }
@@ -435,6 +451,7 @@ function agentToResponse(ctx: ControlRouteContext, agent: Agent) {
 
 async function writeAgentHarnessSetting(
   runtimeHome: string,
+  appId: AppId,
   folder: string,
   input: {
     name: string;
@@ -458,6 +475,8 @@ async function writeAgentHarnessSetting(
     runtimeHome,
     settings,
     previousSettings,
+    appId,
+    createdBy: 'control-api:agent-harness',
   });
 }
 
