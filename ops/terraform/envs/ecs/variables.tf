@@ -60,8 +60,8 @@ variable "gantry_control_api_keys_json_secret_arn" {
   type        = string
 }
 
-variable "migration_database_url_secret_arn" {
-  description = "Optional Secrets Manager ARN of the MIGRATION_DATABASE_URL secret. Empty string disables it."
+variable "bootstrap_database_url_secret_arn" {
+  description = "Optional Secrets Manager ARN of the first-boot database URL. Injected only into the control ECS service as GANTRY_BOOTSTRAP_DATABASE_URL. Empty string makes control use GANTRY_DATABASE_URL for migrations."
   type        = string
   default     = ""
 }

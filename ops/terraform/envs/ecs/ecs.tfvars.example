@@ -17,13 +17,11 @@ ecs_capacity_desired_capacity = 2
 
 # --- Secret REFERENCES (ARNs). Create the secret values first (see runbook). ---
 runtime_database_url_secret_arn         = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/runtime-db-url-REPLACE"
+bootstrap_database_url_secret_arn       = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/bootstrap-db-url-REPLACE"
 db_proxy_secret_arn                     = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/db-proxy-runtime-role-REPLACE"
 secret_encryption_key_secret_arn        = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/secret-encryption-key-REPLACE"
 gantry_ipc_auth_secret_arn              = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/ipc-auth-secret-REPLACE"
 gantry_control_api_keys_json_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/control-api-keys-json-REPLACE"
-
-# Optional: migration role distinct from runtime role.
-# migration_database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/migration-db-url-REPLACE"
 
 # Optional: channel/provider credentials.
 # additional_runtime_secret_refs = [

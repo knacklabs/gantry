@@ -19,7 +19,14 @@ locals {
     }
   }
 
-  runtime_secret_arns = distinct([for ref in var.runtime_secret_env_refs : ref.secret_arn])
+  runtime_secret_arns = distinct(concat(
+    [for ref in var.runtime_secret_env_refs : ref.secret_arn],
+    flatten([
+      for refs in values(var.runtime_secret_env_refs_by_role) : [
+        for ref in refs : ref.secret_arn
+      ]
+    ]),
+  ))
 
   created_capacity_provider_names = [
     for provider in aws_ecs_capacity_provider.ec2 : provider.name
@@ -32,7 +39,7 @@ locals {
 
   common_environment = merge(
     {
-      NODE_ENV                    = "production"
+      NODE_ENV                   = "production"
       GANTRY_SECURITY_POSTURE    = "production"
       GANTRY_CONTROL_HOST        = "0.0.0.0"
       GANTRY_HOME                = "/var/lib/gantry"
@@ -237,6 +244,10 @@ resource "aws_ecs_task_definition" "service" {
         [
           { name = "GANTRY_PROCESS_ROLE", value = each.value.role },
           { name = "GANTRY_CONTROL_PORT", value = tostring(var.control_port) },
+          {
+            name  = "GANTRY_SKIP_MIGRATIONS"
+            value = each.value.role == "control" || !contains(local.enabled_roles, "control") ? "0" : "1"
+          },
         ],
         [
           for name, value in local.common_environment : {
@@ -247,7 +258,10 @@ resource "aws_ecs_task_definition" "service" {
       )
 
       secrets = [
-        for ref in var.runtime_secret_env_refs : {
+        for ref in concat(
+          var.runtime_secret_env_refs,
+          lookup(var.runtime_secret_env_refs_by_role, each.value.role, []),
+          ) : {
           name      = ref.env_name
           valueFrom = ref.secret_arn
         }
@@ -319,7 +333,7 @@ resource "aws_ecs_service" "service" {
   dynamic "load_balancer" {
     for_each = each.key == "control" && var.control_target_group_arn != "" ? [
       var.control_target_group_arn,
-    ] : each.key == "live-worker" && var.live_target_group_arn != "" ? [
+      ] : each.key == "live-worker" && var.live_target_group_arn != "" ? [
       var.live_target_group_arn,
     ] : []
     content {

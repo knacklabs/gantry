@@ -62,6 +62,8 @@ Important constraints:
 - Outbound durable delivery recovery startup must claim due items across app scopes; do not hard-code startup recovery claims to `appId: 'default'`.
 - Jobs must use canonical `execution_context` and `notification_routes` for runtime execution/delivery targeting; do not add or mirror legacy job-notification alias fields.
 - Postgres `pgcrypto` must be installed in `public` schema for shared test/runtime databases; schema-scoped extension installs break `digest()` lookups under per-schema `search_path`.
+- Workstation `settings.yaml` remains the local desired-state authority; `settings_revisions` rows are mirror, audit, and bootstrap evidence unless the runtime is explicitly fleet mode.
+- Docker migrations use `GANTRY_BOOTSTRAP_DATABASE_URL` for optional first-boot setup credentials and otherwise fall back to `GANTRY_DATABASE_URL`, then unset the bootstrap URL before starting the long-lived runtime.
 - When using Drizzle Postgres upserts, do not assume `onConflictDoUpdate.target` supports SQL expressions; expression-index identities require explicit insert + unique-violation update flows.
 
 ## Architecture Rules

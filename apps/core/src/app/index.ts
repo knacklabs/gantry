@@ -167,6 +167,9 @@ export async function startGantryRuntime(
         app,
         ops: storage.ops,
         repositories: storage.repositories,
+        appId: 'default' as AppId,
+        settingsRevisions: storage.repositories.settingsRevisions,
+        settingsRevisionPool: storage.service.pool,
       });
   let fleetSubsystems: FleetSubsystems | undefined;
   const browserToolModulePath = [

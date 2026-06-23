@@ -21,7 +21,7 @@ locals {
   name_prefix = var.name_prefix
 
   # Runtime secrets injected into every worker as env vars. The DB URL is
-  # required; the migration URL and any extras are appended when set.
+  # required; any extras are appended when set.
   base_runtime_refs = concat(
     [
       { env_name = "GANTRY_DATABASE_URL", secret_arn = var.runtime_database_url_secret_arn },
@@ -29,13 +29,17 @@ locals {
       { env_name = "GANTRY_IPC_AUTH_SECRET", secret_arn = var.gantry_ipc_auth_secret_arn },
       { env_name = "GANTRY_CONTROL_API_KEYS_JSON", secret_arn = var.gantry_control_api_keys_json_secret_arn },
     ],
-    var.migration_database_url_secret_arn != "" ?
-    [{ env_name = "MIGRATION_DATABASE_URL", secret_arn = var.migration_database_url_secret_arn }] : [],
     var.additional_runtime_secret_refs,
   )
 
+  bootstrap_runtime_refs = var.bootstrap_database_url_secret_arn != "" ? [
+    { env_name = "GANTRY_BOOTSTRAP_DATABASE_URL", secret_arn = var.bootstrap_database_url_secret_arn },
+  ] : []
+  control_runtime_refs = concat(local.base_runtime_refs, local.bootstrap_runtime_refs)
+
   # Distinct secret ARNs the worker role must be allowed to read.
-  worker_secret_arns = distinct([for r in local.base_runtime_refs : r.secret_arn])
+  worker_secret_arns    = distinct([for r in local.base_runtime_refs : r.secret_arn])
+  bootstrap_secret_arns = distinct([for r in local.bootstrap_runtime_refs : r.secret_arn])
 }
 
 module "network" {
@@ -58,6 +62,14 @@ module "secrets" {
   tags                = var.tags
 }
 
+module "bootstrap_secrets" {
+  source              = "../../modules/secrets"
+  name_prefix         = "${local.name_prefix}-bootstrap"
+  runtime_secret_arns = local.bootstrap_secret_arns
+  kms_key_arns        = var.secret_kms_key_arns
+  tags                = var.tags
+}
+
 module "control" {
   source            = "../../modules/control"
   name_prefix       = local.name_prefix
@@ -75,6 +87,10 @@ locals {
     module.storage.worker_browser_rw_policy_arn,
     module.secrets.runtime_secret_read_policy_arn,
   ])
+  control_instance_policy_arns = compact(concat(
+    local.worker_instance_policy_arns,
+    [module.bootstrap_secrets.runtime_secret_read_policy_arn],
+  ))
 }
 
 # Control plane pool. Takes /v1/* from the ALB (control target group). Runs no
@@ -99,8 +115,9 @@ module "control_worker" {
   drain_deadline_seconds  = var.drain_deadline_seconds
   target_group_arns       = [module.control.control_target_group_arn]
   alb_security_group_id   = module.control.alb_security_group_id
-  instance_policy_arns    = local.worker_instance_policy_arns
-  runtime_secret_env_refs = local.base_runtime_refs
+  instance_policy_arns    = local.control_instance_policy_arns
+  runtime_secret_env_refs = local.control_runtime_refs
+  skip_migrations         = false
   artifact_bucket_name    = module.storage.bucket_name
   tags                    = var.tags
 }
@@ -130,6 +147,7 @@ module "live_worker" {
   alb_security_group_id   = module.control.alb_security_group_id
   instance_policy_arns    = local.worker_instance_policy_arns
   runtime_secret_env_refs = local.base_runtime_refs
+  skip_migrations         = true
   artifact_bucket_name    = module.storage.bucket_name
   tags                    = var.tags
 }
@@ -139,42 +157,43 @@ module "live_worker" {
 # the pool's control port is reachable only inside the VPC for ops checks). Jobs
 # are claimable by any job-worker, so this scales horizontally on job/bake load.
 module "job_worker" {
-  source                  = "../../modules/worker_pool"
-  name_prefix             = local.name_prefix
-  vpc_id                  = module.network.vpc_id
-  subnet_ids              = module.network.private_subnet_ids
-  image_ref               = var.image_ref
-  ami_id                  = var.worker_ami_id
-  instance_type           = var.job_worker_instance_type
-  process_role            = "job-worker"
-  min_size                = var.job_worker_min_size
-  max_size                = var.job_worker_max_size
-  desired_capacity        = var.job_worker_desired_capacity
-  autoscaling_enabled     = var.job_worker_autoscaling_enabled
-  cpu_target_value        = var.job_worker_cpu_target
-  drain_deadline_seconds  = var.drain_deadline_seconds
-  target_group_arns       = []
-  alb_security_group_id   = ""
+  source                 = "../../modules/worker_pool"
+  name_prefix            = local.name_prefix
+  vpc_id                 = module.network.vpc_id
+  subnet_ids             = module.network.private_subnet_ids
+  image_ref              = var.image_ref
+  ami_id                 = var.worker_ami_id
+  instance_type          = var.job_worker_instance_type
+  process_role           = "job-worker"
+  min_size               = var.job_worker_min_size
+  max_size               = var.job_worker_max_size
+  desired_capacity       = var.job_worker_desired_capacity
+  autoscaling_enabled    = var.job_worker_autoscaling_enabled
+  cpu_target_value       = var.job_worker_cpu_target
+  drain_deadline_seconds = var.drain_deadline_seconds
+  target_group_arns      = []
+  alb_security_group_id  = ""
   instance_policy_arns = concat(
     local.worker_instance_policy_arns,
     [module.storage.bake_rw_policy_arn],
   )
   runtime_secret_env_refs = local.base_runtime_refs
+  skip_migrations         = true
   artifact_bucket_name    = module.storage.bucket_name
   tags                    = var.tags
 }
 
 module "database" {
-  source                     = "../../modules/database"
-  name_prefix                = local.name_prefix
-  vpc_id                     = module.network.vpc_id
-  subnet_ids                 = module.network.private_subnet_ids
-  engine_version             = var.db_engine_version
-  instance_class             = var.db_instance_class
-  multi_az                   = var.db_multi_az
-  deletion_protection        = var.db_deletion_protection
-  proxy_secret_arn           = var.db_proxy_secret_arn
-  kms_key_arns               = var.secret_kms_key_arns
+  source              = "../../modules/database"
+  name_prefix         = local.name_prefix
+  vpc_id              = module.network.vpc_id
+  subnet_ids          = module.network.private_subnet_ids
+  engine_version      = var.db_engine_version
+  instance_class      = var.db_instance_class
+  multi_az            = var.db_multi_az
+  deletion_protection = var.db_deletion_protection
+  proxy_secret_arn    = var.db_proxy_secret_arn
+  kms_key_arns        = var.secret_kms_key_arns
   ingress_security_group_ids = [
     module.control_worker.security_group_id,
     module.live_worker.security_group_id,

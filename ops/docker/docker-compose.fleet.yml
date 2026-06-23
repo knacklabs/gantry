@@ -71,8 +71,7 @@ x-worker-base: &worker-base
     # settings key, seeded into desired state (see the seed step below), not an
     # env var. The process role is GANTRY_PROCESS_ROLE, set per service below.
     GANTRY_SECURITY_POSTURE: production
-    # Runtime DB role (runtime URL). The migration role can differ via
-    # MIGRATION_DATABASE_URL; here we use one role for rehearsal simplicity.
+    # Local rehearsal uses one DB role for runtime and bootstrap migrations.
     GANTRY_DATABASE_URL: >-
       postgres://gantry_app:${GANTRY_DB_PASSWORD:-gantry_app_password}@postgres:5432/gantry
     GANTRY_DB_SCHEMA: gantry
@@ -98,10 +97,8 @@ x-worker-base: &worker-base
     AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-gantry_minio_password}
     AWS_REGION: ${GANTRY_ARTIFACT_S3_REGION:-us-east-1}
     # One explicit migrator: control migrates (GANTRY_SKIP_MIGRATIONS=0); the
-    # worker roles skip the explicit pass and override this to '1' below. The
-    # runtime boot-time migrate() still takes the same advisory lock on every
-    # role, so this only avoids redundant explicit passes — it is never a
-    # correctness dependency.
+    # worker roles skip migration and rely on the seeded schema from control.
+    # Readiness still fails closed if the schema was not migrated.
     GANTRY_SKIP_MIGRATIONS: '1'
   healthcheck:
     # Readiness gates traffic: 503 while migrations/settings load or while draining.

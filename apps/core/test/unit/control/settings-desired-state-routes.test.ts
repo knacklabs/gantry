@@ -39,6 +39,7 @@ vi.mock('@core/config/settings/settings-import-service.js', async () => {
     importFleetSettingsRevision: vi.fn(async () => importOutcome.current),
     importWorkstationSettings: vi.fn(async (_deps, settings) => {
       workstationImports.push(settings);
+      return { revision: 11 };
     }),
   };
 });
@@ -183,7 +184,7 @@ describe('settings desired-state control routes', () => {
       { deploymentMode: 'workstation' },
     );
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ revision: 0 });
+    expect(JSON.parse(res.body)).toEqual({ revision: 11 });
     expect(workstationImports).toHaveLength(1);
   });
 

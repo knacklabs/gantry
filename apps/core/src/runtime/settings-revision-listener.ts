@@ -54,7 +54,7 @@ export interface SettingsRevisionListenerDeps {
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 
 /**
- * Worker-side settings-revision listener (fleet mode only). On a NOTIFY wakeup
+ * Fleet-side settings-revision listener. On a NOTIFY wakeup
  * or the interval poll it fetches the latest `settings_revisions` row and:
  *
  *  - holds its last-applied revision and alerts when the revision's
@@ -64,6 +64,8 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
  *    workstation watcher uses (`importWorkstationSettings`), writing the
  *    runtime settings home and reloading runtime state.
  *
+ * Workstation does not run this listener: local `settings.yaml` remains the
+ * authority there and may mirror forward into revisions for audit/bootstrap.
  * All background work is stoppable via {@link stop}; the poll timer is unref'd
  * so it never holds the process open in tests.
  */
@@ -206,7 +208,7 @@ export class SettingsRevisionListener {
     }
     this.deps.logInfo?.(
       { appId: revision.appId, revision: revision.revision },
-      'Applied fleet settings revision',
+      'Applied settings revision',
     );
   }
 

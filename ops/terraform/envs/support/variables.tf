@@ -65,8 +65,8 @@ variable "gantry_control_api_keys_json_secret_arn" {
   }
 }
 
-variable "migration_database_url_secret_arn" {
-  description = "Optional Secrets Manager ARN of the migration-role DATABASE_URL. Injected as MIGRATION_DATABASE_URL when set."
+variable "bootstrap_database_url_secret_arn" {
+  description = "Optional Secrets Manager ARN of the first-boot database URL. Injected as GANTRY_BOOTSTRAP_DATABASE_URL and unset before the runtime starts. Empty string makes the worker use GANTRY_DATABASE_URL for migrations."
   type        = string
   default     = ""
 }

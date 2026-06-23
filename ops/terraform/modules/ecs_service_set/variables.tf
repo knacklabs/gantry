@@ -74,6 +74,24 @@ variable "runtime_secret_env_refs" {
   }
 }
 
+variable "runtime_secret_env_refs_by_role" {
+  description = "Additional runtime secret env refs injected only into the matching ECS role, keyed by control, live-worker, and job-worker."
+  type = map(list(object({
+    env_name   = string
+    secret_arn = string
+  })))
+  default = {}
+
+  validation {
+    condition = alltrue(flatten([
+      for refs in values(var.runtime_secret_env_refs_by_role) : [
+        for ref in refs : can(regex("^arn:aws[a-zA-Z-]*:secretsmanager:", ref.secret_arn))
+      ]
+    ]))
+    error_message = "Every runtime_secret_env_refs_by_role secret_arn must be a Secrets Manager ARN."
+  }
+}
+
 variable "secret_kms_key_arns" {
   description = "KMS key ARNs encrypting referenced runtime secrets, if customer-managed."
   type        = list(string)
@@ -108,10 +126,10 @@ variable "task_policy_arns_by_role" {
 variable "ec2_capacity_providers" {
   description = "Optional EC2 capacity providers to create from existing Auto Scaling Groups. Managed scaling lets pending ECS tasks trigger instance scale-out."
   type = map(object({
-    auto_scaling_group_arn         = string
-    managed_scaling_status         = optional(string, "ENABLED")
+    auto_scaling_group_arn          = string
+    managed_scaling_status          = optional(string, "ENABLED")
     managed_scaling_target_capacity = optional(number, 80)
-    managed_termination_protection = optional(string, "DISABLED")
+    managed_termination_protection  = optional(string, "DISABLED")
   }))
   default = {}
 }

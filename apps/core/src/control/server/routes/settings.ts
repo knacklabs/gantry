@@ -8,6 +8,7 @@ import {
   settingsFromRevisionDocument,
 } from '../../../config/settings/settings-import-service.js';
 import type { AppId } from '../../../domain/app/app.js';
+import { logger } from '../../../infrastructure/logging/logger.js';
 import type { RuntimeDeploymentMode } from '../../../shared/runtime-deployment-mode.js';
 import {
   authorizeControlRequest,
@@ -57,12 +58,12 @@ export async function handleSettingsRoutes(
 }
 
 /**
- * Fleet desired-state surface (ADR-3). The API/SDK/future UI speak the typed
+ * Desired-state revision surface. The API/SDK/future UI speak the typed
  * JSON settings document (the same shape stored as `settings_revisions` jsonb);
  * YAML is the human file format for the workstation file + CLI `--file` edge
  * only and never appears here. Mutations decode the inbound document through the
  * shared settings parser and append a `settings_revisions` row through the same
- * validation path the file import uses; workers converge via NOTIFY + poll.
+ * validation path the file import uses; runtimes converge via NOTIFY + poll.
  */
 async function handleDesiredState(
   req: IncomingMessage,
@@ -161,8 +162,9 @@ async function handleDesiredState(
         );
         return true;
       }
+      let revision = 0;
       try {
-        await importWorkstationSettings(
+        const outcome = await importWorkstationSettings(
           {
             runtimeHome: ctx.runtimeHome,
             ops: storage.ops,
@@ -170,9 +172,17 @@ async function handleDesiredState(
             appId,
             previousSettings: ctx.getInternalRuntimeSettings() as never,
             reloadRuntimeState: () => ctx.app.loadState(),
+            revisionMirror: {
+              settingsRevisions: storage.repositories.settingsRevisions,
+              pool: storage.service.pool,
+              createdBy: `control-api:${key.kid}`,
+              note: typeof body.note === 'string' ? body.note : null,
+              logWarn: (context, message) => logger.warn(context, message),
+            },
           },
           parsed,
         );
+        revision = outcome.revision ?? 0;
       } catch (err) {
         sendError(
           res,
@@ -184,7 +194,7 @@ async function handleDesiredState(
         );
         return true;
       }
-      sendJson(res, 200, { revision: 0 });
+      sendJson(res, 200, { revision });
       return true;
     }
     const outcome = await importFleetSettingsRevision(

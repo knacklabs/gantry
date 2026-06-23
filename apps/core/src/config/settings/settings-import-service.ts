@@ -42,6 +42,15 @@ export interface SettingsImportServiceDeps {
   appId?: AppId;
 }
 
+export interface SettingsRevisionMirror {
+  settingsRevisions: SettingsRevisionRepository;
+  /** Pool used to publish the `pg_notify` wakeup after a successful append. */
+  pool?: Pool;
+  createdBy: string;
+  note?: string | null;
+  logWarn?: (context: Record<string, unknown>, message: string) => void;
+}
+
 /**
  * The single validation path shared by every settings mutation surface (YAML
  * watcher auto-import, CLI `settings import`, and the control-API desired-state
@@ -82,16 +91,17 @@ export async function importWorkstationSettings(
   deps: SettingsImportServiceDeps & {
     previousSettings?: RuntimeSettings;
     reloadRuntimeState?: () => Promise<void>;
+    revisionMirror?: SettingsRevisionMirror;
   },
   settings: RuntimeSettings,
-): Promise<void> {
+): Promise<{ revision?: number }> {
   const validation = await validateSettingsForImport(deps, settings);
   if (!validation.ok) {
     throw new Error(
       ['settings validation failed.', ...validation.errors].join('\n'),
     );
   }
-  await applyRuntimeSettingsDesiredState({
+  const appliedSettings = await applyRuntimeSettingsDesiredState({
     runtimeHome: deps.runtimeHome,
     settings,
     ops: deps.ops,
@@ -100,7 +110,48 @@ export async function importWorkstationSettings(
     previousSettings: deps.previousSettings,
     reloadRuntimeState: deps.reloadRuntimeState,
   });
-  activateRuntimeModelAliases(settings);
+  activateRuntimeModelAliases(appliedSettings);
+  if (!deps.revisionMirror) return {};
+  try {
+    const outcome = await importFleetSettingsRevision(
+      {
+        runtimeHome: deps.runtimeHome,
+        ops: deps.ops,
+        repositories: deps.repositories,
+        appId: deps.appId,
+        settingsRevisions: deps.revisionMirror.settingsRevisions,
+        pool: deps.revisionMirror.pool,
+        createdBy: deps.revisionMirror.createdBy,
+        logWarn: deps.revisionMirror.logWarn,
+      },
+      appliedSettings,
+      { note: deps.revisionMirror.note ?? null },
+    );
+    if (outcome.status === 'invalid') {
+      deps.revisionMirror.logWarn?.(
+        { errors: outcome.errors },
+        'settings revision mirror failed validation after workstation settings applied',
+      );
+      return {};
+    }
+    if (outcome.status === 'conflict') {
+      deps.revisionMirror.logWarn?.(
+        {
+          expectedRevision: outcome.expectedRevision,
+          actualRevision: outcome.actualRevision,
+        },
+        'settings revision mirror conflicted after workstation settings applied',
+      );
+      return {};
+    }
+    return { revision: outcome.revision };
+  } catch (err) {
+    deps.revisionMirror.logWarn?.(
+      { err },
+      'settings revision mirror failed after workstation settings applied',
+    );
+    return {};
+  }
 }
 
 export type FleetImportOutcome =
@@ -177,7 +228,7 @@ export async function importFleetSettingsRevision(
 export function settingsToRevisionDocument(
   settings: RuntimeSettings,
 ): Record<string, unknown> {
-  return stripUndefined({
+  return stripUndefinedDeep({
     desired_state: snakeRecord(settings.desiredState),
     providers: mapRecord(settings.providers, snakeRecord),
     provider_connections: mapRecord(settings.providerConnections, snakeRecord),
@@ -248,7 +299,7 @@ export function settingsToRevisionDocument(
     model_aliases: mapRecord(settings.modelAliases, snakeRecord),
     limits: mapRecord(settings.limits.providers, snakeRecord),
     model_families: settings.modelFamilies,
-  });
+  }) as Record<string, unknown>;
 }
 
 /** Re-hydrate a typed settings document back into typed runtime settings. */
@@ -281,8 +332,19 @@ function snakeRecord(value: unknown): unknown {
 }
 
 function stripUndefined<T extends Record<string, unknown>>(record: T): T {
-  for (const [key, value] of Object.entries(record)) {
-    if (value === undefined) delete record[key];
+  return stripUndefinedDeep(record) as T;
+}
+
+function stripUndefinedDeep(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripUndefinedDeep);
   }
-  return record;
+  if (typeof value !== 'object' || value === null) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+      item === undefined ? [] : [[key, stripUndefinedDeep(item)]],
+    ),
+  );
 }

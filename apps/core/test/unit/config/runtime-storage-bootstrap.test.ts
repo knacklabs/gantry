@@ -10,9 +10,9 @@ import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 const ENV_KEYS = [
   'GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING',
   'GANTRY_DATABASE_URL',
+  'GANTRY_BOOTSTRAP_DATABASE_URL',
   'GANTRY_SETTINGS_POSTGRES_SCHEMA',
   'GANTRY_DB_SCHEMA',
-  'MIGRATION_DATABASE_URL',
   'GANTRY_BOOTSTRAP_DEPLOYMENT_MODE',
   'GANTRY_DEPLOYMENT_MODE',
   'GANTRY_BOOTSTRAP_SANDBOX_PROVIDER',
@@ -44,7 +44,7 @@ describe('runtime storage bootstrap', () => {
     }
   });
 
-  it('creates minimal fleet settings when the container starts with an empty runtime home', () => {
+  it('creates minimal workstation settings when the container starts with an empty runtime home', () => {
     withCleanEnv(() => {
       const runtimeHome = fs.mkdtempSync(
         path.join(os.tmpdir(), 'gantry-storage-bootstrap-'),
@@ -60,10 +60,52 @@ describe('runtime storage bootstrap', () => {
       expect(config.postgresSchema).toBe('reagent');
       expect(config.postgresUrl).toBe(process.env.GANTRY_DATABASE_URL);
       expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
-        'deployment_mode: fleet',
+        'deployment_mode: workstation',
       );
       expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
         'schema: reagent',
+      );
+    });
+  });
+
+  it('defaults bootstrap settings to workstation mode and the Gantry Postgres schema', () => {
+    withCleanEnv(() => {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-storage-bootstrap-'),
+      );
+      homes.push(runtimeHome);
+
+      process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
+
+      const config = resolveRuntimeStorageConfig(runtimeHome, runtimeHome);
+
+      expect(config.postgresSchema).toBe('gantry');
+      expect(config.postgresUrl).toBeNull();
+      expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
+        'deployment_mode: workstation',
+      );
+      expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
+        'schema: gantry',
+      );
+    });
+  });
+
+  it('can derive the bootstrap schema from the first-boot database URL', () => {
+    withCleanEnv(() => {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-storage-bootstrap-'),
+      );
+      homes.push(runtimeHome);
+
+      process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
+      process.env.GANTRY_BOOTSTRAP_DATABASE_URL =
+        'postgres://admin:pass@127.0.0.1:5432/gantry?schema=bootstrap_schema';
+
+      const config = resolveRuntimeStorageConfig(runtimeHome, runtimeHome);
+
+      expect(config.postgresSchema).toBe('bootstrap_schema');
+      expect(fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8')).toContain(
+        'schema: bootstrap_schema',
       );
     });
   });

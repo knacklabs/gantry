@@ -28,7 +28,7 @@ export async function applyRuntimeSettingsDesiredState(input: {
   appId?: AppId;
   previousSettings?: RuntimeSettings;
   reloadRuntimeState?: () => Promise<void>;
-}): Promise<void> {
+}): Promise<RuntimeSettings> {
   const service = new SettingsDesiredStateService({
     ops: input.ops,
     repositories: input.repositories,
@@ -69,6 +69,7 @@ export async function applyRuntimeSettingsDesiredState(input: {
     }
     await input.reloadRuntimeState?.();
     activateRuntimeModelAliases(settings);
+    return settings;
   } catch (err) {
     await rollback();
     throw err;

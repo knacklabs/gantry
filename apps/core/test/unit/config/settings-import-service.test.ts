@@ -9,9 +9,16 @@ import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-sett
 import {
   CURRENT_SETTINGS_READER_VERSION,
   importFleetSettingsRevision,
+  importWorkstationSettings,
   settingsFromRevisionDocument,
   settingsToRevisionDocument,
 } from '@core/config/settings/settings-import-service.js';
+
+const applyRuntimeSettingsDesiredState = vi.hoisted(() => vi.fn());
+
+vi.mock('@core/config/settings/restart-sync.js', () => ({
+  applyRuntimeSettingsDesiredState,
+}));
 
 vi.mock('@core/config/settings/runtime-settings-validation.js', () => ({
   validateLoadedRuntimeSettings: () => ({ ok: true, settings: {} }),
@@ -29,6 +36,7 @@ let capabilityErrors: string[] = [];
 
 class FakeRevisionRepo implements SettingsRevisionRepository {
   rows: SettingsRevision[] = [];
+  appendError: Error | null = null;
 
   async appendSettingsRevision(input: {
     appId: string;
@@ -38,6 +46,7 @@ class FakeRevisionRepo implements SettingsRevisionRepository {
     note?: string | null;
     expectedRevision?: number | null;
   }): Promise<AppendSettingsRevisionResult> {
+    if (this.appendError) throw this.appendError;
     const currentRevision = this.rows.at(-1)?.revision ?? 0;
     if (
       input.expectedRevision !== undefined &&
@@ -88,6 +97,79 @@ function baseDeps(repo: SettingsRevisionRepository) {
 }
 
 describe('importFleetSettingsRevision', () => {
+  it('workstation import can mirror the applied settings into settings revisions', async () => {
+    capabilityErrors = [];
+    const inputSettings = createDefaultRuntimeSettings();
+    inputSettings.agent.name = 'Input Agent';
+    const appliedSettings = structuredClone(inputSettings);
+    appliedSettings.agent.name = 'Applied Agent';
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async () => appliedSettings,
+    );
+    const repo = new FakeRevisionRepo();
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:workstation',
+          note: 'mirror',
+        },
+      },
+      inputSettings,
+    );
+
+    expect(outcome).toEqual({ revision: 1 });
+    expect(repo.rows[0]).toMatchObject({
+      revision: 1,
+      createdBy: 'test:workstation',
+      note: 'mirror',
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+    });
+    expect(
+      (repo.rows[0]?.settingsDocument.agent as { name?: string }).name,
+    ).toBe('Applied Agent');
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalledOnce();
+  });
+
+  it('workstation import keeps applied settings when revision mirror append fails', async () => {
+    capabilityErrors = [];
+    const appliedSettings = createDefaultRuntimeSettings();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async () => appliedSettings,
+    );
+    const repo = new FakeRevisionRepo();
+    repo.appendError = new Error('settings revisions unavailable');
+    const logWarn = vi.fn();
+
+    const outcome = await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:workstation',
+          logWarn,
+        },
+      },
+      createDefaultRuntimeSettings(),
+    );
+
+    expect(outcome).toEqual({});
+    expect(repo.rows).toHaveLength(0);
+    expect(applyRuntimeSettingsDesiredState).toHaveBeenCalled();
+    expect(logWarn).toHaveBeenCalledWith(
+      { err: repo.appendError },
+      'settings revision mirror failed after workstation settings applied',
+    );
+  });
+
   it('appends a revision stamped with the current reader version', async () => {
     capabilityErrors = [];
     const repo = new FakeRevisionRepo();

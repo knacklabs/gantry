@@ -4,9 +4,9 @@
 # job-worker, all => control + live-worker + job-worker.
 
 locals {
-  name_prefix = var.name_prefix
-  cluster_name = "${local.name_prefix}-ecs"
-  has_control = contains(["api-only", "chat-only", "all"], var.deployment_type)
+  name_prefix            = var.name_prefix
+  cluster_name           = "${local.name_prefix}-ecs"
+  has_control            = contains(["api-only", "chat-only", "all"], var.deployment_type)
   capacity_provider_name = "${local.name_prefix}-workers"
 
   runtime_secret_refs = concat(
@@ -16,10 +16,14 @@ locals {
       { env_name = "GANTRY_IPC_AUTH_SECRET", secret_arn = var.gantry_ipc_auth_secret_arn },
       { env_name = "GANTRY_CONTROL_API_KEYS_JSON", secret_arn = var.gantry_control_api_keys_json_secret_arn },
     ],
-    var.migration_database_url_secret_arn != "" ?
-    [{ env_name = "MIGRATION_DATABASE_URL", secret_arn = var.migration_database_url_secret_arn }] : [],
     var.additional_runtime_secret_refs,
   )
+  bootstrap_secret_refs = var.bootstrap_database_url_secret_arn != "" ? [
+    { env_name = "GANTRY_BOOTSTRAP_DATABASE_URL", secret_arn = var.bootstrap_database_url_secret_arn },
+  ] : []
+  bootstrap_secret_refs_by_role = {
+    (local.has_control ? "control" : "job-worker") = local.bootstrap_secret_refs
+  }
 }
 
 module "network" {
@@ -66,18 +70,19 @@ module "ecs_capacity" {
 module "ecs" {
   source = "../../modules/ecs_service_set"
 
-  name_prefix              = local.name_prefix
-  deployment_type          = var.deployment_type
-  vpc_id                   = module.network.vpc_id
-  subnet_ids               = module.network.private_subnet_ids
-  alb_security_group_id    = local.has_control ? module.control[0].alb_security_group_id : ""
-  control_target_group_arn = local.has_control ? module.control[0].control_target_group_arn : ""
-  live_target_group_arn    = contains(["chat-only", "all"], var.deployment_type) ? module.control[0].live_target_group_arn : ""
-  image_ref                = var.image_ref
-  control_port             = var.control_port
-  artifact_bucket_name     = module.storage.bucket_name
-  runtime_secret_env_refs  = local.runtime_secret_refs
-  secret_kms_key_arns      = var.secret_kms_key_arns
+  name_prefix                     = local.name_prefix
+  deployment_type                 = var.deployment_type
+  vpc_id                          = module.network.vpc_id
+  subnet_ids                      = module.network.private_subnet_ids
+  alb_security_group_id           = local.has_control ? module.control[0].alb_security_group_id : ""
+  control_target_group_arn        = local.has_control ? module.control[0].control_target_group_arn : ""
+  live_target_group_arn           = contains(["chat-only", "all"], var.deployment_type) ? module.control[0].live_target_group_arn : ""
+  image_ref                       = var.image_ref
+  control_port                    = var.control_port
+  artifact_bucket_name            = module.storage.bucket_name
+  runtime_secret_env_refs         = local.runtime_secret_refs
+  runtime_secret_env_refs_by_role = local.bootstrap_secret_refs_by_role
+  secret_kms_key_arns             = var.secret_kms_key_arns
   task_policy_arns = [
     module.storage.worker_ro_policy_arn,
   ]
@@ -100,10 +105,10 @@ module "ecs" {
       base              = 0
     }
   ]
-  service_configs       = var.service_configs
-  force_new_deployment  = var.force_new_deployment
+  service_configs        = var.service_configs
+  force_new_deployment   = var.force_new_deployment
   enable_execute_command = var.enable_execute_command
-  tags                  = var.tags
+  tags                   = var.tags
 }
 
 module "database" {
