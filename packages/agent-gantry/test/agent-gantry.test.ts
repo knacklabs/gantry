@@ -2070,6 +2070,64 @@ describe('@cawstudios/agent-gantry', () => {
       status: 'failed',
     });
   });
+
+  it('filters available and callable agent tools per step', async () => {
+    const modelInputs: unknown[] = [];
+    const runner = createStructuredModelTaskRunner({
+      model: {
+        generateJson: async (input) => {
+          modelInputs.push(input.input);
+          if (modelInputs.length === 1) {
+            return {
+              action: 'call_tool',
+              toolName: 'search',
+              input: { query: 'first' },
+            };
+          }
+          return {
+            action: 'call_tool',
+            toolName: 'search',
+            input: { query: 'should be hidden' },
+          };
+        },
+      },
+    });
+
+    await expect(
+      runner.runAgentTask?.({
+        taskType: 'generic.filtered_tools',
+        instructions: 'Use tools until done.',
+        input: {},
+        maxSteps: 3,
+        tools: [
+          {
+            name: 'search',
+            execute: () => ({ status: 'found' }),
+          },
+          {
+            name: 'finalize',
+            execute: () => ({ finalOutput: { status: 'completed' } }),
+          },
+        ],
+        selectStepTools: ({ step }) => (step >= 2 ? ['finalize'] : null),
+      }),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      output: {
+        error: 'Unknown agent tool: search',
+      },
+    });
+
+    expect(modelInputs[0]).toMatchObject({
+      availableTools: [
+        expect.objectContaining({ name: 'search' }),
+        expect.objectContaining({ name: 'finalize' }),
+      ],
+    });
+    expect(modelInputs[1]).toMatchObject({
+      availableTools: [expect.objectContaining({ name: 'finalize' })],
+    });
+  });
 });
 
 function cryptoSign(secret: string, payload: string): string {

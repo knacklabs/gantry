@@ -41,7 +41,6 @@ export async function runGenericAgentTask(
   const startedAt = Date.now();
   const steps: GantryAgentTaskStep[] = [];
   const warnings: string[] = [];
-  const toolMap = new Map(input.tools.map((tool) => [tool.name, tool]));
   const repeatedFailures = new Map<string, number>();
   const traceDir = resolveAgentModelTraceDir(input);
   const state: Record<string, unknown> = {
@@ -239,6 +238,11 @@ export async function runGenericAgentTask(
     }
     let action: Record<string, unknown>;
     let promptMetrics: Record<string, unknown> | null = null;
+    const stepTools = await selectToolsForStep(input, {
+      step,
+      maxSteps,
+      state,
+    });
     try {
       const instructions = await buildAgentStepInstructions(input, {
         taskType: input.taskType,
@@ -249,7 +253,7 @@ export async function runGenericAgentTask(
       const actionSchema = buildGenericAgentActionSchema();
       const modelInput = {
         state: cloneJsonRecord(compactAgentLoopState(state)),
-        availableTools: input.tools.map((tool) => ({
+        availableTools: stepTools.map((tool) => ({
           name: tool.name,
           description: tool.description ?? '',
           inputSchema: tool.inputSchema ?? {},
@@ -516,7 +520,8 @@ export async function runGenericAgentTask(
       );
     }
 
-    const tool = parsed.toolName ? toolMap.get(parsed.toolName) : undefined;
+    const stepToolMap = new Map(stepTools.map((tool) => [tool.name, tool]));
+    const tool = parsed.toolName ? stepToolMap.get(parsed.toolName) : undefined;
     if (!tool) {
       const message = `Unknown agent tool: ${parsed.toolName ?? ''}`;
       recordAgentMemoryObservation(state, {
@@ -1056,3 +1061,25 @@ function sanitizeTracePathSegment(value: string): string {
 }
 
 export { summarizeAgentObservation } from './agent-task-runner-helpers.js';
+
+async function selectToolsForStep(
+  input: GantryAgentTaskInput,
+  request: {
+    readonly step: number;
+    readonly maxSteps: number;
+    readonly state: Record<string, unknown>;
+  },
+) {
+  if (!input.selectStepTools) return input.tools;
+  const selectedNames = await input.selectStepTools({
+    taskType: input.taskType,
+    correlationId: input.correlationId,
+    step: request.step,
+    maxSteps: request.maxSteps,
+    state: request.state,
+    tools: input.tools,
+  });
+  if (!selectedNames || selectedNames.length === 0) return input.tools;
+  const selectedNameSet = new Set(selectedNames);
+  return input.tools.filter((tool) => selectedNameSet.has(tool.name));
+}

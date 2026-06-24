@@ -104,6 +104,13 @@ export interface GantryAgentTaskInput {
   readonly buildStepInstructions?: (
     input: GantryAgentTaskStepInstructionsRequest,
   ) => Promise<string> | string;
+  readonly selectStepTools?: (
+    input: GantryAgentTaskToolSelectionRequest,
+  ) =>
+    | Promise<readonly string[] | null | undefined>
+    | readonly string[]
+    | null
+    | undefined;
   readonly validateFinal?: (
     input: GantryAgentTaskFinalValidationRequest,
   ) =>
@@ -231,6 +238,15 @@ export interface GantryAgentTaskStepInstructionsRequest {
   readonly correlationId?: string | null;
   readonly step: number;
   readonly state: Record<string, unknown>;
+}
+
+export interface GantryAgentTaskToolSelectionRequest {
+  readonly taskType: string;
+  readonly correlationId?: string | null;
+  readonly step: number;
+  readonly maxSteps: number;
+  readonly state: Record<string, unknown>;
+  readonly tools: readonly GantryAgentTool[];
 }
 
 export interface GantryAgentTaskStep {
