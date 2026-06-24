@@ -244,10 +244,12 @@ Host/container requirements for `sandbox_runtime` on fleet workers:
 
 - `bubblewrap` is in the worker image (`ops/docker/Dockerfile`).
 - Namespace creation inside Docker requires a user-namespace-capable seccomp
-  profile on `docker run`; the default profile may block it. Fleet production
-  and fleet rehearsal must set `provider: sandbox_runtime` and launch containers
-  with the matching seccomp/user-namespace support before boot, because the
-  production security gate rejects `direct`.
+  profile on `docker run`; the default profile may block it. Raw Docker and
+  compose rehearsal use `seccomp=unconfined`. ECS task definitions do not accept
+  that Docker security option, so ECS/EC2 fleet workers must run the Gantry
+  container with `privileged: true` before boot. Fleet production and fleet
+  rehearsal must set `provider: sandbox_runtime`, because the production
+  security gate rejects `direct`.
 - Container `--pids-limit` should exceed
   (`max_message_runs` + `max_job_runs`) × `max_processes`.
 - Disk: ≥ 20 GB for image, per-run temp workspaces, artifact cache, and bake

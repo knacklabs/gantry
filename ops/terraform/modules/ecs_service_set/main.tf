@@ -276,7 +276,7 @@ resource "aws_ecs_task_definition" "service" {
         }
       }
 
-      dockerSecurityOptions = var.docker_security_options
+      privileged = var.privileged_containers
 
       linuxParameters = {
         initProcessEnabled = true

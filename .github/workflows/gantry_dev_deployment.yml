@@ -55,7 +55,8 @@ jobs:
           jq --arg container "${{ env.CONTAINER_NAME }}" '
             .containerDefinitions |= map(
               if .name == $container then
-                .dockerSecurityOptions = (((.dockerSecurityOptions // []) + ["seccomp=unconfined"]) | unique)
+                del(.dockerSecurityOptions)
+                | .privileged = true
                 | .linuxParameters = ((.linuxParameters // {}) + { initProcessEnabled: true })
               else
                 .
@@ -77,8 +78,7 @@ jobs:
           jq -e --arg container "${{ env.CONTAINER_NAME }}" '
             .containerDefinitions[]
             | select(.name == $container)
-            | (.dockerSecurityOptions // [])
-            | index("seccomp=unconfined")
+            | .privileged == true
           ' "${{ steps.task-def.outputs.task-definition }}" >/dev/null
 
       - name: Deploy Amazon ECS task definition

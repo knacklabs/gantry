@@ -235,10 +235,10 @@ variable "enable_execute_command" {
   default     = false
 }
 
-variable "docker_security_options" {
-  description = "EC2-launch-type Docker security options. The default mirrors the ASG fleet's seccomp setting so sandbox_runtime/bubblewrap can create namespaces."
-  type        = list(string)
-  default     = ["seccomp=unconfined"]
+variable "privileged_containers" {
+  description = "Run Gantry ECS/EC2 containers in privileged mode so sandbox_runtime/bubblewrap can create Linux namespaces. ECS task definitions do not accept Docker's seccomp=unconfined security option."
+  type        = bool
+  default     = true
 }
 
 variable "tags" {
