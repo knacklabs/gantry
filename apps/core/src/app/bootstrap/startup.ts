@@ -25,12 +25,32 @@ import { loadSessionAppMemoryItems } from '../../memory/app-memory-session-hydra
 import { RuntimeApp } from './runtime-app.js';
 import { nowIso } from '../../shared/time/datetime.js';
 
+interface SettingsImportPreflightFailure {
+  summary: string;
+  details: string[];
+}
+
+interface SettingsImportPreflightResult {
+  ok: boolean;
+  failure?: SettingsImportPreflightFailure;
+}
+
+type ValidateSettingsImportPreflight = (
+  runtimeHome: string,
+) => SettingsImportPreflightResult;
+
+type FormatSettingsImportPreflightFailure = (
+  failure: SettingsImportPreflightFailure,
+) => string;
+
 interface StartupDeps {
   ensureRuntimeLayoutDirectories: typeof ensureRuntimeLayoutDirectories;
   initializeRuntimeStorage: typeof initializeRuntimeStorage;
   loadRuntimeSettings: typeof loadRuntimeSettings;
   importWorkstationSettings: typeof importWorkstationSettings;
   settingsFileExists: (runtimeHome: string) => boolean;
+  validateSettingsImportPreflight: ValidateSettingsImportPreflight;
+  formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: Pick<typeof logger, 'info' | 'warn'>;
   settingsAuthority: 'file' | 'revision';
 }
@@ -51,6 +71,11 @@ function makeDefaultDeps(): StartupDeps {
     importWorkstationSettings,
     settingsFileExists: (runtimeHome) =>
       fs.existsSync(path.join(runtimeHome, 'settings.yaml')),
+    validateSettingsImportPreflight: () => ({ ok: true }),
+    formatRuntimePreflightFailure: (failure) =>
+      [failure.summary, ...failure.details.map((line) => `- ${line}`)].join(
+        '\n',
+      ),
     logger,
     settingsAuthority: 'file',
   };
@@ -79,6 +104,8 @@ export async function runStartup(
       loadRuntimeSettings: resolved.loadRuntimeSettings,
       importWorkstationSettings: resolved.importWorkstationSettings,
       settingsFileExists: resolved.settingsFileExists,
+      validateSettingsImportPreflight: resolved.validateSettingsImportPreflight,
+      formatRuntimePreflightFailure: resolved.formatRuntimePreflightFailure,
       logger: resolved.logger,
     });
     await closeStartupStorage(storage);
@@ -186,6 +213,8 @@ async function loadRevisionAuthoritySettings(input: {
   loadRuntimeSettings: typeof loadRuntimeSettings;
   importWorkstationSettings: typeof importWorkstationSettings;
   settingsFileExists: (runtimeHome: string) => boolean;
+  validateSettingsImportPreflight: ValidateSettingsImportPreflight;
+  formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
   logger: StartupDeps['logger'];
 }): Promise<RuntimeSettings> {
   const appId = 'default' as AppId;
@@ -217,6 +246,7 @@ async function loadRevisionAuthoritySettings(input: {
         stableJson(settingsToRevisionDocument(fileSettings)) !==
           stableJson(latest.settingsDocument)
       ) {
+        assertSettingsImportPreflight(input);
         const outcome = await input.importWorkstationSettings(
           {
             runtimeHome: input.runtimeHome,
@@ -272,6 +302,7 @@ async function loadRevisionAuthoritySettings(input: {
     );
     return settings;
   }
+  assertSettingsImportPreflight(input);
   const outcome = await input.importWorkstationSettings(
     {
       runtimeHome: input.runtimeHome,
@@ -295,6 +326,19 @@ async function loadRevisionAuthoritySettings(input: {
     'Seeded workstation settings revision from settings.yaml',
   );
   return settings;
+}
+
+function assertSettingsImportPreflight(input: {
+  runtimeHome: string;
+  validateSettingsImportPreflight: ValidateSettingsImportPreflight;
+  formatRuntimePreflightFailure: FormatSettingsImportPreflightFailure;
+}): void {
+  const validation = input.validateSettingsImportPreflight(input.runtimeHome);
+  if (validation.ok) return;
+  if (validation.failure) {
+    throw new Error(input.formatRuntimePreflightFailure(validation.failure));
+  }
+  throw new Error('Runtime settings preflight failed.');
 }
 
 async function ensureFreshRuntimeHasDefaultAgent(

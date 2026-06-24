@@ -94,6 +94,7 @@ vi.mock('@core/app/bootstrap/fleet-boot.js', () => ({
 }));
 vi.mock('@core/config/preflight.js', () => ({
   formatRuntimePreflightFailure: vi.fn(() => 'preflight failed'),
+  validateRuntimePreflight: vi.fn(() => ({ ok: true })),
   validateRuntimePreflightWithStorage,
 }));
 vi.mock('@core/app/bootstrap/live-recovery-coordinator.js', () => ({

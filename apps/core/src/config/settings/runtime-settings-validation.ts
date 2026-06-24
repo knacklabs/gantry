@@ -113,7 +113,14 @@ export function validateLoadedRuntimeSettings(
     }
   }
 
-  if (settings.credentialBroker.mode === 'gantry') {
+  const enabledProviderIds = Object.entries(settings.providers)
+    .filter(([, provider]) => provider.enabled)
+    .map(([providerId]) => providerId);
+
+  if (
+    settings.credentialBroker.mode === 'gantry' ||
+    enabledProviderUsesStoredRuntimeSecretRefs(settings, enabledProviderIds)
+  ) {
     const secretValidation = validateCredentialEncryptionSecret({
       SECRET_ENCRYPTION_KEY:
         process.env.SECRET_ENCRYPTION_KEY?.trim() ||
@@ -124,10 +131,6 @@ export function validateLoadedRuntimeSettings(
     });
     if (!secretValidation.ok) details.push(secretValidation.message);
   }
-
-  const enabledProviderIds = Object.entries(settings.providers)
-    .filter(([, provider]) => provider.enabled)
-    .map(([providerId]) => providerId);
 
   for (const providerId of enabledProviderIds) {
     const provider = getProvider(providerId);
@@ -285,6 +288,29 @@ function validateCredentialEncryptionSecret(env: {
     message:
       'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON must provide a strong base64-encoded 32-byte active key for Gantry credential encryption.',
   };
+}
+
+function enabledProviderUsesStoredRuntimeSecretRefs(
+  settings: RuntimeSettings,
+  enabledProviderIds: string[],
+): boolean {
+  for (const providerId of enabledProviderIds) {
+    const connectionId = settings.providers[providerId]?.defaultConnection;
+    if (!connectionId) continue;
+    const refs =
+      settings.providerConnections[connectionId]?.runtimeSecretRefs ?? {};
+    for (const ref of Object.values(refs)) {
+      try {
+        const parsed = parseRuntimeSecretRefString(
+          normalizeRuntimeSecretRefString(ref),
+        );
+        if (parsed.source === 'gantry-secret') return true;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return false;
 }
 
 function validateProviderCredentialRef(input: {

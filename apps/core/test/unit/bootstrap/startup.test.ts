@@ -382,6 +382,7 @@ describe('runStartup', () => {
       initializeRuntimeStorage,
       settingsAuthority: 'revision',
       settingsFileExists: vi.fn(() => true),
+      validateSettingsImportPreflight: vi.fn(() => ({ ok: true })),
       loadRuntimeSettings: vi.fn(() => fileSettings),
       importWorkstationSettings,
       logger: { info: vi.fn(), warn: vi.fn() },
@@ -406,6 +407,55 @@ describe('runStartup', () => {
       }),
     );
     expect(result.runtimeSettings.agent.name).toBe('File Agent');
+  });
+
+  it('rejects changed settings.yaml before appending a settings revision when preflight fails', async () => {
+    const revisionSettings = createDefaultRuntimeSettings();
+    revisionSettings.agent.name = 'Revision Agent';
+    const fileSettings = structuredClone(revisionSettings) as RuntimeSettings;
+    fileSettings.agent.name = 'Unsafe File Agent';
+    const settingsRevisions = {
+      getLatestSettingsRevision: vi.fn(async () => ({
+        revision: 1,
+        settingsDocument: settingsToRevisionDocument(revisionSettings),
+      })),
+    };
+    const importWorkstationSettings = vi.fn(async () => ({ revision: 2 }));
+
+    await expect(
+      runStartup(makeApp(), {
+        ensureRuntimeLayoutDirectories: vi.fn(),
+        initializeRuntimeStorage: vi.fn(
+          async () =>
+            ({
+              ops: {},
+              repositories: { settingsRevisions },
+              runtimeEventNotifier: { close: vi.fn(async () => undefined) },
+              service: {
+                pool: undefined,
+                close: vi.fn(async () => undefined),
+              },
+            }) as any,
+        ),
+        settingsAuthority: 'revision',
+        settingsFileExists: vi.fn(() => true),
+        validateSettingsImportPreflight: vi.fn(() => ({
+          ok: false,
+          failure: {
+            summary: 'Production security preflight failed.',
+            details: ['unsafe production settings'],
+          },
+        })),
+        formatRuntimePreflightFailure: vi.fn(
+          (failure: { summary: string; details: string[] }) =>
+            [failure.summary, ...failure.details].join('\n'),
+        ),
+        loadRuntimeSettings: vi.fn(() => fileSettings),
+        importWorkstationSettings,
+        logger: { info: vi.fn(), warn: vi.fn() },
+      }),
+    ).rejects.toThrow('Production security preflight failed.');
+    expect(importWorkstationSettings).not.toHaveBeenCalled();
   });
 
   it('rejects settings revisions that require a newer reader during revision-authority startup', async () => {
@@ -473,6 +523,7 @@ describe('runStartup', () => {
         importWorkstationSettings: vi.fn(async () => ({ revision: 1 })),
         settingsAuthority: 'revision',
         settingsFileExists: vi.fn(() => true),
+        validateSettingsImportPreflight: vi.fn(() => ({ ok: true })),
         loadRuntimeSettings: vi.fn(() => fileSettings),
         logger: { info: vi.fn(), warn: vi.fn() },
       });

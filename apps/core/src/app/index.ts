@@ -42,6 +42,7 @@ import {
 import type { AppId } from '../domain/app/app.js';
 import {
   formatRuntimePreflightFailure,
+  validateRuntimePreflight,
   validateRuntimePreflightWithStorage,
 } from '../config/preflight.js';
 import { startLiveRecoveryCoordinatorLeaseAcquisition } from './bootstrap/live-recovery-coordinator.js';
@@ -119,6 +120,9 @@ export async function startGantryRuntime(
 
   let { runtimeSettings } = await runStartup(app, {
     settingsAuthority: shouldDeferPreflightForFleetRole ? 'file' : 'revision',
+    validateSettingsImportPreflight: options.skipPreflight
+      ? () => ({ ok: true })
+      : validateRuntimePreflight,
   });
   const storage = getRuntimeStorage();
   channelWiring.setRuntimeSecrets(

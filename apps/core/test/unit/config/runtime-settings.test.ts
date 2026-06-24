@@ -1020,6 +1020,48 @@ conversations:
     }
   });
 
+  it('requires an encryption key for enabled provider stored runtime secret refs', () => {
+    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-provider-secret-validation-'),
+    );
+    try {
+      process.env.GANTRY_DATABASE_URL =
+        'postgres://gantry:gantry@localhost:5432/gantry_test';
+      delete process.env.SECRET_ENCRYPTION_KEY;
+
+      const settings = createDefaultRuntimeSettings();
+      settings.credentialBroker.mode = 'none';
+      settings.providers.telegram.enabled = true;
+      settings.providers.telegram.defaultConnection = 'telegram_default';
+      settings.providerConnections.telegram_default = {
+        provider: 'telegram',
+        label: 'Telegram Default',
+        runtimeSecretRefs: { bot_token: 'gantry-secret:TELEGRAM_BOT_TOKEN' },
+      };
+
+      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
+
+      expect(result.ok).toBe(false);
+      expect(result.failure?.details.join('\n')).toContain(
+        'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON must provide',
+      );
+    } finally {
+      if (originalDatabaseUrl === undefined) {
+        delete process.env.GANTRY_DATABASE_URL;
+      } else {
+        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
+      }
+      if (originalSecretEncryptionKey === undefined) {
+        delete process.env.SECRET_ENCRYPTION_KEY;
+      } else {
+        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
+      }
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
   it('accepts AWS Secrets Manager provider refs with deployment-owned names', () => {
     const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
     const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
