@@ -1246,6 +1246,10 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain(
       'ALTER COLUMN "runtime_secret_refs_json" SET DEFAULT',
     );
+    expect(migration).toContain('jsonb_object_agg(ref_key, ref_value)');
+    expect(migration).toContain(
+      "WHEN \"provider_id\" = 'slack' AND ref_value ILIKE '%APP_TOKEN%' THEN 'app_token'",
+    );
     expect(migration).toContain(
       'WHERE left(btrim("runtime_secret_refs_json"), 1) =',
     );

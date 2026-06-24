@@ -1,6 +1,7 @@
 import {
   GetSecretValueCommand,
   SecretsManagerClient,
+  type GetSecretValueCommandOutput,
 } from '@aws-sdk/client-secrets-manager';
 
 import type {
@@ -43,13 +44,24 @@ export class AwsSecretsManagerRuntimeSecretProvider implements RuntimeSecretProv
       );
     }
     if (target.source !== 'aws-sm') return undefined;
-    const result = await this.secretsManager().send(
-      new GetSecretValueCommand({ SecretId: target.name }),
-    );
+    const result = await this.fetchAwsSecret(target.name);
     if (result.SecretString) return result.SecretString;
     return result.SecretBinary
       ? Buffer.from(result.SecretBinary).toString('utf8')
       : undefined;
+  }
+
+  private async fetchAwsSecret(
+    secretId: string,
+  ): Promise<Partial<GetSecretValueCommandOutput>> {
+    try {
+      return await this.secretsManager().send(
+        new GetSecretValueCommand({ SecretId: secretId }),
+      );
+    } catch (err) {
+      if (!isOptionalAwsSecretResolutionError(err)) throw err;
+      return {};
+    }
   }
 
   private secretsManager(): SecretsManagerClient {
@@ -57,4 +69,28 @@ export class AwsSecretsManagerRuntimeSecretProvider implements RuntimeSecretProv
       ...(this.region ? { region: this.region } : {}),
     }));
   }
+}
+
+function isOptionalAwsSecretResolutionError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const name = String((err as { name?: unknown }).name ?? '');
+  if (
+    [
+      'AccessDeniedException',
+      'ConfigError',
+      'CredentialsProviderError',
+      'DecryptionFailure',
+      'ExpiredTokenException',
+      'InvalidRequestException',
+      'ResourceNotFoundException',
+      'UnrecognizedClientException',
+    ].includes(name)
+  ) {
+    return true;
+  }
+  const message = String((err as { message?: unknown }).message ?? '');
+  return (
+    message.includes('Region is missing') ||
+    message.includes('Could not load credentials')
+  );
 }
