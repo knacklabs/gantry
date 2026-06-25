@@ -183,4 +183,51 @@ describe('writeDesiredRuntimeSettings', () => {
       }),
     ).rejects.toThrow('settings revisions unavailable');
   });
+
+  it('loads latest settings revision as the mutation base when storage is available', async () => {
+    const fileSettings = {
+      runtime: { deploymentMode: 'workstation' },
+      stale: true,
+    };
+    const revisionSettings = {
+      runtime: { deploymentMode: 'workstation' },
+      stale: false,
+      latest: true,
+    };
+    const loadRuntimeSettings = vi.fn(() => fileSettings);
+    const settingsFromRevisionDocument = vi.fn(() => revisionSettings);
+    vi.doMock('@core/config/settings/settings-import-service.js', () => ({
+      importWorkstationSettings: vi.fn(),
+      settingsFromRevisionDocument,
+    }));
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      loadRuntimeSettings,
+    }));
+
+    const {
+      configureDesiredSettingsStorageProvider,
+      loadDesiredRuntimeSettingsForWrite,
+    } = await import('@core/config/settings/desired-settings-writer.js');
+    const close = vi.fn(async () => {});
+    configureDesiredSettingsStorageProvider(async () => ({
+      ops: {} as never,
+      repositories: {} as never,
+      settingsRevisions: {
+        getLatestSettingsRevision: vi.fn(async () => ({
+          revision: 11,
+          settingsDocument: { latest: true },
+        })),
+      } as never,
+      close,
+    }));
+
+    await expect(
+      loadDesiredRuntimeSettingsForWrite({ runtimeHome: '/tmp/gantry-test' }),
+    ).resolves.toBe(revisionSettings);
+    expect(loadRuntimeSettings).toHaveBeenCalledWith('/tmp/gantry-test');
+    expect(settingsFromRevisionDocument).toHaveBeenCalledWith({
+      latest: true,
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
 });

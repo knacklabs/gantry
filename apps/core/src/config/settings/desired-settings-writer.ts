@@ -6,6 +6,7 @@ import {
 } from './runtime-settings.js';
 import {
   importWorkstationSettings,
+  settingsFromRevisionDocument,
   type SettingsRevisionMirror,
 } from './settings-import-service.js';
 import type {
@@ -96,6 +97,31 @@ export async function writeDesiredRuntimeSettings(input: {
       input.settings,
     );
     return { reconciled: true };
+  } finally {
+    await storage.close?.();
+  }
+}
+
+export async function loadDesiredRuntimeSettingsForWrite(input: {
+  runtimeHome: string;
+  appId?: AppId;
+}): Promise<RuntimeSettings> {
+  const fileSettings = loadRuntimeSettings(input.runtimeHome);
+  if (!storageProvider) return fileSettings;
+
+  const storage = await storageProvider({ settings: fileSettings });
+  if (!storage) {
+    throw new Error(
+      'Settings mutation requires runtime storage so settings_revisions can be durably read.',
+    );
+  }
+  try {
+    if (!storage.settingsRevisions) return fileSettings;
+    const appId = input.appId ?? ('default' as AppId);
+    const latest =
+      await storage.settingsRevisions.getLatestSettingsRevision(appId);
+    if (!latest) return fileSettings;
+    return settingsFromRevisionDocument(latest.settingsDocument);
   } finally {
     await storage.close?.();
   }

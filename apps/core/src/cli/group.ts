@@ -10,6 +10,7 @@ import { envFilePath } from '../config/settings/runtime-home.js';
 import {
   capabilityToToolRule,
   ensureConfiguredConversationBinding,
+  loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
@@ -548,7 +549,9 @@ async function runTrigger(
     try {
       const providerId = providerFromGroupJid(found.jid);
       if (providerId) {
-        const settings = loadRuntimeSettings(runtimeHome);
+        const settings = await loadDesiredRuntimeSettingsForWrite({
+          runtimeHome,
+        });
         const previousSettings = structuredClone(settings);
         ensureConfiguredConversationBinding(settings, {
           agentId: found.group.folder,

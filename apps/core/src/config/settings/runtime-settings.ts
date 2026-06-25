@@ -51,6 +51,7 @@ import { envRuntimeSecretRef } from '../../domain/ports/runtime-secret-provider.
 
 export {
   configureDesiredSettingsStorageProvider,
+  loadDesiredRuntimeSettingsForWrite,
   writeDesiredRuntimeSettings,
 } from './desired-settings-writer.js';
 
