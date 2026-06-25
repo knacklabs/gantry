@@ -13,6 +13,11 @@ function isLiveStopActionTokenValid(
   );
 }
 
+function isMessageActionValid(input: MessageActionCallbackInput): boolean {
+  if (input.kind === 'scheduler_run_now') return input.jobId.trim().length > 0;
+  return isLiveStopActionTokenValid(input);
+}
+
 export function createChannelMessageActionRouter(): {
   handle: OnMessageAction;
   trackProgress: (
@@ -24,7 +29,7 @@ export function createChannelMessageActionRouter(): {
   let handler: OnMessageAction | undefined;
   return {
     handle: async (input: MessageActionCallbackInput) => {
-      if (!isLiveStopActionTokenValid(input)) return;
+      if (!isMessageActionValid(input)) return;
       await handler?.(input);
     },
     trackProgress: () => {},

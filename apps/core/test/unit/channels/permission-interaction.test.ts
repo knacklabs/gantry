@@ -798,7 +798,8 @@ describe('permission interaction', () => {
   it('clamps long command previews at line boundaries', () => {
     const command = Array.from(
       { length: 80 },
-      (_, index) => `echo line-${String(index).padStart(3, '0')}-complete-token`,
+      (_, index) =>
+        `echo line-${String(index).padStart(3, '0')}-complete-token`,
     ).join('\n');
     const text = formatPermissionPromptText(
       {

@@ -102,7 +102,9 @@ export function firstDestructiveRedirectTarget(
   return undefined;
 }
 
-export function destructiveBashCommandHint(command: string): string | undefined {
+export function destructiveBashCommandHint(
+  command: string,
+): string | undefined {
   const text = command.trim();
   // ponytail: bounded prompt hint only; this is not a shell or SQL safety parser.
   if (/\b(?:curl|wget)\b[\s\S]*\|\s*(?:sudo\s+)?(?:ba)?sh\b/i.test(text)) {

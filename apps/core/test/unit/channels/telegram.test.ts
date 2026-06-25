@@ -1629,7 +1629,7 @@ describe('TelegramChannel', () => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: 'Retry now', callback_data: 'dl:retry' },
+                { text: 'Retry now', callback_data: 'dl:retry:job-1' },
                 { text: 'Pause job', callback_data: 'dl:pause' },
               ],
               [{ text: 'Open in scheduler', callback_data: 'dl:open' }],
@@ -1639,12 +1639,18 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('fails closed when Telegram scheduler action buttons are clicked', async () => {
-      const opts = createTestOpts();
+    it('routes Telegram scheduler run-now action buttons through the message action callback', async () => {
+      const opts = createTestOpts({ onMessageAction: vi.fn() } as any);
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
       const callbackCtx = {
-        callbackQuery: { data: 'dl:retry' },
+        callbackQuery: {
+          data: 'dl:retry:job-1',
+          message: {
+            chat: { id: 100200300 },
+            message_thread_id: 42,
+          },
+        },
         chat: { id: 100200300 },
         from: { id: 111 },
         answerCallbackQuery: vi.fn(),
@@ -1652,9 +1658,15 @@ describe('TelegramChannel', () => {
 
       await triggerCallbackQuery(callbackCtx);
 
+      expect(opts.onMessageAction).toHaveBeenCalledWith({
+        kind: 'scheduler_run_now',
+        conversationJid: 'tg:100200300',
+        threadId: '42',
+        userId: '111',
+        jobId: 'job-1',
+      });
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Open the scheduler surface or use scheduler tools to run this action.',
-        show_alert: true,
+        text: 'Retry queued.',
       });
     });
 

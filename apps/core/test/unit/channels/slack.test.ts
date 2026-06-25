@@ -801,12 +801,12 @@ describe('Slack channel', () => {
     );
   });
 
-  it('fails closed when Slack scheduler action buttons are clicked', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOptsWithApproverHook(['U_APPROVER']) as any,
-    );
+  it('routes Slack scheduler run-now action buttons through the message action callback', async () => {
+    const opts = {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      onMessageAction: vi.fn(),
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
 
     const actionHandler = appRef.current.actionHandlers.get(
@@ -823,16 +823,23 @@ describe('Slack channel', () => {
           runId: 'run-1',
         }),
       },
-      body: { channel: { id: 'C1234567890' }, user: { id: 'U_APPROVER' } },
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER' },
+        message: { thread_ts: '1710000000.000111' },
+      },
     });
 
     expect(ack).toHaveBeenCalled();
-    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: 'C1234567890',
-        user: 'U_APPROVER',
-      }),
-    );
+    expect(opts.onMessageAction).toHaveBeenCalledWith({
+      kind: 'scheduler_run_now',
+      conversationJid: 'sl:C1234567890',
+      threadId: '1710000000.000111',
+      userId: 'U_APPROVER',
+      jobId: 'job-1',
+      runId: 'run-1',
+    });
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
   it('routes Slack live stop action buttons through the message action callback', async () => {

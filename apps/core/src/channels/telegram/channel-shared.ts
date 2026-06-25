@@ -37,7 +37,7 @@ export const TELEGRAM_PERMISSION_CALLBACK_PATTERN =
 export const TELEGRAM_USER_QUESTION_CALLBACK_PATTERN =
   /^userq:(select|done|other):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127}):(\d+)(?::(\d+))?$/;
 export const TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN =
-  /^dl:(retry|logs|pause|open)$/;
+  /^dl:(retry|logs|pause|open)(?::(.+))?$/;
 
 export type TelegramContext = StreamFlavor<Context>;
 export type TelegramStreamApi = ReturnType<typeof streamApi>;

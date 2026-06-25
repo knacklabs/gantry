@@ -34,6 +34,7 @@ export function registerSlackMessageActionHandler(
       | {
           kind?: unknown;
           jobId?: unknown;
+          runId?: unknown;
           actionToken?: unknown;
         }
       | undefined;
@@ -66,6 +67,17 @@ export function registerSlackMessageActionHandler(
       !body.channel?.id ||
       !body.user?.id
     ) {
+      return;
+    }
+    if (payload.kind === 'scheduler_run_now') {
+      await onMessageAction?.({
+        kind: 'scheduler_run_now',
+        conversationJid: `sl:${body.channel.id}`,
+        threadId: body.message?.thread_ts,
+        userId: body.user.id,
+        jobId: payload.jobId,
+        runId: typeof payload.runId === 'string' ? payload.runId : null,
+      });
       return;
     }
     try {
