@@ -17,8 +17,6 @@ import type {
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import { ApplicationError } from '../common/application-error.js';
-import { resolveAgentToolRuntimePolicy } from '../agents/agent-tool-runtime-rules.js';
-import { reviewedExternalMcpToolNamesFromRuntimeAccess } from '../../shared/capability-runtime-access.js';
 import {
   RemoteMcpDnsValidationCache,
   assertRemoteMcpDestinationPublic,
@@ -29,17 +27,15 @@ import {
   isLocalLoopbackHttpMcpUrl,
 } from './mcp-tool-proxy-network.js';
 import {
-  exactExternalMcpToolNames,
-  isReviewedMcpToolAllowed,
   isSourceInventoryToolAllowed,
-  reviewedToolNameAllowedBySourceScope,
   type ReviewedMaterializedMcpCapability,
 } from './mcp-tool-authorization.js';
+import { resolveReviewedMcpTool } from './mcp-reviewed-tool-resolution.js';
+import type { MaterializedMcpCapability } from './mcp-server-service.js';
 import {
-  McpServerService,
-  type MaterializedMcpCapability,
-} from './mcp-server-service.js';
-import { authorizedMcpServerIdsForAgent } from './mcp-authorized-servers.js';
+  materializeReviewedMcpCapabilities,
+  materializeSourceMcpCapabilities,
+} from './mcp-tool-proxy-capabilities.js';
 import {
   cacheMcpInventory,
   compareMcpToolSearchResults,
@@ -71,7 +67,9 @@ import { boundMcpToolResultForReturn } from './mcp-tool-output-bounds.js';
 import {
   cacheMcpClient,
   closeCachedMcpClient,
+  releaseMcpClient,
   readCachedMcpClient,
+  retainMcpClient,
   scheduleMcpClientIdleClose,
 } from './mcp-tool-proxy-client-cache.js';
 
@@ -83,6 +81,16 @@ export {
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 
+interface McpToolCallInput {
+  appId: AppId;
+  agentId: AgentId;
+  serverName: string;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 export class McpToolProxy {
   constructor(
     private readonly mcpServers: McpServerRepository,
@@ -91,6 +99,7 @@ export class McpToolProxy {
       skills?: SkillCatalogRepository;
       credentialEnv?: Record<string, string>;
       liveToolRules?: readonly string[];
+      sourceServerIds?: readonly string[];
       lookupHostname?: HostnameLookup;
       dnsValidationCache?: RemoteMcpDnsValidationCache;
       egressDenylist?: readonly string[];
@@ -288,14 +297,9 @@ export class McpToolProxy {
     }
   }
 
-  async callTool(input: {
-    appId: AppId;
-    agentId: AgentId;
-    serverName: string;
-    toolName: string;
-    arguments?: Record<string, unknown>;
-  }): Promise<unknown> {
+  async callTool(input: McpToolCallInput): Promise<unknown> {
     const startedAt = Date.now();
+    const timeoutMs = input.timeoutMs ?? MCP_PROXY_TIMEOUT_MS;
     const argumentSummary = summarizeMcpToolArguments(input.arguments ?? {});
     await this.publishMcpToolActivity({
       input,
@@ -328,37 +332,19 @@ export class McpToolProxy {
     };
     let toolReturned = false;
     try {
-      const capabilities = await this.materializeReviewedCapabilities(input);
-      const capability = capabilities.find(
-        (candidate) => candidate.name === input.serverName,
-      );
-      if (!capability) {
-        const reason = `MCP server is not approved for this agent: ${input.serverName}`;
-        await finalize('denied', { reason });
-        throw new ApplicationError('NOT_FOUND', reason);
-      }
-      const allowedTool = `mcp__${capability.name}__${input.toolName}`;
-      selectedToolRule = allowedTool;
-      selectedCapability = {
-        name: capability.name,
-        serverId: capability.serverId,
-        bindingId: capability.bindingId,
-        ...(capability.sourceRevision
-          ? { sourceRevision: capability.sourceRevision }
-          : {}),
-      };
-      if (!isReviewedMcpToolAllowed(capability, input.toolName)) {
-        const reason = `MCP tool is not approved for this agent: ${allowedTool}`;
-        await finalize('denied', { reason });
-        throw new ApplicationError('FORBIDDEN', reason);
-      }
+      const reviewed = await this.resolveReviewedTool(input, finalize);
+      const { capability } = reviewed;
+      selectedToolRule = reviewed.selectedToolRule;
+      selectedCapability = reviewed.selectedCapability;
       const client = await this.connect(capability);
+      retainMcpClient(capability);
       try {
         const outputSchema = await resolveMcpToolOutputSchema({
           request: input,
           capability,
           client,
           timeoutMs: MCP_PROXY_TIMEOUT_MS,
+          signal: input.signal,
         });
         const resultValidation = prepareMcpToolResultValidation({
           serverName: input.serverName,
@@ -371,7 +357,10 @@ export class McpToolProxy {
             arguments: input.arguments ?? {},
           },
           undefined,
-          { timeout: MCP_PROXY_TIMEOUT_MS },
+          {
+            timeout: timeoutMs,
+            ...(input.signal ? { signal: input.signal } : {}),
+          },
         );
         toolReturned = true;
         const validationAudit = resultValidation.validate(result);
@@ -389,7 +378,7 @@ export class McpToolProxy {
         await closeCachedMcpClient(capability);
         throw err;
       } finally {
-        scheduleMcpClientIdleClose(capability);
+        releaseMcpClient(capability);
       }
     } catch (err) {
       if (!finalized) {
@@ -410,6 +399,20 @@ export class McpToolProxy {
       }
       throw err;
     }
+  }
+
+  async assertToolAllowed(input: McpToolCallInput): Promise<void> {
+    const argumentSummary = summarizeMcpToolArguments(input.arguments ?? {});
+    const startedAt = Date.now();
+    await this.resolveReviewedTool(input, (resultClass, extra = {}) =>
+      this.publishMcpToolActivity({
+        input,
+        resultClass,
+        latencyMs: Date.now() - startedAt,
+        argumentSummary,
+        ...extra,
+      }),
+    );
   }
 
   private async fetchAndCacheInventory(
@@ -533,70 +536,61 @@ export class McpToolProxy {
     appId: AppId;
     agentId: AgentId;
   }): Promise<ReviewedMaterializedMcpCapability[]> {
-    const capabilities = await new McpServerService(
-      this.mcpServers,
-      undefined,
-      {
-        lookupHostname: this.options.lookupHostname,
-        dnsValidationCache: this.options.dnsValidationCache,
-        auditMaterialization: false,
-      },
-    ).materializeForAgent({
+    return materializeSourceMcpCapabilities({
+      mcpServers: this.mcpServers,
+      tools: this.options.tools,
+      skills: this.options.skills,
+      credentialEnv: this.options.credentialEnv,
+      sourceServerIds: this.options.sourceServerIds,
+      lookupHostname: this.options.lookupHostname,
+      dnsValidationCache: this.options.dnsValidationCache,
       appId: input.appId,
       agentId: input.agentId,
-      credentialEnv: this.options.credentialEnv ?? {},
     });
-    return capabilities.map((capability) => ({
-      ...capability,
-      reviewedToolNames: capability.allowedToolNames,
-    }));
   }
 
   private async materializeReviewedCapabilities(input: {
     appId: AppId;
     agentId: AgentId;
   }): Promise<ReviewedMaterializedMcpCapability[]> {
-    const policy = await resolveAgentToolRuntimePolicy({
-      repository: this.options.tools,
-      skillRepository: this.options.skills,
-      appId: input.appId,
-      agentId: input.agentId,
-      errorSubject: 'Configured agent tool',
-    });
-    const reviewedToolNames = [
-      ...new Set([
-        ...reviewedExternalMcpToolNamesFromRuntimeAccess(policy.runtimeAccess),
-        ...exactExternalMcpToolNames(this.options.liveToolRules),
-      ]),
-    ];
-    const serverIds = await authorizedMcpServerIdsForAgent({
+    return materializeReviewedMcpCapabilities({
       mcpServers: this.mcpServers,
       tools: this.options.tools,
       skills: this.options.skills,
+      credentialEnv: this.options.credentialEnv,
+      liveToolRules: this.options.liveToolRules,
+      lookupHostname: this.options.lookupHostname,
+      dnsValidationCache: this.options.dnsValidationCache,
       appId: input.appId,
       agentId: input.agentId,
-      allowedTools: reviewedToolNames,
     });
-    const capabilities = await new McpServerService(
-      this.mcpServers,
-      undefined,
-      {
-        lookupHostname: this.options.lookupHostname,
-        dnsValidationCache: this.options.dnsValidationCache,
-        auditMaterialization: false,
-      },
-    ).materializeForAgent({
-      appId: input.appId,
-      agentId: input.agentId,
-      serverIds: serverIds as never,
-      credentialEnv: this.options.credentialEnv ?? {},
+  }
+
+  private async resolveReviewedTool(
+    input: {
+      appId: AppId;
+      agentId: AgentId;
+      serverName: string;
+      toolName: string;
+    },
+    finalizeDenied: (
+      resultClass: McpToolAuditResultClass,
+      extra?: Record<string, unknown>,
+    ) => Promise<unknown>,
+  ): Promise<{
+    capability: ReviewedMaterializedMcpCapability;
+    selectedToolRule: string;
+    selectedCapability: Pick<
+      ReviewedMaterializedMcpCapability,
+      'name' | 'serverId' | 'bindingId' | 'sourceRevision'
+    >;
+  }> {
+    return resolveReviewedMcpTool({
+      capabilities: await this.materializeReviewedCapabilities(input),
+      serverName: input.serverName,
+      toolName: input.toolName,
+      finalizeDenied,
     });
-    return capabilities.map((capability) => ({
-      ...capability,
-      reviewedToolNames: reviewedToolNames.filter((toolName) =>
-        reviewedToolNameAllowedBySourceScope(capability, toolName),
-      ),
-    }));
   }
 
   private async connect(
@@ -622,6 +616,11 @@ export class McpToolProxy {
     );
     const transport = await this.createTransport(capability);
     await client.connect(transport, { timeout: MCP_PROXY_TIMEOUT_MS });
+    const existing = readCachedMcpClient(capability) as Client | null;
+    if (existing) {
+      await client.close();
+      return existing;
+    }
     cacheMcpClient(capability, client);
     return client;
   }
@@ -660,7 +659,6 @@ export class McpToolProxy {
       'stdio_template MCP servers are approved durable capabilities, but current-session proxy execution is disabled until sandboxed stdio execution is implemented.',
     );
   }
-
   private assertNetworkAllowedForCapability(
     capability: MaterializedMcpCapability,
   ): void {

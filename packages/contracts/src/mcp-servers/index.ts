@@ -101,6 +101,13 @@ export type DisableMcpServerRequest = z.infer<
   typeof DisableMcpServerRequestSchema
 >;
 
+export const TestMcpServerRequestSchema = z.object({
+  appId: z.string().optional(),
+  testedBy: z.string().optional(),
+  agentId: z.string().optional(),
+});
+export type TestMcpServerRequest = z.infer<typeof TestMcpServerRequestSchema>;
+
 export const UpdateAgentMcpServerBindingRequestSchema = z.object({
   appId: z.string().optional(),
   required: z.boolean().optional(),

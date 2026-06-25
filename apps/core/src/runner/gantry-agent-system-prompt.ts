@@ -46,9 +46,9 @@ const PUBLIC_CATALOG = [
   'Files: FileSearch, FileRead, FileEdit, FileWrite, file',
   'Memory: memory_search, memory_save, reviewed memory tools',
   'Skills: selected skills and skill request tools',
-  'MCP/apps: mcp_list_tools, mcp_describe_tool, mcp_call_tool, request_mcp_server',
+  'MCP/apps: mcp_list_tools, mcp_describe_tool, mcp_call_tool, async_mcp_call, request_mcp_server',
   'Commands: RunCommand(<argv pattern>)',
-  'Tasks: todo_update; async_run_command/delegate_task/task_get/task_list/task_message/task_cancel only when mounted in this run',
+  'Tasks: todo_update; async_run_command/async_mcp_call/delegate_task/task_get/task_list/task_message/task_cancel only when mounted in this run',
   'Scheduler: scheduler_*',
   'Admin: settings, permission, restart, register-agent tools',
 ];
@@ -149,7 +149,7 @@ function toolingSection(mode: GantryAgentPromptMode): string {
           'Use Ready tools first. If the tool you need is missing, inspect the catalog/source. If it is still missing, request access or setup. If policy blocks the action, say so plainly.',
           'Use WebSearch for discovery and WebRead for exact source reading.',
           'Use FileSearch, FileRead, FileEdit, and FileWrite for approved host file work. Use file only for Gantry FileArtifacts.',
-          'Use MCP tools through mcp_list_tools, mcp_describe_tool, and mcp_call_tool.',
+          'Use MCP tools through mcp_list_tools, mcp_describe_tool, and mcp_call_tool. Use async_mcp_call for long-running or parallel MCP work, then task_get or task_list for status.',
           'Never use raw harness subagents. Gantry delegation tools are unavailable until Gantry mounts a real delegated-task executor.',
           'Do not describe raw provider or harness tool names to users unless the user asks for runtime internals.',
         ];
@@ -189,7 +189,7 @@ function gantryControlSection(): string {
   return [
     '## Gantry Control',
     'Use send_message for channel-visible updates and ask_user_question for decision-blocking questions.',
-    'If Gantry mounts async_run_command, use it for approved long-running commands. If Gantry mounts delegate_task, use task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
+    'If Gantry mounts async_run_command or async_mcp_call, use it for approved long-running work. If Gantry mounts delegate_task, use task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
   ].join('\n');
 }
 

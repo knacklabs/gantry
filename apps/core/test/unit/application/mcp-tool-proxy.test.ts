@@ -1229,6 +1229,133 @@ describe('McpToolProxy', () => {
     );
   });
 
+  it('does not idle-close the MCP client while a tool call is active', async () => {
+    vi.useFakeTimers();
+    let finishCall!: () => void;
+    mockCreateIssueToolDetail();
+    mcpSdkMocks.client.callTool.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishCall = () => resolve({ content: [] });
+        }),
+    );
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      liveToolRules: ['mcp__github__create_issue'],
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const pending = proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+      arguments: { title: 'Bug' },
+      timeoutMs: 15 * 60_000,
+    });
+    await vi.waitFor(() => {
+      expect(mcpSdkMocks.client.callTool).toHaveBeenCalledTimes(1);
+    });
+
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(mcpSdkMocks.client.close).not.toHaveBeenCalled();
+
+    finishCall();
+    await expect(pending).resolves.toEqual({ content: [] });
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(mcpSdkMocks.client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps schema discovery on the short proxy timeout for long tool calls', async () => {
+    mockCreateIssueToolDetail();
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      liveToolRules: ['mcp__github__create_issue'],
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    await expect(
+      proxy.callTool({
+        appId: 'app-one' as never,
+        agentId: 'agent-one' as never,
+        serverName: 'github',
+        toolName: 'create_issue',
+        arguments: { title: 'Bug' },
+        timeoutMs: 15 * 60_000,
+      }),
+    ).resolves.toEqual({ content: [] });
+
+    expect(mcpSdkMocks.client.listTools).toHaveBeenCalledWith(
+      {},
+      { timeout: 60_000 },
+    );
+    expect(mcpSdkMocks.client.callTool).toHaveBeenCalledWith(
+      { name: 'create_issue', arguments: { title: 'Bug' } },
+      undefined,
+      { timeout: 15 * 60_000 },
+    );
+  });
+
+  it('does not close a shared MCP client after one failed call while another call is active', async () => {
+    vi.useFakeTimers();
+    let failFirst!: () => void;
+    let finishSecond!: () => void;
+    mockCreateIssueToolDetail();
+    mockCreateIssueToolDetail();
+    mcpSdkMocks.client.callTool
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failFirst = () => reject(new Error('remote failed'));
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSecond = () => resolve({ content: [] });
+          }),
+      );
+    const proxy = new McpToolProxy(mcpRepository({ remote: true }), {
+      tools: emptyToolRepository(),
+      liveToolRules: ['mcp__github__create_issue'],
+      lookupHostname: vi.fn(async () => [
+        { address: '93.184.216.34', family: 4 as const },
+      ]),
+    });
+
+    const first = proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+      arguments: { title: 'One' },
+      timeoutMs: 15 * 60_000,
+    });
+    const second = proxy.callTool({
+      appId: 'app-one' as never,
+      agentId: 'agent-one' as never,
+      serverName: 'github',
+      toolName: 'create_issue',
+      arguments: { title: 'Two' },
+      timeoutMs: 15 * 60_000,
+    });
+    await vi.waitFor(() => {
+      expect(mcpSdkMocks.client.callTool).toHaveBeenCalledTimes(2);
+    });
+
+    failFirst();
+    await expect(first).rejects.toThrow('remote failed');
+    expect(mcpSdkMocks.client.close).not.toHaveBeenCalled();
+
+    finishSecond();
+    await expect(second).resolves.toEqual({ content: [] });
+    expect(mcpSdkMocks.client.close).toHaveBeenCalledTimes(1);
+  });
+
   it('audits approved stdio MCP sources as denied until sandboxed proxy execution exists', async () => {
     const publishRuntimeEvent = vi.fn(async () => undefined);
     const appendAuditEvent = vi.fn(async () => undefined);
@@ -1336,6 +1463,7 @@ describe('McpToolProxy', () => {
       ]),
     });
     mcpSdkMocks.client.callTool.mockResolvedValueOnce({
+      isError: true,
       content: [
         { type: 'text', text: 'x'.repeat(MAX_MCP_TOOL_RESULT_CHARS + 1) },
       ],
@@ -1350,6 +1478,7 @@ describe('McpToolProxy', () => {
       }),
     ).resolves.toMatchObject({
       type: 'mcp_tool_result_truncated',
+      isError: true,
       truncated: true,
       maxChars: MAX_MCP_TOOL_RESULT_CHARS,
       preview: expect.stringContaining('[truncated MCP tool result]'),

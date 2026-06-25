@@ -9,6 +9,8 @@ type CloseableMcpClient = {
 type CachedMcpClient = {
   client: CloseableMcpClient;
   idleTimer: ReturnType<typeof setTimeout>;
+  activeCalls: number;
+  closeAfterRelease: boolean;
 };
 
 const clientCache = new Map<string, CachedMcpClient>();
@@ -29,6 +31,8 @@ export function cacheMcpClient(
   clientCache.set(mcpClientCacheKey(capability), {
     client,
     idleTimer: createClientIdleTimer(capability),
+    activeCalls: 0,
+    closeAfterRelease: false,
   });
 }
 
@@ -38,7 +42,26 @@ export function scheduleMcpClientIdleClose(
   const cached = clientCache.get(mcpClientCacheKey(capability));
   if (!cached) return;
   clearTimeout(cached.idleTimer);
+  if (cached.activeCalls > 0) return;
   cached.idleTimer = createClientIdleTimer(capability);
+}
+
+export function retainMcpClient(capability: MaterializedMcpCapability): void {
+  const cached = clientCache.get(mcpClientCacheKey(capability));
+  if (!cached) return;
+  cached.activeCalls += 1;
+  clearTimeout(cached.idleTimer);
+}
+
+export function releaseMcpClient(capability: MaterializedMcpCapability): void {
+  const cached = clientCache.get(mcpClientCacheKey(capability));
+  if (!cached) return;
+  cached.activeCalls = Math.max(0, cached.activeCalls - 1);
+  if (cached.activeCalls === 0 && cached.closeAfterRelease) {
+    void closeCachedMcpClient(capability);
+    return;
+  }
+  scheduleMcpClientIdleClose(capability);
 }
 
 export async function closeCachedMcpClient(
@@ -47,6 +70,11 @@ export async function closeCachedMcpClient(
   const cacheKey = mcpClientCacheKey(capability);
   const cached = clientCache.get(cacheKey);
   if (!cached) return;
+  if (cached.activeCalls > 0) {
+    cached.closeAfterRelease = true;
+    clearTimeout(cached.idleTimer);
+    return;
+  }
   clientCache.delete(cacheKey);
   clearTimeout(cached.idleTimer);
   await cached.client.close();

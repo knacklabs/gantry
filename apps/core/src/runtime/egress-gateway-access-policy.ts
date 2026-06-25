@@ -3,7 +3,6 @@ import { declaredNetworkAuthority } from '../shared/network-host-declaration.js'
 import type { EgressNetworkAttribution } from './egress-gateway.js';
 
 export interface EgressAccessPolicyState {
-  allowedNetworkAuthorities?: Set<string>;
   allowedPrivateAuthorities?: Set<string>;
   privateNetworkConnectHosts?: Map<string, string>;
 }
@@ -26,25 +25,6 @@ export function networkAuthoritySet(hosts: readonly string[]): Set<string> {
     if (authority) set.add(authority);
   }
   return set;
-}
-
-export function evaluateEgressAllowlist(
-  state: EgressAccessPolicyState,
-  target: { host: string; port: number; authority: string },
-): { host: string; matchedPattern: string; reason: string } | undefined {
-  if (!state.allowedNetworkAuthorities) return undefined;
-  const authority = declaredNetworkAuthority(authorityWithPort(target));
-  if (authority && state.allowedNetworkAuthorities.has(authority)) {
-    return undefined;
-  }
-  if (authority && state.allowedPrivateAuthorities?.has(authority)) {
-    return undefined;
-  }
-  return {
-    host: normalizeEgressHost(target.host),
-    matchedPattern: 'runtime.sandbox.allowed_network_hosts',
-    reason: 'not_allowed_by_runtime_sandbox',
-  };
 }
 
 export function allowedPrivateEgressTarget(

@@ -1721,9 +1721,11 @@ describe('agent-spawn timeout behavior', () => {
     );
     expect(runnerInput.modelCredentialEnv.HTTP_PROXY).toBeUndefined();
     expect(runnerInput.modelCredentialEnv.HTTPS_PROXY).toBeUndefined();
+    expect(startInput.allowedNetworkHosts).toContain(
+      `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
+    );
     expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
       expect.objectContaining({
-        allowedNetworkHosts: [`${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`],
         privateNetworkHostMappings: [
           {
             authority: `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
@@ -1806,11 +1808,6 @@ describe('agent-spawn timeout behavior', () => {
       schema: 'gantry_deepagents_checkpoints',
     });
     expect(runnerInput.deepAgentCheckpointer.proxyUrl).toBeUndefined();
-    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
-      expect.objectContaining({
-        allowedNetworkHosts: ['db.internal:6543'],
-      }),
-    );
   });
 
   it('projects the audited egress proxy into sandbox-runtime DeepAgents process env', async () => {
@@ -1910,9 +1907,11 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.modelCredentialEnv.OPENAI_BASE_URL).toBe(
       `http://${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567/openrouter`,
     );
+    expect(startInput.allowedNetworkHosts).toContain(
+      `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
+    );
     expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
       expect.objectContaining({
-        allowedNetworkHosts: [`${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`],
         privateNetworkHostMappings: [
           {
             authority: `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
@@ -2170,9 +2169,12 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.modelCredentialEnv[anthropicEnvKey('BASE_URL')]).toBe(
       `http://${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567/anthropic`,
     );
+    const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
+    expect(startInput.allowedNetworkHosts).toContain(
+      `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
+    );
     expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
       expect.objectContaining({
-        allowedNetworkHosts: [`${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`],
         privateNetworkHostMappings: [
           {
             authority: `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,

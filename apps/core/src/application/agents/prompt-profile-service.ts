@@ -191,7 +191,7 @@ const OPERATING_GUIDANCE_HEAD = [
 
 const FULL_TOOL_ACCESS_GUIDANCE = [
   '- Use available actions first. If the action is missing, request the reviewed capability. If setup is missing, request source setup through the Gantry access flow.',
-  '- When capability_status shows an MCP source as ready, use it: inspect with mcp_list_tools, fetch one-tool schema with mcp_describe_tool when needed, and call approved actions with mcp_call_tool instead of requesting the same access again or using command/browser fallback.',
+  '- When capability_status shows an MCP source as ready, use it: inspect with mcp_list_tools, fetch one-tool schema with mcp_describe_tool when needed, call approved immediate actions with mcp_call_tool, and use async_mcp_call for long-running or parallel MCP work instead of requesting the same access again or using command/browser fallback.',
   '- Do not infer a third-party MCP source is unavailable only because its tools are not direct SDK tool names; inspect connected sources the same way before saying it is unavailable.',
   '- Source setup, MCP tool lists, CLI help, skill text, and adapter discovery are inventory only. Durable authority is the reviewed action capability granted to this agent.',
   '- Use request_access target.kind=capability for durable reviewed access.',

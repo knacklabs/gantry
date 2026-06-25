@@ -153,14 +153,13 @@ describe('egress gateway', () => {
     await upstream.close();
   });
 
-  it('blocks undeclared public hosts when a sandbox allowlist is configured', async () => {
+  it('allows undeclared public hosts when the denylist is empty', async () => {
     const upstream = await startRecordingProxy();
     const publishRuntimeEvent = vi.fn();
     const gateway = await ensureEgressGateway({
       key: 'test:sandbox-allowlist',
       settings: { denylist: [] },
       principal: { appId: 'default', agentId: 'agent:test' },
-      allowedNetworkHosts: ['api.linkedin.com:443'],
       upstreamProxy: {
         provider: 'test-proxy',
         url: `http://127.0.0.1:${upstream.port}/`,
@@ -168,38 +167,34 @@ describe('egress gateway', () => {
       publishRuntimeEvent,
     });
 
-    const denied = await connectThroughGateway({
+    const response = await connectThroughGateway({
       gatewayPort: gateway.port,
       authority: 'example.com:443',
     });
-    const allowed = await connectThroughGateway({
-      gatewayPort: gateway.port,
-      authority: 'api.linkedin.com:443',
-    });
 
-    expect(denied.statusCode).toBe(403);
-    expect(allowed.statusCode).toBe(502);
+    expect(response.statusCode).toBe(502);
     expect(upstream.headers[0]).toContain('CONNECT 93.184.216.34:443 HTTP/1.1');
+    expect(upstream.headers[0]).toContain('Host: example.com:443');
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
           host: 'example.com',
-          denied: true,
-          reason: 'not_allowed_by_runtime_sandbox',
+          allowed: true,
+          denied: false,
+          reason: 'default_allow',
         }),
       }),
     );
     await upstream.close();
   });
 
-  it('keeps model provider hosts out of the sandbox tool allowlist', async () => {
+  it('allows Anthropic public hosts when the denylist is empty', async () => {
     const publishRuntimeEvent = vi.fn();
     const upstream = await startRecordingProxy();
     const gateway = await ensureEgressGateway({
       key: 'test:sandbox-model-provider-allowlist',
       settings: { denylist: [] },
       principal: { appId: 'default', agentId: 'agent:test' },
-      allowedNetworkHosts: ['api.linkedin.com:443'],
       upstreamProxy: {
         provider: 'test-proxy',
         url: `http://127.0.0.1:${upstream.port}/`,
@@ -207,19 +202,21 @@ describe('egress gateway', () => {
       publishRuntimeEvent,
     });
 
-    const denied = await connectThroughGateway({
+    const response = await connectThroughGateway({
       gatewayPort: gateway.port,
       authority: 'api.anthropic.com:443',
     });
 
-    expect(denied.statusCode).toBe(403);
-    expect(upstream.headers).toHaveLength(0);
+    expect(response.statusCode).toBe(502);
+    expect(upstream.headers[0]).toContain('CONNECT 93.184.216.34:443 HTTP/1.1');
+    expect(upstream.headers[0]).toContain('Host: api.anthropic.com:443');
     expect(publishRuntimeEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
           host: 'api.anthropic.com',
-          denied: true,
-          reason: 'not_allowed_by_runtime_sandbox',
+          allowed: true,
+          denied: false,
+          reason: 'default_allow',
         }),
       }),
     );
@@ -232,7 +229,6 @@ describe('egress gateway', () => {
       key: 'test:sandbox-ipv6-model-gateway',
       settings: { denylist: [] },
       principal: { appId: 'default', agentId: 'agent:test' },
-      allowedNetworkHosts: ['api.anthropic.com:443'],
       allowedPrivateNetworkHosts: ['[::1]:18999'],
       publishRuntimeEvent,
     });
@@ -263,7 +259,6 @@ describe('egress gateway', () => {
       key: 'test:sandbox-model-gateway-alias',
       settings: { denylist: [] },
       principal: { appId: 'default', agentId: 'agent:test' },
-      allowedNetworkHosts: [authority],
       privateNetworkHostMappings: [{ authority, connectHost: '127.0.0.1' }],
       publishRuntimeEvent,
     });

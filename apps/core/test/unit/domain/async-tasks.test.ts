@@ -113,4 +113,44 @@ describe('toPublicAsyncTaskDto', () => {
     expect(publicJson).not.toContain('unbounded stdout');
     expect(publicJson).not.toContain('unbounded stderr');
   });
+
+  it('exposes running async MCP heartbeat without process output', () => {
+    const dto = toPublicAsyncTaskDto(
+      task(null, {
+        kind: 'mcp_tool_call',
+        status: 'running',
+        heartbeatAt: '2026-06-22T00:00:03.000Z',
+        terminalAt: null,
+        privateCorrelationJson: {
+          progress: {
+            phase: 'running',
+            lastProgress: 'MCP tool running.',
+            lastToolSummary: 'crm.create_deal',
+            stdoutTail: 'must stay hidden',
+            stderrTail: 'must stay hidden',
+          },
+        },
+      }),
+    );
+
+    expect(dto).toMatchObject({
+      kind: 'mcp_tool_call',
+      status: 'running',
+      currentPhase: 'running',
+      lastProgress: 'MCP tool running.',
+      lastToolSummary: 'crm.create_deal',
+      heartbeatAt: '2026-06-22T00:00:03.000Z',
+      elapsedMs: expect.any(Number),
+      stdoutTail: null,
+      stderrTail: null,
+      allowedActions: ['get', 'list', 'cancel'],
+    });
+  });
+
+  it('hides cancel for terminal tasks', () => {
+    expect(toPublicAsyncTaskDto(task(null)).allowedActions).toEqual([
+      'get',
+      'list',
+    ]);
+  });
 });

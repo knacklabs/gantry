@@ -23,10 +23,12 @@ export async function fetchAndCacheMcpToolDetail(input: {
   capability: ReviewedMaterializedMcpCapability;
   client: McpToolListClient;
   timeoutMs: number;
+  signal?: AbortSignal;
 }): Promise<CachedMcpToolDetail> {
   const tools = await fetchMcpToolListPages({
     client: input.client,
     timeoutMs: input.timeoutMs,
+    signal: input.signal,
   });
   const tool = tools.tools.find(
     (candidate) => candidate.name === input.request.toolName,
@@ -59,6 +61,7 @@ export async function resolveMcpToolOutputSchema(input: {
   capability: ReviewedMaterializedMcpCapability;
   client: McpToolListClient;
   timeoutMs: number;
+  signal?: AbortSignal;
 }): Promise<unknown | undefined> {
   const cached = readCachedMcpToolDetail(
     input.request,

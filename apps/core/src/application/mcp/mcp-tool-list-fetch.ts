@@ -17,7 +17,7 @@ export type McpListedToolMetadata = {
 export type McpToolListClient = {
   listTools(
     params?: { cursor?: string },
-    options?: { timeout?: number },
+    options?: { timeout?: number; signal?: AbortSignal },
   ): Promise<{
     tools: McpListedToolMetadata[];
     nextCursor?: string;
@@ -34,6 +34,7 @@ export type McpToolListPageResult = {
 export async function fetchMcpToolListPages(input: {
   client: McpToolListClient;
   timeoutMs: number;
+  signal?: AbortSignal;
 }): Promise<McpToolListPageResult> {
   const tools: McpListedToolMetadata[] = [];
   const seenCursors = new Set<string>();
@@ -43,6 +44,7 @@ export async function fetchMcpToolListPages(input: {
   for (let page = 0; page < MAX_MCP_REMOTE_LIST_PAGES; page += 1) {
     const response = await input.client.listTools(cursor ? { cursor } : {}, {
       timeout: input.timeoutMs,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     const remoteTools = Array.isArray(response.tools) ? response.tools : [];
     if (remoteTools.length > MAX_MCP_REMOTE_TOOLS_PER_PAGE) {

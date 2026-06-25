@@ -163,7 +163,7 @@ export function buildBaseRunnerEnv(input: {
   };
 }
 type WarnLogger = (metadata: Record<string, unknown>, message: string) => void;
-type SandboxRuntimeGatewayOptions = {
+type SandboxRuntimeNetworkProjection = {
   allowedNetworkHosts?: string[];
   privateNetworkHostMappings?: readonly EgressGatewayPrivateHostMapping[];
 };
@@ -291,16 +291,16 @@ export function sandboxRuntimeToolNetworkEnv(
   };
 }
 
-export function buildSandboxRuntimeGatewayOptions(
+export function buildSandboxRuntimeNetworkProjection(
   providerId: string,
   allowedNetworkHosts: readonly string[],
   modelCredentialEnv: Record<string, string> | undefined,
 ): {
   modelCredentialEnv: Record<string, string> | undefined;
-  gatewayOptions: SandboxRuntimeGatewayOptions;
+  networkProjection: SandboxRuntimeNetworkProjection;
 } {
   if (providerId !== 'sandbox_runtime') {
-    return { modelCredentialEnv, gatewayOptions: {} };
+    return { modelCredentialEnv, networkProjection: {} };
   }
   const projection = projectSandboxRuntimeModelGatewayEnv(modelCredentialEnv);
   const mergedHosts =
@@ -314,7 +314,7 @@ export function buildSandboxRuntimeGatewayOptions(
       : [...allowedNetworkHosts];
   return {
     modelCredentialEnv: projection.modelCredentialEnv,
-    gatewayOptions: {
+    networkProjection: {
       allowedNetworkHosts: mergedHosts,
       ...(projection.privateNetworkHostMappings.length > 0
         ? { privateNetworkHostMappings: projection.privateNetworkHostMappings }

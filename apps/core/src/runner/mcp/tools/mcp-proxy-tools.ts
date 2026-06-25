@@ -9,6 +9,7 @@ import {
 import {
   capabilityStatusText,
   chatJid,
+  jobId,
   jobRunId,
   jobRunLeaseFencingVersion,
   jobRunLeaseToken,
@@ -216,6 +217,69 @@ export function registerMcpProxyTools(server: McpServer): void {
           {
             type: 'text' as const,
             text: formatMcpCallToolResponse(response.data),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'async_mcp_call',
+    lockedAccessPreset
+      ? 'Start a background call to a tool from an MCP server source connected to this agent. Use task_get or task_list for status.'
+      : 'Start a background MCP source tool call only when the requested action is covered by reviewed current-run capability access. Use task_get or task_list for status; do not poll in a tight loop.',
+    {
+      serverName: z.string().describe('Connected MCP server name'),
+      toolName: z
+        .string()
+        .describe('Raw MCP tool name without the mcp__server__ prefix'),
+      arguments: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('JSON object arguments for the MCP tool'),
+    },
+    async (args) => {
+      const taskId = makeIpcId('async-mcp-call');
+      writeIpcFile(TASKS_DIR, {
+        type: 'async_mcp_call',
+        taskId,
+        runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
+        ...(jobId ? { jobId } : {}),
+        ...(jobRunId ? { runId: jobRunId } : {}),
+        ...(process.env.GANTRY_PARENT_TASK_ID
+          ? { parentTaskId: process.env.GANTRY_PARENT_TASK_ID }
+          : {}),
+        ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
+        ...(jobRunLeaseFencingVersion !== undefined
+          ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
+          : {}),
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        payload: {
+          serverName: args.serverName,
+          toolName: args.toolName,
+          arguments: args.arguments ?? {},
+        },
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, MCP_PROXY_WAIT_MS);
+      if (!response?.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: response?.error || 'Async MCP tool call failed.',
+            },
+          ],
+          isError: true,
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `${response.message || 'Async MCP task started.'}\n${JSON.stringify(response.data)}`,
           },
         ],
       };

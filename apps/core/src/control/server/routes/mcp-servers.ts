@@ -3,10 +3,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ConnectMcpServerRequestSchema,
   DisableMcpServerRequestSchema,
+  TestMcpServerRequestSchema,
   UpdateAgentMcpServerBindingRequestSchema,
 } from '@gantry/contracts';
 
 import { McpServerService } from '../../../application/mcp/mcp-server-service.js';
+import { McpToolProxy } from '../../../application/mcp/mcp-tool-proxy.js';
+import { resolveAgentToolRuntimePolicy } from '../../../application/agents/agent-tool-runtime-rules.js';
+import { resolveMcpCredentialEnvForAgent } from '../../../application/capability-secrets/mcp-secret-projection.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { defaultHostnameLookup } from '../../../infrastructure/network/hostname-lookup.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
@@ -18,6 +22,7 @@ import type {
   McpServerStatus,
 } from '../../../domain/mcp/mcp-servers.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
+import { reviewedExternalMcpToolNamesFromRuntimeAccess } from '../../../shared/capability-runtime-access.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -165,10 +170,12 @@ export async function handleMcpServerRoutes(
   if (testMatch && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['mcp:admin']);
     if (!auth) return true;
-    const body = await readJson(req);
-    const appId = readOptionalString(body, 'appId');
-    const testedBy = readOptionalString(body, 'testedBy');
-    if (appId && appId !== auth.appId) {
+    const parsed = TestMcpServerRequestSchema.safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid MCP server test request');
+      return true;
+    }
+    if (parsed.data.appId && parsed.data.appId !== auth.appId) {
       sendError(
         res,
         403,
@@ -181,12 +188,21 @@ export async function handleMcpServerRoutes(
       const result = await service().testServer({
         appId: auth.appId as AppId,
         serverId: decodeURIComponent(testMatch[1]) as McpServerId,
-        testedBy,
+        testedBy: parsed.data.testedBy,
       });
+      const diagnostics = parsed.data.agentId
+        ? await mcpCapabilityDriftDiagnostics({
+            appId: auth.appId as AppId,
+            agentId: parsed.data.agentId as AgentId,
+            server: result.server,
+            egressDenylist: ctx.getEgressSettings?.().denylist ?? [],
+          })
+        : undefined;
       sendJson(res, 200, {
         ok: result.ok,
-        message: result.message,
+        message: doctorMessage(result.message, diagnostics),
         server: serverToResponse(result.server),
+        ...(diagnostics ? { diagnostics } : {}),
       });
     } catch (error) {
       sendRouteError(res, error, 'MCP server test failed');
@@ -304,10 +320,92 @@ export async function handleMcpServerRoutes(
   return false;
 }
 
-function readOptionalString(input: unknown, key: string): string | undefined {
-  if (!input || typeof input !== 'object') return undefined;
-  const value = (input as Record<string, unknown>)[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+async function mcpCapabilityDriftDiagnostics(input: {
+  appId: AppId;
+  agentId: AgentId;
+  server: McpServerDefinition;
+  egressDenylist: readonly string[];
+}): Promise<
+  | {
+      agentId: string;
+      serverName: string;
+      visibleTools: string[];
+      approvedTools: string[];
+      blockedByCapabilityReview: string[];
+      inventoryTruncated?: boolean;
+      warning?: string;
+    }
+  | undefined
+> {
+  const storage = getRuntimeStorage();
+  const credentialEnv = await resolveMcpCredentialEnvForAgent({
+    appId: input.appId,
+    agentId: input.agentId,
+    mcpServers: storage.repositories.mcpServers,
+    secrets: storage.repositories.capabilitySecrets,
+    serverIds: [input.server.id],
+  });
+  const proxy = new McpToolProxy(storage.repositories.mcpServers, {
+    tools: storage.repositories.tools,
+    skills: storage.repositories.skills,
+    credentialEnv,
+    sourceServerIds: [input.server.id],
+    lookupHostname: defaultHostnameLookup,
+    egressDenylist: input.egressDenylist,
+  });
+  const [inventory, policy] = await Promise.all([
+    proxy.listTools({
+      appId: input.appId,
+      agentId: input.agentId,
+      serverName: input.server.name,
+      limit: 50,
+    }),
+    resolveAgentToolRuntimePolicy({
+      repository: storage.repositories.tools,
+      skillRepository: storage.repositories.skills,
+      appId: input.appId,
+      agentId: input.agentId,
+      errorSubject: 'Configured agent tool',
+    }),
+  ]);
+  const visibleTools = inventory.servers.flatMap((server) =>
+    server.tools.map((tool) => `mcp__${server.name}__${tool.name}`),
+  );
+  const approvedTools = reviewedExternalMcpToolNamesFromRuntimeAccess(
+    policy.runtimeAccess,
+    { serverNames: [input.server.name] },
+  ).sort();
+  const approved = new Set(approvedTools);
+  const blockedByCapabilityReview = visibleTools
+    .filter((tool) => !approved.has(tool))
+    .sort();
+  return {
+    agentId: input.agentId,
+    serverName: input.server.name,
+    visibleTools: [...visibleTools].sort(),
+    approvedTools,
+    blockedByCapabilityReview,
+    ...(inventory.diagnostics.remoteListTruncated
+      ? { inventoryTruncated: true }
+      : {}),
+    ...(blockedByCapabilityReview.length > 0
+      ? {
+          warning:
+            'MCP source is healthy, but some visible tools are not approved by selected agent capabilities. Review semantic capability implementationBindings before users call them.',
+        }
+      : {}),
+  };
+}
+
+function doctorMessage(
+  message: string,
+  diagnostics:
+    | Awaited<ReturnType<typeof mcpCapabilityDriftDiagnostics>>
+    | undefined,
+): string {
+  const count = diagnostics?.blockedByCapabilityReview.length ?? 0;
+  if (count === 0) return message;
+  return `${message} ${count} visible MCP tool(s) are blocked by missing semantic capability bindings.`;
 }
 
 function parsePage(url: URL): { limit: number; cursor?: string } {

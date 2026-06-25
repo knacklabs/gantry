@@ -120,6 +120,7 @@ describe('locked tool surface mounting', () => {
     const defaultNames = selectedGantryMcpToolNames([]);
     expect(defaultNames).toContain('todo_update');
     expect(defaultNames).not.toContain('async_run_command');
+    expect(defaultNames).not.toContain('async_mcp_call');
     expect(defaultNames).not.toContain('task_get');
     expect(defaultNames).not.toContain('task_list');
     expect(defaultNames).not.toContain('task_cancel');
@@ -130,6 +131,7 @@ describe('locked tool surface mounting', () => {
       asyncTaskToolsEnabled: true,
     });
     expect(enabledNames).toContain('async_run_command');
+    expect(enabledNames).toContain('async_mcp_call');
     expect(enabledNames).toContain('task_get');
     expect(enabledNames).toContain('task_list');
     expect(enabledNames).toContain('task_cancel');
@@ -144,11 +146,13 @@ describe('locked tool surface mounting', () => {
 
     const explicitlyConfiguredNames = selectedGantryMcpToolNames([
       'mcp__gantry__delegate_task',
+      'mcp__gantry__async_mcp_call',
       'mcp__gantry__task_get',
       'mcp__gantry__task_cancel',
       'mcp__gantry__task_message',
     ]);
     expect(explicitlyConfiguredNames).not.toContain('delegate_task');
+    expect(explicitlyConfiguredNames).not.toContain('async_mcp_call');
     expect(explicitlyConfiguredNames).not.toContain('task_get');
     expect(explicitlyConfiguredNames).not.toContain('task_cancel');
     expect(explicitlyConfiguredNames).not.toContain('task_message');
@@ -156,12 +160,14 @@ describe('locked tool surface mounting', () => {
     const parsedNames = parseEnabledGantryMcpToolNames(
       JSON.stringify([
         'delegate_task',
+        'async_mcp_call',
         'task_get',
         'task_cancel',
         'task_message',
       ]),
     );
     expect(parsedNames.has('delegate_task')).toBe(true);
+    expect(parsedNames.has('async_mcp_call')).toBe(true);
     expect(parsedNames.has('task_get')).toBe(true);
     expect(parsedNames.has('task_cancel')).toBe(true);
     expect(parsedNames.has('task_message')).toBe(true);
@@ -171,6 +177,7 @@ describe('locked tool surface mounting', () => {
     });
     expect(lockedNames).toContain('todo_update');
     expect(lockedNames).not.toContain('async_run_command');
+    expect(lockedNames).not.toContain('async_mcp_call');
     expect(lockedNames).not.toContain('task_get');
     expect(lockedNames).not.toContain('task_list');
     expect(lockedNames).not.toContain('task_cancel');
@@ -184,6 +191,7 @@ describe('locked tool surface mounting', () => {
       ...DELEGATED_TASK_GANTRY_MCP_TOOL_NAMES,
     ];
     expect(publicTaskToolNames.sort()).toEqual([
+      'async_mcp_call',
       'async_run_command',
       'delegate_task',
       'task_cancel',

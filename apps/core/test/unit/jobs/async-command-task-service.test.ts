@@ -1017,6 +1017,73 @@ describe('AsyncCommandTaskService', () => {
     expect(killed.sort()).toEqual([56789, 56790]);
   });
 
+  it('keeps stale MCP recovery retry guidance side-effect safe', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const stale = new Date(Date.now() - 120_000).toISOString();
+    await repository.createTask({
+      id: 'task-mcp',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'mcp_tool_call',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { mcpToolRule: 'mcp__crm__create_deal' },
+      privateCorrelationJson: {},
+      leaseToken: 'lease-mcp',
+      fencingVersion: 1,
+      now: stale,
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(
+      service.recoverStaleTasks({ appId: 'app-1', staleAfterMs: 1 }),
+    ).resolves.toBe(1);
+    expect(repository.tasks.get('task-mcp')?.receiptJson).toMatchObject({
+      used: 'mcp__crm__create_deal',
+      needsAttention:
+        'check the remote MCP system before retrying; work may have already run',
+    });
+  });
+
+  it('cancels recovered running MCP tasks with a fenced terminal state', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    await repository.createTask({
+      id: 'task-mcp',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'mcp_tool_call',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: { mcpToolRule: 'mcp__crm__create_deal' },
+      privateCorrelationJson: {},
+      leaseToken: 'lease-mcp',
+      fencingVersion: 1,
+      now: new Date().toISOString(),
+    });
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+
+    await expect(service.cancel('task-mcp')).resolves.toEqual({
+      ok: true,
+      message:
+        'Task was cancelled in Gantry. Remote MCP work may have already run; late results will be ignored.',
+    });
+    expect(repository.tasks.get('task-mcp')?.status).toBe('cancelled');
+    expect(
+      repository.tasks.get('task-mcp')?.privateCorrelationJson,
+    ).toMatchObject({
+      progress: {
+        phase: 'cancelled',
+        lastProgress: 'MCP tool cancelled.',
+      },
+    });
+  });
+
   it('starts delegated agent tasks and records steering messages', async () => {
     const repository = new MemoryAsyncTaskRepository();
     let release!: () => void;
