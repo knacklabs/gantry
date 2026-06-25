@@ -326,7 +326,31 @@ function sanitizePermissionCommandText(
   head: number,
   tail: number,
 ): string {
-  return headTailTruncate(redactSensitiveText(input), head, tail);
+  return clampCommandForDisplay(redactSensitiveText(input), head, tail);
+}
+
+function clampCommandForDisplay(
+  input: string,
+  head: number,
+  tail: number,
+): string {
+  const budget = head + tail;
+  if (input.length <= budget + 1) return input;
+  const lines = input.split(/\r?\n/);
+  if (lines.length <= 1) return input;
+  const shown: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const nextUsed = used + (shown.length > 0 ? 1 : 0) + line.length;
+    if (shown.length > 0 && nextUsed > budget) break;
+    shown.push(line);
+    used = nextUsed;
+    if (used >= budget) break;
+  }
+  const hidden = lines.length - shown.length;
+  if (hidden <= 0) return input;
+  // ponytail: a single oversized line stays whole; never cut mid-line.
+  return `${shown.join('\n')}\n… (+${hidden} more lines)`;
 }
 
 function limitPermissionMessage(

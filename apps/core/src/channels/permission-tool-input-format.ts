@@ -1,5 +1,6 @@
 import type { PermissionApprovalRequest } from '../domain/types.js';
 import {
+  destructiveBashCommandHint,
   firstDestructiveRedirectTarget,
   summarizeBashCommandPrograms,
 } from '../shared/bash-command-parser.js';
@@ -73,13 +74,16 @@ export function formatPermissionToolInputLines(
   const input = request.toolInput;
   if (typeof input.command === 'string' && input.command.trim()) {
     const displayCommand = runtimeDisplayCommand(input.command.trim());
+    const leadLine = commandLeadLine(
+      input,
+      displayCommand.command,
+      sanitizePermissionText,
+    );
+    const riskLines = commandRiskLines(displayCommand.command);
     const generatedSkillPath = generatedRuntimeSkillPathDisplay(
       displayCommand.command,
     );
     if (generatedSkillPath) {
-      const redirectTarget = firstDestructiveRedirectTarget(
-        displayCommand.command,
-      );
       const runtimeEnvLine =
         displayCommand.runtimeEnvAssignments.length > 0
           ? `Runtime environment: ${sanitizePermissionText(
@@ -89,10 +93,11 @@ export function formatPermissionToolInputLines(
             )}`
           : null;
       return [
+        leadLine,
         'Command: generated skill action command; runtime path hidden.',
         `Action: ${sanitizePermissionText(generatedSkillPath, 180, 80)}`,
         ...(runtimeEnvLine ? [runtimeEnvLine] : []),
-        ...(redirectTarget ? [`Redirect: ${redirectTarget}`] : []),
+        ...riskLines,
       ];
     }
     const command = (options.sanitizeCommandText ?? sanitizePermissionText)(
@@ -100,20 +105,19 @@ export function formatPermissionToolInputLines(
       900,
       300,
     );
-    const redirectTarget = firstDestructiveRedirectTarget(
-      displayCommand.command,
-    );
     if (hasRedactionMarker(command)) {
       const program = shellProgramLabel(displayCommand.command);
       return [
+        leadLine,
         'Command: hidden because it may contain sensitive values.',
         ...(program
           ? [`Program: ${sanitizePermissionText(program, 120, 40)}`]
           : []),
-        ...(redirectTarget ? [`Redirect: ${redirectTarget}`] : []),
+        ...riskLines,
       ];
     }
     return [
+      leadLine,
       'Command:',
       '```',
       command,
@@ -127,7 +131,7 @@ export function formatPermissionToolInputLines(
             )}`,
           ]
         : []),
-      ...(redirectTarget ? [`Redirect: ${redirectTarget}`] : []),
+      ...riskLines,
     ];
   }
   if (request.toolName === 'Edit' || request.toolName === 'Write') {
@@ -251,6 +255,34 @@ function formatFileToolInputLines(
 
 function hasRedactionMarker(value: string): boolean {
   return REDACTION_MARKER_PATTERN.test(value);
+}
+
+function commandLeadLine(
+  input: Record<string, unknown>,
+  command: string,
+  sanitizePermissionText: PermissionTextSanitizer,
+): string {
+  if (typeof input.description === 'string' && input.description.trim()) {
+    return `What it does: ${sanitizePermissionText(
+      input.description.trim(),
+      300,
+      100,
+    )}`;
+  }
+  const programs =
+    summarizeBashCommandPrograms(command) ?? shellProgramLabel(command);
+  return `Runs: ${
+    programs ? sanitizePermissionText(programs, 200, 80) : 'command'
+  }`;
+}
+
+function commandRiskLines(command: string): string[] {
+  const lines: string[] = [];
+  const redirectTarget = firstDestructiveRedirectTarget(command);
+  if (redirectTarget) lines.push(`Redirect: ${redirectTarget}`);
+  const hint = destructiveBashCommandHint(command);
+  if (hint) lines.push(`⚠️ ${hint}`);
+  return lines;
 }
 
 function shellProgramLabel(command: string): string | null {

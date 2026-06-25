@@ -16,7 +16,53 @@ function dependencyRequest(
   };
 }
 
+function commandRequest(
+  toolInput: Record<string, unknown>,
+): PermissionApprovalRequest {
+  return {
+    requestId: 'permission_123',
+    sourceAgentFolder: 'kai_group',
+    toolName: 'Bash',
+    toolInput,
+  };
+}
+
 describe('formatPermissionToolInputLines', () => {
+  it('leads command prompts with the model-provided intent', () => {
+    expect(
+      formatPermissionToolInputLines(
+        commandRequest({
+          command: 'git status --short',
+          description: 'Check the working tree status.',
+        }),
+        passthrough,
+      ).slice(0, 4),
+    ).toEqual([
+      'What it does: Check the working tree status.',
+      'Command:',
+      '```',
+      'git status --short',
+    ]);
+  });
+
+  it('falls back to the command programs when no intent is provided', () => {
+    expect(
+      formatPermissionToolInputLines(
+        commandRequest({ command: 'npm test && git status --short' }),
+        passthrough,
+      )[0],
+    ).toBe('Runs: npm, git');
+  });
+
+  it('renders a risk line for destructive commands without redirects', () => {
+    expect(
+      formatPermissionToolInputLines(
+        commandRequest({ command: 'rm -rf /tmp/old-build' }),
+        passthrough,
+      ),
+    ).toContain('⚠️ Removes files recursively');
+  });
+
   it('renders skill dependency install package requests as reviewable fields', () => {
     expect(
       formatPermissionToolInputLines(

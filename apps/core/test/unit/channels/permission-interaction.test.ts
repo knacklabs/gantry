@@ -795,6 +795,35 @@ describe('permission interaction', () => {
     );
   });
 
+  it('clamps long command previews at line boundaries', () => {
+    const command = Array.from(
+      { length: 80 },
+      (_, index) => `echo line-${String(index).padStart(3, '0')}-complete-token`,
+    ).join('\n');
+    const text = formatPermissionPromptText(
+      {
+        ...requestWithSuggestions([]),
+        toolName: 'Bash',
+        toolInput: { command },
+      },
+      60_000,
+    );
+    const commandPreview = text.match(/Command:\n```\n([\s\S]*?)\n```/)?.[1];
+
+    expect(commandPreview).toBeDefined();
+    expect(commandPreview?.startsWith('echo line-000-complete-token\n')).toBe(
+      true,
+    );
+    expect(commandPreview).toMatch(/\n… \(\+\d+ more lines\)$/);
+    expect(commandPreview).not.toContain('line-079-complete-token');
+    const shownCommandLines = commandPreview
+      ?.split('\n')
+      .filter((line) => line && !line.startsWith('…'));
+    expect(
+      shownCommandLines?.every((line) => line.endsWith('-complete-token')),
+    ).toBe(true);
+  });
+
   it('keeps user-provided command environment assignments visible', () => {
     const text = formatPermissionPromptText(
       {
@@ -951,6 +980,21 @@ describe('permission interaction', () => {
     expect(text).not.toContain('future matching tool calls');
   });
 
+  it('shows a risk line for destructive Bash commands without redirects', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+        toolInput: { command: 'DROP TABLE customers' },
+        suggestions: [],
+      },
+      60_000,
+    );
+
+    expect(text).toContain('⚠️ Runs destructive SQL');
+  });
+
   it('renders a structured Bash prompt with persistent rules', () => {
     const text = formatPermissionPromptText(
       {
@@ -981,6 +1025,7 @@ describe('permission interaction', () => {
     expect(text).toMatchInlineSnapshot(`
       "🔐 Allow Main Agent to use exact command access?
 
+      Runs: curl, jq
       Command:
       \`\`\`
       curl -sSf https://api.example.com/leads | jq '.[] | select(.score > 80)' > /tmp/leads.json

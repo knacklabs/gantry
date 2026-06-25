@@ -102,6 +102,53 @@ export function firstDestructiveRedirectTarget(
   return undefined;
 }
 
+export function destructiveBashCommandHint(command: string): string | undefined {
+  const text = command.trim();
+  // ponytail: bounded prompt hint only; this is not a shell or SQL safety parser.
+  if (/\b(?:curl|wget)\b[\s\S]*\|\s*(?:sudo\s+)?(?:ba)?sh\b/i.test(text)) {
+    return 'Downloads and runs a remote script';
+  }
+  if (/\b(?:DROP|TRUNCATE)\s+(?:TABLE\s+)?[A-Za-z_][\w.]*/i.test(text)) {
+    return 'Runs destructive SQL';
+  }
+  if (/\bDELETE\s+FROM\s+[A-Za-z_][\w.]*/i.test(text)) {
+    return 'Runs destructive SQL';
+  }
+  if (/\bALTER\s+TABLE\s+[A-Za-z_][\w.]*/i.test(text)) {
+    return 'Changes a database table';
+  }
+  const parsed = parseBashCommand(text);
+  if (parsed.ok) {
+    for (const leaf of parsed.leaves) {
+      const commandName = executableName(leaf.argv[0] ?? '');
+      if (commandName === 'rm') {
+        let recursive = false;
+        let force = false;
+        for (const arg of leaf.argv.slice(1)) {
+          if (!arg.startsWith('-') || arg === '--') continue;
+          if (arg.includes('r') || arg.includes('R')) recursive = true;
+          if (arg.includes('f')) force = true;
+        }
+        if (recursive && force) {
+          return 'Removes files recursively';
+        }
+      }
+      if (commandName === 'dd') return 'Writes raw disk data';
+      if (commandName === 'mkfs' || commandName.startsWith('mkfs.')) {
+        return 'Formats a filesystem';
+      }
+    }
+  }
+  if (
+    /\b(?:DROP|DELETE|TRUNCATE|ALTER\s+TABLE|rm\s+-|mkfs(?:\.\w+)?|dd)\b/i.test(
+      text,
+    )
+  ) {
+    return 'Review the full command before approving';
+  }
+  return undefined;
+}
+
 export function bashLeafRuleContent(leaf: BashCommandLeaf): string {
   return leaf.commandText;
 }
