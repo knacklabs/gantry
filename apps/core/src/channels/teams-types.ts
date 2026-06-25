@@ -57,6 +57,7 @@ export interface TeamsSdkAdaptiveCardMessage {
   conversationId: string;
   card: TeamsAdaptiveCardPayload;
   threadId?: string;
+  streamType?: 'informative' | 'streaming';
 }
 
 export interface TeamsSdkAdaptiveCardUpdate {
@@ -64,6 +65,7 @@ export interface TeamsSdkAdaptiveCardUpdate {
   messageId: string;
   card: TeamsAdaptiveCardPayload;
   threadId?: string;
+  streamType?: 'informative' | 'streaming';
 }
 
 export interface TeamsSdkClient {

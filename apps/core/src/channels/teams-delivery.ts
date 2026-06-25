@@ -6,7 +6,7 @@ import { PartialMessageDeliveryError } from '../domain/messages/partial-delivery
 import type { TeamsSdkClient } from './teams.js';
 
 const TEAMS_SOFT_MESSAGE_BYTES = 78 * 1024;
-const TEAMS_HARD_MESSAGE_BYTES = 80 * 1024;
+export const TEAMS_HARD_MESSAGE_BYTES = 80 * 1024;
 const TEAMS_413_RETRY_MAX_BYTES = 64 * 1024;
 
 function splitTeamsTextByCodeUnits(
@@ -33,7 +33,10 @@ function splitTeamsTextByCodeUnits(
   return parts;
 }
 
-function splitTeamsTextByByteBudget(text: string, maxBytes: number): string[] {
+export function splitTeamsTextByByteBudget(
+  text: string,
+  maxBytes: number,
+): string[] {
   if (!text) return [];
   if (Buffer.byteLength(text, 'utf8') <= maxBytes) return [text];
   const parts: string[] = [];

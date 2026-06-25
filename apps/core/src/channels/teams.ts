@@ -1,4 +1,8 @@
-import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
+import {
+  CHANNEL_STREAM_UPDATE_INTERVAL_MS,
+  type ChannelAdapter,
+  type ChannelOpts,
+} from './channel-provider.js';
 import type {
   MessageDeliveryResult,
   MessageSendOptions,
@@ -6,6 +10,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
+  StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
@@ -24,16 +29,19 @@ import {
   normalizePermissionAction,
   permissionDecisionOptions,
 } from './permission-interaction.js';
-import { sendTeamsTextMessage } from './teams-delivery.js';
-import { nowIso } from '../shared/time/datetime.js';
+import {
+  TEAMS_HARD_MESSAGE_BYTES,
+  sendTeamsTextMessage,
+  splitTeamsTextByByteBudget,
+} from './teams-delivery.js';
+import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { readTeamsPermissionDecision } from './teams-permission-submit.js';
 import {
-  TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
   buildTeamsApprovalAdaptiveCard,
+  buildTeamsMessageCard,
   buildTeamsUserQuestionCard,
   buildTeamsUserQuestionReceiptCard,
   formatTeamsAttachmentUnavailableCopy as teamsTextWithAttachmentNotice,
-  type TeamsAdaptiveCardPayload,
 } from './teams-cards.js';
 import { handleTeamsMessageAction } from './teams-message-actions.js';
 import {
@@ -67,6 +75,14 @@ function teamsReactionText(emoji: string): string {
   if (emoji === 'seen') return 'Seen.';
   if (emoji === 'running') return 'Running.';
   return emoji;
+}
+
+interface TeamsStreamingState {
+  conversationId: string;
+  messageId?: string;
+  rawBuffer: string;
+  lastFlushAt: number;
+  pendingDelivery: Promise<boolean>;
 }
 
 export {
@@ -103,6 +119,9 @@ export class TeamsChannel implements ChannelAdapter {
   >();
   private readonly pendingTodos: TeamsTodoMessages = new Map();
   private readonly pendingProgress: TeamsProgressMessages = new Map();
+  private readonly activeStreams = new Map<string, TeamsStreamingState>();
+  private readonly streamGenerationByJid = new Map<string, number>();
+  private readonly sealedStreamGenerationByJid = new Map<string, number>();
   private readonly reactionKeys = new Set<string>();
   private readonly pendingUserQuestions = new Map<
     string,
@@ -230,6 +249,39 @@ export class TeamsChannel implements ChannelAdapter {
     });
   }
 
+  async sendStreamingChunk(
+    jid: string,
+    text: string,
+    options: StreamingChunkOptions = {},
+  ): Promise<boolean> {
+    if (!this.outboundReady) return false;
+    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return false;
+
+    const key = this.streamKey(jid, options.threadId);
+    let state = this.activeStreams.get(key);
+    if (!state) {
+      state = {
+        conversationId,
+        rawBuffer: '',
+        lastFlushAt: 0,
+        pendingDelivery: Promise.resolve(false),
+      };
+      this.activeStreams.set(key, state);
+    }
+
+    const run = () =>
+      this.applyTeamsStreamingChunk({ jid, key, state, text, options });
+    state.pendingDelivery = state.pendingDelivery.then(run, run);
+    return state.pendingDelivery;
+  }
+
+  resetStreaming(jid: string): void {
+    this.clearStreamingStateForJid(jid);
+    this.sealStreamingGenerationOnReset(jid);
+  }
+
   async renderAgentTodo(
     jid: string,
     render: AgentTodoRender,
@@ -241,6 +293,145 @@ export class TeamsChannel implements ChannelAdapter {
       jid,
       render,
     });
+  }
+
+  private streamKey(jid: string, threadId?: string): string {
+    return `${jid}\n${threadId ?? ''}`;
+  }
+
+  private clearStreamingStateForJid(jid: string): void {
+    for (const key of this.activeStreams.keys()) {
+      if (key.startsWith(`${jid}\n`)) this.activeStreams.delete(key);
+    }
+  }
+
+  private shouldAcceptStreamingChunk(
+    jid: string,
+    generation?: number,
+  ): boolean {
+    if (generation === undefined) return true;
+    const sealed = this.sealedStreamGenerationByJid.get(jid);
+    if (sealed !== undefined && generation <= sealed) return false;
+    const latest = this.streamGenerationByJid.get(jid);
+    if (latest === undefined) {
+      this.streamGenerationByJid.set(jid, generation);
+      return true;
+    }
+    if (generation < latest) return false;
+    if (generation > latest) {
+      this.clearStreamingStateForJid(jid);
+      this.streamGenerationByJid.set(jid, generation);
+    }
+    return true;
+  }
+
+  private markStreamingGenerationDone(jid: string, generation?: number): void {
+    if (generation === undefined) return;
+    const sealed = this.sealedStreamGenerationByJid.get(jid);
+    if (sealed === undefined || generation > sealed) {
+      this.sealedStreamGenerationByJid.set(jid, generation);
+    }
+  }
+
+  private sealStreamingGenerationOnReset(jid: string): void {
+    const latest = this.streamGenerationByJid.get(jid);
+    if (latest === undefined) return;
+    const sealed = this.sealedStreamGenerationByJid.get(jid);
+    if (sealed === undefined || latest > sealed) {
+      this.sealedStreamGenerationByJid.set(jid, latest);
+    }
+  }
+
+  private async applyTeamsStreamingChunk(input: {
+    jid: string;
+    key: string;
+    state: TeamsStreamingState;
+    text: string;
+    options: StreamingChunkOptions;
+  }): Promise<boolean> {
+    const current = this.activeStreams.get(input.key);
+    if (current !== input.state) return false;
+    if (input.text) input.state.rawBuffer += input.text;
+    if (!input.state.rawBuffer.trim() && input.options.done) {
+      this.activeStreams.delete(input.key);
+      this.markStreamingGenerationDone(input.jid, input.options.generation);
+      return false;
+    }
+
+    const now = currentTimeMs();
+    const shouldFlush =
+      input.options.done ||
+      !input.state.messageId ||
+      now - input.state.lastFlushAt >= CHANNEL_STREAM_UPDATE_INTERVAL_MS.teams;
+    if (!shouldFlush) return Boolean(input.state.messageId);
+
+    const delivered = await this.flushTeamsStreamingState(input);
+    input.state.lastFlushAt = now;
+    if (input.options.done) {
+      this.activeStreams.delete(input.key);
+      this.markStreamingGenerationDone(input.jid, input.options.generation);
+    }
+    return delivered;
+  }
+
+  private async flushTeamsStreamingState(input: {
+    jid: string;
+    state: TeamsStreamingState;
+    options: StreamingChunkOptions;
+  }): Promise<boolean> {
+    const options = input.options;
+    const parts = splitTeamsTextByByteBudget(
+      input.state.rawBuffer,
+      TEAMS_HARD_MESSAGE_BYTES,
+    );
+    const headText = parts[0] ?? ' ';
+    const hasNativeStreaming =
+      this.sdkClient.sendAdaptiveCard && this.sdkClient.updateAdaptiveCard;
+    if (!hasNativeStreaming) {
+      if (!options.done) return false;
+      await sendTeamsTextMessage(
+        this.sdkClient,
+        input.state.conversationId,
+        input.state.rawBuffer,
+        options,
+      );
+      return true;
+    }
+
+    const card = buildTeamsMessageCard({
+      text: headText || ' ',
+      targetJid: input.jid,
+      threadId: options.threadId,
+    });
+    if (input.state.messageId) {
+      await this.sdkClient.updateAdaptiveCard?.({
+        conversationId: input.state.conversationId,
+        messageId: input.state.messageId,
+        card,
+        streamType: 'streaming',
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      });
+    } else {
+      const sent = await this.sdkClient.sendAdaptiveCard?.({
+        conversationId: input.state.conversationId,
+        card,
+        streamType: 'informative',
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      });
+      input.state.messageId = sent?.externalMessageId;
+    }
+
+    if (options.done && parts.length > 1) {
+      // ponytail: cap overflow at Teams' provider limit; do not add rolling
+      // chunk messages during normal streaming cadence.
+      await sendTeamsTextMessage(
+        this.sdkClient,
+        input.state.conversationId,
+        parts.slice(1).join(''),
+        options,
+      );
+    }
+    return true;
   }
 
   async ingestMessage(message: TeamsInboundMessage): Promise<void> {

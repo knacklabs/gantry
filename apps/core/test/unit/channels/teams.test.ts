@@ -5,6 +5,7 @@ import {
   providerForJid,
 } from '@core/channels/provider-registry.js';
 import '@core/channels/register-builtins.js';
+import { TEAMS_HARD_MESSAGE_BYTES } from '@core/channels/teams-delivery.js';
 import {
   TEAMS_ADAPTIVE_CARD_CONTENT_TYPE,
   TeamsChannel,
@@ -29,6 +30,7 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
 
 afterEach(() => {
   configurePendingInteractionDurability(null);
+  vi.useRealTimers();
 });
 
 function makeOpts(): ChannelOpts {
@@ -475,6 +477,186 @@ describe('TeamsChannel adapter scaffold', () => {
         }),
       }),
     );
+  });
+
+  it('streams Teams output by updating one native card at the Teams cadence', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'stream-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    await channel.sendStreamingChunk('teams:19:abc@thread.v2', 'Hello', {
+      threadId: 'root-message',
+      generation: 1,
+    });
+    await channel.sendStreamingChunk('teams:19:abc@thread.v2', ' world', {
+      threadId: 'root-message',
+      generation: 1,
+    });
+    expect(sdkClient.updateAdaptiveCard).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1800);
+    await channel.sendStreamingChunk('teams:19:abc@thread.v2', '!', {
+      threadId: 'root-message',
+      generation: 1,
+      done: true,
+    });
+
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledTimes(1);
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        threadId: 'root-message',
+        streamType: 'informative',
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'Hello' })],
+        }),
+      }),
+    );
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(1);
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        messageId: 'stream-card-1',
+        threadId: 'root-message',
+        streamType: 'streaming',
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'Hello world!' })],
+        }),
+      }),
+    );
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('serializes Teams streaming updates for the same stream', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    let resolveFirstUpdate: ((value?: unknown) => void) | undefined;
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'stream-card-1',
+      })),
+      updateAdaptiveCard: vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveFirstUpdate = resolve;
+            }),
+        )
+        .mockResolvedValue({}),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+    await channel.sendStreamingChunk('teams:19:abc@thread.v2', 'A');
+    await vi.advanceTimersByTimeAsync(1800);
+
+    const firstUpdate = channel.sendStreamingChunk(
+      'teams:19:abc@thread.v2',
+      'B',
+    );
+    await Promise.resolve();
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(1);
+
+    const secondUpdate = channel.sendStreamingChunk(
+      'teams:19:abc@thread.v2',
+      'C',
+      { done: true },
+    );
+    await Promise.resolve();
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(1);
+
+    resolveFirstUpdate?.({});
+    await firstUpdate;
+    await secondUpdate;
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledTimes(2);
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        card: expect.objectContaining({
+          body: [expect.objectContaining({ text: 'ABC' })],
+        }),
+      }),
+    );
+  });
+
+  it('splits Teams streaming output to a new message only at the hard cap', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async ({ text }) => ({
+        externalMessageId: `overflow-${text.length}`,
+      })),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'stream-card-1',
+      })),
+      updateAdaptiveCard: vi.fn(async () => ({})),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    await channel.sendStreamingChunk(
+      'teams:19:abc@thread.v2',
+      'x'.repeat(TEAMS_HARD_MESSAGE_BYTES - 1),
+    );
+    expect(sdkClient.sendMessage).not.toHaveBeenCalled();
+
+    await channel.sendStreamingChunk('teams:19:abc@thread.v2', 'yy', {
+      done: true,
+    });
+
+    expect(sdkClient.updateAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        card: expect.objectContaining({
+          body: [
+            expect.objectContaining({
+              text: `${'x'.repeat(TEAMS_HARD_MESSAGE_BYTES - 1)}y`,
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(sdkClient.sendMessage).toHaveBeenCalledTimes(1);
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'y',
+    });
   });
 
   it('starts the SDK for outbound messages without processing inbound activities in outbound-only mode', async () => {
