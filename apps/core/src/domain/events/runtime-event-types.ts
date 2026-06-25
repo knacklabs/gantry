@@ -48,6 +48,7 @@ export const RUNTIME_EVENT_TYPES = {
   RUN_FAILED: 'run.failed',
   RUN_TIMEOUT: 'run.timeout',
   RUN_DEAD_LETTERED: 'run.dead_lettered',
+  PROACTIVE_SURFACING_OUTCOME: 'proactive.surfacing.outcome',
   WEBHOOK_TEST: 'webhook.test',
 } as const;
 

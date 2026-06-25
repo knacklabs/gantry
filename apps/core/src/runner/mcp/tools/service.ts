@@ -9,6 +9,7 @@ import {
   deploymentMode,
   isAdminMcpToolEnabled,
   memoryUserId,
+  memoryDefaultScope,
   TASKS_DIR,
   threadId,
 } from '../context.js';
@@ -68,6 +69,43 @@ export function registerServiceTools(server: McpServer): void {
               (response?.ok
                 ? 'Pattern decision recorded.'
                 : 'Pattern decision was not recorded.'),
+          },
+        ],
+        ...(response?.ok ? {} : { isError: true }),
+      };
+    },
+  );
+  server.tool(
+    'proactive_surfacing_consent',
+    'Record the user explicit decision to keep flagging (enable) or stop flagging (opt_out) proactive patterns for this conversation. Use ONLY after the user explicitly says so this turn.',
+    {
+      choice: z.enum(['enable', 'opt_out']),
+    },
+    async (args) => {
+      const taskId = makeIpcId('proactive-surfacing-consent');
+      writeIpcFile(TASKS_DIR, {
+        type: 'proactive_surfacing_consent',
+        taskId,
+        targetJid: chatJid,
+        chatJid,
+        memoryUserId,
+        authThreadId: threadId,
+        payload: {
+          choice: args.choice,
+          conversationKind: memoryDefaultScope === 'user' ? 'dm' : 'channel',
+        },
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, 10_000);
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              response?.message ||
+              (response?.ok
+                ? 'Proactive surfacing consent recorded.'
+                : 'Proactive surfacing consent was not recorded.'),
           },
         ],
         ...(response?.ok ? {} : { isError: true }),
