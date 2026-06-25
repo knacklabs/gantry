@@ -20,6 +20,18 @@ import {
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
+const DEEPAGENTS_SANDBOX_PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'ALL_PROXY',
+  'all_proxy',
+  'GRPC_PROXY',
+  'grpc_proxy',
+  'NODE_USE_ENV_PROXY',
+  'GANTRY_EGRESS_PROXY_URL',
+] as const;
 
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
 // runner reads when (and only when) the run is a DeepAgents run that requests
@@ -290,6 +302,22 @@ export function sandboxRuntimeToolNetworkEnv(
     ...toolNetworkEnv,
     GODEBUG: toolNetworkEnv.GODEBUG?.trim() || SANDBOX_RUNTIME_GO_DNS,
   };
+}
+
+export function stripDeepAgentsSandboxHostProxyEnv(input: {
+  env: NodeJS.ProcessEnv;
+  executionProviderId: string;
+  sandboxProviderId: RunnerSandboxProviderId;
+}): void {
+  if (
+    input.executionProviderId !== 'deepagents:langchain' ||
+    input.sandboxProviderId !== 'sandbox_runtime'
+  ) {
+    return;
+  }
+  for (const key of DEEPAGENTS_SANDBOX_PROXY_ENV_KEYS) {
+    delete input.env[key];
+  }
 }
 
 export function buildSandboxRuntimeGatewayOptions(

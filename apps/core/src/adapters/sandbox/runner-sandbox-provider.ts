@@ -324,7 +324,7 @@ function installProcessGroupKill(child: ReturnType<typeof spawn>): void {
 }
 
 function egressProxyConfig(proxyUrl: string | undefined): {
-  httpProxyPort: number;
+  parentProxy: { http: string; https: string; noProxy: string };
 } {
   if (!proxyUrl) {
     throw new Error('Sandbox egress proxy URL is missing.');
@@ -340,7 +340,13 @@ function egressProxyConfig(proxyUrl: string | undefined): {
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error('Sandbox egress proxy must include a numeric port.');
   }
-  return { httpProxyPort: port };
+  return {
+    parentProxy: {
+      http: proxyUrl,
+      https: proxyUrl,
+      noProxy: '',
+    },
+  };
 }
 
 function sandboxAllowedDomainsFromHosts(hosts: readonly string[]): string[] {

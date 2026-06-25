@@ -93,6 +93,7 @@ import {
   sandboxRuntimeToolNetworkEnv,
   prepareRunnerWorkspace,
   resolveRunnerSandboxStartup,
+  stripDeepAgentsSandboxHostProxyEnv,
   uniqueStrings,
   buildRunnerSandboxSpawnInput,
   buildBaseRunnerEnv,
@@ -100,22 +101,7 @@ import {
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
-// prettier-ignore
 export type { AvailableGroup, AgentInput, AgentOutput } from './agent-spawn-types.js';
-
-const DEEPAGENTS_SANDBOX_PROXY_ENV_KEYS = [
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'http_proxy',
-  'https_proxy',
-  'ALL_PROXY',
-  'all_proxy',
-  'GRPC_PROXY',
-  'grpc_proxy',
-  'NODE_USE_ENV_PROXY',
-  'GANTRY_EGRESS_PROXY_URL',
-] as const;
-
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -474,13 +460,7 @@ export async function spawnAgent(
       runnerInput.semanticCapabilities = runnerInputPatch.semanticCapabilities;
     }
     if (runnerInputPatch.deepAgentCheckpointer) {
-      runnerInput.deepAgentCheckpointer =
-        runnerSandboxProviderId === 'sandbox_runtime'
-          ? {
-              ...runnerInputPatch.deepAgentCheckpointer,
-              proxyUrl: egressGateway.proxyUrl,
-            }
-          : runnerInputPatch.deepAgentCheckpointer;
+      runnerInput.deepAgentCheckpointer = runnerInputPatch.deepAgentCheckpointer;
     }
     runnerInput.deepAgentSkills = runnerInputPatch.deepAgentSkills;
     const localCliCredentialPaths = resolveHomeRelativePaths(
@@ -583,14 +563,11 @@ export async function spawnAgent(
       pickSafeHostEnv,
       pickPreparedExecutionEnv,
     });
-    if (
-      preparedExecution.providerId === 'deepagents:langchain' &&
-      runnerSandboxProviderId === 'sandbox_runtime'
-    ) {
-      for (const key of DEEPAGENTS_SANDBOX_PROXY_ENV_KEYS) {
-        delete env[key];
-      }
-    }
+    stripDeepAgentsSandboxHostProxyEnv({
+      env,
+      executionProviderId: preparedExecution.providerId,
+      sandboxProviderId: runnerSandboxProviderId,
+    });
     if (
       options?.runnerSandboxProvider?.enforcing === true &&
       options.asyncTaskRepositoryAvailable === true

@@ -173,7 +173,7 @@ describe('runner sandbox provider', () => {
 
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/work/agent/.gantry/sandbox.json',
-      expect.stringContaining('"httpProxyPort"'),
+      expect.stringContaining('"parentProxy"'),
       { mode: 0o600 },
     );
     expect(fs.writeFileSync).toHaveBeenCalledWith(
@@ -184,9 +184,13 @@ describe('runner sandbox provider', () => {
     const config = JSON.parse(
       String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
     );
-    expect(config.network.httpProxyPort).toBe(18789);
+    expect(config.network.httpProxyPort).toBeUndefined();
     expect(config.network.socksProxyPort).toBeUndefined();
-    expect(config.network.parentProxy).toBeUndefined();
+    expect(config.network.parentProxy).toEqual({
+      http: 'http://127.0.0.1:18789',
+      https: 'http://127.0.0.1:18789',
+      noProxy: '',
+    });
     expect(config.network.allowLocalBinding).toBe(false);
     expect(config.filesystem.denyRead).not.toContain('/');
     expect(config.filesystem.denyRead).toContain('/work');

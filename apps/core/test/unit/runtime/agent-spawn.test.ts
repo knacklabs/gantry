@@ -1734,7 +1734,7 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
-  it('routes sandboxed DeepAgents checkpointer database access through Gantry egress proxy', async () => {
+  it('lets sandbox runtime inject DeepAgents checkpointer proxy env', async () => {
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {
         yoloMode: {
@@ -1804,8 +1804,8 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.deepAgentCheckpointer).toMatchObject({
       databaseUrl: 'postgres://gantry:test@db.internal:6543/gantry',
       schema: 'gantry_deepagents_checkpoints',
-      proxyUrl: 'http://127.0.0.1:18080/',
     });
+    expect(runnerInput.deepAgentCheckpointer.proxyUrl).toBeUndefined();
     expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
       expect.objectContaining({
         allowedNetworkHosts: ['db.internal:6543'],
