@@ -394,8 +394,10 @@ export async function spawnAgent(
     const checkpointerNetworkHost = databaseNetworkHostFromUrl(
       runnerInputPatch.deepAgentCheckpointer?.databaseUrl,
     );
-    const sandboxAllowedNetworkHosts =
-      sandboxAllowedNetworkHostsFromRuntimeAccess(effectiveRuntimeAccess);
+    const sandboxAllowedNetworkHosts = uniqueStrings([
+      ...sandboxAllowedNetworkHostsFromRuntimeAccess(effectiveRuntimeAccess),
+      ...(checkpointerNetworkHost ? [checkpointerNetworkHost] : []),
+    ]);
     const runtimeSandbox = getRuntimeSettingsForConfig().runtime.sandbox;
     const { runnerSandboxProviderId, sandboxWarmTemplate } =
       resolveRunnerSandboxStartup({
@@ -418,10 +420,6 @@ export async function spawnAgent(
               sandboxAllowedNetworkHosts,
           )
         : sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts;
-    const egressAllowedPrivateNetworkHosts =
-      runnerSandboxProviderId === 'sandbox_runtime' && checkpointerNetworkHost
-        ? [checkpointerNetworkHost]
-        : undefined;
     egressGateway = await hostStartup.measureAsync('egressGatewayMs', () =>
       ensureEgressGateway({
         key: `${runnerAppId}:${input.agentId || group.folder}:${processName}`,
@@ -438,9 +436,6 @@ export async function spawnAgent(
         ...sandboxRuntimeGateway.gatewayOptions,
         ...(egressAllowedNetworkHosts
           ? { allowedNetworkHosts: egressAllowedNetworkHosts }
-          : {}),
-        ...(egressAllowedPrivateNetworkHosts
-          ? { allowedPrivateNetworkHosts: egressAllowedPrivateNetworkHosts }
           : {}),
         ...(options?.mcpHostnameLookup
           ? { lookupHostname: options.mcpHostnameLookup }
@@ -481,10 +476,7 @@ export async function spawnAgent(
     if (runnerInputPatch.deepAgentCheckpointer) {
       runnerInput.deepAgentCheckpointer =
         runnerSandboxProviderId === 'sandbox_runtime'
-          ? {
-              ...runnerInputPatch.deepAgentCheckpointer,
-              proxyUrl: egressGateway.proxyUrl,
-            }
+          ? { ...runnerInputPatch.deepAgentCheckpointer }
           : runnerInputPatch.deepAgentCheckpointer;
     }
     runnerInput.deepAgentSkills = runnerInputPatch.deepAgentSkills;

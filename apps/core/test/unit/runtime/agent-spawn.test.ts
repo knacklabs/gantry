@@ -1734,7 +1734,7 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
-  it('routes DeepAgents checkpointer through egress without sandbox host access', async () => {
+  it('allows sandboxed DeepAgents checkpointer database access without host-loopback proxy', async () => {
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {
         yoloMode: {
@@ -1799,17 +1799,16 @@ describe('agent-spawn timeout behavior', () => {
 
     const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
-    expect(startInput.allowedNetworkHosts).not.toContain('db.internal:6543');
+    expect(startInput.allowedNetworkHosts).toContain('db.internal:6543');
     expect(startInput.egressProxyUrl).toBe('http://127.0.0.1:18080/');
     expect(runnerInput.deepAgentCheckpointer).toMatchObject({
       databaseUrl: 'postgres://gantry:test@db.internal:6543/gantry',
       schema: 'gantry_deepagents_checkpoints',
-      proxyUrl: 'http://127.0.0.1:18080/',
     });
+    expect(runnerInput.deepAgentCheckpointer.proxyUrl).toBeUndefined();
     expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
       expect.objectContaining({
-        allowedNetworkHosts: [],
-        allowedPrivateNetworkHosts: ['db.internal:6543'],
+        allowedNetworkHosts: ['db.internal:6543'],
       }),
     );
   });
