@@ -19,10 +19,12 @@ import {
   resolveDurableQuestionInteractionByRequestId,
 } from '../application/interactions/pending-interaction-durability.js';
 import {
+  buildPermissionPromptParts,
   decisionForMode,
-  formatPermissionPromptText,
+  formatPermissionPromptPartsText,
   permissionButtonLabel,
   permissionDecisionOptions,
+  type PermissionPromptFullView,
 } from './permission-interaction.js';
 import { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 import {
@@ -63,6 +65,8 @@ const DISCORD_INTERACTION_TIMEOUT_MS = 10 * 60 * 1000;
 const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
 const DISCORD_RETRY_DELAY_FALLBACK_MS = 1000;
 const DISCORD_RETRY_DELAY_MAX_MS = 5000;
+const DISCORD_PERMISSION_FULL_VIEW_PREFIX = 'gantry:perm_full:';
+const DISCORD_EPHEMERAL_MESSAGE_LIMIT = 1900;
 
 export function normalizeDiscordJid(raw: string): string | null {
   const trimmed = raw.trim();
@@ -142,6 +146,16 @@ function discordGantrySlashText(interaction: DiscordInteraction): string {
   return ['/gantry', name, ...args].join(' ');
 }
 
+function discordPermissionFullViewCustomId(requestId: string): string {
+  return `${DISCORD_PERMISSION_FULL_VIEW_PREFIX}${encodeURIComponent(requestId)}`;
+}
+
+function discordPermissionFullViewRequestId(customId: string): string | null {
+  if (!customId.startsWith(DISCORD_PERMISSION_FULL_VIEW_PREFIX)) return null;
+  const raw = customId.slice(DISCORD_PERMISSION_FULL_VIEW_PREFIX.length);
+  return raw ? decodeURIComponent(raw) : null;
+}
+
 function websocketFactory(url: string): WebSocketLike {
   return new WebSocket(url) as unknown as WebSocketLike;
 }
@@ -186,7 +200,7 @@ export class DiscordChannel implements ChannelAdapter {
 
   constructor(
     private readonly botToken: string,
-    _applicationId: string,
+    private readonly applicationId: string,
     private readonly opts: ChannelOpts,
     private readonly createWebSocket: WebSocketFactory = websocketFactory,
   ) {}
@@ -399,18 +413,32 @@ export class DiscordChannel implements ChannelAdapter {
     request: PermissionApprovalRequest,
   ): Promise<PermissionApprovalDecision> {
     const modes = permissionDecisionOptions(request);
+    const parts = buildPermissionPromptParts(
+      request,
+      DISCORD_INTERACTION_TIMEOUT_MS,
+    );
+    const buttons = [
+      ...(parts.fullView
+        ? [
+            {
+              label: parts.fullView.label,
+              style: 2,
+              custom_id: discordPermissionFullViewCustomId(request.requestId),
+            },
+          ]
+        : []),
+      ...modes.map((mode) => ({
+        label: permissionButtonLabel(mode, request),
+        style: mode === 'cancel' ? 4 : 1,
+        custom_id: permissionCustomId(request.requestId, mode),
+      })),
+    ];
     const sent = await this.sendDiscordPrompt(
       jid,
-      formatPermissionPromptText(request, DISCORD_INTERACTION_TIMEOUT_MS),
+      formatPermissionPromptPartsText(parts),
       {
         threadId: request.threadId,
-        components: buttonRows(
-          modes.map((mode) => ({
-            label: permissionButtonLabel(mode, request),
-            style: mode === 'cancel' ? 4 : 1,
-            custom_id: permissionCustomId(request.requestId, mode),
-          })),
-        ),
+        components: buttonRows(buttons),
       },
     );
     if (sent.externalMessageId) {
@@ -621,6 +649,10 @@ export class DiscordChannel implements ChannelAdapter {
         await this.handlePermissionInteraction(interaction, customId);
         return;
       }
+      if (customId.startsWith(DISCORD_PERMISSION_FULL_VIEW_PREFIX)) {
+        await this.handlePermissionFullViewInteraction(interaction, customId);
+        return;
+      }
       if (customId.startsWith(QUESTION_CUSTOM_ID_PREFIX)) {
         await this.handleQuestionInteraction(interaction, customId);
       }
@@ -699,6 +731,57 @@ export class DiscordChannel implements ChannelAdapter {
     this.pendingPermissions.delete(parsed.requestId);
     const decision = decisionForMode(pending.request, parsed.mode, user?.id);
     pending.resolve(decision);
+  }
+
+  private async handlePermissionFullViewInteraction(
+    interaction: DiscordInteraction,
+    customId: string,
+  ): Promise<void> {
+    const requestId = discordPermissionFullViewRequestId(customId);
+    if (!requestId) {
+      await this.ackInteraction(
+        interaction,
+        'This approval is no longer active.',
+      );
+      return;
+    }
+    const request = this.pendingPermissions.get(requestId)?.request;
+    const user = interaction.member?.user || interaction.user;
+    const allowed =
+      request &&
+      (await this.isInteractionApproverAllowed(
+        interaction,
+        user?.id,
+        request.sourceAgentFolder,
+        request.decisionPolicy,
+      ));
+    if (!allowed) {
+      await this.ackInteraction(
+        interaction,
+        'You are not allowed to view this approval payload.',
+      );
+      return;
+    }
+    const fullView = buildPermissionPromptParts(
+      request,
+      DISCORD_INTERACTION_TIMEOUT_MS,
+    ).fullView;
+    if (!fullView) {
+      await this.ackInteraction(
+        interaction,
+        'This approval has no full payload.',
+      );
+      return;
+    }
+    if (fullView.content.length <= DISCORD_EPHEMERAL_MESSAGE_LIMIT) {
+      await this.ackInteraction(
+        interaction,
+        `${fullView.title}\n\`\`\`\n${fullView.content}\n\`\`\``,
+      );
+      return;
+    }
+    await this.deferEphemeralInteraction(interaction);
+    await this.postDiscordInteractionFollowupFile(interaction, fullView);
   }
 
   private async handleQuestionInteraction(
@@ -824,6 +907,60 @@ export class DiscordChannel implements ChannelAdapter {
             allowed_mentions: { parse: [] },
           },
         }),
+      },
+    );
+  }
+
+  private async deferEphemeralInteraction(
+    interaction: DiscordInteraction,
+  ): Promise<void> {
+    await fetch(
+      `${DISCORD_API_ROOT}/interactions/${encodeURIComponent(interaction.id || '')}/${encodeURIComponent(interaction.token || '')}/callback`,
+      {
+        method: 'POST',
+        headers: discordHeaders(this.botToken),
+        body: JSON.stringify({
+          type: 5,
+          data: {
+            flags: 64,
+          },
+        }),
+      },
+    );
+  }
+
+  private async postDiscordInteractionFollowupFile(
+    interaction: DiscordInteraction,
+    fullView: PermissionPromptFullView,
+  ): Promise<void> {
+    // ponytail: file follow-up only for payloads too large for a single
+    // ephemeral message; add chunked files only if Discord rejects real payloads.
+    const form = new FormData();
+    form.set(
+      'payload_json',
+      JSON.stringify({
+        content: fullView.title,
+        flags: 64,
+        allowed_mentions: { parse: [] },
+        attachments: [
+          {
+            id: 0,
+            filename: fullView.filename,
+            description: fullView.title,
+          },
+        ],
+      }),
+    );
+    form.set(
+      'files[0]',
+      new Blob([fullView.content], { type: 'text/plain' }),
+      fullView.filename,
+    );
+    await fetch(
+      `${DISCORD_API_ROOT}/webhooks/${encodeURIComponent(this.applicationId)}/${encodeURIComponent(interaction.token || '')}`,
+      {
+        method: 'POST',
+        body: form,
       },
     );
   }

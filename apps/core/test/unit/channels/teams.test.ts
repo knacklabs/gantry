@@ -158,6 +158,23 @@ describe('Teams Adaptive Card payloads', () => {
     ]);
     expect(JSON.stringify(payload)).toContain('git status --short');
   });
+
+  it('keeps Teams on the inline approval fallback until task-module transport exists', () => {
+    const payload = buildTeamsApprovalDescriptorPayload({
+      requestId: 'perm-1',
+      sourceAgentFolder: 'teams_main',
+      targetJid: 'teams:19:abc@thread.v2',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'npm test -- --runInBand',
+      },
+    });
+
+    const rendered = JSON.stringify(payload);
+    expect(rendered).toContain('npm test -- --runInBand');
+    expect(rendered).not.toContain('View full command');
+    expect(rendered).not.toContain('task/fetch');
+  });
 });
 
 describe('TeamsChannel adapter scaffold', () => {

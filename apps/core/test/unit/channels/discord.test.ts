@@ -788,6 +788,96 @@ describe('DiscordChannel', () => {
     vi.restoreAllMocks();
   });
 
+  it('shows Discord full permission payload only in an ephemeral interaction response', async () => {
+    let socket!: FakeWebSocket;
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ url: 'wss://gateway.discord.test' }),
+      )
+      .mockImplementation(async () => jsonResponse({ id: 'message-1' }));
+    const isControlApproverAllowed = vi.fn(async () => true);
+    const channel = new DiscordChannel(
+      'bot-token',
+      'app-id',
+      opts({ isControlApproverAllowed }),
+      (url) => {
+        socket = new FakeWebSocket(url);
+        return socket;
+      },
+    );
+    const command = 'npm test -- --runInBand';
+
+    await channel.connect();
+    const approval = channel.requestPermissionApproval('dc:channel-1', {
+      requestId: 'permission-1',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'RunCommand',
+      toolInput: { command },
+      targetJid: 'dc:channel-1',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const promptCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes('/channels/channel-1/messages'),
+    );
+    const promptBody = JSON.parse(
+      String((promptCall?.[1] as RequestInit | undefined)?.body),
+    ) as {
+      content: string;
+      components: Array<{
+        components: Array<{ label: string; custom_id: string }>;
+      }>;
+    };
+    expect(promptBody.content).not.toContain(command);
+    expect(promptBody.components.flatMap((row) => row.components)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'View full command',
+          custom_id: 'gantry:perm_full:permission-1',
+        }),
+      ]),
+    );
+
+    socket.receive({
+      op: 0,
+      t: 'INTERACTION_CREATE',
+      d: {
+        id: 'interaction-full-view',
+        token: 'token-full-view',
+        type: 3,
+        channel_id: 'channel-1',
+        data: { custom_id: 'gantry:perm_full:permission-1' },
+        member: { user: { id: 'user-1', username: 'Ravi' } },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const fullViewCall = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes(
+        '/interactions/interaction-full-view/token-full-view/callback',
+      ),
+    );
+    expect(fullViewCall).toBeTruthy();
+    expect(JSON.parse(String((fullViewCall?.[1] as RequestInit).body))).toEqual(
+      {
+        type: 4,
+        data: {
+          content: `Full command\n\`\`\`\n${command}\n\`\`\``,
+          flags: 64,
+          allowed_mentions: { parse: [] },
+        },
+      },
+    );
+
+    await channel.disconnect();
+    await expect(approval).resolves.toMatchObject({
+      approved: false,
+      mode: 'cancel',
+    });
+    vi.restoreAllMocks();
+  });
+
   it('uses shared permission decision semantics for timed Discord approvals', async () => {
     let socket!: FakeWebSocket;
     vi.spyOn(globalThis, 'fetch')
