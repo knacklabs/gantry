@@ -63,6 +63,27 @@ import { nowIso } from '../shared/time/datetime.js';
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
+function displayNameForConfiguredConversation(
+  settings: ReturnType<typeof loadRuntimeSettings>,
+  jid: string,
+  fallback: string,
+): string {
+  const provider = providerFromGroupJid(jid);
+  if (!provider) return fallback;
+  const existingConversation = Object.values(settings.conversations).find(
+    (conversation) => {
+      const connection =
+        settings.providerConnections[conversation.providerConnection];
+      return (
+        connection?.provider === provider &&
+        (conversation.externalId === jid ||
+          jid.endsWith(`:${conversation.externalId}`))
+      );
+    },
+  );
+  return existingConversation?.displayName || fallback;
+}
+
 async function runInfo(
   runtimeHome: string,
   rawSelector?: string,
@@ -525,8 +546,8 @@ async function runTrigger(
     }
 
     try {
-      await db.setConversationRoute(found.jid, nextGroup);
-      try {
+      const providerId = providerFromGroupJid(found.jid);
+      if (providerId) {
         const settings = loadRuntimeSettings(runtimeHome);
         const previousSettings = structuredClone(settings);
         ensureConfiguredConversationBinding(settings, {
@@ -534,7 +555,11 @@ async function runTrigger(
           agentName: found.group.name,
           agentFolder: found.group.folder,
           jid: found.jid,
-          displayName: found.group.name,
+          displayName: displayNameForConfiguredConversation(
+            settings,
+            found.jid,
+            found.group.name,
+          ),
           trigger: nextGroup.trigger,
           requiresTrigger: nextGroup.requiresTrigger !== false,
         });
@@ -543,10 +568,8 @@ async function runTrigger(
           settings,
           previousSettings,
         });
-      } catch {
-        // Generic local JIDs are still allowed for file-backed agents; only
-        // known provider JIDs participate in conversation desired state.
       }
+      await db.setConversationRoute(found.jid, nextGroup);
     } catch (err) {
       p.log.error(`Could not update trigger settings: ${errorMessage(err)}`);
       return 1;

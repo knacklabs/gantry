@@ -370,12 +370,18 @@ export function ensureConfiguredConversationBinding(
     controlApprovers,
   };
 
-  const bindingId = stableSettingsId(
-    `${agentId}_${conversationId}`,
-    settings.bindings,
-    `${agentId}:${conversationId}`,
+  const existingBindingEntry = Object.entries(settings.bindings).find(
+    ([, binding]) =>
+      binding.agent === agentId && binding.conversation === conversationId,
   );
-  const existingBinding = settings.bindings[bindingId];
+  const bindingId =
+    existingBindingEntry?.[0] ??
+    stableSettingsId(
+      `${agentId}_${conversationId}`,
+      settings.bindings,
+      `${agentId}:${conversationId}`,
+    );
+  const existingBinding = existingBindingEntry?.[1];
   settings.bindings[bindingId] = {
     agent: agentId,
     conversation: conversationId,

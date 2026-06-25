@@ -734,4 +734,58 @@ describe('cli slack helpers', () => {
       }),
     );
   });
+
+  it('persists trigger requirement changes into Slack desired settings', async () => {
+    const runtimeHome = makeRuntimeHome();
+
+    const result = await registerSlackMainGroup({
+      runtimeHome,
+      chatJid: 'sl:C0123456789',
+      displayName: 'Kai Slack',
+      conversationDisplayName: 'recruiting-demo',
+      approverIds: ['U123'],
+    });
+
+    groupsStore.set('sl:C0123456789', {
+      ...groupsStore.get('sl:C0123456789'),
+      requiresTrigger: false,
+    });
+    const staleSettings = loadRuntimeSettings(runtimeHome);
+    const bindingId = Object.entries(staleSettings.bindings).find(
+      ([, binding]) => binding.agent === result.folder,
+    )?.[0];
+    expect(bindingId).toBeTruthy();
+    staleSettings.bindings[bindingId!].requiresTrigger = false;
+    staleSettings.agents[result.folder].bindings[bindingId!].requiresTrigger =
+      false;
+    saveRuntimeSettings(runtimeHome, staleSettings);
+
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const code = await runAgentCommand(runtimeHome, [
+      'trigger',
+      'sl:C0123456789',
+      '@reagent',
+    ]);
+
+    expect(code).toBe(0);
+    expect(groupsStore.get('sl:C0123456789')).toEqual(
+      expect.objectContaining({ requiresTrigger: true }),
+    );
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.bindings[bindingId!]).toEqual(
+      expect.objectContaining({
+        trigger: '@reagent',
+        requiresTrigger: true,
+      }),
+    );
+    expect(settings.agents[result.folder].bindings[bindingId!]).toEqual(
+      expect.objectContaining({
+        trigger: '@reagent',
+        requiresTrigger: true,
+      }),
+    );
+    expect(settings.conversations.slack_default_c0123456789.displayName).toBe(
+      'recruiting-demo',
+    );
+  });
 });
