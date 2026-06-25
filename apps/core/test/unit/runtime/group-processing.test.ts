@@ -15,6 +15,18 @@ import { createAgentExecutionAdapterRegistry } from '@core/application/agent-exe
 // Mocks
 // ---------------------------------------------------------------------------
 
+const mockGetRuntimeSettingsForConfig = vi.hoisted(
+  () =>
+    vi.fn(() => ({
+      memory: {
+        enabled: true,
+        embeddings: {
+          enabled: false,
+          provider: 'disabled',
+        },
+      },
+    })) as ReturnType<typeof vi.fn>,
+);
 vi.mock('@core/config/index.js', () => ({
   ASSISTANT_NAME: 'Andy',
   IDLE_TIMEOUT: 1_800_000,
@@ -22,15 +34,7 @@ vi.mock('@core/config/index.js', () => ({
   MAX_MESSAGES_PER_PROMPT: 10,
   MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
-  getRuntimeSettingsForConfig: () => ({
-    memory: {
-      enabled: true,
-      embeddings: {
-        enabled: false,
-        provider: 'disabled',
-      },
-    },
-  }),
+  getRuntimeSettingsForConfig: mockGetRuntimeSettingsForConfig,
   getDefaultModelConfig: () => ({ model: undefined }),
   getSelectedAgentHarness: () => 'auto',
   getTriggerPattern: (trigger?: string) =>
@@ -326,6 +330,12 @@ function setupHappyPath(
 describe('createGroupProcessor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetRuntimeSettingsForConfig.mockReturnValue({
+      memory: {
+        enabled: true,
+        embeddings: { enabled: false, provider: 'disabled' },
+      },
+    });
   });
 
   // =======================================================================
@@ -1179,7 +1189,15 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('reads channel pattern candidates with the resolved memory agent id', async () => {
+    // Proactive surfacing is fail-closed at the runner callsite: it only reads
+    // pattern candidates when the agent is unlocked AND the conversation has an
+    // enabled opt-in row. These tests pin every fail-closed branch.
+    function setupProactiveSurfacingCase(opts: {
+      optIn?: { proactiveSurfacingEnabled: boolean } | null;
+      getBySubject?: () => Promise<{
+        proactiveSurfacingEnabled: boolean;
+      } | null>;
+    }) {
       const group = makeGroup({
         requiresTrigger: false,
         folder: 'lead-agent',
@@ -1188,9 +1206,14 @@ describe('createGroupProcessor', () => {
       const patternCandidateRepository = {
         listEligible: vi.fn(async () => []),
       };
+      const getBySubject =
+        opts.getBySubject ?? vi.fn(async () => opts.optIn ?? null);
       const { deps } = setupHappyPath({ group });
       deps.getPatternCandidateRepository = vi.fn(
         () => patternCandidateRepository as never,
+      );
+      deps.getProactiveSurfacingRepository = vi.fn(
+        () => ({ getBySubject }) as never,
       );
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
@@ -1202,6 +1225,13 @@ describe('createGroupProcessor', () => {
           memoryContextBlock:
             '<gantry_memory_context>memory</gantry_memory_context>',
         });
+      return { deps, patternCandidateRepository, getBySubject };
+    }
+
+    it('reads channel pattern candidates with the resolved memory agent id when opted in', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        optIn: { proactiveSurfacingEnabled: true },
+      });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us', {
@@ -1218,6 +1248,95 @@ describe('createGroupProcessor', () => {
         },
         limit: 1,
       });
+    });
+
+    it('does not surface patterns when there is no opt-in row', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        optIn: null,
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', {
+        memoryContext: { userId: 'user-1', source: 'message' },
+      });
+
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+    });
+
+    it('does not surface patterns when the conversation has opted out', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        optIn: { proactiveSurfacingEnabled: false },
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', {
+        memoryContext: { userId: 'user-1', source: 'message' },
+      });
+
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+    });
+
+    it('does not surface patterns when the agent access is locked', async () => {
+      mockGetRuntimeSettingsForConfig.mockReturnValue({
+        memory: {
+          enabled: true,
+          embeddings: { enabled: false, provider: 'disabled' },
+        },
+        agents: { 'lead-agent': { accessPreset: 'locked' } },
+      } as never);
+      const { deps, patternCandidateRepository, getBySubject } =
+        setupProactiveSurfacingCase({
+          optIn: { proactiveSurfacingEnabled: true },
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', {
+        memoryContext: { userId: 'user-1', source: 'message' },
+      });
+
+      // Locked short-circuits before the consent read and the candidate read.
+      expect(getBySubject).not.toHaveBeenCalled();
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+    });
+
+    it('does not surface patterns when the agent lock status is unknown', async () => {
+      mockGetRuntimeSettingsForConfig.mockImplementation(() => {
+        throw new Error('settings unavailable');
+      });
+      const { deps, patternCandidateRepository, getBySubject } =
+        setupProactiveSurfacingCase({
+          optIn: { proactiveSurfacingEnabled: true },
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(
+        processGroupMessages('group1@g.us', {
+          memoryContext: { userId: 'user-1', source: 'message' },
+        }),
+      ).resolves.not.toThrow();
+
+      expect(getBySubject).not.toHaveBeenCalled();
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).toHaveBeenCalled();
+    });
+
+    it('does not surface patterns and does not throw when the consent read fails', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        getBySubject: vi.fn(async () => {
+          throw new Error('consent store unavailable');
+        }),
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      // The turn must still proceed (no throw) and the agent must still spawn.
+      await expect(
+        processGroupMessages('group1@g.us', {
+          memoryContext: { userId: 'user-1', source: 'message' },
+        }),
+      ).resolves.not.toThrow();
+
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).toHaveBeenCalled();
     });
 
     it('adds selected skill metadata to runtime context without injecting full skill bodies', async () => {

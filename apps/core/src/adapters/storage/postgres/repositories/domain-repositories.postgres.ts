@@ -101,6 +101,7 @@ import { PostgresRuntimeDependencyRepository } from './runtime-dependency-reposi
 import { PostgresSettingsRevisionRepository } from './settings-revision-repository.postgres.js';
 import { PostgresAsyncTaskRepository } from './async-task-repository.postgres.js';
 import { PostgresPatternCandidateRepository } from './pattern-candidate-repository.postgres.js';
+import { PostgresProactiveSurfacingRepository } from './proactive-surfacing-repository.postgres.js';
 import type {
   RuntimeDependencyRepository,
   SettingsRevisionRepository,
@@ -137,6 +138,7 @@ export interface PostgresDomainRepositoryBundle {
   settingsRevisions: SettingsRevisionRepository;
   asyncTasks: AsyncTaskRepository;
   patternCandidates: PatternCandidateRepository;
+  proactiveSurfacing: PostgresProactiveSurfacingRepository;
 }
 type JsonRecord = Record<string, unknown>;
 function encodeJson(value: unknown): string {
@@ -1740,5 +1742,6 @@ export function createPostgresDomainRepositories(
     settingsRevisions: new PostgresSettingsRevisionRepository(db),
     asyncTasks: new PostgresAsyncTaskRepository(db),
     patternCandidates: new PostgresPatternCandidateRepository(db),
+    proactiveSurfacing: new PostgresProactiveSurfacingRepository(db),
   };
 }

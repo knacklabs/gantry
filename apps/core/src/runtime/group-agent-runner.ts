@@ -1,4 +1,5 @@
 import type { ConversationRoute } from '../domain/types.js';
+import { resolveAgentLockStatus } from '../config/profiles.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
 import { defaultModelStatusSelection } from '../session/session-model-status.js';
 import type { AgentOutput } from './agent-spawn.js';
@@ -41,6 +42,10 @@ import {
   loadPatternsContext,
   markPatternsContextSurfaced,
 } from '../shared/pattern-candidate-block.js';
+import {
+  patternSubjectForScope,
+  type PatternSubjectScope,
+} from '../shared/pattern-candidate-subject.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
   executionProviderIdForCandidate,
@@ -73,6 +78,26 @@ function isStoppedByRequest(output: AgentOutput): boolean {
 function hasAsyncTaskRepository(deps: GroupProcessingDeps): boolean {
   try {
     return Boolean(deps.getAsyncTaskRepository?.());
+  } catch {
+    return false;
+  }
+}
+
+async function proactiveSurfacingAllowed(
+  deps: GroupProcessingDeps,
+  scope: PatternSubjectScope,
+): Promise<boolean> {
+  if (resolveAgentLockStatus(scope.folder) !== 'full') return false;
+  const subject = patternSubjectForScope(scope);
+  if (!subject) return false;
+  try {
+    const optIn = await deps.getProactiveSurfacingRepository?.()?.getBySubject({
+      appId: subject.appId,
+      agentId: subject.agentId,
+      subjectType: subject.subjectType,
+      subjectId: subject.subjectId,
+    });
+    return optIn?.proactiveSurfacingEnabled === true;
   } catch {
     return false;
   }
@@ -452,8 +477,7 @@ export function createGroupAgentRunner(input: {
         'Expired provider session because runtime access projection changed',
       );
     }
-    const patternCandidateRepo = deps.getPatternCandidateRepository?.();
-    const patternsContext = await loadPatternsContext(patternCandidateRepo, {
+    const surfacingScope = {
       appId: runtimeAppId,
       agentId:
         turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
@@ -461,7 +485,14 @@ export function createGroupAgentRunner(input: {
       conversationId: chatJid,
       conversationKind: group.conversationKind,
       userId: options?.memoryContext?.userId,
-    });
+    };
+    const patternCandidateRepo = deps.getPatternCandidateRepository?.();
+    const patternsContext = (await proactiveSurfacingAllowed(
+      deps,
+      surfacingScope,
+    ))
+      ? await loadPatternsContext(patternCandidateRepo, surfacingScope)
+      : { block: '', surfacedCandidateIds: [] };
     const memoryContextBlock = [
       turnContext?.memoryContextBlock,
       patternsContext.block,
