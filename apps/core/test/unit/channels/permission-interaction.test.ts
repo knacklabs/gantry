@@ -829,6 +829,25 @@ describe('permission interaction', () => {
     ).toBe(true);
   });
 
+  it('clamps oversized single-line command previews', () => {
+    const command = `node -e "${'x'.repeat(2_000)}" --done`;
+    const text = formatPermissionPromptText(
+      {
+        ...requestWithSuggestions([]),
+        toolName: 'Bash',
+        toolInput: { command },
+      },
+      60_000,
+    );
+    const commandPreview = text.match(/Command:\n```\n([\s\S]*?)\n```/)?.[1];
+
+    expect(commandPreview).toBeDefined();
+    expect(commandPreview?.length).toBeLessThan(command.length);
+    expect(commandPreview).toContain('node -e');
+    expect(commandPreview).toContain('--done');
+    expect(commandPreview).toContain('…');
+  });
+
   it('keeps user-provided command environment assignments visible', () => {
     const text = formatPermissionPromptText(
       {

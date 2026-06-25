@@ -502,7 +502,9 @@ function clampCommandForDisplay(
   const budget = head + tail;
   if (input.length <= budget + 1) return input;
   const lines = input.split(/\r?\n/);
-  if (lines.length <= 1) return input;
+  if (lines.length <= 1 || lines[0].length > budget) {
+    return headTailTruncate(input, head, tail);
+  }
   const shown: string[] = [];
   let used = 0;
   for (const line of lines) {
@@ -514,7 +516,6 @@ function clampCommandForDisplay(
   }
   const hidden = lines.length - shown.length;
   if (hidden <= 0) return input;
-  // ponytail: a single oversized line stays whole; never cut mid-line.
   return `${shown.join('\n')}\n… (+${hidden} more lines)`;
 }
 
