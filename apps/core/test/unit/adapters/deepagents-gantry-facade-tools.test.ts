@@ -410,9 +410,6 @@ describe('Gantry DeepAgents facade tools', () => {
     const proxyRequests: string[] = [];
     const proxy = await startProxyFixture((req, res) => {
       proxyRequests.push(req.url ?? '');
-      expect(process.env.HTTP_PROXY).toBe(proxy.url);
-      expect(process.env.HTTPS_PROXY).toBe(proxy.url);
-      expect(process.env.NODE_USE_ENV_PROXY).toBe('1');
       if ((req.url ?? '').includes('duckduckgo')) {
         res.end(
           '<a class="result__a" href="https://example.com">Example Result</a>',
@@ -429,9 +426,9 @@ describe('Gantry DeepAgents facade tools', () => {
       };
       const root = makeRoot();
       const tools = makeTools(root, ['WebRead', 'WebSearch'], toolNetworkEnv);
-      vi.stubEnv('HTTP_PROXY', proxy.url);
-      vi.stubEnv('HTTPS_PROXY', proxy.url);
-      vi.stubEnv('NODE_USE_ENV_PROXY', '1');
+      vi.stubEnv('HTTP_PROXY', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+      vi.stubEnv('NODE_USE_ENV_PROXY', undefined);
       await expect(
         invoke(tools, 'WebRead', { url: 'https://example.com' }),
       ).resolves.toContain('Example');
@@ -475,9 +472,9 @@ describe('Gantry DeepAgents facade tools', () => {
       };
       const root = makeRoot();
       const tools = makeTools(root, ['WebRead'], toolNetworkEnv);
-      vi.stubEnv('HTTP_PROXY', proxy.url);
-      vi.stubEnv('HTTPS_PROXY', proxy.url);
-      vi.stubEnv('NODE_USE_ENV_PROXY', '1');
+      vi.stubEnv('HTTP_PROXY', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+      vi.stubEnv('NODE_USE_ENV_PROXY', undefined);
 
       await expect(
         invoke(tools, 'WebRead', { url: 'https://example.com' }),
@@ -501,9 +498,9 @@ describe('Gantry DeepAgents facade tools', () => {
       };
       const root = makeRoot();
       const tools = makeTools(root, ['WebRead'], toolNetworkEnv);
-      vi.stubEnv('HTTP_PROXY', proxy.url);
-      vi.stubEnv('HTTPS_PROXY', proxy.url);
-      vi.stubEnv('NODE_USE_ENV_PROXY', '1');
+      vi.stubEnv('HTTP_PROXY', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+      vi.stubEnv('NODE_USE_ENV_PROXY', undefined);
 
       await expect(
         invoke(tools, 'WebRead', { url: 'https://example.com' }),

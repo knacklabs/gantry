@@ -243,6 +243,7 @@ function projectGantryShellTool(
       gateContext: input.gate.gateContext,
       permissionEnv: input.gate.permissionEnv,
       lockedAccessPreset: input.gate.lockedAccessPreset,
+      toolNetworkEnv: input.toolNetworkEnv,
       ...(input.shellCwd ? { cwd: input.shellCwd } : {}),
       ...(input.shellSignal ? { signal: input.shellSignal } : {}),
     }),

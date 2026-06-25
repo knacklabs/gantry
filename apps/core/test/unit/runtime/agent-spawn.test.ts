@@ -1734,7 +1734,7 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
-  it('routes DeepAgents checkpointer through egress without sandbox host access', async () => {
+  it('lets sandbox runtime inject DeepAgents checkpointer proxy env', async () => {
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {
         yoloMode: {
@@ -1799,17 +1799,126 @@ describe('agent-spawn timeout behavior', () => {
 
     const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
-    expect(startInput.allowedNetworkHosts).not.toContain('db.internal:6543');
+    expect(startInput.allowedNetworkHosts).toContain('db.internal:6543');
     expect(startInput.egressProxyUrl).toBe('http://127.0.0.1:18080/');
     expect(runnerInput.deepAgentCheckpointer).toMatchObject({
       databaseUrl: 'postgres://gantry:test@db.internal:6543/gantry',
       schema: 'gantry_deepagents_checkpoints',
-      proxyUrl: 'http://127.0.0.1:18080/',
     });
+    expect(runnerInput.deepAgentCheckpointer.proxyUrl).toBeUndefined();
     expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
       expect.objectContaining({
-        allowedNetworkHosts: [],
-        allowedPrivateNetworkHosts: ['db.internal:6543'],
+        allowedNetworkHosts: ['db.internal:6543'],
+      }),
+    );
+  });
+
+  it('projects the audited egress proxy into sandbox-runtime DeepAgents process env', async () => {
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+        egress: {
+          denylist: [],
+        },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'sandbox_runtime',
+          resourceLimits: {
+            cpuSeconds: 0,
+            memoryMb: 0,
+            maxProcesses: 0,
+          },
+        },
+      },
+    } as any);
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
+      env: {
+        OPENAI_BASE_URL: 'http://127.0.0.1:4567/openrouter',
+        OPENAI_API_KEY: 'gtw_test',
+      },
+      credentialProviders: {},
+      brokerApplied: true,
+      brokerProfile: 'gantry',
+    });
+    const start = vi.fn(() => fakeProc as any);
+    const runnerSandboxProvider: RunnerSandboxProvider = {
+      id: 'sandbox_runtime',
+      enforcing: true,
+      start,
+    };
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+    const executionAdapter: AgentExecutionAdapter = {
+      id: 'deepagents:langchain',
+      async prepare(input) {
+        return {
+          providerId: 'deepagents:langchain' as const,
+          runnerPath: '/runner.js',
+          runnerArgs: ['/runner.js'],
+          env: {},
+          protectedFilesystemPaths: [],
+          runtimeDetails: [],
+          runnerInputPatch: {
+            modelCredentialEnv: {
+              OPENAI_BASE_URL:
+                input.modelCredentialProjection.env.OPENAI_BASE_URL,
+              OPENAI_API_KEY:
+                input.modelCredentialProjection.env.OPENAI_API_KEY,
+            },
+          },
+          cleanup: vi.fn(),
+        };
+      },
+    };
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      { ...testInput, model: 'kimi' },
+      () => {},
+      undefined,
+      { runnerSandboxProvider, executionAdapter },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const startInput = start.mock.calls[0]?.[0] as RunnerSandboxSpawnInput;
+    const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+    expect(startInput.env.HTTP_PROXY).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.HTTPS_PROXY).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.http_proxy).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.https_proxy).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.ALL_PROXY).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.all_proxy).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.GRPC_PROXY).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.grpc_proxy).toBe('http://127.0.0.1:18080/');
+    expect(startInput.env.NODE_USE_ENV_PROXY).toBe('1');
+    expect(startInput.env.GANTRY_EGRESS_PROXY_URL).toBe(
+      'http://127.0.0.1:18080/',
+    );
+    expect(startInput.env.HTTP_PROXY).not.toContain('aoc_');
+    expect(runnerInput.toolNetworkEnv).toMatchObject({
+      HTTP_PROXY: 'http://127.0.0.1:18080/',
+      HTTPS_PROXY: 'http://127.0.0.1:18080/',
+      NODE_USE_ENV_PROXY: '1',
+    });
+    expect(runnerInput.modelCredentialEnv.OPENAI_BASE_URL).toBe(
+      `http://${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567/openrouter`,
+    );
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedNetworkHosts: [`${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`],
+        privateNetworkHostMappings: [
+          {
+            authority: `${SANDBOX_RUNTIME_MODEL_GATEWAY_HOST}:4567`,
+            connectHost: '127.0.0.1',
+          },
+        ],
       }),
     );
   });

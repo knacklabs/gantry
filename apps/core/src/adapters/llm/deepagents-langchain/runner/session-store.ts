@@ -92,7 +92,7 @@ export class DeepAgentSessionStore {
       connectionString: databaseUrl,
       max: RUNNER_CHECKPOINT_POOL_MAX_CONNECTIONS,
     };
-    const proxyUrl = this.config.proxyUrl?.trim();
+    const proxyUrl = deepAgentCheckpointerProxyUrl(this.config.proxyUrl);
     if (proxyUrl) {
       // pg uses this factory instead of opening databaseUrl directly, so
       // sandboxed runners reach private Postgres only through Gantry egress.
@@ -259,6 +259,21 @@ function parseHttpProxyUrl(value: string): URL {
     );
   }
   return parsed;
+}
+
+function deepAgentCheckpointerProxyUrl(
+  configured: string | undefined,
+): string | undefined {
+  const trimmed = configured?.trim();
+  if (trimmed) return trimmed;
+  if (process.env.GANTRY_SANDBOX_RUNTIME_PROXY !== '1') return undefined;
+  return (
+    process.env.HTTP_PROXY?.trim() ||
+    process.env.HTTPS_PROXY?.trim() ||
+    process.env.http_proxy?.trim() ||
+    process.env.https_proxy?.trim() ||
+    undefined
+  );
 }
 
 function postgresAuthority(host: string, port: number): string {

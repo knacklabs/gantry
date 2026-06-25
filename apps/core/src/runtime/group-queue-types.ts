@@ -20,6 +20,15 @@ export type ContinuationOptions = {
 
 export type ContinuationHandler = () => void;
 
+export interface GroupMessageRunContext {
+  finalRetry: boolean;
+}
+
+export type ProcessMessagesFn = (
+  groupJid: string,
+  context: GroupMessageRunContext,
+) => Promise<boolean>;
+
 export type ContinuationRunnerControlPort = Pick<
   RunnerControlPort,
   'writeContinuationInput' | 'writeCloseSignal'

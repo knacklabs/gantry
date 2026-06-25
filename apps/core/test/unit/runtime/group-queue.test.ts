@@ -493,6 +493,25 @@ describe('GroupQueue', () => {
     expect(queue.getPolicy()).toMatchObject({ baseRetryMs: 0, maxRetries: 2 });
   });
 
+  it('marks the last configured retry as final for message processing', async () => {
+    queue = new GroupQueue({ baseRetryMs: 0, maxRetries: 2 });
+    const finalRetryValues: boolean[] = [];
+
+    queue.setProcessMessagesFn(async (_groupJid, context) => {
+      finalRetryValues.push(context.finalRetry);
+      return false;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(finalRetryValues).toEqual([false, false, true]);
+  });
+
   // --- Shutdown prevents new enqueues ---
 
   it('prevents new enqueues after shutdown', async () => {

@@ -4,6 +4,7 @@ type GroupTurnRunResult = 'success' | 'error' | 'stopped';
 
 export async function handleFailure(input: {
   outputSentToUser: boolean;
+  acknowledgeFailedTurn?: boolean;
   groupName: string;
   queueJid: string;
   previousCursor: string;
@@ -11,7 +12,6 @@ export async function handleFailure(input: {
     setCursor: (chatJid: string, timestamp: string) => void;
     saveState: () => Promise<void> | void;
   };
-  isShuttingDown?: () => boolean;
   logger: {
     warn(payload: Record<string, unknown>, message: string): void;
   };
@@ -20,6 +20,14 @@ export async function handleFailure(input: {
     input.logger.warn(
       { group: input.groupName },
       'Agent error after output was sent, skipping cursor rollback to prevent duplicates',
+    );
+    return true;
+  }
+  if (input.acknowledgeFailedTurn) {
+    await input.deps.saveState();
+    input.logger.warn(
+      { group: input.groupName },
+      'Agent error on final retry, preserving message cursor to prevent stale replay',
     );
     return true;
   }

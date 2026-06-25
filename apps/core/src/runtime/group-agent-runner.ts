@@ -48,6 +48,7 @@ import {
   runFamilyFailoverLoop,
   publishRunFailoverEvent,
 } from './failover-candidate-loop.js';
+import { isMissingProviderSessionError } from './failover-eligibility.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
@@ -57,12 +58,6 @@ const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
 const memoryReviewApproverCache = new Map<string, [boolean, number]>();
 
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
-
-function isMissingProviderSessionError(error: string | undefined): boolean {
-  return /\bprovider session\b.*\b(?:missing|expired|not found)\b/i.test(
-    error ?? '',
-  );
-}
 
 function redactRuntimeError(error: string | undefined): string | undefined {
   return error ? redactString(error) : undefined;
@@ -609,8 +604,12 @@ export function createGroupAgentRunner(input: {
         registry: deps.executionAdapters,
         fallback: deps.executionAdapter,
       });
+      const adapterMissingProviderSession =
+        activeExecutionAdapter?.isMissingProviderSessionError?.(
+          output.error,
+        ) === true;
       const missingProviderSession =
-        activeExecutionAdapter?.isMissingProviderSessionError?.(output.error) ??
+        adapterMissingProviderSession ||
         isMissingProviderSessionError(output.error);
       if (
         output.status === 'error' &&

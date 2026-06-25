@@ -20,7 +20,6 @@ import {
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 
 const SANDBOX_RUNTIME_GO_DNS = 'netdns=go';
-
 // Host env projection for the DeepAgents shell tool. Returns the enable flag the
 // runner reads when (and only when) the run is a DeepAgents run that requests
 // shell (RunCommand) authority AND is confined by an enforcing sandbox — derived

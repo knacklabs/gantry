@@ -1515,6 +1515,65 @@ describe('createGroupProcessor', () => {
       });
     });
 
+    it('falls back to runtime missing-session patterns when an adapter returns false', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const selectedAdapter = {
+        id: 'anthropic:claude-agent-sdk',
+        isMissingProviderSessionError: vi.fn(() => false),
+        prepare: vi.fn(),
+      };
+      const { deps } = setupHappyPath({ group });
+      deps.executionAdapter = undefined;
+      deps.executionAdapters = createAgentExecutionAdapterRegistry([
+        selectedAdapter,
+      ]);
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          externalSessionId: 'deepagents-session-stale',
+          providerSessionAccessFingerprint: EMPTY_ACCESS_FINGERPRINT,
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:message-1');
+
+      mockSpawnAgent.mockImplementationOnce(async () => ({
+        status: 'error',
+        result: null,
+        error:
+          'No DeepAgents session found with session ID: deepagents-session-stale',
+      }));
+      mockSpawnAgent.mockImplementationOnce(async () => ({
+        status: 'success',
+        result: 'fresh reply',
+        newSessionId: 'deepagents-session-fresh',
+      }));
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+
+      expect(
+        selectedAdapter.isMissingProviderSessionError,
+      ).toHaveBeenCalledWith(
+        'No DeepAgents session found with session ID: deepagents-session-stale',
+      );
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        sessionId: 'deepagents-session-stale',
+      });
+      expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:1',
+        agentSessionId: 'agent-session:1',
+        provider: 'anthropic:claude-agent-sdk',
+        externalSessionId: 'deepagents-session-stale',
+      });
+    });
+
     it('persists SDK session ids from final agent output for the next turn', async () => {
       const agentOutput: AgentOutput = {
         status: 'success',

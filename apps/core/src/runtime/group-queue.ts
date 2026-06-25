@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'child_process';
-
 import { logger } from '../infrastructure/logging/logger.js';
 import { stopActiveGroupRun } from './group-queue-stop.js';
 import { normalizeThreadQueueId } from '../shared/thread-queue-key.js';
@@ -16,6 +15,7 @@ import {
   type ContinuationOptions,
   type ContinuationRunnerControlPort,
   type GroupQueueOptions,
+  type ProcessMessagesFn,
   type QueueKind,
   type QueuedTask,
 } from './group-queue-types.js';
@@ -49,8 +49,7 @@ export class GroupQueue {
   private waitingMessageGroups: string[] = [];
   private waitingTaskGroups: string[] = [];
   private continuationSequence = 0;
-  private processMessagesFn: ((groupJid: string) => Promise<boolean>) | null =
-    null;
+  private processMessagesFn: ProcessMessagesFn | null = null;
   private liveTurnRunnerRegistrar:
     | ((
         queueJid: string,
@@ -109,7 +108,7 @@ export class GroupQueue {
     return this.groups.delete(groupJid);
   }
 
-  setProcessMessagesFn(fn: (groupJid: string) => Promise<boolean>): void {
+  setProcessMessagesFn(fn: ProcessMessagesFn): void {
     this.processMessagesFn = fn;
   }
 
@@ -541,12 +540,11 @@ export class GroupQueue {
 
     try {
       if (this.processMessagesFn) {
-        const success = await this.processMessagesFn(groupJid);
-        if (success) {
-          state.retryCount = 0;
-        } else {
-          this.scheduleRetry(groupJid, state);
-        }
+        const success = await this.processMessagesFn(groupJid, {
+          finalRetry: state.retryCount >= this.policy.maxRetries,
+        });
+        if (success) state.retryCount = 0;
+        else this.scheduleRetry(groupJid, state);
       }
     } catch (err) {
       logger.error({ groupJid, err }, 'Error processing messages for group');
@@ -608,7 +606,7 @@ export class GroupQueue {
     if (state.retryCount > this.policy.maxRetries) {
       logger.error(
         { groupJid, retryCount: state.retryCount },
-        'Max retries exceeded, dropping messages (will retry on next incoming message)',
+        'Max retries exceeded, dropping message retry',
       );
       state.retryCount = 0;
       return;

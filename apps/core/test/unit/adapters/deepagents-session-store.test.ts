@@ -73,6 +73,11 @@ const checkpointConfig = {
 };
 
 beforeEach(() => {
+  delete process.env.GANTRY_SANDBOX_RUNTIME_PROXY;
+  delete process.env.HTTP_PROXY;
+  delete process.env.HTTPS_PROXY;
+  delete process.env.http_proxy;
+  delete process.env.https_proxy;
   postgresSaverMock.MockPostgresSaver.nextTuple = {
     checkpoint: { id: 'checkpoint-1' },
   };
@@ -141,6 +146,52 @@ describe('DeepAgentSessionStore', () => {
       expect(connectRequest).toContain('CONNECT db.internal:6543 HTTP/1.1');
       expect(connectRequest).toContain('Host: db.internal:6543');
       stream?.destroy();
+    } finally {
+      await new Promise<void>((resolve) => proxy.close(() => resolve()));
+    }
+  });
+
+  it('uses sandbox-runtime proxy env for checkpointer streams', async () => {
+    let connectRequest = '';
+    const proxy = net.createServer((socket) => {
+      socket.once('data', (chunk) => {
+        connectRequest = chunk.toString('latin1');
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      });
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const address = proxy.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('proxy did not bind a TCP port');
+    }
+    process.env.GANTRY_SANDBOX_RUNTIME_PROXY = '1';
+    process.env.HTTP_PROXY = `http://127.0.0.1:${address.port}/`;
+
+    try {
+      const store = new DeepAgentSessionStore({
+        ...checkpointConfig,
+        databaseUrl: 'postgres://gantry_app:secret@db.internal:6543/gantry',
+      });
+      await store.create('session-123');
+
+      const options = pgMock.MockPool.instances[0]?.options as {
+        stream?: () => {
+          connect: (port: number, host: string) => void;
+          destroy: () => void;
+          once: (event: string, listener: (...args: unknown[]) => void) => void;
+        };
+      };
+      const stream = options.stream?.();
+      if (!stream) throw new Error('expected sandbox proxied stream');
+      await new Promise<void>((resolve, reject) => {
+        stream.once('connect', resolve);
+        stream.once('error', reject);
+        stream.connect(6543, 'db.internal');
+      });
+
+      expect(connectRequest).toContain('CONNECT db.internal:6543 HTTP/1.1');
+      expect(connectRequest).toContain('Host: db.internal:6543');
+      stream.destroy();
     } finally {
       await new Promise<void>((resolve) => proxy.close(() => resolve()));
     }

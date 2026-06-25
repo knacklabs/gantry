@@ -366,14 +366,7 @@ function auditedWebProxyUrl(
     toolNetworkEnv?.HTTPS_PROXY?.trim() || toolNetworkEnv?.HTTP_PROXY?.trim();
   if (!projectedProxy) return null;
   if (!isLoopbackHttpProxy(projectedProxy)) return null;
-  const activeProxy =
-    process.env.HTTPS_PROXY?.trim() || process.env.HTTP_PROXY?.trim();
-  if (
-    process.env.NODE_USE_ENV_PROXY !== '1' ||
-    activeProxy !== projectedProxy
-  ) {
-    return null;
-  }
+  if (toolNetworkEnv?.NODE_USE_ENV_PROXY !== '1') return null;
   return projectedProxy;
 }
 

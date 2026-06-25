@@ -85,6 +85,13 @@ function matchesAny(error: string, patterns: readonly RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(error));
 }
 
+export function isMissingProviderSessionError(
+  error: string | undefined,
+): boolean {
+  const text = (error ?? '').trim();
+  return text ? matchesAny(text, NON_ELIGIBLE_PATTERNS.slice(1)) : false;
+}
+
 // True when `error` indicates a provider-specific failure that the NEXT
 // configured family provider might survive. Empty/undefined (no error, or a
 // success frame) is never eligible.

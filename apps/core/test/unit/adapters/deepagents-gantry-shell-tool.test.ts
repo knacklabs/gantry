@@ -43,6 +43,7 @@ function makeTool(overrides?: {
   rules?: string[];
   lockedAccessPreset?: boolean;
   signal?: AbortSignal;
+  toolNetworkEnv?: Record<string, string>;
 }) {
   return createGantryShellTool({
     workspaceFolder: 'group',
@@ -52,6 +53,7 @@ function makeTool(overrides?: {
     permissionEnv: PERMISSION_ENV,
     lockedAccessPreset: overrides?.lockedAccessPreset ?? false,
     cwd: os.tmpdir(),
+    toolNetworkEnv: overrides?.toolNetworkEnv,
     ...(overrides?.signal ? { signal: overrides.signal } : {}),
   });
 }
@@ -235,12 +237,17 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(missing).toEqual([]);
   });
 
-  it('passes the runner proxy env so egress is proxied (child sees HTTP_PROXY)', async () => {
+  it('passes explicit tool network env so egress is proxied (child sees HTTP_PROXY)', async () => {
     const previous = process.env.HTTP_PROXY;
-    process.env.HTTP_PROXY = 'http://127.0.0.1:18080/';
+    delete process.env.HTTP_PROXY;
     requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
     try {
-      const tool = makeTool({ rules: [] });
+      const tool = makeTool({
+        rules: [],
+        toolNetworkEnv: {
+          HTTP_PROXY: 'http://127.0.0.1:18080/',
+        },
+      });
       const result = await invoke(tool, 'printf %s "$HTTP_PROXY"');
       expect(result).toContain('http://127.0.0.1:18080/');
     } finally {

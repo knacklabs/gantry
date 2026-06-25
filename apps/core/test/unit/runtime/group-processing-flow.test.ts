@@ -34,6 +34,21 @@ describe('handleFailure', () => {
     expect(input.deps.saveState).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves the cursor for final retry failures', async () => {
+    const input = makeInput({
+      acknowledgeFailedTurn: true,
+    });
+
+    await expect(handleFailure(input)).resolves.toBe(true);
+
+    expect(input.deps.setCursor).not.toHaveBeenCalled();
+    expect(input.deps.saveState).toHaveBeenCalledTimes(1);
+    expect(input.logger.warn).toHaveBeenCalledWith(
+      { group: 'Main Agent' },
+      'Agent error on final retry, preserving message cursor to prevent stale replay',
+    );
+  });
+
   it('rolls back first thread failures to the empty cursor for retry', async () => {
     const input = makeInput({
       queueJid: 'sl:C1234567890::thread:1711111111.000200',
@@ -54,9 +69,7 @@ describe('handleFailure', () => {
   });
 
   it('rolls back no-output failures during runtime shutdown', async () => {
-    const input = makeInput({
-      isShuttingDown: () => true,
-    });
+    const input = makeInput();
 
     await expect(handleFailure(input)).resolves.toBe(false);
 

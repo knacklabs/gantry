@@ -72,6 +72,8 @@ import { collectPendingMessagesSince } from './pending-message-replay.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 const DEFAULT_TURN_APP_ID = 'default';
+const MISSING_REPOSITORY_MESSAGE =
+  'Group processor requires runtime repositories';
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 type ActiveTurnUiCleanup = { token: symbol; cancel: () => void };
 const activeTurnUiCleanupByQueue = new Map<string, ActiveTurnUiCleanup>();
@@ -79,11 +81,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
     const repository = deps.opsRepository ?? deps.getRuntimeRepository?.();
-    if (!repository) {
-      throw new Error(
-        'Group processor requires runtime message and session repositories',
-      );
-    }
+    if (!repository) throw new Error(MISSING_REPOSITORY_MESSAGE);
     return repository;
   };
   const runAgent = createGroupAgentRunner({ deps, ops });
@@ -95,7 +93,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       existingRunLeaseToken?: string;
       existingRunLeaseWorkerInstanceId?: string;
       existingRunLeaseFencingVersion?: number;
-      onRunResult?: (result: 'success' | 'error' | 'stopped') => void;
+      finalRetry?: boolean;
+      onRunResult?: (result: GroupAgentRunResult) => void;
       onFirstProgress?: (input: {
         jid: string;
         messageRef: string;
@@ -787,7 +786,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         queueJid,
         previousCursor,
         deps,
-        isShuttingDown: deps.queue.isShuttingDown,
+        acknowledgeFailedTurn:
+          options.finalRetry === true && !deps.queue.isShuttingDown?.(),
         logger,
       });
     } else {

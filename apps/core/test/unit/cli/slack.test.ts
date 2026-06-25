@@ -627,6 +627,7 @@ describe('cli slack helpers', () => {
         providerConnection: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
+        senderPolicy: { allow: '*', mode: 'trigger' },
       }),
     );
   });
@@ -657,6 +658,7 @@ describe('cli slack helpers', () => {
       expect.objectContaining({
         name: 'Kai Slack',
         folder: 'main_agent',
+        requiresTrigger: true,
       }),
     );
     const settings = loadRuntimeSettings(runtimeHome);
@@ -666,6 +668,7 @@ describe('cli slack helpers', () => {
         providerConnection: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
+        senderPolicy: { allow: '*', mode: 'trigger' },
       }),
     );
     expect(settings.providerConnections?.slack_default).toEqual(
@@ -717,6 +720,7 @@ describe('cli slack helpers', () => {
       expect.objectContaining({
         name: 'Kai Slack',
         folder: 'main_agent',
+        requiresTrigger: true,
       }),
     );
     const settings = loadRuntimeSettings(runtimeHome);
@@ -726,6 +730,7 @@ describe('cli slack helpers', () => {
         providerConnection: 'slack_default',
         externalId: 'C0123456789',
         controlApprovers: ['U123'],
+        senderPolicy: { allow: '*', mode: 'trigger' },
       }),
     );
   });

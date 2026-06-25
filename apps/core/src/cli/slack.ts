@@ -387,7 +387,7 @@ export async function registerSlackMainGroup(options: {
       folder,
       trigger: existingGroup?.trigger || defaultTriggerForAgentName(groupName),
       added_at: existingGroup?.added_at || nowIso(),
-      requiresTrigger: false,
+      requiresTrigger: true,
       agentConfig: existingGroup?.agentConfig,
     };
     await db.setConversationRoute(options.chatJid, route);
@@ -401,7 +401,7 @@ export async function registerSlackMainGroup(options: {
       jid: options.chatJid,
       displayName: options.conversationDisplayName || options.displayName,
       trigger: route.trigger,
-      requiresTrigger: false,
+      requiresTrigger: true,
       approverIds: options.approverIds,
     });
     await writeDesiredRuntimeSettings({
@@ -602,7 +602,7 @@ export async function runSlackConnectCommand(
       displayName:
         conversationDisplayName || conversationRouteName || settings.agent.name,
       trigger: `@${conversationRouteName || settings.agent.name}`,
-      requiresTrigger: false,
+      requiresTrigger: true,
       approverIds,
     });
   }
