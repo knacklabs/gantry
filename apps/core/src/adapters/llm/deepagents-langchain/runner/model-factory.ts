@@ -48,6 +48,11 @@ const INIT_CHAT_MODEL_PROVIDERS = new Set<string>([
   'vertex',
 ]);
 
+// In sandbox_runtime, the host rewrites loopback model gateway URLs to this
+// private alias and installs a Gantry-owned egress mapping back to loopback.
+// Keep the runner allowlist exact so raw private/provider URLs remain rejected.
+const SANDBOX_RUNTIME_MODEL_GATEWAY_HOST = 'model-gateway.gantry.internal';
+
 export interface ResolvedRunnerModel {
   model: BaseChatModel;
   endpointFamily: ModelEndpointFamily;
@@ -168,9 +173,11 @@ function assertLoopbackGatewayUrl(value: string, label: string): void {
       hostname === 'localhost' ||
       hostname === '::1' ||
       hostname === '[::1]');
-  if (!loopback) {
+  const sandboxGatewayAlias =
+    url.protocol === 'http:' && hostname === SANDBOX_RUNTIME_MODEL_GATEWAY_HOST;
+  if (!loopback && !sandboxGatewayAlias) {
     throw new Error(
-      `DeepAgents runner ${label} must be a loopback Gantry gateway URL.`,
+      `DeepAgents runner ${label} must be a loopback or sandbox-private Gantry gateway URL.`,
     );
   }
 }
