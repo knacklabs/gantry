@@ -116,6 +116,38 @@ function saveStateBestEffort(deps: MessageLoopDeps, chatJid: string): void {
   );
 }
 
+async function hasTriggerOwnedThreadRoot(input: {
+  opsRepository: RuntimeMessageRepository &
+    Partial<RuntimeConversationRouteRepository>;
+  chatJid: string;
+  threadId: string;
+  group: ConversationRoute;
+  triggerPattern: RegExp;
+}): Promise<boolean> {
+  const rootCandidates = await input.opsRepository.getMessagesSince(
+    input.chatJid,
+    '',
+    MESSAGE_FETCH_PAGE_SIZE,
+    { threadId: input.threadId },
+  );
+  if (rootCandidates.length === 0) return false;
+
+  const allowlistCfg = loadSenderAllowlist();
+  return rootCandidates.some(
+    (message) =>
+      message.thread_id === input.threadId &&
+      !message.reply_to_message_id &&
+      input.triggerPattern.test(message.content.trim()) &&
+      (message.is_from_me ||
+        isTriggerAllowed(
+          input.chatJid,
+          message.sender,
+          allowlistCfg,
+          input.group.folder,
+        )),
+  );
+}
+
 async function enqueueMessageCheck(
   deps: MessageLoopDeps,
   queueJid: string,
@@ -216,7 +248,15 @@ async function processQueueMessages(
           isTriggerAllowed(chatJid, m.sender, allowlistCfg, group.folder)),
     );
     const isContinuationThread =
-      threadId !== undefined && recoveredCursor.trim().length > 0;
+      threadId !== undefined &&
+      recoveredCursor.trim().length > 0 &&
+      (await hasTriggerOwnedThreadRoot({
+        opsRepository,
+        chatJid,
+        threadId,
+        group,
+        triggerPattern,
+      }));
     if (!hasTrigger && !isContinuationThread) {
       const lastMessage = initialBatch[initialBatch.length - 1];
       const cursorAfter = replay.cursorAfter
