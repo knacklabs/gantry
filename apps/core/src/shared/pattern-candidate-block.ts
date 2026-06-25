@@ -1,6 +1,10 @@
 import type { PatternCandidate } from '@gantry/contracts';
 
 import { isSurfaceable } from './pattern-candidate-policy.js';
+import {
+  patternSubjectForScope,
+  type PatternSubjectScope,
+} from './pattern-candidate-subject.js';
 import { nowIso } from './time/datetime.js';
 
 /**
@@ -22,16 +26,6 @@ function safePatternText(value: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_PATTERN_TEXT_CHARS);
-}
-
-function canonicalConversationIdForPattern(
-  value: string | undefined,
-): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return trimmed.startsWith('conversation:')
-    ? trimmed
-    : `conversation:${trimmed}`;
 }
 
 export function formatPatternsBlock(candidates: PatternCandidate[]): string {
@@ -88,46 +82,6 @@ interface EligibleCandidateReader {
   }): Promise<PatternCandidate | null>;
 }
 
-function patternSubjectForScope(scope: {
-  appId: string;
-  agentId: string;
-  folder: string;
-  conversationId?: string;
-  conversationKind?: 'dm' | 'channel';
-  userId?: string;
-}): EligibleCandidateReader extends { listEligible(input: infer I): unknown }
-  ? I extends { subject: infer S }
-    ? S
-    : never
-  : never {
-  if (scope.conversationKind === 'dm' && scope.userId) {
-    return {
-      appId: scope.appId,
-      agentId: scope.agentId,
-      folder: scope.folder,
-      subjectType: 'user',
-      subjectId: scope.userId,
-    };
-  }
-  const channelId = canonicalConversationIdForPattern(scope.conversationId);
-  if (channelId) {
-    return {
-      appId: scope.appId,
-      agentId: scope.agentId,
-      folder: scope.folder,
-      subjectType: 'channel',
-      subjectId: channelId,
-    };
-  }
-  return {
-    appId: scope.appId,
-    agentId: scope.agentId,
-    folder: scope.folder,
-    subjectType: 'group',
-    subjectId: scope.folder,
-  };
-}
-
 /**
  * Read-only, guarded loader used by the runner: fetches the single top eligible
  * candidate for the user-scoped subject and formats the block. Returns '' when
@@ -137,33 +91,21 @@ function patternSubjectForScope(scope: {
  */
 export async function loadPatternsContextBlock(
   repo: EligibleCandidateReader | undefined,
-  scope: {
-    appId: string;
-    agentId: string;
-    folder: string;
-    conversationId?: string;
-    conversationKind?: 'dm' | 'channel';
-    userId?: string;
-  },
+  scope: PatternSubjectScope,
 ): Promise<string> {
   return (await loadPatternsContext(repo, scope)).block;
 }
 
 export async function loadPatternsContext(
   repo: EligibleCandidateReader | undefined,
-  scope: {
-    appId: string;
-    agentId: string;
-    folder: string;
-    conversationId?: string;
-    conversationKind?: 'dm' | 'channel';
-    userId?: string;
-  },
+  scope: PatternSubjectScope,
 ): Promise<PatternsContext> {
   if (!repo) return { block: '', surfacedCandidateIds: [] };
+  const subject = patternSubjectForScope(scope);
+  if (!subject) return { block: '', surfacedCandidateIds: [] };
   const candidates = await repo
     .listEligible({
-      subject: patternSubjectForScope(scope),
+      subject,
       limit: 1,
     })
     .catch(() => [] as PatternCandidate[]);
