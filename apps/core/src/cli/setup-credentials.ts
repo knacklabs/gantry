@@ -1,21 +1,37 @@
 import * as p from '@clack/prompts';
 
+import { requiredModelCredentialProviders } from '../application/model-resolution/required-model-credential-providers.js';
 import type { HostCredentialMode } from '../config/credentials/mode.js';
-import { listModelRouteProviders } from '../shared/model-provider-registry.js';
 import {
+  DEFAULT_MODEL_PRESET_ID,
+  getModelPreset,
+  type ModelPresetId,
+} from '../shared/model-catalog.js';
+import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
+import {
+  listReadyModelCredentialProviders,
   promptModelCredentialPayload,
   storeModelCredentialInput,
 } from './credentials.js';
 import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
+import { prepareOnboardingCredentialStorage } from './onboarding-config.js';
 
 export interface CredentialSetupDraft {
   credentialMode: HostCredentialMode;
   postgresSetupKind?: 'local' | 'hosted' | 'existing';
+  postgresDatabaseUrl?: string;
+  postgresSchema?: string;
+  modelPreset?: ModelPresetId;
+  selectedModel?: string;
+  memoryEnabled?: boolean;
+  embeddingsEnabled?: boolean;
+  dreamingEnabled?: boolean;
 }
 
 export type CredentialStepAction =
   | { type: 'next' }
   | { type: 'back' }
+  | { type: 'goto'; step: 'storage' }
   | { type: 'resume' }
   | { type: 'cancel' };
 
@@ -52,85 +68,99 @@ export async function runCredentialsStep(
   runtimeHome: string,
 ): Promise<CredentialStepAction> {
   draft.credentialMode = 'gantry';
-  const providers = listModelRouteProviders();
-  const selectedProvider = await p.select({
-    message: 'Model access provider',
-    options: [
-      ...providers.map((provider) => ({
-        value: provider.id,
-        label: provider.label,
-        hint: provider.supportedWorkloads.join(', '),
-      })),
-      { value: 'back', label: 'Back' },
-      { value: 'resume', label: 'Resume Later' },
-      { value: 'cancel', label: 'Cancel Setup' },
-    ],
-  });
-  if (p.isCancel(selectedProvider)) return { type: 'cancel' };
-  if (
-    selectedProvider === 'back' ||
-    selectedProvider === 'resume' ||
-    selectedProvider === 'cancel'
-  ) {
-    return { type: selectedProvider };
+  try {
+    await prepareOnboardingCredentialStorage({
+      runtimeHome,
+      postgresDatabaseUrl: draft.postgresDatabaseUrl,
+      postgresSchema: draft.postgresSchema,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(
+      [
+        `Setup blocked: could not prepare Model Access storage (${message})`,
+        'Next action: return to the Database step and provide a reachable Postgres URL.',
+      ].join('\n'),
+    );
+    return { type: 'goto', step: 'storage' };
   }
-  const provider = providers.find((item) => item.id === selectedProvider);
-  if (!provider) return { type: 'cancel' };
-  const selectedMode =
-    provider.credentialModes.length === 1
-      ? provider.credentialModes[0]!.id
-      : await p.select({
-          message: 'Credential auth mode',
-          options: [
-            ...provider.credentialModes.map((mode) => ({
-              value: mode.id,
-              label: mode.label,
-              hint: mode.helpText,
-            })),
-            { value: 'back', label: 'Back' },
-            { value: 'resume', label: 'Resume Later' },
-            { value: 'cancel', label: 'Cancel Setup' },
-          ],
-        });
-  if (p.isCancel(selectedMode)) return { type: 'cancel' };
-  if (
-    selectedMode === 'back' ||
-    selectedMode === 'resume' ||
-    selectedMode === 'cancel'
-  ) {
-    return { type: selectedMode };
-  }
-  const selectedModeId = String(selectedMode);
+  const requiredProviders =
+    requiredModelCredentialProvidersForSetupDraft(draft);
   p.note(
-    [
-      'Gantry stores the real provider credential encrypted in Credential Center.',
-      'Agent runners receive only a loopback gateway URL and a short-lived gtw_* token.',
-      'The trusted host injects the real provider auth only when forwarding approved model API calls.',
-    ].join('\n'),
-    'Model Access',
+    `Selected defaults require credentials for: ${formatProviderIds(requiredProviders)}.`,
+    'Model Access required',
   );
-  const captureChoice = await p.select({
-    message: 'Store this model credential now?',
-    options: [
-      {
-        value: 'store',
-        label: 'Store now',
-        hint: 'Required before Gantry can be ready.',
-      },
-      { value: 'back', label: 'Back' },
-      { value: 'resume', label: 'Resume Later' },
-      { value: 'cancel', label: 'Cancel Setup' },
-    ],
-  });
-  if (p.isCancel(captureChoice)) return { type: 'cancel' };
-  if (
-    captureChoice === 'back' ||
-    captureChoice === 'resume' ||
-    captureChoice === 'cancel'
-  ) {
-    return { type: captureChoice };
+
+  const readyProviders =
+    await tryListReadyModelCredentialProviders(runtimeHome);
+  const missingProviders = requiredProviders.filter(
+    (providerId) => !readyProviders.has(providerId),
+  );
+  if (missingProviders.length === 0) {
+    p.log.success('Required Model Access credentials are already configured.');
+    return { type: 'next' };
   }
-  if (captureChoice === 'store') {
+
+  for (const providerId of missingProviders) {
+    const provider = getModelProviderDefinition(providerId);
+    if (!provider) {
+      p.log.error(`Unsupported required model provider: ${providerId}.`);
+      return { type: 'cancel' };
+    }
+    const selectedMode =
+      provider.credentialModes.length === 1
+        ? provider.credentialModes[0]!.id
+        : await p.select({
+            message: 'Credential auth mode',
+            options: [
+              ...provider.credentialModes.map((mode) => ({
+                value: mode.id,
+                label: mode.label,
+                hint: mode.helpText,
+              })),
+              { value: 'back', label: 'Back' },
+              { value: 'resume', label: 'Resume Later' },
+              { value: 'cancel', label: 'Cancel Setup' },
+            ],
+          });
+    if (p.isCancel(selectedMode)) return { type: 'cancel' };
+    if (
+      selectedMode === 'back' ||
+      selectedMode === 'resume' ||
+      selectedMode === 'cancel'
+    ) {
+      return { type: selectedMode };
+    }
+    const selectedModeId = String(selectedMode);
+    p.note(
+      [
+        'Gantry stores the real provider credential encrypted in Credential Center.',
+        'Agent runners receive only a loopback gateway URL and a short-lived gtw_* token.',
+        'The trusted host injects the real provider auth only when forwarding approved model API calls.',
+      ].join('\n'),
+      'Model Access',
+    );
+    const captureChoice = await p.select({
+      message: 'Store this model credential now?',
+      options: [
+        {
+          value: 'store',
+          label: `Store ${provider.label}`,
+          hint: 'Required before Gantry can be ready.',
+        },
+        { value: 'back', label: 'Back' },
+        { value: 'resume', label: 'Resume Later' },
+        { value: 'cancel', label: 'Cancel Setup' },
+      ],
+    });
+    if (p.isCancel(captureChoice)) return { type: 'cancel' };
+    if (
+      captureChoice === 'back' ||
+      captureChoice === 'resume' ||
+      captureChoice === 'cancel'
+    ) {
+      return { type: captureChoice };
+    }
     const credentialInput = await promptModelCredentialPayload(provider.id, {
       authMode: selectedModeId,
     });
@@ -144,7 +174,53 @@ export async function runCredentialsStep(
     p.log.success(
       `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
     );
-    return { type: 'next' };
   }
-  return { type: 'cancel' };
+  return { type: 'next' };
+}
+
+export function requiredModelCredentialProvidersForSetupDraft(
+  draft: CredentialSetupDraft,
+): string[] {
+  const preset = getModelPreset(draft.modelPreset ?? DEFAULT_MODEL_PRESET_ID);
+  const chatModel = draft.selectedModel || preset.chatDefault;
+  const memoryEnabled = draft.memoryEnabled ?? true;
+  const embeddingsEnabled = memoryEnabled && (draft.embeddingsEnabled ?? false);
+  return requiredModelCredentialProviders({
+    agent: {
+      defaultModel: chatModel,
+      oneTimeJobDefaultModel: preset.oneTimeJobDefault,
+      recurringJobDefaultModel: preset.recurringJobDefault,
+    },
+    memory: {
+      enabled: memoryEnabled,
+      embeddings: {
+        enabled: embeddingsEnabled,
+        provider: embeddingsEnabled ? 'openai' : 'disabled',
+      },
+      dreaming: {
+        enabled: memoryEnabled && (draft.dreamingEnabled ?? true),
+        embeddings: {
+          enabled: false,
+          provider: 'disabled',
+        },
+      },
+      llm: {
+        models: preset.memoryDefaults,
+      },
+    },
+  });
+}
+
+function formatProviderIds(providerIds: readonly string[]): string {
+  return providerIds.length > 0 ? providerIds.join(', ') : 'none';
+}
+
+async function tryListReadyModelCredentialProviders(
+  runtimeHome: string,
+): Promise<Set<string>> {
+  try {
+    return await listReadyModelCredentialProviders(runtimeHome);
+  } catch {
+    return new Set();
+  }
 }

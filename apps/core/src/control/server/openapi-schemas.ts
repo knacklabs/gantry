@@ -1,5 +1,6 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
 import { listModelPresets } from '../../shared/model-catalog.js';
+import { listModelRouteProviders } from '../../shared/model-provider-registry.js';
 import { modelCredentialSchemas } from './openapi-model-credential-schemas.js';
 import {
   agentHarnessProp,
@@ -317,7 +318,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
         properties: {
           id: {
             type: 'string',
-            enum: listModelPresets().map((preset) => preset.id),
+            enum: listModelRouteProviders().map((provider) => provider.id),
           },
           label: { type: 'string' },
           metadata: {

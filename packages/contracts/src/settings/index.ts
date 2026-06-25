@@ -4,6 +4,7 @@ import {
   AgentPersonaSchema,
   AgentRelationshipModeSchema,
 } from '../agents/index.js';
+import { AgentHarnessSchema } from '../contract-primitives.js';
 
 const EgressDenylistPatternSchema = z
   .string()
@@ -69,6 +70,7 @@ export const RuntimeSettingsConfiguredAgentSchema = z
     persona: AgentPersonaSchema.optional(),
     relationshipMode: AgentRelationshipModeSchema.optional(),
     model: z.string().optional(),
+    agentHarness: AgentHarnessSchema.optional(),
     oneTimeJobDefaultModel: z.string().optional(),
     recurringJobDefaultModel: z.string().optional(),
     bindings: z.record(z.string(), RuntimeSettingsConfiguredAgentBindingSchema),
@@ -140,6 +142,7 @@ export const RuntimeSettingsPublicSchema = z
       .object({
         name: z.string(),
         defaultModel: z.string(),
+        agentHarness: AgentHarnessSchema,
         oneTimeJobDefaultModel: z.string(),
         recurringJobDefaultModel: z.string(),
       })

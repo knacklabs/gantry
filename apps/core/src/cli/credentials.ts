@@ -121,6 +121,17 @@ export async function storeModelCredentialInput(input: {
   );
 }
 
+export async function listReadyModelCredentialProviders(
+  runtimeHome: string,
+): Promise<Set<string>> {
+  const rows = await withCredentialServices(runtimeHome, ({ model }) =>
+    model.list({ appId: DEFAULT_APP_ID }),
+  );
+  return new Set(
+    rows.filter((row) => row.health === 'ready').map((row) => row.providerId),
+  );
+}
+
 export async function storeRuntimeSecretInput(input: {
   runtimeHome: string;
   name: string;

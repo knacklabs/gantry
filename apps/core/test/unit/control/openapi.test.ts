@@ -495,7 +495,14 @@ describe('control OpenAPI documentation', () => {
         modelRoute: expect.objectContaining({
           type: 'object',
           properties: expect.objectContaining({
-            id: { type: 'string', enum: ['anthropic', 'openrouter'] },
+            id: expect.objectContaining({
+              type: 'string',
+              enum: expect.arrayContaining([
+                'anthropic',
+                'openrouter',
+                'openai',
+              ]),
+            }),
             label: { type: 'string' },
             metadata: expect.objectContaining({
               type: 'object',

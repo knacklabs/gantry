@@ -13,7 +13,11 @@ import {
   listModelPresets,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
-import { formatModelDisplay } from '../shared/model-catalog-format.js';
+import {
+  formatContextWindow,
+  formatCostPerMillion,
+} from '../shared/model-catalog-format.js';
+import { AUTO_AGENT_HARNESS } from '../shared/agent-engine.js';
 import {
   type FlowAction,
   isInputFlowControl,
@@ -286,7 +290,7 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
       ...listModelPresets().map((preset) => ({
         value: preset.id,
         label: preset.label,
-        hint: `Chat default ${preset.chatDefault}.`,
+        hint: `Chat default ${preset.chatDefault}; memory defaults use ${formatMemoryDefaultAliases(preset.memoryDefaults)}.`,
       })),
       {
         value: 'back',
@@ -313,8 +317,6 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
 
   // Offer every chat-capable model across all providers (not just the preset's),
   // so a user can onboard directly onto a non-preset provider (openai/groq/...).
-  // The preset still governs the memory/defaults cascade; the provider is shown
-  // in the hint so the choice is clear.
   const chatModelOptions = listModelCatalogEntries()
     .filter((entry) => entry.supportedWorkloads.includes('chat'))
     .map((entry) => ({
@@ -323,7 +325,7 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
         entry.recommendedAlias === selectedPreset.chatDefault
           ? `${entry.displayName} (Recommended)`
           : entry.displayName,
-      hint: `${entry.modelRoute.label} · ${formatModelDisplay(entry)}. Alias: ${entry.recommendedAlias}.`,
+      hint: `${entry.modelRoute.label} · Alias: ${entry.recommendedAlias} · Context: ${formatContextWindow(entry.contextWindowTokens)} · Cost: ${formatCostPerMillion(entry)} per 1M.`,
     }));
   const initialModel =
     chatModelOptions.some((option) => option.value === draft.selectedModel) &&
@@ -359,17 +361,20 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
     : selectedPreset.chatDefault;
   if (resolvedModel.ok) {
     const providerId = resolvedModel.entry.modelRoute.id;
-    if (isModelPresetId(providerId)) {
-      // A preset chat model aligns the memory/defaults preset with the chat
-      // provider so the two stay consistent.
-      draft.modelPreset = providerId;
-    } else {
-      // A non-preset chat model keeps the chosen preset for the memory cascade;
-      // its own provider key must be configured in the credentials step.
+    if (providerId !== draft.modelPreset) {
       p.note(
         `${resolvedModel.entry.displayName} runs on the ${resolvedModel.entry.modelRoute.label} provider — configure its credential in the credentials step. Memory will use the ${selectedPreset.label} preset.`,
       );
     }
   }
+  draft.agentHarness = AUTO_AGENT_HARNESS;
   return { type: 'next' };
+}
+
+function formatMemoryDefaultAliases(
+  defaults: ReturnType<typeof getModelPreset>['memoryDefaults'],
+): string {
+  return [defaults.extractor, defaults.dreaming, defaults.consolidation].join(
+    ', ',
+  );
 }

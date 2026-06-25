@@ -65,6 +65,8 @@ describe('scheduler MCP tools', () => {
     expect(text).toContain('opus-4.8 | Opus 4.8');
     expect(text).toContain('Kimi K2.6');
     expect(text).toContain('kimi-2.6 | Kimi K2.6');
+    expect(text).toContain('GLM 5.2');
+    expect(text).toContain('glm-5.2 | GLM 5.2');
     expect(text).toContain('Response family');
 
     const recommended = await tools.get('scheduler_list_models')!({

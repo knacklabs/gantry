@@ -99,7 +99,7 @@
     {
       "file": "apps/core/test/unit/adapters/anthropic-execution-adapter.test.ts",
       "matches": {
-        "ANTHROPIC_": 5
+        "ANTHROPIC_": 3
       },
       "reason": "Anthropic execution adapter tests exercise provider-specific credential rejection behavior while the provider-boundary test layout cleanup is still tracked by the ratchet plan.",
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"

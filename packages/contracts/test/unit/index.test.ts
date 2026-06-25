@@ -267,11 +267,11 @@ describe('contracts package', () => {
                 providerLabel: 'OpenRouter',
                 cacheProvider: 'openrouter-provider',
                 statusLabel:
-                  'prompt cache supported/accounted; response cache available but disabled',
+                  'automatic provider cache; response cache available but disabled',
                 prompt: {
-                  mode: 'openrouter_anthropic_cache_control',
-                  automatic: false,
-                  requestControl: 'cache_control_blocks',
+                  mode: 'openrouter_automatic_prefix',
+                  automatic: true,
+                  requestControl: 'provider_automatic_prefix',
                   ttlOptions: ['5m', '1h'],
                   minimumTokenThresholds: [
                     {
@@ -506,6 +506,7 @@ describe('contracts package', () => {
         agent: {
           name: 'Gantry',
           defaultModel: 'opus',
+          agentHarness: 'auto',
           oneTimeJobDefaultModel: 'inherit',
           recurringJobDefaultModel: 'inherit',
         },
@@ -516,6 +517,7 @@ describe('contracts package', () => {
             persona: 'generalist',
             relationshipMode: 'organization',
             model: 'sonnet',
+            agentHarness: 'deepagents',
             oneTimeJobDefaultModel: 'inherit',
             recurringJobDefaultModel: 'inherit',
             bindings: {},
@@ -570,6 +572,8 @@ describe('contracts package', () => {
     expect(parsed.settings.agents.main_agent?.relationshipMode).toBe(
       'organization',
     );
+    expect(parsed.settings.agent.agentHarness).toBe('auto');
+    expect(parsed.settings.agents.main_agent?.agentHarness).toBe('deepagents');
   });
 
   it('keeps public tool catalog contracts provider-neutral', () => {

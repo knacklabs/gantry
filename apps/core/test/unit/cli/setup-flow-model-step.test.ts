@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { AUTO_AGENT_HARNESS } from '@core/shared/agent-engine.js';
+
 function makeDraft(): any {
   return {
     agentName: 'Default Agent',
     modelPreset: 'anthropic',
     selectedModel: 'opus',
+    agentHarness: AUTO_AGENT_HARNESS,
   };
 }
 
@@ -30,7 +33,10 @@ async function loadModelStep(selections: string[]) {
 
 describe('setup model step', () => {
   it('keeps guided setup model selections in catalog alias space', async () => {
-    const { runModelStep } = await loadModelStep(['anthropic', 'sonnet']);
+    const { runModelStep, select } = await loadModelStep([
+      'anthropic',
+      'sonnet',
+    ]);
     const draft = makeDraft();
 
     const action = await runModelStep(draft);
@@ -38,6 +44,10 @@ describe('setup model step', () => {
     expect(action).toEqual({ type: 'next' });
     expect(draft.modelPreset).toBe('anthropic');
     expect(draft.selectedModel).toBe('sonnet');
+    expect(draft.agentHarness).toBe(AUTO_AGENT_HARNESS);
+    expect(select).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Choose agent harness' }),
+    );
   });
 
   it('does not offer legacy opusplan as a setup model choice', async () => {
@@ -46,7 +56,9 @@ describe('setup model step', () => {
     await runModelStep(makeDraft());
 
     const presetOptions = select.mock.calls[0]?.[0]?.options ?? [];
-    expect(JSON.stringify(presetOptions)).not.toContain('memory');
+    expect(
+      presetOptions.map((option: { value: string }) => option.value),
+    ).not.toContain('memory');
     const options = select.mock.calls[1]?.[0]?.options ?? [];
     expect(
       options.map((option: { value: string }) => option.value),
@@ -73,6 +85,20 @@ describe('setup model step', () => {
     );
   });
 
+  it('keeps the selected preset when the main model uses another preset provider', async () => {
+    const { runModelStep, note } = await loadModelStep(['anthropic', 'kimi']);
+    const draft = makeDraft();
+
+    const action = await runModelStep(draft);
+
+    expect(action).toEqual({ type: 'next' });
+    expect(draft.modelPreset).toBe('anthropic');
+    expect(draft.selectedModel).toBe('kimi');
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('Memory will use the Anthropic preset.'),
+    );
+  });
+
   it('offers non-preset (DeepAgents-lane) models and keeps the memory preset', async () => {
     // Pick the Anthropic preset (memory cascade) but a non-preset chat model
     // (gpt -> openai). The model offerings include non-preset providers, the
@@ -87,6 +113,7 @@ describe('setup model step', () => {
 
     expect(action).toEqual({ type: 'next' });
     expect(draft.selectedModel).toBe('gpt');
+    expect(draft.agentHarness).toBe(AUTO_AGENT_HARNESS);
     // Non-preset chat model does NOT change the memory/defaults preset.
     expect(draft.modelPreset).toBe('anthropic');
     // The model list now spans providers beyond the selected preset.

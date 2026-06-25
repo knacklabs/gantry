@@ -40,7 +40,7 @@ The package is private. If a deployment host cannot access CAW's package
 registry, clone this repository on the host, run `npm ci && npm run build`, and
 use the built CLI entrypoint from that checkout instead of a global npm install.
 
-The first run is a guided CLI flow with a single path: runtime home, database, model access, channel connection, agent, conversation binding, then final doctor verification before the ready screen. Memory, the background service, and extra providers are optional and configured after the runtime is ready.
+The first run is a guided CLI flow with a single path: runtime home, database, channel choice, model choice, model access, channel connection, conversation binding, then final doctor verification before the ready screen. Memory, the background service, and extra providers are optional and configured after the runtime is ready.
 
 ### NPM Install First-Run Flow
 
@@ -53,9 +53,9 @@ Then follow this order:
 
 1. Run `gantry` with no args and confirm the runtime home (default `~/gantry`).
 2. Choose `Use local Postgres URL` if you started the provided Compose stack, or choose hosted/existing Postgres and paste those URLs.
-3. Connect Model Access once for agent, subagent, and scheduled job model calls. Gantry stores provider keys in encrypted Postgres rows and projects only loopback gateway tokens to the model SDK; agents select catalog model aliases and never receive database URLs or raw provider credentials.
-4. Choose your first channel (`Telegram` or `Slack`).
-5. Choose the default agent name, main model alias, and agent harness. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`. `agent_harness` accepts `auto`, `anthropic_sdk`, or `deepagents`; `auto` preserves provider-derived behavior.
+3. Choose your first channel (`Telegram` or `Slack`).
+4. Choose the default agent name and main model alias. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`. Setup keeps `agent_harness: auto`, so the runtime derives Anthropic SDK or DeepAgents from the selected model route.
+5. Connect Model Access for the selected chat, job, and memory defaults. Gantry stores provider keys in encrypted Postgres rows and projects only loopback gateway tokens to the model SDK; agents select catalog model aliases and never receive database URLs or raw provider credentials.
 6. Follow the in-CLI channel guide, paste channel credentials, and pick a discovered Conversation. Channel IDs and runtime folders stay internal.
 7. Review the summary and choose `Create Runtime`; before this point Back, Resume Later, and Cancel are transactional. Setup writes config, binds that Conversation to the default Agent, and runs final doctor verification.
 8. On the ready screen, finish setup (the default exits cleanly) or choose `Start Gantry now` to begin listening immediately.
@@ -752,7 +752,7 @@ Harness-selection work is documented in [Agent Harness Selection](docs/decisions
 
 - Anthropic preset: chat `opus`; job defaults inherit chat; memory uses preset-managed extractor `haiku`, dreaming `sonnet`, consolidation `sonnet`
 - OpenRouter preset: chat defaults to `kimi`; job defaults inherit chat; memory extractor, dreaming, and consolidation use `kimi`
-- Catalog choices include Anthropic `opus`/`sonnet`/`haiku`, OpenRouter `kimi`, OpenAI `gpt`, OpenAI-compatible providers such as `groq`, `deepseek`, and `gemini`, plus the region-aware Bedrock alias `bedrock-oss` and Vertex aliases `vertex` / `vertex-flash-3.5`.
+- Catalog choices include Anthropic `opus`/`sonnet`/`haiku`, OpenRouter `kimi` and `glm-5.2`, OpenAI `gpt`, OpenAI-compatible providers such as `groq`, `deepseek`, and `gemini`, plus the region-aware Bedrock alias `bedrock-oss` and Vertex aliases `vertex` / `vertex-flash-3.5`.
 - Job defaults: `agent.one_time_job_default_model` and `agent.recurring_job_default_model` inherit `agent.default_model` when empty
 - Memory task defaults are preset-managed. Use `gantry model memory` to inspect them and `gantry model reset memory` or `PATCH /v1/models/defaults` with `memory: null` to reapply preset-managed defaults.
 - Memory (extraction, dreaming, consolidation) has no engine setting either (the retired `memory.engine` key is now rejected at settings validation). The memory transport lane is derived from the memory model's provider: an Anthropic memory model uses the Claude Agent SDK memory client; OpenAI and OpenRouter memory models use the OpenAI-compatible chat-completions memory client. Choose OpenAI/OpenRouter memory model aliases and memory runs with no Anthropic models. `gantry model memory` shows the derived `Memory engine: <label>`.

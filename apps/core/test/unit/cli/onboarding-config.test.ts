@@ -8,6 +8,7 @@ const settingsWrites: Array<{
   previousSchema?: string;
   telegramEnabled: boolean;
   telegramBotRef?: string;
+  agentHarness: string;
 }> = [];
 
 vi.mock('@core/config/env/file.js', () => ({
@@ -55,6 +56,7 @@ vi.mock('@core/config/settings/runtime-settings.js', async (importOriginal) => {
           telegramBotRef:
             input.settings.providerConnections.telegram_default
               ?.runtimeSecretRefs.bot_token,
+          agentHarness: input.settings.agent.agentHarness,
         });
         return { reconciled: false };
       },
@@ -79,6 +81,7 @@ describe('persistOnboardingConfig', () => {
       postgresSchema: 'custom_schema',
       primaryProvider: 'telegram',
       telegramBotToken: '123456:abcdef',
+      agentHarness: 'deepagents',
       credentialMode: 'none',
       memoryEnabled: false,
       embeddingsEnabled: false,
@@ -98,6 +101,7 @@ describe('persistOnboardingConfig', () => {
       'gantry-secret:TELEGRAM_BOT_TOKEN',
     );
     expect(settingsWrites[1]?.previousSchema).toBe('custom_schema');
+    expect(settingsWrites[1]?.agentHarness).toBe('deepagents');
   });
 
   it('does not persist partial settings before model validation fails', async () => {

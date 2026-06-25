@@ -290,48 +290,6 @@ description: Use this skill for release notes.
     );
   });
 
-  it('fails when OpenRouter model credentials are missing', async () => {
-    const adapter = new AnthropicClaudeAgentExecutionAdapter();
-
-    await expect(
-      adapter.prepare(
-        prepareInput({
-          effectiveModelEntry: {
-            ...catalogEntry('kimi'),
-            displayName: 'Kimi',
-            runnerModel: 'openrouter/kimi',
-          },
-        }),
-      ),
-    ).rejects.toThrow('requires Gantry Model Gateway credentials');
-  });
-
-  it('allows Gantry gateway projections for OpenRouter models', async () => {
-    const adapter = new AnthropicClaudeAgentExecutionAdapter();
-
-    await expect(
-      adapter.prepare(
-        prepareInput({
-          effectiveModelEntry: {
-            ...catalogEntry('kimi'),
-            displayName: 'Kimi',
-            runnerModel: 'openrouter/kimi',
-          },
-          modelCredentialProjection: {
-            env: Object.fromEntries([
-              [anthropicBaseUrlKey(), 'http://127.0.0.1:4567/openrouter'],
-              ['ANTHROPIC_API_KEY', 'gtw_test'],
-              ['ANTHROPIC_AUTH_TOKEN', 'gtw_test'],
-            ]),
-            credentialProviders: {},
-            brokerProfile: 'gantry',
-            brokerApplied: true,
-          },
-        }),
-      ),
-    ).resolves.toBeDefined();
-  });
-
   it('fails when Anthropic model credentials are missing', async () => {
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
@@ -436,7 +394,7 @@ description: Use this skill for release notes.
             runnerModel: 'claude-sonnet-4-5',
           },
           modelCredentialProjection: {
-            env: { ANTHROPIC_BASE_URL: 'https://api.openrouter.ai./v1' },
+            env: { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' },
             credentialProviders: {},
             brokerProfile: 'gantry',
             brokerApplied: true,

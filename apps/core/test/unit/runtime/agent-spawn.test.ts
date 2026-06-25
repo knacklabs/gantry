@@ -1452,7 +1452,7 @@ describe('agent-spawn timeout behavior', () => {
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
       env: {
         // Negative fixture: direct provider URLs must be rejected in runner env.
-        ANTHROPIC_BASE_URL: 'https://openrouter.ai/api',
+        ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
         ANTHROPIC_API_KEY: 'gtw_test',
       },
       credentialProviders: {},

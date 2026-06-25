@@ -2,6 +2,9 @@ import * as p from '@clack/prompts';
 
 import { listConnectableChannelProviders } from '../channels/provider-registry.js';
 import { ensureRuntimeWritable } from '../config/settings/runtime-home.js';
+import { agentEngineLabel } from '../shared/agent-engine.js';
+import { resolveExecutionRoute } from '../shared/model-execution-route.js';
+import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import {
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
@@ -19,7 +22,10 @@ import { registerTelegramMainGroup } from './telegram.js';
 import { type FlowAction } from './setup-flow-control.js';
 import { chooseProgressAction } from './setup-flow-prompts.js';
 import type { SetupDraft } from './setup-flow-state.js';
-import { verifyModelAccess } from './setup-credentials.js';
+import {
+  requiredModelCredentialProvidersForSetupDraft,
+  verifyModelAccess,
+} from './setup-credentials.js';
 
 function setupBlocked(reason: string, nextAction: string): string {
   return [`Setup blocked: ${reason}`, `Next action: ${nextAction}`].join('\n');
@@ -49,6 +55,8 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       `Model access: ${draft.credentialMode === 'gantry' ? 'enabled' : 'disabled'}`,
       `Model preset: ${draft.modelPreset}`,
       `Main model: ${draft.selectedModel}`,
+      `Agent harness: ${draft.agentHarness} (${resolvedHarnessLabel(draft.selectedModel)})`,
+      `Required model providers: ${formatProviderIds(requiredModelCredentialProvidersForSetupDraft(draft))}`,
       ...(draft.primaryProvider === 'slack'
         ? [`Slack approvers: ${draft.slackPermissionApproverIds}`]
         : [`Telegram approvers: ${draft.telegramPermissionApproverIds}`]),
@@ -93,6 +101,7 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       slackPermissionApproverIds: draft.slackPermissionApproverIds,
       credentialMode: draft.credentialMode,
       agentName: draft.agentName,
+      agentHarness: draft.agentHarness,
       memoryEnabled: draft.memoryEnabled,
       embeddingsEnabled: draft.embeddingsEnabled,
       dreamingEnabled: draft.dreamingEnabled,
@@ -239,6 +248,9 @@ export async function runVerifyStep(
         failure?.nextAction || 'run `gantry doctor`, then run `gantry setup`.',
       ),
     );
+    if (failure?.id === 'model-access-credentials') {
+      return { type: 'goto', step: 'credentials' };
+    }
     return { type: 'resume' };
   }
 
@@ -259,4 +271,15 @@ export async function runVerifyStep(
 
   p.log.success(`${modelAccess.message}\nVerification passed.`);
   return { type: 'next' };
+}
+
+function formatProviderIds(providerIds: readonly string[]): string {
+  return providerIds.length > 0 ? providerIds.join(', ') : 'none';
+}
+
+function resolvedHarnessLabel(alias: string): string {
+  const resolved = resolveModelSelectionForWorkload(alias, 'chat');
+  if (!resolved.ok) return 'unknown';
+  const route = resolveExecutionRoute({ entry: resolved.entry });
+  return route.ok ? agentEngineLabel(route.value.engine) : 'unknown';
 }

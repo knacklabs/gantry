@@ -56,6 +56,22 @@ export type NormalizedCacheStatus =
   | 'unknown';
 
 const DIRECT_PROMPT_CACHE_MODE: ModelCacheMode = 'anthropic-prompt';
+const DIRECT_PROMPT_CACHE_TOKEN_FIELDS = [
+  'cache_creation_input_tokens',
+  'cache_read_input_tokens',
+] as const;
+const OPENROUTER_CACHE_TOKEN_FIELDS = [
+  'prompt_tokens_details.cached_tokens',
+  'prompt_tokens_details.cache_write_tokens',
+] as const;
+const ALL_MODEL_WORKLOADS = [
+  'chat',
+  'one_time_job',
+  'recurring_job',
+  'memory_extractor',
+  'memory_dreaming',
+  'memory_consolidation',
+] as const satisfies readonly ModelWorkload[];
 const MODEL_RUNTIME_CREDENTIAL_PROFILE_REF = 'gantry-model-access';
 const CLAUDE_MODELS_OVERVIEW_SOURCE = {
   label: 'Anthropic models overview',
@@ -372,10 +388,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: [
-      'cache_creation_input_tokens',
-      'cache_read_input_tokens',
-    ],
+    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
@@ -393,10 +406,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: [
-      'cache_creation_input_tokens',
-      'cache_read_input_tokens',
-    ],
+    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
@@ -414,10 +424,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: [
-      'cache_creation_input_tokens',
-      'cache_read_input_tokens',
-    ],
+    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
@@ -435,20 +442,10 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     inputUsdPerMillionTokens: 3,
     outputUsdPerMillionTokens: 15,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: [
-      'cache_creation_input_tokens',
-      'cache_read_input_tokens',
-    ],
+    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
     supportsTools: true,
-    supportedWorkloads: [
-      'chat',
-      'one_time_job',
-      'recurring_job',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
+    supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
   executableModelEntry({
     id: 'anthropic:haiku-4.5',
@@ -463,20 +460,10 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     inputUsdPerMillionTokens: 1,
     outputUsdPerMillionTokens: 5,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: [
-      'cache_creation_input_tokens',
-      'cache_read_input_tokens',
-    ],
+    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: false,
     supportsTools: true,
-    supportedWorkloads: [
-      'chat',
-      'one_time_job',
-      'recurring_job',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
+    supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
   executableModelEntry({
     id: 'openrouter:kimi-k2.6',
@@ -495,20 +482,34 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     inputUsdPerMillionTokens: 0.73,
     outputUsdPerMillionTokens: 3.49,
     cacheMode: 'openrouter-provider-prompt',
-    cacheTokenFields: [
-      'prompt_tokens_details.cached_tokens',
-      'prompt_tokens_details.cache_write_tokens',
-    ],
+    cacheTokenFields: OPENROUTER_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
     supportsTools: true,
-    supportedWorkloads: [
-      'chat',
-      'one_time_job',
-      'recurring_job',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
+    supportedWorkloads: ALL_MODEL_WORKLOADS,
+    providerAvailability: OPENROUTER_PROVIDER_AVAILABILITY,
+    experimental: true,
+  }),
+  executableModelEntry({
+    id: 'openrouter:glm-5.2',
+    route: openRouterRoute('z-ai/glm-5.2'),
+    displayName: 'GLM 5.2',
+    runnerModel: 'z-ai/glm-5.2',
+    aliases: ['glm-5.2', 'openrouter-glm-5.2'],
+    recommendedAlias: 'glm-5.2',
+    source: {
+      label: 'OpenRouter GLM 5.2 API',
+      url: 'https://openrouter.ai/z-ai/glm-5.2/api',
+      verifiedAt: '2026-06-25',
+    },
+    contextWindowTokens: 1_048_576,
+    maxOutputTokens: 32_768,
+    inputUsdPerMillionTokens: 0.95,
+    outputUsdPerMillionTokens: 3,
+    cacheMode: 'openrouter-provider-prompt',
+    cacheTokenFields: OPENROUTER_CACHE_TOKEN_FIELDS,
+    supportsThinking: true,
+    supportsTools: true,
+    supportedWorkloads: ALL_MODEL_WORKLOADS,
     providerAvailability: OPENROUTER_PROVIDER_AVAILABILITY,
     experimental: true,
   }),

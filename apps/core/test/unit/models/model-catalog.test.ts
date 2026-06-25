@@ -58,6 +58,31 @@ describe('model catalog resolution', () => {
     expect(findModelByRunnerModel('moonshotai/kimi-k2.6')).toMatchObject({
       recommendedAlias: 'kimi',
     });
+    const openRouterGlm = findModelByRunnerModel('z-ai/glm-5.2');
+    expect(openRouterGlm).toMatchObject({
+      recommendedAlias: 'glm-5.2',
+      modelRoute: {
+        id: 'openrouter',
+        providerModelId: 'z-ai/glm-5.2',
+      },
+      contextWindowTokens: 1_048_576,
+      maxOutputTokens: 32_768,
+      inputUsdPerMillionTokens: 0.95,
+      outputUsdPerMillionTokens: 3,
+      cacheMode: 'openrouter-provider-prompt',
+      cacheTokenFields: [
+        'prompt_tokens_details.cached_tokens',
+        'prompt_tokens_details.cache_write_tokens',
+      ],
+      supportedWorkloads: [
+        'chat',
+        'one_time_job',
+        'recurring_job',
+        'memory_extractor',
+        'memory_dreaming',
+        'memory_consolidation',
+      ],
+    });
     expect(findModelByRunnerModel('zai-glm-4.7')).toMatchObject({
       recommendedAlias: 'cerebras-glm',
     });
@@ -228,6 +253,10 @@ describe('model catalog resolution', () => {
       ok: false,
       reason: 'raw-provider-id',
     });
+    expect(resolveModelSelection('z-ai/glm-5.2')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
     expect(resolveModelSelection('moonshotai.kimi-k2.5')).toMatchObject({
       ok: false,
       reason: 'raw-provider-id',
@@ -341,6 +370,7 @@ describe('model catalog resolution', () => {
       ['sonar', 131_072],
       ['gpt-5.4-mini', 400_000],
       ['moonshotai/kimi-k2.6', 262_142],
+      ['z-ai/glm-5.2', 1_048_576],
     ];
     for (const [runnerModel, window] of curated) {
       const entry = findModelByRunnerModel(runnerModel);
@@ -375,6 +405,8 @@ describe('model catalog resolution', () => {
     expect(formatCostPerMillion(groq)).toBe('$0.59/$0.79');
     const gemini = findModelByRunnerModel('gemini-2.5-pro')!;
     expect(formatCostPerMillion(gemini)).toBe('$1.25/$10');
+    const openRouterGlm = findModelByRunnerModel('z-ai/glm-5.2')!;
+    expect(formatCostPerMillion(openRouterGlm)).toBe('$0.95/$3');
     const cerebras = findModelByRunnerModel('gpt-oss-120b')!;
     expect(formatCostPerMillion(cerebras)).toBe('$0.35/$0.75');
   });

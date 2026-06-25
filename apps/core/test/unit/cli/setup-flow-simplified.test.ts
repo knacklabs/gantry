@@ -13,9 +13,9 @@ describe('simplified setup sequence', () => {
       'welcome',
       'runtime_home',
       'storage',
-      'credentials',
       'channel',
       'model',
+      'credentials',
       'telegram',
       'slack',
       'config',
@@ -51,6 +51,7 @@ describe('simplified setup sequence', () => {
       agentName: 'Gantry',
       modelPreset: 'anthropic',
       selectedModel: 'sonnet',
+      agentHarness: 'auto',
       telegramBotToken: '',
       telegramChatJid: 'tg:-100123',
       telegramDisplayName: 'main team chat',
@@ -74,6 +75,7 @@ describe('simplified setup sequence', () => {
     updateStateData(state, draft as never);
     expect(state.data.workspaceKey).toBe('gantry-main');
     expect(state.data.conversationLabel).toBe('main team chat');
+    expect(state.data.agentHarness).toBe('auto');
     expect(state.data.telegramDisplayName).toBe('main team chat');
     expect(state.data.slackDisplayName).toBe('ops-room');
 
@@ -87,6 +89,7 @@ describe('simplified setup sequence', () => {
     updateDraftFromState(resumed as never, state);
     expect(resumed.workspaceKey).toBe('gantry-main');
     expect(resumed.conversationLabel).toBe('main team chat');
+    expect(resumed.agentHarness).toBe('auto');
     expect(resumed.telegramDisplayName).toBe('main team chat');
     expect(resumed.slackDisplayName).toBe('ops-room');
   });
@@ -109,8 +112,13 @@ describe('ready screen copy', () => {
   const draft = {
     workspaceKey: 'gantry-main',
     agentName: 'Gantry',
+    agentHarness: 'auto',
     conversationLabel: 'main team chat',
     selectedModel: 'sonnet',
+    modelPreset: 'anthropic',
+    memoryEnabled: true,
+    embeddingsEnabled: false,
+    dreamingEnabled: true,
   };
 
   it('renders the ready contract block', async () => {
@@ -125,8 +133,11 @@ describe('ready screen copy', () => {
         '',
         'Workspace: gantry-main',
         'Agent: Gantry',
+        'Agent harness: auto',
         'Conversation: main team chat',
         'Model: sonnet',
+        'Resolved model/harness: sonnet / Anthropic SDK',
+        'Required model providers: anthropic',
         '',
         'Next: Start chatting or run gantry status.',
         'Optional setup: memory, background service, extra providers.',
@@ -175,6 +186,7 @@ async function loadVerifyStep(input: {
     listConnectableChannelProviders: vi.fn(() => [{ id: 'telegram' }]),
   }));
   vi.doMock('@core/cli/setup-credentials.js', () => ({
+    requiredModelCredentialProvidersForSetupDraft: vi.fn(() => ['anthropic']),
     verifyModelAccess: vi.fn(
       async () => input.modelAccess ?? { ok: true, message: 'ok' },
     ),
@@ -249,7 +261,7 @@ describe('blocked copy', () => {
       primaryProvider: 'telegram',
     } as never);
 
-    expect(action).toEqual({ type: 'resume' });
+    expect(action).toEqual({ type: 'goto', step: 'credentials' });
     expect(warn.mock.calls[0][0]).toBe(
       [
         'Setup blocked: Missing active model credentials for selected defaults: anthropic.',

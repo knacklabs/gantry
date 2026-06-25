@@ -47,6 +47,7 @@ describe('model CLI command', () => {
     expect(output).toContain('opus-4.8 | Opus 4.8');
     expect(output).toContain('Opus 4.8');
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
+    expect(output).toContain('glm-5.2 | GLM 5.2');
     // Curated windows render in the new Context column (Gemini Pro = 1.0M,
     // Groq Llama = 131K).
     expect(output).toMatch(/gemini \| Gemini 2\.5 Pro \|[^\n]*\| 1\.0M \|/);

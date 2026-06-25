@@ -356,7 +356,9 @@ Memory model aliases live under `memory.llm.models` and are preset-managed.
 Provider presets set chat and memory defaults together: `anthropic` uses chat
 `opus`, job defaults inherit chat, and memory uses
 `haiku`/`sonnet`/`sonnet`; `openrouter` uses chat `kimi`, job defaults inherit
-chat, and memory uses `kimi` for extraction, dreaming, and consolidation.
+chat, and memory uses `kimi` for extraction, dreaming, and consolidation. The
+OpenRouter catalog also includes selectable `glm-5.2` without changing preset
+defaults.
 
 Use `/model` in a group session to switch the live model (`/model`, `/model <alias>`, `/model default`). Use `/models` to list supported aliases and `/status` to inspect the current model, context window usage percentage, cache hit percentage, token usage, cache read/write tokens, cache state, top context contributors when available, and cost when the provider reports it.
 

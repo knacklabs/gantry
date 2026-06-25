@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import { readEnvFile, upsertEnvFile } from '../config/env/file.js';
 import type { HostCredentialMode } from '../config/credentials/mode.js';
+import type { AgentHarness } from '../shared/agent-engine.js';
 import '../channels/register-builtins.js';
 import {
   envFilePath,
@@ -34,6 +35,7 @@ export interface OnboardingConfigInput {
   slackPermissionApproverIds?: string;
   modelPreset?: ModelPresetId;
   modelAlias?: string;
+  agentHarness?: AgentHarness;
   credentialMode: HostCredentialMode;
   agentName?: string;
   memoryEnabled: boolean;
@@ -121,6 +123,9 @@ export async function persistOnboardingConfig(
   applyModelPreset(settings, preset);
   if (model.alias) {
     settings.agent.defaultModel = model.alias;
+  }
+  if (input.agentHarness) {
+    settings.agent.agentHarness = input.agentHarness;
   }
   settings.credentialBroker.mode = input.credentialMode;
   settings.providers.telegram.enabled =
@@ -212,6 +217,39 @@ export async function persistOnboardingConfig(
     SLACK_BOT_TOKEN: null,
     SLACK_APP_TOKEN: null,
     SLACK_PERMISSION_APPROVER_IDS: null,
+  });
+}
+
+export async function prepareOnboardingCredentialStorage(input: {
+  runtimeHome: string;
+  postgresDatabaseUrl?: string;
+  postgresSchema?: string;
+}): Promise<void> {
+  const postgresUrl = input.postgresDatabaseUrl?.trim();
+  if (!postgresUrl) return;
+  const postgresSchema = input.postgresSchema?.trim() || 'gantry';
+  ensureRuntimeLayout(input.runtimeHome);
+  const envPath = envFilePath(input.runtimeHome);
+  const existingEnv = readEnvFile(envPath);
+  const existingCredentialKey =
+    existingEnv.SECRET_ENCRYPTION_KEY?.trim() ||
+    process.env.SECRET_ENCRYPTION_KEY?.trim() ||
+    '';
+  const credentialKey = isValidCredentialEncryptionKey(existingCredentialKey)
+    ? existingCredentialKey
+    : randomBytes(32).toString('base64');
+  upsertEnvFile(envPath, {
+    GANTRY_DATABASE_URL: postgresUrl,
+    GANTRY_SETTINGS_POSTGRES_SCHEMA: postgresSchema,
+    SECRET_ENCRYPTION_KEY: credentialKey,
+  });
+  process.env.GANTRY_HOME = input.runtimeHome;
+  process.env.GANTRY_DATABASE_URL = postgresUrl;
+  process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA = postgresSchema;
+  process.env.SECRET_ENCRYPTION_KEY = credentialKey;
+  await runPostgresMigrations({
+    url: postgresUrl,
+    schema: postgresSchema,
   });
 }
 

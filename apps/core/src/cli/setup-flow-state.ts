@@ -8,6 +8,11 @@ import {
   settingsFilePath,
 } from '../config/settings/runtime-home.js';
 import {
+  AUTO_AGENT_HARNESS,
+  isAgentHarness,
+  type AgentHarness,
+} from '../shared/agent-engine.js';
+import {
   createDefaultRuntimeSettings,
   loadRuntimeSettingsFromPath,
 } from '../config/settings/runtime-settings.js';
@@ -27,9 +32,9 @@ export const FULL_SEQUENCE: OnboardingStep[] = [
   'welcome',
   'runtime_home',
   'storage',
-  'credentials',
   'channel',
   'model',
+  'credentials',
   'telegram',
   'slack',
   'config',
@@ -48,6 +53,7 @@ export interface SetupDraft {
   agentName: string;
   modelPreset: ModelPresetId;
   selectedModel: string;
+  agentHarness: AgentHarness;
   telegramBotToken: string;
   telegramChatJid: string;
   telegramDisplayName: string;
@@ -119,6 +125,7 @@ export function updateStateData(
     agentName: draft.agentName,
     modelPreset: draft.modelPreset,
     selectedModel: draft.selectedModel || undefined,
+    agentHarness: draft.agentHarness,
     workspaceKey: draft.workspaceKey || undefined,
     conversationLabel: draft.conversationLabel || undefined,
     memoryEnabled: draft.memoryEnabled,
@@ -161,6 +168,9 @@ export function updateDraftFromState(
     : draft.modelPreset;
   draft.selectedModel =
     resolveModelAlias(state.data.selectedModel) || draft.selectedModel;
+  draft.agentHarness = isAgentHarness(state.data.agentHarness)
+    ? state.data.agentHarness
+    : draft.agentHarness;
   draft.workspaceKey = state.data.workspaceKey || draft.workspaceKey;
   draft.conversationLabel =
     state.data.conversationLabel || draft.conversationLabel;
@@ -240,6 +250,9 @@ export function restoreDraft(
       resolveModelAlias(
         state?.data.selectedModel || settings.agent.defaultModel,
       ) || DEFAULT_SETUP_MODEL_ALIAS,
+    agentHarness: isAgentHarness(state?.data.agentHarness)
+      ? state.data.agentHarness
+      : settings.agent.agentHarness || AUTO_AGENT_HARNESS,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || '',
     telegramChatJid: '',
     telegramDisplayName: settings.agent.name || DEFAULT_AGENT_CLI_NAME,
