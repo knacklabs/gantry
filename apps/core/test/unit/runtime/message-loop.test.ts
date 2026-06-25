@@ -720,8 +720,17 @@ describe('thread queue routing', () => {
       ...makePendingMessage(2),
       content: 'yes, continue with that',
       thread_id: 'thread-1',
+      reply_to_message_id: 'thread-root',
     };
-    mockGetMessagesSince.mockReturnValueOnce([message]);
+    const rootMessage = {
+      ...makePendingMessage(1),
+      content: '@Andy please help with this',
+      thread_id: 'thread-1',
+      message_id: 'thread-root',
+    };
+    mockGetMessagesSince
+      .mockReturnValueOnce([message])
+      .mockReturnValueOnce([rootMessage]);
     const deps = makeDeps({
       getOrRecoverCursor: (queueJid: string) =>
         queueJid.includes('::thread:')
@@ -773,6 +782,84 @@ describe('thread queue routing', () => {
     ).resolves.toBe('completed');
 
     expect(deps.sentTo).toEqual(['group@g.us::thread:thread-1']);
+  });
+
+  it('ignores untagged messages in a cursor-bearing human thread without a trigger-owned root', async () => {
+    const message = {
+      ...makePendingMessage(2),
+      content: '@Arhan can you check this when you get time',
+      thread_id: 'thread-1',
+      reply_to_message_id: 'human-root',
+    };
+    mockGetMessagesSince.mockReturnValueOnce([message]).mockReturnValueOnce([
+      {
+        ...makePendingMessage(1),
+        content: 'human thread root',
+        thread_id: 'thread-1',
+        message_id: 'human-root',
+      },
+    ]);
+    const saveState = vi.fn();
+    const deps = makeDeps({
+      saveState,
+      getOrRecoverCursor: (queueJid: string) =>
+        queueJid.includes('::thread:')
+          ? '2024-01-01T00:00:01.000Z::1'
+          : 'root-cursor',
+      getConversationRoutes: () => ({
+        'group@g.us': {
+          name: 'Team',
+          folder: 'team',
+          trigger: '@Andy',
+          added_at: '2024-01-01T00:00:00.000Z',
+          requiresTrigger: true,
+        },
+      }),
+    });
+    const { processLiveAdmissionWorkItem } =
+      await import('@core/runtime/message-loop.js');
+
+    await expect(
+      processLiveAdmissionWorkItem(deps, {
+        id: 'admission-thread-human',
+        appId: 'default',
+        agentId: null,
+        agentSessionId: null,
+        conversationId: 'group@g.us',
+        threadId: 'thread-1',
+        queueJid: 'group@g.us::thread:thread-1',
+        messageId: 'message:group:g:thread-1:2',
+        messageCursor: '2024-01-01T00:00:02.000Z::2',
+        senderUserId: 'user@s.whatsapp.net',
+        senderDisplayName: 'User',
+        idempotencyKey: 'provider:thread-msg-human',
+        state: 'claimed',
+        sourceKind: 'message',
+        triggerDecision: {},
+        claimWorkerInstanceId: 'worker-1',
+        claimToken: 'claim-1',
+        claimExpiresAt: '2024-01-01T00:01:00.000Z',
+        fencingVersion: 1,
+        retryCount: 1,
+        failureCount: 0,
+        deferUntil: null,
+        deferredReason: null,
+        createdAt: '2024-01-01T00:00:02.000Z',
+        updatedAt: '2024-01-01T00:00:02.000Z',
+        claimedAt: '2024-01-01T00:00:02.000Z',
+        endedAt: null,
+      }),
+    ).resolves.toBe('completed');
+
+    expect(deps.sentTo).toHaveLength(0);
+    expect(deps.enqueued).toHaveLength(0);
+    expect(
+      decodeGroupMessageCursor(deps.cursors['group@g.us::thread:thread-1']),
+    ).toEqual({
+      timestamp: '2024-01-01T00:00:02.000Z',
+      id: '2',
+    });
+    expect(saveState).toHaveBeenCalledOnce();
   });
 
   it('defers durable live admission when the message queue rejects capacity', async () => {
