@@ -128,6 +128,7 @@ describe('locked agent parent-side IPC denial', () => {
     'request_mcp_server',
     'request_permission',
     'async_run_command',
+    'async_mcp_call',
     'delegate_task',
     'task_get',
     'task_list',

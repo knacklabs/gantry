@@ -1,4 +1,7 @@
-export type AsyncTaskKind = 'async_command' | 'delegated_agent';
+export type AsyncTaskKind =
+  | 'async_command'
+  | 'delegated_agent'
+  | 'mcp_tool_call';
 
 export type AsyncTaskStatus =
   | 'queued'
@@ -245,7 +248,10 @@ function publicInspection(
   PublicAsyncTaskDto,
   'heartbeatAt' | 'elapsedMs' | 'stdoutTail' | 'stderrTail'
 > {
-  if (task.kind !== 'async_command' || task.status !== 'running') {
+  if (
+    task.status !== 'running' ||
+    (task.kind !== 'async_command' && task.kind !== 'mcp_tool_call')
+  ) {
     return {
       heartbeatAt: null,
       elapsedMs: null,
@@ -266,8 +272,10 @@ function publicInspection(
   return {
     heartbeatAt: task.heartbeatAt ?? null,
     elapsedMs: fallbackElapsedMs,
-    stdoutTail: stringValue(progress.stdoutTail),
-    stderrTail: stringValue(progress.stderrTail),
+    stdoutTail:
+      task.kind === 'async_command' ? stringValue(progress.stdoutTail) : null,
+    stderrTail:
+      task.kind === 'async_command' ? stringValue(progress.stderrTail) : null,
   };
 }
 

@@ -23,7 +23,6 @@ import {
 import { lookupHostnameWithDeadline } from '../shared/hostname-lookup-deadline.js';
 import {
   allowedPrivateEgressTarget,
-  evaluateEgressAllowlist,
   networkAttributionMap,
   networkAuthoritySet,
 } from './egress-gateway-access-policy.js';
@@ -63,7 +62,6 @@ interface EgressGatewayState {
   settings: EgressSettings;
   principal: EgressGatewayPrincipal;
   networkAttribution: Map<string, EgressNetworkAttribution>;
-  allowedNetworkAuthorities?: Set<string>;
   allowedPrivateAuthorities?: Set<string>;
   privateNetworkConnectHosts?: Map<string, string>;
   upstreamProxy?: EgressGatewayUpstreamProxy;
@@ -97,7 +95,6 @@ export async function ensureEgressGateway(input: {
   settings: EgressSettings;
   principal: EgressGatewayPrincipal;
   networkAttribution?: readonly EgressNetworkAttribution[];
-  allowedNetworkHosts?: readonly string[];
   allowedPrivateNetworkHosts?: readonly string[];
   privateNetworkHostMappings?: readonly EgressGatewayPrivateHostMapping[];
   upstreamProxy?: EgressGatewayUpstreamProxy;
@@ -112,9 +109,6 @@ export async function ensureEgressGateway(input: {
     existing.networkAttribution = networkAttributionMap(
       input.networkAttribution,
     );
-    existing.allowedNetworkAuthorities = input.allowedNetworkHosts
-      ? networkAuthoritySet(input.allowedNetworkHosts)
-      : undefined;
     existing.allowedPrivateAuthorities = hasPrivateNetworkAuthority(input)
       ? networkAuthoritySet([
           ...(input.allowedPrivateNetworkHosts ?? []),
@@ -159,13 +153,6 @@ export async function ensureEgressGateway(input: {
         principal: input.principal,
         networkAttribution,
         logger,
-        ...(input.allowedNetworkHosts
-          ? {
-              allowedNetworkAuthorities: networkAuthoritySet(
-                input.allowedNetworkHosts,
-              ),
-            }
-          : {}),
         ...(hasPrivateNetworkAuthority(input)
           ? {
               allowedPrivateAuthorities: networkAuthoritySet([
@@ -264,19 +251,6 @@ async function handleConnectRequest(
     clientSocket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
     return;
   }
-  const allowlistDeny = evaluateEgressAllowlist(state, target);
-  if (allowlistDeny) {
-    await auditConnect(state, {
-      host: allowlistDeny.host,
-      port: target.port,
-      allowed: false,
-      denied: true,
-      reason: allowlistDeny.reason,
-      matchedPattern: allowlistDeny.matchedPattern,
-    });
-    writeDeniedConnect(clientSocket, allowlistDeny);
-    return;
-  }
   const deny = evaluateEgressDenylist({
     settings: state.settings,
     host: target.host,
@@ -356,24 +330,6 @@ async function handleHttpProxyRequest(
   if (!target) {
     res.writeHead(400);
     res.end('Bad Request');
-    return;
-  }
-  const allowlistDeny = evaluateEgressAllowlist(state, {
-    host: normalizeEgressHost(target.hostname),
-    port: urlPort(target),
-    authority: target.host,
-  });
-  if (allowlistDeny) {
-    await auditConnect(state, {
-      host: allowlistDeny.host,
-      port: urlPort(target),
-      allowed: false,
-      denied: true,
-      reason: allowlistDeny.reason,
-      matchedPattern: allowlistDeny.matchedPattern,
-    });
-    res.writeHead(403, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(deniedBody(allowlistDeny)));
     return;
   }
   const deny = evaluateEgressDenylist({

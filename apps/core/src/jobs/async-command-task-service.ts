@@ -44,6 +44,7 @@ import {
   cancelledReceipt,
   failedReceipt,
 } from './async-command-task-receipts.js';
+import { cancelAsyncMcpTask } from './async-mcp-tool-task.js';
 import { refreshDelegatedCancellationReceipt } from './async-task-cancellation.js';
 
 const SHELL_POLICY_TOOL_NAME = 'Bash';
@@ -450,6 +451,9 @@ export class AsyncCommandTaskService {
     }
     const controller = this.active.get(taskId);
     if (!controller) {
+      if (task.kind === 'mcp_tool_call') {
+        return cancelAsyncMcpTask(this.repository, task);
+      }
       const handle = readPersistedProcessHandle(task.privateCorrelationJson);
       if (handle) {
         const now = nowIso();

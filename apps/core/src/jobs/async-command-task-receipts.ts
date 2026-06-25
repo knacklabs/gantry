@@ -4,6 +4,16 @@ export function cancelledReceipt(
   task: AsyncTaskRecord,
   childCancelledCount = 0,
 ) {
+  if (task.kind === 'mcp_tool_call') {
+    return {
+      completed: 'cancelled',
+      used: mcpToolName(task),
+      changed: 'unknown',
+      delegated: 'no' as const,
+      needsAttention:
+        'remote MCP work may have already run; late results will be ignored',
+    };
+  }
   return task.kind === 'delegated_agent'
     ? {
         completed: 'cancelled',
@@ -23,6 +33,16 @@ export function cancelledReceipt(
 }
 
 export function failedReceipt(task: AsyncTaskRecord, completed: string) {
+  if (task.kind === 'mcp_tool_call') {
+    return {
+      completed,
+      used: mcpToolName(task),
+      changed: 'unknown',
+      delegated: 'no' as const,
+      needsAttention:
+        'check the remote MCP system before retrying; work may have already run',
+    };
+  }
   return task.kind === 'delegated_agent'
     ? {
         completed,
@@ -39,4 +59,10 @@ export function failedReceipt(task: AsyncTaskRecord, completed: string) {
         delegated: 'no' as const,
         needsAttention: 'start this task again if it is still needed',
       };
+}
+
+function mcpToolName(task: AsyncTaskRecord): string {
+  const snapshot = task.authoritySnapshotJson;
+  const tool = snapshot.mcpToolRule;
+  return typeof tool === 'string' && tool ? tool : 'mcp_call_tool';
 }

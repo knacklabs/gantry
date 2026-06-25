@@ -74,7 +74,7 @@ export function createMcpServersClient(transport: TransportLike) {
       }),
     test: (
       serverId: string,
-      input: { appId?: string; testedBy?: string } = {},
+      input: { appId?: string; testedBy?: string; agentId?: string } = {},
     ) =>
       transport.request<Record<string, unknown>>({
         method: 'POST',

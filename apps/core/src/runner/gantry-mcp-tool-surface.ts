@@ -33,6 +33,7 @@ export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
 
 export const ASYNC_TASK_GANTRY_MCP_TOOL_NAMES = [
   'async_run_command',
+  'async_mcp_call',
   'task_cancel',
   'task_get',
   'task_list',

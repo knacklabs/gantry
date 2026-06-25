@@ -326,6 +326,7 @@ export function startControlServer(input: {
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
     getInternalRuntimeSettings: () => getRuntimeSettingsForConfig(),
+    getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
     getDefaultModelConfig,
     getModelDefaults: getRuntimeModelDefaults,
     patchModelDefaults: patchRuntimeModelDefaults,

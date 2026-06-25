@@ -31,7 +31,7 @@ function usage(): string {
     '  gantry mcp connect --name <name> --transport <stdio_template> --template <node-script|npx-package> --sandbox-profile <id> --agent <agentId> [--arg <value>] [--tool <name>] [--credential <name:env:key>] [--network <host:port>]',
     '  gantry mcp list [--status <active|disabled>]',
     '  gantry mcp show <serverId>',
-    '  gantry mcp doctor <serverId> [--by <admin>]',
+    '  gantry mcp doctor <serverId> [--agent <agentId>] [--by <admin>]',
     '  gantry mcp remove <serverId> --agent <agentId>',
     '  gantry mcp disable <serverId> [--reason <text>] [--by <admin>]',
   ].join('\n');
@@ -237,10 +237,14 @@ async function doctorServer(
     return 1;
   }
   const by = flagValue(args, '--by');
+  const agentId = flagValue(args, '--agent');
   const response = await controlApiRequest(runtimeHome, {
     method: 'POST',
     path: `/v1/mcp-servers/${encodeURIComponent(serverId)}/test`,
-    body: { testedBy: by },
+    body: {
+      testedBy: by,
+      ...(agentId ? { agentId: normalizeAgentId(agentId) } : {}),
+    },
   });
   printRecord(response, 'MCP Doctor');
   return 0;

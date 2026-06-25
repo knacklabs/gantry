@@ -136,6 +136,7 @@ describe('effective enabled MCP tool projection', () => {
     expect(enabled.has('send_message')).toBe(true);
     expect(enabled.has('ask_user_question')).toBe(true);
     expect(enabled.has('async_run_command')).toBe(false);
+    expect(enabled.has('async_mcp_call')).toBe(false);
     expect(enabled.has('task_get')).toBe(false);
     expect(enabled.has('task_list')).toBe(false);
     expect(enabled.has('task_cancel')).toBe(false);
@@ -154,6 +155,7 @@ describe('effective enabled MCP tool projection', () => {
     const enabled = effectiveEnabledMcpToolNames(
       JSON.stringify([
         'async_run_command',
+        'async_mcp_call',
         'task_get',
         'task_list',
         'task_cancel',
@@ -167,6 +169,7 @@ describe('effective enabled MCP tool projection', () => {
     );
 
     expect(enabled.has('async_run_command')).toBe(true);
+    expect(enabled.has('async_mcp_call')).toBe(true);
     expect(enabled.has('task_get')).toBe(true);
     expect(enabled.has('task_list')).toBe(true);
     expect(enabled.has('task_cancel')).toBe(true);

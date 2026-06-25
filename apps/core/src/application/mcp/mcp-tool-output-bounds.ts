@@ -8,6 +8,7 @@ export function boundMcpToolResultForReturn(result: unknown): unknown {
   if (!serialized.truncated) return result;
   return {
     type: 'mcp_tool_result_truncated',
+    ...(isMcpToolErrorResult(result) ? { isError: true } : {}),
     truncated: true,
     maxChars: MAX_MCP_TOOL_RESULT_CHARS,
     preview: serialized.text,
@@ -43,6 +44,15 @@ function stringifyMcpToolResult(result: unknown): string {
   } catch {
     return '"[Unserializable MCP tool result]"';
   }
+}
+
+function isMcpToolErrorResult(result: unknown): boolean {
+  return (
+    result !== null &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (result as { isError?: unknown }).isError === true
+  );
 }
 
 function boundMcpToolResultText(

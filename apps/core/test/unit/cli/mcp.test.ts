@@ -174,4 +174,57 @@ describe('mcp CLI', () => {
     expect(seen).toEqual([{ method: 'GET', url: '/v1/mcp-servers' }]);
     expect(note).toHaveBeenCalledWith('No records found.', 'MCP Servers');
   });
+
+  it('passes agent context to mcp doctor for capability drift diagnostics', async () => {
+    const note = vi.fn();
+    vi.doMock('@clack/prompts', () => ({
+      note,
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+    }));
+    const seen: Array<{ method?: string; url?: string; body: unknown }> = [];
+    const port = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        seen.push({
+          method: req.method,
+          url: req.url,
+          body: body ? JSON.parse(body) : undefined,
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, message: 'ok' }));
+      });
+    });
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'cli-test',
+        token: 'test-key',
+        appId: 'default',
+        scopes: ['mcp:admin'],
+      },
+    ]);
+    process.env.GANTRY_CONTROL_PORT = String(port);
+
+    const { runMcpCommand } = await import('@core/cli/mcp.js');
+    const code = await runMcpCommand(makeTempDir(), [
+      'doctor',
+      'mcp:itops',
+      '--agent',
+      'main',
+    ]);
+
+    expect(code).toBe(0);
+    expect(seen).toEqual([
+      {
+        method: 'POST',
+        url: '/v1/mcp-servers/mcp%3Aitops/test',
+        body: { agentId: 'agent:main' },
+      },
+    ]);
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('"message": "ok"'),
+      'MCP Doctor',
+    );
+  });
 });

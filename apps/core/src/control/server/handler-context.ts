@@ -15,6 +15,7 @@ import type {
   ModelWorkload,
 } from '../../shared/model-catalog.js';
 import type { AgentHarness } from '../../shared/agent-engine.js';
+import type { EgressSettings } from '../../shared/egress-policy.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
 import type { RateLimiter } from './rate-limit.js';
@@ -91,6 +92,7 @@ export type ControlRouteContext = {
   triggerRateLimiter: RateLimiter;
   getRuntimeSettings: () => RuntimeSettingsResponse['settings'];
   getInternalRuntimeSettings: () => InternalRuntimeSettings;
+  getEgressSettings?: () => EgressSettings;
   getDefaultModelConfig: (
     kind?: 'interactive' | 'oneTimeJob' | 'recurringJob',
     agentFolder?: string,

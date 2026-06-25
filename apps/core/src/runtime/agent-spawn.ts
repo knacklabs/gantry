@@ -85,7 +85,7 @@ import { compileSpawnSystemPrompt } from './agent-spawn-prompt.js';
 import {
   cleanupRunnerMcpConfigFile,
   cleanupRunnerTempDir,
-  buildSandboxRuntimeGatewayOptions,
+  buildSandboxRuntimeNetworkProjection,
   deepAgentsFilesystemEnabledEnv,
   deepAgentsShellEnabledEnv,
   protectedWritePathsForOuterSandbox,
@@ -392,21 +392,14 @@ export async function spawnAgent(
         runtimeProvider: runtimeSandbox.provider,
         measure: hostStartup.measure,
       });
-    const sandboxRuntimeGateway = buildSandboxRuntimeGatewayOptions(
+    const sandboxRuntimeNetwork = buildSandboxRuntimeNetworkProjection(
       runnerSandboxProviderId,
       sandboxAllowedNetworkHosts,
       runnerInput.modelCredentialEnv,
     );
-    runnerInput.modelCredentialEnv = sandboxRuntimeGateway.modelCredentialEnv;
+    runnerInput.modelCredentialEnv = sandboxRuntimeNetwork.modelCredentialEnv;
     runnerInputPatch.modelCredentialEnv =
-      sandboxRuntimeGateway.modelCredentialEnv;
-    const egressAllowedNetworkHosts =
-      runnerSandboxProviderId === 'sandbox_runtime'
-        ? uniqueStrings(
-            sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts ??
-              sandboxAllowedNetworkHosts,
-          )
-        : sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts;
+      sandboxRuntimeNetwork.modelCredentialEnv;
     egressGateway = await hostStartup.measureAsync('egressGatewayMs', () =>
       ensureEgressGateway({
         key: `${runnerAppId}:${input.agentId || group.folder}:${processName}`,
@@ -420,9 +413,12 @@ export async function spawnAgent(
           ...(input.jobId ? { jobId: input.jobId } : {}),
         },
         networkAttribution,
-        ...sandboxRuntimeGateway.gatewayOptions,
-        ...(egressAllowedNetworkHosts
-          ? { allowedNetworkHosts: egressAllowedNetworkHosts }
+        ...(sandboxRuntimeNetwork.networkProjection.privateNetworkHostMappings
+          ? {
+              privateNetworkHostMappings:
+                sandboxRuntimeNetwork.networkProjection
+                  .privateNetworkHostMappings,
+            }
           : {}),
         ...(options?.mcpHostnameLookup
           ? { lookupHostname: options.mcpHostnameLookup }
@@ -683,7 +679,7 @@ export async function spawnAgent(
       protectedReadPaths: protectedFilesystemDenyReadPaths,
       protectedWritePaths: protectedFilesystemDenyWritePaths,
       gatewayAllowedNetworkHosts:
-        sandboxRuntimeGateway.gatewayOptions.allowedNetworkHosts,
+        sandboxRuntimeNetwork.networkProjection.allowedNetworkHosts,
       fallbackAllowedNetworkHosts: sandboxAllowedNetworkHosts,
       resourceLimits: runtimeSandbox.resourceLimits,
     });
