@@ -1648,6 +1648,57 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('maps guessed MCP read capability ids using the reviewed MCP capability id', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'request_access',
+      {
+        target: { kind: 'capability', id: 'caw-ats.read' },
+        reason: 'Need to read projects through caw-ats.',
+      },
+      {
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([
+          {
+            capabilityId: 'mcp.caw-ats.access',
+            version: '1',
+            displayName: 'caw-ats MCP access',
+            category: 'MCP',
+            risk: 'write',
+            can: 'Call approved tools on the caw-ats MCP server.',
+            cannot: 'Call unapproved MCP tools or receive raw credentials.',
+            credentialSource: 'none',
+            implementationBindings: [
+              {
+                kind: 'mcp_tool',
+                mcpTool: 'mcp__legacy-source__legacy_tool',
+              },
+            ],
+          },
+        ]),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        capabilityId: 'mcp.caw-ats.access',
+      },
+    });
+  });
+
   it('returns recoverable guidance for unknown capability ids instead of failing the run', async () => {
     const fixture = createMcpFixture();
 

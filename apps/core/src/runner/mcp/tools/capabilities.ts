@@ -360,12 +360,30 @@ function mcpSourceNamesForCapability(
   capability: SemanticCapabilityDefinition,
 ): string[] {
   const names = new Set<string>();
+  const capabilityIdMatch = /^mcp[._:-]+(.+?)[._:-]+access$/i.exec(
+    capability.capabilityId.trim(),
+  );
+  if (capabilityIdMatch?.[1]?.trim()) {
+    names.add(capabilityIdMatch[1].trim());
+  }
+  const sourceServerName = mcpSourceServerName(capability.source);
+  if (sourceServerName) names.add(sourceServerName);
   for (const binding of capability.implementationBindings) {
     if (binding.kind !== 'mcp_tool' || !binding.mcpTool) continue;
     const match = /^mcp__(.+?)__/.exec(binding.mcpTool);
     if (match?.[1]?.trim()) names.add(match[1].trim());
   }
   return [...names];
+}
+
+function mcpSourceServerName(source: unknown): string | null {
+  if (!source || typeof source !== 'object') return null;
+  const record = source as Record<string, unknown>;
+  if (record.source !== 'mcp') return null;
+  const serverName = record.serverName;
+  return typeof serverName === 'string' && serverName.trim()
+    ? serverName.trim()
+    : null;
 }
 
 function normalizeCapabilityGuess(value: string): string {

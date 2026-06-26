@@ -10,6 +10,10 @@
   authority. Keep search, pagination, `tool_ref`, one-tool schema detail, and
   call hints distinct from grants; `mcp_call_tool` must recheck reviewed
   current-run authority before every tool execution.
+- `request_access` recovery for third-party MCPs must map guessed source-shaped
+  ids such as `acme.read` or `acme.projects.list` to the reviewed semantic MCP
+  capability for that source when one unambiguous match exists. Do not turn raw
+  exact third-party MCP tool names into durable authority.
 - Agent planning tools are Gantry facades: `todo_update` is a baseline
   non-authority render/update signal, not durable lifecycle storage. Do not
   back display-only plan state with Postgres tables. Public task
