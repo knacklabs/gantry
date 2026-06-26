@@ -281,6 +281,53 @@ describe('importFleetSettingsRevision', () => {
     expect(repo.rows).toHaveLength(2);
   });
 
+  it('accepts previous settings canonicalized from the latest revision document', async () => {
+    capabilityErrors = [];
+    applyRuntimeSettingsDesiredState.mockReset();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async (input: { settings: unknown }) => input.settings,
+    );
+    const seedSettings = createDefaultRuntimeSettings();
+    const latestDocument = settingsToRevisionDocument(seedSettings);
+    delete latestDocument.browser;
+    delete latestDocument.model_aliases;
+    const previousSettings = settingsFromRevisionDocument(latestDocument);
+    const nextSettings = structuredClone(previousSettings);
+    nextSettings.agent.name = 'updated';
+    const repo = new FakeRevisionRepo();
+    repo.rows.push({
+      appId: 'default',
+      revision: 1,
+      settingsDocument: latestDocument,
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+      note: null,
+      createdAt: new Date().toISOString(),
+    });
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+      },
+      nextSettings,
+    );
+
+    expect(repo.lastAppendExpectedRevision).toBe(1);
+    expect(repo.rows).toHaveLength(2);
+    expect(
+      (repo.rows[1]?.settingsDocument.agent as { name?: string }).name,
+    ).toBe('updated');
+  });
+
   it('required workstation mirror rejects stale expected revisions', async () => {
     capabilityErrors = [];
     const previousSettings = createDefaultRuntimeSettings();

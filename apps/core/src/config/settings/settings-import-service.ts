@@ -163,8 +163,10 @@ export async function importWorkstationSettings(
     }
     if (
       latest &&
-      stableJson(latest.settingsDocument) !==
-        stableJson(settingsToRevisionDocument(deps.previousSettings!))
+      !settingsDocumentMatchesPreviousSettings(
+        latest.settingsDocument,
+        deps.previousSettings!,
+      )
     ) {
       throw new Error(
         'Settings mutation is based on stale settings; reload latest desired state and retry.',
@@ -456,6 +458,20 @@ export function settingsFromRevisionDocument(
   document: Record<string, unknown>,
 ): RuntimeSettings {
   return parseRuntimeSettingsObject(document);
+}
+
+function settingsDocumentMatchesPreviousSettings(
+  latestDocument: Record<string, unknown>,
+  previousSettings: RuntimeSettings,
+): boolean {
+  const previousDocument = settingsToRevisionDocument(previousSettings);
+  if (stableJson(latestDocument) === stableJson(previousDocument)) {
+    return true;
+  }
+  const canonicalLatestDocument = settingsToRevisionDocument(
+    settingsFromRevisionDocument(latestDocument),
+  );
+  return stableJson(canonicalLatestDocument) === stableJson(previousDocument);
 }
 
 export async function settingsMatchesLatestRevision(input: {
