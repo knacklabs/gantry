@@ -25,6 +25,7 @@ gantry_control_api_keys_json_secret_arn = "arn:aws:secretsmanager:us-east-1:REPL
 # Optional: channel/provider credentials.
 # additional_runtime_secret_refs = [
 #   { env_name = "SLACK_BOT_TOKEN", secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/slack-bot-token-REPLACE" },
+#   { env_name = "CAW_ATS_MCP_AUTHORIZATION", secret_arn = "arn:aws:secretsmanager:us-east-1:REPLACE_ME:secret:gantry/ecs/caw-ats-mcp-authorization-REPLACE" },
 # ]
 
 # --- Database ---

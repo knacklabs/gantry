@@ -13,6 +13,7 @@ env:
   ECS_SERVICE: caw-aws-aps1-dev-ecs-ats-gantry-reagent-service
   TASK_NAME: caw-aws-aps1-dev-task_definition-ats-gantry-reagent
   CONTAINER_NAME: caw-aws-aps1-dev-task_definition-ats-gantry-reagent-container
+  CAW_ATS_MCP_AUTH_PARAMETER_ARN: arn:aws:ssm:ap-south-1:064990711447:parameter/CAW_ATS_MCP_AUTHORIZATION
 
 
 jobs:
@@ -52,12 +53,18 @@ jobs:
 
       - name: Normalize task definition for sandbox runtime
         run: |
-          jq --arg container "${{ env.CONTAINER_NAME }}" '
+          jq \
+            --arg container "${{ env.CONTAINER_NAME }}" \
+            --arg cawAtsMcpAuthArn "${{ env.CAW_ATS_MCP_AUTH_PARAMETER_ARN }}" '
             .containerDefinitions |= map(
               if .name == $container then
                 del(.dockerSecurityOptions)
                 | .privileged = true
                 | .linuxParameters = ((.linuxParameters // {}) + { initProcessEnabled: true })
+                | .secrets = (
+                    ((.secrets // []) | map(select(.name != "CAW_ATS_MCP_AUTHORIZATION")))
+                    + [{ name: "CAW_ATS_MCP_AUTHORIZATION", valueFrom: $cawAtsMcpAuthArn }]
+                  )
               else
                 .
               end
