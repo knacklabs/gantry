@@ -64,6 +64,7 @@ export type ActiveProgressState = {
   messageId?: number;
   lastText: string;
   generation?: number;
+  restored?: boolean;
 };
 export type PendingUserQuestionState = {
   requestId: string;

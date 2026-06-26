@@ -465,6 +465,14 @@ export async function* query({ prompt, options }) {
     ),
   };
 
+  if (
+    process.env.TEST_EMPTY_QUERY === '1' ||
+    process.env.TEST_EMPTY_RESUMED_QUERY === '1'
+  ) {
+    appendRecord(call);
+    return;
+  }
+
   yield {
     type: 'system',
     subtype: 'init',
@@ -2022,6 +2030,64 @@ describe('agent-runner IPC lifecycle', () => {
         GANTRY_APP_ID: 'app-runner-test',
         GANTRY_AGENT_ID: 'agent:team',
       });
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails empty resumed SDK streams so the runtime can retry without resume',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ sessionId: 'stale-sdk-session' }),
+        {
+          TEST_EMPTY_RESUMED_QUERY: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(readRecord(fixture.recordPath).calls[0]?.resume).toBe(
+        'stale-sdk-session',
+      );
+      expect(readRunnerOutputs(result.stdout)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 'error',
+            error: expect.stringContaining(
+              'No conversation found with session ID',
+            ),
+          }),
+        ]),
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails empty new SDK streams instead of completing with no answer',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EMPTY_QUERY: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(readRecord(fixture.recordPath).calls[0]?.resume).toBeUndefined();
+      expect(readRunnerOutputs(result.stdout)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 'error',
+            error: expect.stringContaining(
+              'Anthropic SDK query completed without messages or results',
+            ),
+          }),
+        ]),
+      );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

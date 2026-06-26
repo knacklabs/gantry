@@ -162,7 +162,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
         typeof state.chatId === 'string' &&
         typeof state.lastText === 'string'
       ) {
-        this.activeProgressMessages.set(key, state);
+        this.activeProgressMessages.set(key, { ...state, restored: true });
       }
     }
   }

@@ -64,6 +64,24 @@ export function prepareTelegramProgressHandle(input: {
     return { accepted: true, existing };
   }
   if (input.options.generation < existing.generation) {
+    if (
+      existing.restored &&
+      !input.options.done &&
+      !input.options.replaceOnly
+    ) {
+      logger.info(
+        {
+          jid: input.jid,
+          key: input.key,
+          generation: input.options.generation,
+          existingGeneration: existing.generation,
+        },
+        'Progress lifecycle telegram replacing restored generation',
+      );
+      input.activeProgressMessages.delete(input.key);
+      input.persistProgressMessages();
+      return { accepted: true };
+    }
     logger.info(
       {
         jid: input.jid,
