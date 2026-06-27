@@ -229,6 +229,65 @@ describe('setup credentials step', () => {
     expect(upsertModelCredential).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['resume', { type: 'resume' }],
+    ['cancel', { type: 'cancel' }],
+  ])(
+    'can %s from the first model access prompt',
+    async (selection, expected) => {
+      const { runCredentialsStep, password, upsertModelCredential } =
+        await loadCredentialsStep({
+          selections: [selection],
+        });
+      const draft = {
+        credentialMode: 'none' as const,
+        postgresSetupKind: 'local' as const,
+        modelPreset: 'anthropic' as const,
+        selectedModel: 'opus',
+        memoryEnabled: false,
+        embeddingsEnabled: false,
+        dreamingEnabled: false,
+      };
+
+      const action = await runCredentialsStep(
+        draft,
+        '/tmp/gantry-credentials-test',
+      );
+
+      expect(action).toEqual(expected);
+      expect(password).not.toHaveBeenCalled();
+      expect(upsertModelCredential).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['resume', { type: 'resume' }],
+    ['cancel', { type: 'cancel' }],
+  ])('can %s from the credential store prompt', async (selection, expected) => {
+    const { runCredentialsStep, password, upsertModelCredential } =
+      await loadCredentialsStep({
+        selections: ['api_key', selection],
+      });
+    const draft = {
+      credentialMode: 'none' as const,
+      postgresSetupKind: 'local' as const,
+      modelPreset: 'anthropic' as const,
+      selectedModel: 'opus',
+      memoryEnabled: false,
+      embeddingsEnabled: false,
+      dreamingEnabled: false,
+    };
+
+    const action = await runCredentialsStep(
+      draft,
+      '/tmp/gantry-credentials-test',
+    );
+
+    expect(action).toEqual(expected);
+    expect(password).not.toHaveBeenCalled();
+    expect(upsertModelCredential).not.toHaveBeenCalled();
+  });
+
   it('reports missing model credentials during setup verification', async () => {
     vi.doMock('@core/cli/model-credential-readiness.js', () => ({
       inspectModelCredentialReadiness: vi.fn(async () => ({

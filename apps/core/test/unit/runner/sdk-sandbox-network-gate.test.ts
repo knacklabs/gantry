@@ -64,7 +64,7 @@ function localCliRuntimeAccess(
     {
       selectedCapabilityId: 'acme.records.get',
       sourceType: 'local_cli',
-      auditLabel: 'Gog Sheets get',
+      auditLabel: 'Fixture Records get',
       commandRules,
       credentialDirs: input.credentialDirs ?? [],
       networkBindings: [
@@ -677,7 +677,7 @@ describe('sdk sandbox network gate', () => {
         {
           selectedCapabilityId: 'acme.records.get',
           sourceType: 'local_cli',
-          auditLabel: 'Gog Sheets get',
+          auditLabel: 'Fixture Records get',
           commandRules: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
           credentialDirs: ['~/.config/acme'],
           networkBindings: [

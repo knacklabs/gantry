@@ -352,7 +352,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       options,
     });
     if (!prepared.accepted) return;
-    let existing = prepared.existing;
+    const existing = prepared.existing;
     if (!nextText) {
       if (options.done) {
         this.activeProgressMessages.delete(key);

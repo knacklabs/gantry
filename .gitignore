@@ -8,9 +8,14 @@ dist/
 store/
 data/
 logs/
+/*.log
+/settings.yaml
 .claude/*
 !.claude/skills/
 !.claude/skills/**
+.codex/goals/*
+.codex/sessions/*
+.codex/archived_sessions/*
 
 # Groups - only track base structure and specific CLAUDE.md files
 apps/core/groups/*

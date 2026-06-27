@@ -5,7 +5,6 @@ import {
   type AsyncTaskRecord,
   type AsyncTaskRepository,
   type AsyncTaskStatusCount,
-  type PublicAsyncTaskDto,
   isAsyncTaskTerminal,
   toPublicAsyncTaskDto,
 } from '../domain/ports/async-tasks.js';

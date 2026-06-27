@@ -31,7 +31,6 @@ import {
   type IpcRequestWakeupHint,
 } from './ipc-request-wakeup-registry.js';
 import { IpcWakeupScopeTracker } from './ipc-wakeup-scope.js';
-import type { RunnerControlPort } from './runner-control-port.js';
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';

@@ -1,10 +1,19 @@
 import type { PatternCandidateRepository } from '../domain/ports/pattern-candidates.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
-import { canonicalConversationIdForMemory } from '../memory/app-memory-subject-resolver.js';
 import { applyPatternCandidateChoice } from '../memory/pattern-candidate-decision.js';
+import { buildProactiveSurfacingMetricPayloads } from '../runtime/proactive-surfacing-metrics.js';
+import {
+  isPatternActionKind,
+  type PatternActionKind,
+} from '../shared/pattern-candidate-action-kind.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import type { TaskHandler } from './ipc-types.js';
+import {
+  acceptPatternCandidateForAction,
+  candidateBelongsToRequest,
+} from './pattern-candidate-skill-proposal.js';
 
 type PatternCandidateRuntimeDeps = {
   getStorage: () => {
@@ -29,27 +38,52 @@ function getRuntimeDeps(): PatternCandidateRuntimeDeps {
   return runtimeDeps;
 }
 
-export function candidateBelongsToRequest(input: {
-  candidate: Awaited<ReturnType<PatternCandidateRepository['getById']>>;
-  appId: string;
-  agentId: string;
+const NON_SKILL_ACCEPT_ACTION_KINDS = new Set<PatternActionKind>([
+  'scheduler_job',
+  'durable_capability',
+  'memory_update',
+]);
+
+function isNonSkillAcceptActionKind(
+  value: unknown,
+): value is PatternActionKind {
+  return isPatternActionKind(value) && NON_SKILL_ACCEPT_ACTION_KINDS.has(value);
+}
+
+async function publishAcceptedMetric(input: {
+  context: Parameters<TaskHandler>[0];
+  candidate: NonNullable<
+    Awaited<ReturnType<PatternCandidateRepository['getById']>>
+  >;
   targetJid: string;
-  memoryUserId?: string;
-}): boolean {
-  const candidate = input.candidate;
-  if (!candidate) return false;
-  if (candidate.appId !== input.appId || candidate.agentId !== input.agentId) {
-    return false;
+}): Promise<void> {
+  const { data, deps } = input.context;
+  if (!deps.publishRuntimeEvent || !data.appId) return;
+  const payloads = buildProactiveSurfacingMetricPayloads({
+    subjectId: input.candidate.subjectId,
+    candidates: [
+      {
+        signature: input.candidate.signature,
+        status: 'accepted',
+      },
+    ],
+    outcome: 'accepted',
+  });
+  for (const payload of payloads) {
+    await deps
+      .publishRuntimeEvent({
+        appId: data.appId as never,
+        agentId: input.candidate.agentId as never,
+        ...(data.runId ? { runId: data.runId as never } : {}),
+        conversationId: input.targetJid as never,
+        ...(data.authThreadId ? { threadId: data.authThreadId as never } : {}),
+        eventType: RUNTIME_EVENT_TYPES.PROACTIVE_SURFACING_OUTCOME,
+        actor: 'runtime',
+        responseMode: 'none',
+        payload,
+      })
+      .catch(() => undefined);
   }
-  const channelSubjectId = canonicalConversationIdForMemory(input.targetJid);
-  return (
-    (candidate.subjectType === 'channel' &&
-      candidate.subjectId === channelSubjectId) ||
-    (candidate.subjectType === 'user' &&
-      (candidate.subjectId === input.memoryUserId ||
-        candidate.subjectId === input.targetJid)) ||
-    candidate.subjectId === input.targetJid
-  );
 }
 
 export const patternCandidateDecisionHandler: TaskHandler = async (context) => {
@@ -72,11 +106,12 @@ export const patternCandidateDecisionHandler: TaskHandler = async (context) => {
     maxLen: 512,
   });
   const choice = toTrimmedString(payload.choice, { maxLen: 32 });
+  const actionKind = toTrimmedString(payload.actionKind, { maxLen: 64 });
   if (!patternCandidateId) {
     reject('Missing required field: patternCandidateId.', 'invalid_request');
     return;
   }
-  if (choice !== 'not_now' && choice !== 'dismiss') {
+  if (choice !== 'accept' && choice !== 'not_now' && choice !== 'dismiss') {
     reject('Invalid pattern candidate decision.', 'invalid_request');
     return;
   }
@@ -98,6 +133,10 @@ export const patternCandidateDecisionHandler: TaskHandler = async (context) => {
   }
   const candidate = await repo.getById(patternCandidateId);
   const agentId = memoryAgentIdForWorkspaceFolder(sourceAgentFolder);
+  if (!candidate) {
+    reject('Pattern candidate is not valid for this request.', 'forbidden');
+    return;
+  }
   if (
     !candidateBelongsToRequest({
       candidate,
@@ -108,6 +147,34 @@ export const patternCandidateDecisionHandler: TaskHandler = async (context) => {
     })
   ) {
     reject('Pattern candidate is not valid for this request.', 'forbidden');
+    return;
+  }
+  if (choice === 'accept') {
+    if (!isNonSkillAcceptActionKind(actionKind)) {
+      reject(
+        'Pattern accept decisions require actionKind scheduler_job, durable_capability, or memory_update.',
+        'invalid_request',
+      );
+      return;
+    }
+    const accepted = await acceptPatternCandidateForAction({
+      repo,
+      candidateId: patternCandidateId,
+      appId: data.appId,
+      sourceAgentFolder,
+      targetJid,
+      memoryUserId: data.memoryUserId,
+      actionKind,
+    });
+    if (!accepted.ok) {
+      reject(accepted.error, accepted.code);
+      return;
+    }
+    await publishAcceptedMetric({ context, candidate, targetJid });
+    accept(
+      'Pattern acceptance recorded.',
+      'pattern_candidate_acceptance_recorded',
+    );
     return;
   }
   const transitioned = await applyPatternCandidateChoice({

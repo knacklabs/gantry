@@ -103,6 +103,7 @@ export async function createAsyncMcpTask(input: {
   const admitted = input.repository.createTaskWithAdmission
     ? await input.repository.createTaskWithAdmission(createInput, {
         activeStatuses: [...ACTIVE_ASYNC_MCP_STATUSES],
+        kind: createInput.kind,
         maxActivePerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
         maxActivePerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
       })
@@ -163,12 +164,14 @@ async function admitWithLocalLock(
     const [appActive, agentActive] = await Promise.all([
       repository.listTasks({
         appId: createInput.appId,
+        kind: createInput.kind,
         statuses: [...ACTIVE_ASYNC_MCP_STATUSES],
         limit: MAX_ACTIVE_ASYNC_MCP_PER_APP,
       }),
       repository.listTasks({
         appId: createInput.appId,
         agentId: createInput.agentId,
+        kind: createInput.kind,
         statuses: [...ACTIVE_ASYNC_MCP_STATUSES],
         limit: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
       }),

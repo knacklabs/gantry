@@ -23,22 +23,10 @@ Capabilities:
 - review subagents
 - PR packaging
 
-### Codex + ACP/ACPX orchestration
-
-Use when:
-
-- a long-running or scheduled orchestrator is needed
-- many issues are being managed concurrently
-- you want a persistent issue session per task
-
-Capabilities:
-
-- everything in plain Codex mode
-- plus persistent orchestration, issue polling, and higher-level coordination
-
 ### Rule
 
-The repo contract and artifacts must be identical in both modes.
+The repo contract and artifacts are local to this repository and do not depend
+on an external orchestration service.
 
 ## Prompt Usage Model
 

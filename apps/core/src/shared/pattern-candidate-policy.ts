@@ -15,6 +15,9 @@ export const PATTERN_NGRAM_MAX = 3;
 export const PATTERN_MAX_CANDIDATES_PER_RUN = 20;
 export const PATTERN_SNOOZE_DAYS = 14;
 export const PATTERN_INTENSIFY_DELTA = 3;
+// recurrence floor; add friction scoring when the detector emits it
+export const PATTERN_VALUE_FLOOR_MIN_OCCURRENCES = 4;
+export const PATTERN_VALUE_FLOOR_MIN_SPAN_DAYS = 2;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -36,6 +39,22 @@ export function snoozeUntil(nowIso: string): string {
   return new Date(
     new Date(nowIso).getTime() + PATTERN_SNOOZE_DAYS * DAY_MS,
   ).toISOString();
+}
+
+export function meetsRecurrenceValueFloor(input: {
+  occurrences: number;
+  windowStart: string;
+  windowEnd: string;
+}): boolean {
+  const spanDays = Math.floor(
+    (new Date(input.windowEnd).getTime() -
+      new Date(input.windowStart).getTime()) /
+      DAY_MS,
+  );
+  return (
+    input.occurrences >= PATTERN_VALUE_FLOOR_MIN_OCCURRENCES &&
+    spanDays >= PATTERN_VALUE_FLOOR_MIN_SPAN_DAYS
+  );
 }
 
 /**

@@ -37,6 +37,7 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
     input: AsyncTaskCreateInput,
     admission: {
       activeStatuses: AsyncTaskRecord['status'][];
+      kind?: AsyncTaskRecord['kind'];
       maxActivePerApp: number;
       maxActivePerAgent: number;
     },
@@ -54,6 +55,9 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
         .where(
           and(
             eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
+            admission.kind
+              ? eq(pgSchema.agentAsyncTasksPostgres.kind, admission.kind)
+              : undefined,
             inArray(
               pgSchema.agentAsyncTasksPostgres.status,
               admission.activeStatuses,
@@ -70,6 +74,9 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
           and(
             eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
             eq(pgSchema.agentAsyncTasksPostgres.agentId, input.agentId),
+            admission.kind
+              ? eq(pgSchema.agentAsyncTasksPostgres.kind, admission.kind)
+              : undefined,
             inArray(
               pgSchema.agentAsyncTasksPostgres.status,
               admission.activeStatuses,
@@ -224,6 +231,9 @@ function asyncTaskFilterWhere(filter: Omit<AsyncTaskListFilter, 'limit'>) {
     eq(pgSchema.agentAsyncTasksPostgres.appId, filter.appId),
     filter.agentId
       ? eq(pgSchema.agentAsyncTasksPostgres.agentId, filter.agentId)
+      : undefined,
+    filter.kind
+      ? eq(pgSchema.agentAsyncTasksPostgres.kind, filter.kind)
       : undefined,
     filter.conversationId !== undefined
       ? nullableEq(

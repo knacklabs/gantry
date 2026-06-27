@@ -4,7 +4,9 @@ This document explains what a backend developer is using when they call `@gantry
 
 ## Boundary
 
-The SDK talks to the Gantry control server. The control server is a host runtime surface, not an agent feature. ACP/ACPS remain harness/runtime concerns and are not part of the public SDK contract.
+The SDK talks to the Gantry control server. The control server is a host
+runtime surface, not an agent feature, and maintainer automation is not part of
+the public SDK contract.
 
 Agents cannot choose callback URLs, API keys, webhook headers, or channel destinations. They can only react to durable inbound messages and emit structured events through host-owned tools.
 

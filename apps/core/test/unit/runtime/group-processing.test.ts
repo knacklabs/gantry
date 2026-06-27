@@ -15,6 +15,18 @@ import { createAgentExecutionAdapterRegistry } from '@core/application/agent-exe
 // Mocks
 // ---------------------------------------------------------------------------
 
+const mockGetRuntimeSettingsForConfig = vi.hoisted(
+  () =>
+    vi.fn(() => ({
+      memory: {
+        enabled: true,
+        embeddings: {
+          enabled: false,
+          provider: 'disabled',
+        },
+      },
+    })) as ReturnType<typeof vi.fn>,
+);
 vi.mock('@core/config/index.js', () => ({
   ASSISTANT_NAME: 'Andy',
   IDLE_TIMEOUT: 1_800_000,
@@ -22,15 +34,7 @@ vi.mock('@core/config/index.js', () => ({
   MAX_MESSAGES_PER_PROMPT: 10,
   MESSAGE_FETCH_PAGE_SIZE: 50,
   TIMEZONE: 'UTC',
-  getRuntimeSettingsForConfig: () => ({
-    memory: {
-      enabled: true,
-      embeddings: {
-        enabled: false,
-        provider: 'disabled',
-      },
-    },
-  }),
+  getRuntimeSettingsForConfig: mockGetRuntimeSettingsForConfig,
   getDefaultModelConfig: () => ({ model: undefined }),
   getSelectedAgentHarness: () => 'auto',
   getTriggerPattern: (trigger?: string) =>
@@ -326,6 +330,12 @@ function setupHappyPath(
 describe('createGroupProcessor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetRuntimeSettingsForConfig.mockReturnValue({
+      memory: {
+        enabled: true,
+        embeddings: { enabled: false, provider: 'disabled' },
+      },
+    });
   });
 
   // =======================================================================
@@ -753,14 +763,11 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
-    it('sends done progress at a live stream turn boundary before the runner exits', async () => {
+    it('keeps progress active after a terminal marker until the runner exits', async () => {
       const liveRun = deferred<AgentOutput>();
-      const typingStopped = deferred();
+      const terminalMarkerHandled = deferred();
       const channel = makeChannel({
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
-        setTyping: vi.fn(async (_chatJid: string, isTyping: boolean) => {
-          if (!isTyping) typingStopped.resolve();
-        }),
       });
       const { deps } = setupHappyPath();
       deps.channelRuntime = channel;
@@ -773,14 +780,31 @@ describe('createGroupProcessor', () => {
         ) => {
           await onOutput?.({ status: 'success', result: 'partial reply' });
           await onOutput?.({ status: 'success', result: null });
+          terminalMarkerHandled.resolve();
           return liveRun.promise;
         },
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
       const processing = processGroupMessages('group1@g.us');
-      await typingStopped.promise;
+      await terminalMarkerHandled.promise;
 
+      expect(deps.queue.notifyIdle).not.toHaveBeenCalled();
+      expect(channel.setTyping).not.toHaveBeenLastCalledWith(
+        'group1@g.us',
+        false,
+      );
+      expect(
+        (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.some(
+          (call) =>
+            typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
+        ),
+      ).toBe(false);
+
+      liveRun.resolve({ status: 'success', result: null });
+      await processing;
       expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
       expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
       expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
@@ -788,9 +812,6 @@ describe('createGroupProcessor', () => {
         expect.stringMatching(/^✅ Done · /),
         expect.objectContaining({ done: true }),
       );
-
-      liveRun.resolve({ status: 'success', result: null });
-      await processing;
       const doneCalls = (
         channel.sendProgressUpdate as ReturnType<typeof vi.fn>
       ).mock.calls.filter(
@@ -1179,7 +1200,15 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('reads channel pattern candidates with the resolved memory agent id', async () => {
+    // Proactive surfacing is fail-closed at the runner callsite: it only reads
+    // pattern candidates when the agent is unlocked AND the conversation has an
+    // enabled opt-in row. These tests pin every fail-closed branch.
+    function setupProactiveSurfacingCase(opts: {
+      optIn?: { proactiveSurfacingEnabled: boolean } | null;
+      getBySubject?: () => Promise<{
+        proactiveSurfacingEnabled: boolean;
+      } | null>;
+    }) {
       const group = makeGroup({
         requiresTrigger: false,
         folder: 'lead-agent',
@@ -1188,9 +1217,14 @@ describe('createGroupProcessor', () => {
       const patternCandidateRepository = {
         listEligible: vi.fn(async () => []),
       };
+      const getBySubject =
+        opts.getBySubject ?? vi.fn(async () => opts.optIn ?? null);
       const { deps } = setupHappyPath({ group });
       deps.getPatternCandidateRepository = vi.fn(
         () => patternCandidateRepository as never,
+      );
+      deps.getProactiveSurfacingRepository = vi.fn(
+        () => ({ getBySubject }) as never,
       );
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
@@ -1202,6 +1236,13 @@ describe('createGroupProcessor', () => {
           memoryContextBlock:
             '<gantry_memory_context>memory</gantry_memory_context>',
         });
+      return { deps, patternCandidateRepository, getBySubject };
+    }
+
+    it('reads channel pattern candidates with the resolved memory agent id when opted in', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        optIn: { proactiveSurfacingEnabled: true },
+      });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us', {
@@ -1218,6 +1259,95 @@ describe('createGroupProcessor', () => {
         },
         limit: 1,
       });
+    });
+
+    it('does not surface patterns when there is no opt-in row', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        optIn: null,
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', {
+        memoryContext: { userId: 'user-1', source: 'message' },
+      });
+
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+    });
+
+    it('does not surface patterns when the conversation has opted out', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        optIn: { proactiveSurfacingEnabled: false },
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', {
+        memoryContext: { userId: 'user-1', source: 'message' },
+      });
+
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+    });
+
+    it('does not surface patterns when the agent access is locked', async () => {
+      mockGetRuntimeSettingsForConfig.mockReturnValue({
+        memory: {
+          enabled: true,
+          embeddings: { enabled: false, provider: 'disabled' },
+        },
+        agents: { 'lead-agent': { accessPreset: 'locked' } },
+      } as never);
+      const { deps, patternCandidateRepository, getBySubject } =
+        setupProactiveSurfacingCase({
+          optIn: { proactiveSurfacingEnabled: true },
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', {
+        memoryContext: { userId: 'user-1', source: 'message' },
+      });
+
+      // Locked short-circuits before the consent read and the candidate read.
+      expect(getBySubject).not.toHaveBeenCalled();
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+    });
+
+    it('does not surface patterns when the agent lock status is unknown', async () => {
+      mockGetRuntimeSettingsForConfig.mockImplementation(() => {
+        throw new Error('settings unavailable');
+      });
+      const { deps, patternCandidateRepository, getBySubject } =
+        setupProactiveSurfacingCase({
+          optIn: { proactiveSurfacingEnabled: true },
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await expect(
+        processGroupMessages('group1@g.us', {
+          memoryContext: { userId: 'user-1', source: 'message' },
+        }),
+      ).resolves.not.toThrow();
+
+      expect(getBySubject).not.toHaveBeenCalled();
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).toHaveBeenCalled();
+    });
+
+    it('does not surface patterns and does not throw when the consent read fails', async () => {
+      const { deps, patternCandidateRepository } = setupProactiveSurfacingCase({
+        getBySubject: vi.fn(async () => {
+          throw new Error('consent store unavailable');
+        }),
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      // The turn must still proceed (no throw) and the agent must still spawn.
+      await expect(
+        processGroupMessages('group1@g.us', {
+          memoryContext: { userId: 'user-1', source: 'message' },
+        }),
+      ).resolves.not.toThrow();
+
+      expect(patternCandidateRepository.listEligible).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).toHaveBeenCalled();
     });
 
     it('adds selected skill metadata to runtime context without injecting full skill bodies', async () => {
@@ -2093,7 +2223,7 @@ describe('createGroupProcessor', () => {
       await processing;
     });
 
-    it('starts fresh progress when follow-up output arrives after a completed turn', async () => {
+    it('keeps follow-up output in one progress lifecycle after a terminal marker', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -2131,37 +2261,13 @@ describe('createGroupProcessor', () => {
         ({ call }) =>
           typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
       );
-      expect(doneCalls).toHaveLength(2);
-
-      const firstDone = doneCalls[0];
-      const secondDone = doneCalls[1];
-      const followUpWorking = indexedProgressCalls.find(
-        ({ call, index }) =>
-          firstDone !== undefined &&
-          secondDone !== undefined &&
-          index > firstDone.index &&
-          index < secondDone.index &&
-          call[1] === '⏳ Working',
-      );
-      const followUpGeneration = followUpWorking?.call[2]?.generation;
-
-      expect(followUpGeneration).toEqual(expect.any(Number));
-      expect(followUpWorking?.call[2]?.actionAffordances).toContainEqual(
-        expect.objectContaining({
-          kind: 'live_turn_stop',
-          label: 'Stop',
-        }),
-      );
-      expect(followUpGeneration).not.toBe(firstDone?.call[2]?.generation);
-      expect(secondDone?.call[2]).toEqual(
-        expect.objectContaining({
-          done: true,
-          generation: followUpGeneration,
-        }),
+      expect(doneCalls).toHaveLength(1);
+      expect(doneCalls[0]?.call[2]).toEqual(
+        expect.objectContaining({ done: true }),
       );
     });
 
-    it('resets elapsed progress after an idle turn boundary inside the same agent process', async () => {
+    it('keeps elapsed progress across terminal markers inside one agent process', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage()];
       const channel = makeChannel({
@@ -2195,11 +2301,8 @@ describe('createGroupProcessor', () => {
         .map((call) => String(call[1]))
         .filter((text) => text.startsWith('✅ Done · '));
 
-      expect(doneProgressTexts.length).toBeGreaterThanOrEqual(2);
-      expect(doneProgressTexts.at(-1)).toBe('✅ Done · 0s');
-      expect(doneProgressTexts.some((text) => text.includes('10m'))).toBe(
-        false,
-      );
+      expect(doneProgressTexts).toHaveLength(1);
+      expect(doneProgressTexts[0]).toContain('10m');
     });
 
     it('does not post elapsed progress on the first heartbeat tick', async () => {
@@ -2683,14 +2786,12 @@ describe('createGroupProcessor', () => {
         (call) =>
           typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
       );
-      expect(progressCalls).toHaveLength(2);
-      expect(progressCalls[0]?.[2]).toEqual(
-        expect.objectContaining({ done: true, generation: firstGeneration }),
+      expect(progressCalls).toHaveLength(1);
+      expect(progressCalls[0]?.[2]?.done).toBe(true);
+      expect(progressCalls[0]?.[2]?.generation).toBeGreaterThan(
+        secondGeneration,
       );
-      expect(progressCalls[1]?.[2]).toEqual(
-        expect.objectContaining({ done: true, generation: secondGeneration }),
-      );
-      expect(deps.queue.notifyIdle).toHaveBeenCalledTimes(2);
+      expect(deps.queue.notifyIdle).toHaveBeenCalledTimes(1);
     });
 
     it('sends follow-up working progress before follow-up stream output', async () => {
@@ -2884,13 +2985,14 @@ describe('createGroupProcessor', () => {
           typeof call[1] === 'string' && call[1].startsWith('✅ Done · '),
       );
       expect(doneProgressCalls).toHaveLength(1);
-      expect(doneProgressCalls[0]?.[2]).toEqual(
-        expect.objectContaining({ done: true, generation: firstGeneration }),
+      expect(doneProgressCalls[0]?.[2]?.done).toBe(true);
+      expect(doneProgressCalls[0]?.[2]?.generation).toBeGreaterThan(
+        secondGeneration,
       );
       expect(deps.queue.notifyIdle).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps final progress on the active turn generation after a success marker', async () => {
+    it('sends final progress after the success marker generation', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
@@ -2918,14 +3020,11 @@ describe('createGroupProcessor', () => {
         streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
       ).mock.calls[0]?.[2]?.generation;
       expect(streamGeneration).toEqual(expect.any(Number));
-      expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
-        'group1@g.us',
-        '✅ Done · 0s',
-        expect.objectContaining({
-          done: true,
-          generation: streamGeneration,
-        }),
-      );
+      const doneProgress = (
+        streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.find((call) => call[1] === '✅ Done · 0s');
+      expect(doneProgress?.[2]?.done).toBe(true);
+      expect(doneProgress?.[2]?.generation).toBeGreaterThan(streamGeneration);
       expect(
         (
           streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>

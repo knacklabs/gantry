@@ -9,12 +9,10 @@
 - Architecture and decisions live under `docs/architecture/` and `docs/decisions/`.
 - Decision records override ambiguous architecture guidance.
 
-## Runtime Modes
+## Runtime Mode
 
-- **Plain Codex**: local implementation and subagent runs.
-- **Codex + ACP/ACPX orchestration**: persistent issue sessions and longer-running coordination.
-
-Both modes must produce the same `.factory` artifacts.
+- **Codex**: local implementation, subagent runs, planning, testing, review,
+  and PR packaging.
 
 ## Factory Phases
 

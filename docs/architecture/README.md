@@ -1,33 +1,40 @@
-# Architecture Docs Contract
+# Architecture Docs
 
-Store architecture-level design inputs for planning and decomposition here.
+These docs describe Gantry's current runtime architecture and public technical
+boundaries. Decision records in [../decisions](../decisions/README.md) take
+precedence when they conflict with broader architecture notes.
 
-For Gantry, canonical architecture references are:
+## Start Here
 
-- `docs/architecture/overview.md` — top-down architecture map with diagrams (start here)
-- `docs/architecture/canonical-domain-model.md`
-- `docs/architecture/target-folder-structure.md`
-- `docs/architecture/personal-and-enterprise-modes.md`
-- `docs/architecture/runtime-components.md`
-- `docs/architecture/agent-runtime.md`
-- `docs/architecture/credential-management.md`
-- `docs/architecture/anthropic-claude-adapter-materialization.md`
-- `docs/architecture/durable-state-boundary.md`
-- `docs/architecture/local-files-policy.md`
-- `docs/architecture/local-state-inventory.md`
-- `docs/architecture/session-resume.md`
-- `docs/architecture/compact-human-settings-yaml.md`
-- `docs/architecture/operator-trust-runtime-honesty.md`
-- `docs/MEMORY.md`
-- `docs/REQUIREMENTS.md`
-- `docs/SPEC.md`
+- [Architecture overview](overview.md) - top-down runtime map.
+- [Runtime components](runtime-components.md) - source-reading guide for runtime parts.
+- [Components overview](components.md) - system component map.
+- [Framework boundaries](framework-boundaries.md) - ownership rules between layers.
 
-When these references conflict, decision records under `docs/decisions/` take
-precedence. The canonical product architecture starts with
-`docs/decisions/0001-agent-runtime-platform.md`.
+## Runtime Model
 
-When adding architecture docs for a feature run:
+- [Canonical domain model](canonical-domain-model.md)
+- [Personal and enterprise modes](personal-and-enterprise-modes.md)
+- [Agent runtime and SDK control plane](agent-runtime.md)
+- [Conversation interactions](channel-interactions.md)
+- [Autonomous jobs](autonomous-jobs.md)
+- [Live horizontal execution](live-horizontal-execution.md)
+- [Multi-worker job execution](multi-worker-execution.md)
 
-- capture boundaries such as orchestrator, runtime, channels, and storage
-- capture data flow and failure handling
-- link to concrete files and interfaces
+## State, Access, And Safety
+
+- [Durable state boundary](durable-state-boundary.md)
+- [Compact human settings.yaml](compact-human-settings-yaml.md)
+- [Credential management](credential-management.md)
+- [Capability management](capability-management.md)
+- [Browser capability](browser-capability.md)
+- [Session resume](session-resume.md)
+- [Local files policy](local-files-policy.md)
+- [Local state inventory](local-state-inventory.md)
+- [Postgres query policy](postgres-query-policy.md)
+
+## Operations
+
+- [Deployment profiles](deployment-profiles.md)
+- [Current verification commands](current-verification-commands.md)
+- [Operator trust and runtime honesty](operator-trust-runtime-honesty.md)

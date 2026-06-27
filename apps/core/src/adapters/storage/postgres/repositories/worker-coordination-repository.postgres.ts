@@ -20,7 +20,6 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import {
   claimRunLeaseInTx,
   DEFAULT_NONCE_TTL_MS,
-  isRunLeaseClaimConflict,
   isoPlusMs,
   isUniqueViolation,
   lockRunSlotKey,

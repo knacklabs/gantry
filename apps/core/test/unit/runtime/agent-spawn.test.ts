@@ -2393,7 +2393,7 @@ describe('agent-spawn timeout behavior', () => {
           {
             selectedCapabilityId: 'acme.records.get',
             sourceType: 'local_cli',
-            auditLabel: 'Gog Sheets get',
+            auditLabel: 'Fixture Records get',
             commandRules: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
             credentialDirs: [
               '${XDG_CONFIG_HOME}/acme',

@@ -183,7 +183,7 @@ async function notifyReleasedStaleJobLease(input: {
 }
 
 function summaryForReleasedLease(
-  release: ReleasedStaleJobLease,
+  _release: ReleasedStaleJobLease,
   run: JobRun | undefined,
 ): string {
   return run?.error_summary || STALE_LEASE_TIMEOUT_SUMMARY;

@@ -130,7 +130,7 @@ export async function spawnAgent(
       : 'interactive',
     group.folder,
   );
-  const { modelWorkload, resolvedModel } = await resolveSpawnModel({
+  const { resolvedModel } = await resolveSpawnModel({
     group,
     agentInput: input,
     appId: input.appId || 'default',

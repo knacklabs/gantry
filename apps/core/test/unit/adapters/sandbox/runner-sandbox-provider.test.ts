@@ -237,6 +237,55 @@ describe('runner sandbox provider', () => {
     (child as unknown as { emit(name: string): void }).emit('exit');
   });
 
+  it('allows macOS FSEvents for sandboxed runner file watches', () => {
+    const provider = createRunnerSandboxProvider({
+      provider: 'sandbox_runtime',
+      resourceLimits: {
+        cpuSeconds: 0,
+        memoryMb: 0,
+        maxProcesses: 0,
+      },
+    });
+
+    provider.start(baseInput);
+
+    const config = JSON.parse(
+      String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
+    );
+    if (process.platform === 'darwin') {
+      expect(config.network.allowMachLookup).toEqual(['com.apple.FSEvents']);
+    } else {
+      expect(config.network.allowMachLookup).toBeUndefined();
+    }
+  });
+
+  it('allows Claude SDK generated config state inside the runtime config dir', () => {
+    const provider = createRunnerSandboxProvider({
+      provider: 'sandbox_runtime',
+      resourceLimits: {
+        cpuSeconds: 0,
+        memoryMb: 0,
+        maxProcesses: 0,
+      },
+    });
+    const claudeConfigDir = '/work/agent/.llm-runtime/run-test/claude';
+
+    provider.start({
+      ...baseInput,
+      runtimeReadPaths: [claudeConfigDir],
+      runtimeWritePaths: [claudeConfigDir],
+      protectedReadPaths: [claudeConfigDir],
+    });
+
+    const config = JSON.parse(
+      String(vi.mocked(fs.writeFileSync).mock.calls.at(-1)?.[1]),
+    );
+    expect(config.filesystem.denyRead).toContain(claudeConfigDir);
+    expect(config.filesystem.allowRead).toContain(
+      `${claudeConfigDir}/.claude.json`,
+    );
+  });
+
   it('allows required executable paths while denying sibling runtime reads', () => {
     const provider = createRunnerSandboxProvider({
       provider: 'sandbox_runtime',

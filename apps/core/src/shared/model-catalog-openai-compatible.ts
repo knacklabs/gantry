@@ -123,7 +123,6 @@ const GEMINI_SOURCE = {
   verifiedAt: '2026-06-14',
 };
 const NESTED_OPENAI_CACHE_FIELDS = ['prompt_tokens_details.cached_tokens'];
-const OA = ['open', 'ai'].join('');
 const G_PUBLISHER = ['goo', 'gle'].join('');
 const G_MODEL = ['ge', 'mini'].join('');
 const G_DISPLAY = ['Ge', 'mini'].join('');

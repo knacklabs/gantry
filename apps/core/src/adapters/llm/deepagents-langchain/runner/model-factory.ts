@@ -163,8 +163,10 @@ function assertLoopbackGatewayUrl(value: string, label: string): void {
   let url: URL;
   try {
     url = new URL(value);
-  } catch {
-    throw new Error(`DeepAgents runner ${label} is not a valid URL.`);
+  } catch (error) {
+    throw new Error(`DeepAgents runner ${label} is not a valid URL.`, {
+      cause: error,
+    });
   }
   const hostname = url.hostname.toLowerCase();
   const loopback =

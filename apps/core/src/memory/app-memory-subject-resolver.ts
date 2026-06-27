@@ -1,3 +1,4 @@
+import { canonicalConversationIdForPattern as canonicalConversationIdForMemory } from '../shared/pattern-candidate-subject.js';
 import { normalizeSubject } from './app-memory-boundaries.js';
 import type {
   AppMemorySearchInput,
@@ -5,6 +6,8 @@ import type {
   MemoryScope,
   NormalizedMemorySubject,
 } from './memory-types.js';
+
+export { canonicalConversationIdForPattern as canonicalConversationIdForMemory } from '../shared/pattern-candidate-subject.js';
 
 export interface MemorySubjectResolutionInput {
   appId: string;
@@ -18,16 +21,6 @@ export interface MemorySubjectResolutionInput {
 }
 
 type EffectiveScope = Exclude<MemoryScope, 'global'>;
-
-export function canonicalConversationIdForMemory(
-  value: string | undefined,
-): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return trimmed.startsWith('conversation:')
-    ? trimmed
-    : `conversation:${trimmed}`;
-}
 
 export function memoryScopeForConversationKind(
   conversationKind: string | undefined,

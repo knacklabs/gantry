@@ -7,7 +7,7 @@ Gantry is moving from earlier Anthropic/Claude SDK runtime code toward a provide
 - Treat personal Telegram/WhatsApp and enterprise Slack/Teams/WebUI as deployment modes.
 - Keep the core runtime provider-neutral and channel-neutral.
 - Model user-visible behavior through canonical app, agent, conversation, thread, message, and session concepts before adapting it to any channel.
-- Keep ACP/ACPX as orchestration integrations, not assumptions inside runtime contracts.
+- Keep maintainer automation out of runtime contracts.
 
 ## Dependency Direction
 

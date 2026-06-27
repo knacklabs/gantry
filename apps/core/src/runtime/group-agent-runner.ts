@@ -1,4 +1,5 @@
 import type { ConversationRoute } from '../domain/types.js';
+import { resolveAgentLockStatus } from '../config/profiles.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
 import { defaultModelStatusSelection } from '../session/session-model-status.js';
 import type { AgentOutput } from './agent-spawn.js';
@@ -32,7 +33,10 @@ import {
 } from './provider-session-access-fingerprint.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
-import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
+import {
+  isRuntimeEventType,
+  RUNTIME_EVENT_TYPES,
+} from '../domain/events/runtime-event-types.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
 import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
@@ -41,6 +45,10 @@ import {
   loadPatternsContext,
   markPatternsContextSurfaced,
 } from '../shared/pattern-candidate-block.js';
+import {
+  patternSubjectForScope,
+  type PatternSubjectScope,
+} from '../shared/pattern-candidate-subject.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
   executionProviderIdForCandidate,
@@ -48,6 +56,12 @@ import {
   runFamilyFailoverLoop,
   publishRunFailoverEvent,
 } from './failover-candidate-loop.js';
+import {
+  buildProactiveSurfacingMetricPayloads,
+  outcomeForPatternCandidateStatus,
+  type ProactiveSurfacingOutcome,
+  type ProactiveSurfacingMetricCandidate,
+} from './proactive-surfacing-metrics.js';
 import { isMissingProviderSessionError } from './failover-eligibility.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
@@ -75,6 +89,88 @@ function hasAsyncTaskRepository(deps: GroupProcessingDeps): boolean {
     return Boolean(deps.getAsyncTaskRepository?.());
   } catch {
     return false;
+  }
+}
+
+async function proactiveSurfacingAllowed(
+  deps: GroupProcessingDeps,
+  scope: PatternSubjectScope,
+): Promise<{
+  allowed: boolean;
+  subjectId?: string;
+  failClosedOutcome?: ProactiveSurfacingOutcome;
+}> {
+  if (resolveAgentLockStatus(scope.folder) !== 'full') {
+    return { allowed: false };
+  }
+  const subject = patternSubjectForScope(scope);
+  if (!subject) return { allowed: false };
+  const repo = deps.getProactiveSurfacingRepository?.();
+  if (!repo) {
+    return {
+      allowed: false,
+      subjectId: subject.subjectId,
+      failClosedOutcome: 'opt_in_unavailable',
+    };
+  }
+  try {
+    const optIn = await repo.getBySubject({
+      appId: subject.appId,
+      agentId: subject.agentId,
+      subjectType: subject.subjectType,
+      subjectId: subject.subjectId,
+    });
+    if (optIn?.proactiveSurfacingEnabled === false) {
+      return {
+        allowed: false,
+        subjectId: subject.subjectId,
+        failClosedOutcome: 'opted_out',
+      };
+    }
+    return {
+      allowed: optIn?.proactiveSurfacingEnabled === true,
+      subjectId: subject.subjectId,
+    };
+  } catch {
+    return {
+      allowed: false,
+      subjectId: subject.subjectId,
+      failClosedOutcome: 'opt_in_unavailable',
+    };
+  }
+}
+
+function publishProactiveSurfacingOutcomeEvent(input: {
+  publish: GroupProcessingDeps['publishRuntimeEvent'];
+  appId: string | undefined;
+  agentId?: string;
+  runId?: string;
+  conversationId: string;
+  threadId?: string | null;
+  subjectId: string | undefined;
+  candidates: ProactiveSurfacingMetricCandidate[];
+  outcome: ProactiveSurfacingOutcome;
+}): void {
+  if (!input.publish || !input.appId || !input.subjectId) return;
+  const payloads = buildProactiveSurfacingMetricPayloads({
+    subjectId: input.subjectId,
+    candidates: input.candidates,
+    outcome: input.outcome,
+  });
+  for (const payload of payloads) {
+    void Promise.resolve(
+      input.publish({
+        appId: input.appId as never,
+        ...(input.agentId ? { agentId: input.agentId as never } : {}),
+        ...(input.runId ? { runId: input.runId as never } : {}),
+        conversationId: input.conversationId as never,
+        ...(input.threadId ? { threadId: input.threadId as never } : {}),
+        eventType: RUNTIME_EVENT_TYPES.PROACTIVE_SURFACING_OUTCOME,
+        actor: 'runtime',
+        responseMode: 'none',
+        payload,
+      }),
+    ).catch(() => {});
   }
 }
 
@@ -452,8 +548,7 @@ export function createGroupAgentRunner(input: {
         'Expired provider session because runtime access projection changed',
       );
     }
-    const patternCandidateRepo = deps.getPatternCandidateRepository?.();
-    const patternsContext = await loadPatternsContext(patternCandidateRepo, {
+    const surfacingScope = {
       appId: runtimeAppId,
       agentId:
         turnContext?.agentId ?? memoryAgentIdForWorkspaceFolder(group.folder),
@@ -461,7 +556,42 @@ export function createGroupAgentRunner(input: {
       conversationId: chatJid,
       conversationKind: group.conversationKind,
       userId: options?.memoryContext?.userId,
-    });
+    };
+    const patternCandidateRepo = deps.getPatternCandidateRepository?.();
+    const surfacingGate = await proactiveSurfacingAllowed(deps, surfacingScope);
+    let patternsContext = { block: '', surfacedCandidateIds: [] as string[] };
+    if (surfacingGate.allowed) {
+      try {
+        patternsContext = await loadPatternsContext(
+          patternCandidateRepo,
+          surfacingScope,
+        );
+      } catch {
+        publishProactiveSurfacingOutcomeEvent({
+          publish: deps.publishRuntimeEvent,
+          appId: runtimeAppId,
+          agentId: turnContext?.agentId,
+          runId: runState.runId,
+          conversationId: chatJid,
+          threadId: sessionThreadId,
+          subjectId: surfacingGate.subjectId,
+          candidates: [],
+          outcome: 'skipped_error',
+        });
+      }
+    } else if (surfacingGate.failClosedOutcome) {
+      publishProactiveSurfacingOutcomeEvent({
+        publish: deps.publishRuntimeEvent,
+        appId: runtimeAppId,
+        agentId: turnContext?.agentId,
+        runId: runState.runId,
+        conversationId: chatJid,
+        threadId: sessionThreadId,
+        subjectId: surfacingGate.subjectId,
+        candidates: [],
+        outcome: surfacingGate.failClosedOutcome,
+      });
+    }
     const memoryContextBlock = [
       turnContext?.memoryContextBlock,
       patternsContext.block,
@@ -699,6 +829,35 @@ export function createGroupAgentRunner(input: {
         patternCandidateRepo,
         patternsContext.surfacedCandidateIds,
       );
+      try {
+        const surfacedSubject = patternSubjectForScope(surfacingScope);
+        if (surfacedSubject && patternCandidateRepo) {
+          for (const id of patternsContext.surfacedCandidateIds) {
+            const candidate = await patternCandidateRepo.getById(id);
+            if (!candidate) continue;
+            publishProactiveSurfacingOutcomeEvent({
+              publish: deps.publishRuntimeEvent,
+              appId: runtimeAppId,
+              agentId: turnContext?.agentId,
+              runId: runState.runId,
+              conversationId: chatJid,
+              threadId: sessionThreadId,
+              subjectId: surfacedSubject.subjectId,
+              candidates: [
+                {
+                  signature: candidate.signature,
+                  status: candidate.candidateStatus,
+                },
+              ],
+              outcome: outcomeForPatternCandidateStatus(
+                candidate.candidateStatus,
+              ),
+            });
+          }
+        }
+      } catch {
+        // Metrics must never turn a successful run into a failed turn.
+      }
       return 'success';
     } catch (err) {
       logger.error({ group: group.name, err }, 'Agent error');

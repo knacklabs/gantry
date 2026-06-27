@@ -34,7 +34,6 @@ import type {
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
-import { normalizeRuntimeSecretRefString } from '../../domain/ports/runtime-secret-provider.js';
 
 export async function exportCurrentDesiredState(input: {
   deps: SettingsDesiredStateServiceDeps;

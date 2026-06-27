@@ -571,7 +571,7 @@ describe('createCanUseToolCallback', () => {
           {
             selectedCapabilityId: 'acme.records.get',
             sourceType: 'local_cli',
-            auditLabel: 'Gog Sheets get',
+            auditLabel: 'Fixture Records get',
             commandRules: ['RunCommand(/opt/homebrew/bin/acme records get *)'],
             credentialDirs: [],
             networkBindings: [
@@ -596,7 +596,7 @@ describe('createCanUseToolCallback', () => {
       'Bash',
       {
         command:
-          '/opt/homebrew/bin/acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
+          '/opt/homebrew/bin/acme records get fixture_sheet_001 "Fixture Leads!A1:Z1" --json --account operator@example.test',
       },
       makePermissionOptions({
         toolUseID: 'toolu_bash_1',

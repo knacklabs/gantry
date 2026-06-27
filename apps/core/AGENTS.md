@@ -15,10 +15,11 @@
   common in hosted deployments: IPv4-capable managed Postgres endpoints, custom
   CA bundles, Slack Socket Mode scopes/App Home DM settings, and Linux sandbox
   packages such as `bubblewrap`, `socat`, and `ripgrep`.
-- When path-sensitive code changes, update the matching tests in `apps/core/src/**/*.test.ts` in the same change.
+- When path-sensitive code changes, update the matching tests under `apps/core/test/**` in the same change.
 - Integration tests for runtime features must use shared harnesses under `apps/core/test/harness/`; DB-backed cases must guard on `GANTRY_TEST_DATABASE_URL` and isolate schemas.
 - Run `npm run test:integration:postgres` for DB-backed feature work. Use a disposable Docker Postgres container for each task, enable `vector` and `pg_trgm` before migrations, pass its URL through `GANTRY_TEST_DATABASE_URL`, and remove the container after the check. A plain `npm run test:integration` is allowed to skip those suites when the local Postgres test URL is absent.
 - When adding DB-backed outbound delivery coverage, include the suite in the `test:integration:postgres` script so the required database gate cannot silently omit it.
+- DB-backed e2e coverage belongs in `apps/core/test/e2e/**` and must be included in `npm run test:e2e:postgres` so the required database gate cannot silently omit it.
 - IPC/MCP stdio fixture tests that spawn child processes must drain stdout/stderr, use explicit timeouts with full-suite headroom, and include buffered child output in timeout errors.
 - Claude Agent SDK boundary tests must stay hermetic: mock the SDK provider, assert generated options at the adapter boundary, and never require real Anthropic auth.
 - Claude SDK `result` messages can encode provider auth or billing failures, including success-subtyped text such as `Invalid API key`; runner code must promote those to errors before writing channel-visible assistant output.

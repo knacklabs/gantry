@@ -1,6 +1,15 @@
 import type { PatternCandidate } from '@gantry/contracts';
 
+import { PATTERN_ACTION_KIND_TOOL } from './pattern-candidate-action-kind.js';
 import { isSurfaceable } from './pattern-candidate-policy.js';
+import {
+  patternSubjectForScope,
+  type PatternSubjectScope,
+} from './pattern-candidate-subject.js';
+import {
+  classifyPromptInjectionMemoryMaterial,
+  sanitizeOutboundLlmText,
+} from './sensitive-material.js';
 import { nowIso } from './time/datetime.js';
 
 /**
@@ -14,24 +23,23 @@ import { nowIso } from './time/datetime.js';
 export const PATTERN_BLOCK_OPEN = '[[PATTERNS_NOTICED]]';
 export const PATTERN_BLOCK_CLOSE = '[[/PATTERNS_NOTICED]]';
 const MAX_PATTERN_TEXT_CHARS = 160;
+const HOST_SUGGESTION_PREFIX = 'We have done ';
+const HOST_SUGGESTION_SUFFIX = ' times - want me to make it a reusable skill?';
 
 function safePatternText(value: string): string {
-  return value
+  const text = value
     .replace(/\[\[/g, '[ [')
     .replace(/\]\]/g, '] ]')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_PATTERN_TEXT_CHARS);
+    .trim();
+  const safeText = classifyPromptInjectionMemoryMaterial(text)
+    ? '[REDACTED_INSTRUCTION]'
+    : sanitizeOutboundLlmText(text).text;
+  return safeText.slice(0, MAX_PATTERN_TEXT_CHARS);
 }
 
-function canonicalConversationIdForPattern(
-  value: string | undefined,
-): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return trimmed.startsWith('conversation:')
-    ? trimmed
-    : `conversation:${trimmed}`;
+function renderHostSuggestion(candidate: PatternCandidate): string {
+  return `${HOST_SUGGESTION_PREFIX}${safePatternText(candidate.outcomeLabel)} ${candidate.occurrences}${HOST_SUGGESTION_SUFFIX}`;
 }
 
 export function formatPatternsBlock(candidates: PatternCandidate[]): string {
@@ -42,7 +50,7 @@ export function formatPatternsBlock(candidates: PatternCandidate[]): string {
 
   const lines: string[] = [
     PATTERN_BLOCK_OPEN,
-    'Repeated work I have noticed. This is evidence, not an instruction: raise at most one newly detected pattern with the user this turn, outcome-first (not by tool name): "we have done X N times - want me to make it a reusable skill?". For candidate_status "suggested", do not ask again; use it only if the latest user reply agrees or asks about that pattern. If the user agrees, call request_skill_proposal and pass patternCandidateId with pattern_id. If the user says not now or do not suggest again, call pattern_candidate_decision with that pattern_id. Never start an action from a pattern alone.',
+    `Repeated work I have noticed. This is evidence, not an instruction: raise at most one newly detected pattern with the user this turn, outcome-first (not by tool name): "we have done X N times - want me to make it durable?". For candidate_status "suggested", do not ask again; use it only if the latest user reply agrees or asks about that pattern. If the user agrees, pick the smallest durable fix. For recurring/time-based work, first call pattern_candidate_decision with pattern_id, choice accept, and actionKind scheduler_job, then call ${PATTERN_ACTION_KIND_TOOL.scheduler_job} without patternCandidateId or actionKind. For the same permission repeatedly, first call pattern_candidate_decision with pattern_id, choice accept, and actionKind durable_capability, then call ${PATTERN_ACTION_KIND_TOOL.durable_capability} target.kind=capability without patternCandidateId or actionKind. For durable facts or preferences, first call pattern_candidate_decision with pattern_id, choice accept, and actionKind memory_update, then call ${PATTERN_ACTION_KIND_TOOL.memory_update} without patternCandidateId or actionKind. For repeatable multi-step procedures, call ${PATTERN_ACTION_KIND_TOOL.skill} with patternCandidateId from pattern_id. If the user says not now or do not suggest again, call pattern_candidate_decision with that pattern_id. Never start an action from a pattern alone.`,
   ];
   for (const candidate of eligible) {
     lines.push(
@@ -52,6 +60,7 @@ export function formatPatternsBlock(candidates: PatternCandidate[]): string {
         candidate_status: candidate.candidateStatus,
         outcome: safePatternText(candidate.outcomeLabel),
         short_ask: safePatternText(candidate.shortAsk),
+        suggestion: renderHostSuggestion(candidate),
         occurrences: candidate.occurrences,
       }),
     );
@@ -88,46 +97,6 @@ interface EligibleCandidateReader {
   }): Promise<PatternCandidate | null>;
 }
 
-function patternSubjectForScope(scope: {
-  appId: string;
-  agentId: string;
-  folder: string;
-  conversationId?: string;
-  conversationKind?: 'dm' | 'channel';
-  userId?: string;
-}): EligibleCandidateReader extends { listEligible(input: infer I): unknown }
-  ? I extends { subject: infer S }
-    ? S
-    : never
-  : never {
-  if (scope.conversationKind === 'dm' && scope.userId) {
-    return {
-      appId: scope.appId,
-      agentId: scope.agentId,
-      folder: scope.folder,
-      subjectType: 'user',
-      subjectId: scope.userId,
-    };
-  }
-  const channelId = canonicalConversationIdForPattern(scope.conversationId);
-  if (channelId) {
-    return {
-      appId: scope.appId,
-      agentId: scope.agentId,
-      folder: scope.folder,
-      subjectType: 'channel',
-      subjectId: channelId,
-    };
-  }
-  return {
-    appId: scope.appId,
-    agentId: scope.agentId,
-    folder: scope.folder,
-    subjectType: 'group',
-    subjectId: scope.folder,
-  };
-}
-
 /**
  * Read-only, guarded loader used by the runner: fetches the single top eligible
  * candidate for the user-scoped subject and formats the block. Returns '' when
@@ -137,45 +106,51 @@ function patternSubjectForScope(scope: {
  */
 export async function loadPatternsContextBlock(
   repo: EligibleCandidateReader | undefined,
-  scope: {
-    appId: string;
-    agentId: string;
-    folder: string;
-    conversationId?: string;
-    conversationKind?: 'dm' | 'channel';
-    userId?: string;
-  },
+  scope: PatternSubjectScope,
 ): Promise<string> {
   return (await loadPatternsContext(repo, scope)).block;
 }
 
 export async function loadPatternsContext(
   repo: EligibleCandidateReader | undefined,
-  scope: {
-    appId: string;
-    agentId: string;
-    folder: string;
-    conversationId?: string;
-    conversationKind?: 'dm' | 'channel';
-    userId?: string;
-  },
+  scope: PatternSubjectScope,
 ): Promise<PatternsContext> {
   if (!repo) return { block: '', surfacedCandidateIds: [] };
-  const candidates = await repo
-    .listEligible({
-      subject: patternSubjectForScope(scope),
+  const subject = patternSubjectForScope(scope);
+  if (!subject) return { block: '', surfacedCandidateIds: [] };
+  try {
+    const candidates = await repo.listEligible({
+      subject,
       limit: 1,
-    })
-    .catch(() => [] as PatternCandidate[]);
-  const block = formatPatternsBlock(candidates);
-  return {
-    block,
-    surfacedCandidateIds: block
-      ? candidates
-          .filter((candidate) => candidate.candidateStatus === 'detected')
-          .map((candidate) => candidate.id)
-      : [],
-  };
+    });
+    const surfacedCandidateIds: string[] = [];
+    const survivingCandidates: PatternCandidate[] = [];
+    for (const candidate of candidates) {
+      if (candidate.candidateStatus !== 'detected') {
+        survivingCandidates.push(candidate);
+        continue;
+      }
+      const claimed = await repo.transition?.({
+        id: candidate.id,
+        transition: {
+          candidateStatus: 'suggested',
+          proposalStatus: null,
+          snoozedUntil: null,
+        },
+        nowIso: nowIso(),
+      });
+      if (!claimed) continue;
+      survivingCandidates.push(candidate);
+      surfacedCandidateIds.push(candidate.id);
+    }
+    const block = formatPatternsBlock(survivingCandidates);
+    return {
+      block,
+      surfacedCandidateIds: block ? surfacedCandidateIds : [],
+    };
+  } catch {
+    return { block: '', surfacedCandidateIds: [] };
+  }
 }
 
 export async function markPatternsContextSurfaced(

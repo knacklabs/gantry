@@ -5,6 +5,11 @@ import {
   UNREVIEWED_DISCOVERY_GUIDANCE,
 } from '../../../shared/capability-guidance.js';
 
+const MCP_METADATA_CONTROL_CHARACTER_RE = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}-${String.fromCharCode(159)}]`,
+  'g',
+);
+
 export function formatMcpApprovalResponse(
   data: unknown,
   message: string,
@@ -230,7 +235,7 @@ function formatUntrustedMcpJson(value: unknown, maxLength: number): string {
     serialized = '"[Unserializable MCP metadata]"';
   }
   const sanitized = sanitizeMcpMetadataJsonText(serialized).replace(
-    /[\u0000-\u001f\u007f-\u009f]/g,
+    MCP_METADATA_CONTROL_CHARACTER_RE,
     (character) =>
       `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
   );
@@ -241,7 +246,7 @@ function formatUntrustedMcpJson(value: unknown, maxLength: number): string {
 
 function formatUntrustedMcpMetadata(value: string, maxLength: number): string {
   const sanitized = sanitizeMcpMetadataJsonText(value).replace(
-    /[\u0000-\u001f\u007f-\u009f]/g,
+    MCP_METADATA_CONTROL_CHARACTER_RE,
     (character) =>
       `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
   );

@@ -21,8 +21,7 @@ another deployment mode. Both must use the same canonical app, agent,
 conversation, message, session, run, memory, permission, sandbox, workspace, and
 browser concepts.
 
-The runtime must continue to support plain Codex and ACP/ACPX integrations.
-ACP/ACPX are orchestration integrations, not required runtime assumptions.
+Maintainer automation must stay outside runtime assumptions.
 
 ## Decision
 

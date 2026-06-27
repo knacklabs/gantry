@@ -19,6 +19,20 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg16-trixie
+        env:
+          POSTGRES_DB: gantry_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gantry_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,6 +40,12 @@ jobs:
           node-version: 25
           cache: npm
       - run: npm ci
+
+      - name: Bootstrap Postgres test DB
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -d gantry_test -v ON_ERROR_STOP=1 \
+            -c 'CREATE EXTENSION IF NOT EXISTS vector;' \
+            -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'
 
       - name: Supply-chain audit
         run: npm run security:audit
@@ -62,24 +82,28 @@ jobs:
         run: |
           set -o pipefail
           : > /tmp/vitest.log
-          find apps/core/src -type f -name '*.test.ts' | sort > /tmp/test-files.txt
-          while IFS= read -r test_file; do
-            [ -n "$test_file" ] || continue
-            echo "Running $test_file" | tee -a /tmp/vitest.log
+
+          run_check() {
+            echo "Running $*" | tee -a /tmp/vitest.log
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.debug_logs }}" = "true" ]; then
-              timeout 120s env CI=true npx vitest run --maxWorkers=1 --pool=forks --reporter=verbose "$test_file" 2>&1 | tee -a /tmp/vitest.log
+              timeout 900s env CI=true "$@" 2>&1 | tee -a /tmp/vitest.log
             else
-              timeout 120s env LOG_LEVEL=fatal CI=true npx vitest run --maxWorkers=1 --pool=forks "$test_file" 2>&1 | tee -a /tmp/vitest.log
+              timeout 900s env LOG_LEVEL=fatal CI=true "$@" 2>&1 | tee -a /tmp/vitest.log
             fi
             status=${PIPESTATUS[0]}
             if [ "$status" -eq 124 ]; then
-              echo "::error::Vitest timed out on $test_file after 120 seconds"
+              echo "::error::$* timed out after 900 seconds"
               exit 124
             fi
             if [ "$status" -ne 0 ]; then
               exit "$status"
             fi
-          done < /tmp/test-files.txt
+          }
+
+          run_check npm test
+          run_check npm run test:e2e
+          export GANTRY_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:${{ job.services.postgres.ports[5432] }}/gantry_test
+          run_check npm run test:e2e:postgres
 
       - name: Debug CI Hang Context
         if: ${{ always() && steps.tests.outcome != 'success' }}

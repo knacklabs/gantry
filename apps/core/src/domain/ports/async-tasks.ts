@@ -95,6 +95,7 @@ export interface AsyncTaskCreateInput {
 export interface AsyncTaskListFilter {
   appId: string;
   agentId?: string;
+  kind?: AsyncTaskKind;
   conversationId?: string | null;
   threadId?: string | null;
   parentRunId?: string | null;
@@ -131,6 +132,7 @@ export interface AsyncTaskRepository {
     input: AsyncTaskCreateInput,
     admission: {
       activeStatuses: AsyncTaskStatus[];
+      kind?: AsyncTaskKind;
       maxActivePerApp: number;
       maxActivePerAgent: number;
     },

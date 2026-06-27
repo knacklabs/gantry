@@ -1068,8 +1068,8 @@ describe('permission interaction', () => {
       {
         requestId: 'permission_123',
         sourceAgentFolder: 'main_agent',
-        jobId: 'knacklabs-lead-maintenance-controller-2026-05-15',
-        jobName: 'KnackLabs Lead Maintenance Controller',
+        jobId: 'fixture-lead-maintenance-controller-2026-05-15',
+        jobName: 'Fixture Lead Maintenance Controller',
         toolName: 'Bash',
         toolInput: { command: 'npm run lead-generator' },
       },
@@ -1077,11 +1077,11 @@ describe('permission interaction', () => {
     );
 
     expect(text).toContain(
-      'Context: scheduled job: KnackLabs Lead Maintenance Controller',
+      'Context: scheduled job: Fixture Lead Maintenance Controller',
     );
     expect(text).toContain('Agent: Main Agent');
     expect(text).not.toContain(
-      'knacklabs-lead-maintenance-controller-2026-05-15',
+      'fixture-lead-maintenance-controller-2026-05-15',
     );
   });
 
@@ -1361,7 +1361,7 @@ describe('permission interaction', () => {
       {
         requestId: 'perm-abc-123',
         sourceAgentFolder: 'main_agent',
-        jobId: 'knacklabs-lead-maintenance-controller-2026-05-15',
+        jobId: 'fixture-lead-maintenance-controller-2026-05-15',
         toolName: 'Bash',
         toolInput: { command: 'npm run lead-generator' },
       },
@@ -1377,7 +1377,7 @@ describe('permission interaction', () => {
     );
     expect(receipt).not.toContain('From: scheduled job');
     expect(receipt).not.toContain(
-      'knacklabs-lead-maintenance-controller-2026-05-15',
+      'fixture-lead-maintenance-controller-2026-05-15',
     );
     expect(receipt).not.toContain('perm-abc-123');
   });

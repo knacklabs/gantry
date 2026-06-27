@@ -126,8 +126,10 @@ function parseServiceAccountCredentials(
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
-  } catch {
-    throw new Error('Invalid Vertex service account credential.');
+  } catch (error) {
+    throw new Error('Invalid Vertex service account credential.', {
+      cause: error,
+    });
   }
   if (
     !parsed ||

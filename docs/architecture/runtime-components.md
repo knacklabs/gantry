@@ -29,7 +29,8 @@ Agent responsibilities:
 - emit replies through normal channel output paths
 - emit app-visible structured events only through host-owned tools
 
-ACP/ACPS are harness/runtime integration concerns. They are not part of the agent contract, SDK contract, or channel message contract.
+Maintainer automation is not part of the agent contract, SDK contract, or
+channel message contract.
 
 ## Runtime Map
 

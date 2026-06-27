@@ -23,7 +23,7 @@ The agent owns:
 - using runtime-exposed tools
 - emitting structured output through normal runtime channels
 
-ACP/ACPS are harness/runtime integration concerns. They are not part of the agent contract.
+Maintainer automation is not part of the agent contract.
 
 ## Message lifecycle
 

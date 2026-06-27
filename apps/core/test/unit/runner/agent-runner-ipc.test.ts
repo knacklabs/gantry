@@ -465,6 +465,14 @@ export async function* query({ prompt, options }) {
     ),
   };
 
+  if (
+    process.env.TEST_EMPTY_QUERY === '1' ||
+    process.env.TEST_EMPTY_RESUMED_QUERY === '1'
+  ) {
+    appendRecord(call);
+    return;
+  }
+
   yield {
     type: 'system',
     subtype: 'init',
@@ -2027,6 +2035,64 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'fails empty resumed SDK streams so the runtime can retry without resume',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ sessionId: 'stale-sdk-session' }),
+        {
+          TEST_EMPTY_RESUMED_QUERY: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(readRecord(fixture.recordPath).calls[0]?.resume).toBe(
+        'stale-sdk-session',
+      );
+      expect(readRunnerOutputs(result.stdout)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 'error',
+            error: expect.stringContaining(
+              'No conversation found with session ID',
+            ),
+          }),
+        ]),
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails empty new SDK streams instead of completing with no answer',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EMPTY_QUERY: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(readRecord(fixture.recordPath).calls[0]?.resume).toBeUndefined();
+      expect(readRunnerOutputs(result.stdout)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            status: 'error',
+            error: expect.stringContaining(
+              'Anthropic SDK query completed without messages or results',
+            ),
+          }),
+        ]),
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'routes /compact through a persistent live streaming SDK query',
     async () => {
       const fixture = createRunnerFixture();
@@ -2706,7 +2772,7 @@ describe('agent-runner IPC lifecycle', () => {
             {
               selectedCapabilityId: 'acme.records.get',
               sourceType: 'local_cli',
-              auditLabel: 'Gog Sheets get',
+              auditLabel: 'Fixture Records get',
               commandRules: [
                 'RunCommand(/opt/homebrew/bin/acme records get *)',
               ],
@@ -2727,7 +2793,7 @@ describe('agent-runner IPC lifecycle', () => {
           TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_SDK_NETWORK_HOST: 'oauth2.googleapis.com',
           TEST_TOOL_USE_CMD:
-            '/opt/homebrew/bin/acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
+            '/opt/homebrew/bin/acme records get fixture_sheet_001 "Fixture Leads!A1:Z1" --json --account operator@example.test',
         },
       );
 
@@ -2767,7 +2833,7 @@ describe('agent-runner IPC lifecycle', () => {
           TEST_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_TOOL_USE_CMD:
-            '/opt/homebrew/bin/acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
+            '/opt/homebrew/bin/acme records get fixture_sheet_001 "Fixture Leads!A1:Z1" --json --account operator@example.test',
         },
       );
 

@@ -38,8 +38,8 @@ cli -> application -> domain
 Layer rules:
 
 - `domain` imports no adapters, runtime, CLI, HTTP, Postgres, Slack, Telegram,
-  Teams, WhatsApp, Claude, Anthropic SDK, OpenAI, Gemini, ACP/ACPX, or
-  provider-specific packages.
+  Teams, WhatsApp, Claude, Anthropic SDK, OpenAI, Gemini, maintainer
+  automation, or provider-specific packages.
 - `application` may import domain entities, domain services, ports, and shared
   contracts. It must not instantiate concrete adapters.
 - `runtime` may compose application services into queues, runs, leases, IPC,
@@ -118,7 +118,6 @@ Owns concrete integrations:
 - control HTTP adapter
 - CLI adapter
 - browser and sandbox providers
-- ACP/ACPX orchestration adapters
 - logging, service-manager, and platform adapters
 
 Adapters translate external payloads into canonical application inputs and

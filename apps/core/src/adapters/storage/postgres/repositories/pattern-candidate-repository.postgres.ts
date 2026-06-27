@@ -4,14 +4,18 @@ import type {
   PatternEvidenceRef,
   PatternProposalStatus,
 } from '@gantry/contracts';
-import { and, desc, eq, gte, inArray, or } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 
 import type {
   PatternCandidateRepository,
   PatternCandidateSubject,
   PatternCandidateTransition,
 } from '../../../../domain/ports/pattern-candidates.js';
-import { PATTERN_SUGGESTED_FOLLOWUP_HOURS } from '../../../../shared/pattern-candidate-policy.js';
+import {
+  PATTERN_SUGGESTED_FOLLOWUP_HOURS,
+  PATTERN_VALUE_FLOOR_MIN_OCCURRENCES,
+  PATTERN_VALUE_FLOOR_MIN_SPAN_DAYS,
+} from '../../../../shared/pattern-candidate-policy.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 
@@ -42,6 +46,8 @@ export class PostgresPatternCandidateRepository implements PatternCandidateRepos
           eq(table.agentId, subject.agentId),
           eq(table.subjectType, subject.subjectType),
           eq(table.subjectId, subject.subjectId),
+          gte(table.occurrences, PATTERN_VALUE_FLOOR_MIN_OCCURRENCES),
+          sql`${table.windowEnd}::timestamptz - ${table.windowStart}::timestamptz >= make_interval(days => ${PATTERN_VALUE_FLOOR_MIN_SPAN_DAYS})`,
           or(
             eq(table.candidateStatus, 'detected'),
             and(

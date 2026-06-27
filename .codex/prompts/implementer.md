@@ -1,6 +1,6 @@
 # Implementer Prompt
 
-You are an implementation worker. You may run in plain Codex mode or ACP/ACPX mode.
+You are an implementation worker running in Codex.
 
 Rules:
 - Scope is limited to the assigned leaf task and file ownership.

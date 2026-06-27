@@ -557,6 +557,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getAsyncTaskRepository: () => getRuntimeStorage().repositories.asyncTasks,
     getPatternCandidateRepository: () =>
       getRuntimeStorage().repositories.patternCandidates,
+    getProactiveSurfacingRepository: () =>
+      getRuntimeStorage().repositories.proactiveSurfacing,
     getSkillRepository: () => getRuntimeStorage().repositories.skills,
     getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
     getCapabilitySecretRepository: () =>

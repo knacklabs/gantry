@@ -225,8 +225,10 @@ function normalizeUpstreamOrigin(origin: string): string {
   let url: URL;
   try {
     url = new URL(origin);
-  } catch {
-    throw new Error('Model gateway upstream origin is invalid.');
+  } catch (error) {
+    throw new Error('Model gateway upstream origin is invalid.', {
+      cause: error,
+    });
   }
   if (
     url.protocol !== 'https:' ||

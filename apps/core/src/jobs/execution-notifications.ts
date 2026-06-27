@@ -56,7 +56,7 @@ function recoveryActionAffordances(input: {
   ];
 }
 
-function runAgainActionAffordances(input: {
+function runAgainActionAffordances(_input: {
   job: Job;
   runId: string;
 }): MessageActionAffordance[] {

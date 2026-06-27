@@ -1,20 +1,21 @@
 # Codex Factory
 
-Gantry can run a doc-driven Codex factory mode with optional ACP/ACPX orchestration.
+Gantry can run a doc-driven Codex factory mode.
 
 ## Runtime Model
 
 - Product intent lives in `docs/product/BRIEF.md`.
 - Architecture and decision docs live in the repo before planning starts.
 - A planner owns decomposition and writes a task graph that can be mirrored into Linear.
-- Plain Codex or Codex with ACP/ACPX orchestration handles implementation.
+- Codex handles implementation.
 - Codex custom subagents handle testing and isolated review.
 - Use Linear when you want task tracking outside the repo.
 - Use GitHub when you want PR and branch status outside the repo.
 
-## Why ACP/ACPX Is Optional
+## Local By Default
 
-ACP/ACPX helps when you want longer-running orchestration, but this repo must still work cleanly in plain Codex.
+Factory mode is local maintainer automation. It should work cleanly in Codex
+without depending on an external orchestration service.
 
 ## Why Custom Subagents
 

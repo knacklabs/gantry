@@ -24,6 +24,10 @@
 # Single-pool stacks (the `all`-role support env) register their one worker to
 # BOTH target groups, so the same instance receives /v1/* and /webhooks/*.
 
+locals {
+  public_ingress_cidrs = distinct(concat(var.api_ingress_cidrs, var.webhook_ingress_cidrs))
+}
+
 resource "aws_security_group" "alb" {
   name        = "${var.name_prefix}-alb"
   description = "Gantry public ALB ingress"
@@ -38,7 +42,7 @@ resource "aws_security_group_rule" "alb_ingress_https" {
   to_port           = 443
   protocol          = "tcp"
   security_group_id = aws_security_group.alb.id
-  cidr_blocks       = var.ingress_cidrs
+  cidr_blocks       = local.public_ingress_cidrs
   description       = "HTTPS from allowed CIDRs"
 }
 
@@ -49,7 +53,7 @@ resource "aws_security_group_rule" "alb_ingress_http" {
   to_port           = 80
   protocol          = "tcp"
   security_group_id = aws_security_group.alb.id
-  cidr_blocks       = var.ingress_cidrs
+  cidr_blocks       = local.public_ingress_cidrs
   description       = "HTTP from allowed CIDRs"
 }
 
@@ -149,7 +153,7 @@ resource "aws_lb_listener" "https" {
 
 # /v1/* (admin/settings API, SDK sessions, external ingress) -> control TG.
 resource "aws_lb_listener_rule" "https_api_paths" {
-  count        = var.certificate_arn != "" ? 1 : 0
+  count        = var.certificate_arn != "" && length(var.api_ingress_cidrs) > 0 ? 1 : 0
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 100
 
@@ -163,11 +167,17 @@ resource "aws_lb_listener_rule" "https_api_paths" {
       values = var.api_path_patterns
     }
   }
+
+  condition {
+    source_ip {
+      values = var.api_ingress_cidrs
+    }
+  }
 }
 
 # /webhooks/* (provider inbound webhooks) -> live TG (providerInbound role).
 resource "aws_lb_listener_rule" "https_webhook_paths" {
-  count        = var.certificate_arn != "" && var.enable_webhook_paths ? 1 : 0
+  count        = var.certificate_arn != "" && var.enable_webhook_paths && length(var.webhook_ingress_cidrs) > 0 ? 1 : 0
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 110
 
@@ -179,6 +189,12 @@ resource "aws_lb_listener_rule" "https_webhook_paths" {
   condition {
     path_pattern {
       values = var.webhook_path_patterns
+    }
+  }
+
+  condition {
+    source_ip {
+      values = var.webhook_ingress_cidrs
     }
   }
 }

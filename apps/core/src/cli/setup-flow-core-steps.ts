@@ -285,7 +285,7 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
   draft.agentName = String(agentName).trim();
 
   const preset = await p.select({
-    message: 'Choose model preset',
+    message: 'Choose memory/defaults preset',
     options: [
       ...listModelPresets().map((preset) => ({
         value: preset.id,
@@ -333,7 +333,7 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
       ? draft.selectedModel
       : selectedPreset.chatDefault;
   const value = await p.select({
-    message: 'Choose main model',
+    message: 'Choose main model/provider',
     options: [
       ...chatModelOptions,
       {

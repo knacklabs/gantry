@@ -3,6 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
+  vi.doUnmock('@clack/prompts');
+  vi.doUnmock('@core/cli/onboarding-state.js');
+  vi.doUnmock('@core/cli/setup-credentials.js');
+  vi.doUnmock('@core/cli/setup-flow-core-steps.js');
+  vi.doUnmock('@core/cli/setup-flow-final-steps.js');
+  vi.doUnmock('@core/cli/setup-flow-provider-steps.js');
+  vi.doUnmock('@core/cli/setup-flow-state.js');
+  vi.doUnmock('@core/cli/setup-ready.js');
 });
 
 describe('simplified setup sequence', () => {
@@ -92,6 +100,123 @@ describe('simplified setup sequence', () => {
     expect(resumed.agentHarness).toBe('auto');
     expect(resumed.telegramDisplayName).toBe('main team chat');
     expect(resumed.slackDisplayName).toBe('ops-room');
+  });
+
+  it('can move back and forward across model and credentials steps', async () => {
+    const sequence = [
+      'welcome',
+      'runtime_home',
+      'storage',
+      'channel',
+      'model',
+      'credentials',
+      'telegram',
+      'slack',
+      'config',
+      'group',
+      'verify',
+      'ready',
+    ];
+    const calls: string[] = [];
+    const draft = {
+      runtimeHome: '/tmp/gantry-setup-flow-state-machine',
+      primaryProvider: 'telegram',
+    };
+    const step = (name: string, action = { type: 'next' }) =>
+      vi.fn(async () => {
+        calls.push(name);
+        return action;
+      });
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-state.js', () => ({
+      FULL_SEQUENCE: sequence,
+      defaultStepIndex: (step: string | undefined) =>
+        step ? sequence.indexOf(step) : 0,
+      shouldSkipStep: (step: string) => step === 'slack',
+      restoreDraft: vi.fn(() => draft),
+      updateStateData: vi.fn(),
+      persistProgress: vi.fn(),
+    }));
+    vi.doMock('@core/cli/onboarding-state.js', () => ({
+      clearOnboardingState: vi.fn(),
+      createInitialState: vi.fn((runtimeHome: string) => ({
+        currentStep: 'welcome',
+        status: 'in_progress',
+        data: { runtimeHome },
+      })),
+      readOnboardingState: vi.fn(() => null),
+    }));
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => {
+      let modelCalls = 0;
+      return {
+        runWelcomeStep: step('welcome'),
+        runRuntimeHomeStep: step('runtime_home', {
+          action: { type: 'next' },
+        }),
+        runStorageStep: step('storage'),
+        runChannelStep: step('channel'),
+        runModelStep: vi.fn(async () => {
+          calls.push('model');
+          modelCalls += 1;
+          return modelCalls === 1 ? { type: 'back' } : { type: 'next' };
+        }),
+      };
+    });
+    vi.doMock('@core/cli/setup-credentials.js', () => {
+      let credentialCalls = 0;
+      return {
+        runCredentialsStep: vi.fn(async () => {
+          calls.push('credentials');
+          credentialCalls += 1;
+          return credentialCalls === 1 ? { type: 'back' } : { type: 'next' };
+        }),
+      };
+    });
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep: step('telegram'),
+      runSlackStep: step('slack'),
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep: step('config'),
+      runGroupStep: step('group'),
+      runVerifyStep: step('verify'),
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep: step('ready'),
+    }));
+
+    const { runSetupFlow } = await import('@core/cli/setup-flow.js');
+
+    await expect(
+      runSetupFlow({
+        importMetaUrl: 'file:///test',
+        runtimeHome: draft.runtimeHome,
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      runtimeHome: draft.runtimeHome,
+      startAfterSetup: undefined,
+    });
+    expect(calls).toEqual([
+      'welcome',
+      'runtime_home',
+      'storage',
+      'channel',
+      'model',
+      'channel',
+      'model',
+      'credentials',
+      'model',
+      'credentials',
+      'telegram',
+      'config',
+      'group',
+      'verify',
+      'ready',
+    ]);
   });
 });
 

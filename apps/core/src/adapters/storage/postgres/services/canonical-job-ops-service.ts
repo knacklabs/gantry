@@ -1,5 +1,5 @@
 // prettier-ignore
-import type { Job, JobAccessRequirement, JobCapabilityRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
+import type { Job, JobAccessRequirement, JobCapabilityRequirementImplementation, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 import type {
   JobEventListFilters,
   JobListFilters,

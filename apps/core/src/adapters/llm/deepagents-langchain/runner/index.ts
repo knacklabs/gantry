@@ -41,7 +41,7 @@ function log(message: string): void {
   }
 }
 
-function resolveModelId(agentInput: DeepAgentRunnerInput): string {
+function resolveModelId(): string {
   const fromEnv = process.env.GANTRY_DEEPAGENTS_MODEL_ID?.trim();
   if (fromEnv) return fromEnv;
   throw new Error(
@@ -114,7 +114,7 @@ async function runScheduled(agentInput: DeepAgentRunnerInput): Promise<void> {
     const turn = await runDeepAgentTurn({
       agentInput,
       provider: resolveModelProvider(),
-      modelId: resolveModelId(agentInput),
+      modelId: resolveModelId(),
       ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
       ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
       newSessionId: diagnosticSessionId,
@@ -233,7 +233,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
         turn = await runDeepAgentTurn({
           agentInput: turnInput,
           provider: resolveModelProvider(),
-          modelId: resolveModelId(agentInput),
+          modelId: resolveModelId(),
           ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
           ...(openRouterProviderRouting ? { openRouterProviderRouting } : {}),
           newSessionId: sessionId,

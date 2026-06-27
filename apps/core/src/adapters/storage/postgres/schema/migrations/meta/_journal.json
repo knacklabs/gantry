@@ -603,6 +603,13 @@
       "when": 1777302600000,
       "tag": "0088_provider_runtime_secret_ref_object",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1777306200000,
+      "tag": "0089_proactive_surfacing_opt_ins",
+      "breakpoints": true
     }
   ]
 }

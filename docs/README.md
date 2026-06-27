@@ -1,18 +1,28 @@
 # Gantry Documentation
 
-This directory holds in-repo product, architecture, factory, and operational docs.
+Public docs for Gantry's product intent, runtime behavior, architecture
+boundaries, decisions, security model, and operations.
 
-Use these files as the local source of truth when planning or reviewing work:
+## Start Here
 
-- [architecture/overview.md](architecture/overview.md) for a top-down architecture map with diagrams (start here)
-- [architecture/runtime-components.md](architecture/runtime-components.md) for the contributor runtime component map and source-reading paths
-- [MEMORY.md](MEMORY.md) for the app-grade memory boundary model and dreaming lifecycle
-- [../README.md](../README.md) for end-user npm install and first-run setup
-- [SPEC.md](SPEC.md) for behavior and architecture expectations
-- [SECURITY.md](SECURITY.md) for the security model
-- [REQUIREMENTS.md](REQUIREMENTS.md) for product intent and constraints
-- [FACTORY.md](FACTORY.md) and [QUALITY.md](QUALITY.md) for workflow gates
-- [validation-loop.md](validation-loop.md) for deterministic validation flow
-- [DEBUG_CHECKLIST.md](DEBUG_CHECKLIST.md) for operational troubleshooting
+- [Repository README](../README.md) - install, setup, and runtime overview.
+- [Product brief](product/BRIEF.md) - concise product intent and scope.
+- [Requirements](REQUIREMENTS.md) - product and architecture requirements.
+- [Specification](SPEC.md) - expected runtime behavior and constraints.
 
-The `docs/product/`, `docs/architecture/`, and `docs/decisions/` directories exist so the repo stays self-contained during planning and implementation.
+## Architecture And Runtime
+
+- [Architecture docs](architecture/README.md) - current runtime architecture index.
+- [Architecture overview](architecture/overview.md) - top-down runtime map.
+- [Runtime components](architecture/runtime-components.md) - contributor source-reading guide.
+- [Memory](MEMORY.md) - memory boundary model and dreaming lifecycle.
+
+## Decisions And Safety
+
+- [Decision records](decisions/README.md) - architecture choices that override broad guidance.
+- [Security](SECURITY.md) - security model and reporting guidance.
+
+## Operations
+
+- [Validation loop](validation-loop.md) - deterministic validation flow.
+- [Debug checklist](DEBUG_CHECKLIST.md) - operational troubleshooting.

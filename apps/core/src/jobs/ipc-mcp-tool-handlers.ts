@@ -6,7 +6,6 @@ import { isActiveRunLeaseForInteraction } from '../application/interactions/pend
 import {
   isAsyncTaskTerminal,
   toPublicAsyncTaskDto,
-  type AsyncTaskRecord,
   type AsyncTaskRepository,
 } from '../domain/ports/async-tasks.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';

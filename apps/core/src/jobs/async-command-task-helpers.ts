@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -109,27 +108,6 @@ export function terminateProcessHandle(
     }
   }, 1_000).unref?.();
   return true;
-}
-
-function processHandleStillMatches(handle: AsyncCommandProcessHandle): boolean {
-  if (!handle.processStartId) return false;
-  const currentStartId = readProcessStartId(handle.pid);
-  return currentStartId === handle.processStartId;
-}
-
-function readProcessStartId(pid: number): string | null {
-  if (process.platform !== 'darwin' && process.platform !== 'linux') {
-    return null;
-  }
-  try {
-    const output = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return output || null;
-  } catch {
-    return null;
-  }
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

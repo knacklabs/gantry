@@ -116,31 +116,7 @@ They must not:
 - bypass permission evaluation
 - treat provider session ids as canonical continuity
 - import provider SDK payloads into domain behavior
-- assume ACP/ACPX is present
-
-## ACP/ACPX Integration
-
-The repo must work with plain Codex and with ACP/ACPX integrations. ACP/ACPX
-are orchestration adapters around the same runtime contracts.
-
-ACP/ACPX may provide:
-
-- persistent issue sessions
-- orchestration state
-- long-running coordination
-- external task graph synchronization
-
-ACP/ACPX must not define:
-
-- canonical app identity
-- agent identity
-- conversation or thread identity
-- permission policy semantics
-- provider session behavior
-- runtime storage layout
-
-Plain Codex and ACP/ACPX modes must produce the same factory artifacts and use
-the same in-repo architecture source of truth.
+- assume maintainer automation is present
 
 ## Provider Positioning
 

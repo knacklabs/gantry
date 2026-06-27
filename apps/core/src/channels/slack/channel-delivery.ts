@@ -19,11 +19,6 @@ import {
   stripInternalTagsPreserveWhitespace,
 } from '../../messaging/router.js';
 import {
-  buildPermissionPromptParts,
-  permissionButtonLabel,
-  permissionDecisionOptions,
-} from '../permission-interaction.js';
-import {
   disconnectSlackDelivery,
   loadPersistedSlackProgress,
   persistSlackProgress,

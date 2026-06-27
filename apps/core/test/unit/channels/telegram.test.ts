@@ -2494,6 +2494,47 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
     });
 
+    it('lets fresh progress replace a restored higher generation after restart', async () => {
+      const runtimeHome = fs.mkdtempSync('/tmp/gantry-tg-progress-');
+      const savedHome = process.env.GANTRY_HOME;
+      process.env.GANTRY_HOME = runtimeHome;
+      try {
+        const first = new TelegramChannel('test-token', createTestOpts());
+        await first.connect();
+        await first.sendProgressUpdate('tg:100200300', 'Old waiting...', {
+          generation: 4,
+        });
+
+        const second = new TelegramChannel('test-token', createTestOpts());
+        await second.connect();
+        currentBot().api.sendMessage.mockClear();
+        currentBot().api.editMessageText.mockClear();
+
+        await second.sendProgressUpdate('tg:100200300', 'Working again...', {
+          generation: 2,
+        });
+
+        expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+        expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
+        await second.sendProgressUpdate('tg:100200300', 'Done again.', {
+          done: true,
+          generation: 3,
+        });
+
+        expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+          '100200300',
+          987,
+          'Done again.',
+          expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+        );
+      } finally {
+        if (savedHome === undefined) delete process.env.GANTRY_HOME;
+        else process.env.GANTRY_HOME = savedHome;
+        fs.rmSync(runtimeHome, { recursive: true, force: true });
+      }
+    });
+
     it('refreshes a stale unchanged initial progress handle with a new message', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);

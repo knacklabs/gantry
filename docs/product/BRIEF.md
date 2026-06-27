@@ -1,26 +1,25 @@
 # Gantry Product Brief
 
-## Problem
+Gantry is a provider-neutral and channel-neutral agent runtime for teams that
+need AI agents to run safely inside product and operations workflows.
 
-Teams and individuals need a provider-neutral agent runtime that is secure by default, easy to customize in code, and predictable across messaging and application channels.
+## Product Intent
 
-## Core Outcomes
+- Run agents behind controlled channel, tool, memory, scheduling, and audit boundaries.
+- Let deployments choose channels and model providers without rewriting core runtime behavior.
+- Keep customization explicit through prompts, model aliases, capabilities, and conversation bindings.
+- Make risky actions visible and reviewable through permission, sandbox, and audit flows.
 
-- Isolated per-group execution and memory
-- Predictable routing, scheduling, and session behavior
-- Fast customization through small, understandable code changes
+## Current Scope
 
-## Scope
-
-- Core orchestrator behavior
-- Runtime selection and safety boundaries
-- Channel integrations and skill-driven extensibility
+- CLI and package-based runtime setup.
+- Slack, Telegram, Teams, and web or SDK-facing runtime concepts.
+- Postgres-backed settings, credential references, memory, jobs, events, and audit state.
+- Provider-neutral model routing through catalog aliases and gateway-owned credentials.
 
 ## Non-Goals
 
-- Multi-tenant SaaS control planes
-- Large framework abstractions that hide behavior
-
-## Active Acceptance Criteria
-
-Define these per feature run in `.factory/run.json` and related plan artifacts.
+- A hosted multi-tenant SaaS control plane.
+- A general workflow engine.
+- Provider-specific application logic in core runtime.
+- Hidden compatibility branches for obsolete local state.

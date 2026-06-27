@@ -1813,7 +1813,7 @@ describe('job application use cases', () => {
       authThreadId: '2771',
     };
     const threadedJob = makeJob({
-      id: 'lead:knacklabs-controller',
+      id: 'lead:fixture-controller',
       workspace_key: 'team',
       thread_id: '2771',
       execution_context: {
@@ -1849,7 +1849,7 @@ describe('job application use cases', () => {
 
   it('keeps an existing job route when upserted from another topic in the same conversation', async () => {
     const existingJob = makeJob({
-      id: 'lead:knacklabs-controller',
+      id: 'lead:fixture-controller',
       workspace_key: 'team',
       thread_id: '2771',
       execution_context: {

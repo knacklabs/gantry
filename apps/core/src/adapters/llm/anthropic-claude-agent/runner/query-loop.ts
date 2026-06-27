@@ -623,9 +623,8 @@ export async function runQuery(
               result: delta.text,
               newSessionId,
             });
-            if (firstVisibleOutputMs !== undefined) {
+            if (firstVisibleOutputMs !== undefined)
               emitStartupTimingDiagnostic();
-            }
           }
         }
       }
@@ -638,9 +637,7 @@ export async function runQuery(
         const textResult =
           'result' in message ? (message as { result?: string }).result : null;
         const resultFailure = sdkResultFailureMessage(message);
-        if (resultFailure) {
-          throw new Error(resultFailure);
-        }
+        if (resultFailure) throw new Error(resultFailure);
         if (!sawPartialTextSinceLastResult && textResult) {
           firstVisibleOutputMs ??= firstResultMs;
         }
@@ -685,6 +682,12 @@ export async function runQuery(
     heartbeat.stop();
     steeringGate.close();
   }
+  if (messageCount === 0 && resultCount === 0 && !closedDuringQuery)
+    throw new Error(
+      persistSdkSession && agentInput.sessionId
+        ? `No conversation found with session ID: ${agentInput.sessionId}`
+        : 'Anthropic SDK query completed without messages or results',
+    );
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,
   );

@@ -6,12 +6,7 @@ import {
   AUTO_AGENT_HARNESS,
   type AgentHarness,
 } from '../shared/agent-engine.js';
-import {
-  envConfig,
-  envValue,
-  envValueDynamic,
-  runtimeEnvValue,
-} from './env/index.js';
+import { envConfig, envValue, envValueDynamic } from './env/index.js';
 import { getMemoryModelConfig } from './memory.js';
 import { getGantryHome } from '../shared/gantry-home.js';
 import { resolveRuntimeStorageConfig } from './settings/storage.js';

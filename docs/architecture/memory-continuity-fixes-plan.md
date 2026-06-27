@@ -79,7 +79,7 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 - Empty-result responses include the subject used: `{ results: [], subject: { agentId: 'agent:main_agent', scope: 'group', workspaceFolder: '...' } }`.
 
 **Exit criteria:**
-- Repro from this session: `memory_search('knacklabs lead controller job')` from `main_agent` returns the durable facts saved during this and prior sessions, with provenance. (Requires Phase 2 to populate; for Phase 1 it is enough that the subject is correct and a manually-saved memory round-trips.)
+- Repro from this session: `memory_search('fixture lead controller job')` from `main_agent` returns the durable facts saved during this and prior sessions, with provenance. (Requires Phase 2 to populate; for Phase 1 it is enough that the subject is correct and a manually-saved memory round-trips.)
 - Grep for `DEFAULT_MEMORY_AGENT_ID` returns zero hits.
 - Grep for `agent:personal` as a string literal in recall/save paths returns zero hits.
 - Smoke test: save a memory under one subject, search with another — must return zero, with the correct subject reported back.
@@ -125,7 +125,7 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 
 **Exit criteria:**
 - Fresh `main_agent` session injects a non-empty continuity block whose size is reported by `memory_status`.
-- Repro: pause `lead:knacklabs-controller`, start a new session — paused job appears in the injected block.
+- Repro: pause `lead:fixture-controller`, start a new session — paused job appears in the injected block.
 - `continuity_empty_unexpected` warning fires when the block is empty but state exists, and never fires when state is genuinely empty.
 
 **Deletion target:** ≥80 lines net.
@@ -177,7 +177,7 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 
 ## 7. Cross-phase exit checklist
 
-- [ ] `memory_search('knacklabs lead controller job')` from `main_agent` returns the durable facts after one dream cycle.
+- [ ] `memory_search('fixture lead controller job')` from `main_agent` returns the durable facts after one dream cycle.
 - [ ] Grep for `DEFAULT_MEMORY_AGENT_ID` and `agent:personal` literal in non-test runtime code returns zero.
 - [ ] Auto-promoted memories are reachable by `memory_search` and tagged `promoted_by: 'dreaming'`.
 - [ ] Fresh `main_agent` session injects a continuity block with the paused-job state.
@@ -218,4 +218,4 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 
 ---
 
-**End of plan.** §99-C in the meta tracker is the verification target. When a fresh `main_agent` session injects continuity that includes the paused `lead:knacklabs-controller` job, this plan is done.
+**End of plan.** §99-C in the meta tracker is the verification target. When a fresh `main_agent` session injects continuity that includes the paused `lead:fixture-controller` job, this plan is done.

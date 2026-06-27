@@ -1,11 +1,17 @@
 # `.codex/` — Gantry Agent Harness
 
-This directory is the **Codex agent harness**. It is the contract that turns a
-Codex/ACP session (or any compatible runner) into a disciplined factory:
-plan → decompose → implement → test → review → functional check → PR-ready.
+This directory is the **optional Codex agent harness** used by Gantry
+maintainers. It can turn a Codex session into a disciplined factory: plan →
+decompose → implement → test → review → functional check → PR-ready.
 
-If you are about to contribute, read this once end-to-end. The harness is what
-keeps multiple humans and multiple agents from stepping on each other.
+Public contributors do not need this harness to send a pull request. Use the
+normal repository workflow in [`CONTRIBUTING.md`](../CONTRIBUTING.md) unless a
+maintainer asks for factory artifacts.
+
+The checked-in `.codex/config.toml` is safe by default: repository hooks are
+disabled and the sandbox is workspace-scoped. Maintainers who intentionally use
+factory mode may enable hooks locally after reviewing `hooks.json` and the
+scripts it runs.
 
 > Companion docs: top-level [`AGENTS.md`](../AGENTS.md), [`WORKFLOW.md`](../WORKFLOW.md),
 > [`docs/FACTORY.md`](../docs/FACTORY.md), [`docs/QUALITY.md`](../docs/QUALITY.md).
@@ -25,8 +31,9 @@ Three things move through the harness on every change:
    `.factory/`. Gates refuse to mark a run PR-ready until the required
    artifacts exist and pass thresholds.
 
-Codex hooks (`hooks.json`) inject this context into every session and prompt,
-so a fresh agent always knows what phase it is in and what is expected next.
+When maintainers enable Codex hooks locally, `hooks.json` injects this context
+into every session and prompt, so a fresh agent always knows what phase it is in
+and what is expected next.
 
 ---
 
@@ -36,8 +43,8 @@ so a fresh agent always knows what phase it is in and what is expected next.
 .codex/
 ├── AGENTS.md                  # operating rules for *this folder* (prompt layer)
 ├── README.md                  # you are here
-├── config.toml                # Codex personality, sandbox, agent limits
-├── hooks.json                 # SessionStart / UserPromptSubmit / PreToolUse / Stop wiring
+├── config.toml                # safe default Codex personality, sandbox, agent limits
+├── hooks.json                 # optional SessionStart / UserPromptSubmit / PreToolUse / Stop wiring
 ├── rules/default.rules        # Codex-native command policy
 ├── architecture-map.json      # owned layers, line budgets, provider patterns
 ├── architecture-exceptions.json # narrow time-bounded waivers (keep small)

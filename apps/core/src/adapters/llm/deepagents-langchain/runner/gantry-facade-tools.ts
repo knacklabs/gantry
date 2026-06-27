@@ -11,7 +11,6 @@ import deepagentsPackageJson from 'deepagents/package.json' with { type: 'json' 
 import {
   GANTRY_FACADE_EXACT_TOOL_NAMES,
   GANTRY_FACADE_INPUT_SCHEMAS,
-  type GantryFacadeExactToolName,
   validateGantryFacadeToolInput,
 } from '../../../../shared/gantry-tool-facades.js';
 import {
@@ -285,7 +284,6 @@ async function fetchText(url: string, proxyUrl: string): Promise<string> {
   const proxy = new URL(proxyUrl);
   return new Promise<string>((resolve, reject) => {
     let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
@@ -351,7 +349,7 @@ async function fetchText(url: string, proxyUrl: string): Promise<string> {
         response.on('error', (err) => finish(() => reject(err)));
       },
     );
-    timer = setTimeout(() => {
+    const timer = setTimeout(() => {
       request.destroy(new Error('Web request timed out.'));
     }, WEB_FETCH_TIMEOUT_MS);
     request.on('error', (err) => finish(() => reject(err)));

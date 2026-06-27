@@ -294,7 +294,7 @@ describe('autonomous tool rule matcher', () => {
         toolName: 'Bash',
         toolInput: {
           command:
-            'acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "\'Bot Recommendation\'!A1:G5000" --json --account ravi@knacklabs.ai 2>&1',
+            'acme records get fixture_sheet_001 "\'Fixture Leads\'!A1:G5000" --json --account operator@example.test 2>&1',
         },
       }),
     ).toMatchObject({ allowed: true });
@@ -305,7 +305,7 @@ describe('autonomous tool rule matcher', () => {
         toolName: 'Bash',
         toolInput: {
           command:
-            'acme records get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "\'Bot Recommendation\'!A1:G5000" --json --account ravi@knacklabs.ai 2>&1 | head -20',
+            'acme records get fixture_sheet_001 "\'Fixture Leads\'!A1:G5000" --json --account operator@example.test 2>&1 | head -20',
         },
       }),
     ).toMatchObject({

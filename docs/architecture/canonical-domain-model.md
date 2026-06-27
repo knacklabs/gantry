@@ -311,7 +311,7 @@ Storage adapters:
 - may use Postgres, Drizzle, pg-boss, and indexes internally
 - must not expose database row shapes as domain identity
 
-CLI, control HTTP, Web UI, SDK, and ACP/ACPX adapters:
+CLI, control HTTP, Web UI, and SDK adapters:
 
 - authenticate and parse external requests
 - invoke application use cases

@@ -6,12 +6,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vrknetha/gantry.git",
+    "url": "git+https://github.com/gantry/gantry.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/vrknetha/gantry/tree/main/packages/sdk",
+  "homepage": "https://github.com/gantry/gantry/tree/main/packages/sdk",
   "bugs": {
-    "url": "https://github.com/vrknetha/gantry/issues"
+    "url": "https://github.com/gantry/gantry/issues"
   },
   "keywords": [
     "gantry",

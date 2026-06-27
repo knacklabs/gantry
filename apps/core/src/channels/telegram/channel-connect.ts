@@ -17,7 +17,6 @@ import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
   TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN,
   TELEGRAM_USER_QUESTION_CALLBACK_PATTERN,
-  TelegramContext,
 } from './channel-shared.js';
 import {
   createTelegramBotRuntime,

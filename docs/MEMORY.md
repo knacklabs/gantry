@@ -139,8 +139,8 @@ batch of decisions by item number. The page context is convenience data only:
 the host still verifies trusted subject scope, reviewer authority, review
 status, and target versions for every approved mutation.
 
-The agent-led v1 review flow is channel-neutral and works in plain Codex-hosted
-MCP and ACP/ACPX contexts without native buttons:
+The agent-led v1 review flow is channel-neutral and works in text-only
+contexts without native buttons:
 
 1. A job notification keeps the pending count visible and tells the reviewer to
    ask the agent to show pending memory reviews.

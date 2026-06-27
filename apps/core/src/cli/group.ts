@@ -43,7 +43,6 @@ import {
   findConversationIdForAgent,
   formatAgentHarnessLine,
   isInteractiveTerminal,
-  listGroupsWithJid,
   loadDatabase,
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,

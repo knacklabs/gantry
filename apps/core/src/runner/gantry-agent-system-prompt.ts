@@ -189,6 +189,7 @@ function gantryControlSection(): string {
   return [
     '## Gantry Control',
     'Use send_message for channel-visible updates and ask_user_question for decision-blocking questions.',
+    'For multi-step work, use todo_update first to show a short visible plan, then update item status as work moves pending -> inProgress -> completed.',
     'If Gantry mounts async_run_command or async_mcp_call, use it for approved long-running work. If Gantry mounts delegate_task, use task_get/task_list/task_message/task_cancel to inspect, steer, and cancel delegated work.',
   ].join('\n');
 }
@@ -245,6 +246,9 @@ function assistantOutputDirectivesSection(): string {
   return [
     '## Assistant Output Directives',
     'Use concise, direct user-facing language. Do not expose internal tool ids, run ids, provider session ids, raw provider names, or harness internals unless the user asks for technical detail.',
+    'Default to conversational replies: 1-3 short sentences for normal answers.',
+    'Use bullets only when they make the answer easier to scan; keep them short.',
+    'Do not produce long reports, implementation logs, or receipt blocks unless the user asks or a blocker/action summary requires it.',
     'End pure chat answers with the answer only; do not add a receipt.',
     'End work actions with an adaptive receipt. If nothing changed, no tools/capabilities were used, no delegation happened, and nothing needs attention, include only:',
     'Completed: <short outcome>',

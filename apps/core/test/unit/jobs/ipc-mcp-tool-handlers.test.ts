@@ -11,6 +11,7 @@ import type {
 } from '@core/domain/ports/async-tasks.js';
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
+import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
 import { createMcpToolHandlers } from '@core/jobs/ipc-mcp-tool-handlers.js';
 import { registerAsyncCommandSandboxPolicy } from '@core/runtime/async-command-sandbox-policy.js';
 
@@ -63,6 +64,7 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
         (task) =>
           task.appId === filter.appId &&
           (!filter.agentId || task.agentId === filter.agentId) &&
+          (!filter.kind || task.kind === filter.kind) &&
           (!filter.statuses || filter.statuses.includes(task.status)),
       )
       .slice(0, filter.limit ?? 50);
@@ -333,6 +335,56 @@ describe('MCP IPC tool handlers', () => {
       delegated: 'no',
       needsAttention: 'none',
     });
+  });
+
+  it('does not count non-MCP tasks against async MCP admission capacity', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-command',
+      appId: 'app:test',
+      agentId: 'agent:signed',
+      conversationId: 'sl:C123',
+      kind: 'async_command',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {},
+      leaseToken: 'lease-command',
+      fencingVersion: 1,
+      now,
+    });
+    await repository.createTask({
+      id: 'task-delegated',
+      appId: 'app:test',
+      agentId: 'agent:signed',
+      conversationId: 'sl:C123',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {},
+      leaseToken: 'lease-delegated',
+      fencingVersion: 1,
+      now,
+    });
+
+    await expect(
+      createAsyncMcpTask({
+        repository,
+        appId: 'app:test',
+        agentId: 'agent:signed',
+        conversationId: 'sl:C123',
+        serverName: 'crm',
+        toolName: 'create_deal',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(
+      [...repository.tasks.values()].filter(
+        (task) => task.kind === 'mcp_tool_call',
+      ),
+    ).toHaveLength(1);
   });
 
   it('cancels running async MCP calls through the request signal', async () => {

@@ -53,6 +53,7 @@ class MemoryAsyncTaskRepository implements AsyncTaskRepository {
         (task) =>
           task.appId === filter.appId &&
           (!filter.agentId || task.agentId === filter.agentId) &&
+          (!filter.kind || task.kind === filter.kind) &&
           (filter.parentTaskId === undefined ||
             task.privateCorrelationJson.parentTaskId === filter.parentTaskId) &&
           (!filter.statuses || filter.statuses.includes(task.status)),
@@ -276,8 +277,37 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 
-  it('applies active task backpressure to delegated agents before child spawn', async () => {
+  it('does not count non-command tasks against async command admission capacity', async () => {
     const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-mcp',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'mcp_tool_call',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {},
+      leaseToken: 'lease-mcp',
+      fencingVersion: 1,
+      now,
+    });
+    await repository.createTask({
+      id: 'task-delegated',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'running',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {},
+      leaseToken: 'lease-delegated',
+      fencingVersion: 1,
+      now,
+    });
     const runner: AsyncCommandRunner = {
       run: async () => new Promise(() => undefined),
     };
@@ -286,9 +316,43 @@ describe('AsyncCommandTaskService', () => {
     await expect(service.start(baseInput())).resolves.toMatchObject({
       ok: true,
     });
-    await expect(service.start(baseInput())).resolves.toMatchObject({
-      ok: true,
+
+    expect(
+      [...repository.tasks.values()].filter(
+        (task) => task.kind === 'async_command',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('applies active task backpressure to delegated agents before child spawn', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
     });
+    const activeChildSpawn = vi.fn(
+      async () => new Promise<never>(() => undefined),
+    );
+
+    await expect(
+      service.startDelegatedAgent({
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        objective: 'Research accounts',
+        workspaceFolder: 'main_agent',
+        run: activeChildSpawn,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      service.startDelegatedAgent({
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        objective: 'Draft accounts',
+        workspaceFolder: 'main_agent',
+        run: activeChildSpawn,
+      }),
+    ).resolves.toMatchObject({ ok: true });
     const childSpawn = vi.fn(async () => ({ outputSummary: 'done' }));
 
     await expect(
@@ -308,8 +372,8 @@ describe('AsyncCommandTaskService', () => {
 
     expect(childSpawn).not.toHaveBeenCalled();
     expect([...repository.tasks.values()].map((task) => task.kind)).toEqual([
-      'async_command',
-      'async_command',
+      'delegated_agent',
+      'delegated_agent',
     ]);
   });
 

@@ -113,6 +113,8 @@ x-worker-base: &worker-base
 
 services:
   postgres:
+    # Local fleet rehearsal database only. Production deployments must supply
+    # generated database passwords through the deployment secret manager.
     image: pgvector/pgvector:0.8.2-pg16-trixie@sha256:fce8fb583b92ef8af5150b373a96415d46a8cd38ba09b38efeea17c8b4c7d782
     container_name: gantry-fleet-postgres
     restart: unless-stopped

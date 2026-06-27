@@ -69,7 +69,7 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 
 - Grep for `DEFAULT_MEMORY_AGENT_ID` returns zero hits.
 - Grep for `agent:personal` literal in non-test runtime code returns zero hits.
-- **Repro:** `memory_search('knacklabs lead controller job')` from a `main_agent` session returns at least the manually-saved test memory with provenance and the resolved subject.
+- **Repro:** `memory_search('fixture lead controller job')` from a `main_agent` session returns at least the manually-saved test memory with provenance and the resolved subject.
 
 **Deletion target:** ≥150 lines net.
 

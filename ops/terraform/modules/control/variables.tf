@@ -64,8 +64,14 @@ variable "certificate_arn" {
   }
 }
 
-variable "ingress_cidrs" {
-  description = "CIDR blocks allowed to reach the public listener. Default is open (0.0.0.0/0) because channel webhooks come from provider IP ranges; tighten where the provider publishes ranges."
+variable "api_ingress_cidrs" {
+  description = "CIDR blocks allowed to reach /v1/* on the public listener. Keep empty unless the Control API is protected by a VPN, proxy, or explicit admin CIDR allowlist."
+  type        = list(string)
+  default     = []
+}
+
+variable "webhook_ingress_cidrs" {
+  description = "CIDR blocks allowed to reach webhook_path_patterns on the public listener. Default is open because some channel providers do not publish stable webhook ranges; tighten where provider ranges are available."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

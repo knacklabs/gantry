@@ -75,7 +75,8 @@ python3 .codex/scripts/update_run.py --phase implementing --plan-status approved
 
 ## Implement
 
-Use plain Codex or Codex with ACP/ACPX orchestration for coding work. Keep the coordinator thin-context and use bounded tasks from the recorded decomposition.
+Use Codex for coding work. Keep the coordinator thin-context and use bounded
+tasks from the recorded decomposition.
 
 To see the exact subagent routing and required commands for your current phase:
 

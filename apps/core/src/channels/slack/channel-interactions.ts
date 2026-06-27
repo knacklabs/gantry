@@ -25,10 +25,6 @@ import {
   buildTriggerPattern,
   triggerForRoute,
 } from '../../shared/trigger-pattern.js';
-import {
-  SLACK_NATIVE_APPEND_MAX_LENGTH,
-  splitSlackTextByCodeUnits,
-} from './text-limits.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
 import { nowIso } from '../../shared/time/datetime.js';
 import {

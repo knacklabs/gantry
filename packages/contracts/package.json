@@ -1,8 +1,27 @@
 {
   "name": "@gantry/contracts",
   "version": "3.0.0",
-  "type": "module",
   "description": "Canonical DTO and schema contracts for Gantry integrations.",
+  "author": "Gantry Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gantry/gantry.git",
+    "directory": "packages/contracts"
+  },
+  "homepage": "https://github.com/gantry/gantry/tree/main/packages/contracts",
+  "bugs": {
+    "url": "https://github.com/gantry/gantry/issues"
+  },
+  "keywords": [
+    "gantry",
+    "contracts",
+    "schema",
+    "dto",
+    "agent",
+    "runtime"
+  ],
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -120,5 +139,8 @@
   "devDependencies": {
     "@types/node": "^24.12.2",
     "typescript": "^5.7.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

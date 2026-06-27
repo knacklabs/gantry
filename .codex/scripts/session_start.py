@@ -11,7 +11,7 @@ run_state = load_json(run_state_path(root), default={})
 context = [
     "Factory mode: planning -> decomposition -> approval -> implementation -> testing -> verify -> review -> functional check -> PR-ready.",
     "Use WORKFLOW.md, docs/FACTORY.md, and docs/QUALITY.md as the operating contract.",
-    "The repo must work with plain Codex and with ACP/ACPX integrations; do not assume ACP is always present.",
+    "The repo uses Codex factory automation as optional maintainer tooling; public contributors are not required to use it.",
     "Treat docs/product/BRIEF.md, docs/architecture, and docs/decisions as the source of truth for product and architecture context.",
 ]
 if run_state:

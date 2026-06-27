@@ -55,6 +55,15 @@ export interface GroupProcessor {
   ) => Promise<boolean>;
 }
 
+export interface ProactiveSurfacingConsentReader {
+  getBySubject(subject: {
+    appId: string;
+    agentId: string;
+    subjectType: string;
+    subjectId: string;
+  }): Promise<{ proactiveSurfacingEnabled: boolean } | null>;
+}
+
 export interface GroupProcessingDeps {
   channelRuntime: {
     hasChannel: (chatJid: string) => boolean;
@@ -137,6 +146,9 @@ export interface GroupProcessingDeps {
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   getPatternCandidateRepository?: () => PatternCandidateRepository | undefined;
+  getProactiveSurfacingRepository?: () =>
+    | ProactiveSurfacingConsentReader
+    | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;

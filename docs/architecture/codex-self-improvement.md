@@ -1,6 +1,8 @@
 # Codex Self-Improvement Harness
 
-The self-improvement harness helps future coding agents reuse architecture lessons without adding a new workflow engine. It is intentionally local, dependency-free, and compatible with plain Codex and ACP/ACPX orchestration.
+The self-improvement harness helps future coding agents reuse architecture
+lessons without adding a new workflow engine. It is intentionally local,
+dependency-free, and compatible with plain Codex.
 
 ## Files
 

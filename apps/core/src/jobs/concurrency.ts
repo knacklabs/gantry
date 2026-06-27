@@ -163,8 +163,7 @@ export async function tryAcquireRunSlot(
     active.warn?.({ workspaceKey, holderId }, message);
     options.onSlotLost?.();
   };
-  let renewTimer: ReturnType<typeof setInterval>;
-  renewTimer = setInterval(() => {
+  const renewTimer = setInterval(() => {
     void active.repository
       .renewRunSlot({
         slotKey: workspaceKey,

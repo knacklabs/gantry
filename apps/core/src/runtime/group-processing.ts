@@ -401,20 +401,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       });
     };
     let activeGenerationHasOutput = false;
-    let sentAnyTurnDoneProgress = false;
-    let sentTurnDoneProgressGeneration: number | null = null;
     let userVisibleTurnProgressReady: Promise<void> | null = null;
-    const sendTurnDoneProgress = async (state: progress.FinalProgressState) => {
-      if (
-        !activeGenerationHasOutput ||
-        sentTurnDoneProgressGeneration === progressGeneration
-      ) {
-        return;
-      }
-      sentTurnDoneProgressGeneration = progressGeneration;
-      sentAnyTurnDoneProgress = true;
-      await sendDoneProgress(state);
-    };
     const startUserVisibleTurn = async () => {
       progressGeneration = streamGeneration = streamingGenerationCounter += 1;
       activeGenerationHasOutput = false;
@@ -641,15 +628,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await sendResponseReceipt();
       }
       if (result.result) {
-        if (
-          !typingActive &&
-          sentAnyTurnDoneProgress &&
-          !activeGenerationHasOutput
-        ) {
-          await startUserVisibleTurn();
-        } else if (sentAnyTurnDoneProgress && !activeGenerationHasOutput) {
-          await userVisibleTurnProgressReady;
-        }
         if (!typingActive) {
           await setTypingState(true);
         }
@@ -702,10 +680,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           resetIdleTimer();
           return;
         }
-        await sendTurnDoneProgress('completed');
-        notifyTurnIdle();
         startNextStreamingMessage();
-        await setTypingState(false);
         resetIdleTimer();
       }
       if (result.status === 'error') {
@@ -831,9 +806,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       shouldSendTurnFinalProgress({
         finalProgressState,
         awaitingResponseReceipt,
-        sentAnyTurnDoneProgress,
+        sentAnyTurnDoneProgress: false,
         activeGenerationHasOutput,
-        sentTurnDoneProgressGeneration,
+        sentTurnDoneProgressGeneration: null,
         progressGeneration,
       })
     ) {

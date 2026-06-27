@@ -146,12 +146,12 @@ describe('jobs/execution-notifications', () => {
     const sendMessage = vi.fn(async () => undefined);
 
     await notifySchedulerTerminalRunState({
-      job: makeJob({ name: 'KnackLabs Lead Maintenance' }),
+      job: makeJob({ name: 'Fixture Lead Maintenance' }),
       runId: 'run-1',
       runShortId: 4,
       runStatus: 'completed',
       summary:
-        '## Final Job Report\n- *Mode*: B (KnackLabs lead finder) — Sun 12:05 IST.\n- *Added*: 2 leads to Bot Recommendation tab (rows 1918-1919), locations written to column K.',
+        '## Final Job Report\n- *Mode*: B (fixture lead finder) — Sun 12:05 IST.\n- *Added*: 2 leads to Fixture Leads tab (rows 1918-1919), locations written to column K.',
       nextRun: '2026-05-17T08:35:00.000Z',
       retryCount: 0,
       pauseReason: null,
@@ -161,10 +161,8 @@ describe('jobs/execution-notifications', () => {
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**✅ Completed**');
-    expect(message).toContain('· KnackLabs Lead Maintenance · 6m 22s');
-    expect(message).toContain(
-      'Final Job Report Mode: B (KnackLabs lead finder)',
-    );
+    expect(message).toContain('· Fixture Lead Maintenance · 6m 22s');
+    expect(message).toContain('Final Job Report Mode: B (fixture lead finder)');
     expect(message).toContain('Added: 2 leads');
     expect(message).not.toContain('##');
     expect(message).not.toContain('*Mode*');
@@ -282,7 +280,7 @@ describe('jobs/execution-notifications', () => {
     const sendMessage = vi.fn(async () => undefined);
 
     await notifySchedulerTerminalRunState({
-      job: makeJob({ name: 'KnackLabs Lead Maintenance' }),
+      job: makeJob({ name: 'Fixture Lead Maintenance' }),
       runId: 'run-1',
       runShortId: 1,
       runStatus: 'failed',
@@ -492,12 +490,12 @@ describe('jobs/execution-notifications', () => {
     const sendMessage = vi.fn(async () => undefined);
 
     await notifySchedulerTerminalRunState({
-      job: makeJob({ name: 'KnackLabs Lead Maintenance' }),
+      job: makeJob({ name: 'Fixture Lead Maintenance' }),
       runId: 'run-1',
       runShortId: 12,
       runStatus: 'completed',
       summary:
-        'Sunday 22:05 IST -> Mode B. Let me load tools and check Hot Leads dedup.Now searching for the 22:00 slot query.CashFlo + Sachit already there (Feb). Searching for other targets.## Final Job Report\nMode: B (KnackLabs lead finder)\nAdded: 0 leads\nReason: heavy dedup overlap.',
+        'Sunday 22:05 IST -> Mode B. Let me load tools and check Fixture Leads dedup.Now searching for the 22:00 slot query.ExampleCo + Sample Contact already there (Feb). Searching for other targets.## Final Job Report\nMode: B (fixture lead finder)\nAdded: 0 leads\nReason: heavy dedup overlap.',
       nextRun: '2026-05-18T02:35:00.000Z',
       retryCount: 0,
       pauseReason: null,
@@ -507,7 +505,7 @@ describe('jobs/execution-notifications', () => {
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('**✅ Completed**');
-    expect(message).toContain('· KnackLabs Lead Maintenance');
+    expect(message).toContain('· Fixture Lead Maintenance');
     expect(message).toContain('Final Job Report Mode: B');
     expect(message).toContain('Added: 0 leads');
     expect(message).not.toContain('Let me load tools');
