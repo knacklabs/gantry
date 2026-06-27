@@ -13,6 +13,7 @@ import {
   saveRuntimeSettings,
   withRuntimeModelAliases,
 } from '@core/config/settings/runtime-settings.js';
+import { parseRuntimeSettingsObject } from '@core/config/settings/runtime-settings-parser.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
@@ -24,6 +25,31 @@ function emptySources() {
 }
 
 describe('runtime settings', () => {
+  it('accepts camelCase provider defaultConnection from stored revision documents', () => {
+    const settings = parseRuntimeSettingsObject({
+      providers: {
+        slack: {
+          enabled: true,
+          defaultConnection: 'slack_default',
+        },
+      },
+      provider_connections: {
+        slack_default: {
+          provider: 'slack',
+          runtime_secret_refs: {
+            app_token: 'SLACK_APP_TOKEN',
+            bot_token: 'SLACK_BOT_TOKEN',
+          },
+        },
+      },
+    });
+
+    expect(settings.providers.slack.defaultConnection).toBe('slack_default');
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('  slack:');
+    expect(rendered).not.toContain('defaultConnection');
+  });
+
   it('adds active MCP source refs before desired-state mirroring reconciles settings', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {

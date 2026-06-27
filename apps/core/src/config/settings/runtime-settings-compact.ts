@@ -42,12 +42,19 @@ function compactProviderToVerbose(
   assertSupportedKeys(
     map,
     `providers.${providerId}`,
-    new Set(['enabled', 'default_connection', 'label']),
+    new Set(['enabled', 'default_connection', 'defaultConnection', 'label']),
     (key) => key.endsWith('_ref'),
   );
+  const defaultConnection =
+    typeof map.default_connection === 'string' && map.default_connection.trim()
+      ? map.default_connection.trim()
+      : typeof map.defaultConnection === 'string' &&
+          map.defaultConnection.trim()
+        ? map.defaultConnection.trim()
+        : undefined;
   const provider: Record<string, unknown> = {
     enabled: map.enabled,
-    default_connection: map.default_connection,
+    default_connection: defaultConnection,
   };
   const secretRefs: Record<string, string> = {};
   for (const [key, value] of Object.entries(map)) {
@@ -59,10 +66,7 @@ function compactProviderToVerbose(
   }
   if (map.label !== undefined || Object.keys(secretRefs).length > 0) {
     const connectionId =
-      typeof map.default_connection === 'string' &&
-      map.default_connection.trim()
-        ? map.default_connection.trim()
-        : defaultConnectionIdForProvider(providerId);
+      defaultConnection ?? defaultConnectionIdForProvider(providerId);
     provider.default_connection = connectionId;
     return {
       provider,

@@ -322,9 +322,8 @@ async function loadSyncedMutationBaseSettings(input: {
   if (!latest) {
     return { settings: loadRuntimeSettings(input.runtimeHome) };
   }
-  const { settingsFromRevisionDocument } = await import(
-    './settings-import-service.js'
-  );
+  const { settingsFromRevisionDocument } =
+    await import('./settings-import-service.js');
   return {
     settings: settingsFromRevisionDocument(latest.settingsDocument),
     expectedRevision: latest.revision,

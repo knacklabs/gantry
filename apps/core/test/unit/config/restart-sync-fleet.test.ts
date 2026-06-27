@@ -230,10 +230,7 @@ describe('syncRuntimeSettingsFromProjection fleet mode', () => {
       expect.objectContaining({
         agents: expect.objectContaining({
           main: expect.objectContaining({
-            capabilities: [
-              'latest-rule',
-              'mcp__gantry__admin_permission_list',
-            ],
+            capabilities: ['latest-rule', 'mcp__gantry__admin_permission_list'],
           }),
         }),
       }),
