@@ -60,7 +60,9 @@ describe('buildGantryAgentSystemPrompt', () => {
     expect(prompt.dynamicPrompt).toContain('## Current Date & Time');
     expect(prompt.prompt).toContain('Gantry Durable Memory Boundary');
     expect(prompt.prompt).toContain('compiled profile');
-    expect(prompt.prompt).toContain('For multi-step work, use todo_update first');
+    expect(prompt.prompt).toContain(
+      'For multi-step work, use todo_update first',
+    );
     expect(prompt.prompt).toContain('WebRead');
     expect(prompt.prompt).toContain('FileRead');
     expect(prompt.prompt).toContain('RunCommand(<scope>)');
