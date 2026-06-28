@@ -12,6 +12,7 @@ const DEFAULT_WATCHED_REQUEST_LANES: readonly RunnerControlRequestLane[] = [
   'memory-requests',
   'browser-requests',
   'permission-requests',
+  'rich-interactions',
   'user-questions',
 ];
 

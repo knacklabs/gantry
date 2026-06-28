@@ -5,6 +5,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
+  RichInteractionRequest,
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -187,6 +188,10 @@ export interface ChannelWiring {
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
   renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<boolean>;
+  renderRichInteraction: (
+    jid: string,
+    request: RichInteractionRequest,
+  ) => Promise<boolean>;
   hydrateConversationContext?: (
     request: ConversationContextHydrationRequest,
   ) => Promise<ConversationContextHydrationResult>;

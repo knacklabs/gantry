@@ -1,8 +1,10 @@
-import type {
-  PermissionApprovalDecision,
-  PermissionApprovalRequest,
-  UserQuestionRequest,
-  UserQuestionResponse,
+import {
+  RICH_INTERACTION_NATIVE_FALLBACK_TEXT,
+  type PermissionApprovalDecision,
+  type PermissionApprovalRequest,
+  type RichInteractionRequest,
+  type UserQuestionRequest,
+  type UserQuestionResponse,
 } from '../../domain/types.js';
 import type {
   AgentTodoCardStatus,
@@ -36,6 +38,13 @@ interface AgentTodoSurfaceLike {
   renderAgentTodo: (
     jid: string,
     render: AgentTodoRender,
+  ) => Promise<void | boolean>;
+}
+
+interface RichInteractionSurfaceLike {
+  renderRichInteraction: (
+    jid: string,
+    request: RichInteractionRequest,
   ) => Promise<void | boolean>;
 }
 
@@ -226,6 +235,46 @@ export function createUserQuestionResponder(input: {
     clear: () => {
       userQuestionResponseCache.clear();
     },
+  };
+}
+
+export function createRichInteractionRenderer(input: {
+  findBoundChannel: (jid: string) => ChannelLike | undefined;
+  asRichInteractionSurface: (
+    channel: ChannelLike,
+  ) => RichInteractionSurfaceLike | undefined;
+  sendMessage: (
+    jid: string,
+    text: string,
+    options?: { threadId?: string },
+  ) => Promise<unknown>;
+  logger: Pick<ChannelWiringInteractionsLogger, 'error'>;
+}): (jid: string, request: RichInteractionRequest) => Promise<boolean> {
+  return async (jid, request): Promise<boolean> => {
+    const channel = input.findBoundChannel(jid);
+    const surface = channel
+      ? input.asRichInteractionSurface(channel)
+      : undefined;
+    if (surface) {
+      try {
+        if ((await surface.renderRichInteraction(jid, request)) !== false) {
+          return true;
+        }
+      } catch (err) {
+        input.logger.error({
+          err,
+          jid,
+          requestId: request.requestId,
+          message: 'Target channel rich interaction render failed',
+        });
+      }
+    }
+    await input.sendMessage(
+      jid,
+      `${RICH_INTERACTION_NATIVE_FALLBACK_TEXT}\n\n${request.descriptor.rich?.fallbackText ?? request.descriptor.fallbackText ?? ''}`.trim(),
+      { ...(request.threadId ? { threadId: request.threadId } : {}) },
+    );
+    return true;
   };
 }
 

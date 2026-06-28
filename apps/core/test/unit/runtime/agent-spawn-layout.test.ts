@@ -48,6 +48,7 @@ describe('ensureWorkspaceIpcLayout', () => {
       'messages',
       'permission-requests',
       'permission-responses',
+      'rich-interactions',
       'task-responses',
       'tasks',
       'user-answers',

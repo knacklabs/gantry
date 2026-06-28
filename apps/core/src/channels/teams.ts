@@ -11,6 +11,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
+  RichInteractionRequest,
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -75,6 +76,11 @@ import {
   hydrateTeamsConversationContext,
   teamsMessageAttachments as teamsInboundMessageAttachments,
 } from './teams-conversation-context.js';
+import {
+  buildTeamsRichInteractionPayload,
+  RICH_INTERACTION_FALLBACK_COPY,
+  richFallbackText,
+} from './rich-interaction.js';
 
 interface TeamsStreamingState {
   conversationId: string;
@@ -225,6 +231,41 @@ export class TeamsChannel implements ChannelAdapter {
       text: teamsTextWithAttachmentNotice(text, Boolean(options.files?.length)),
       options,
     });
+  }
+
+  async renderRichInteraction(
+    jid: string,
+    render: RichInteractionRequest,
+  ): Promise<boolean> {
+    if (!this.outboundReady) return false;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return false;
+    const payload = buildTeamsRichInteractionPayload(render);
+    try {
+      if (this.sdkClient.sendAdaptiveCard) {
+        await this.sdkClient.sendAdaptiveCard({
+          conversationId,
+          card: payload.attachments[0].content as never,
+          ...(render.threadId ? { threadId: render.threadId } : {}),
+        });
+      } else {
+        await this.sdkClient.sendMessage({
+          conversationId,
+          text: '',
+          attachments: payload.attachments,
+          ...(render.threadId ? { threadId: render.threadId } : {}),
+        } as never);
+      }
+      return true;
+    } catch (err) {
+      logger.warn({ jid, err }, 'Teams rich interaction render failed');
+      await this.sendMessage(
+        jid,
+        `${RICH_INTERACTION_FALLBACK_COPY}\n\n${richFallbackText(render)}`,
+        { threadId: render.threadId },
+      );
+      return true;
+    }
   }
 
   async addReaction(): Promise<void> {}

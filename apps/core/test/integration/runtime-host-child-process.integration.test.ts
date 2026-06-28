@@ -151,6 +151,7 @@ describe('host child-process runtime smoke', () => {
           'input',
           'permission-requests',
           'permission-responses',
+          'rich-interactions',
           'user-questions',
           'user-answers',
           'memory-requests',

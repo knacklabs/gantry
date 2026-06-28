@@ -504,6 +504,10 @@ export async function startRuntimeServices(
       liveTurnsEnabled && liveExecution
         ? channelWiring.renderAgentTodo(jid, render)
         : Promise.resolve(false),
+    renderRichInteraction: (jid, request) =>
+      liveTurnsEnabled && liveExecution
+        ? channelWiring.renderRichInteraction(jid, request)
+        : Promise.resolve(false),
     mcpHostnameLookup: resolved.mcpHostnameLookup,
   });
   syncGroupSnapshots();

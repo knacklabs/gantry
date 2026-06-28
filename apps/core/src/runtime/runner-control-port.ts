@@ -4,6 +4,7 @@ export type RunnerControlRequestLane =
   | 'memory-requests'
   | 'browser-requests'
   | 'permission-requests'
+  | 'rich-interactions'
   | 'user-questions';
 
 export type RunnerControlResponseLane =

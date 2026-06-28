@@ -4,6 +4,7 @@ import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
+  RichInteractionRequest,
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -69,6 +70,13 @@ import {
   resolveDiscordConversationContext,
   type DiscordConversationContextCache,
 } from './discord-conversation-context.js';
+import {
+  buildDiscordRichInteractionFormModalResponse,
+  buildDiscordRichInteractionPayload,
+  RICH_INTERACTION_FALLBACK_COPY,
+  RICH_INTERACTION_SUBMITTED_BY_COPY,
+  richFallbackText,
+} from './rich-interaction.js';
 
 export const DISCORD_JID_PREFIX = 'dc:';
 
@@ -78,6 +86,8 @@ const DISCORD_GATEWAY_INTENTS = (1 << 0) | (1 << 9) | (1 << 12) | (1 << 15);
 const DISCORD_RETRY_DELAY_FALLBACK_MS = 1000;
 const DISCORD_RETRY_DELAY_MAX_MS = 5000;
 const DISCORD_PERMISSION_FULL_VIEW_PREFIX = 'gantry:perm_full:';
+const DISCORD_RICH_FORM_OPEN_PREFIX = 'gantry:rich_form_open:';
+const DISCORD_RICH_FORM_SUBMIT_PREFIX = 'gantry:rich_form_submit:';
 const DISCORD_MESSAGE_CHANNEL_CACHE_TTL_MS = 10 * 60 * 1000;
 const DISCORD_MESSAGE_CHANNEL_CACHE_MAX_ENTRIES = 5000;
 
@@ -222,6 +232,7 @@ export class DiscordChannel implements ChannelAdapter {
     string,
     DiscordMessageChannelCacheEntry
   >();
+  private readonly richForms = new Map<string, RichInteractionRequest>();
   private readonly channelContextCache: DiscordConversationContextCache =
     new Map();
 
@@ -274,6 +285,32 @@ export class DiscordChannel implements ChannelAdapter {
       botToken: this.botToken,
       post: (target, body) => this.postMessage(target, body),
     });
+  }
+
+  async renderRichInteraction(
+    jid: string,
+    render: RichInteractionRequest,
+  ): Promise<boolean> {
+    const channelId = render.threadId || discordChannelIdFromJid(jid);
+    if (!channelId) return false;
+    try {
+      if (render.descriptor.rich?.kind === 'form') {
+        this.richForms.set(render.descriptor.id, render);
+      }
+      await this.postMessage(
+        channelId,
+        buildDiscordRichInteractionPayload(render) as Record<string, unknown>,
+      );
+      return true;
+    } catch (err) {
+      logger.warn({ jid, err }, 'Discord rich interaction render failed');
+      await this.sendMessage(
+        jid,
+        `${RICH_INTERACTION_FALLBACK_COPY}\n\n${richFallbackText(render)}`,
+        { threadId: render.threadId },
+      );
+      return true;
+    }
   }
 
   async addReaction(
@@ -830,6 +867,24 @@ export class DiscordChannel implements ChannelAdapter {
       }
       if (customId.startsWith(QUESTION_CUSTOM_ID_PREFIX)) {
         await this.handleQuestionInteraction(interaction, customId);
+        return;
+      }
+      if (customId.startsWith(DISCORD_RICH_FORM_OPEN_PREFIX)) {
+        await this.openRichFormInteraction(interaction, customId);
+      }
+      return;
+    }
+    if (interaction.type === 5) {
+      const customId = interaction.data?.custom_id || '';
+      if (customId.startsWith(DISCORD_RICH_FORM_SUBMIT_PREFIX)) {
+        this.richForms.delete(
+          customId.slice(DISCORD_RICH_FORM_SUBMIT_PREFIX.length),
+        );
+        const user = interaction.member?.user || interaction.user;
+        await this.ackInteraction(
+          interaction,
+          `${RICH_INTERACTION_SUBMITTED_BY_COPY} ${userName(user)}.`,
+        );
       }
       return;
     }
@@ -1088,6 +1143,29 @@ export class DiscordChannel implements ChannelAdapter {
       answers: pending.answers,
       answeredBy: user?.id,
     });
+  }
+
+  private async openRichFormInteraction(
+    interaction: DiscordInteraction,
+    customId: string,
+  ): Promise<void> {
+    const id = customId.slice(DISCORD_RICH_FORM_OPEN_PREFIX.length);
+    const request = this.richForms.get(id);
+    if (!request) {
+      await this.ackInteraction(interaction, 'This form is no longer active.');
+      return;
+    }
+    await fetch(
+      `${DISCORD_API_ROOT}/interactions/${encodeURIComponent(interaction.id || '')}/${encodeURIComponent(interaction.token || '')}/callback`,
+      {
+        method: 'POST',
+        headers: discordHeaders(this.botToken),
+        body: JSON.stringify(
+          buildDiscordRichInteractionFormModalResponse(request),
+        ),
+      },
+    );
+    this.richForms.delete(id);
   }
 
   private async isInteractionApproverAllowed(

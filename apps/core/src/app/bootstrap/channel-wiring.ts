@@ -41,6 +41,7 @@ import {
   asMessageReactionSink,
   asPermissionApprovalSurface,
   asProgressSink,
+  asRichInteractionSurface,
   asStreamingSink,
   asStreamingStateSink,
   asTypingSink,
@@ -63,6 +64,7 @@ import { createChannelPersistenceHandlers } from './channel-persistence-handlers
 import {
   createAgentTodoRenderer,
   createPermissionApprovalRequester,
+  createRichInteractionRenderer,
   createUserQuestionResponder,
 } from './channel-wiring-interactions.js';
 import {
@@ -169,6 +171,17 @@ export function createChannelWiring(
     findBoundChannel,
     asAgentTodoSurface: (channel) =>
       asAgentTodoSurface(channel as ChannelAdapter),
+    logger: resolved.logger,
+  });
+  const richInteractionRenderer = createRichInteractionRenderer({
+    findBoundChannel,
+    asRichInteractionSurface: (channel) =>
+      asRichInteractionSurface(channel as ChannelAdapter),
+    sendMessage: (jid, text, options) =>
+      sendMessage(jid, text, {
+        durability: 'best_effort',
+        messageOptions: options,
+      }),
     logger: resolved.logger,
   });
   const sendProgressUpdate = createChannelProgressSender({
@@ -740,6 +753,7 @@ export function createChannelWiring(
     requestPermissionApproval,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
     renderAgentTodo: agentTodoRenderer,
+    renderRichInteraction: richInteractionRenderer,
     hydrateConversationContext: (request) =>
       hydrateChannelConversationContext(
         request,

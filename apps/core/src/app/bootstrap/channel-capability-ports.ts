@@ -3,6 +3,7 @@ import {
   InteractionSurface,
   MessageReactionSink,
   ProgressSink,
+  RichInteractionSurface,
   StreamingSink,
   StreamingStateSink,
   TypingSink,
@@ -72,6 +73,14 @@ export function asUserQuestionSurface(
 ): Pick<InteractionSurface, 'requestUserAnswer'> | undefined {
   return typeof channel.requestUserAnswer === 'function'
     ? (channel as unknown as Pick<InteractionSurface, 'requestUserAnswer'>)
+    : undefined;
+}
+
+export function asRichInteractionSurface(
+  channel: ChannelAdapter,
+): RichInteractionSurface | undefined {
+  return typeof channel.renderRichInteraction === 'function'
+    ? (channel as unknown as RichInteractionSurface)
     : undefined;
 }
 

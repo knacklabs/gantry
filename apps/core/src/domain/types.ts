@@ -459,10 +459,42 @@ export interface InteractionResult {
   decidedAt?: string;
 }
 
+export type RichInteractionKind =
+  | 'status'
+  | 'facts'
+  | 'list'
+  | 'table'
+  | 'form'
+  | 'media'
+  | 'progress';
+
+export const RICH_INTERACTION_NATIVE_FALLBACK_TEXT =
+  'Rich view unavailable in this conversation. Showing text version.';
+
+export interface RichInteractionDescriptor {
+  kind: RichInteractionKind;
+  fallbackText: string;
+  payload: Record<string, unknown>;
+}
+
+export interface RichInteractionRequest {
+  requestId: string;
+  sourceAgentFolder: string;
+  appId?: string;
+  agentId?: string;
+  jobId?: string;
+  runId?: string;
+  targetJid?: string;
+  threadId?: string;
+  descriptor: InteractionDescriptor;
+}
+
 export interface InteractionDescriptor {
   id: string;
   title: string;
   body?: string;
+  fallbackText?: string;
+  rich?: RichInteractionDescriptor;
   severity?: InteractionSeverity;
   requestContext?: {
     requestId?: string;
@@ -649,6 +681,13 @@ export interface InteractionSurface {
     jid: string,
     request: UserQuestionRequest,
   ): Promise<UserQuestionResponse>;
+}
+
+export interface RichInteractionSurface {
+  renderRichInteraction(
+    jid: string,
+    request: RichInteractionRequest,
+  ): Promise<void | boolean>;
 }
 
 export interface PlanReviewRequest {

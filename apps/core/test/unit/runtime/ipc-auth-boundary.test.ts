@@ -25,6 +25,7 @@ import {
   parseIpcMessage,
   parseMemoryIpcRequest,
   parsePermissionIpcRequest,
+  parseRichInteractionIpcRequest,
   parseUserQuestionIpcRequest,
 } from '@core/runtime/ipc-parsing.js';
 import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
@@ -106,6 +107,68 @@ describe('validateIpcAuthRequest', () => {
   afterEach(() => {
     clearConsumedIpcRequestIds({ durable: 'consumed' });
     stopIpcWatcher();
+  });
+
+  it('accepts signed rich interaction IPC with required fallback text', () => {
+    const payload = {
+      requestId: 'rich-1',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      targetJid: 'tg:team',
+      context: { threadId: 'thread-1', appId: 'app-1', agentId: 'agent-1' },
+      interaction: {
+        id: 'brief',
+        title: 'Brief',
+        fallbackText: 'Status: ready',
+        rich: {
+          kind: 'status',
+          payload: { state: 'ready' },
+        },
+      },
+    };
+
+    expect(
+      parseRichInteractionIpcRequest(
+        signedPayload(payload, 'team', 'thread-1'),
+        'team',
+      ),
+    ).toMatchObject({
+      requestId: 'rich-1',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      targetJid: 'tg:team',
+      threadId: 'thread-1',
+      descriptor: {
+        rich: {
+          kind: 'status',
+          fallbackText: 'Status: ready',
+          payload: { state: 'ready' },
+        },
+      },
+    });
+  });
+
+  it('rejects unsigned or malformed rich interaction IPC', () => {
+    const payload = {
+      requestId: 'rich-bad',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      interaction: {
+        id: 'brief',
+        title: 'Brief',
+        rich: {
+          kind: 'unknown',
+          payload: {},
+        },
+      },
+    };
+
+    expect(() => parseRichInteractionIpcRequest(payload, 'team')).toThrow(
+      /signature/i,
+    );
+    expect(() =>
+      parseRichInteractionIpcRequest(signedPayload(payload), 'team'),
+    ).toThrow('Invalid rich interaction kind');
   });
 
   it('accepts a signed fresh request and returns the trusted thread binding', () => {

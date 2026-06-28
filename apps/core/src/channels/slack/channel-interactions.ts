@@ -22,6 +22,13 @@ import {
   buildPermissionReceiptBlocks,
 } from './permission-blocks.js';
 import {
+  RICH_INTERACTION_CANCEL_LABEL,
+  RICH_INTERACTION_OPEN_FORM_LABEL,
+  RICH_INTERACTION_REQUIRED_FIELDS_COPY,
+  RICH_INTERACTION_SUBMIT_LABEL,
+  RICH_INTERACTION_SUBMITTED_BY_COPY,
+} from '../rich-interaction.js';
+import {
   buildTriggerPattern,
   triggerForRoute,
 } from '../../shared/trigger-pattern.js';
@@ -730,6 +737,98 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         return;
       }
       await this.finalizeUserQuestionPrompt(pending, text, answeredBy);
+    });
+    this.app.action('gantry_rich_form_open', async (args: any) => {
+      await args.ack();
+      const action = args.action as { value?: string };
+      const body = args.body as {
+        channel?: { id?: string };
+        message?: { ts?: string; thread_ts?: string };
+        trigger_id?: string;
+      };
+      if (!body.trigger_id) return;
+      const request = this.pendingRichForms.get(action.value || '');
+      if (!request) return;
+      const payload = request.descriptor.rich?.payload ?? {};
+      const fields = Array.isArray(payload.fields) ? payload.fields : [];
+      await this.app?.client.views.open({
+        trigger_id: body.trigger_id,
+        view: {
+          type: 'modal',
+          callback_id: 'gantry_rich_form_modal',
+          private_metadata: JSON.stringify({
+            channelId: body.channel?.id || '',
+            interactionId: request.descriptor.id,
+            threadTs: body.message?.thread_ts || body.message?.ts || '',
+          }),
+          title: {
+            type: 'plain_text',
+            text: (
+              request.descriptor.title || RICH_INTERACTION_OPEN_FORM_LABEL
+            ).slice(0, 24),
+          },
+          submit: { type: 'plain_text', text: RICH_INTERACTION_SUBMIT_LABEL },
+          close: { type: 'plain_text', text: RICH_INTERACTION_CANCEL_LABEL },
+          blocks: fields.length
+            ? fields.slice(0, 10).map((field, index) => {
+                const item =
+                  typeof field === 'object' && field !== null
+                    ? (field as Record<string, unknown>)
+                    : {};
+                return {
+                  type: 'input',
+                  block_id: `gantry_rich_form_${index}`,
+                  optional: item.required !== true,
+                  label: {
+                    type: 'plain_text',
+                    text: String(
+                      item.label || item.id || `Field ${index + 1}`,
+                    ).slice(0, 150),
+                  },
+                  element: {
+                    type: 'plain_text_input',
+                    action_id: 'value',
+                    multiline: item.type === 'textarea',
+                  },
+                };
+              })
+            : [
+                {
+                  type: 'section',
+                  text: {
+                    type: 'mrkdwn',
+                    text: RICH_INTERACTION_REQUIRED_FIELDS_COPY,
+                  },
+                },
+              ],
+        },
+      });
+    });
+    this.app.view('gantry_rich_form_modal', async (args: any) => {
+      await args.ack();
+      const body = args.body as {
+        user?: { id?: string; name?: string; username?: string };
+      };
+      const view = args.view as { private_metadata?: string };
+      let meta: {
+        channelId?: string;
+        interactionId?: string;
+        threadTs?: string;
+      } = {};
+      try {
+        meta = JSON.parse(view.private_metadata || '{}');
+      } catch {
+        return;
+      }
+      if (!meta.channelId) return;
+      if (meta.interactionId) this.pendingRichForms.delete(meta.interactionId);
+      const displayName =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      await this.app?.client.chat.postMessage({
+        channel: meta.channelId,
+        text: `${RICH_INTERACTION_SUBMITTED_BY_COPY} ${displayName}.`,
+        ...(meta.threadTs ? { thread_ts: meta.threadTs } : {}),
+      });
     });
     registerSlackMessageActionHandler(this.app, this.opts.onMessageAction);
   }

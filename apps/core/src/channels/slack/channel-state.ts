@@ -14,6 +14,7 @@ import {
   NewMessage,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  RichInteractionRequest,
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
@@ -133,6 +134,7 @@ export abstract class SlackChannelState {
   protected pendingPermissionPrompts: PendingPermissionPromptMap = new Map();
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
   protected pendingTodos = new Map<string, { channel: string; ts: string }>();
+  protected pendingRichForms = new Map<string, RichInteractionRequest>();
 
   constructor(botToken: string, appToken: string, opts: ChannelOpts) {
     this.botToken = botToken;

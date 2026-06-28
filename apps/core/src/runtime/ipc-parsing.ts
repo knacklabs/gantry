@@ -6,6 +6,8 @@ import {
   PermissionApprovalUpdate,
   InteractionDescriptor,
   InteractionDetail,
+  type RichInteractionKind,
+  type RichInteractionRequest,
   UserQuestionRequest,
 } from '../domain/types.js';
 import {
@@ -90,6 +92,16 @@ const PERMISSION_DECISION_MODES = new Set<PermissionApprovalDecisionMode>([
   'allow_timed_grant',
   'cancel',
 ]);
+const RICH_INTERACTION_KINDS = new Set<RichInteractionKind>([
+  'status',
+  'facts',
+  'list',
+  'table',
+  'form',
+  'media',
+  'progress',
+]);
+const RICH_FORM_FIELD_TYPES = new Set(['text', 'textarea']);
 
 function sanitizeToolInputValue(value: unknown, depth: number): unknown {
   if (depth > TOOL_INPUT_MAX_DEPTH) return '[TRUNCATED_DEPTH]';
@@ -275,6 +287,8 @@ function parseInteractionDescriptor(
   const title = toTrimmedString(raw.title, { maxLen: 200 });
   if (!id || !title) return undefined;
   const body = toTrimmedString(raw.body, { maxLen: 4000 });
+  const fallbackText = toTrimmedString(raw.fallbackText, { maxLen: 20000 });
+  const rich = parseRichInteractionDescriptor(raw.rich, fallbackText);
   const details = parseInteractionDetails(raw.details);
   const requestContext = isPlainObject(raw.requestContext)
     ? raw.requestContext
@@ -294,6 +308,8 @@ function parseInteractionDescriptor(
     id,
     title,
     ...(body ? { body } : {}),
+    ...(fallbackText ? { fallbackText } : {}),
+    ...(rich ? { rich } : {}),
     ...(details ? { details } : {}),
     ...(capabilityId || capabilityDisplayName || toolName || capabilityType
       ? {
@@ -306,6 +322,178 @@ function parseInteractionDescriptor(
         }
       : {}),
   };
+}
+
+function parseRichInteractionDescriptor(
+  raw: unknown,
+  descriptorFallbackText?: string,
+): InteractionDescriptor['rich'] | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const kind = toTrimmedString(raw.kind, { maxLen: 32 });
+  if (!RICH_INTERACTION_KINDS.has(kind as RichInteractionKind)) {
+    throw new Error('Invalid rich interaction kind');
+  }
+  const fallbackText =
+    toTrimmedString(raw.fallbackText, { maxLen: 20000 }) ??
+    descriptorFallbackText;
+  if (!fallbackText) {
+    throw new Error('Rich interaction fallbackText is required');
+  }
+  const payload = raw.payload === undefined ? {} : raw.payload;
+  if (!isPlainObject(payload)) {
+    throw new Error('Invalid rich interaction payload');
+  }
+  const parsedPayload = parseRichInteractionPayload(
+    kind as RichInteractionKind,
+    payload,
+  );
+  return {
+    kind: kind as RichInteractionKind,
+    fallbackText,
+    payload: parsedPayload,
+  };
+}
+
+function parseRichInteractionPayload(
+  kind: RichInteractionKind,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  switch (kind) {
+    case 'status':
+      return {
+        ...(toTrimmedString(payload.state, { maxLen: 120 })
+          ? { state: toTrimmedString(payload.state, { maxLen: 120 }) }
+          : {}),
+        ...(toTrimmedString(payload.status, { maxLen: 120 })
+          ? { status: toTrimmedString(payload.status, { maxLen: 120 }) }
+          : {}),
+        ...(toTrimmedString(payload.body, { maxLen: 4000 })
+          ? { body: toTrimmedString(payload.body, { maxLen: 4000 }) }
+          : {}),
+      };
+    case 'facts':
+      return {
+        facts: parseRichObjectArray(payload.facts, 20, (item) => ({
+          label: requireRichString(item.label, 'fact label', 120),
+          value: requireRichString(item.value, 'fact value', 2000),
+        })),
+      };
+    case 'list':
+      return {
+        ...(typeof payload.ordered === 'boolean'
+          ? { ordered: payload.ordered }
+          : {}),
+        items: parseRichObjectArray(payload.items, 30, (item) => ({
+          text: requireRichString(item.text, 'list item text', 1000),
+          ...(toTrimmedString(item.detail, { maxLen: 2000 })
+            ? { detail: toTrimmedString(item.detail, { maxLen: 2000 }) }
+            : {}),
+        })),
+      };
+    case 'table':
+      return {
+        columns: parseRichObjectArray(payload.columns, 10, (item) => ({
+          key: requireRichString(item.key, 'table column key', 80),
+          label: requireRichString(item.label, 'table column label', 120),
+        })),
+        rows: parseRichObjectArray(payload.rows, 20, (item) =>
+          parseRichScalarRecord(item, 10),
+        ),
+      };
+    case 'form':
+      return {
+        fields: parseRichObjectArray(payload.fields, 10, (item) => {
+          const type = requireRichString(item.type, 'form field type', 20);
+          if (!RICH_FORM_FIELD_TYPES.has(type)) {
+            throw new Error('Invalid rich form field type');
+          }
+          return {
+            id: requireRichString(item.id, 'form field id', 80),
+            label: requireRichString(item.label, 'form field label', 120),
+            type,
+            ...(typeof item.required === 'boolean'
+              ? { required: item.required }
+              : {}),
+          };
+        }),
+      };
+    case 'media':
+      return {
+        items: parseRichObjectArray(payload.items, 10, (item) => ({
+          url: requireRichString(item.url, 'media url', 2000),
+          ...(toTrimmedString(item.alt, { maxLen: 200 })
+            ? { alt: toTrimmedString(item.alt, { maxLen: 200 }) }
+            : {}),
+          ...(toTrimmedString(item.caption, { maxLen: 500 })
+            ? { caption: toTrimmedString(item.caption, { maxLen: 500 }) }
+            : {}),
+          ...(toTrimmedString(item.mime_type, { maxLen: 120 })
+            ? { mime_type: toTrimmedString(item.mime_type, { maxLen: 120 }) }
+            : {}),
+        })),
+      };
+    case 'progress': {
+      const value =
+        typeof payload.value === 'number' &&
+        Number.isFinite(payload.value) &&
+        payload.value >= 0 &&
+        payload.value <= 100
+          ? payload.value
+          : undefined;
+      return {
+        ...(toTrimmedString(payload.label, { maxLen: 120 })
+          ? { label: toTrimmedString(payload.label, { maxLen: 120 }) }
+          : {}),
+        ...(value === undefined ? {} : { value }),
+        ...(typeof payload.done === 'boolean' ? { done: payload.done } : {}),
+      };
+    }
+  }
+}
+
+function parseRichObjectArray<T>(
+  raw: unknown,
+  maxItems: number,
+  parse: (item: Record<string, unknown>) => T,
+): T[] {
+  if (!Array.isArray(raw)) throw new Error('Invalid rich payload array');
+  return raw.slice(0, maxItems).map((item) => {
+    if (!isPlainObject(item)) throw new Error('Invalid rich payload item');
+    return parse(item);
+  });
+}
+
+function requireRichString(
+  raw: unknown,
+  label: string,
+  maxLen: number,
+): string {
+  const value = toTrimmedString(raw, { maxLen });
+  if (!value) throw new Error(`Invalid rich ${label}`);
+  return value;
+}
+
+function parseRichScalarRecord(
+  raw: Record<string, unknown>,
+  maxKeys: number,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  let seen = 0;
+  for (const key of Object.keys(raw)) {
+    if (seen >= maxKeys) break;
+    const value = raw[key];
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      value === null
+    ) {
+      out[key.slice(0, 80)] =
+        typeof value === 'string' ? value.slice(0, 2000) : value;
+      seen += 1;
+    }
+  }
+  return out;
 }
 
 function normalizeBrowserBackendAction(
@@ -688,6 +876,55 @@ export function parseUserQuestionIpcRequest(
     ...(threadId ? { threadId } : {}),
     ...(responseKeyId ? { responseKeyId } : {}),
     questions,
+  };
+}
+
+export function parseRichInteractionIpcRequest(
+  raw: unknown,
+  sourceAgentFolder: string,
+): RichInteractionRequest {
+  if (!isPlainObject(raw)) {
+    throw new Error('Invalid rich interaction IPC payload');
+  }
+  const binding = validateIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    'rich interaction IPC',
+  );
+  const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
+  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
+    throw new Error('Invalid rich interaction IPC requestId');
+  }
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const payloadTargetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
+  const contextTargetJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
+  if (
+    payloadTargetJid &&
+    contextTargetJid &&
+    payloadTargetJid !== contextTargetJid
+  ) {
+    throw new Error('rich interaction IPC targetJid mismatch');
+  }
+  const descriptor = parseInteractionDescriptor(
+    raw.interaction ?? raw.descriptor,
+  );
+  if (!descriptor?.rich) {
+    throw new Error('Rich interaction descriptor is required');
+  }
+  const jobId = toTrimmedString(context?.jobId, { maxLen: 200 });
+  const runId = toTrimmedString(context?.runId, { maxLen: 200 });
+  return {
+    requestId,
+    sourceAgentFolder,
+    ...(binding.appId ? { appId: binding.appId } : {}),
+    ...(binding.agentId ? { agentId: binding.agentId } : {}),
+    ...(jobId ? { jobId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(payloadTargetJid || contextTargetJid
+      ? { targetJid: payloadTargetJid ?? contextTargetJid }
+      : {}),
+    ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+    descriptor,
   };
 }
 

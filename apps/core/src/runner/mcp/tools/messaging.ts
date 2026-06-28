@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
@@ -37,6 +38,65 @@ const USER_QUESTION_POLL_INTERVAL_MS = 100;
 const USER_QUESTION_MAX_ANSWER_LENGTH = 500;
 const USER_QUESTION_MAX_ANSWERED_BY_LENGTH = 120;
 const INTERACTION_BOUNDARY_WAIT_MS = 2_000;
+
+const fallbackTextSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .describe(
+    'Required plain-text fallback for clients that cannot render rich UI',
+  );
+const richTitleSchema = z.string().trim().min(1).max(200);
+const richScalarSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+const richFactSchema = z
+  .object({
+    label: z.string().trim().min(1).max(120),
+    value: z.string().trim().min(1).max(2000),
+  })
+  .strict();
+const richListItemSchema = z
+  .object({
+    text: z.string().trim().min(1).max(1000),
+    detail: z.string().trim().min(1).max(2000).optional(),
+  })
+  .strict();
+const richTableColumnSchema = z
+  .object({
+    key: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(120),
+  })
+  .strict();
+const richFormFieldSchema = z
+  .object({
+    id: z.string().trim().min(1).max(80),
+    label: z.string().trim().min(1).max(120),
+    type: z.enum(['text', 'textarea']),
+    required: z.boolean().optional(),
+    options: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+  })
+  .strict();
+const richMediaItemSchema = z
+  .object({
+    url: z.string().trim().min(1).max(2000),
+    alt: z.string().trim().min(1).max(200).optional(),
+    caption: z.string().trim().min(1).max(500).optional(),
+    mime_type: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict();
+
+type RichInteractionKind =
+  | 'status'
+  | 'facts'
+  | 'list'
+  | 'table'
+  | 'form'
+  | 'media'
+  | 'progress';
 
 async function sleepWithAbort(
   ms: number,
@@ -93,6 +153,244 @@ async function requestUserInteractionBoundary(
     );
     if (aborted) return;
   }
+}
+
+function richInteractionContext(): Record<string, unknown> {
+  return {
+    ...(appId ? { appId } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(chatJid ? { chatJid } : {}),
+    ...(threadId ? { threadId } : {}),
+    ...(jobId ? { jobId } : {}),
+    ...(jobRunId ? { runId: jobRunId } : {}),
+    ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
+    ...(jobRunLeaseFencingVersion
+      ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }
+      : {}),
+    ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
+  };
+}
+
+function writeRichInteractionRequest(
+  kind: RichInteractionKind,
+  title: string,
+  fallbackText: string,
+  payload: Record<string, unknown>,
+): boolean {
+  if (jobId) return false;
+  const requestId = makeIpcId('rich');
+  writeIpcFile(path.join(IPC_DIR, 'rich-interactions'), {
+    type: 'rich_interaction',
+    requestId,
+    sourceAgentFolder: workspaceFolder,
+    chatJid,
+    interaction: {
+      id: requestId,
+      title,
+      fallbackText,
+      rich: { kind, fallbackText, payload },
+    },
+    context: richInteractionContext(),
+    nonce: randomUUID(),
+    expiresAt: new Date(currentTimeMs() + 5 * 60_000).toISOString(),
+    timestamp: nowIso(),
+  });
+  return true;
+}
+
+function richInteractionQueuedText(queued: boolean, form = false): string {
+  if (!queued) return 'Rich interaction skipped for scheduled job.';
+  return form ? 'Form queued.' : 'Rich interaction queued.';
+}
+
+function registerRichInteractionTools(server: McpServer): void {
+  server.tool(
+    'render_status',
+    'Render a compact status view in the active conversation.',
+    {
+      title: richTitleSchema,
+      status: z.enum(['info', 'success', 'warning', 'error']),
+      body: z.string().trim().min(1).max(4000).optional(),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'status',
+        args.title,
+        args.fallback_text,
+        {
+          status: args.status,
+          ...(args.body ? { body: args.body } : {}),
+        },
+      );
+      return {
+        content: [
+          { type: 'text' as const, text: richInteractionQueuedText(queued) },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'render_facts',
+    'Render labeled facts in the active conversation.',
+    {
+      title: richTitleSchema,
+      facts: z.array(richFactSchema).min(1).max(20),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'facts',
+        args.title,
+        args.fallback_text,
+        {
+          facts: args.facts,
+        },
+      );
+      return {
+        content: [
+          { type: 'text' as const, text: richInteractionQueuedText(queued) },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'render_list',
+    'Render an ordered or unordered list in the active conversation.',
+    {
+      title: richTitleSchema,
+      ordered: z.boolean().optional(),
+      items: z.array(richListItemSchema).min(1).max(30),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'list',
+        args.title,
+        args.fallback_text,
+        {
+          ordered: Boolean(args.ordered),
+          items: args.items,
+        },
+      );
+      return {
+        content: [
+          { type: 'text' as const, text: richInteractionQueuedText(queued) },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'render_table',
+    'Render a small data table in the active conversation.',
+    {
+      title: richTitleSchema,
+      columns: z.array(richTableColumnSchema).min(1).max(10),
+      rows: z.array(z.record(z.string(), richScalarSchema)).min(1).max(20),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'table',
+        args.title,
+        args.fallback_text,
+        {
+          columns: args.columns,
+          rows: args.rows,
+        },
+      );
+      return {
+        content: [
+          { type: 'text' as const, text: richInteractionQueuedText(queued) },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'render_form',
+    'Render a form in the active conversation. Form submission is non-blocking in this runtime version.',
+    {
+      title: richTitleSchema,
+      fields: z.array(richFormFieldSchema).min(1).max(10),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'form',
+        args.title,
+        args.fallback_text,
+        {
+          fields: args.fields,
+        },
+      );
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: richInteractionQueuedText(queued, true),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'render_media',
+    'Render media references in the active conversation.',
+    {
+      title: richTitleSchema,
+      items: z.array(richMediaItemSchema).min(1).max(10),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'media',
+        args.title,
+        args.fallback_text,
+        {
+          items: args.items,
+        },
+      );
+      return {
+        content: [
+          { type: 'text' as const, text: richInteractionQueuedText(queued) },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'render_progress',
+    'Render progress for a user-visible workflow.',
+    {
+      title: richTitleSchema,
+      value: z.number().min(0).max(100).optional(),
+      label: z.string().trim().min(1).max(200).optional(),
+      done: z.boolean().optional(),
+      fallback_text: fallbackTextSchema,
+    },
+    async (args) => {
+      const queued = writeRichInteractionRequest(
+        'progress',
+        args.title,
+        args.fallback_text,
+        {
+          ...(typeof args.value === 'number' ? { value: args.value } : {}),
+          ...(args.label ? { label: args.label } : {}),
+          done: Boolean(args.done),
+        },
+      );
+      return {
+        content: [
+          { type: 'text' as const, text: richInteractionQueuedText(queued) },
+        ],
+      };
+    },
+  );
 }
 
 export function registerMessagingTools(server: McpServer): void {
@@ -152,6 +450,8 @@ export function registerMessagingTools(server: McpServer): void {
       return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
     },
   );
+
+  registerRichInteractionTools(server);
 
   server.tool(
     'ask_user_question',

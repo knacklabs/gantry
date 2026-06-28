@@ -6,6 +6,7 @@ import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
+  RichInteractionRequest,
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -43,6 +44,11 @@ import { slackThreadTsFromThreadId } from './thread-ts.js';
 import { renderSlackAgentTodo } from './agent-todo-delivery.js';
 import { connectSlackApp } from './channel-connect.js';
 import { requestSlackPermissionApproval } from './permission-approval-delivery.js';
+import {
+  buildSlackRichInteractionBlocks,
+  RICH_INTERACTION_FALLBACK_COPY,
+  richFallbackText,
+} from '../rich-interaction.js';
 const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 
 function slackReactionName(emoji: string): string {
@@ -158,6 +164,37 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       todoKey,
       pendingTodos: this.pendingTodos,
     });
+  }
+
+  async renderRichInteraction(
+    jid: string,
+    render: RichInteractionRequest,
+  ): Promise<boolean> {
+    if (!this.app) return false;
+    const parsed = this.parseJid(jid);
+    if (!parsed) return false;
+    try {
+      if (render.descriptor.rich?.kind === 'form') {
+        this.pendingRichForms.set(render.descriptor.id, render);
+      }
+      await this.app.client.chat.postMessage({
+        channel: parsed.channelId,
+        text: richFallbackText(render),
+        blocks: buildSlackRichInteractionBlocks(render) as any,
+        ...(slackThreadTsFromThreadId(render.threadId)
+          ? { thread_ts: slackThreadTsFromThreadId(render.threadId) }
+          : {}),
+      });
+      return true;
+    } catch (err) {
+      logger.warn({ jid, err }, 'Slack rich interaction render failed');
+      await this.sendMessage(
+        jid,
+        `${RICH_INTERACTION_FALLBACK_COPY}\n\n${richFallbackText(render)}`,
+        { threadId: render.threadId },
+      );
+      return true;
+    }
   }
 
   async sendStreamingChunk(

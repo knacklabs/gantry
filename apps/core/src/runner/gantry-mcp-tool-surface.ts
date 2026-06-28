@@ -12,6 +12,13 @@ import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-reference
 export const BASELINE_GANTRY_MCP_TOOL_NAMES = [
   'send_message',
   'ask_user_question',
+  'render_status',
+  'render_facts',
+  'render_list',
+  'render_table',
+  'render_form',
+  'render_media',
+  'render_progress',
   'todo_update',
   'memory_search',
   'memory_save',

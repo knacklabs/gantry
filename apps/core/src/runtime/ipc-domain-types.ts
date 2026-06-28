@@ -2,6 +2,7 @@ import { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  RichInteractionRequest,
   ConversationRoute,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -62,6 +63,10 @@ export interface IpcDeps {
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
   renderAgentTodo?: (jid: string, render: AgentTodoRender) => Promise<boolean>;
+  renderRichInteraction?: (
+    jid: string,
+    request: RichInteractionRequest,
+  ) => Promise<boolean>;
   mcpHostnameLookup?: HostnameLookup;
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;

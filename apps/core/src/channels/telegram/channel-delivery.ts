@@ -6,6 +6,7 @@ import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
+  RichInteractionRequest,
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -38,6 +39,11 @@ import { renderTelegramChannelAgentTodo } from './agent-todo-delivery.js';
 import { bindTelegramPermissionPromptMessage } from './prompt-binding.js';
 import { unescapeTelegramEscapedMarkdownV2 } from './markdown-v2-unescape.js';
 import { sendTelegramTyping } from './typing-indicator.js';
+import {
+  RICH_INTERACTION_FALLBACK_COPY,
+  richFallbackText,
+  renderTelegramRichInteractionHtml,
+} from '../rich-interaction.js';
 
 function telegramReactionEmoji(emoji: string): string {
   if (emoji === 'seen') return '👀';
@@ -171,6 +177,33 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         'Failed to send Telegram message',
       );
       throw err;
+    }
+  }
+
+  async renderRichInteraction(
+    jid: string,
+    render: RichInteractionRequest,
+  ): Promise<boolean> {
+    if (!this.bot) return false;
+    const numericId = jid.replace(/^tg:/, '');
+    const payload = renderTelegramRichInteractionHtml(render);
+    try {
+      await this.bot.api.sendMessage(numericId, payload.text, {
+        ...telegramThreadOptionsFromString(render.threadId),
+        parse_mode: 'HTML',
+        ...(payload.reply_markup
+          ? { reply_markup: payload.reply_markup as never }
+          : {}),
+      });
+      return true;
+    } catch (err) {
+      logger.warn({ jid, err }, 'Telegram rich interaction render failed');
+      await this.sendMessage(
+        jid,
+        `${RICH_INTERACTION_FALLBACK_COPY}\n\n${richFallbackText(render)}`,
+        { threadId: render.threadId },
+      );
+      return true;
     }
   }
 

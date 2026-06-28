@@ -13,6 +13,7 @@ import {
   ProgressSink,
   PermissionApprovalRequest,
   ConversationRoute,
+  RichInteractionSurface,
   StreamingSink,
   StreamingStateSink,
   TypingSink,
@@ -72,6 +73,7 @@ export type ChannelAdapter = ChannelLifecyclePort &
       MessageReactionSink &
       GroupDiscoverySource &
       InteractionSurface &
+      RichInteractionSurface &
       PlanReviewSurface &
       AgentTodoSink &
       ConversationContextHydrationSink

@@ -2,8 +2,10 @@ import fs from 'fs';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  RichInteractionRequest,
   UserQuestionRequest,
 } from '../domain/types.js';
+import { RICH_INTERACTION_NATIVE_FALLBACK_TEXT } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
@@ -72,7 +74,7 @@ class StaleScheduledQuestionLeaseError extends Error {
 
 export function interactionInFlightKey(input: {
   sourceAgentFolder: string;
-  kind: 'permission' | 'user-question';
+  kind: 'permission' | 'rich-interaction' | 'user-question';
   threadId?: string;
   requestId: string;
 }): string {
@@ -82,6 +84,63 @@ export function interactionInFlightKey(input: {
     input.threadId || '',
     input.requestId,
   ].join(':');
+}
+
+export async function processRichInteractionIpc(input: {
+  request: RichInteractionRequest;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+  ipcBaseDir: string;
+  file: string;
+  claimedPath: string;
+  logger: IpcInteractionLogger;
+}): Promise<void> {
+  try {
+    const targetJid = input.request.targetJid;
+    if (!targetJid) throw new Error('Rich interaction target is missing');
+    const delivered = input.deps.renderRichInteraction
+      ? await input.deps.renderRichInteraction(targetJid, input.request)
+      : false;
+    if (!delivered) {
+      await sendRichInteractionFallback(input.deps, input.request);
+    }
+    fs.unlinkSync(input.claimedPath);
+  } catch (err) {
+    input.logger.error(
+      {
+        file: input.file,
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.request.requestId,
+        err,
+      },
+      'Error processing rich interaction IPC request',
+    );
+    try {
+      await sendRichInteractionFallback(input.deps, input.request);
+      fs.unlinkSync(input.claimedPath);
+    } catch {
+      archiveIpcErrorFile(
+        input.ipcBaseDir,
+        input.sourceAgentFolder,
+        input.file,
+        input.claimedPath,
+      );
+    }
+  }
+}
+
+async function sendRichInteractionFallback(
+  deps: IpcDeps,
+  request: RichInteractionRequest,
+): Promise<void> {
+  if (!request.targetJid) return;
+  await deps.sendMessage(
+    request.targetJid,
+    `${RICH_INTERACTION_NATIVE_FALLBACK_TEXT}\n\n${request.descriptor.rich?.fallbackText ?? request.descriptor.fallbackText ?? ''}`.trim(),
+    {
+      ...(request.threadId ? { threadId: request.threadId } : {}),
+    },
+  );
 }
 
 export function writePermissionInteractionFailure(input: {

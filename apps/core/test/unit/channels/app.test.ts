@@ -199,4 +199,61 @@ describe('app channel', () => {
       }),
     );
   });
+
+  it('publishes rich descriptors as structured ordered events for app clients', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue({
+      sessionId: 'session-1',
+      threadId: 'thread-5',
+      responseMode: 'sse',
+      webhookId: null,
+      correlationId: 'corr-5',
+    });
+    runtimeEvents.publish.mockResolvedValue({ eventId: 5 });
+    const channel = await createAppChannel({} as never);
+
+    await expect(
+      (channel as any).renderRichInteraction('app:demo:conversation', {
+        threadId: 'thread-5',
+        descriptor: {
+          id: 'status-1',
+          title: 'Run status',
+          fallbackText: 'Run status: qualifying leads',
+          rich: {
+            kind: 'status',
+            fallbackText: 'Run status: qualifying leads',
+            payload: { state: 'running' },
+          },
+        },
+      }),
+    ).resolves.toBe(true);
+
+    expect(runtimeEvents.publish).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appId: 'app-1',
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+        payload: expect.objectContaining({
+          kind: 'rich_interaction',
+          threadId: 'thread-5',
+          descriptor: expect.objectContaining({
+            id: 'status-1',
+            rich: expect.objectContaining({
+              kind: 'status',
+              fallbackText: 'Run status: qualifying leads',
+            }),
+          }),
+          fallbackText: 'Run status: qualifying leads',
+          orderedEnvelope: expect.objectContaining({
+            sequence: 1,
+            kind: 'rich_interaction',
+          }),
+        }),
+      }),
+    );
+  });
 });
