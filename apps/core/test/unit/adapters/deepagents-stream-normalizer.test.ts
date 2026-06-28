@@ -87,6 +87,75 @@ describe('normalizeDeepAgentStream', () => {
     );
   });
 
+  it('prefers standardized contentBlocks and streams only visible text blocks', async () => {
+    const frames: RunnerOutputFrame[] = [];
+    const result = await normalizeDeepAgentStream({
+      events: asStream([
+        {
+          event: 'on_chat_model_stream',
+          data: {
+            chunk: {
+              content: 'fallback text must not stream',
+              contentBlocks: [
+                { type: 'reasoning', reasoning: 'The user is asking...' },
+                { type: 'text', text: 'Visible ' },
+                { type: 'thinking', thinking: 'No tools needed.' },
+                'plain ',
+                { type: 'redacted_thinking', data: 'hidden' },
+                { type: 'text', text: 'answer' },
+                { type: 'image', url: 'https://example.invalid/image.png' },
+              ],
+            },
+          },
+        },
+      ]),
+      newSessionId: 'session-blocks',
+      modelProfile: { maxInputTokens: 1000 },
+      emit: (frame) => frames.push(frame),
+    });
+
+    expect(result.text).toBe('Visible plain answer');
+    expect(frames.map((frame) => frame.result)).toEqual([
+      'Visible plain answer',
+    ]);
+    expect(JSON.stringify(frames)).not.toContain('The user is asking');
+    expect(JSON.stringify(frames)).not.toContain('No tools needed');
+    expect(JSON.stringify(frames)).not.toContain(
+      'fallback text must not stream',
+    );
+  });
+
+  it('prefers snake_case content_blocks and ignores provider reasoning blocks', async () => {
+    const frames: RunnerOutputFrame[] = [];
+    const result = await normalizeDeepAgentStream({
+      events: asStream([
+        {
+          event: 'on_chat_model_stream',
+          data: {
+            chunk: {
+              content: 'fallback text must not stream',
+              content_blocks: [
+                { type: 'text', text: 'Final ' },
+                { type: 'reasoning', text: 'hidden reasoning' },
+                { type: 'text', text: 'copy' },
+              ],
+            },
+          },
+        },
+      ]),
+      newSessionId: 'session-snake-blocks',
+      modelProfile: { maxInputTokens: 1000 },
+      emit: (frame) => frames.push(frame),
+    });
+
+    expect(result.text).toBe('Final copy');
+    expect(frames.map((frame) => frame.result)).toEqual(['Final copy']);
+    expect(JSON.stringify(frames)).not.toContain('hidden reasoning');
+    expect(JSON.stringify(frames)).not.toContain(
+      'fallback text must not stream',
+    );
+  });
+
   it('accounts OpenRouter-shaped cache reads/writes off the final raw usage', async () => {
     // ChatOpenRouter / the OpenRouter gateway surfaces the raw provider usage on
     // response_metadata.usage.prompt_tokens_details.{cached_tokens,

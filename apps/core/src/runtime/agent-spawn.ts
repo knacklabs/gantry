@@ -515,6 +515,7 @@ export async function spawnAgent(
       parentTaskId: input.parentTaskId,
       runLeaseToken: input.runLeaseToken,
       runLeaseFencingVersion: input.runLeaseFencingVersion,
+      liveStopActionToken: input.liveStopActionToken,
       browserIpcAuthToken: browserIpcEnabled
         ? computeBrowserIpcAuthToken(
             group.folder,

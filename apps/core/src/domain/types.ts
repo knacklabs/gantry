@@ -495,6 +495,7 @@ export interface ProgressUpdateOptions {
   done?: boolean;
   replaceOnly?: boolean;
   generation?: number;
+  actionOnly?: boolean;
   actionAffordances?: MessageActionAffordance[];
 }
 

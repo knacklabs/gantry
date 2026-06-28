@@ -2,6 +2,7 @@ import {
   CHANNEL_STREAM_UPDATE_INTERVAL_MS,
   type ChannelAdapter,
   type ChannelOpts,
+  type ConversationContextHydrationRequest,
 } from './channel-provider.js';
 import type {
   MessageDeliveryResult,
@@ -70,6 +71,10 @@ import {
   type TeamsInboundMessage,
   type TeamsSdkClient,
 } from './teams-types.js';
+import {
+  hydrateTeamsConversationContext,
+  teamsMessageAttachments as teamsInboundMessageAttachments,
+} from './teams-conversation-context.js';
 
 interface TeamsStreamingState {
   conversationId: string;
@@ -196,6 +201,16 @@ export class TeamsChannel implements ChannelAdapter {
 
   ownsJid(jid: string): boolean {
     return isTeamsJid(jid);
+  }
+
+  async hydrateConversationContext(
+    request: ConversationContextHydrationRequest,
+  ) {
+    return hydrateTeamsConversationContext(
+      request,
+      this.sdkClient,
+      this.credentials.clientId,
+    );
   }
 
   async sendMessage(
@@ -432,7 +447,8 @@ export class TeamsChannel implements ChannelAdapter {
     }
 
     const content = message.text?.trim() || '';
-    if (!content) return;
+    const attachments = teamsInboundMessageAttachments(message);
+    if (!content && attachments.length === 0) return;
 
     await this.opts.onChatMetadata(
       jid,
@@ -455,6 +471,7 @@ export class TeamsChannel implements ChannelAdapter {
       thread_id: message.threadId,
       reply_to_message_id: message.replyToId,
       external_message_id: message.id,
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
     await this.opts.onMessage(jid, normalized);
   }

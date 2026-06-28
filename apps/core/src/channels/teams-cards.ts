@@ -217,6 +217,7 @@ export function buildTeamsMessageCard(options: {
   text: string;
   targetJid: string;
   threadId?: string;
+  actionOnly?: boolean;
   actionAffordances?: MessageActionAffordance[];
 }): TeamsAdaptiveCardPayload {
   const actions = (options.actionAffordances ?? [])
@@ -258,7 +259,9 @@ export function buildTeamsMessageCard(options: {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
     version: '1.5',
-    body: [{ type: 'TextBlock', text: options.text, wrap: true }],
+    body: options.actionOnly
+      ? []
+      : [{ type: 'TextBlock', text: options.text, wrap: true }],
     actions,
   };
 }

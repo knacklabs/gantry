@@ -9,6 +9,7 @@ import {
 import type { AgentRunnerInput } from './types.js';
 
 const GANTRY_EFFECTIVE_MODEL_SOURCE_ENV = 'GANTRY_EFFECTIVE_MODEL_SOURCE';
+const DEFAULT_THINKING_DISPLAY = 'omitted' as const;
 
 function normalizeModelValue(value?: string): string | undefined {
   const aliasModel = resolveRunnerModel(value);
@@ -39,7 +40,7 @@ export function resolveThinkingOptions(
 } {
   if (!thinkingOverride) {
     return {
-      thinking: { type: 'adaptive' },
+      thinking: { type: 'adaptive', display: DEFAULT_THINKING_DISPLAY },
       effort: 'medium',
       description: 'adaptive (effort medium)',
     };
@@ -57,7 +58,7 @@ export function resolveThinkingOptions(
       thinking: {
         type: 'enabled',
         budgetTokens: thinkingOverride.budgetTokens,
-        display: thinkingOverride.display,
+        display: thinkingOverride.display ?? DEFAULT_THINKING_DISPLAY,
       },
       description:
         typeof thinkingOverride.budgetTokens === 'number'
@@ -69,7 +70,7 @@ export function resolveThinkingOptions(
   return {
     thinking: {
       type: 'adaptive',
-      display: thinkingOverride.display,
+      display: thinkingOverride.display ?? DEFAULT_THINKING_DISPLAY,
     },
     effort: thinkingOverride.effort,
     description: thinkingOverride.effort

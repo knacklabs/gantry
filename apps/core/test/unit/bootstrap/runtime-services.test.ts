@@ -122,6 +122,7 @@ function makeChannelWiring(): ChannelWiring {
     resetStreaming: vi.fn(),
     setTyping: vi.fn(async () => {}),
     sendProgressUpdate: vi.fn(async () => {}),
+    addReaction: vi.fn(async () => {}),
     syncGroups: vi.fn(async () => {}),
     requestPermissionApproval: vi.fn(async () => ({ approved: true })),
     requestUserAnswer: vi.fn(async () => ({ requestId: 'q', answers: {} })),
@@ -537,7 +538,6 @@ describe('startRuntimeServices', () => {
       agentSessionId: 'session-main',
     }));
     const createSessionAgentRun = vi.fn(async () => 'agent-run:live-1');
-
     await startRuntimeServices(
       {
         app,
@@ -591,6 +591,11 @@ describe('startRuntimeServices', () => {
       agentSessionId: 'session-main',
     }));
     const createSessionAgentRun = vi.fn(async () => 'agent-run:live-1');
+    app.processGroupMessages = vi.fn(async (_queueJid, options: any) => {
+      await options.onLiveStopActionToken?.('stop-token-1');
+      options.onRunResult?.('success');
+      return true;
+    });
 
     await startRuntimeServices(
       {
@@ -637,7 +642,19 @@ describe('startRuntimeServices', () => {
           existingRunLeaseFencingVersion: 1,
           onRunResult: expect.any(Function),
           onFirstProgress: expect.any(Function),
+          onLiveStopActionToken: expect.any(Function),
         }),
+      );
+      const runOptions = vi.mocked(app.processGroupMessages).mock
+        .calls[0]?.[1] as any;
+      await runOptions?.onFirstProgress?.({
+        jid: 'tg:primary',
+        messageRef: 'message-1',
+      });
+      expect(channelWiring.addReaction).toHaveBeenCalledWith(
+        'tg:primary',
+        'message-1',
+        'seen',
       );
       expect([...liveTurns.turns.values()]).toEqual([
         expect.objectContaining({
@@ -646,6 +663,7 @@ describe('startRuntimeServices', () => {
           conversationId: 'tg:primary',
           runId: 'agent-run:live-1',
           state: 'completed',
+          stopAliasJids: ['stop-token-1'],
         }),
       ]);
       expect(coordination.leases).toEqual([
@@ -737,6 +755,93 @@ describe('startRuntimeServices', () => {
           runId: 'agent-run:live-1',
           state: 'failed',
         }),
+      ]);
+    } finally {
+      stopLiveTurnRecoveryLoop();
+      await stopLiveAdmissionLoop(0);
+      await shutdownLiveTurnAuthority();
+    }
+  });
+
+  it('settles host stop outcome as handled terminal cancellation', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    const liveTurns = new FakeLiveTurns();
+    const coordination = Object.assign(new FakeCoordination(), {
+      registerWorker: vi.fn(async () => {}),
+      heartbeatWorker: vi.fn(async () => true),
+    });
+    liveTurns.coordination = coordination;
+    app.processGroupMessages = vi.fn(
+      async (_queueJid: string, options: any) => {
+        await channelWiring.renderAgentTodo('tg:primary', {
+          summary: 'Plan running',
+          status: 'running',
+          stop: { label: 'Stop', actionToken: 'stop-token-1' },
+          items: [{ id: 'step-1', title: 'Work', status: 'inProgress' }],
+        });
+        options.onRunResult?.('stopped');
+        return true;
+      },
+    );
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {
+          getAgentTurnContext: vi.fn(async () => ({
+            appId: 'default',
+            agentSessionId: 'session-main',
+          })),
+          createSessionAgentRun: vi.fn(async () => 'agent-run:live-1'),
+        } as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getWorkerCoordinationRepository: vi.fn(() => coordination as any),
+        getLiveTurnRepository: vi.fn(() => liveTurns as any),
+        recoverPendingMessages: vi.fn() as any,
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          fatal: vi.fn(),
+        },
+        exit: vi.fn() as any,
+      },
+    );
+    try {
+      const processMessages = vi.mocked(app.queue.setProcessMessagesFn as any)
+        .mock.calls[0]?.[0] as (queueJid: string) => Promise<boolean>;
+
+      await expect(processMessages('tg:primary')).resolves.toBe(true);
+
+      expect(channelWiring.finalizeAgentTodo).toHaveBeenCalledWith(
+        'tg:primary',
+        {
+          threadId: null,
+          status: 'stopped',
+        },
+      );
+      expect([...liveTurns.turns.values()]).toEqual([
+        expect.objectContaining({
+          conversationId: 'tg:primary',
+          runId: 'agent-run:live-1',
+          state: 'completed',
+        }),
+      ]);
+      expect(coordination.leases).toEqual([
+        expect.objectContaining({ status: 'completed' }),
+      ]);
+      expect(liveTurns.agentRunCompletions).toEqual([
+        {
+          runId: 'agent-run:live-1',
+          status: 'canceled',
+          errorSummary: 'Live turn stopped by request.',
+        },
       ]);
     } finally {
       stopLiveTurnRecoveryLoop();
@@ -1518,6 +1623,54 @@ describe('startRuntimeServices', () => {
       'tg:primary',
       'Stopping current run.',
       { durability: 'required', messageOptions: { threadId: 'topic-42' } },
+    );
+  });
+
+  it('does not fall back to the active thread queue when a live stop token is stale', async () => {
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    vi.mocked(app.queue.stopGroup as any).mockReturnValue(false);
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn() as any,
+        startIpcWatcher: vi.fn() as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        recoverPendingMessages: vi.fn() as any,
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          fatal: vi.fn(),
+        },
+        exit: vi.fn() as any,
+      },
+    );
+
+    const handler = vi.mocked(channelWiring.setMessageActionHandler).mock
+      .calls[0]?.[0];
+    await handler?.({
+      kind: 'live_turn_stop',
+      conversationJid: 'tg:primary',
+      threadId: 'topic-42',
+      userId: 'user',
+      actionToken: '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
+    });
+
+    expect(app.queue.stopGroup).toHaveBeenNthCalledWith(
+      1,
+      '67ad9359-9a43-4fb7-a782-c21a5ef9442a',
+    );
+    expect(app.queue.stopGroup).toHaveBeenCalledTimes(1);
+    expect(channelWiring.sendMessage).not.toHaveBeenCalledWith(
+      'tg:primary',
+      'Stopping current run.',
+      expect.any(Object),
     );
   });
 

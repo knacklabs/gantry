@@ -344,6 +344,7 @@ export function createAgentTodoRenderer(input: {
     return renderTodo(jid, {
       ...render,
       status: final.status,
+      stop: undefined,
       updatedAt: new Date().toISOString(),
       flush: true,
     });

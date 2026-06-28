@@ -134,7 +134,7 @@ function capabilityGuidancePrompt(
       ? '- Memory is baseline for every persona. Browser control is available only when Gantry-owned browser_* tools are present.'
       : '- Memory is baseline for every persona. Browser control is available only when the canonical Browser capability is selected, through Gantry-owned browser_* tools.',
     '- Memory tools store durable evidence only; temporary task state does not belong in memory.',
-    '- Use todo_update for any multi-step task: publish a short plan and keep it current as items move pending -> inProgress -> completed. It renders as one live, in-place list per channel, so do not restate the same progress in separate messages. It is display-only, non-authority state and does not grant tools or trigger work.',
+    '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation. Use todo_update for any multi-step task: publish a short plan and keep it current as items move pending -> inProgress -> completed. It renders as one live, in-place list per channel, so avoid repeated generic progress chatter unless there is a concrete blocker, decision, or result to share. It is display-only, non-authority state and does not grant tools or trigger work.',
     '- Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
     '- Final answers use adaptive receipts: pure chat answers need no receipt; work with no tools, changes, delegation, or blocker may use only Completed: <short outcome>; delegated work must include the full receipt with Used, Changed, Delegated, and Needs attention.',
     '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
@@ -186,7 +186,8 @@ const OPERATING_GUIDANCE_HEAD = [
   '## Tool Use',
   '- Use memory tools for durable memory, not for temporary notes.',
   '- If memory is missing, stale, or uncertain, say so directly.',
-  '- Use send_message for progress updates and ask_user_question for genuine either/or decisions the user must make: 2-4 short options (1-5 words), set single- or multi-select intentionally. It renders as native buttons, cards, or inline keyboards per channel. Use a normal message for open-ended input the agent can act on directly.',
+  '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; after that, do not send repeated generic progress chatter.',
+  '- Use ask_user_question for genuine either/or decisions the user must make: 2-4 short options (1-5 words), set single- or multi-select intentionally. It renders as native buttons, cards, or inline keyboards per channel. Use a normal message for open-ended input the agent can act on directly.',
 ];
 
 const FULL_TOOL_ACCESS_GUIDANCE = [
@@ -679,7 +680,7 @@ export function defaultAgentsPromptMarkdown(
           // No scheduler line: scheduler_* tools are not mounted for locked
           // agents, so the default profile must not describe them.
           'How you get things done:',
-          '- Use send_message for progress and ask_user_question for genuine either/or decisions the user must make; it renders as native buttons, cards, or inline keyboards per channel.',
+          '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use ask_user_question for genuine either/or decisions the user must make.',
           '- Work only with the tools and knowledge currently available in this session.',
           '',
           'When something blocks you:',
@@ -689,7 +690,7 @@ export function defaultAgentsPromptMarkdown(
         ]
       : [
           'How you get things done:',
-          '- Use send_message for progress and ask_user_question for genuine either/or decisions the user must make; it renders as native buttons, cards, or inline keyboards per channel.',
+          '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use ask_user_question for genuine either/or decisions the user must make.',
           '- Request reviewed access with request_access (target.kind=capability for durable access, target.kind=tool for exact Gantry tools such as AgentDelegation, target.kind=run_command with temporaryOnly for a scoped one-off command).',
           '- Add capabilities with request_skill_install, request_skill_proposal, request_skill_dependency_install, or request_mcp_server; bind and restart with register_agent and service_restart.',
           '- Manage recurring work with the scheduler_* tools (for example scheduler_upsert_job, scheduler_run_now, scheduler_list_jobs).',

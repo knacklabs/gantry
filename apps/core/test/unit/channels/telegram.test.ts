@@ -351,6 +351,12 @@ describe('TelegramChannel', () => {
     vi.unstubAllGlobals();
   });
 
+  it('does not expose a conversation context hydration hook', () => {
+    const channel = new TelegramChannel('token', createTestOpts());
+
+    expect('hydrateConversationContext' in channel).toBe(false);
+  });
+
   it('adds Telegram reactions idempotently', async () => {
     const channel = new TelegramChannel('token', createTestOpts());
     await channel.connect({ inbound: false });
@@ -389,6 +395,8 @@ describe('TelegramChannel', () => {
     });
     await channel.renderAgentTodo('tg:-100123', {
       threadId: '42',
+      status: 'done',
+      stop: { label: 'Stop', actionToken: 'stale-stop-token' },
       items: [{ id: '1', title: 'First', status: 'completed' }],
     });
 
@@ -415,7 +423,7 @@ describe('TelegramChannel', () => {
       '-100123',
       101,
       expect.any(String),
-      expect.any(Object),
+      expect.objectContaining({ reply_markup: { inline_keyboard: [] } }),
     );
   });
 
@@ -2425,6 +2433,36 @@ describe('TelegramChannel', () => {
         '-1001234567890',
         987,
         'Still working (1m 00s)...',
+        expect.objectContaining({
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Stop', callback_data: 'lt:stop:token-1' }],
+            ],
+          },
+        }),
+      );
+    });
+
+    it('sends action-only progress with a Stop button and no status copy', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:-1001234567890', '', {
+        actionOnly: true,
+        actionAffordances: [
+          {
+            kind: 'live_turn_stop' as const,
+            label: 'Stop',
+            actionToken: 'token-1',
+          },
+        ],
+      });
+
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '-1001234567890',
+        String.fromCharCode(8288),
         expect.objectContaining({
           parse_mode: 'MarkdownV2',
           reply_markup: {

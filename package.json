@@ -6,11 +6,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gantry/gantry.git"
+    "url": "git+https://github.com/cawstudios/Agent.Gantry.git"
   },
-  "homepage": "https://github.com/gantry/gantry",
+  "homepage": "https://github.com/cawstudios/Agent.Gantry",
   "bugs": {
-    "url": "https://github.com/gantry/gantry/issues"
+    "url": "https://github.com/cawstudios/Agent.Gantry/issues"
   },
   "keywords": [
     "agent",

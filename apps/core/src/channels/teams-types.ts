@@ -36,6 +36,30 @@ export interface TeamsInboundMessage {
   replyToId?: string;
   conversationName?: string;
   conversationType?: string;
+  attachments?: TeamsMessageAttachment[];
+}
+
+export interface TeamsMessageAttachment {
+  id?: string;
+  contentType?: string;
+  sizeBytes?: number;
+}
+
+export interface TeamsContextMessage extends TeamsInboundMessage {}
+
+export interface TeamsSdkMessageListInput {
+  conversationId: string;
+  beforeMessageId?: string;
+  limit: number;
+}
+
+export interface TeamsSdkMessageGetInput {
+  conversationId: string;
+  messageId: string;
+}
+
+export interface TeamsSdkReplyListInput extends TeamsSdkMessageListInput {
+  messageId: string;
 }
 
 export interface TeamsSdkStartInput {
@@ -72,6 +96,15 @@ export interface TeamsSdkClient {
   start(input: TeamsSdkStartInput): Promise<void>;
   stop(): Promise<void>;
   sendMessage(input: TeamsSdkOutboundMessage): Promise<TeamsSdkSendResult>;
+  listChannelMessages?(
+    input: TeamsSdkMessageListInput,
+  ): Promise<TeamsContextMessage[]>;
+  getChannelMessage?(
+    input: TeamsSdkMessageGetInput,
+  ): Promise<TeamsContextMessage>;
+  listChannelMessageReplies?(
+    input: TeamsSdkReplyListInput,
+  ): Promise<TeamsContextMessage[]>;
   sendAdaptiveCard?(
     input: TeamsSdkAdaptiveCardMessage,
   ): Promise<TeamsSdkSendResult>;

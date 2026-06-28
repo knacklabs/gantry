@@ -161,6 +161,7 @@ interface AdmissionApp {
         jid: string;
         messageRef: string;
       }) => Promise<void> | void;
+      onLiveStopActionToken?: (token: string) => Promise<void> | void;
     },
   ) => Promise<boolean>;
   getOrRecoverCursor: (queueJid: string) => Promise<string>;
@@ -356,12 +357,15 @@ export function buildLiveAdmissionProcessor(input: {
           liveRunResult = result;
         },
         onFirstProgress: ({ jid, messageRef }) =>
-          input
-            .addReaction?.(jid, messageRef, 'running')
-            .catch(() => undefined),
+          input.addReaction?.(jid, messageRef, 'seen').catch(() => undefined),
+        onLiveStopActionToken: async (token) => {
+          await liveTurnAuthority.registerStopAliases(queueJid, [token]);
+        },
       });
       const terminalSuccess =
         success && (liveRunResult === 'success' || liveRunResult === null);
+      const terminalHandled =
+        terminalSuccess || (success && liveRunResult === 'stopped');
       // Snapshot the browser profile (if used) BEFORE finalizing the live turn,
       // while this worker still owns the run lease fence.
       await finalizeBrowserForLiveTurn?.({
@@ -371,23 +375,30 @@ export function buildLiveAdmissionProcessor(input: {
       });
       const finalized = await liveTurnAuthority.finalize(
         queueJid,
-        terminalSuccess ? 'completed' : 'failed',
+        terminalHandled ? 'completed' : 'failed',
         {
-          status: terminalSuccess ? 'completed' : 'failed',
+          status: terminalSuccess
+            ? 'completed'
+            : liveRunResult === 'stopped'
+              ? 'canceled'
+              : 'failed',
           ...(terminalSuccess
             ? { resultSummary: 'Live turn completed.' }
-            : {
-                errorSummary:
-                  liveRunResult === 'stopped'
-                    ? 'Live turn stopped by request.'
-                    : 'Live turn failed.',
-              }),
+            : liveRunResult === 'stopped'
+              ? { errorSummary: 'Live turn stopped by request.' }
+              : {
+                  errorSummary: 'Live turn failed.',
+                }),
         },
       );
       if (finalized && finalizeAgentTodo) {
         await finalizeAgentTodo(chatJid, {
           threadId: threadId ?? null,
-          status: terminalSuccess ? 'done' : 'failed',
+          status: terminalSuccess
+            ? 'done'
+            : liveRunResult === 'stopped'
+              ? 'stopped'
+              : 'failed',
         }).catch((todoErr) => {
           warn(
             { err: todoErr, queueJid },
@@ -395,7 +406,7 @@ export function buildLiveAdmissionProcessor(input: {
           );
         });
       }
-      return terminalSuccess && finalized;
+      return terminalHandled && finalized;
     } catch (err) {
       // Snapshot on failure too: the browser may have persisted new cookies/
       // logins before the turn errored. Best-effort; never mask the original err.

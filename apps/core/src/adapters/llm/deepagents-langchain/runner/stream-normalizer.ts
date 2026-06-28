@@ -288,23 +288,37 @@ function numberField(
 
 function textFromChunk(chunk: unknown): string {
   if (!chunk || typeof chunk !== 'object') return '';
-  const content = (chunk as { content?: unknown }).content;
+  const record = chunk as {
+    content?: unknown;
+    contentBlocks?: unknown;
+    content_blocks?: unknown;
+  };
+  if (Array.isArray(record.contentBlocks)) {
+    return textFromContent(record.contentBlocks);
+  }
+  if (Array.isArray(record.content_blocks)) {
+    return textFromContent(record.content_blocks);
+  }
+  return textFromContent(record.content);
+}
+
+function textFromContent(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part;
-        if (
-          part &&
-          typeof part === 'object' &&
-          (part as { type?: unknown }).type === 'text' &&
-          typeof (part as { text?: unknown }).text === 'string'
-        ) {
-          return (part as { text: string }).text;
-        }
-        return '';
-      })
-      .join('');
+    return content.map(textFromContentPart).join('');
+  }
+  return '';
+}
+
+function textFromContentPart(part: unknown): string {
+  if (typeof part === 'string') return part;
+  if (
+    part &&
+    typeof part === 'object' &&
+    (part as { type?: unknown }).type === 'text' &&
+    typeof (part as { text?: unknown }).text === 'string'
+  ) {
+    return (part as { text: string }).text;
   }
   return '';
 }

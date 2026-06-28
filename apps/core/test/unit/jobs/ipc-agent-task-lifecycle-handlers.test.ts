@@ -211,11 +211,17 @@ function readResponse(runtimeHome: string, taskId: string) {
 function contextFor(input: {
   data: Record<string, unknown>;
   renderAgentTodo?: ReturnType<typeof vi.fn>;
+  liveStopActionToken?: string;
   deps?: Record<string, unknown>;
   conversationBindings?: Record<string, unknown>;
 }) {
   return {
-    data: input.data,
+    data: {
+      ...input.data,
+      ...(input.liveStopActionToken
+        ? { liveStopActionToken: input.liveStopActionToken }
+        : {}),
+    },
     sourceAgentFolder: 'main_agent',
     deps: {
       ...(input.renderAgentTodo
@@ -276,6 +282,7 @@ describe('agent task lifecycle IPC handlers', () => {
           ],
         }),
         renderAgentTodo,
+        liveStopActionToken: 'stop-token-1',
       }),
     );
 
@@ -291,6 +298,7 @@ describe('agent task lifecycle IPC handlers', () => {
             note: 'Checking surface',
           },
         ],
+        stop: { label: 'Stop', actionToken: 'stop-token-1' },
         threadId: 'thread-1',
       }),
     );

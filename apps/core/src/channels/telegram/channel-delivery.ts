@@ -333,7 +333,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       : undefined;
     const key = `progress:${this.buildDraftStreamKey(jid, options.threadId)}`;
     this.loadPersistedProgressMessages();
-    const nextText = text.trim();
+    const actionOnly = Boolean(
+      options.actionOnly && options.actionAffordances?.length,
+    );
+    const nextText = actionOnly ? String.fromCharCode(8288) : text.trim();
     if (options.done) {
       this.markProgressGenerationDone(key, options.generation);
     } else if (

@@ -115,6 +115,7 @@ export async function startGantryRuntime(
     setTyping: channelWiring.setTyping,
     sendProgressUpdate: channelWiring.sendProgressUpdate,
     renderAgentTodo: channelWiring.renderAgentTodo,
+    hydrateConversationContext: channelWiring.hydrateConversationContext,
     isControlApproverAllowed: channelWiring.isControlApproverAllowed,
   });
 

@@ -18,6 +18,7 @@ import {
 } from '../../domain/types.js';
 import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
+import { hydrateSlackConversationContext } from './conversation-context.js';
 import {
   encodeSlackActionValue,
   formatSlackUserQuestionBody,
@@ -104,6 +105,7 @@ export interface SlackMessageLike {
   client_msg_id?: string;
   edited?: unknown;
 }
+
 export abstract class SlackChannelState {
   name = 'slack';
 
@@ -634,6 +636,18 @@ export abstract class SlackChannelState {
 
     return { text: lines.join('\n').trim(), attachments };
   }
+
+  async hydrateConversationContext(
+    request: Parameters<typeof hydrateSlackConversationContext>[0],
+  ) {
+    return hydrateSlackConversationContext(request, {
+      app: this.app,
+      botUserId: this.botUserId,
+      parseJid: (jid) => this.parseJid(jid),
+      resolveUserName: (userId) => this.resolveUserName(userId),
+    });
+  }
+
   protected abstract tryNativeStreamStop(
     channelId: string,
     streamTs: string,

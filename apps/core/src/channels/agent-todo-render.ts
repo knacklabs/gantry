@@ -60,6 +60,13 @@ export function formatAgentTodoHeader(
 export function agentTodoStopActions(
   render: AgentTodoRender,
 ): MessageActionAffordance[] | undefined {
+  if (
+    render.status === 'done' ||
+    render.status === 'failed' ||
+    render.status === 'stopped'
+  ) {
+    return undefined;
+  }
   const token = render.stop?.actionToken.trim();
   if (!token) return undefined;
   return [

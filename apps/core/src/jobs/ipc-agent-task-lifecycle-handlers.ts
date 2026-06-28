@@ -294,6 +294,14 @@ const todoUpdateHandler: TaskHandler = async (context) => {
         items,
         threadId,
         updatedAt,
+        ...(context.data.liveStopActionToken
+          ? {
+              stop: {
+                label: 'Stop',
+                actionToken: context.data.liveStopActionToken,
+              },
+            }
+          : {}),
       })
       .catch((err) => {
         logger.debug(

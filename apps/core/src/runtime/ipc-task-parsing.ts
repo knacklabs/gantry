@@ -347,6 +347,9 @@ export function parseTaskIpcData(
   const statuses = toOptionalStringArray(raw.statuses, 50, 64);
   const runId = toTrimmedString(raw.runId, { maxLen: 128 });
   const parentTaskId = toTrimmedString(raw.parentTaskId, { maxLen: 160 });
+  const liveStopActionToken = toTrimmedString(raw.liveStopActionToken, {
+    maxLen: 128,
+  });
   const eventType = toTrimmedString(raw.eventType, { maxLen: 128 });
   const since = toTrimmedString(raw.since, { maxLen: 128 });
   const workspaceFolder = toTrimmedString(raw.workspaceFolder, { maxLen: 128 });
@@ -431,6 +434,7 @@ export function parseTaskIpcData(
   if (statuses !== undefined) parsed.statuses = statuses;
   if (runId) parsed.runId = runId;
   if (parentTaskId) parsed.parentTaskId = parentTaskId;
+  if (liveStopActionToken) parsed.liveStopActionToken = liveStopActionToken;
   const runLeaseToken = toTrimmedString(raw.runLeaseToken, { maxLen: 255 });
   if (runLeaseToken) parsed.runLeaseToken = runLeaseToken;
   const runLeaseFencingVersion = toOptionalNumber(raw.runLeaseFencingVersion, {

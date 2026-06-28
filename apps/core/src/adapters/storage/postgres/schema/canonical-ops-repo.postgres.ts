@@ -180,6 +180,40 @@ export class PostgresRuntimeRepositoryBundle
     return this.messages.getMessagesSince(chatJid, sinceCursor, limit, options);
   }
 
+  async getRecentTopLevelMessagesBefore(
+    chatJid: string,
+    before: Pick<NewMessage, 'timestamp' | 'id'>,
+    limit: number = 30,
+  ): Promise<NewMessage[]> {
+    return this.messages.getRecentTopLevelMessagesBefore(
+      chatJid,
+      before,
+      limit,
+    );
+  }
+
+  async getFirstThreadMessages(
+    chatJid: string,
+    threadId: string,
+    limit: number = 50,
+  ): Promise<NewMessage[]> {
+    return this.messages.getFirstThreadMessages(chatJid, threadId, limit);
+  }
+
+  async getLatestThreadMessages(
+    chatJid: string,
+    threadId: string,
+    beforeOrAt: Pick<NewMessage, 'timestamp' | 'id'>,
+    limit: number = 50,
+  ): Promise<NewMessage[]> {
+    return this.messages.getLatestThreadMessages(
+      chatJid,
+      threadId,
+      beforeOrAt,
+      limit,
+    );
+  }
+
   async getMessageThreadIds(chatJid: string): Promise<Array<string | null>> {
     return this.messages.getMessageThreadIds(chatJid);
   }

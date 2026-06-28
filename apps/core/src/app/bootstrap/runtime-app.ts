@@ -507,6 +507,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       renderAgentTodo: (chatJid, render) =>
         channelRuntime.renderAgentTodo?.(chatJid, render) ??
         Promise.resolve(false),
+      hydrateConversationContext: (request) =>
+        channelRuntime.hydrateConversationContext?.(request) ??
+        Promise.resolve({
+          providerId: 'unknown',
+          attempted: false,
+          skipped: true,
+          reason: 'unsupported',
+        }),
       isControlApproverAllowed: (input) =>
         channelRuntime.isControlApproverAllowed?.(input) ??
         Promise.resolve(false),

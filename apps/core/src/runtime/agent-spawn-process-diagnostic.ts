@@ -24,12 +24,6 @@ export function publishRunnerProcessStartupDiagnostic(input: {
     ...(agentInput.agentId
       ? { agentId: agentInput.agentId as RuntimeEventPublishInput['agentId'] }
       : {}),
-    ...(agentInput.sessionId
-      ? {
-          sessionId:
-            agentInput.sessionId as RuntimeEventPublishInput['sessionId'],
-        }
-      : {}),
     ...(agentInput.runId
       ? { runId: agentInput.runId as RuntimeEventPublishInput['runId'] }
       : {}),

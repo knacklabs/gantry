@@ -251,7 +251,11 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('request_access target.kind=capability');
     expect(prompt).toContain('Credential Center');
     expect(prompt).toContain('admin_permission_list');
+    expect(prompt).toContain(
+      'first send one short natural acknowledgement with send_message',
+    );
     expect(prompt).toContain('pending -> inProgress -> completed');
+    expect(prompt).toContain('repeated generic progress chatter');
     expect(prompt).toContain(
       'Gantry delegation is unavailable until a delegated-task executor is mounted. Do not claim delegated work started unless a real Gantry delegation tool returns a handle.',
     );

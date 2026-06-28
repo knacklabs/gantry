@@ -44,6 +44,9 @@ async function submitTaskLifecycleRequest(input: {
     ...(process.env.GANTRY_PARENT_TASK_ID
       ? { parentTaskId: process.env.GANTRY_PARENT_TASK_ID }
       : {}),
+    ...(process.env.GANTRY_LIVE_STOP_ACTION_TOKEN
+      ? { liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN }
+      : {}),
     ...(jobRunLeaseToken ? { runLeaseToken: jobRunLeaseToken } : {}),
     ...(jobRunLeaseFencingVersion
       ? { runLeaseFencingVersion: Number(jobRunLeaseFencingVersion) }

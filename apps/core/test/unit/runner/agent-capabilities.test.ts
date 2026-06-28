@@ -129,6 +129,7 @@ describe('agent capability composition', () => {
       memoryIpcAuthToken: 'memory-token',
       ipcResponseVerifyKey: 'verify-key',
       ipcResponseKeyId: 'verify-key-id',
+      liveStopActionToken: 'stop-token-1',
       persona: 'generalist',
     });
 
@@ -198,6 +199,7 @@ describe('agent capability composition', () => {
         GANTRY_MEMORY_IPC_AUTH_TOKEN: 'memory-token',
         GANTRY_IPC_RESPONSE_VERIFY_KEY: 'verify-key',
         GANTRY_IPC_RESPONSE_KEY_ID: 'verify-key-id',
+        GANTRY_LIVE_STOP_ACTION_TOKEN: 'stop-token-1',
         NO_PROXY:
           '127.0.0.1,localhost,::1,github.com,.github.com,api.github.com,raw.githubusercontent.com,objects.githubusercontent.com,codeload.github.com',
         no_proxy:

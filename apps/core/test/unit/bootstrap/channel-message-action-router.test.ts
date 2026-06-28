@@ -152,6 +152,37 @@ describe('createChannelMessageActionRouter', () => {
     );
   });
 
+  it('does not fall back to the active thread queue when a live stop action token misses', async () => {
+    const actionToken = '67ad9359-9a43-4fb7-a782-c21a5ef9442a';
+    const sendMessage = vi.fn(async () => {});
+    const stopGroup = vi.fn(async () => false);
+    let handler: any;
+    const channelWiring = {
+      setMessageActionHandler: vi.fn((next) => {
+        handler = next;
+      }),
+      isControlApproverAllowed: vi.fn(async () => true),
+      sendMessage,
+    };
+    registerLiveStopMessageAction({
+      channelWiring: channelWiring as any,
+      sourceAgentFolderFor: () => 'main_agent',
+      stopGroup,
+    });
+
+    await handler?.({
+      kind: 'live_turn_stop',
+      conversationJid: 'sl:C123',
+      threadId: 'thread-1',
+      userId: 'U123',
+      actionToken,
+    });
+
+    expect(stopGroup).toHaveBeenNthCalledWith(1, actionToken);
+    expect(stopGroup).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('reports scheduler run-now IPC rejection instead of a blind success', async () => {
     processTaskIpcMock.mockImplementation(
       async (

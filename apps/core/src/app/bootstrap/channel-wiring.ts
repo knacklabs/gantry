@@ -77,6 +77,7 @@ import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import { authorizeConversationApprover } from './channel-wiring-approver.js';
 import { createChannelMessageActionRouter } from './channel-message-action-router.js';
 import { createChannelProgressSender } from './channel-progress-sender.js';
+import { hydrateChannelConversationContext } from './channel-wiring-conversation-context.js';
 export type { ChannelWiring } from './channel-wiring-types.js';
 
 const PROVIDER_INBOUND_LEASE_PREFIX = 'runtime:provider-inbound';
@@ -269,9 +270,7 @@ export function createChannelWiring(
     }
   }
 
-  function hasConnectedChannels(): boolean {
-    return connectedChannels.length > 0;
-  }
+  const hasConnectedChannels = (): boolean => connectedChannels.length > 0;
   function describeDestinationJid(jid: string) {
     const provider = providerForJid(jid);
     return provider
@@ -283,9 +282,8 @@ export function createChannelWiring(
       : { internal: false, runtimeAppId: resolved.appId };
   }
 
-  function hasChannel(jid: string): boolean {
-    return findBoundChannel(jid) !== undefined;
-  }
+  const hasChannel = (jid: string): boolean =>
+    findBoundChannel(jid) !== undefined;
   function supportsStreaming(jid: string): boolean {
     const channel = findBoundChannel(jid);
     if (!channel) return false;
@@ -742,6 +740,12 @@ export function createChannelWiring(
     requestPermissionApproval,
     requestUserAnswer: userQuestionResponder.requestUserAnswer,
     renderAgentTodo: agentTodoRenderer,
+    hydrateConversationContext: (request) =>
+      hydrateChannelConversationContext(
+        request,
+        findBoundChannel,
+        providerIdForJid,
+      ),
     finalizeAgentTodo: agentTodoRenderer.finalize,
     disconnectChannels,
     isControlApproverAllowed: (input) => {

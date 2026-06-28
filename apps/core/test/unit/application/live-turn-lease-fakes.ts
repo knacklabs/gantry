@@ -294,7 +294,7 @@ export class FakeLiveTurns {
   async updateLiveTurnRouting(input: {
     id: string;
     fence: LiveTurnLeaseFence;
-    stopAliasJids: string[];
+    stopAliasJids?: string[];
     requiredContinuationUserId?: string | null;
     now?: string;
   }): Promise<boolean> {
@@ -306,9 +306,13 @@ export class FakeLiveTurns {
     ) {
       return false;
     }
-    turn.stopAliasJids = input.stopAliasJids;
-    turn.requiredContinuationUserId =
-      input.requiredContinuationUserId?.trim() || null;
+    if (input.stopAliasJids !== undefined) {
+      turn.stopAliasJids = input.stopAliasJids;
+    }
+    if (input.requiredContinuationUserId !== undefined) {
+      turn.requiredContinuationUserId =
+        input.requiredContinuationUserId?.trim() || null;
+    }
     return true;
   }
 

@@ -40,8 +40,8 @@ sudo apt install -y ca-certificates curl git libatomic1 bubblewrap socat ripgrep
 ## Quick Start From Source
 
 ```bash
-git clone https://github.com/gantry/gantry.git
-cd gantry
+git clone https://github.com/cawstudios/Agent.Gantry.git
+cd Agent.Gantry
 npm ci
 npm run build
 ```

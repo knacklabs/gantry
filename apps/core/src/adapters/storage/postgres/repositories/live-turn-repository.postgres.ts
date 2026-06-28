@@ -346,20 +346,29 @@ export class PostgresLiveTurnRepository implements LiveTurnCoordinationRepositor
   async updateLiveTurnRouting(input: {
     id: string;
     fence: LiveTurnLeaseFence;
-    stopAliasJids: string[];
+    stopAliasJids?: string[];
     requiredContinuationUserId?: string | null;
     now?: string;
   }): Promise<boolean> {
     const now = input.now ?? currentIso();
     const turns = pgSchema.liveTurnsPostgres;
+    const updateValues: {
+      stopAliasJidsJson?: string[];
+      requiredContinuationUserId?: string | null;
+      updatedAt: string;
+    } = {
+      updatedAt: now,
+    };
+    if (input.stopAliasJids !== undefined) {
+      updateValues.stopAliasJidsJson = input.stopAliasJids;
+    }
+    if (input.requiredContinuationUserId !== undefined) {
+      updateValues.requiredContinuationUserId =
+        input.requiredContinuationUserId?.trim() || null;
+    }
     const rows = await this.db
       .update(turns)
-      .set({
-        stopAliasJidsJson: input.stopAliasJids,
-        requiredContinuationUserId:
-          input.requiredContinuationUserId?.trim() || null,
-        updatedAt: now,
-      })
+      .set(updateValues)
       .where(
         and(
           eq(turns.id, input.id),

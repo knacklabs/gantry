@@ -8,6 +8,10 @@ import type {
   ThinkingOverride,
 } from '../domain/types.js';
 import type {
+  ConversationContextHydrationRequest,
+  ConversationContextHydrationResult,
+} from '../domain/ports/conversation-context-hydration.js';
+import type {
   RuntimeAgentSessionRepository,
   RuntimeMessageRepository,
 } from '../domain/repositories/ops-repo.js';
@@ -33,6 +37,11 @@ import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../domain/ports/pattern-candidates.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
 
+export type {
+  ConversationContextHydrationRequest,
+  ConversationContextHydrationResult,
+};
+
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
 
@@ -51,6 +60,7 @@ export interface GroupProcessor {
         jid: string;
         messageRef: string;
       }) => Promise<void> | void;
+      onLiveStopActionToken?: (token: string) => Promise<void> | void;
     },
   ) => Promise<boolean>;
 }
@@ -90,6 +100,9 @@ export interface GroupProcessingDeps {
       chatJid: string,
       render: AgentTodoRender,
     ) => Promise<boolean>;
+    hydrateConversationContext?: (
+      request: ConversationContextHydrationRequest,
+    ) => Promise<ConversationContextHydrationResult>;
     isControlApproverAllowed?: (input: {
       conversationJid: string;
       userId: string;

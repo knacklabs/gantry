@@ -27,6 +27,12 @@ describe('capability guidance', () => {
     for (const stale of STALE_TOOL_NAMES) {
       expect(rules).not.toContain(stale);
     }
+    expect(rules).toContain(
+      'first send one short natural acknowledgement with send_message',
+    );
+    expect(rules).toContain(
+      'use todo_update for progress instead of repeated generic progress messages',
+    );
   });
 
   it('includes settings admin tools only when requested', () => {

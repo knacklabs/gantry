@@ -27,6 +27,9 @@ const sdkState = vi.hoisted(() => ({
     | 'agent-input-field-denial'
     | 'subagent-attribution'
     | 'partial-output'
+    | 'partial-thinking-output'
+    | 'structured-thinking-output'
+    | 'structured-thinking-only-output'
     | 'auth-result-text'
     | 'billing-result-error'
     | 'success-result-empty-error-flag',
@@ -199,6 +202,63 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
         },
       };
       yield { type: 'result', subtype: 'success', result: 'Hello world' };
+      return;
+    }
+
+    if (sdkState.mode === 'partial-thinking-output') {
+      yield {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          delta: { type: 'thinking_delta', thinking: 'hidden reasoning' },
+        },
+      };
+      yield {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'Visible answer' },
+        },
+      };
+      yield { type: 'result', subtype: 'success', result: 'Visible answer' };
+      return;
+    }
+
+    if (sdkState.mode === 'structured-thinking-output') {
+      yield {
+        type: 'assistant',
+        uuid: 'assistant-structured-message',
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            { type: 'thinking', thinking: 'hidden reasoning' },
+            { type: 'redacted_thinking', data: 'hidden encrypted reasoning' },
+            { type: 'text', text: 'Visible answer.' },
+          ],
+        },
+      };
+      yield {
+        type: 'result',
+        subtype: 'success',
+        result: 'hidden reasoning Visible answer.',
+      };
+      return;
+    }
+
+    if (sdkState.mode === 'structured-thinking-only-output') {
+      yield {
+        type: 'assistant',
+        uuid: 'assistant-reasoning-only-message',
+        parent_tool_use_id: null,
+        message: {
+          content: [{ type: 'thinking', thinking: 'hidden reasoning' }],
+        },
+      };
+      yield {
+        type: 'result',
+        subtype: 'success',
+        result: 'hidden reasoning',
+      };
       return;
     }
 
@@ -445,6 +505,109 @@ describe('Claude Agent SDK boundary integration', () => {
         }),
       ]),
     );
+  });
+
+  it('ignores SDK thinking deltas and streams only text deltas', async () => {
+    sdkState.mode = 'partial-thinking-output';
+    const env = prepareRuntimeEnv();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line) as { result: string | null });
+    logSpy.mockRestore();
+    const visibleResults = outputs
+      .map((output) => output.result)
+      .filter((result): result is string => typeof result === 'string');
+
+    expect(visibleResults).toEqual(['Visible answer']);
+    expect(JSON.stringify(outputs)).not.toContain('hidden reasoning');
+  });
+
+  it('extracts visible text from SDK assistant content blocks without reasoning blocks', async () => {
+    sdkState.mode = 'structured-thinking-output';
+    const env = prepareRuntimeEnv();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            runtimeEventOnly?: boolean;
+          },
+      );
+    logSpy.mockRestore();
+    const userVisibleOutputs = outputs.filter(
+      (output) => !output.runtimeEventOnly,
+    );
+
+    expect(userVisibleOutputs.map((output) => output.result)).toEqual([
+      'Visible answer.',
+      null,
+    ]);
+    expect(JSON.stringify(outputs)).not.toContain('hidden reasoning');
+    expect(JSON.stringify(outputs)).not.toContain('hidden encrypted reasoning');
+  });
+
+  it('does not fall back to SDK result text when assistant content has only reasoning blocks', async () => {
+    sdkState.mode = 'structured-thinking-only-output';
+    const env = prepareRuntimeEnv();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello from Gantry',
+      env.mcpServerPath,
+      runnerInput(),
+      sdkProcessEnv(),
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            result: string | null;
+            runtimeEventOnly?: boolean;
+          },
+      );
+    logSpy.mockRestore();
+    const userVisibleOutputs = outputs.filter(
+      (output) => !output.runtimeEventOnly,
+    );
+
+    expect(userVisibleOutputs.map((output) => output.result)).toEqual([null]);
+    expect(JSON.stringify(outputs)).not.toContain('hidden reasoning');
   });
 
   it('passes hermetic Gantry capabilities and settings into the Claude SDK', async () => {

@@ -150,6 +150,10 @@ export async function createAppChannel(
         text,
         threadId: options?.threadId ?? null,
         done: options?.done === true,
+        actionOnly: options?.actionOnly === true,
+        actionAffordances: options?.done
+          ? []
+          : (options?.actionAffordances ?? []),
         orderedEnvelope: orderedEnvelope('progress'),
         canonicalText: canonicalTextMetadata(text),
       });

@@ -161,4 +161,42 @@ describe('app channel', () => {
     expect(canonicalText).not.toHaveProperty('preview');
     expect(canonicalText).not.toHaveProperty('previewTruncated');
   });
+
+  it('publishes action-only progress affordances for app clients', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue({
+      sessionId: 'session-1',
+      threadId: null,
+      responseMode: 'sse',
+      webhookId: null,
+      correlationId: 'corr-4',
+    });
+    runtimeEvents.publish.mockResolvedValue({ eventId: 4 });
+    const channel = await createAppChannel({} as never);
+
+    await channel.sendProgressUpdate('app:demo:conversation', '', {
+      actionOnly: true,
+      actionAffordances: [
+        { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+      ],
+    });
+
+    expect(runtimeEvents.publish).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_PROGRESS,
+        payload: expect.objectContaining({
+          text: '',
+          actionOnly: true,
+          actionAffordances: [
+            { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
+          ],
+        }),
+      }),
+    );
+  });
 });

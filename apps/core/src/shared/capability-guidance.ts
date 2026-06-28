@@ -37,7 +37,9 @@ export function renderDefaultCapabilityRules(options?: {
 }): string {
   const lines = [
     'Capability rules:',
-    '- Use send_message for progress updates and ask_user_question for structured choices.',
+    '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation.',
+    '- For multi-step work, use todo_update for progress instead of repeated generic progress messages.',
+    '- Use ask_user_question for structured choices.',
     `- ${SOURCE_INVENTORY_AUTHORITY_GUIDANCE}`,
     '- Use request_access target.kind=capability for durable reviewed access.',
     '- Use request_access target.kind=run_command only as a scoped temporary exact-command fallback when no reviewed capability fits.',

@@ -697,6 +697,9 @@ export function createGroupAgentRunner(input: {
                     options.existingRunLeaseFencingVersion,
                 }
               : {}),
+            ...(options?.liveStopActionToken
+              ? { liveStopActionToken: options.liveStopActionToken }
+              : {}),
             [WORKSPACE_FOLDER_INPUT_KEY]: group.folder,
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) => {

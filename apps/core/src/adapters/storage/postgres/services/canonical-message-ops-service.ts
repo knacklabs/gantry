@@ -10,6 +10,8 @@ import type {
   PostgresCanonicalMessageRepository,
 } from '../repositories/canonical-message-repository.postgres.js';
 
+type NewMessageAttachment = NonNullable<NewMessage['attachments']>[number];
+
 function hasCursorBoundary(cursor: { timestamp: string }): boolean {
   return cursor.timestamp.trim().length > 0;
 }
@@ -21,6 +23,73 @@ function parseJson<T>(value: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function publicConversationJid(
+  row: CanonicalOpsMessageRow,
+  ref: Partial<NewMessage>,
+): string {
+  if (ref.chat_jid) return ref.chat_jid;
+  const prefix = 'conversation:';
+  return row.conversation_id.startsWith(prefix)
+    ? row.conversation_id.slice(prefix.length)
+    : row.conversation_id;
+}
+
+function publicThreadId(
+  row: CanonicalOpsMessageRow,
+  chatJid: string,
+): string | undefined {
+  const threadId = row.thread_id?.trim();
+  if (!threadId) return undefined;
+  const prefix = `thread:${chatJid}:`;
+  return threadId.startsWith(prefix) ? threadId.slice(prefix.length) : threadId;
+}
+
+function toStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function toAttachmentKind(
+  value: unknown,
+): NewMessageAttachment['kind'] | undefined {
+  return value === 'image' ||
+    value === 'file' ||
+    value === 'audio' ||
+    value === 'video' ||
+    value === 'other'
+    ? value
+    : undefined;
+}
+
+function mapAttachment(value: unknown): NewMessageAttachment | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const kind = toAttachmentKind(record.kind);
+  if (!kind) return undefined;
+  const sizeBytes =
+    typeof record.sizeBytes === 'number' && Number.isFinite(record.sizeBytes)
+      ? record.sizeBytes
+      : undefined;
+  return {
+    kind,
+    ...(toStringValue(record.contentType)
+      ? { contentType: toStringValue(record.contentType) }
+      : {}),
+    ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+    ...(toStringValue(record.externalId)
+      ? { externalId: toStringValue(record.externalId) }
+      : {}),
+    ...(toStringValue(record.storageRef)
+      ? { storageRef: toStringValue(record.storageRef) }
+      : {}),
+  };
+}
+
+function mapAttachments(value: unknown): NewMessageAttachment[] {
+  return parseJson<unknown[]>(value, [])
+    .map((attachment) => mapAttachment(attachment))
+    .filter((attachment): attachment is NewMessageAttachment => !!attachment);
 }
 
 export class CanonicalMessageOpsService {
@@ -78,6 +147,64 @@ export class CanonicalMessageOpsService {
     return rows.map((row) => this.mapMessage(row)).slice(0, limit);
   }
 
+  async getRecentTopLevelMessagesBefore(
+    chatJid: string,
+    before: Pick<NewMessage, 'timestamp' | 'id'>,
+    limit: number = 30,
+  ): Promise<NewMessage[]> {
+    const rows = await this.repository.listContextMessages({
+      jids: [chatJid],
+      before: { timestamp: before.timestamp, chatJid, id: before.id },
+      threadId: null,
+      hasThreadFilter: true,
+      includeSelfThreadRoots: true,
+      limit,
+      order: 'desc',
+    });
+    return rows
+      .map((row) => this.mapMessage(row))
+      .reverse()
+      .slice(0, limit);
+  }
+
+  async getFirstThreadMessages(
+    chatJid: string,
+    threadId: string,
+    limit: number = 50,
+  ): Promise<NewMessage[]> {
+    const rows = await this.repository.listContextMessages({
+      jids: [chatJid],
+      threadId,
+      hasThreadFilter: true,
+      limit,
+    });
+    return rows.map((row) => this.mapMessage(row)).slice(0, limit);
+  }
+
+  async getLatestThreadMessages(
+    chatJid: string,
+    threadId: string,
+    beforeOrAt: Pick<NewMessage, 'timestamp' | 'id'>,
+    limit: number = 50,
+  ): Promise<NewMessage[]> {
+    const rows = await this.repository.listContextMessages({
+      jids: [chatJid],
+      beforeOrAt: {
+        timestamp: beforeOrAt.timestamp,
+        chatJid,
+        id: beforeOrAt.id,
+      },
+      threadId,
+      hasThreadFilter: true,
+      limit,
+      order: 'desc',
+    });
+    return rows
+      .map((row) => this.mapMessage(row))
+      .reverse()
+      .slice(0, limit);
+  }
+
   async getMessageThreadIds(chatJid: string): Promise<Array<string | null>> {
     return this.repository.listThreadIds(chatJid);
   }
@@ -99,20 +226,23 @@ export class CanonicalMessageOpsService {
   private mapMessage(row: CanonicalOpsMessageRow): NewMessage {
     const ref = parseJson<Partial<NewMessage>>(row.external_ref_json, {});
     const payload = parseJson<{ text?: string }>(row.payload_json, {});
+    const attachments = mapAttachments(row.attachments_json);
+    const chatJid = publicConversationJid(row, ref);
     return {
       id: ref.id || row.id,
-      chat_jid: ref.chat_jid || row.conversation_id,
+      chat_jid: chatJid,
       sender: row.sender_user_id || ref.sender || '',
       sender_name: row.sender_display_name || ref.sender_name || '',
       content: ref.content || payload.text || '',
       timestamp: row.created_at,
       is_from_me: ref.is_from_me ?? row.direction === 'outbound',
       is_bot_message: ref.is_bot_message ?? row.trust === 'system',
-      thread_id: ref.thread_id,
+      thread_id: ref.thread_id ?? publicThreadId(row, chatJid),
       reply_to_message_id: ref.reply_to_message_id,
       reply_to_message_content: ref.reply_to_message_content,
       reply_to_sender_name: ref.reply_to_sender_name,
       external_message_id: ref.external_message_id,
+      ...(attachments.length > 0 ? { attachments } : {}),
       delivery_status:
         ref.delivery_status ??
         (row.delivery_status as NewMessage['delivery_status']),

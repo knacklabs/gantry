@@ -49,9 +49,12 @@ Important constraints:
 - Live channel turns must persist the provider SDK session ID as soon as the runner streams it. Do not wait for runner shutdown; launchd restarts can kill an active run before final completion.
 - An Anthropic SDK live turn that completes with zero SDK messages/results is not a successful empty answer; if it resumed a provider session, expire and retry without resume, otherwise surface a real turn failure instead of showing only progress done.
 - Provider terminal frames close the current content stream, not the host run; keep progress/Stop active until the spawned agent process resolves.
-- Restored Telegram progress handles can be stale after a launchd restart; a fresh live-turn Working update may replace a restored higher generation for the same chat key.
+- Restored Telegram progress handles can be stale after a launchd restart; a fresh live-turn progress or todo update may replace a restored higher generation for the same chat key.
 - In macOS `sandbox_runtime`, Node file watches need `com.apple.FSEvents` Mach lookup; a denied lookup can surface as `EMFILE: too many open files, watch`, so confirm sandbox logs before treating it as a descriptor-limit problem.
 - Progress/status messages for long-lived live runs are per user-visible turn: reset elapsed timers and progress generations when continuation input is piped, and do not send follow-up progress from the polling loop.
+- Live interactive acknowledgement is agent-authored: host may react `seen` to the triggering message, but must not send static `Working` or elapsed status messages; agents send one short natural acknowledgement with `send_message` and keep multi-step progress in `todo_update`.
+- Slack live progress belongs in thread status, not chat text; start with synthetic status, then clear the status at terminal completion so no `Generating response`, gathering/thinking copy, or `Done.` remains after the assistant reply.
+- User-visible output must be extracted from provider-supported text deltas/blocks at the adapter boundary. Do not rely on text-prefix filters for reasoning/thinking; omit or ignore provider reasoning blocks before channel delivery and persistence.
 - Scheduler notification routes are lifecycle/outcome routes. Do not stream or fallback-deliver raw assistant output to them; send one concise terminal outcome message unless the job is silent.
 - Scheduler maintenance must periodically full-sync active jobs so expired leases are released even when no new pg-boss job fires.
 - Scheduler execution uses the worker claim protocol: the scheduler creates runnable work, and a registered worker instance claims the run/job lease transactionally (`run_leases` lease token + monotonic fencing version). A worker may not execute without a confirmed claim, and completion/failure/terminal writes are token-fenced — a stale worker whose lease was recovered must drop its writes.
@@ -151,6 +154,8 @@ Important constraints:
 ## Docs Rules
 
 - User-facing and project-facing docs must use `Gantry` naming.
+- Public GitHub repository metadata and clone URLs must use
+  `https://github.com/cawstudios/Agent.Gantry`, not old moved repository URLs.
 - Existing code identifiers, package names, CLI binaries, environment variables,
   paths, MCP tool names, and database schema names that still contain `gantry`
   are literal implementation names until an explicit rename task changes them.

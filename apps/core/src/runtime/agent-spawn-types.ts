@@ -58,6 +58,7 @@ export interface AgentInput {
   parentTaskId?: string;
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
+  liveStopActionToken?: string;
   jobModelUseKind?: 'oneTimeJob' | 'recurringJob';
   assistantName?: string;
   compiledSystemPrompt?: string;

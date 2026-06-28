@@ -58,6 +58,11 @@ import {
 import { startJobHeartbeat } from './job-heartbeat.js';
 import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
+import {
+  hasTopLevelAssistantContent,
+  sdkResultFailureMessage,
+  topLevelAssistantText,
+} from './sdk-message-output.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
 import {
   decideClaudeSdkToolSearch,
@@ -83,54 +88,6 @@ function localCliCredentialDirectoriesFromRuntimeAccess(
     access.sourceType === 'local_cli' ? access.credentialDirs : [],
   );
   return normalizeFilesystemSandboxPaths(dirs);
-}
-
-function sdkResultFailureMessage(message: unknown): string | null {
-  if (!message || typeof message !== 'object') {
-    return null;
-  }
-  const resultMessage = message as {
-    subtype?: string;
-    is_error?: boolean;
-    result?: string;
-    errors?: unknown;
-  };
-  const errors = Array.isArray(resultMessage.errors)
-    ? resultMessage.errors.filter((error): error is string => {
-        return typeof error === 'string' && error.trim().length > 0;
-      })
-    : [];
-  const text =
-    typeof resultMessage.result === 'string' ? resultMessage.result : '';
-  if (text) {
-    const normalized = text.toLowerCase();
-    const looksLikeCredentialFailure =
-      normalized.includes('invalid api key') ||
-      normalized.includes('external api key') ||
-      normalized.includes('authentication failed') ||
-      normalized.includes('failed to authenticate') ||
-      normalized.includes('authentication_error') ||
-      normalized.includes('invalid bearer token') ||
-      normalized.includes('api error: 401');
-    const looksLikeBillingFailure =
-      normalized.includes('billing') ||
-      normalized.includes('out of credits') ||
-      normalized.includes('credit balance') ||
-      normalized.includes('insufficient credit') ||
-      normalized.includes('payment required');
-    if (looksLikeCredentialFailure || looksLikeBillingFailure) {
-      return text;
-    }
-  }
-  if (resultMessage.subtype && resultMessage.subtype !== 'success') {
-    return errors.length > 0
-      ? errors.join('; ')
-      : `Claude SDK result failed with subtype ${resultMessage.subtype}`;
-  }
-  if (resultMessage.is_error && errors.length > 0) {
-    return errors.join('; ');
-  }
-  return null;
 }
 
 function stringField(
@@ -333,6 +290,8 @@ export async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
   let sawPartialTextSinceLastResult = false;
+  let sawAssistantContentSinceLastResult = false;
+  let sawStructuredTextSinceLastResult = false;
   const primeToolAttempts: AgentRunnerToolAttemptOutput[] = [];
   const heartbeat = startJobHeartbeat({
     agentInput,
@@ -390,6 +349,7 @@ export async function runQuery(
     parentTaskId: agentInput.parentTaskId,
     runLeaseToken: agentInput.runLeaseToken,
     runLeaseFencingVersion: agentInput.runLeaseFencingVersion,
+    liveStopActionToken: process.env.GANTRY_LIVE_STOP_ACTION_TOKEN,
     memoryUserId: agentInput.memoryUserId,
     memoryDefaultScope: agentInput.memoryDefaultScope,
     memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
@@ -556,6 +516,26 @@ export async function runQuery(
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
       }
+      if (message.type === 'assistant') {
+        if (hasTopLevelAssistantContent(message)) {
+          sawAssistantContentSinceLastResult = true;
+        }
+        const assistantText = topLevelAssistantText(message);
+        if (assistantText && !sawPartialTextSinceLastResult) {
+          if (!firstTextDeltaLogged) {
+            firstTextDeltaLogged = true;
+            firstVisibleOutputMs = elapsedMs();
+            log(`First SDK assistant text after ${firstVisibleOutputMs}ms`);
+          }
+          sawStructuredTextSinceLastResult = true;
+          writeOutput({
+            status: 'success',
+            result: assistantText,
+            newSessionId,
+          });
+          emitStartupTimingDiagnostic();
+        }
+      }
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
         assertRequiredMcpServerReady(message);
@@ -638,11 +618,16 @@ export async function runQuery(
           'result' in message ? (message as { result?: string }).result : null;
         const resultFailure = sdkResultFailureMessage(message);
         if (resultFailure) throw new Error(resultFailure);
-        if (!sawPartialTextSinceLastResult && textResult) {
+        const emittedVisibleText =
+          sawPartialTextSinceLastResult || sawStructuredTextSinceLastResult;
+        const canUseResultFallback =
+          !emittedVisibleText && !sawAssistantContentSinceLastResult;
+        if (canUseResultFallback && textResult) {
           firstVisibleOutputMs ??= firstResultMs;
         }
+        const loggedResultText = canUseResultFallback ? textResult : null;
         log(
-          `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
+          `Result #${resultCount}: subtype=${message.subtype}${loggedResultText ? ` text=${loggedResultText.slice(0, 200)}` : ''}`,
         );
         logUsage(message);
         const usage = normalizeModelUsage({
@@ -653,8 +638,7 @@ export async function runQuery(
         const continuedByFollowup = steeringGate.pendingCount() > 0;
         writeOutput({
           status: 'success',
-          result:
-            textResult && !sawPartialTextSinceLastResult ? textResult : null,
+          result: textResult && canUseResultFallback ? textResult : null,
           newSessionId,
           ...(primeToolAttempts.length > 0 ? { primeToolAttempts } : {}),
           ...(continuedByFollowup ? { continuedByFollowup: true } : {}),
@@ -673,6 +657,8 @@ export async function runQuery(
         });
         emitStartupTimingDiagnostic();
         sawPartialTextSinceLastResult = false;
+        sawAssistantContentSinceLastResult = false;
+        sawStructuredTextSinceLastResult = false;
         steeringGate.markTurnBoundary();
       }
     }

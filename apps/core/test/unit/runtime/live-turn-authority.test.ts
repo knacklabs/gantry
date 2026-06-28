@@ -355,6 +355,41 @@ describe('LiveTurnAuthority', () => {
     await authority.shutdown();
   });
 
+  it('registers Stop aliases without clearing continuation sender restrictions', async () => {
+    const { authority, liveTurns } = makeAuthority();
+    await authority.admit({
+      queueJid: QUEUE_JID,
+      scope: makeScope(),
+      turnId: 'turn-1',
+      runId: 'run-1',
+      requiredContinuationUserId: 'user-1',
+    });
+    const { hooks } = makeHooks();
+    await authority.registerLocalRunner(QUEUE_JID, hooks, {
+      requiredContinuationUserId: 'user-1',
+    });
+
+    await expect(
+      authority.registerStopAliases(QUEUE_JID, ['stop-token-1']),
+    ).resolves.toBe(true);
+
+    expect(liveTurns.turns.get('turn-1')).toMatchObject({
+      stopAliasJids: ['stop-token-1'],
+      requiredContinuationUserId: 'user-1',
+    });
+    await expect(
+      authority.routeMessage({
+        scope: makeScope(),
+        queueJid: QUEUE_JID,
+        text: 'wrong sender',
+        idempotencyKey: 'continuation:wrong-after-stop-alias',
+        senderUserIds: ['user-2'],
+      }),
+    ).resolves.toBe('sender_not_allowed');
+    await authority.finalize(QUEUE_JID, 'completed');
+    await authority.shutdown();
+  });
+
   it('keeps commands pending until the runner hooks are registered', async () => {
     const { authority, liveTurns } = makeAuthority();
     await authority.admit({

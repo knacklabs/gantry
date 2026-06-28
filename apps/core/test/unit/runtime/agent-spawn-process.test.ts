@@ -1011,6 +1011,7 @@ describe('executeRunnerProcess', () => {
           chatJid: 'test@g.us',
           appId: 'default',
           agentId: 'agent:test',
+          sessionId: 'provider-resume-id',
           runId: 'agent-run:test-visible',
         },
         onOutput,
@@ -1120,6 +1121,12 @@ describe('executeRunnerProcess', () => {
             }),
           }),
         }),
+      );
+      expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+        'sessionId',
+      );
+      expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+        'provider-resume-id',
       );
       expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
         '/tmp/test-workspace',

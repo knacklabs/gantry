@@ -22,11 +22,25 @@ export type DiscordMessageCreate = {
     nick?: string | null;
     user?: DiscordUser;
   };
+  attachments?: DiscordMessageAttachment[];
   referenced_message?: {
     id?: string;
     content?: string;
     author?: DiscordUser;
   } | null;
+};
+
+export type DiscordMessageAttachment = {
+  id?: string;
+  filename?: string;
+  content_type?: string;
+  size?: number;
+};
+
+export type DiscordChannelInfo = {
+  id?: string;
+  type?: number;
+  parent_id?: string | null;
 };
 
 export type DiscordInteraction = {

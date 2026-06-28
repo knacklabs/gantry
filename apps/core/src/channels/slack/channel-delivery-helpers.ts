@@ -25,6 +25,10 @@ import { nowIso } from '../../shared/time/datetime.js';
 import { slackMessageActionBlocks } from './message-action-affordances.js';
 import { slackThreadTsFromThreadId } from './thread-ts.js';
 import {
+  handleSlackThreadProgressStatus,
+  isSlackTerminalSuccessText,
+} from './thread-progress-status.js';
+import {
   clampSlackRetryDelayMs,
   slackRateLimitRetryDelayMs,
 } from './channel-retry-delay.js';
@@ -385,19 +389,29 @@ export async function sendSlackProgressUpdate(input: {
     );
     return;
   }
-  const trimmed = input.text.trim();
+  const actionOnly = Boolean(
+    input.options.actionOnly && input.options.actionAffordances?.length,
+  );
+  const trimmed = actionOnly ? '' : input.text.trim();
+  if (
+    await handleSlackThreadProgressStatus({
+      app: input.app,
+      channelId: input.channelId,
+      key: input.key,
+      text: input.text,
+      options: input.options,
+      onDone: () => {
+        input.activeProgress.delete(input.key);
+        input.persistProgress();
+      },
+    })
+  )
+    return;
+  if (actionOnly) return;
   if (!trimmed) {
     if (input.options.done) {
       input.activeProgress.delete(input.key);
       input.persistProgress();
-      logger.info(
-        {
-          channelId: input.channelId,
-          key: input.key,
-          generation: input.options.generation,
-        },
-        'Progress lifecycle slack cleared empty done',
-      );
     }
     return;
   }
@@ -484,18 +498,9 @@ export async function sendSlackProgressUpdate(input: {
     );
     return;
   }
-
-  if (threadTs) {
-    try {
-      await input.app.client.apiCall('assistant.threads.setStatus', {
-        channel_id: input.channelId,
-        thread_ts: threadTs,
-        status: trimmed,
-      });
-    } catch {
-      // Optional surface; fall through to message-based progress.
-    }
-  }
+  if (!existing && input.options.done && isSlackTerminalSuccessText(trimmed))
+    return void (input.activeProgress.delete(input.key),
+    input.persistProgress());
 
   if (!existing) {
     const blocks = input.options.actionAffordances

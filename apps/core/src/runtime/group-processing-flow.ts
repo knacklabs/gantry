@@ -83,7 +83,8 @@ export function resolveGroupTurnFinalProgressState(input: {
   outputSentToUser: boolean;
 }): FinalProgressState {
   if (input.output === 'stopped') return 'stopped';
-  if (input.output === 'error' || input.hadError) return 'failed';
+  if (input.output === 'error') return 'failed';
+  if (input.hadError && !input.outputSentToUser) return 'failed';
   if (
     input.sawDeliveryIncomplete ||
     (input.sawTerminalDeliveryFailure && input.outputSentToUser)

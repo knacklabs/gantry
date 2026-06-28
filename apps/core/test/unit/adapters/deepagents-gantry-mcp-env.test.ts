@@ -11,6 +11,7 @@ const BASE_ENV: NodeJS.ProcessEnv = {
   GANTRY_AGENT_ID: 'agent:main_agent',
   GANTRY_CHAT_JID: 'tg:group',
   GANTRY_PARENT_TASK_ID: 'task_parent',
+  GANTRY_LIVE_STOP_ACTION_TOKEN: 'stop-token-1',
   GANTRY_WORKSPACE_KEY: 'main_agent',
   GANTRY_MEMORY_USER_ID: 'user-1',
   GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
@@ -38,6 +39,7 @@ describe('buildGantryMcpProjection', () => {
     expect(projection.env.GANTRY_IPC_AUTH_TOKEN).toBe('ipc-token');
     expect(projection.env.GANTRY_CHAT_JID).toBe('tg:group');
     expect(projection.env.GANTRY_PARENT_TASK_ID).toBe('task_parent');
+    expect(projection.env.GANTRY_LIVE_STOP_ACTION_TOKEN).toBe('stop-token-1');
     expect(JSON.parse(projection.env.GANTRY_MCP_TOOL_NAMES_JSON)).toEqual(
       projection.selectedToolNames,
     );

@@ -52,7 +52,10 @@ The prompt names Gantry public tools, not provider-native tools:
 - `file` only for Gantry FileArtifacts
 - `mcp_list_tools`, `mcp_describe_tool`, and `mcp_call_tool` for MCP/app tools
 - `RunCommand(<argv pattern>)` for scoped command fallback
-- `todo_update` for visible task state
+- `send_message` for one short natural acknowledgement before non-trivial live
+  work and for concrete blockers, decisions, or results
+- `todo_update` for visible multi-step task state instead of repeated generic
+  progress chatter
 
 Gantry delegation tools stay out of the active prompt and runner surface until a
 real delegated-task executor is mounted. Raw provider or harness subagents must

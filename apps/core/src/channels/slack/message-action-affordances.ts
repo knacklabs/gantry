@@ -33,6 +33,7 @@ function slackActionValue(action: MessageActionAffordance): string | undefined {
 export function slackMessageActionBlocks(
   text: string,
   actions?: MessageActionAffordance[],
+  options: { actionOnly?: boolean } = {},
 ): Array<Record<string, unknown>> | undefined {
   const elements = (actions ?? [])
     .map((action) => {
@@ -54,14 +55,17 @@ export function slackMessageActionBlocks(
     })
     .filter((action) => action !== null) as Array<Record<string, unknown>>;
   if (elements.length === 0) return undefined;
-  return [
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text },
-    },
-    {
-      type: 'actions',
-      elements,
-    },
-  ];
+  const actionBlock = {
+    type: 'actions',
+    elements,
+  };
+  return options.actionOnly
+    ? [actionBlock]
+    : [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text },
+        },
+        actionBlock,
+      ];
 }

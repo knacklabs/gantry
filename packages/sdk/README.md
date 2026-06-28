@@ -1,6 +1,6 @@
 # @gantry/sdk
 
-Node.js SDK for the [Gantry](https://github.com/gantry/gantry) runtime
+Node.js SDK for the [Gantry](https://github.com/cawstudios/Agent.Gantry) runtime
 control API. Talk to a running Gantry instance over HTTP or a Unix socket:
 sessions, jobs, agents, memory, webhooks, ingresses, and signing helpers.
 

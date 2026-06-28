@@ -139,6 +139,22 @@ export interface RuntimeMessageRepository {
     limit?: number,
     options?: { threadId?: string | null },
   ): Promise<NewMessage[]>;
+  getRecentTopLevelMessagesBefore(
+    conversationJid: string,
+    before: Pick<NewMessage, 'timestamp' | 'id'>,
+    limit?: number,
+  ): Promise<NewMessage[]>;
+  getFirstThreadMessages(
+    conversationJid: string,
+    threadId: string,
+    limit?: number,
+  ): Promise<NewMessage[]>;
+  getLatestThreadMessages(
+    conversationJid: string,
+    threadId: string,
+    beforeOrAt: Pick<NewMessage, 'timestamp' | 'id'>,
+    limit?: number,
+  ): Promise<NewMessage[]>;
   getMessageThreadIds(conversationJid: string): Promise<Array<string | null>>;
   getLastBotMessageCursor(
     conversationJid: string,

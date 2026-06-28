@@ -324,7 +324,7 @@ export interface LiveTurnRepository {
   updateLiveTurnRouting(input: {
     id: string;
     fence: LiveTurnLeaseFence;
-    stopAliasJids: string[];
+    stopAliasJids?: string[];
     requiredContinuationUserId?: string | null;
     now?: string;
   }): Promise<boolean>;

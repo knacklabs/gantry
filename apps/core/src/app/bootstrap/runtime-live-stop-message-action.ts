@@ -187,7 +187,10 @@ export function registerLiveStopMessageAction(input: {
       action.conversationJid,
       action.threadId,
     );
-    if (!(await input.stopGroup(action.actionToken || queueJid))) return;
+    const stopped = action.actionToken
+      ? await input.stopGroup(action.actionToken)
+      : await input.stopGroup(queueJid);
+    if (!stopped) return;
     await input.channelWiring.sendMessage(
       action.conversationJid,
       'Stopping current run.',
