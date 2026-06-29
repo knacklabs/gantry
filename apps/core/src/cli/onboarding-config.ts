@@ -10,6 +10,7 @@ import {
 } from '../config/settings/runtime-home.js';
 import {
   applyModelPreset,
+  loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
@@ -79,17 +80,12 @@ export async function persistOnboardingConfig(
     process.env.SECRET_ENCRYPTION_KEY = credentialSecretEncryptionKey;
   }
 
-  const settings = loadRuntimeSettings(input.runtimeHome);
-  const previousSettings = structuredClone(settings);
-  if (input.agentName?.trim()) {
-    settings.agent.name = input.agentName.trim();
-  }
-  settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
-  settings.storage.postgres.schema = input.postgresSchema?.trim() || 'gantry';
   const model = resolveOnboardingModel(input.modelAlias);
-  // The preset governs the memory/defaults cascade. A non-preset (DeepAgents-
-  // lane) chat model legitimately pairs with any preset, so only fall back to
-  // the model's provider as the preset when it is itself a preset id.
+  // The preset governs chat plus memory LLM defaults. Embeddings are handled
+  // separately and use the registered OpenAI embedding provider when enabled.
+  // A non-preset (DeepAgents-lane) chat model legitimately pairs with any
+  // preset, so only fall back to the model's provider as the preset when it is
+  // itself a preset id.
   const modelPresetId =
     model.preset && isModelPresetId(model.preset) ? model.preset : undefined;
   const preset = input.modelPreset ?? modelPresetId ?? DEFAULT_MODEL_PRESET_ID;
@@ -100,12 +96,26 @@ export async function persistOnboardingConfig(
       `Selected model alias "${model.alias}" belongs to ${modelPresetId}, not ${preset}.`,
     );
   }
+  const postgresSchema = input.postgresSchema?.trim() || 'gantry';
   if (input.postgresDatabaseUrl?.trim()) {
     await runPostgresMigrations({
       url: input.postgresDatabaseUrl.trim(),
-      schema: settings.storage.postgres.schema,
+      schema: postgresSchema,
     });
   }
+  const settingsSeed = loadRuntimeSettings(input.runtimeHome);
+  settingsSeed.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
+  settingsSeed.storage.postgres.schema = postgresSchema;
+  const settings = await loadDesiredRuntimeSettingsForWrite({
+    runtimeHome: input.runtimeHome,
+    settings: settingsSeed,
+  });
+  const previousSettings = structuredClone(settings);
+  if (input.agentName?.trim()) {
+    settings.agent.name = input.agentName.trim();
+  }
+  settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
+  settings.storage.postgres.schema = postgresSchema;
   let previousSettingsForFinalWrite = previousSettings;
   const storesRuntimeSecrets = Boolean(
     input.telegramBotToken?.trim() ||

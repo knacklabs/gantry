@@ -116,11 +116,17 @@ active-item overlap proposals, and keeps every LLM output as untrusted JSON.
 Host validation is the only durable mutation path.
 
 Memory LLM tasks use provider-neutral catalog aliases from `settings.yaml`.
-Setup and `gantry model use-preset` apply preset-managed memory defaults:
+Setup and `gantry model use-preset` apply preset-managed memory LLM defaults:
 
-- Anthropic memory defaults: extractor `haiku`, dreaming `sonnet`,
+- Anthropic memory LLM defaults: extractor `haiku`, dreaming `sonnet`,
   consolidation `sonnet`.
-- OpenRouter memory defaults: extractor, dreaming, and consolidation all `kimi`.
+- OpenRouter memory LLM defaults: extractor, dreaming, and consolidation all
+  `kimi`.
+
+Memory embeddings are configured separately under `memory.embeddings.*`. The
+current embedding provider choices are `disabled` and `openai`; Anthropic,
+OpenRouter, and other chat/model-response providers are not embedding providers
+unless they are explicitly registered as such.
 
 Operators inspect memory model aliases with `gantry model memory` and reapply
 preset-managed defaults with `gantry model reset memory` or

@@ -5,7 +5,9 @@ import type { HostCredentialMode } from '../config/credentials/mode.js';
 import {
   DEFAULT_MODEL_PRESET_ID,
   getModelPreset,
+  resolveModelSelectionForWorkload,
   type ModelPresetId,
+  type ModelWorkload,
 } from '../shared/model-catalog.js';
 import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
 import {
@@ -209,6 +211,77 @@ export function requiredModelCredentialProvidersForSetupDraft(
       },
     },
   });
+}
+
+export interface RequiredModelCredentialProviderReason {
+  providerId: string;
+  reasons: string[];
+}
+
+export function requiredModelCredentialProviderReasonsForSetupDraft(
+  draft: CredentialSetupDraft,
+): RequiredModelCredentialProviderReason[] {
+  const preset = getModelPreset(draft.modelPreset ?? DEFAULT_MODEL_PRESET_ID);
+  const chatModel = draft.selectedModel || preset.chatDefault;
+  const memoryEnabled = draft.memoryEnabled ?? true;
+  const embeddingsEnabled = memoryEnabled && (draft.embeddingsEnabled ?? false);
+  const reasons = new Map<string, Set<string>>();
+  const addReason = (providerId: string, reason: string) => {
+    const set = reasons.get(providerId) ?? new Set<string>();
+    set.add(reason);
+    reasons.set(providerId, set);
+  };
+  const addModelReason = (
+    alias: string,
+    workload: ModelWorkload,
+    reason: string,
+  ) => {
+    const resolved = resolveModelSelectionForWorkload(alias, workload);
+    if (resolved.ok) addReason(resolved.entry.modelRoute.id, reason);
+  };
+
+  addModelReason(chatModel, 'chat', `main model ${chatModel}`);
+  addModelReason(
+    preset.oneTimeJobDefault || chatModel,
+    'one_time_job',
+    preset.oneTimeJobDefault
+      ? `one-time job model ${preset.oneTimeJobDefault}`
+      : 'one-time jobs inherit main model',
+  );
+  addModelReason(
+    preset.recurringJobDefault || chatModel,
+    'recurring_job',
+    preset.recurringJobDefault
+      ? `recurring job model ${preset.recurringJobDefault}`
+      : 'recurring jobs inherit main model',
+  );
+  if (memoryEnabled) {
+    addModelReason(
+      preset.memoryDefaults.extractor,
+      'memory_extractor',
+      `memory LLM extractor ${preset.memoryDefaults.extractor}`,
+    );
+    addModelReason(
+      preset.memoryDefaults.dreaming,
+      'memory_dreaming',
+      `memory LLM dreaming ${preset.memoryDefaults.dreaming}`,
+    );
+    addModelReason(
+      preset.memoryDefaults.consolidation,
+      'memory_consolidation',
+      `memory LLM consolidation ${preset.memoryDefaults.consolidation}`,
+    );
+    if (embeddingsEnabled) {
+      addReason('openai', 'memory embeddings');
+    }
+  }
+
+  return requiredModelCredentialProvidersForSetupDraft(draft).map(
+    (providerId) => ({
+      providerId,
+      reasons: [...(reasons.get(providerId) ?? [])].sort(),
+    }),
+  );
 }
 
 function formatProviderIds(providerIds: readonly string[]): string {

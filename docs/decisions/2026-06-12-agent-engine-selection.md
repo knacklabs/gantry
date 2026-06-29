@@ -49,7 +49,7 @@ provider -> engine); the engine follows the resolved model's provider:
   the `PATCH /v1/agents/:id` `agentEngine` write, and the `AGENT_ENGINE_CHANGED`
   audit event. `memory.engine` and the `MEMORY_ENGINE_CHANGED` audit are retired
   too (the `memory.engine` key is now rejected at settings validation); the memory
-  transport lane derives purely from the memory model's response family
+  LLM transport lane derives purely from the memory LLM model's response family
   (`memoryTransportLaneForResponseFamily`): anthropic -> Claude SDK memory client;
   openai/openrouter -> OpenAI-compatible chat-completions memory client. The
   now-dead Claude-on-DeepAgents memory client (`anthropic-memory-direct`) and the

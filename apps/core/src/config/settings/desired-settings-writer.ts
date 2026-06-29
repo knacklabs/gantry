@@ -105,8 +105,9 @@ export async function writeDesiredRuntimeSettings(input: {
 export async function loadDesiredRuntimeSettingsForWrite(input: {
   runtimeHome: string;
   appId?: AppId;
+  settings?: RuntimeSettings;
 }): Promise<RuntimeSettings> {
-  const fileSettings = loadRuntimeSettings(input.runtimeHome);
+  const fileSettings = input.settings ?? loadRuntimeSettings(input.runtimeHome);
   if (!storageProvider) return fileSettings;
 
   const storage = await storageProvider({ settings: fileSettings });

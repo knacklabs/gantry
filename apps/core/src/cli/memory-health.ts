@@ -72,7 +72,7 @@ function inspectEmbeddings(input: {
       status: 'fail',
       message: `Unknown embedding provider "${input.embeddingProvider}".`,
       nextAction:
-        'Set memory.embeddings.provider to a registered brokered provider, or disable embeddings.',
+        'Set memory.embeddings.provider to openai, or disable embeddings.',
     };
   }
 

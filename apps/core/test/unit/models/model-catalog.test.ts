@@ -219,7 +219,7 @@ describe('model catalog resolution', () => {
     });
   });
 
-  it('uses catalog aliases for setup and memory defaults', () => {
+  it('uses catalog aliases for setup and memory LLM defaults', () => {
     expect(DEFAULT_SETUP_MODEL_ALIAS).toBe('opus');
     expect(MEMORY_MODEL_DEFAULT_ALIASES).toEqual({
       extractor: 'haiku',

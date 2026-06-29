@@ -6,7 +6,10 @@ import {
   resolveModelSelectionForWorkload,
   type ModelPresetId,
 } from '../shared/model-catalog.js';
-import { requiredModelCredentialProvidersForSetupDraft } from './setup-credentials.js';
+import {
+  requiredModelCredentialProviderReasonsForSetupDraft,
+  requiredModelCredentialProvidersForSetupDraft,
+} from './setup-credentials.js';
 
 export interface SetupReadyDraft {
   workspaceKey: string;
@@ -36,6 +39,7 @@ export async function runReadyStep(
       `Model: ${draft.selectedModel}`,
       `Resolved model/harness: ${draft.selectedModel} / ${resolvedHarnessLabel(draft.selectedModel)}`,
       `Required model providers: ${formatProviderIds(requiredModelProviders(draft))}`,
+      ...formatRequiredProviderReasons(draft),
       '',
       'Next: Start chatting or run gantry status.',
       'Optional setup: memory, background service, extra providers.',
@@ -84,4 +88,18 @@ function requiredModelProviders(draft: SetupReadyDraft): string[] {
     embeddingsEnabled: draft.embeddingsEnabled,
     dreamingEnabled: draft.dreamingEnabled,
   });
+}
+
+function formatRequiredProviderReasons(draft: SetupReadyDraft): string[] {
+  return requiredModelCredentialProviderReasonsForSetupDraft({
+    credentialMode: 'gantry',
+    modelPreset: draft.modelPreset,
+    selectedModel: draft.selectedModel,
+    memoryEnabled: draft.memoryEnabled,
+    embeddingsEnabled: draft.embeddingsEnabled,
+    dreamingEnabled: draft.dreamingEnabled,
+  }).map(
+    ({ providerId, reasons }) =>
+      `  ${providerId}: ${reasons.length ? reasons.join('; ') : 'selected defaults'}`,
+  );
 }

@@ -285,12 +285,12 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
   draft.agentName = String(agentName).trim();
 
   const preset = await p.select({
-    message: 'Choose memory/defaults preset',
+    message: 'Choose chat and memory LLM defaults preset',
     options: [
       ...listModelPresets().map((preset) => ({
         value: preset.id,
         label: preset.label,
-        hint: `Chat default ${preset.chatDefault}; memory defaults use ${formatMemoryDefaultAliases(preset.memoryDefaults)}.`,
+        hint: `Chat default ${preset.chatDefault}; memory LLM defaults use ${formatMemoryDefaultAliases(preset.memoryDefaults)}.`,
       })),
       {
         value: 'back',
@@ -363,7 +363,7 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
     const providerId = resolvedModel.entry.modelRoute.id;
     if (providerId !== draft.modelPreset) {
       p.note(
-        `${resolvedModel.entry.displayName} runs on the ${resolvedModel.entry.modelRoute.label} provider — configure its credential in the credentials step. Memory will use the ${selectedPreset.label} preset.`,
+        `${resolvedModel.entry.displayName} runs on the ${resolvedModel.entry.modelRoute.label} provider — configure its credential in the credentials step. Memory LLM defaults will use the ${selectedPreset.label} preset. Memory embeddings use OpenAI when enabled.`,
       );
     }
   }

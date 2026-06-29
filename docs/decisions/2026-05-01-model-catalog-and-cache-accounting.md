@@ -93,18 +93,23 @@ Job model precedence is:
 3. agent interactive default
 4. system default `opus`
 
-Memory model precedence is runtime-owned and settings-backed:
+Memory LLM model precedence is runtime-owned and settings-backed:
 
 1. memory task default in `memory.llm.models`
 2. preset-managed defaults for the current model route
-3. system memory defaults
+3. system memory LLM defaults
 
 Model presets are:
 
 - `anthropic`: chat `opus`; one-time and recurring jobs inherit chat; memory
-  defaults use extractor `haiku`, dreaming `sonnet`, consolidation `sonnet`.
-- `openrouter`: chat uses `kimi`; jobs inherit chat; extractor, dreaming, and
-  consolidation use `kimi`.
+  LLM defaults use extractor `haiku`, dreaming `sonnet`, consolidation
+  `sonnet`.
+- `openrouter`: chat uses `kimi`; jobs inherit chat; memory LLM extractor,
+  dreaming, and consolidation use `kimi`.
+
+Memory embeddings are not selected by the model preset. They are controlled by
+`memory.embeddings.*`; current supported embedding providers are `disabled` and
+`openai`.
 
 `gantry setup`, `gantry model use-preset`, `gantry model set chat`,
 `gantry model set jobs`, `gantry model reset`, and `PATCH /v1/models/defaults`

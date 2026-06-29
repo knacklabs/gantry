@@ -64,7 +64,7 @@ describe('setup model step', () => {
     await runModelStep(makeDraft());
 
     expect(select.mock.calls[0]?.[0]?.message).toBe(
-      'Choose memory/defaults preset',
+      'Choose chat and memory LLM defaults preset',
     );
     expect(select.mock.calls[1]?.[0]?.message).toBe(
       'Choose main model/provider',
@@ -116,7 +116,9 @@ describe('setup model step', () => {
     expect(draft.modelPreset).toBe('anthropic');
     expect(draft.selectedModel).toBe('kimi');
     expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('Memory will use the Anthropic preset.'),
+      expect.stringContaining(
+        'Memory LLM defaults will use the Anthropic preset.',
+      ),
     );
   });
 
@@ -135,7 +137,7 @@ describe('setup model step', () => {
     expect(action).toEqual({ type: 'next' });
     expect(draft.selectedModel).toBe('gpt');
     expect(draft.agentHarness).toBe(AUTO_AGENT_HARNESS);
-    // Non-preset chat model does NOT change the memory/defaults preset.
+    // Non-preset chat model does NOT change the memory LLM/defaults preset.
     expect(draft.modelPreset).toBe('anthropic');
     // The model list now spans providers beyond the selected preset.
     const options = select.mock.calls[1]?.[0]?.options ?? [];

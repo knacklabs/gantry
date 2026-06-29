@@ -10,6 +10,7 @@ const settingsWrites: Array<{
   telegramBotRef?: string;
   agentHarness: string;
 }> = [];
+const desiredSettings = createDefaultRuntimeSettings();
 
 vi.mock('@core/config/env/file.js', () => ({
   readEnvFile: vi.fn(() => ({})),
@@ -43,6 +44,16 @@ vi.mock('@core/config/settings/runtime-settings.js', async (importOriginal) => {
   return {
     ...actual,
     loadRuntimeSettings: vi.fn(() => createDefaultRuntimeSettings()),
+    loadDesiredRuntimeSettingsForWrite: vi.fn(
+      (input: {
+        settings?: ReturnType<typeof createDefaultRuntimeSettings>;
+      }) => {
+        events.push(
+          `loadDesired:${input.settings?.storage.postgres.schema ?? 'none'}`,
+        );
+        return structuredClone(desiredSettings);
+      },
+    ),
     writeDesiredRuntimeSettings: vi.fn(
       async (input: {
         settings: ReturnType<typeof createDefaultRuntimeSettings>;
@@ -68,6 +79,7 @@ describe('persistOnboardingConfig', () => {
   beforeEach(() => {
     events.length = 0;
     settingsWrites.length = 0;
+    Object.assign(desiredSettings, createDefaultRuntimeSettings());
   });
 
   it('persists the selected storage schema before writing repository runtime secrets', async () => {
@@ -90,6 +102,7 @@ describe('persistOnboardingConfig', () => {
 
     expect(events).toEqual([
       'migrate:custom_schema',
+      'loadDesired:custom_schema',
       'write:custom_schema',
       'secret:TELEGRAM_BOT_TOKEN',
       'write:custom_schema',
@@ -126,5 +139,31 @@ describe('persistOnboardingConfig', () => {
 
     expect(events).toEqual([]);
     expect(settingsWrites).toEqual([]);
+  });
+
+  it('starts from latest desired state before onboarding writes', async () => {
+    desiredSettings.agent.name = 'Latest Desired Agent';
+    desiredSettings.storage.postgres.schema = 'latest_schema';
+    const { persistOnboardingConfig } =
+      await import('@core/cli/onboarding-config.js');
+
+    await persistOnboardingConfig({
+      runtimeHome: '/tmp/gantry',
+      postgresDatabaseUrl:
+        'postgres://user:pass@127.0.0.1:5432/gantry?schema=custom_schema',
+      postgresSchema: 'custom_schema',
+      primaryProvider: 'telegram',
+      agentHarness: 'auto',
+      credentialMode: 'gantry',
+      memoryEnabled: true,
+      embeddingsEnabled: true,
+      dreamingEnabled: true,
+    });
+
+    expect(settingsWrites.at(-1)).toMatchObject({
+      schema: 'custom_schema',
+      previousSchema: 'latest_schema',
+      agentHarness: 'auto',
+    });
   });
 });

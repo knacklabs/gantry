@@ -8,7 +8,6 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
-import type { EmbeddingProvider } from '@core/memory/memory-embeddings.js';
 
 const runtimeHomes: string[] = [];
 
@@ -59,35 +58,25 @@ describe('memory command', () => {
     expect(settings.memory.embeddings.provider).toBe('disabled');
   });
 
-  it('enables registered providers that validate successfully', async () => {
+  it('enables OpenAI embeddings when the provider validates successfully', async () => {
     const runtimeHome = makeRuntimeHome();
-    const providerName = `ready-provider-${Date.now()}`;
-    const { registerEmbeddingProvider } =
-      await import('@core/memory/memory-embeddings.js');
-    registerEmbeddingProvider(
-      providerName,
-      () =>
-        ({
-          isEnabled: () => true,
-          validateConfiguration: () => undefined,
-          embedMany: async (texts: string[]) => texts.map(() => [0.1, 0.2]),
-          embedOne: async () => [0.1, 0.2],
-        }) satisfies EmbeddingProvider,
-    );
+    vi.doMock('@core/memory/memory-embeddings.js', () => ({
+      isEmbeddingProviderRegistered: vi.fn(
+        (provider: string) => provider === 'openai',
+      ),
+      validateEmbeddingProviderReady: vi.fn(async () => undefined),
+    }));
     saveRuntimeSettings(runtimeHome, loadRuntimeSettings(runtimeHome));
     const { runMemoryCommand, log } = await loadMemoryCommand();
 
-    const code = await runMemoryCommand(runtimeHome, [
-      'embeddings',
-      providerName,
-    ]);
+    const code = await runMemoryCommand(runtimeHome, ['embeddings', 'openai']);
 
     expect(code).toBe(0);
     expect(log.success).toHaveBeenCalledWith(
-      `Memory embeddings set to ${providerName} in settings.yaml.`,
+      'Memory embeddings set to openai in settings.yaml.',
     );
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.memory.embeddings.enabled).toBe(true);
-    expect(settings.memory.embeddings.provider).toBe(providerName);
+    expect(settings.memory.embeddings.provider).toBe('openai');
   });
 });

@@ -25,7 +25,7 @@ function usage(): string {
   return [
     'Usage:',
     '  gantry memory status [--json]',
-    '  gantry memory embeddings <off|disabled|provider>',
+    '  gantry memory embeddings <off|disabled|openai>',
     '  gantry memory embeddings backfill [--limit N] [--mode auto|inline|provider_batch]',
     '  gantry memory dreaming <on|off>',
     '  gantry model memory',
@@ -118,7 +118,7 @@ async function setEmbeddings(
   } else {
     return {
       ok: false,
-      message: `Unknown embedding provider "${provider}". Register the provider before enabling it, or keep embeddings off.`,
+      message: `Unknown embedding provider "${provider}". Use openai, or keep embeddings off.`,
     };
   }
   settings.memory.embeddings.provider = provider;

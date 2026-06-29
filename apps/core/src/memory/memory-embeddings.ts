@@ -482,7 +482,7 @@ export class DisabledEmbeddingClient implements EmbeddingProvider {
   }
 }
 
-export function registerEmbeddingProvider(
+function registerEmbeddingProvider(
   name: string,
   factory: (options?: EmbeddingProviderOptions) => EmbeddingProvider,
 ): void {
@@ -491,10 +491,6 @@ export function registerEmbeddingProvider(
 
 export function isEmbeddingProviderRegistered(name: string): boolean {
   return embeddingProviderFactories.has(name);
-}
-
-export function listEmbeddingProviderNames(): string[] {
-  return [...embeddingProviderFactories.keys()].sort();
 }
 
 export function createEmbeddingProvider(

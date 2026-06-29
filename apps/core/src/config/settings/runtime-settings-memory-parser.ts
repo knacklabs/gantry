@@ -28,6 +28,7 @@ import type {
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
 } from './runtime-settings-types.js';
+import { listEmbeddingModelProviders } from '../../shared/model-provider-registry.js';
 
 const BACKFILL_MODES: ReadonlySet<MemoryBackfillMode> = new Set([
   'auto',
@@ -142,6 +143,15 @@ function parseEmbeddingProvider(
   if (!/^[a-z][a-z0-9_-]{0,62}$/.test(value)) {
     throw new Error(
       `${pathPrefix} must be a lowercase provider id such as disabled or openai`,
+    );
+  }
+  const supported = new Set([
+    'disabled',
+    ...listEmbeddingModelProviders().map((provider) => provider.id),
+  ]);
+  if (!supported.has(value)) {
+    throw new Error(
+      `${pathPrefix} must be one of ${[...supported].sort().join(', ')}.`,
     );
   }
   return value;

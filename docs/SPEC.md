@@ -352,13 +352,14 @@ Job model precedence is:
 3. `agent.default_model`
 4. system default `opus`
 
-Memory model aliases live under `memory.llm.models` and are preset-managed.
-Provider presets set chat and memory defaults together: `anthropic` uses chat
-`opus`, job defaults inherit chat, and memory uses
+Memory LLM aliases live under `memory.llm.models` and are preset-managed.
+Provider presets set chat and memory LLM defaults together: `anthropic` uses
+chat `opus`, job defaults inherit chat, and memory LLM tasks use
 `haiku`/`sonnet`/`sonnet`; `openrouter` uses chat `kimi`, job defaults inherit
-chat, and memory uses `kimi` for extraction, dreaming, and consolidation. The
-OpenRouter catalog also includes selectable `glm-5.2` without changing preset
-defaults.
+chat, and memory LLM tasks use `kimi` for extraction, dreaming, and
+consolidation. Memory embeddings are separate from these LLM defaults; today
+they support only `openai` or `disabled`. The OpenRouter catalog also includes
+selectable `glm-5.2` without changing preset defaults.
 
 Use `/model` in a group session to switch the live model (`/model`, `/model <alias>`, `/model default`). Use `/models` to list supported aliases and `/status` to inspect the current model, context window usage percentage, cache hit percentage, token usage, cache read/write tokens, cache state, top context contributors when available, and cost when the provider reports it.
 
@@ -594,7 +595,7 @@ continuation state.
 | `model_access.gateway.bind_host`      | `127.0.0.1`              | Loopback bind host for Gantry Model Gateway                     |
 | `memory.enabled`                      | `true`                   | Enables durable memory                                          |
 | `memory.embeddings.enabled`           | `false`                  | Optional embedding toggle                                       |
-| `memory.embeddings.provider`          | `disabled`               | Embedding provider (`disabled` or `openai`)                     |
+| `memory.embeddings.provider`          | `disabled`               | Embedding provider (`disabled` or `openai`; OpenAI only today)  |
 | `memory.embeddings.model`             | `text-embedding-3-small` | Embedding model                                                 |
 | `memory.embeddings.batch_size`        | `16`                     | Texts per embedding API call                                    |
 | `memory.embeddings.daily_limit`       | `500`                    | Daily embedding API call limit                                  |

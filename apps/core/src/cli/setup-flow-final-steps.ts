@@ -23,6 +23,7 @@ import { type FlowAction } from './setup-flow-control.js';
 import { chooseProgressAction } from './setup-flow-prompts.js';
 import type { SetupDraft } from './setup-flow-state.js';
 import {
+  requiredModelCredentialProviderReasonsForSetupDraft,
   requiredModelCredentialProvidersForSetupDraft,
   verifyModelAccess,
 } from './setup-credentials.js';
@@ -57,6 +58,7 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       `Main model: ${draft.selectedModel}`,
       `Agent harness: ${draft.agentHarness} (${resolvedHarnessLabel(draft.selectedModel)})`,
       `Required model providers: ${formatProviderIds(requiredModelCredentialProvidersForSetupDraft(draft))}`,
+      ...formatRequiredProviderReasons(draft),
       ...(draft.primaryProvider === 'slack'
         ? [`Slack approvers: ${draft.slackPermissionApproverIds}`]
         : [`Telegram approvers: ${draft.telegramPermissionApproverIds}`]),
@@ -275,6 +277,13 @@ export async function runVerifyStep(
 
 function formatProviderIds(providerIds: readonly string[]): string {
   return providerIds.length > 0 ? providerIds.join(', ') : 'none';
+}
+
+function formatRequiredProviderReasons(draft: SetupDraft): string[] {
+  return requiredModelCredentialProviderReasonsForSetupDraft(draft).map(
+    ({ providerId, reasons }) =>
+      `  ${providerId}: ${reasons.length ? reasons.join('; ') : 'selected defaults'}`,
+  );
 }
 
 function resolvedHarnessLabel(alias: string): string {

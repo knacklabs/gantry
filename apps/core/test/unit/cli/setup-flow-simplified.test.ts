@@ -263,6 +263,7 @@ describe('ready screen copy', () => {
         'Model: sonnet',
         'Resolved model/harness: sonnet / Anthropic SDK',
         'Required model providers: anthropic',
+        '  anthropic: main model sonnet; memory LLM consolidation sonnet; memory LLM dreaming sonnet; memory LLM extractor haiku; one-time jobs inherit main model; recurring jobs inherit main model',
         '',
         'Next: Start chatting or run gantry status.',
         'Optional setup: memory, background service, extra providers.',
@@ -311,6 +312,9 @@ async function loadVerifyStep(input: {
     listConnectableChannelProviders: vi.fn(() => [{ id: 'telegram' }]),
   }));
   vi.doMock('@core/cli/setup-credentials.js', () => ({
+    requiredModelCredentialProviderReasonsForSetupDraft: vi.fn(() => [
+      { providerId: 'anthropic', reasons: ['main model opus'] },
+    ]),
     requiredModelCredentialProvidersForSetupDraft: vi.fn(() => ['anthropic']),
     verifyModelAccess: vi.fn(
       async () => input.modelAccess ?? { ok: true, message: 'ok' },

@@ -803,6 +803,18 @@ agents:
     );
   });
 
+  it('rejects non-embedding providers for memory embeddings', () => {
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: true
+    provider: anthropic
+    model: text-embedding-3-small
+`),
+    ).toThrow('memory.embeddings.provider must be one of disabled, openai.');
+  });
+
   it('keeps explicit verbose provider connections over compact defaults', () => {
     const parsed = parseRuntimeSettings(`providers:
   telegram:

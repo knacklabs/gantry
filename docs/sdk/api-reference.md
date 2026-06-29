@@ -678,7 +678,7 @@ API job creation rejects raw provider model IDs unless they are registered
 catalog aliases.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
-job, and memory defaults. Use `client.models.defaults.update()` or
+job, and memory LLM defaults. Use `client.models.defaults.update()` or
 `PATCH /v1/models/defaults` to select a model preset, set chat/job
 aliases, or reset an area back to inheritance/preset-managed defaults:
 

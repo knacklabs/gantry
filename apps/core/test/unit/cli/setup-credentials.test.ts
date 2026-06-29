@@ -165,6 +165,34 @@ describe('setup credentials step', () => {
     );
   });
 
+  it('explains OpenAI separately when only embeddings require it', async () => {
+    const { requiredModelCredentialProviderReasonsForSetupDraft } =
+      await import('@core/cli/setup-credentials.js');
+
+    expect(
+      requiredModelCredentialProviderReasonsForSetupDraft({
+        credentialMode: 'gantry',
+        modelPreset: 'anthropic',
+        selectedModel: 'opus',
+        memoryEnabled: true,
+        embeddingsEnabled: true,
+        dreamingEnabled: true,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        providerId: 'anthropic',
+        reasons: expect.arrayContaining([
+          'main model opus',
+          'memory LLM extractor haiku',
+        ]),
+      }),
+      {
+        providerId: 'openai',
+        reasons: ['memory embeddings'],
+      },
+    ]);
+  });
+
   it('lets the user go back instead of deferring required credentials', async () => {
     const { runCredentialsStep, password, select, upsertModelCredential } =
       await loadCredentialsStep({
