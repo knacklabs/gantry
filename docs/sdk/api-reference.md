@@ -232,7 +232,9 @@ Agent-facing tools:
 
 - `send_message`: progress updates or direct channel messages while the agent is still running.
 - `ask_user_question`: structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.
-- `continuity_summary`: inspect current durable continuity, staged memory candidates, reviewed memory state, and last injected context for the trusted subject.
+- selected `continuity_summary`: inspect current durable continuity, staged
+  memory candidates, reviewed memory state, and last injected context for the
+  trusted subject.
 - `file`: list, read, write, or promote Gantry FileArtifacts by virtual scope/path; host filesystem paths and storage refs stay hidden.
 - `request_skill_install`: reviewed skill install requests with staged package files or an installer command that produces a `SKILL.md` package in host-controlled staging.
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
@@ -1043,16 +1045,24 @@ API version.
 ## Memory
 
 Memory APIs are app-bound by the API key. Pass stable `appId`, `agentId`,
-`userId`, `groupId`, and `channelId` when your application has them. Provider
-topic/thread ids are routing metadata and do not partition durable memory.
-`common` memory is app-wide and requires admin/service authority to write. Agent
-MCP/IPC `memory_save` defaults to user or group scope and cannot directly write
-common/global memory.
+`personId`, `groupId`, and `channelId` when your application has them. Resolve
+raw provider user ids through `client.identity.resolve()` before personal memory
+reads or writes. Provider topic/thread ids are routing metadata and do not
+partition durable memory. `common` memory is app-wide and requires
+admin/service authority to write. Agent MCP/IPC memory tools are selected tools
+and cannot directly write common/global memory.
+
+Live provider-channel turns attempt sender identity resolution in both DMs and
+channels/groups when a sender id is present. SDK app-session turns use
+`evidenceType='web_user'` only for explicit `senderId` values; omitted
+`senderId` keeps the internal `sdk` sentinel and skips personal identity
+resolution.
 
 ```ts
 client.memory.save({
   appId?,
   agentId?,
+  personId?,
   userId?,
   groupId?,
   channelId?,
@@ -1069,6 +1079,7 @@ client.memory.save({
 client.memory.search({
   appId?,
   agentId?,
+  personId?,
   userId?,
   groupId?,
   channelId?,
@@ -1078,11 +1089,18 @@ client.memory.search({
   subjectTypes?,
 })
 
-client.memory.list({ appId?, agentId?, userId?, groupId?, channelId? })
+client.memory.list({ appId?, agentId?, personId?, userId?, groupId?, channelId? })
 client.memory.patch(memoryId, { appId?, agentId?, expectedVersion?, key?, value?, why?, confidence?, isPinned? })
 client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })
 client.memory.dreaming.status({ appId?, agentId? })
+client.identity.resolve({ appId?, provider, providerConnectionId?, externalUserId, displayName?, evidenceType, createIfMissing? })
+client.people.list({ appId? })
+client.people.get(personId, { appId? })
+client.people.aliases.add(personId, { provider, providerConnectionId?, externalUserId, displayName?, evidenceType, evidence? })
+client.people.aliases.retire(personId, aliasId, { appId? })
+client.people.merge.preview(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
+client.people.merge.apply(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
 ```
 
 `reference` memory is reserved for procedure/knowledge-source flows instead of

@@ -41,7 +41,7 @@ channel message contract.
 | Channels                   | `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/channels/channel-provider.ts`, `apps/core/src/channels/slack/`, `apps/core/src/channels/telegram/`                                                               | Connect Slack, Telegram, and app channel adapters; route inbound messages, outbound replies, progress, streaming, typing, and permission prompts.                                            |
 | App channel                | `apps/core/src/channels/app.ts`                                                                                                                                                                                                  | Converts SDK-originated session output into durable `RuntimeEvent` records instead of sending to a chat network.                                                                             |
 | Postgres storage           | `apps/core/src/adapters/storage/postgres/runtime-store.ts`, `apps/core/src/adapters/storage/postgres/factory.ts`, `apps/core/src/adapters/storage/postgres/schema/schema.ts`                                                     | Owns first-party runtime tables, readiness checks, repositories, migrations, pgvector, and full-text search columns.                                                                         |
-| Message admission          | `apps/core/src/runtime/live-admission-work-loop.ts`, `apps/core/src/runtime/message-loop.ts`                                                                                                                                      | Claims durable live-admission work, recovers pending messages, applies slash/control checks, and enqueues processing through queue-scoped replay.                                           |
+| Message admission          | `apps/core/src/runtime/live-admission-work-loop.ts`, `apps/core/src/runtime/message-loop.ts`                                                                                                                                     | Claims durable live-admission work, recovers pending messages, applies slash/control checks, and enqueues processing through queue-scoped replay.                                            |
 | Queue                      | `apps/core/src/runtime/group-queue.ts`                                                                                                                                                                                           | Maintains per-group/thread work ordering, active process tracking, retry behavior, and continuation input routing.                                                                           |
 | Group processor            | `apps/core/src/runtime/group-processing.ts`                                                                                                                                                                                      | Loads unread messages, checks triggers, hydrates durable memory context, starts agent runs, and commits cursors/results.                                                                     |
 | Agent spawn                | `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runtime/agent-spawn-process.ts`                                                                                                                                           | Builds the child process environment, group working directory, model config, IPC secrets, MCP server path, and runtime credentials.                                                          |
@@ -170,10 +170,12 @@ Tool access has two layers:
 
 The default SDK tool list is intentionally narrow: read/search/web/task/skill
 tools plus exact baseline Gantry MCP tools, including `send_message`,
-`ask_user_question`, memory save/search, `continuity_summary`, `procedure_save`,
-`file`, capability request/manage tools, and the third-party MCP proxy tools.
-Browser gateway tools (`browser_status`, `browser_open`, `browser_inspect`,
-`browser_act`, `browser_close`), reviewed memory tools, and admin tools such as
+`ask_user_question`, `file`, capability request/manage tools, and the
+third-party MCP proxy tools. Host-owned hydration provides baseline memory
+context; memory MCP tools such as memory save/search, `continuity_summary`, and
+`procedure_save` require selected/reviewed capabilities. Browser gateway tools
+(`browser_status`, `browser_open`, `browser_inspect`, `browser_act`,
+`browser_close`), reviewed memory tools, and admin tools such as
 `admin_permission_list` and `admin_permission_revoke` require selected
 capabilities. Dangerous tools such as `Bash`, `Write`, `Edit`, config mutation,
 and wildcard `mcp__gantry__*` are not defaults. A small set of worktree

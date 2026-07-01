@@ -4,6 +4,7 @@ import {
   createPostgresDomainRepositories,
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
+import { PostgresPersonIdentityRepository } from '@core/adapters/storage/postgres/repositories/person-identity-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { PostgresCapabilitySecretRepository } from '@core/adapters/storage/postgres/repositories/capability-secret-repository.postgres.js';
 import {
@@ -74,6 +75,7 @@ function runtimeSecrets(): RuntimeSecretProvider {
 maybeDescribe('Postgres domain repositories', () => {
   let service: PostgresStorageService;
   let repositories: PostgresDomainRepositoryBundle;
+  let people: PostgresPersonIdentityRepository;
   let schemaName: string;
 
   beforeAll(async () => {
@@ -84,6 +86,7 @@ maybeDescribe('Postgres domain repositories', () => {
     );
     await service.migrate();
     repositories = createPostgresDomainRepositories(service.db, service.pool);
+    people = new PostgresPersonIdentityRepository(service.db);
 
     await repositories.providerAccounts.saveProviderAccount({
       id: providerAccountId,
@@ -150,6 +153,155 @@ maybeDescribe('Postgres domain repositories', () => {
         externalThreadId: '1700.1',
       }),
     ).resolves.toMatchObject({ id: threadId });
+  });
+
+  it('resolves aliases by exact app, provider, providerConnectionId, and external user id', async () => {
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerConnectionId,
+      externalUserId: 'U-person-1',
+      displayName: 'Slack User',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+
+    expect(created.personId).toBeTruthy();
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerConnectionId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: created.personId,
+      memoryHydrationEligible: true,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerConnectionId:
+          'channel-providerConnection:test:other' as ProviderConnectionId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId: 'app-two' as AppId,
+        provider: 'slack',
+        providerConnectionId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+  });
+
+  it('accepts web_user and phone evidence with the same exact-match alias rules', async () => {
+    const web = await people.resolveIdentity({
+      appId,
+      provider: 'app',
+      externalUserId: 'web-user-1',
+      displayName: 'Web User',
+      evidenceType: 'web_user',
+      createIfMissing: true,
+    });
+    await people.addAlias({
+      appId,
+      personId: web.personId!,
+      provider: 'phone',
+      externalUserId: '+15551234567',
+      evidenceType: 'phone',
+      actor: 'test',
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'web-user-1',
+        evidenceType: 'web_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: web.personId,
+      memoryHydrationEligible: true,
+    });
+
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'phone',
+        externalUserId: '+15551234567',
+        evidenceType: 'phone',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: web.personId,
+      memoryHydrationEligible: true,
+    });
+  });
+
+  it('allows an admin alias relink to reactivate a retired alias row', async () => {
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerConnectionId,
+      externalUserId: 'U-reactivate-1',
+      displayName: 'Reactivate Me',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+    const retired = await people.retireAlias({
+      appId,
+      personId: created.personId!,
+      aliasId: created.createdAlias!.id,
+      actor: 'test',
+    });
+
+    expect(retired).toMatchObject({
+      verificationStatus: 'retired',
+    });
+
+    const relinked = await people.addAlias({
+      appId,
+      personId: created.personId!,
+      provider: 'slack',
+      providerConnectionId,
+      externalUserId: 'U-reactivate-1',
+      displayName: 'Reactivate Me Again',
+      evidenceType: 'provider_user',
+      actor: 'test',
+    });
+
+    expect(relinked).toMatchObject({
+      id: created.createdAlias!.id,
+      personId: created.personId,
+      verificationStatus: 'verified',
+      retiredAt: null,
+      retiredBy: null,
+      displayName: 'Reactivate Me Again',
+    });
   });
 
   it('stores capability secrets encrypted and resolves metadata separately', async () => {

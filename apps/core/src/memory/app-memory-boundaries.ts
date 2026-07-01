@@ -57,7 +57,8 @@ export function normalizeSubject(
 ): NormalizedMemorySubject {
   const appId = normalizeId(input.appId, DEFAULT_MEMORY_APP_ID);
   const agentId = normalizeRequiredId(input.agentId, 'agentId');
-  const userId = input.userId?.trim() || undefined;
+  const personId = input.personId?.trim() || undefined;
+  const userId = personId || input.userId?.trim() || undefined;
   const groupId = input.groupId?.trim() || undefined;
   const channelId = input.channelId?.trim() || undefined;
   const subjectType =

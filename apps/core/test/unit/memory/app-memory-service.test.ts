@@ -130,6 +130,24 @@ describe('app-grade memory boundaries', () => {
     expect(context).not.toHaveProperty('threadId');
   });
 
+  it('normalizes public personId to the personal memory subject', () => {
+    const context = _testAppMemory.normalizeSubject({
+      appId: 'app-a',
+      agentId: 'support-agent',
+      personId: 'person-1',
+      userId: 'provider-user-1',
+      subjectType: 'user',
+    });
+
+    expect(context).toMatchObject({
+      appId: 'app-a',
+      agentId: 'support-agent',
+      subjectType: 'user',
+      subjectId: 'person-1',
+      userId: 'person-1',
+    });
+  });
+
   it('maps channel ids to canonical conversation ids for persistence', () => {
     expect(_testAppMemory.conversationIdForChannel('sl:C123')).toBe(
       'conversation:sl:C123',

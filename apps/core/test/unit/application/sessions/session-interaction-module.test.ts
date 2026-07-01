@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionInteractionModule } from '@core/application/sessions/session-interaction-module.js';
+import {
+  SessionInteractionModule,
+  makeAppGroup,
+} from '@core/application/sessions/session-interaction-module.js';
 
 function makeModule(overrides?: {
   control?: Record<string, unknown>;
@@ -71,6 +74,21 @@ function makeModule(overrides?: {
 }
 
 describe('SessionInteractionModule', () => {
+  it('marks app-session groups as web_user identity routes with sdk as the system sender sentinel', () => {
+    expect(
+      makeAppGroup({
+        appId: 'app-one',
+        conversationId: 'conv-1',
+        conversationJid: 'app:app-one:conv-1',
+        identityHash: '123456789abc',
+        addedAt: '2026-04-30T00:00:00.000Z',
+      }),
+    ).toMatchObject({
+      senderIdentityEvidenceType: 'web_user',
+      systemSenderIds: ['sdk'],
+    });
+  });
+
   it('rejects non-canonical conversation ids before creating app chat ids', async () => {
     const { module, control } = makeModule();
 

@@ -123,6 +123,7 @@ function searchInputFromQuery(url: URL, appId: string): AppMemorySearchInput {
   return {
     appId,
     agentId: url.searchParams.get('agentId') || undefined,
+    personId: url.searchParams.get('personId') || undefined,
     userId: url.searchParams.get('userId') || undefined,
     groupId: url.searchParams.get('groupId') || undefined,
     channelId: url.searchParams.get('channelId') || undefined,
@@ -407,6 +408,7 @@ export async function handleMemoryRoutes(
       id: memoryId,
       appId,
       agentId: url.searchParams.get('agentId') || undefined,
+      personId: url.searchParams.get('personId') || undefined,
       userId: url.searchParams.get('userId') || undefined,
       groupId: url.searchParams.get('groupId') || undefined,
       channelId: url.searchParams.get('channelId') || undefined,

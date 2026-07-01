@@ -12,3 +12,6 @@
 - When describing Browser for business owners, say it is a policy-gated capability with host-managed persistent profiles scoped by agent/conversation/thread/job context. Do not imply agents can pick arbitrary profile folders, see raw credentials, or attach to unmanaged customer browsers.
 - For outside-app realtime docs, keep Gantry's public realtime channel as HTTP SSE plus SDK list/wait over durable runtime events. WebSocket may appear only as the outside product backend's own UI fanout choice, not as a Gantry core response protocol.
 - Prefer `Conversation` plus optional `Thread/Topic` over generic `Channel` unless referring to provider-native Slack/Teams channel names. Memory is app/agent/subject scoped and jobs use `execution_context` plus `notification_routes`.
+- Identity docs must use the public noun `person` and public field `personId`.
+  The existing `users` and `user_aliases` table names are implementation
+  details until an explicit schema rename task changes them.

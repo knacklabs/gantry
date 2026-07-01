@@ -151,8 +151,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       finalizingGenerations: finalizingProgressGenerations,
       log: logger,
     });
-    const memoryUserId =
-      options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
     );
@@ -219,6 +217,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return true;
     }
+    const memoryUserId = await resolveActionMemoryUserId();
     await notifyFirstProgress();
     const { prompt, recallQuery } =
       await buildGroupProcessingConversationContext({

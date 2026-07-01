@@ -549,6 +549,8 @@ type AppGroupRegistration = {
   trigger: string;
   added_at: string;
   requiresTrigger: boolean;
+  senderIdentityEvidenceType: 'web_user';
+  systemSenderIds: string[];
 };
 
 export function makeAppGroup(input: {
@@ -573,6 +575,8 @@ export function makeAppGroup(input: {
     trigger: '',
     added_at: input.addedAt,
     requiresTrigger: false,
+    senderIdentityEvidenceType: 'web_user',
+    systemSenderIds: ['sdk'],
   };
 }
 

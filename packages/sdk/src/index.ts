@@ -26,6 +26,16 @@ import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
+import {
+  createIdentityClient,
+  createPeopleClient,
+  type IdentityEvidenceType,
+  type IdentityResolveInput,
+  type PersonAliasInput,
+  type PersonAliasVerificationStatus,
+  type PersonMergeConflictResolution,
+  type PersonMergeInput,
+} from './people.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { createModelsClient } from './models.js';
@@ -63,6 +73,33 @@ export type {
   UpdateJobInput,
 } from './job-model-types.js';
 export type * from './openapi-types.js';
+export type {
+  IdentityEvidenceType,
+  IdentityResolveInput,
+  PersonAliasInput,
+  PersonAliasVerificationStatus,
+  PersonMergeConflictResolution,
+  PersonMergeInput,
+};
+
+export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
+export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
+export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
+export type ProcessRole = 'all' | 'control' | 'live-worker' | 'job-worker';
+
+export interface HealthResponse {
+  status: string;
+  processRole: ProcessRole;
+  transport:
+    | { kind: 'tcp'; port: number }
+    | { kind: 'unix'; socketPath: string };
+  features: {
+    sessions: boolean;
+    jobs: boolean;
+    events: boolean;
+    webhooks: boolean;
+  };
+}
 
 export interface GantryError extends Error {
   code: string;
@@ -267,11 +304,15 @@ export class GantryClient {
     this.transport.request<T>(options);
   readonly ingresses: ReturnType<typeof createIngressesClient>;
   readonly models: ReturnType<typeof createModelsClient>;
+  readonly identity: ReturnType<typeof createIdentityClient>;
+  readonly people: ReturnType<typeof createPeopleClient>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
     this.models = createModelsClient(this.transport);
+    this.identity = createIdentityClient(this.request);
+    this.people = createPeopleClient(this.request);
   }
 
   health() {

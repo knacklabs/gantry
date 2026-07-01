@@ -40,6 +40,7 @@ export type MemorySubjectRef = z.infer<typeof MemorySubjectRefSchema>;
 export const MemorySearchRequestSchema = z.object({
   appId: z.string().optional(),
   agentId: z.string().optional(),
+  personId: z.string().optional(),
   userId: z.string().optional(),
   groupId: z.string().optional(),
   channelId: z.string().optional(),
