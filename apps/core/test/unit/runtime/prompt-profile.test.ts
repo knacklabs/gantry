@@ -834,7 +834,7 @@ describe('PromptProfileService', () => {
       'Durable memory works by default through full-text recall; semantic recall is an optional ranking enhancement',
     );
     expect(prompt).toContain(
-      'Call memory_search before telling the user, or assuming, that a prior decision, user preference, or continuation context is unknown.',
+      'If selected memory tools are available, use them before telling the user, or assuming, that a prior decision, user preference, or continuation context is unknown.',
     );
     expect(prompt).toContain(
       'Do not ask the user to configure embeddings or an embedding provider unless they explicitly want better semantic ranking',

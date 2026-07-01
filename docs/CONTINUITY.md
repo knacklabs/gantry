@@ -163,12 +163,10 @@ Current user controls:
   replaced session's continuation digest is finalized asynchronously
 - `/compact` to ask the Claude Agent SDK to compact active context and collect
   continuation digests plus staged extraction evidence at the compact boundary
-- default memory MCP tools available to agents: `memory_search`,
-  `memory_save`, `continuity_summary`, and `procedure_save`; patch tools are
-  reserved for reviewed admin flows
-- `continuity_summary` for the current scoped memory subject, including active
-  memory, staged candidates, review state, dreaming status, and last injected
-  context
+- host-owned memory hydration injects relevant personal or conversation
+  context; memory MCP tools such as `memory_search`, `memory_save`,
+  `continuity_summary`, and `procedure_save` are selected/reviewed tools, not
+  baseline mandatory tools
 - the `file` MCP tool for shipped FileArtifact read/write/promote workflows;
   FileArtifacts are separate from durable memory and still follow virtual
   artifact scopes

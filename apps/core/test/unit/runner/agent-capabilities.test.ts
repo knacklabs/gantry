@@ -539,7 +539,7 @@ describe('agent capability composition', () => {
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.allowedTools).not.toContain('Agent');
     expect(profile.allowedTools).toContain('Read');
-    expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__memory_search');
     expect(profile.allowedTools).not.toContain('Browser');
   });
 
@@ -555,7 +555,7 @@ describe('agent capability composition', () => {
     expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).not.toContain('Agent');
-    expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__memory_search');
     expect(profile.allowedTools).not.toContain('Browser');
   });
 
@@ -1029,8 +1029,10 @@ describe('agent capability composition', () => {
     // Safe baseline tools remain available.
     expect(profile.allowedTools).toContain('mcp__gantry__send_message');
     expect(profile.allowedTools).toContain('mcp__gantry__ask_user_question');
-    expect(profile.allowedTools).toContain('mcp__gantry__memory_search');
-    expect(profile.allowedTools).toContain('mcp__gantry__continuity_summary');
+    expect(profile.allowedTools).not.toContain('mcp__gantry__memory_search');
+    expect(profile.allowedTools).not.toContain(
+      'mcp__gantry__continuity_summary',
+    );
     expect(profile.allowedTools).toContain('mcp__gantry__agent_profile_read');
 
     // Env projection: selected admin env is separate; tool list excludes authority.
