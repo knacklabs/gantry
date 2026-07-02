@@ -364,7 +364,7 @@ const asyncRunCommandHandler: TaskHandler = async (context) => {
     reject(result.message, 'forbidden');
     return;
   }
-  acceptData(`Started: ${result.task.summary || result.task.id}`, result.task);
+  acceptData(`Queued: ${result.task.summary || result.task.id}`, result.task);
 };
 
 const taskGetHandler: TaskHandler = async (context) => {
@@ -622,7 +622,7 @@ const delegateTaskHandler: TaskHandler = async (context) => {
     reject(result.message, 'forbidden');
     return;
   }
-  acceptData(`Started: ${result.task.summary || result.task.id}`, result.task);
+  acceptData(`Queued: ${result.task.summary || result.task.id}`, result.task);
 };
 
 const taskMessageHandler: TaskHandler = async (context) => {

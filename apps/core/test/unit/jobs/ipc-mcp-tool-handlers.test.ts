@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import type {
@@ -12,11 +12,17 @@ import type {
 import { isAsyncTaskTerminal } from '@core/domain/ports/async-tasks.js';
 import { AsyncCommandTaskService } from '@core/jobs/async-command-task-service.js';
 import { createAsyncMcpTask } from '@core/jobs/async-mcp-tool-task.js';
+import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
 import { createMcpToolHandlers } from '@core/jobs/ipc-mcp-tool-handlers.js';
 import { registerAsyncCommandSandboxPolicy } from '@core/runtime/async-command-sandbox-policy.js';
 
 afterEach(() => {
   configurePendingInteractionDurability(null);
+  vi.unstubAllEnvs();
+});
+
+beforeEach(() => {
+  vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 7).toString('base64'));
 });
 
 function asyncRuntimeDeps(repository: AsyncTaskRepository) {
@@ -229,6 +235,10 @@ describe('MCP IPC tool handlers', () => {
   });
 
   it('starts async MCP calls as durable tasks before remote execution completes', async () => {
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      Buffer.alloc(32, 11).toString('base64'),
+    );
     const repository = new MemoryAsyncTaskRepository();
     let release!: () => void;
     const remoteDone = new Promise<void>((resolve) => {
@@ -314,6 +324,21 @@ describe('MCP IPC tool handlers', () => {
       summary: 'crm.create_deal',
     });
     expect(task.privateCorrelationJson.parentTaskId).toBe(parent.id);
+    expect(task.privateCorrelationJson.executionPayload).toEqual(
+      expect.stringMatching(/^gatask:v1:/),
+    );
+    expect(JSON.stringify(task.privateCorrelationJson)).not.toContain('Acme');
+    expect(
+      readEncryptedAsyncTaskPayload<{
+        serverName: string;
+        toolName: string;
+        arguments: Record<string, unknown>;
+      }>(task),
+    ).toMatchObject({
+      serverName: 'crm',
+      toolName: 'create_deal',
+      arguments: { name: 'Acme' },
+    });
     expect(assertToolAllowed).toHaveBeenCalledWith(
       expect.objectContaining({ serverName: 'crm', toolName: 'create_deal' }),
     );

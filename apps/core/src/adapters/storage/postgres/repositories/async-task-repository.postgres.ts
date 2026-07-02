@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm';
 
 import type {
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskReceipt,
@@ -33,64 +34,60 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
     return mapRow(row);
   }
 
-  async createTaskWithAdmission(
-    input: AsyncTaskCreateInput,
-    admission: {
-      activeStatuses: AsyncTaskRecord['status'][];
-      kind?: AsyncTaskRecord['kind'];
-      maxActivePerApp: number;
-      maxActivePerAgent: number;
-    },
-  ): Promise<
-    | { ok: true; task: AsyncTaskRecord }
-    | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
-  > {
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
     return this.db.transaction(async (tx) => {
+      const [task] = await tx
+        .select()
+        .from(pgSchema.agentAsyncTasksPostgres)
+        .where(eq(pgSchema.agentAsyncTasksPostgres.id, input.taskId))
+        .limit(1);
+      if (!task || task.status !== 'queued') return null;
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${`agent_async_tasks:${input.appId}`}))`,
+        sql`select pg_advisory_xact_lock(hashtext(${`agent_async_tasks:${task.appId}:${task.kind}`}))`,
       );
-      const [appActive] = await tx
+      const [appRunning] = await tx
         .select({ count: count() })
         .from(pgSchema.agentAsyncTasksPostgres)
         .where(
           and(
-            eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
-            admission.kind
-              ? eq(pgSchema.agentAsyncTasksPostgres.kind, admission.kind)
-              : undefined,
-            inArray(
-              pgSchema.agentAsyncTasksPostgres.status,
-              admission.activeStatuses,
-            ),
+            eq(pgSchema.agentAsyncTasksPostgres.appId, task.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, task.kind),
+            eq(pgSchema.agentAsyncTasksPostgres.status, 'running'),
           ),
         );
-      if ((appActive?.count ?? 0) >= admission.maxActivePerApp) {
-        return { ok: false, reason: 'app_capacity' };
-      }
-      const [agentActive] = await tx
+      if ((appRunning?.count ?? 0) >= input.maxRunningPerApp) return null;
+      const [agentRunning] = await tx
         .select({ count: count() })
         .from(pgSchema.agentAsyncTasksPostgres)
         .where(
           and(
-            eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
-            eq(pgSchema.agentAsyncTasksPostgres.agentId, input.agentId),
-            admission.kind
-              ? eq(pgSchema.agentAsyncTasksPostgres.kind, admission.kind)
-              : undefined,
-            inArray(
-              pgSchema.agentAsyncTasksPostgres.status,
-              admission.activeStatuses,
-            ),
+            eq(pgSchema.agentAsyncTasksPostgres.appId, task.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.agentId, task.agentId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, task.kind),
+            eq(pgSchema.agentAsyncTasksPostgres.status, 'running'),
           ),
         );
-      if ((agentActive?.count ?? 0) >= admission.maxActivePerAgent) {
-        return { ok: false, reason: 'agent_capacity' };
-      }
+      if ((agentRunning?.count ?? 0) >= input.maxRunningPerAgent) return null;
       const [row] = await tx
-        .insert(pgSchema.agentAsyncTasksPostgres)
-        .values(taskInsertValues(input))
+        .update(pgSchema.agentAsyncTasksPostgres)
+        .set({
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: task.fencingVersion + 1,
+          startedAt: input.now,
+          heartbeatAt: input.now,
+          updatedAt: input.now,
+        })
+        .where(
+          and(
+            eq(pgSchema.agentAsyncTasksPostgres.id, input.taskId),
+            eq(pgSchema.agentAsyncTasksPostgres.status, 'queued'),
+          ),
+        )
         .returning();
-      return { ok: true, task: mapRow(row) };
+      return row ? mapRow(row) : null;
     });
   }
 

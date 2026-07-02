@@ -23,7 +23,6 @@ import { denyMemoryBoundaryToolUse } from '../shared/memory-boundary.js';
 import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
-  admissionFailure,
   buildLaunchControl,
   cleanupLaunchControl,
   commandSummary,
@@ -36,7 +35,6 @@ import {
   taskTimestampMs,
   terminateProcessHandle,
   truncate,
-  withLocalAdmissionLock,
   type AsyncCommandOutputSnapshot,
 } from './async-command-task-helpers.js';
 import {
@@ -44,13 +42,22 @@ import {
   failedReceipt,
 } from './async-command-task-receipts.js';
 import { cancelAsyncMcpTask } from './async-mcp-tool-task.js';
-import { refreshDelegatedCancellationReceipt } from './async-task-cancellation.js';
+import {
+  cancelQueuedTask,
+  refreshDelegatedCancellationReceipt,
+} from './async-task-cancellation.js';
 import { AsyncTaskChangeWaiter } from './async-task-change-waiter.js';
+import type {
+  AsyncCommandTaskServiceOptions,
+  PendingAsyncTaskExecution,
+} from './async-command-task-queue-types.js';
+import { drainQueuedAsyncTasks } from './async-command-task-drainer.js';
+import { asyncCommandPrivateCorrelation } from './async-task-execution-payload.js';
+import { recoverQueuedAsyncCommandTasks } from './async-command-queue-recovery.js';
 
 const SHELL_POLICY_TOOL_NAME = 'Bash';
-const ACTIVE_TASK_STATUSES: AsyncTaskRecord['status'][] = ['queued', 'running'];
-const MAX_ACTIVE_ASYNC_COMMANDS_PER_APP = 4,
-  MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT = 2;
+const MAX_ACTIVE_ASYNC_COMMANDS_PER_APP = 4;
+const MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT = 2;
 const ASYNC_TASK_HEARTBEAT_MS = 15_000;
 export const ASYNC_TASK_STALE_AFTER_MS = 60_000;
 
@@ -134,22 +141,9 @@ export type StartAsyncCommandTaskResult =
   | { ok: true; task: PublicAsyncTaskDto }
   | { ok: false; message: string };
 
-export interface AsyncCommandTaskServiceOptions {
-  terminateProcess?: (handle: AsyncCommandProcessHandle) => boolean;
-  prepareRun?: (input: {
-    task: AsyncTaskRecord;
-    allowedNetworkHosts?: readonly string[];
-  }) => Promise<
-    | {
-        egressProxyUrl?: string;
-        cleanup?: () => Promise<void> | void;
-      }
-    | undefined
-  >;
-}
-
 export class AsyncCommandTaskService {
   private readonly active = new Map<string, AbortController>();
+  private readonly pending = new Map<string, PendingAsyncTaskExecution>();
   private readonly taskChanges = new AsyncTaskChangeWaiter();
   private readonly classifier = new ToolExecutionClassifier();
   private readonly policy = new ToolExecutionPolicyService();
@@ -240,22 +234,27 @@ export class AsyncCommandTaskService {
         matchedRule: decision.matchedRule,
         toolName: 'RunCommand',
       },
-      privateCorrelationJson: {
-        cwd: input.cwd ?? null,
-        parentTaskId: input.parentTaskId ?? null,
-        launch: launchControl,
-      },
+      privateCorrelationJson: asyncCommandPrivateCorrelation({
+        appId: input.appId,
+        taskId,
+        command,
+        launchControl,
+        taskInput: input,
+      }),
       leaseToken: randomUUID(),
       fencingVersion: 1,
       summary: commandSummary(redactedCommand),
       now: nowIso(),
     };
-    const admitted = await this.admitTask(createInput);
-    if (!admitted.ok) return admissionFailure(admitted.reason);
-    const task = admitted.task;
-
-    this.active.set(task.id, controller);
-    void this.execute(task, command, input, controller, launchControl);
+    const task = await this.repository.createTask(createInput);
+    this.pending.set(task.id, {
+      task,
+      command,
+      input,
+      controller,
+      launchControl,
+    });
+    await this.drainQueuedTasks();
     return { ok: true, task: toPublicAsyncTaskDto(task) };
   }
 
@@ -264,53 +263,17 @@ export class AsyncCommandTaskService {
       taskInput: input,
       repository: this.repository,
       active: this.active,
-      admitTask: (createInput) => this.admitTask(createInput),
+      createTask: (createInput) => this.repository.createTask(createInput),
+      queueTask: (execution) => {
+        this.pending.set(execution.task.id, execution);
+        void this.drainQueuedTasks();
+      },
       recoverStaleTasks: (recoverInput) => this.recoverStaleTasks(recoverInput),
       cancelLinkedChildTasks: async (parent) => {
         const result = await this.cancelChildTasks(parent);
         return result.ok ? result.cancelled : 0;
       },
       waitForTaskChange: (_parent, options) => this.taskChanges.wait(options),
-    });
-  }
-
-  private async admitTask(
-    input: AsyncTaskCreateInput,
-  ): Promise<
-    | { ok: true; task: AsyncTaskRecord }
-    | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
-  > {
-    if (this.repository.createTaskWithAdmission) {
-      return this.repository.createTaskWithAdmission(input, {
-        activeStatuses: ACTIVE_TASK_STATUSES,
-        kind: input.kind,
-        maxActivePerApp: MAX_ACTIVE_ASYNC_COMMANDS_PER_APP,
-        maxActivePerAgent: MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT,
-      });
-    }
-    return withLocalAdmissionLock(this.repository, async () => {
-      const [appActive, agentActive] = await Promise.all([
-        this.repository.listTasks({
-          appId: input.appId,
-          kind: input.kind,
-          statuses: ACTIVE_TASK_STATUSES,
-          limit: MAX_ACTIVE_ASYNC_COMMANDS_PER_APP,
-        }),
-        this.repository.listTasks({
-          appId: input.appId,
-          agentId: input.agentId,
-          kind: input.kind,
-          statuses: ACTIVE_TASK_STATUSES,
-          limit: MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT,
-        }),
-      ]);
-      if (appActive.length >= MAX_ACTIVE_ASYNC_COMMANDS_PER_APP) {
-        return { ok: false, reason: 'app_capacity' };
-      }
-      if (agentActive.length >= MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT) {
-        return { ok: false, reason: 'agent_capacity' };
-      }
-      return { ok: true, task: await this.repository.createTask(input) };
     });
   }
 
@@ -378,7 +341,7 @@ export class AsyncCommandTaskService {
       Date.now() - (input.staleAfterMs ?? ASYNC_TASK_STALE_AFTER_MS);
     const tasks = await this.repository.listTasks({
       ...input,
-      statuses: ['queued', 'running', 'needs_attention'],
+      statuses: ['running', 'needs_attention'],
       limit: input.limit ?? 100,
     });
     let recovered = 0;
@@ -429,6 +392,20 @@ export class AsyncCommandTaskService {
     return recovered;
   }
 
+  async recoverQueuedTasks(input: {
+    appId: string;
+    agentId?: string;
+    limit?: number;
+  }): Promise<number> {
+    const recovered = await recoverQueuedAsyncCommandTasks({
+      repository: this.repository,
+      pending: this.pending,
+      ...input,
+    });
+    if (recovered > 0) await this.drainQueuedTasks();
+    return recovered;
+  }
+
   async cancel(
     input:
       | string
@@ -466,6 +443,10 @@ export class AsyncCommandTaskService {
     if (!controller) {
       if (task.kind === 'mcp_tool_call') {
         return cancelAsyncMcpTask(this.repository, task);
+      }
+      if (task.status === 'queued') {
+        this.pending.delete(taskId);
+        return cancelQueuedTask({ repository: this.repository, task });
       }
       const handle = readPersistedProcessHandle(task.privateCorrelationJson);
       if (handle) {
@@ -693,6 +674,21 @@ export class AsyncCommandTaskService {
       } catch {
         // Task already reached a terminal state; cleanup failures are not user-visible task output.
       }
+      void this.drainQueuedTasks();
     }
+  }
+
+  private async drainQueuedTasks(): Promise<void> {
+    await drainQueuedAsyncTasks({
+      repository: this.repository,
+      pending: this.pending,
+      active: this.active,
+      limits: {
+        perApp: MAX_ACTIVE_ASYNC_COMMANDS_PER_APP,
+        perAgent: MAX_ACTIVE_ASYNC_COMMANDS_PER_AGENT,
+      },
+      executeCommand: (task, command, input, controller, launchControl) =>
+        this.execute(task, command, input, controller, launchControl),
+    });
   }
 }

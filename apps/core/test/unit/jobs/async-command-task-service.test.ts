@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AsyncCommandTaskService,
   type AsyncCommandRunner,
 } from '@core/jobs/async-command-task-service.js';
 import { persistInspectionSnapshot } from '@core/jobs/async-command-task-helpers.js';
+import { readEncryptedAsyncTaskPayload } from '@core/jobs/async-task-execution-payload.js';
 import type {
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
@@ -134,6 +135,14 @@ function baseInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AsyncCommandTaskService', () => {
+  beforeEach(() => {
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 7).toString('base64'));
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('denies unapproved commands before creating a task or calling the runner', async () => {
     const repository = new MemoryAsyncTaskRepository();
     let calls = 0;
@@ -179,6 +188,58 @@ describe('AsyncCommandTaskService', () => {
     const persisted = JSON.stringify(task);
     expect(task?.summary).toContain('bearer [REDACTED_SECRET]');
     expect(persisted).not.toContain(secret);
+  });
+
+  it('persists restart-recoverable command payload only when encrypted', async () => {
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 7).toString('base64'));
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({ outputSummary: 'done' }),
+    });
+    const result = await service.start(baseInput({ command: 'npm test' }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const task = repository.tasks.get(result.task.id);
+    expect(task?.privateCorrelationJson.executionPayload).toEqual(
+      expect.stringMatching(/^gatask:v1:/),
+    );
+    expect(JSON.stringify(task?.privateCorrelationJson)).not.toContain(
+      'npm test',
+    );
+    expect(
+      readEncryptedAsyncTaskPayload<{ command: string }>(task!),
+    ).toMatchObject({ command: 'npm test' });
+  });
+
+  it('uses the active encryption keyring key for restart payloads', async () => {
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', '');
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEYRING_JSON',
+      JSON.stringify({
+        active: 'key-b',
+        keys: {
+          'key-a': Buffer.alloc(32, 1).toString('base64'),
+          'key-b': Buffer.alloc(32, 2).toString('base64'),
+        },
+      }),
+    );
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({ outputSummary: 'done' }),
+    });
+
+    const result = await service.start(baseInput({ command: 'npm test' }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const task = repository.tasks.get(result.task.id);
+    expect(task?.privateCorrelationJson.executionPayload).toEqual(
+      expect.stringMatching(/^gatask:v1:key-b:/),
+    );
+    expect(
+      readEncryptedAsyncTaskPayload<{ command: string }>(task!),
+    ).toMatchObject({ command: 'npm test' });
   });
 
   it('creates a durable row before running and keeps cancellation terminal', async () => {
@@ -258,24 +319,102 @@ describe('AsyncCommandTaskService', () => {
     expect(JSON.stringify(dto)).not.toContain('fencingVersion');
   });
 
-  it('denies new launches when the agent async command budget is full', async () => {
+  it('queues overflow async commands and drains when capacity frees', async () => {
     const repository = new MemoryAsyncTaskRepository();
+    const releases: Array<() => void> = [];
     const runner: AsyncCommandRunner = {
-      run: async () => new Promise(() => undefined),
+      run: async () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ outputSummary: 'done' }));
+        }),
     };
     const service = new AsyncCommandTaskService(repository, runner);
 
-    await expect(service.start(baseInput())).resolves.toMatchObject({
-      ok: true,
-    });
-    await expect(service.start(baseInput())).resolves.toMatchObject({
-      ok: true,
-    });
-    await expect(service.start(baseInput())).resolves.toEqual({
-      ok: false,
-      message:
-        'Async command capacity is full for this agent. Wait for an existing task to finish or cancel one.',
-    });
+    const first = await service.start(
+      baseInput({
+        command: 'npm test 1',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    const second = await service.start(
+      baseInput({
+        command: 'npm test 2',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    const third = await service.start(
+      baseInput({
+        command: 'npm test 3',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    expect(first.ok && second.ok && third.ok).toBe(true);
+    if (!first.ok || !second.ok || !third.ok) return;
+
+    await waitForStatus(repository, first.task.id, 'running');
+    await waitForStatus(repository, second.task.id, 'running');
+    expect(repository.tasks.get(third.task.id)?.status).toBe('queued');
+    expect(releases).toHaveLength(2);
+
+    releases.shift()?.();
+    await waitForStatus(repository, third.task.id, 'running');
+    expect(releases).toHaveLength(2);
+  });
+
+  it('recovers encrypted queued command payloads after active capacity frees', async () => {
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 9).toString('base64'));
+    const repository = new MemoryAsyncTaskRepository();
+    const blocker: AsyncCommandRunner = {
+      run: async () => new Promise(() => undefined),
+    };
+    const service = new AsyncCommandTaskService(repository, blocker);
+
+    const first = await service.start(
+      baseInput({
+        command: 'npm test 1',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    const second = await service.start(
+      baseInput({
+        command: 'npm test 2',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    const third = await service.start(
+      baseInput({
+        command: 'npm test 3',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    expect(first.ok && second.ok && third.ok).toBe(true);
+    if (!first.ok || !second.ok || !third.ok) return;
+    await waitForStatus(repository, first.task.id, 'running');
+    await waitForStatus(repository, second.task.id, 'running');
+    expect(repository.tasks.get(third.task.id)?.status).toBe('queued');
+
+    const now = new Date().toISOString();
+    for (const taskId of [first.task.id, second.task.id]) {
+      const task = repository.tasks.get(taskId)!;
+      await repository.transitionTask({
+        taskId,
+        leaseToken: task.leaseToken,
+        fencingVersion: task.fencingVersion,
+        status: 'completed',
+        now,
+        terminalAt: now,
+      });
+    }
+
+    const run = vi.fn(async () => ({ outputSummary: 'recovered' }));
+    const recoveredService = new AsyncCommandTaskService(repository, { run });
+    await expect(
+      recoveredService.recoverQueuedTasks({ appId: 'app-1' }),
+    ).resolves.toBe(1);
+    await waitForStatus(repository, third.task.id, 'completed');
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'npm test 3' }),
+    );
   });
 
   it('does not count non-command tasks against async command admission capacity', async () => {
@@ -325,13 +464,59 @@ describe('AsyncCommandTaskService', () => {
     ).toHaveLength(1);
   });
 
-  it('applies active task backpressure to delegated agents before child spawn', async () => {
+  it('cancels queued async commands before they are drained', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const releases: Array<() => void> = [];
+    const runner: AsyncCommandRunner = {
+      run: async () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ outputSummary: 'done' }));
+        }),
+    };
+    const service = new AsyncCommandTaskService(repository, runner);
+
+    await service.start(
+      baseInput({
+        command: 'npm test 1',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    await service.start(
+      baseInput({
+        command: 'npm test 2',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    const queued = await service.start(
+      baseInput({
+        command: 'npm test 3',
+        allowedToolRules: ['RunCommand(npm test *)'],
+      }),
+    );
+    expect(queued.ok).toBe(true);
+    if (!queued.ok) return;
+    expect(repository.tasks.get(queued.task.id)?.status).toBe('queued');
+
+    await expect(service.cancel(queued.task.id)).resolves.toEqual({
+      ok: true,
+      message: 'Task was cancelled. Nothing else changed.',
+    });
+    releases.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(repository.tasks.get(queued.task.id)?.status).toBe('cancelled');
+  });
+
+  it('queues overflow delegated agents before child spawn and drains when capacity frees', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const service = new AsyncCommandTaskService(repository, {
       run: async () => ({}),
     });
+    const releases: Array<() => void> = [];
     const activeChildSpawn = vi.fn(
-      async () => new Promise<never>(() => undefined),
+      async () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ outputSummary: 'done' }));
+        }),
     );
 
     await expect(
@@ -356,26 +541,72 @@ describe('AsyncCommandTaskService', () => {
     ).resolves.toMatchObject({ ok: true });
     const childSpawn = vi.fn(async () => ({ outputSummary: 'done' }));
 
-    await expect(
-      service.startDelegatedAgent({
-        appId: 'app-1',
-        agentId: 'agent-1',
-        conversationId: 'conversation-1',
-        objective: 'Research accounts',
-        workspaceFolder: 'main_agent',
-        run: childSpawn,
-      }),
-    ).resolves.toEqual({
-      ok: false,
-      message:
-        'Async command capacity is full for this agent. Wait for an existing task to finish or cancel one.',
+    const queued = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'Research accounts',
+      workspaceFolder: 'main_agent',
+      run: childSpawn,
     });
+    expect(queued).toMatchObject({ ok: true });
 
     expect(childSpawn).not.toHaveBeenCalled();
     expect([...repository.tasks.values()].map((task) => task.kind)).toEqual([
       'delegated_agent',
       'delegated_agent',
+      'delegated_agent',
     ]);
+    if (!queued.ok) return;
+    expect(repository.tasks.get(queued.task.id)?.status).toBe('queued');
+    releases.shift()?.();
+    await vi.waitFor(() => {
+      expect(childSpawn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('cancels queued delegated agents before child spawn', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const service = new AsyncCommandTaskService(repository, {
+      run: async () => ({}),
+    });
+    const releases: Array<() => void> = [];
+    const activeChildSpawn = vi.fn(
+      async () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ outputSummary: 'done' }));
+        }),
+    );
+
+    for (const objective of ['one', 'two']) {
+      await service.startDelegatedAgent({
+        appId: 'app-1',
+        agentId: 'agent-1',
+        conversationId: 'conversation-1',
+        objective,
+        workspaceFolder: 'main_agent',
+        run: activeChildSpawn,
+      });
+    }
+    const childSpawn = vi.fn(async () => ({ outputSummary: 'done' }));
+    const queued = await service.startDelegatedAgent({
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      objective: 'three',
+      workspaceFolder: 'main_agent',
+      run: childSpawn,
+    });
+    expect(queued.ok).toBe(true);
+    if (!queued.ok) return;
+
+    await expect(service.cancel(queued.task.id)).resolves.toMatchObject({
+      ok: true,
+    });
+    releases.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(childSpawn).not.toHaveBeenCalled();
+    expect(repository.tasks.get(queued.task.id)?.status).toBe('cancelled');
   });
 
   it('does not claim cancellation when this process has no active handle', async () => {
@@ -1155,6 +1386,10 @@ describe('AsyncCommandTaskService', () => {
   });
 
   it('starts delegated agent tasks and records steering messages', async () => {
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      Buffer.alloc(32, 13).toString('base64'),
+    );
     const repository = new MemoryAsyncTaskRepository();
     let release!: () => void;
     const running = new Promise<void>((resolve) => {
@@ -1189,6 +1424,22 @@ describe('AsyncCommandTaskService', () => {
     });
     expect(started.ok).toBe(true);
     if (!started.ok) return;
+    const createdTask = repository.tasks.get(started.task.id);
+    expect(createdTask?.privateCorrelationJson.executionPayload).toEqual(
+      expect.stringMatching(/^gatask:v1:/),
+    );
+    expect(JSON.stringify(createdTask?.privateCorrelationJson)).not.toContain(
+      'Research the docs',
+    );
+    expect(
+      readEncryptedAsyncTaskPayload<{
+        objective: string;
+        workspaceFolder: string;
+      }>(createdTask!),
+    ).toMatchObject({
+      objective: 'Research the docs',
+      workspaceFolder: 'main_agent',
+    });
 
     await waitForStatus(repository, started.task.id, 'running');
     const sent: string[] = [];

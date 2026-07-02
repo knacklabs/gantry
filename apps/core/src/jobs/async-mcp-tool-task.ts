@@ -18,8 +18,10 @@ import {
   withLocalAdmissionLock,
 } from './async-command-task-helpers.js';
 import { cancelledReceipt } from './async-command-task-receipts.js';
+import { hasAsyncTaskRunningCapacity } from './async-task-running-capacity.js';
+import { asyncMcpPrivateCorrelation } from './async-task-execution-payload.js';
 
-const ACTIVE_ASYNC_MCP_STATUSES = ['queued', 'running'] as const;
+const RUNNING_ASYNC_MCP_STATUSES = ['running'] as const;
 const MAX_ACTIVE_ASYNC_MCP_PER_APP = 4;
 const MAX_ACTIVE_ASYNC_MCP_PER_AGENT = 2;
 const ASYNC_MCP_HEARTBEAT_MS = 15_000;
@@ -34,6 +36,19 @@ const activeAsyncMcpControllers = new Map<
     countsAgainstCapacity: boolean;
   }
 >();
+const pendingAsyncMcpExecutions = new Map<
+  string,
+  {
+    repository: AsyncTaskRepository;
+    task: AsyncTaskRecord;
+    proxy: McpToolProxy;
+    appId: string;
+    agentId: string;
+    serverName: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
+  }
+>();
 
 export async function createAsyncMcpTask(input: {
   repository: AsyncTaskRepository;
@@ -46,12 +61,12 @@ export async function createAsyncMcpTask(input: {
   runId?: string;
   serverName: string;
   toolName: string;
-}): Promise<
-  { ok: true; task: AsyncTaskRecord } | { ok: false; message: string }
-> {
+  arguments?: Record<string, unknown>;
+}): Promise<{ ok: true; task: AsyncTaskRecord }> {
   const now = nowIso();
+  const taskId = `task_${randomUUID()}`;
   const createInput: AsyncTaskCreateInput = {
-    id: `task_${randomUUID()}`,
+    id: taskId,
     appId: input.appId,
     agentId: input.agentId,
     conversationId: input.conversationId,
@@ -68,54 +83,21 @@ export async function createAsyncMcpTask(input: {
       serverName: input.serverName,
       mcpToolName: input.toolName,
     },
-    privateCorrelationJson: {
-      ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-      progress: {
-        phase: 'queued',
-        lastProgress: 'MCP tool queued.',
-        lastToolSummary: `${input.serverName}.${input.toolName}`,
-      },
-    },
+    privateCorrelationJson: asyncMcpPrivateCorrelation({
+      appId: input.appId,
+      taskId,
+      parentTaskId: input.parentTaskId,
+      serverName: input.serverName,
+      toolName: input.toolName,
+      arguments: input.arguments ?? {},
+    }),
     leaseToken: randomUUID(),
     fencingVersion: 1,
     summary: `${input.serverName}.${input.toolName}`,
     now,
   };
   await recoverStaleAsyncMcpTasks(input.repository, input.appId);
-  const activeControllerCounts = activeAsyncMcpControllerCounts(
-    input.appId,
-    input.agentId,
-  );
-  if (activeControllerCounts.app >= MAX_ACTIVE_ASYNC_MCP_PER_APP) {
-    return {
-      ok: false,
-      message:
-        'Async MCP capacity is full for this app. Wait for an existing task to finish or cancel one.',
-    };
-  }
-  if (activeControllerCounts.agent >= MAX_ACTIVE_ASYNC_MCP_PER_AGENT) {
-    return {
-      ok: false,
-      message:
-        'Async MCP capacity is full for this agent. Wait for an existing task to finish or cancel one.',
-    };
-  }
-  const admitted = input.repository.createTaskWithAdmission
-    ? await input.repository.createTaskWithAdmission(createInput, {
-        activeStatuses: [...ACTIVE_ASYNC_MCP_STATUSES],
-        kind: createInput.kind,
-        maxActivePerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
-        maxActivePerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
-      })
-    : await admitWithLocalLock(input.repository, createInput);
-  if (admitted.ok) return admitted;
-  return {
-    ok: false,
-    message:
-      admitted.reason === 'app_capacity'
-        ? 'Async MCP capacity is full for this app. Wait for an existing task to finish or cancel one.'
-        : 'Async MCP capacity is full for this agent. Wait for an existing task to finish or cancel one.',
-  };
+  return { ok: true, task: await input.repository.createTask(createInput) };
 }
 
 async function recoverStaleAsyncMcpTasks(
@@ -125,7 +107,7 @@ async function recoverStaleAsyncMcpTasks(
   const staleBefore = Date.now() - ASYNC_MCP_STALE_AFTER_MS;
   const tasks = await repository.listTasks({
     appId,
-    statuses: [...ACTIVE_ASYNC_MCP_STATUSES],
+    statuses: [...RUNNING_ASYNC_MCP_STATUSES],
     limit: 100,
   });
   for (const task of tasks) {
@@ -156,37 +138,18 @@ async function recoverStaleAsyncMcpTasks(
   }
 }
 
-async function admitWithLocalLock(
-  repository: AsyncTaskRepository,
-  createInput: AsyncTaskCreateInput,
-) {
-  return withLocalAdmissionLock(repository, async () => {
-    const [appActive, agentActive] = await Promise.all([
-      repository.listTasks({
-        appId: createInput.appId,
-        kind: createInput.kind,
-        statuses: [...ACTIVE_ASYNC_MCP_STATUSES],
-        limit: MAX_ACTIVE_ASYNC_MCP_PER_APP,
-      }),
-      repository.listTasks({
-        appId: createInput.appId,
-        agentId: createInput.agentId,
-        kind: createInput.kind,
-        statuses: [...ACTIVE_ASYNC_MCP_STATUSES],
-        limit: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
-      }),
-    ]);
-    if (appActive.length >= MAX_ACTIVE_ASYNC_MCP_PER_APP) {
-      return { ok: false as const, reason: 'app_capacity' as const };
-    }
-    if (agentActive.length >= MAX_ACTIVE_ASYNC_MCP_PER_AGENT) {
-      return { ok: false as const, reason: 'agent_capacity' as const };
-    }
-    return {
-      ok: true as const,
-      task: await repository.createTask(createInput),
-    };
-  });
+export async function enqueueAsyncMcpTask(input: {
+  repository: AsyncTaskRepository;
+  task: AsyncTaskRecord;
+  proxy: McpToolProxy;
+  appId: string;
+  agentId: string;
+  serverName: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+}): Promise<void> {
+  pendingAsyncMcpExecutions.set(input.task.id, input);
+  await drainAsyncMcpTasks(input.repository);
 }
 
 export async function executeAsyncMcpTask(input: {
@@ -354,6 +317,7 @@ export async function executeAsyncMcpTask(input: {
   } finally {
     clearInterval(heartbeat);
     activeAsyncMcpControllers.delete(input.task.id);
+    void drainAsyncMcpTasks(input.repository);
   }
 }
 
@@ -374,16 +338,30 @@ function cancelledMcpReceipt(
   };
 }
 
-function activeAsyncMcpControllerCounts(appId: string, agentId: string) {
-  let app = 0;
-  let agent = 0;
-  for (const active of activeAsyncMcpControllers.values()) {
-    if (!active.countsAgainstCapacity) continue;
-    if (active.appId !== appId) continue;
-    app += 1;
-    if (active.agentId === agentId) agent += 1;
-  }
-  return { app, agent };
+async function drainAsyncMcpTasks(repository: AsyncTaskRepository) {
+  await withLocalAdmissionLock(repository, async () => {
+    for (const execution of [...pendingAsyncMcpExecutions.values()]) {
+      if (
+        !(await hasAsyncTaskRunningCapacity(repository, execution.task, {
+          perApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
+          perAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
+        }))
+      ) {
+        continue;
+      }
+      const claimed =
+        (await repository.claimQueuedTask?.({
+          taskId: execution.task.id,
+          leaseToken: randomUUID(),
+          now: nowIso(),
+          maxRunningPerApp: MAX_ACTIVE_ASYNC_MCP_PER_APP,
+          maxRunningPerAgent: MAX_ACTIVE_ASYNC_MCP_PER_AGENT,
+        })) ?? execution.task;
+      if (claimed.status !== 'running' && repository.claimQueuedTask) continue;
+      pendingAsyncMcpExecutions.delete(execution.task.id);
+      void executeAsyncMcpTask({ ...execution, task: claimed });
+    }
+  });
 }
 
 export async function cancelAsyncMcpTask(
@@ -443,6 +421,7 @@ export async function cancelAsyncMcpTask(
     }),
     receiptJson: cancelledReceipt(task),
   });
+  pendingAsyncMcpExecutions.delete(task.id);
   const message = cancelled
     ? 'Task was cancelled in Gantry. Remote MCP work may have already run; late results will be ignored.'
     : 'Task is already finished and cannot be cancelled.';

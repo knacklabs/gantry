@@ -10,7 +10,6 @@ import {
 } from '../domain/ports/async-tasks.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
-  admissionFailure,
   commandSummary,
   errorMessage,
   isTimeoutError,
@@ -22,6 +21,7 @@ import {
   type AsyncCommandRunnerResult,
   type StartAsyncCommandTaskResult,
 } from './async-command-task-service.js';
+import { asyncDelegatedPrivateCorrelation } from './async-task-execution-payload.js';
 
 const ASYNC_TASK_HEARTBEAT_MS = 15_000;
 const ASYNC_TASK_WAKE_FALLBACK_MS = 15_000;
@@ -55,18 +55,28 @@ export interface StartDelegatedAgentTaskInput {
 
 export type StartDelegatedAgentTaskResult = StartAsyncCommandTaskResult;
 
-type AdmitTask = (
-  input: AsyncTaskCreateInput,
-) => Promise<
-  | { ok: true; task: AsyncTaskRecord }
-  | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
->;
+export type PendingDelegatedAgentExecution = {
+  task: AsyncTaskRecord;
+  command: string;
+  input: never;
+  controller: AbortController;
+  launchControl: never;
+  delegated: {
+    taskInput: StartDelegatedAgentTaskInput;
+    cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
+    waitForTaskChange?: (
+      parent: AsyncTaskRecord,
+      options: { signal: AbortSignal; timeoutMs: number },
+    ) => Promise<void>;
+  };
+};
 
 export async function startDelegatedAgentTask(input: {
   taskInput: StartDelegatedAgentTaskInput;
   repository: AsyncTaskRepository;
   active: Map<string, AbortController>;
-  admitTask: AdmitTask;
+  createTask: (input: AsyncTaskCreateInput) => Promise<AsyncTaskRecord>;
+  queueTask: (execution: PendingDelegatedAgentExecution) => void;
   recoverStaleTasks: (input: { appId: string }) => Promise<number>;
   cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
   waitForTaskChange?: (
@@ -92,28 +102,28 @@ export async function startDelegatedAgentTask(input: {
     status: 'queued',
     admissionClass: 'task',
     authoritySnapshotJson: { toolName: 'delegate_task', maxDepth: 1 },
-    privateCorrelationJson: {
-      workspaceFolder: input.taskInput.workspaceFolder,
-      steering: [],
-      progress: { phase: 'queued' },
-    },
+    privateCorrelationJson: asyncDelegatedPrivateCorrelation({
+      appId: input.taskInput.appId,
+      taskId,
+      taskInput: input.taskInput,
+    }),
     leaseToken: randomUUID(),
     fencingVersion: 1,
     summary: commandSummary(objective),
     now: nowIso(),
   };
-  const admitted = await input.admitTask(createInput);
-  if (!admitted.ok) return admissionFailure(admitted.reason);
-  const task = admitted.task;
-  input.active.set(task.id, controller);
-  void executeDelegatedAgentTask({
+  const task = await input.createTask(createInput);
+  input.queueTask({
     task,
-    taskInput: input.taskInput,
+    command: '',
+    input: undefined as never,
     controller,
-    repository: input.repository,
-    active: input.active,
-    cancelLinkedChildTasks: input.cancelLinkedChildTasks,
-    waitForTaskChange: input.waitForTaskChange,
+    launchControl: undefined as never,
+    delegated: {
+      taskInput: input.taskInput,
+      cancelLinkedChildTasks: input.cancelLinkedChildTasks,
+      waitForTaskChange: input.waitForTaskChange,
+    },
   });
   return { ok: true, task: toPublicAsyncTaskDto(task) };
 }
@@ -230,7 +240,7 @@ async function appendSteeringMessage(
   throw new Error('Could not persist steering message; retry task_message.');
 }
 
-async function executeDelegatedAgentTask(input: {
+export async function executeDelegatedAgentTask(input: {
   task: AsyncTaskRecord;
   taskInput: StartDelegatedAgentTaskInput;
   controller: AbortController;

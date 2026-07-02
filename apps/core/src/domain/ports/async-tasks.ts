@@ -126,20 +126,17 @@ export interface AsyncTaskTransitionInput {
   expectedPrivateCorrelationJson?: Record<string, unknown>;
 }
 
+export interface AsyncTaskClaimInput {
+  taskId: string;
+  leaseToken: string;
+  now: string;
+  maxRunningPerApp: number;
+  maxRunningPerAgent: number;
+}
+
 export interface AsyncTaskRepository {
   createTask(input: AsyncTaskCreateInput): Promise<AsyncTaskRecord>;
-  createTaskWithAdmission?(
-    input: AsyncTaskCreateInput,
-    admission: {
-      activeStatuses: AsyncTaskStatus[];
-      kind?: AsyncTaskKind;
-      maxActivePerApp: number;
-      maxActivePerAgent: number;
-    },
-  ): Promise<
-    | { ok: true; task: AsyncTaskRecord }
-    | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
-  >;
+  claimQueuedTask?(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
   getTask(taskId: string): Promise<AsyncTaskRecord | null>;
   listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]>;
   countTasksByStatus(

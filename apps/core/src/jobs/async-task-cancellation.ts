@@ -25,3 +25,25 @@ export async function refreshDelegatedCancellationReceipt(input: {
     nowIso(),
   );
 }
+
+export async function cancelQueuedTask(input: {
+  repository: AsyncTaskRepository;
+  task: AsyncTaskRecord;
+}): Promise<{ ok: boolean; message: string }> {
+  const now = nowIso();
+  const cancelled = await input.repository.transitionTask({
+    taskId: input.task.id,
+    leaseToken: input.task.leaseToken,
+    fencingVersion: input.task.fencingVersion,
+    status: 'cancelled',
+    now,
+    terminalAt: now,
+    receiptJson: cancelledReceipt(input.task),
+  });
+  return cancelled
+    ? { ok: true, message: 'Task was cancelled. Nothing else changed.' }
+    : {
+        ok: false,
+        message: 'Task is already finished and cannot be cancelled.',
+      };
+}
