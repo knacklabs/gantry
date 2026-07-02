@@ -22,6 +22,7 @@ import { parseRuntimeEventType } from '../domain/events/runtime-event-types.js';
 
 const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
 const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
+const SCHEDULER_WAIT_FALLBACK_INTERVAL_MS = 1_000;
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -352,7 +353,12 @@ const schedulerWaitForEventsHandler: TaskHandler = async (context) => {
       if (subscription) {
         await subscription.next({ timeoutMs: remainingMs });
       } else {
-        await new Promise((resolve) => setTimeout(resolve, remainingMs));
+        await new Promise((resolve) =>
+          setTimeout(
+            resolve,
+            Math.min(remainingMs, SCHEDULER_WAIT_FALLBACK_INTERVAL_MS),
+          ),
+        );
       }
     }
   } catch (err) {

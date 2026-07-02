@@ -765,6 +765,43 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
+  it('rechecks scheduler events on a bounded fallback when runtime subscriptions are unavailable', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mocks.jobService.listJobEvents
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({
+        events: [{ id: 4, job_id: 'job-1', event_type: 'job.run.completed' }],
+      });
+    const context = makeContext({
+      type: 'scheduler_wait_for_events',
+      appId: 'default',
+      jobId: 'job-1',
+      eventType: 'job.run.completed',
+      timeoutMs: 5_000,
+    });
+    context.deps.subscribeRuntimeEvents = undefined;
+
+    const waitPromise =
+      schedulerQueryTaskHandlers.scheduler_wait_for_events(context);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocks.responder.acceptData).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await waitPromise;
+
+    expect(Date.now()).toBe(2_000);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(3);
+    expect(mocks.runtimeEvents.subscribe).not.toHaveBeenCalled();
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Listed 1 scheduler event(s).',
+      {
+        events: [{ id: 4, job_id: 'job-1', event_type: 'job.run.completed' }],
+      },
+    );
+  });
+
   it('lists scheduler notification targets from the authenticated conversation scope', async () => {
     const context = makeContext({
       type: 'scheduler_list_notification_targets',

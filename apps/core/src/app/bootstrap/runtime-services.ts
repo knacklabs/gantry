@@ -324,6 +324,7 @@ export async function startRuntimeServices(
   await recoverStaleAsyncCommandTasks(
     String(channelWiring.getRuntimeAppId()),
     resolved,
+    { failUnrecoverableQueued: true },
   );
   startAsyncTaskRecoveryLoop(String(channelWiring.getRuntimeAppId()), resolved);
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);

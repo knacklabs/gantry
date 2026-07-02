@@ -27,6 +27,7 @@ interface AsyncTaskRecoveryDeps {
 export async function recoverStaleAsyncCommandTasks(
   appId: string,
   deps: AsyncTaskRecoveryDeps,
+  options: { failUnrecoverableQueued?: boolean } = {},
 ): Promise<void> {
   const repository = deps.getAsyncTaskRepository?.();
   if (!repository) return;
@@ -99,15 +100,17 @@ export async function recoverStaleAsyncCommandTasks(
         deps.logger.warn({ queued }, 'Recovered queued async command tasks');
       }
     }
-    const failedQueued = await failUnrecoverableQueuedAsyncTasks({
-      repository,
-      appId,
-    });
-    if (failedQueued > 0) {
-      deps.logger.warn(
-        { failedQueued },
-        'Failed unrecoverable queued async tasks',
-      );
+    if (options.failUnrecoverableQueued === true) {
+      const failedQueued = await failUnrecoverableQueuedAsyncTasks({
+        repository,
+        appId,
+      });
+      if (failedQueued > 0) {
+        deps.logger.warn(
+          { failedQueued },
+          'Failed unrecoverable queued async tasks',
+        );
+      }
     }
   } catch (err) {
     deps.logger.warn({ err }, 'Failed to recover stale async command tasks');
