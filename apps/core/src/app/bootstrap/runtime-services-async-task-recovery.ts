@@ -2,11 +2,52 @@ import {
   ASYNC_TASK_STALE_AFTER_MS,
   AsyncCommandTaskService,
 } from '../../jobs/async-command-task-service.js';
+import {
+  DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
+  DEFAULT_ASYNC_RESOURCE_LIMITS,
+  buildAsyncCommandEnv,
+  runSandboxedAsyncCommand,
+} from '../../jobs/async-command-sandbox-runner.js';
+import { recoverQueuedAsyncMcpTasks } from '../../jobs/async-mcp-tool-task.js';
+import {
+  closeEgressGateway,
+  ensureEgressGateway,
+} from '../../runtime/egress-gateway.js';
 import type { Logger } from '../../infrastructure/logging/logger.js';
 import type { IpcDeps } from '../../runtime/ipc.js';
+import { spawnAgent } from '../../runtime/agent-spawn.js';
+import type { AgentOutput } from '../../runtime/agent-spawn-types.js';
+import {
+  resolveTurnSelectedMcpServerIds,
+  resolveTurnSelectedSkillContext,
+  resolveTurnSemanticCapabilities,
+  resolveTurnToolPolicy,
+} from '../../runtime/group-run-context.js';
+import { McpToolProxy } from '../../application/mcp/mcp-tool-proxy.js';
+import { resolveMcpCredentialEnvForAgent } from '../../application/capability-secrets/mcp-secret-projection.js';
+import type { AsyncTaskRecord } from '../../domain/ports/async-tasks.js';
 
-interface AsyncTaskRecoveryDeps {
-  getAsyncTaskRepository?: IpcDeps['getAsyncTaskRepository'];
+interface AsyncTaskRecoveryDeps extends Partial<
+  Pick<
+    IpcDeps,
+    | 'conversationRoutes'
+    | 'executionAdapter'
+    | 'executionAdapters'
+    | 'getAsyncTaskRepository'
+    | 'getCapabilitySecretRepository'
+    | 'getCredentialBroker'
+    | 'getEgressSettings'
+    | 'getMcpDnsValidationCache'
+    | 'getMcpServerRepository'
+    | 'getSkillArtifactStore'
+    | 'getSkillRepository'
+    | 'getToolRepository'
+    | 'mcpHostnameLookup'
+    | 'publishRuntimeEvent'
+    | 'runAgent'
+    | 'runnerSandboxProvider'
+  >
+> {
   logger: Pick<Logger, 'warn'>;
 }
 
@@ -16,9 +57,63 @@ export async function recoverStaleAsyncCommandTasks(
 ): Promise<void> {
   const repository = deps.getAsyncTaskRepository?.();
   if (!repository) return;
-  const service = new AsyncCommandTaskService(repository, {
-    run: async () => ({ errorSummary: 'async command runner unavailable' }),
-  });
+  const runnerSandboxProvider = deps.runnerSandboxProvider;
+  const service =
+    runnerSandboxProvider?.enforcing === true
+      ? new AsyncCommandTaskService(
+          repository,
+          {
+            run: async (input) =>
+              runSandboxedAsyncCommand(runnerSandboxProvider, {
+                ...input,
+                cwd: input.cwd ?? process.cwd(),
+                env: buildAsyncCommandEnv(),
+                timeoutMs: DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
+                outputMaxBytes: 4_000,
+                protectedReadPaths: [...(input.protectedReadPaths ?? [])],
+                protectedWritePaths: [...(input.protectedWritePaths ?? [])],
+                allowedNetworkHosts: [...(input.allowedNetworkHosts ?? [])],
+                egressProxyUrl: input.egressProxyUrl,
+                resourceLimits:
+                  input.resourceLimits ?? DEFAULT_ASYNC_RESOURCE_LIMITS,
+              }),
+          },
+          {
+            createRecoveredDelegatedAgentRun:
+              createRecoveredDelegatedAgentRun(deps),
+            prepareRun: async ({ task, allowedNetworkHosts }) => {
+              const gateway = await ensureEgressGateway({
+                key: `${task.appId}:${task.agentId}:${task.id}`,
+                settings: deps.getEgressSettings?.() ?? { denylist: [] },
+                principal: {
+                  appId: task.appId,
+                  agentId: task.agentId,
+                  ...(task.conversationId
+                    ? { conversationId: task.conversationId }
+                    : {}),
+                  ...(task.threadId ? { threadId: task.threadId } : {}),
+                  ...(task.parentRunId ? { runId: task.parentRunId } : {}),
+                  ...(task.parentJobId ? { jobId: task.parentJobId } : {}),
+                },
+                ...(allowedNetworkHosts && allowedNetworkHosts.length > 0
+                  ? { allowedNetworkHosts }
+                  : {}),
+                ...(deps.publishRuntimeEvent
+                  ? { publishRuntimeEvent: deps.publishRuntimeEvent }
+                  : {}),
+              });
+              return {
+                egressProxyUrl: gateway.proxyUrl,
+                cleanup: () => closeEgressGateway(gateway),
+              };
+            },
+          },
+        )
+      : new AsyncCommandTaskService(repository, {
+          run: async () => ({
+            errorSummary: 'async command runner unavailable',
+          }),
+        });
   try {
     const recovered = await service.recoverStaleTasks({
       appId,
@@ -26,6 +121,20 @@ export async function recoverStaleAsyncCommandTasks(
     });
     if (recovered > 0) {
       deps.logger.warn({ recovered }, 'Recovered stale async command tasks');
+    }
+    if (runnerSandboxProvider?.enforcing === true) {
+      const queued = await service.recoverQueuedTasks({ appId });
+      if (queued > 0) {
+        deps.logger.warn({ queued }, 'Recovered queued async command tasks');
+      }
+    }
+    const queuedMcp = await recoverQueuedAsyncMcpTasks({
+      repository,
+      appId,
+      createProxy: (task) => createRecoveredMcpProxy(deps, task),
+    });
+    if (queuedMcp > 0) {
+      deps.logger.warn({ queuedMcp }, 'Recovered queued async MCP tasks');
     }
   } catch (err) {
     deps.logger.warn({ err }, 'Failed to recover stale async command tasks');
@@ -50,4 +159,131 @@ export function stopAsyncTaskRecoveryLoop(): void {
   if (!activeAsyncTaskRecoveryLoop) return;
   clearInterval(activeAsyncTaskRecoveryLoop);
   activeAsyncTaskRecoveryLoop = undefined;
+}
+
+function createRecoveredDelegatedAgentRun(
+  deps: AsyncTaskRecoveryDeps,
+): NonNullable<
+  ConstructorParameters<typeof AsyncCommandTaskService>[2]
+>['createRecoveredDelegatedAgentRun'] {
+  return (_task, taskInput) => async (runInput) => {
+    const conversationId = runInput.task.conversationId ?? '';
+    const group = deps.conversationRoutes?.()[conversationId];
+    if (!group) {
+      throw new Error('Delegated task conversation is unavailable.');
+    }
+    const scopedTaskOwner = {
+      appId: runInput.task.appId,
+      agentId: runInput.task.agentId,
+    };
+    const [toolPolicy, selectedSkillContext, semanticCapabilities] =
+      await Promise.all([
+        resolveTurnToolPolicy(deps, scopedTaskOwner),
+        resolveTurnSelectedSkillContext(deps, scopedTaskOwner),
+        resolveTurnSemanticCapabilities(deps, scopedTaskOwner),
+      ]);
+    const attachedMcpSourceIds = await resolveTurnSelectedMcpServerIds(
+      deps,
+      scopedTaskOwner,
+      toolPolicy.toolPolicyRules,
+    );
+    const runAgent = deps.runAgent ?? spawnAgent;
+    let latestResult: string | null = null;
+    let processHandlePersisted: Promise<void> | null = null;
+    const output = await runAgent(
+      group,
+      {
+        prompt: runInput.prompt,
+        appId: runInput.task.appId,
+        agentId: runInput.task.agentId,
+        chatJid: conversationId,
+        threadId: runInput.task.threadId ?? undefined,
+        workspaceFolder: taskInput.workspaceFolder,
+        parentTaskId: runInput.task.id,
+        persona: group.agentConfig?.persona,
+        thinking: group.agentConfig?.thinking,
+        toolPolicyRules: toolPolicy.toolPolicyRules,
+        runtimeAccess: toolPolicy.runtimeAccess,
+        attachedSkillSourceIds: selectedSkillContext.ids,
+        selectedSkillDisplays: selectedSkillContext.displays,
+        attachedMcpSourceIds,
+        semanticCapabilities,
+      },
+      (proc) => {
+        if (!proc.pid) return;
+        processHandlePersisted = Promise.resolve(
+          runInput.onProcessStarted?.({
+            pid: proc.pid,
+            processGroupId: proc.pid,
+            detached: true,
+            platform: process.platform,
+            ownerPid: process.pid,
+            startedAt: new Date().toISOString(),
+          }),
+        );
+        processHandlePersisted.catch(() => proc.kill('SIGTERM'));
+      },
+      async (output: AgentOutput) => {
+        if (output.result) {
+          latestResult = output.result;
+          await runInput.onProgress?.(output.result);
+        }
+      },
+      {
+        signal: runInput.signal,
+        credentialBroker: await deps.getCredentialBroker?.(),
+        skillRepository: deps.getSkillRepository?.(),
+        skillArtifactStore: deps.getSkillArtifactStore?.(),
+        skillContext: scopedTaskOwner,
+        mcpServerRepository: deps.getMcpServerRepository?.(),
+        capabilitySecretRepository: deps.getCapabilitySecretRepository?.(),
+        mcpContext: scopedTaskOwner,
+        mcpHostnameLookup: deps.mcpHostnameLookup,
+        mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
+        publishRuntimeEvent: deps.publishRuntimeEvent,
+        executionAdapter: deps.executionAdapter,
+        executionAdapters: deps.executionAdapters,
+        runnerSandboxProvider: deps.runnerSandboxProvider!,
+        asyncTaskRepositoryAvailable: Boolean(deps.getAsyncTaskRepository?.()),
+      },
+    );
+    if (processHandlePersisted) await processHandlePersisted;
+    if (output.status === 'error') {
+      throw new Error(output.error ?? 'Delegated agent run failed.');
+    }
+    return {
+      outputSummary:
+        output.result ?? latestResult ?? 'delegated task completed',
+    };
+  };
+}
+
+async function createRecoveredMcpProxy(
+  deps: AsyncTaskRecoveryDeps,
+  task: AsyncTaskRecord,
+): Promise<McpToolProxy> {
+  const mcpServers = deps.getMcpServerRepository?.();
+  const tools = deps.getToolRepository?.();
+  if (!mcpServers || !tools) {
+    throw new Error('MCP repositories are unavailable.');
+  }
+  const secrets = deps.getCapabilitySecretRepository?.();
+  const credentialEnv = secrets
+    ? await resolveMcpCredentialEnvForAgent({
+        appId: task.appId as never,
+        agentId: task.agentId as never,
+        mcpServers,
+        secrets,
+      })
+    : {};
+  return new McpToolProxy(mcpServers, {
+    tools,
+    skills: deps.getSkillRepository?.(),
+    credentialEnv,
+    lookupHostname: deps.mcpHostnameLookup,
+    dnsValidationCache: deps.getMcpDnsValidationCache?.(),
+    egressDenylist: deps.getEgressSettings?.().denylist,
+    publishRuntimeEvent: deps.publishRuntimeEvent,
+    runId: task.parentRunId ?? undefined,
+  });
 }

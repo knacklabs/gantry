@@ -193,15 +193,7 @@ maybeDescribe('Postgres domain repositories', () => {
     expect(raw.rows[0]?.value_encrypted).not.toContain('plain-token-value');
   });
 
-  it('scopes async task admission capacity by kind', async () => {
-    const createTaskWithAdmission =
-      repositories.asyncTasks.createTaskWithAdmission?.bind(
-        repositories.asyncTasks,
-      );
-    if (!createTaskWithAdmission) {
-      throw new Error('Postgres async task admission is not available.');
-    }
-
+  it('persists queued async task bursts without admission rejection', async () => {
     await repositories.asyncTasks.createTask({
       id: 'task-admission-command-1',
       appId,
@@ -229,57 +221,87 @@ maybeDescribe('Postgres domain repositories', () => {
       now,
     });
 
+    await repositories.asyncTasks.createTask({
+      id: 'task-admission-mcp-1',
+      appId,
+      agentId,
+      conversationId,
+      kind: 'mcp_tool_call',
+      status: 'queued',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      leaseToken: 'lease-mcp-1',
+      fencingVersion: 1,
+      now,
+    });
+    await repositories.asyncTasks.createTask({
+      id: 'task-admission-command-2',
+      appId,
+      agentId,
+      conversationId,
+      kind: 'async_command',
+      status: 'queued',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      leaseToken: 'lease-command-2',
+      fencingVersion: 1,
+      now,
+    });
     await expect(
-      createTaskWithAdmission(
-        {
-          id: 'task-admission-unfiltered',
-          appId,
-          agentId,
-          conversationId,
-          kind: 'mcp_tool_call',
-          status: 'queued',
-          admissionClass: 'task',
-          authoritySnapshotJson: {},
-          leaseToken: 'lease-unfiltered',
-          fencingVersion: 1,
-          now,
-        },
-        {
-          activeStatuses: ['queued', 'running'],
-          maxActivePerApp: 2,
-          maxActivePerAgent: 2,
-        },
-      ),
-    ).resolves.toEqual({ ok: false, reason: 'app_capacity' });
+      repositories.asyncTasks.countTasksByStatus({ appId, agentId }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        { status: 'running', count: 2 },
+        { status: 'queued', count: 2 },
+      ]),
+    );
+    await expect(
+      repositories.asyncTasks.claimQueuedTask?.({
+        taskId: 'task-admission-command-2',
+        leaseToken: 'lease-command-2-claim',
+        now,
+        maxRunningPerApp: 1,
+        maxRunningPerAgent: 1,
+      }),
+    ).resolves.toBeNull();
+    await repositories.asyncTasks.transitionTask({
+      taskId: 'task-admission-command-1',
+      leaseToken: 'lease-command-1',
+      fencingVersion: 1,
+      status: 'completed',
+      now,
+      terminalAt: now,
+    });
+    const claimed = await repositories.asyncTasks.claimQueuedTask?.({
+      taskId: 'task-admission-command-2',
+      leaseToken: 'lease-command-2-claim',
+      now,
+      maxRunningPerApp: 1,
+      maxRunningPerAgent: 1,
+    });
+    expect(claimed).toMatchObject({
+      id: 'task-admission-command-2',
+      status: 'running',
+      leaseToken: 'lease-command-2-claim',
+      fencingVersion: 2,
+    });
+    await expect(
+      repositories.asyncTasks.transitionTask({
+        taskId: 'task-admission-command-2',
+        leaseToken: 'lease-command-2',
+        fencingVersion: 1,
+        status: 'completed',
+        now,
+        terminalAt: now,
+      }),
+    ).resolves.toBeNull();
+  });
 
-    await expect(
-      createTaskWithAdmission(
-        {
-          id: 'task-admission-mcp-1',
-          appId,
-          agentId,
-          conversationId,
-          kind: 'mcp_tool_call',
-          status: 'queued',
-          admissionClass: 'task',
-          authoritySnapshotJson: {},
-          leaseToken: 'lease-mcp-1',
-          fencingVersion: 1,
-          now,
-        },
-        {
-          activeStatuses: ['queued', 'running'],
-          kind: 'mcp_tool_call',
-          maxActivePerApp: 2,
-          maxActivePerAgent: 2,
-        },
-      ),
-    ).resolves.toMatchObject({ ok: true });
-
-    await expect(
-      createTaskWithAdmission(
-        {
-          id: 'task-admission-command-2',
+  it('atomically caps async task backlog admission', async () => {
+    const create = (index: number) =>
+      repositories.asyncTasks.createTaskWithBacklogAdmission?.({
+        task: {
+          id: `task-backlog-${index}`,
           appId,
           agentId,
           conversationId,
@@ -287,18 +309,28 @@ maybeDescribe('Postgres domain repositories', () => {
           status: 'queued',
           admissionClass: 'task',
           authoritySnapshotJson: {},
-          leaseToken: 'lease-command-2',
+          leaseToken: `lease-backlog-${index}`,
           fencingVersion: 1,
           now,
         },
-        {
-          activeStatuses: ['queued', 'running'],
-          kind: 'async_command',
-          maxActivePerApp: 2,
-          maxActivePerAgent: 2,
-        },
-      ),
-    ).resolves.toMatchObject({ ok: true });
+        maxBacklogPerApp: 64,
+        maxBacklogPerAgent: 32,
+        statuses: ['queued', 'running', 'needs_attention'],
+      });
+
+    const created = await Promise.all(
+      Array.from({ length: 40 }, (_, index) => create(index)),
+    );
+
+    expect(created.filter(Boolean)).toHaveLength(32);
+    await expect(
+      repositories.asyncTasks.countTasksByStatus({
+        appId,
+        agentId,
+        kind: 'async_command',
+        statuses: ['queued'],
+      }),
+    ).resolves.toEqual([{ status: 'queued', count: 32 }]);
   });
 
   it('rebinds desired-state conversation and binding upserts to the selected provider connection', async () => {

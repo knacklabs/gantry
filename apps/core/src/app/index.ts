@@ -295,6 +295,8 @@ export async function startGantryRuntime(
         publishRuntimeEvent: async (event) => {
           await getRuntimeEventExchange().publish(event);
         },
+        subscribeRuntimeEvents: (filter) =>
+          getRuntimeEventExchange().subscribe(filter),
         callBrowserTool: async (input) =>
           (await loadBrowserToolModule()).callBrowserTool(input),
         publishBrowserJobActivity: async (input) => {

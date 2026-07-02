@@ -22,6 +22,7 @@ import type { CredentialBrokerProfile } from '../domain/models/credentials.js';
 import type {
   JobControlPort,
   JobManagementServiceDeps,
+  RuntimeEventPublisherPort,
 } from '../application/jobs/job-management-types.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
@@ -98,6 +99,7 @@ export interface IpcDeps {
   getPermissionRepository?: () => PermissionRepository | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  subscribeRuntimeEvents?: RuntimeEventPublisherPort['subscribe'];
   getEgressSettings?: () => EgressSettings;
   getJobControl?: () => JobControlPort | undefined;
   mirrorAgentToolRulesToSettings?: (

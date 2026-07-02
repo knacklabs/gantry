@@ -72,6 +72,7 @@ import {
 } from './webhook-delivery.js';
 import { isPrivateAddress } from './webhook-target.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { subscribeWebhookDeliveryReady } from '../../application/runtime-events/webhook-delivery-wakeup.js';
 
 export interface ControlServerHandle {
   close: () => Promise<void>;
@@ -418,7 +419,7 @@ export function startControlServer(input: {
     logger.info({ socketPath }, 'Control server listening on unix socket');
   }
 
-  const deliveryInterval = setInterval(() => {
+  const triggerWebhookFlush = () => {
     if (webhookFlushInFlight) return;
     webhookFlushInFlight = true;
     void flushWebhookDeliveries()
@@ -426,7 +427,10 @@ export function startControlServer(input: {
       .finally(() => {
         webhookFlushInFlight = false;
       });
-  }, 1000);
+  };
+  const unsubscribeWebhookDeliveryReady =
+    subscribeWebhookDeliveryReady(triggerWebhookFlush);
+  const deliveryInterval = setInterval(triggerWebhookFlush, 1000);
   let ingressMaintenanceInFlight = false;
   const ingressMaintenanceInterval = setInterval(() => {
     if (ingressMaintenanceInFlight) return;
@@ -450,6 +454,7 @@ export function startControlServer(input: {
     async close() {
       clearInterval(deliveryInterval);
       clearInterval(ingressMaintenanceInterval);
+      unsubscribeWebhookDeliveryReady();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {
           if (error) {

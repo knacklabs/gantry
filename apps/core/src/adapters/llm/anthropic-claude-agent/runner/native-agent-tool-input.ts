@@ -2,7 +2,7 @@ export function forceBackgroundNativeAgentInput(
   toolName: string,
   input: unknown,
 ): Record<string, unknown> {
-  if (toolName !== 'Agent' && toolName !== 'Task') {
+  if (toolName !== 'Agent') {
     return input !== null && typeof input === 'object' && !Array.isArray(input)
       ? (input as Record<string, unknown>)
       : {};

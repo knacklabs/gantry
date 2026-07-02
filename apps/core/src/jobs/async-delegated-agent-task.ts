@@ -10,7 +10,6 @@ import {
 } from '../domain/ports/async-tasks.js';
 import { nowIso } from '../shared/time/datetime.js';
 import {
-  admissionFailure,
   commandSummary,
   errorMessage,
   isTimeoutError,
@@ -22,8 +21,12 @@ import {
   type AsyncCommandRunnerResult,
   type StartAsyncCommandTaskResult,
 } from './async-command-task-service.js';
+import { asyncDelegatedPrivateCorrelation } from './async-task-execution-payload.js';
+import { createAdmittedAsyncTask } from './async-task-admission.js';
+import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
 
 const ASYNC_TASK_HEARTBEAT_MS = 15_000;
+const ASYNC_TASK_WAKE_FALLBACK_MS = 15_000;
 
 class DelegatedChildFailureError extends Error {
   constructor(readonly subtasks: string) {
@@ -54,20 +57,34 @@ export interface StartDelegatedAgentTaskInput {
 
 export type StartDelegatedAgentTaskResult = StartAsyncCommandTaskResult;
 
-type AdmitTask = (
-  input: AsyncTaskCreateInput,
-) => Promise<
-  | { ok: true; task: AsyncTaskRecord }
-  | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
->;
+export type PendingDelegatedAgentExecution = {
+  task: AsyncTaskRecord;
+  command: string;
+  input: never;
+  controller: AbortController;
+  launchControl: never;
+  delegated: {
+    taskInput: StartDelegatedAgentTaskInput;
+    cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
+    waitForTaskChange?: (
+      parent: AsyncTaskRecord,
+      options: { signal: AbortSignal; timeoutMs: number },
+    ) => Promise<void>;
+  };
+};
 
 export async function startDelegatedAgentTask(input: {
   taskInput: StartDelegatedAgentTaskInput;
   repository: AsyncTaskRepository;
   active: Map<string, AbortController>;
-  admitTask: AdmitTask;
+  createTask: (input: AsyncTaskCreateInput) => Promise<AsyncTaskRecord>;
+  queueTask: (execution: PendingDelegatedAgentExecution) => void;
   recoverStaleTasks: (input: { appId: string }) => Promise<number>;
   cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
+  waitForTaskChange?: (
+    parent: AsyncTaskRecord,
+    options: { signal: AbortSignal; timeoutMs: number },
+  ) => Promise<void>;
 }): Promise<StartDelegatedAgentTaskResult> {
   const objective = input.taskInput.objective.trim();
   if (!objective) {
@@ -87,27 +104,33 @@ export async function startDelegatedAgentTask(input: {
     status: 'queued',
     admissionClass: 'task',
     authoritySnapshotJson: { toolName: 'delegate_task', maxDepth: 1 },
-    privateCorrelationJson: {
-      workspaceFolder: input.taskInput.workspaceFolder,
-      steering: [],
-      progress: { phase: 'queued' },
-    },
+    privateCorrelationJson: asyncDelegatedPrivateCorrelation({
+      appId: input.taskInput.appId,
+      taskId,
+      taskInput: input.taskInput,
+    }),
     leaseToken: randomUUID(),
     fencingVersion: 1,
     summary: commandSummary(objective),
     now: nowIso(),
   };
-  const admitted = await input.admitTask(createInput);
-  if (!admitted.ok) return admissionFailure(admitted.reason);
-  const task = admitted.task;
-  input.active.set(task.id, controller);
-  void executeDelegatedAgentTask({
-    task,
-    taskInput: input.taskInput,
-    controller,
+  const created = await createAdmittedAsyncTask({
     repository: input.repository,
-    active: input.active,
-    cancelLinkedChildTasks: input.cancelLinkedChildTasks,
+    task: createInput,
+  });
+  if (!created.ok) return created;
+  const task = created.task;
+  input.queueTask({
+    task,
+    command: '',
+    input: undefined as never,
+    controller,
+    launchControl: undefined as never,
+    delegated: {
+      taskInput: input.taskInput,
+      cancelLinkedChildTasks: input.cancelLinkedChildTasks,
+      waitForTaskChange: input.waitForTaskChange,
+    },
   });
   return { ok: true, task: toPublicAsyncTaskDto(task) };
 }
@@ -224,13 +247,17 @@ async function appendSteeringMessage(
   throw new Error('Could not persist steering message; retry task_message.');
 }
 
-async function executeDelegatedAgentTask(input: {
+export async function executeDelegatedAgentTask(input: {
   task: AsyncTaskRecord;
   taskInput: StartDelegatedAgentTaskInput;
   controller: AbortController;
   repository: AsyncTaskRepository;
   active: Map<string, AbortController>;
   cancelLinkedChildTasks: (parent: AsyncTaskRecord) => Promise<number>;
+  waitForTaskChange?: (
+    parent: AsyncTaskRecord,
+    options: { signal: AbortSignal; timeoutMs: number },
+  ) => Promise<void>;
 }): Promise<void> {
   const {
     task,
@@ -239,6 +266,7 @@ async function executeDelegatedAgentTask(input: {
     repository,
     active,
     cancelLinkedChildTasks,
+    waitForTaskChange,
   } = input;
   const startedAt = nowIso();
   const running = await repository.transitionTask({
@@ -326,6 +354,7 @@ async function executeDelegatedAgentTask(input: {
     });
     const childResult = await waitForLinkedChildTasks(repository, task, {
       signal: controller.signal,
+      waitForTaskChange,
     });
     if (childResult.hasFailure) {
       throw new DelegatedChildFailureError(childResult.summary);
@@ -376,7 +405,7 @@ async function finishDelegatedAgentTask(
   },
 ) {
   const now = nowIso();
-  await repository.transitionTask({
+  const updated = await repository.transitionTask({
     taskId: task.id,
     leaseToken: task.leaseToken,
     fencingVersion: task.fencingVersion,
@@ -394,19 +423,56 @@ async function finishDelegatedAgentTask(
       needsAttention: input.needsAttention,
     },
   });
+  if (updated) notifyAsyncTaskChange(repository);
 }
 
 async function waitForLinkedChildTasks(
   repository: AsyncTaskRepository,
   parent: AsyncTaskRecord,
-  input: { signal: AbortSignal },
+  input: {
+    signal: AbortSignal;
+    waitForTaskChange?: (
+      parent: AsyncTaskRecord,
+      options: { signal: AbortSignal; timeoutMs: number },
+    ) => Promise<void>;
+  },
 ): Promise<{ summary: string; hasFailure: boolean }> {
   while (!input.signal.aborted) {
     const counts = await linkedChildTaskCounts(repository, parent);
     if (activeChildCount(counts) === 0) return childTaskResult(counts);
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await waitForChildTaskWakeup(parent, input);
   }
   throw new Error('cancelled');
+}
+
+async function waitForChildTaskWakeup(
+  parent: AsyncTaskRecord,
+  input: {
+    signal: AbortSignal;
+    waitForTaskChange?: (
+      parent: AsyncTaskRecord,
+      options: { signal: AbortSignal; timeoutMs: number },
+    ) => Promise<void>;
+  },
+): Promise<void> {
+  if (input.waitForTaskChange) {
+    await input.waitForTaskChange(parent, {
+      signal: input.signal,
+      timeoutMs: ASYNC_TASK_WAKE_FALLBACK_MS,
+    });
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ASYNC_TASK_WAKE_FALLBACK_MS);
+    input.signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
 async function linkedChildTaskCounts(

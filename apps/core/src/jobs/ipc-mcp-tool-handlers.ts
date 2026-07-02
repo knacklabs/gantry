@@ -12,7 +12,7 @@ import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
 import {
   createAsyncMcpTask,
-  executeAsyncMcpTask,
+  enqueueAsyncMcpTask,
 } from './async-mcp-tool-task.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { TaskHandler } from './ipc-types.js';
@@ -366,12 +366,13 @@ function asyncMcpCallToolHandler(
         runId: data.runId,
         serverName,
         toolName,
+        arguments: callInput.arguments ?? {},
       });
       if (!taskResult.ok) {
         reject(taskResult.message, 'capacity_full');
         return;
       }
-      void executeAsyncMcpTask({
+      await enqueueAsyncMcpTask({
         repository,
         task: taskResult.task,
         proxy,
@@ -381,7 +382,7 @@ function asyncMcpCallToolHandler(
         toolName,
         arguments: callInput.arguments ?? {},
       });
-      acceptData(`Started: ${serverName}.${toolName}`, {
+      acceptData(`Queued: ${serverName}.${toolName}`, {
         task: toPublicAsyncTaskDto(taskResult.task),
       });
     } catch (err) {

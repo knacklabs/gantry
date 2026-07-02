@@ -11,7 +11,7 @@ Agent Runner (our code)
   └── query() → SDK (sdk.mjs)
         └── spawns CLI subprocess (cli.js)
               └── Claude API calls, tool execution
-              └── Task tool → spawns subagent subprocesses
+              └── Agent tool → spawns subagent subprocesses
 ```
 
 The SDK spawns `cli.js` as a child process with `--output-format stream-json --input-format stream-json --print --verbose` flags. Communication happens via JSON-lines on stdin/stdout.
@@ -306,15 +306,15 @@ Claude responded with text only — it decided it has completed the task. The AP
 
 ## Subagent Execution Contract
 
-Gantry treats native SDK `Agent` and `Task` tool calls as background-only.
-The runner coerces their tool input to `run_in_background: true` before model
-validation, permission checks, sandbox/network gates, and SDK allow responses.
-This keeps subagent work from occupying the parent conversation's active turn.
+Gantry treats native SDK `Agent` tool calls as background-only. The runner
+coerces their tool input to `run_in_background: true` before model validation,
+permission checks, sandbox/network gates, and SDK allow responses. This keeps
+subagent work from occupying the parent conversation's active turn.
 
 ### Background Tasks (`run_in_background: true`) — DOES NOT WAIT
 
 - **Bash tool:** Command spawned, tool returns immediately with empty result + `backgroundTaskId`
-- **Task/Agent tool:** Subagent launched in fire-and-forget wrapper (`g01()`), tool returns immediately with `status: "async_launched"` + `outputFile` path
+- **Agent tool:** Subagent launched in fire-and-forget wrapper (`g01()`), tool returns immediately with `status: "async_launched"` + `outputFile` path
 
 Zero "wait for background tasks" logic before emitting the `type: "result"` message. When a background task completes, an `SDKTaskNotificationMessage` is emitted separately.
 

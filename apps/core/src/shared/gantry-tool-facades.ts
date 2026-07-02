@@ -28,11 +28,6 @@ const PROVIDER_NATIVE_TOOL_REPLACEMENTS = new Map<string, string>([
   ['Bash', 'RunCommand(<argv pattern>)'],
   ['Agent', 'AgentDelegation'],
   ['AskUserQuestion', 'mcp__gantry__ask_user_question'],
-  ['Task', 'AgentDelegation'],
-  ['TaskCreate', 'AgentDelegation'],
-  ['TaskGet', 'AgentDelegation'],
-  ['TaskList', 'AgentDelegation'],
-  ['TaskUpdate', 'AgentDelegation'],
   ['TodoWrite', 'mcp__gantry__todo_update'],
 ]);
 

@@ -29,6 +29,14 @@ const mocks = vi.hoisted(() => ({
     markTriggerCompleted: vi.fn(),
     getTriggerById: vi.fn(),
   },
+  runtimeEvents: {
+    publish: vi.fn(),
+    subscribe: vi.fn(),
+  },
+  runtimeEventSubscription: {
+    next: vi.fn(),
+    close: vi.fn(),
+  },
 }));
 
 vi.mock('@core/jobs/ipc-shared.js', async () => {
@@ -49,9 +57,7 @@ vi.mock('@core/application/jobs/job-management-service.js', () => ({
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  getRuntimeEventExchange: vi.fn(() => ({
-    publish: vi.fn(),
-  })),
+  getRuntimeEventExchange: vi.fn(() => mocks.runtimeEvents),
 }));
 
 import { schedulerCreateTaskHandlers } from '@core/jobs/ipc-scheduler-create-handlers.js';
@@ -122,6 +128,7 @@ function makeContext(data: TaskIpcData): TaskContext {
           mocks.runtimeControlRepository.markTriggerCompleted,
         getTriggerById: mocks.runtimeControlRepository.getTriggerById,
       }),
+      subscribeRuntimeEvents: mocks.runtimeEvents.subscribe,
     },
   } as unknown as TaskContext;
 }
@@ -150,6 +157,13 @@ describe('scheduler IPC adapter contracts', () => {
       undefined,
     );
     mocks.runtimeControlRepository.getTriggerById.mockResolvedValue(undefined);
+    mocks.runtimeEvents.subscribe.mockReturnValue(
+      mocks.runtimeEventSubscription,
+    );
+    mocks.runtimeEventSubscription.next.mockImplementation(
+      ({ timeoutMs }: { timeoutMs?: number } = {}) =>
+        new Promise((resolve) => setTimeout(() => resolve([]), timeoutMs ?? 0)),
+    );
   });
 
   afterEach(() => {
@@ -685,16 +699,19 @@ describe('scheduler IPC adapter contracts', () => {
     vi.setSystemTime(0);
     mocks.jobService.listJobEvents
       .mockResolvedValueOnce({ events: [] })
-      .mockResolvedValueOnce({ events: [] })
       .mockResolvedValueOnce({
-        events: [{ id: 3, job_id: 'job-1', event_type: 'run_started' }],
+        events: [{ id: 3, job_id: 'job-1', event_type: 'job.run.started' }],
       });
+    mocks.runtimeEventSubscription.next.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(() => resolve([]), 2_000)),
+    );
 
     const waitPromise = schedulerQueryTaskHandlers.scheduler_wait_for_events(
       makeContext({
         type: 'scheduler_wait_for_events',
+        appId: 'default',
         jobId: 'job-1',
-        eventType: 'run_started',
+        eventType: 'job.run.started',
         timeoutMs: 5_000,
       }),
     );
@@ -703,11 +720,19 @@ describe('scheduler IPC adapter contracts', () => {
     await waitPromise;
 
     expect(Date.now()).toBe(2_000);
-    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(3);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(2);
+    expect(mocks.runtimeEvents.subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        jobId: 'job-1',
+        eventTypes: ['job.run.started'],
+      }),
+    );
+    expect(mocks.runtimeEventSubscription.close).toHaveBeenCalled();
     expect(mocks.responder.acceptData).toHaveBeenCalledWith(
       'Listed 1 scheduler event(s).',
       {
-        events: [{ id: 3, job_id: 'job-1', event_type: 'run_started' }],
+        events: [{ id: 3, job_id: 'job-1', event_type: 'job.run.started' }],
       },
     );
   });
@@ -720,6 +745,7 @@ describe('scheduler IPC adapter contracts', () => {
     const waitPromise = schedulerQueryTaskHandlers.scheduler_wait_for_events(
       makeContext({
         type: 'scheduler_wait_for_events',
+        appId: 'default',
         jobId: 'job-1',
         timeoutMs: 2_500,
       }),
@@ -732,10 +758,47 @@ describe('scheduler IPC adapter contracts', () => {
     await waitPromise;
 
     expect(Date.now()).toBe(2_500);
-    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(4);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(2);
     expect(mocks.responder.acceptData).toHaveBeenCalledWith(
       'Listed 0 scheduler event(s).',
       { events: [] },
+    );
+  });
+
+  it('rechecks scheduler events on a bounded fallback when runtime subscriptions are unavailable', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mocks.jobService.listJobEvents
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({
+        events: [{ id: 4, job_id: 'job-1', event_type: 'job.run.completed' }],
+      });
+    const context = makeContext({
+      type: 'scheduler_wait_for_events',
+      appId: 'default',
+      jobId: 'job-1',
+      eventType: 'job.run.completed',
+      timeoutMs: 5_000,
+    });
+    context.deps.subscribeRuntimeEvents = undefined;
+
+    const waitPromise =
+      schedulerQueryTaskHandlers.scheduler_wait_for_events(context);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocks.responder.acceptData).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await waitPromise;
+
+    expect(Date.now()).toBe(2_000);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(3);
+    expect(mocks.runtimeEvents.subscribe).not.toHaveBeenCalled();
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Listed 1 scheduler event(s).',
+      {
+        events: [{ id: 4, job_id: 'job-1', event_type: 'job.run.completed' }],
+      },
     );
   });
 

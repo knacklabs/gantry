@@ -1000,6 +1000,46 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('hard-denies native Task subagent aliases without approval fallback', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: undefined,
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: ['AgentDelegation'],
+        yoloMode: {
+          enabled: true,
+          denylist: [],
+          denylistPaths: [],
+        },
+      } as never,
+      capabilities: {
+        allowedTools: ['AgentDelegation'],
+        alwaysAllowedTools: [],
+        permissionMode: 'default',
+      } as never,
+    });
+
+    const decision = await canUseTool(
+      'Task',
+      { prompt: 'summarize this run' },
+      makePermissionOptions({ displayName: 'Task' }) as never,
+    );
+
+    expect(decision).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        message: expect.stringContaining('Use the Agent tool'),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('still allows pre-provisioned tools for a locked agent', async () => {
     const canUseTool = makeCallback({
       agentInput: {

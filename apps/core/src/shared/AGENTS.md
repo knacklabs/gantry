@@ -66,7 +66,8 @@
   DeepAgents task/todo/async task tools) are not durable authority. Shared tool
   rule matching must keep canonical `AgentDelegation` separate from raw
   provider projections unless a Gantry-owned wrapper explicitly performs the
-  provider call after policy and lifecycle checks.
+  provider call after policy and lifecycle checks. Anthropic native `Task*`
+  subagent aliases must be rejected; use native `Agent` only.
 - Durable-memory tool-use guards are shared policy, not runner-only behavior.
   Keep `memory-boundary.ts` usable from jobs and runner adapters so async
   command execution and provider SDK tool callbacks deny the same high-risk

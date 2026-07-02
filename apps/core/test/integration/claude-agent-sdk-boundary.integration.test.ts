@@ -1175,21 +1175,30 @@ describe('Claude Agent SDK boundary integration', () => {
     ).toContain('configured subagent definition');
   });
 
-  it('rejects legacy Task tool fields through the same native subagent guard', async () => {
+  it('rejects legacy Task subagent tool aliases before native subagent validation', async () => {
     const env = prepareRuntimeEnv();
-    env.TEST_SUBAGENT_TOOL_NAME = 'Task';
+    const previousToolName = process.env.TEST_SUBAGENT_TOOL_NAME;
+    process.env.TEST_SUBAGENT_TOOL_NAME = 'Task';
     sdkState.mode = 'agent-input-field-denial';
     const { runQuery } = await importRunQuery();
 
-    await runQuery(
-      'delegate carefully',
-      env.mcpServerPath,
-      runnerInput(),
-      {},
-      'sonnet',
-      undefined,
-      undefined,
-    );
+    try {
+      await runQuery(
+        'delegate carefully',
+        env.mcpServerPath,
+        runnerInput(),
+        {},
+        'sonnet',
+        undefined,
+        undefined,
+      );
+    } finally {
+      if (previousToolName === undefined) {
+        delete process.env.TEST_SUBAGENT_TOOL_NAME;
+      } else {
+        process.env.TEST_SUBAGENT_TOOL_NAME = previousToolName;
+      }
+    }
 
     expect(sdkState.calls[0]?.permissionDecision).toEqual(
       expect.objectContaining({
@@ -1199,7 +1208,7 @@ describe('Claude Agent SDK boundary integration', () => {
     );
     expect(
       String((sdkState.calls[0]?.permissionDecision as any).message),
-    ).toContain('disallowedTools');
+    ).toContain('Use the Agent tool');
   });
 
   it('preserves subagent-attributed assistant messages as runner resume anchors', async () => {

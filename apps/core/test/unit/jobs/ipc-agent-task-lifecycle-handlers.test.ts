@@ -4,7 +4,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   AsyncTaskCreateInput,
@@ -256,6 +256,10 @@ afterEach(() => {
 });
 
 describe('agent task lifecycle IPC handlers', () => {
+  beforeEach(() => {
+    vi.stubEnv('SECRET_ENCRYPTION_KEY', Buffer.alloc(32, 7).toString('base64'));
+  });
+
   it('renders bounded todo state and returns stable user copy', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),
@@ -438,7 +442,7 @@ describe('agent task lifecycle IPC handlers', () => {
     });
     expect(readResponse(runtimeHome, 'async-start')).toMatchObject({
       ok: true,
-      message: 'Started: echo ok',
+      message: 'Queued: echo ok',
       data: { id: taskId, status: 'queued', kind: 'async_command' },
     });
 

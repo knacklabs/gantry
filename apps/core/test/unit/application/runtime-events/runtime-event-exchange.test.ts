@@ -12,6 +12,7 @@ import type {
   RuntimeEventPublishInput,
 } from '@core/domain/events/events.js';
 import type { RuntimeEventRepository } from '@core/domain/ports/repositories.js';
+import { subscribeWebhookDeliveryReady } from '@core/application/runtime-events/webhook-delivery-wakeup.js';
 
 class MemoryRuntimeEventRepository implements RuntimeEventRepository {
   readonly events: RuntimeEvent[] = [];
@@ -99,6 +100,28 @@ describe('RuntimeEventExchange', () => {
 
     expect(repository.events).toEqual([event]);
     expect(notifier.notifiedEvents).toEqual([event]);
+  });
+
+  it('wakes webhook delivery flushes after webhook runtime events commit', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const notifier = new InMemoryRuntimeEventNotifier();
+    const exchange = new RuntimeEventExchange(repository, notifier);
+    const listener = vi.fn();
+    const unsubscribe = subscribeWebhookDeliveryReady(listener);
+    try {
+      await exchange.publish({
+        appId: 'app:test' as never,
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+        actor: 'agent',
+        responseMode: 'webhook',
+        webhookId: 'wh_1',
+        payload: { text: 'done' },
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it('can co-commit accepted messages and live admission before notifying subscribers', async () => {
