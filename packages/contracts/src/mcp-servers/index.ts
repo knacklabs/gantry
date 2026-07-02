@@ -108,6 +108,17 @@ export const TestMcpServerRequestSchema = z.object({
 });
 export type TestMcpServerRequest = z.infer<typeof TestMcpServerRequestSchema>;
 
+export const SyncMcpCapabilityRequestSchema = z.object({
+  appId: z.string().optional(),
+  agentId: z.string().min(1),
+  capabilityId: z.string().min(1),
+  dryRun: z.boolean().optional(),
+  syncedBy: z.string().optional(),
+});
+export type SyncMcpCapabilityRequest = z.infer<
+  typeof SyncMcpCapabilityRequestSchema
+>;
+
 export const UpdateAgentMcpServerBindingRequestSchema = z.object({
   appId: z.string().optional(),
   required: z.boolean().optional(),

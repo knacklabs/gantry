@@ -227,4 +227,78 @@ describe('mcp CLI', () => {
       'MCP Doctor',
     );
   });
+
+  it('syncs reviewed MCP capability bindings through the control API', async () => {
+    const note = vi.fn();
+    vi.doMock('@clack/prompts', () => ({
+      note,
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+    }));
+    const seen: Array<{ method?: string; url?: string; body: unknown }> = [];
+    const port = await listen((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf-8');
+        seen.push({
+          method: req.method,
+          url: req.url,
+          body: body ? JSON.parse(body) : undefined,
+        });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            dryRun: true,
+            capabilityId: 'itops.access.manage',
+            serverName: 'itops',
+            visibleTools: ['mcp__itops__itops_get_connector_health'],
+            approvedToolsBefore: [],
+            addedTools: ['mcp__itops__itops_get_connector_health'],
+            changed: false,
+          }),
+        );
+      });
+    });
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'cli-test',
+        token: 'test-key',
+        appId: 'default',
+        scopes: ['mcp:admin'],
+      },
+    ]);
+    process.env.GANTRY_CONTROL_PORT = String(port);
+
+    const { runMcpCommand } = await import('@core/cli/mcp.js');
+    const code = await runMcpCommand(makeTempDir(), [
+      'sync-capability',
+      'mcp:itops',
+      '--agent',
+      'main',
+      '--capability',
+      'itops.access.manage',
+      '--dry-run',
+      '--by',
+      'ops-admin',
+    ]);
+
+    expect(code).toBe(0);
+    expect(seen).toEqual([
+      {
+        method: 'POST',
+        url: '/v1/mcp-servers/mcp%3Aitops/sync-capability',
+        body: {
+          agentId: 'agent:main',
+          capabilityId: 'itops.access.manage',
+          dryRun: true,
+          syncedBy: 'ops-admin',
+        },
+      },
+    ]);
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('"capabilityId": "itops.access.manage"'),
+      'MCP Capability Sync',
+    );
+  });
 });

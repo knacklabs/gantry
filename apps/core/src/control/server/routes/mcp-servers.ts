@@ -3,14 +3,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   ConnectMcpServerRequestSchema,
   DisableMcpServerRequestSchema,
+  SyncMcpCapabilityRequestSchema,
   TestMcpServerRequestSchema,
   UpdateAgentMcpServerBindingRequestSchema,
 } from '@gantry/contracts';
 
 import { McpServerService } from '../../../application/mcp/mcp-server-service.js';
-import { McpToolProxy } from '../../../application/mcp/mcp-tool-proxy.js';
-import { resolveAgentToolRuntimePolicy } from '../../../application/agents/agent-tool-runtime-rules.js';
-import { resolveMcpCredentialEnvForAgent } from '../../../application/capability-secrets/mcp-secret-projection.js';
+import { McpCapabilitySyncService } from '../../../application/mcp/mcp-capability-sync-service.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { defaultHostnameLookup } from '../../../infrastructure/network/hostname-lookup.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
@@ -22,7 +21,6 @@ import type {
   McpServerStatus,
 } from '../../../domain/mcp/mcp-servers.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
-import { reviewedExternalMcpToolNamesFromRuntimeAccess } from '../../../shared/capability-runtime-access.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -36,6 +34,13 @@ function service(): McpServerService {
     storage.repositories.agents,
     { lookupHostname: defaultHostnameLookup },
   );
+}
+
+function capabilitySyncService(): McpCapabilitySyncService {
+  const storage = getRuntimeStorage();
+  return new McpCapabilitySyncService(storage.repositories, {
+    lookupHostname: defaultHostnameLookup,
+  });
 }
 
 export async function handleMcpServerRoutes(
@@ -191,7 +196,7 @@ export async function handleMcpServerRoutes(
         testedBy: parsed.data.testedBy,
       });
       const diagnostics = parsed.data.agentId
-        ? await mcpCapabilityDriftDiagnostics({
+        ? await capabilitySyncService().diagnose({
             appId: auth.appId as AppId,
             agentId: parsed.data.agentId as AgentId,
             server: result.server,
@@ -206,6 +211,50 @@ export async function handleMcpServerRoutes(
       });
     } catch (error) {
       sendRouteError(res, error, 'MCP server test failed');
+    }
+    return true;
+  }
+
+  const syncCapabilityMatch = pathname.match(
+    /^\/v1\/mcp-servers\/([^/]+)\/sync-capability$/,
+  );
+  if (syncCapabilityMatch && req.method === 'POST') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['mcp:admin']);
+    if (!auth) return true;
+    const parsed = SyncMcpCapabilityRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Invalid MCP capability sync request',
+      );
+      return true;
+    }
+    if (parsed.data.appId && parsed.data.appId !== auth.appId) {
+      sendError(
+        res,
+        403,
+        'FORBIDDEN',
+        'API key cannot sync MCP capabilities for this app',
+      );
+      return true;
+    }
+    try {
+      const result = await capabilitySyncService().sync({
+        appId: auth.appId as AppId,
+        agentId: parsed.data.agentId as AgentId,
+        serverId: decodeURIComponent(syncCapabilityMatch[1]) as McpServerId,
+        capabilityId: parsed.data.capabilityId,
+        dryRun: parsed.data.dryRun ?? false,
+        syncedBy: parsed.data.syncedBy,
+        egressDenylist: ctx.getEgressSettings?.().denylist ?? [],
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendRouteError(res, error, 'MCP capability sync failed');
     }
     return true;
   }
@@ -320,87 +369,10 @@ export async function handleMcpServerRoutes(
   return false;
 }
 
-async function mcpCapabilityDriftDiagnostics(input: {
-  appId: AppId;
-  agentId: AgentId;
-  server: McpServerDefinition;
-  egressDenylist: readonly string[];
-}): Promise<
-  | {
-      agentId: string;
-      serverName: string;
-      visibleTools: string[];
-      approvedTools: string[];
-      blockedByCapabilityReview: string[];
-      inventoryTruncated?: boolean;
-      warning?: string;
-    }
-  | undefined
-> {
-  const storage = getRuntimeStorage();
-  const credentialEnv = await resolveMcpCredentialEnvForAgent({
-    appId: input.appId,
-    agentId: input.agentId,
-    mcpServers: storage.repositories.mcpServers,
-    secrets: storage.repositories.capabilitySecrets,
-    serverIds: [input.server.id],
-  });
-  const proxy = new McpToolProxy(storage.repositories.mcpServers, {
-    tools: storage.repositories.tools,
-    skills: storage.repositories.skills,
-    credentialEnv,
-    sourceServerIds: [input.server.id],
-    lookupHostname: defaultHostnameLookup,
-    egressDenylist: input.egressDenylist,
-  });
-  const [inventory, policy] = await Promise.all([
-    proxy.listTools({
-      appId: input.appId,
-      agentId: input.agentId,
-      serverName: input.server.name,
-      limit: 50,
-    }),
-    resolveAgentToolRuntimePolicy({
-      repository: storage.repositories.tools,
-      skillRepository: storage.repositories.skills,
-      appId: input.appId,
-      agentId: input.agentId,
-      errorSubject: 'Configured agent tool',
-    }),
-  ]);
-  const visibleTools = inventory.servers.flatMap((server) =>
-    server.tools.map((tool) => `mcp__${server.name}__${tool.name}`),
-  );
-  const approvedTools = reviewedExternalMcpToolNamesFromRuntimeAccess(
-    policy.runtimeAccess,
-    { serverNames: [input.server.name] },
-  ).sort();
-  const approved = new Set(approvedTools);
-  const blockedByCapabilityReview = visibleTools
-    .filter((tool) => !approved.has(tool))
-    .sort();
-  return {
-    agentId: input.agentId,
-    serverName: input.server.name,
-    visibleTools: [...visibleTools].sort(),
-    approvedTools,
-    blockedByCapabilityReview,
-    ...(inventory.diagnostics.remoteListTruncated
-      ? { inventoryTruncated: true }
-      : {}),
-    ...(blockedByCapabilityReview.length > 0
-      ? {
-          warning:
-            'MCP source is healthy, but some visible tools are not approved by selected agent capabilities. Review semantic capability implementationBindings before users call them.',
-        }
-      : {}),
-  };
-}
-
 function doctorMessage(
   message: string,
   diagnostics:
-    | Awaited<ReturnType<typeof mcpCapabilityDriftDiagnostics>>
+    | Awaited<ReturnType<McpCapabilitySyncService['diagnose']>>
     | undefined,
 ): string {
   const count = diagnostics?.blockedByCapabilityReview.length ?? 0;

@@ -32,6 +32,7 @@ function usage(): string {
     '  gantry mcp list [--status <active|disabled>]',
     '  gantry mcp show <serverId>',
     '  gantry mcp doctor <serverId> [--agent <agentId>] [--by <admin>]',
+    '  gantry mcp sync-capability <serverId> --agent <agentId> --capability <capabilityId> [--dry-run] [--by <admin>]',
     '  gantry mcp remove <serverId> --agent <agentId>',
     '  gantry mcp disable <serverId> [--reason <text>] [--by <admin>]',
   ].join('\n');
@@ -50,6 +51,9 @@ export async function runMcpCommand(
     if (command === 'show') return await showServer(runtimeHome, first);
     if (command === 'doctor')
       return await doctorServer(runtimeHome, first, rest);
+    if (command === 'sync-capability') {
+      return await syncCapability(runtimeHome, first, rest);
+    }
     if (command === 'remove')
       return await removeServer(runtimeHome, first, rest);
     if (command === 'disable') {
@@ -269,6 +273,39 @@ async function removeServer(
     path: `/v1/agents/${encodeURIComponent(normalizeAgentId(agentId))}/mcp-servers/${encodeURIComponent(serverId)}`,
   });
   printRecord(response, 'MCP Removed');
+  return 0;
+}
+
+async function syncCapability(
+  runtimeHome: string,
+  serverId = '',
+  args: string[],
+): Promise<number> {
+  if (!serverId) {
+    p.log.error('Missing server id for mcp sync-capability.');
+    return 1;
+  }
+  const agentId = flagValue(args, '--agent');
+  const capabilityId = flagValue(args, '--capability');
+  if (!agentId) {
+    p.log.error('Missing --agent for mcp sync-capability.');
+    return 1;
+  }
+  if (!capabilityId) {
+    p.log.error('Missing --capability for mcp sync-capability.');
+    return 1;
+  }
+  const response = await controlApiRequest(runtimeHome, {
+    method: 'POST',
+    path: `/v1/mcp-servers/${encodeURIComponent(serverId)}/sync-capability`,
+    body: {
+      agentId: normalizeAgentId(agentId),
+      capabilityId,
+      dryRun: args.includes('--dry-run'),
+      syncedBy: flagValue(args, '--by'),
+    },
+  });
+  printRecord(response, 'MCP Capability Sync');
   return 0;
 }
 

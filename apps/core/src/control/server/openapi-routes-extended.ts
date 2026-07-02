@@ -465,6 +465,16 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     { body: 'json', parameters: [ids.server] },
   ),
   doc(
+    'post',
+    '/v1/mcp-servers/{serverId}/sync-capability',
+    'syncMcpCapability',
+    'MCP Servers',
+    'Sync MCP capability',
+    'Adds visible MCP source tools to a reviewed semantic capability after admin review.',
+    ['mcp:admin'],
+    { body: 'json', parameters: [ids.server] },
+  ),
+  doc(
     'get',
     '/v1/agents/{agentId}/mcp-servers',
     'listAgentMcpServerBindings',
