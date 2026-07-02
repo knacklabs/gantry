@@ -4,8 +4,11 @@ import type {
 } from '../domain/ports/async-tasks.js';
 import type { AsyncCommandLaunchControl } from './async-command-task-service.js';
 import type { PendingAsyncTaskExecution } from './async-command-task-queue-types.js';
+import { failedReceipt } from './async-command-task-receipts.js';
 import { readEncryptedAsyncTaskPayload } from './async-task-execution-payload.js';
+import { notifyAsyncTaskChange } from './async-task-change-waiter.js';
 import type { StartDelegatedAgentTaskInput } from './async-delegated-agent-task.js';
+import { nowIso } from '../shared/time/datetime.js';
 
 type DurableAsyncCommandPayload = {
   command: string;
@@ -64,7 +67,12 @@ async function recoverQueuedAsyncCommandTasks(input: {
     if (input.pending.has(task.id)) continue;
     const payload =
       readEncryptedAsyncTaskPayload<DurableAsyncCommandPayload>(task);
-    if (!isDurableAsyncCommandPayload(payload)) continue;
+    if (!isDurableAsyncCommandPayload(payload)) {
+      if (await failUnrecoverableQueuedTask(input.repository, task)) {
+        recovered += 1;
+      }
+      continue;
+    }
     input.pending.set(task.id, {
       task,
       command: payload.command,
@@ -106,7 +114,12 @@ async function recoverQueuedDelegatedAgentTasks(input: {
     if (input.pending.has(task.id)) continue;
     const payload =
       readEncryptedAsyncTaskPayload<DurableDelegatedAgentPayload>(task);
-    if (!isDurableDelegatedAgentPayload(payload)) continue;
+    if (!isDurableDelegatedAgentPayload(payload)) {
+      if (await failUnrecoverableQueuedTask(input.repository, task)) {
+        recovered += 1;
+      }
+      continue;
+    }
     const taskInput = {
       appId: task.appId,
       agentId: task.agentId,
@@ -136,6 +149,28 @@ async function recoverQueuedDelegatedAgentTasks(input: {
     recovered += 1;
   }
   return recovered;
+}
+
+async function failUnrecoverableQueuedTask(
+  repository: AsyncTaskRepository,
+  task: AsyncTaskRecord,
+): Promise<boolean> {
+  const now = nowIso();
+  const updated = await repository.transitionTask({
+    taskId: task.id,
+    leaseToken: task.leaseToken,
+    fencingVersion: task.fencingVersion,
+    status: 'failed',
+    now,
+    terminalAt: now,
+    errorSummary: 'Queued async task has no recoverable execution payload.',
+    receiptJson: failedReceipt(
+      task,
+      'failed before recovery because execution payload is missing or unreadable',
+    ),
+  });
+  if (updated) notifyAsyncTaskChange(repository);
+  return Boolean(updated);
 }
 
 function isDurableAsyncCommandPayload(

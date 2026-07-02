@@ -19,7 +19,10 @@ import {
   truncate,
   withLocalAdmissionLock,
 } from './async-command-task-helpers.js';
-import { cancelledReceipt } from './async-command-task-receipts.js';
+import {
+  cancelledReceipt,
+  failedReceipt,
+} from './async-command-task-receipts.js';
 import { hasAsyncTaskRunningCapacity } from './async-task-running-capacity.js';
 import {
   asyncMcpPrivateCorrelation,
@@ -192,7 +195,24 @@ export async function recoverQueuedAsyncMcpTasks(input: {
   for (const task of tasks) {
     if (pendingAsyncMcpExecutions.has(task.id)) continue;
     const payload = readEncryptedAsyncTaskPayload<DurableAsyncMcpPayload>(task);
-    if (!isDurableAsyncMcpPayload(payload)) continue;
+    if (!isDurableAsyncMcpPayload(payload)) {
+      const now = nowIso();
+      const failed = await transitionAsyncMcpTask(input.repository, {
+        taskId: task.id,
+        leaseToken: task.leaseToken,
+        fencingVersion: task.fencingVersion,
+        status: 'failed',
+        now,
+        terminalAt: now,
+        errorSummary: 'Queued async task has no recoverable execution payload.',
+        receiptJson: failedReceipt(
+          task,
+          'failed before recovery because execution payload is missing or unreadable',
+        ),
+      });
+      if (failed) recovered += 1;
+      continue;
+    }
     pendingAsyncMcpExecutions.set(task.id, {
       repository: input.repository,
       task,

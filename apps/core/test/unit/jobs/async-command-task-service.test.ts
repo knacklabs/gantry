@@ -685,6 +685,124 @@ describe('AsyncCommandTaskService', () => {
     });
   });
 
+  it('fails queued command and delegated tasks with unrecoverable payloads', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-command-bad-payload',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'async_command',
+      status: 'queued',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: {},
+      leaseToken: 'lease-command',
+      fencingVersion: 1,
+      now,
+    });
+    await repository.createTask({
+      id: 'task-delegated-bad-payload',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'delegated_agent',
+      status: 'queued',
+      admissionClass: 'task',
+      authoritySnapshotJson: {},
+      privateCorrelationJson: { executionPayload: 'bad-payload' },
+      leaseToken: 'lease-delegated',
+      fencingVersion: 1,
+      now,
+    });
+    const run = vi.fn(async () => ({ outputSummary: 'should not run' }));
+    const service = new AsyncCommandTaskService(
+      repository,
+      { run },
+      {
+        createRecoveredDelegatedAgentRun: () => run,
+      },
+    );
+
+    await expect(service.recoverQueuedTasks({ appId: 'app-1' })).resolves.toBe(
+      2,
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(repository.tasks.get('task-command-bad-payload')).toMatchObject({
+      status: 'failed',
+      errorSummary: 'Queued async task has no recoverable execution payload.',
+      receiptJson: {
+        completed:
+          'failed before recovery because execution payload is missing or unreadable',
+        needsAttention: 'start this task again if it is still needed',
+      },
+    });
+    expect(repository.tasks.get('task-delegated-bad-payload')).toMatchObject({
+      status: 'failed',
+      errorSummary: 'Queued async task has no recoverable execution payload.',
+      receiptJson: {
+        completed:
+          'failed before recovery because execution payload is missing or unreadable',
+        needsAttention: 'start this task again if it is still needed',
+      },
+    });
+  });
+
+  it('fails queued MCP tasks with unrecoverable payloads', async () => {
+    const repository = new MemoryAsyncTaskRepository();
+    const now = new Date().toISOString();
+    await repository.createTask({
+      id: 'task-mcp-bad-payload',
+      appId: 'app-1',
+      agentId: 'agent-1',
+      conversationId: 'conversation-1',
+      kind: 'mcp_tool_call',
+      status: 'queued',
+      admissionClass: 'task',
+      authoritySnapshotJson: {
+        mcpToolRule: 'mcp__crm__create_deal',
+      },
+      privateCorrelationJson: {},
+      leaseToken: 'lease-mcp',
+      fencingVersion: 1,
+      now,
+    });
+    const createProxy = vi.fn(() => ({ callTool: vi.fn() }) as never);
+    const changed = asyncTaskChangeWaiterFor(repository).wait({
+      signal: new AbortController().signal,
+      timeoutMs: 10_000,
+    });
+
+    await expect(
+      recoverQueuedAsyncMcpTasks({
+        repository,
+        appId: 'app-1',
+        createProxy,
+      }),
+    ).resolves.toBe(1);
+
+    await expect(
+      Promise.race([
+        changed.then(() => 'changed'),
+        new Promise((resolve) => setTimeout(() => resolve('timeout'), 100)),
+      ]),
+    ).resolves.toBe('changed');
+    expect(createProxy).not.toHaveBeenCalled();
+    expect(repository.tasks.get('task-mcp-bad-payload')).toMatchObject({
+      status: 'failed',
+      errorSummary: 'Queued async task has no recoverable execution payload.',
+      receiptJson: {
+        completed:
+          'failed before recovery because execution payload is missing or unreadable',
+        used: 'mcp__crm__create_deal',
+        needsAttention:
+          'check the remote MCP system before retrying; work may have already run',
+      },
+    });
+  });
+
   it('does not count non-command tasks against async command admission capacity', async () => {
     const repository = new MemoryAsyncTaskRepository();
     const now = new Date().toISOString();
