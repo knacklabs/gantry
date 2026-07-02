@@ -197,6 +197,7 @@ describe('browser-capability', () => {
   let statSyncSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.useRealTimers();
     vi.resetModules();
     fs.mkdirSync('/tmp/gantry-browser-capability-test', { recursive: true });
     fs.writeFileSync(
@@ -239,6 +240,7 @@ describe('browser-capability', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     const manager = await import('@core/runtime/browser-capability.js');
     await manager.closeAllBrowsers();
     killSpy.mockRestore();
