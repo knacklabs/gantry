@@ -10,6 +10,7 @@ import { toTrimmedString } from './ipc-shared.js';
 import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
 import {
   isBrowserActionMcpToolRule,
+  isThirdPartyMcpToolRule,
   isProjectedBrowserMcpToolRule,
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
@@ -264,6 +265,12 @@ export function requestPermissionTransientLiveRules(
       : [toolInput.toolName],
   );
   if (toolNames.length !== 1) return [];
+  if (
+    toolInput.capabilityRequestSource === 'request_access' &&
+    isThirdPartyMcpToolRule(toolNames[0])
+  ) {
+    return validateReadableAgentToolRule(toolNames[0]).ok ? [toolNames[0]] : [];
+  }
   const publicToolName = publicGantryToolNameForSdkTool(toolNames[0]);
   if (publicToolName !== RUN_COMMAND_TOOL_NAME) return [];
   const ruleContent = strictRuleContent(toolInput.rule);

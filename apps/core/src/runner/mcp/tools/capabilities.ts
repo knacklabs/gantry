@@ -51,7 +51,7 @@ const AccessTargetSchema = z.object({
     .string()
     .optional()
     .describe(
-      'Exact durable Gantry tool rule, such as AgentDelegation or mcp__gantry__request_settings_update. Use run_command for scoped commands.',
+      'Exact Gantry tool rule, such as AgentDelegation or mcp__gantry__request_settings_update. For connected third-party MCP tools, use an exact mcp__server__tool name only for one-off temporary access when reviewed capability bindings are stale. Use run_command for scoped commands.',
     ),
   argvPattern: z
     .string()
@@ -76,7 +76,7 @@ export function registerAccessRequestTool(
     [
       'Request agent access for review. Use this as the normal path when an action is missing.',
       'target.kind=capability requests an already-reviewed semantic capability by id.',
-      'target.kind=tool requests an exact durable Gantry tool rule such as AgentDelegation or mcp__gantry__request_settings_update.',
+      'target.kind=tool requests an exact Gantry tool rule such as AgentDelegation or mcp__gantry__request_settings_update, or one-off temporary access to an exact connected third-party MCP tool such as mcp__server__tool when its reviewed semantic capability binding is stale.',
       'target.kind=run_command requests a scoped temporary exact-command fallback such as "npm test *" when no reviewed capability fits.',
       'Set temporaryOnly=true for one-off transient access; leave it false for durable grants.',
       'Source setup and raw skill, MCP, CLI, browser, or network details are review metadata, not durable authority.',
@@ -220,18 +220,11 @@ export function registerAccessRequestTool(
             });
           }
           if (isThirdPartyMcpToolName(target.name)) {
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: [
-                    `Exact MCP tool "${target.name}" is not durable request_access authority by itself.`,
-                    'Request the reviewed semantic capability that covers this MCP source or tool with target.kind=capability, then retry after approval.',
-                    SOURCE_INVENTORY_AUTHORITY_GUIDANCE,
-                  ].join('\n'),
-                },
-              ],
-            };
+            return submitTransientMcpToolRequest({
+              toolName: target.name.trim(),
+              args,
+              submitCapabilityReviewTask,
+            });
           }
           const toolName = normalizeExactRequestableToolName(target.name);
           if (!toolName) {
@@ -401,6 +394,29 @@ function normalizeCapabilityGuess(value: string): string {
 function isThirdPartyMcpToolName(value: string): boolean {
   const trimmed = value.trim();
   return /^mcp__(?!gantry__)[A-Za-z0-9._-]+__[A-Za-z0-9._-]+$/.test(trimmed);
+}
+
+function submitTransientMcpToolRequest(input: {
+  toolName: string;
+  args: {
+    broadAccess?: boolean;
+    riskClass?: 'low' | 'medium' | 'high' | 'critical';
+    reason: string;
+  };
+  submitCapabilityReviewTask: CapabilityReviewSubmitter;
+}): Promise<ToolResponse> {
+  return input.submitCapabilityReviewTask('request_permission', 'MCP Tool', {
+    permissionKind: 'tool',
+    capabilityRequestSource: 'request_access',
+    toolName: input.toolName,
+    temporaryOnly: true,
+    broadAccess: input.args.broadAccess,
+    riskClass: input.args.riskClass,
+    reason: [
+      input.args.reason,
+      'One-off approval for a connected MCP tool that is not yet covered by a reviewed semantic capability binding. Durable access requires refreshing the reviewed capability.',
+    ].join('\n'),
+  });
 }
 
 function requestAccessInputError(message: string): ToolResponse {

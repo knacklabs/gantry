@@ -10,6 +10,7 @@ import {
   requestPermissionDescription,
   requestPermissionQueuedMessage,
   requestPermissionReviewSuggestions,
+  requestPermissionTransientLiveRules,
   requestPermissionSetupDecisionOptions,
   semanticCapabilityDefinitionsForToolInput,
 } from '@core/jobs/request-permission-review.js';
@@ -116,6 +117,34 @@ describe('request permission review helpers', () => {
         toolName: 'SandboxNetworkAccess',
       }),
     ).toBeUndefined();
+  });
+
+  it('adds temporary exact third-party MCP tool approvals to current-run live rules', () => {
+    expect(
+      requestPermissionTransientLiveRules({
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        toolName: 'mcp__caw-ats__ats_position_counts',
+        temporaryOnly: true,
+      }),
+    ).toEqual(['mcp__caw-ats__ats_position_counts']);
+
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        toolName: 'mcp__caw-ats__ats_position_counts',
+        temporaryOnly: true,
+      }),
+    ).toBeUndefined();
+
+    expect(
+      requestPermissionTransientLiveRules({
+        permissionKind: 'tool',
+        toolName: 'mcp__caw-ats__ats_position_counts',
+        temporaryOnly: true,
+      }),
+    ).toEqual([]);
   });
 
   it('omits timed grants from setup request permission choices', () => {

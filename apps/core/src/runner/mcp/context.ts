@@ -336,6 +336,7 @@ export function capabilityStatusText(): string {
     ...(attachedMcpSourceIds.length > 0
       ? [
           'MCP source rule: ready sources are already attached. Inspect them with mcp_list_tools, fetch one-tool schema/details with mcp_describe_tool when needed, call approved immediate actions through mcp_call_tool, and use async_mcp_call for long-running or parallel work. Do not request the same MCP capability again unless the tool response says access is missing or denied.',
+          'MCP tool choice rule: when several tools could fit, choose the narrowest tool that matches the requested output and prefer read-only tools for read requests. If the user intent or required arguments are unclear, inspect likely tools with mcp_describe_tool or ask one concise clarifying question before calling a write, mutation, or narrower summary tool.',
         ]
       : []),
     ...(requestableBrowserTools.length > 0

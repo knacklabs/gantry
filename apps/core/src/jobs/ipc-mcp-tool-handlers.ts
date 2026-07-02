@@ -404,7 +404,8 @@ function mcpToolCallFailure(
       code: 'missing_capability',
       details: [
         'The MCP source is connected, but this exact MCP tool is not covered by the agent current-run reviewed capability access.',
-        'Use request_access target.kind=capability for the reviewed capability that covers this MCP source or tool, then retry the tool call after approval.',
+        'For one-off recovery, call request_access with target.kind=tool and target.name set to the exact MCP tool named in this error, then retry the tool call after approval.',
+        'For durable future access, ask an admin to refresh the reviewed semantic capability binding for this MCP source.',
       ],
     };
   }

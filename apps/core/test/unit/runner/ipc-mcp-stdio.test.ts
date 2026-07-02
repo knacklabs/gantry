@@ -871,8 +871,12 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(record.result.content[0].text).toContain(
       'MCP tool is not approved for this agent',
     );
+    expect(record.result.content[0].text).toContain('target.kind=tool');
     expect(record.result.content[0].text).toContain(
-      'request_access target.kind=capability',
+      'mcp__caw-ats__ats_list_client_projects',
+    );
+    expect(record.result.content[0].text).toContain(
+      'refresh the reviewed semantic capability binding',
     );
   });
 
@@ -1349,6 +1353,9 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     expect(record.result.content[0].text).toContain(
       'Do not request the same MCP capability again',
     );
+    expect(record.result.content[0].text).toContain(
+      'MCP tool choice rule: when several tools could fit',
+    );
   });
 
   it('allows request_access run_command fallbacks when MCP access is only requestable', async () => {
@@ -1783,7 +1790,7 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
-  it('returns recoverable guidance for exact MCP tool targets without a reviewed capability', async () => {
+  it('submits exact third-party MCP tool targets as temporary approval requests', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'request_access', {
@@ -1795,16 +1802,69 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
 
     expect(result.exitCode, result.stderr).toBe(0);
-    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.isError).not.toBe(true);
-    expect(record.result.content[0].text).toContain(
-      'Exact MCP tool "mcp__caw-ats__ats_list_client_projects" is not durable request_access authority by itself.',
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
     );
-    expect(record.result.content[0].text).toContain(
-      'Request the reviewed semantic capability',
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__caw-ats__ats_list_client_projects',
+        temporaryOnly: true,
+      },
+    });
+    expect(task.payload.reason).toContain(
+      'Durable access requires refreshing the reviewed capability.',
     );
-    const taskDir = path.join(fixture.ipcDir, 'tasks');
-    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+  });
+
+  it('asks for temporary approval when an MCP tool is visible but missing from the selected capability binding', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'request_access',
+      {
+        target: {
+          kind: 'tool',
+          name: 'mcp__caw-ats__ats_position_counts',
+        },
+        reason: 'Need to call the new caw-ats position counts tool.',
+      },
+      {
+        GANTRY_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify([
+          'capability:mcp.caw-ats.access',
+        ]),
+        GANTRY_SEMANTIC_CAPABILITIES_JSON: JSON.stringify([
+          cawAtsMcpCapability('mcp__caw-ats__ats_list_positions'),
+        ]),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        permissionKind: 'tool',
+        capabilityRequestSource: 'request_access',
+        toolName: 'mcp__caw-ats__ats_position_counts',
+        temporaryOnly: true,
+      },
+    });
   });
 
   it('rejects unknown exact Gantry tool requests before queuing review', async () => {
