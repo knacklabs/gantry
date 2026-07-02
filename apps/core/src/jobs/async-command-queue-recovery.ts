@@ -1,4 +1,9 @@
-import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
+import type {
+  AsyncTaskKind,
+  AsyncTaskRepository,
+} from '../domain/ports/async-tasks.js';
+import { nowIso } from '../shared/time/datetime.js';
+import { failedReceipt } from './async-command-task-receipts.js';
 import type { AsyncCommandLaunchControl } from './async-command-task-service.js';
 import type { PendingAsyncTaskExecution } from './async-command-task-queue-types.js';
 import { readEncryptedAsyncTaskPayload } from './async-task-execution-payload.js';
@@ -39,6 +44,43 @@ export async function recoverQueuedAsyncCommandTasks(input: {
     recovered += 1;
   }
   return recovered;
+}
+
+export async function failUnrecoverableQueuedAsyncTasks(input: {
+  repository: AsyncTaskRepository;
+  appId: string;
+  agentId?: string;
+  limit?: number;
+}): Promise<number> {
+  let failed = 0;
+  for (const kind of ['mcp_tool_call', 'delegated_agent'] as AsyncTaskKind[]) {
+    const tasks = await input.repository.listTasks({
+      appId: input.appId,
+      agentId: input.agentId,
+      kind,
+      statuses: ['queued'],
+      limit: input.limit ?? 100,
+    });
+    for (const task of tasks) {
+      const now = nowIso();
+      const updated = await input.repository.transitionTask({
+        taskId: task.id,
+        leaseToken: task.leaseToken,
+        fencingVersion: task.fencingVersion,
+        status: 'failed',
+        now,
+        terminalAt: now,
+        errorSummary:
+          'Task worker restarted before this queued task could be claimed.',
+        receiptJson: failedReceipt(
+          task,
+          'failed before queued task claim after worker restart',
+        ),
+      });
+      if (updated) failed += 1;
+    }
+  }
+  return failed;
 }
 
 function isDurableAsyncCommandPayload(

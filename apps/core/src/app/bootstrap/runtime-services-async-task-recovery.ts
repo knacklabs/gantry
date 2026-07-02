@@ -2,6 +2,7 @@ import {
   ASYNC_TASK_STALE_AFTER_MS,
   AsyncCommandTaskService,
 } from '../../jobs/async-command-task-service.js';
+import { failUnrecoverableQueuedAsyncTasks } from '../../jobs/async-command-queue-recovery.js';
 import {
   DEFAULT_ASYNC_COMMAND_TIMEOUT_MS,
   DEFAULT_ASYNC_RESOURCE_LIMITS,
@@ -97,6 +98,16 @@ export async function recoverStaleAsyncCommandTasks(
       if (queued > 0) {
         deps.logger.warn({ queued }, 'Recovered queued async command tasks');
       }
+    }
+    const failedQueued = await failUnrecoverableQueuedAsyncTasks({
+      repository,
+      appId,
+    });
+    if (failedQueued > 0) {
+      deps.logger.warn(
+        { failedQueued },
+        'Failed unrecoverable queued async tasks',
+      );
     }
   } catch (err) {
     deps.logger.warn({ err }, 'Failed to recover stale async command tasks');
