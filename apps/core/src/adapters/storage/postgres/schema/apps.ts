@@ -84,7 +84,9 @@ export const userAliasesPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    providerAliasUnique: uniqueIndex('idx_user_aliases_active_provider_external')
+    providerAliasUnique: uniqueIndex(
+      'idx_user_aliases_active_provider_external',
+    )
       .on(
         table.appId,
         table.provider,

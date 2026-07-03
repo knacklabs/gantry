@@ -55,7 +55,9 @@ export async function publishIdentityResolvedEvent(
         ? { verificationStatus: input.verificationStatus }
         : {}),
       memoryHydrationEligible: input.memoryHydrationEligible,
-      ...(input.conversationJid ? { conversationJid: input.conversationJid } : {}),
+      ...(input.conversationJid
+        ? { conversationJid: input.conversationJid }
+        : {}),
       ...(input.threadId ? { threadId: input.threadId } : {}),
     },
   });

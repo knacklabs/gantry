@@ -40,7 +40,10 @@ export async function findAliasMergeConflicts(
                 source.providerAccountId,
               )
             : isNull(pgSchema.userAliasesPostgres.providerAccountId),
-          eq(pgSchema.userAliasesPostgres.externalUserId, source.externalUserId),
+          eq(
+            pgSchema.userAliasesPostgres.externalUserId,
+            source.externalUserId,
+          ),
           isNull(pgSchema.userAliasesPostgres.retiredAt),
         ),
       )

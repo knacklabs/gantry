@@ -12,7 +12,10 @@ type SessionCommandRunAgent = (
   options?: Record<string, unknown>,
 ) => Promise<GroupAgentRunResult>;
 
-type MemoryUserIdInput = string | undefined | (() => Promise<string | undefined>);
+type MemoryUserIdInput =
+  | string
+  | undefined
+  | (() => Promise<string | undefined>);
 
 async function readMemoryUserId(
   value: MemoryUserIdInput,
