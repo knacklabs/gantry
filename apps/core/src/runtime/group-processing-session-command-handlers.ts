@@ -25,7 +25,10 @@ import type {
   GroupProcessingRepository,
 } from './group-processing-types.js';
 
-type MemoryUserIdValue = string | undefined | (() => Promise<string | undefined>);
+type MemoryUserIdValue =
+  | string
+  | undefined
+  | (() => Promise<string | undefined>);
 
 export function createGroupProcessingSessionCommandHandlers(input: {
   ops: () => GroupProcessingRepository;

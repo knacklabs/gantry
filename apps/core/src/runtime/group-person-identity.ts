@@ -29,7 +29,10 @@ export function createCanonicalMemoryPersonResolver(input: {
 }
 
 export function createGroupProcessingPersonResolver(input: {
-  deps: Pick<GroupProcessingDeps, 'resolvePersonIdentity' | 'publishRuntimeEvent'>;
+  deps: Pick<
+    GroupProcessingDeps,
+    'resolvePersonIdentity' | 'publishRuntimeEvent'
+  >;
   appId: string;
   rawUserId?: string;
   defaultScope: 'user' | 'group';

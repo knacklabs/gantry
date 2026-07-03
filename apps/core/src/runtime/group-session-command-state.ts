@@ -28,7 +28,10 @@ import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
 
 type ArchiveSessionInput = Parameters<typeof archiveCurrentRuntimeSession>[0];
-type MemoryUserIdValue = string | undefined | (() => Promise<string | undefined>);
+type MemoryUserIdValue =
+  | string
+  | undefined
+  | (() => Promise<string | undefined>);
 type SenderPolicyGroup = {
   folder: string;
   requiresTrigger?: boolean;
