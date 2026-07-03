@@ -216,16 +216,13 @@ agent-visible tool surface (`apps/core/src/runner/gantry-mcp-tool-surface.ts`):
 
 ```text
 send_message            ask_user_question
-file                    host-injected memory context
+memory_search           memory_save           continuity_summary
+procedure_save          file
 mcp_list_tools          mcp_call_tool
 request_skill_install   request_skill_proposal
 request_skill_dependency_install
 request_mcp_server      request_access
 ```
-
-Memory tools such as `memory_search`, `memory_save`, `continuity_summary`, and
-`procedure_save` still exist, but they are selected/reviewed tools rather than
-baseline mandatory tools.
 
 The canonical `Browser` capability is gated separately and projects to
 `browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and

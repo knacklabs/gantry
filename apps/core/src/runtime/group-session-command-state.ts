@@ -77,7 +77,7 @@ export function createArchiveCurrentSessionHandler(input: {
     const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
-    await archiveCurrentRuntimeSession({
+    return archiveCurrentRuntimeSession({
       ops: input.ops(),
       appId: input.appId,
       group: input.group,

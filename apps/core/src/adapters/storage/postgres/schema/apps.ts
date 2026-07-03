@@ -62,7 +62,7 @@ export const userAliasesPostgres = pgTable(
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     userId: text('user_id').notNull(),
     provider: text('provider').notNull(),
-    providerConnectionId: text('provider_connection_id'),
+    providerAccountId: text('provider_account_id'),
     externalUserId: text('external_user_id').notNull(),
     displayName: text('display_name'),
     verificationStatus: text('verification_status')

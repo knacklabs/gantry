@@ -331,6 +331,15 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       );
       assertMergeablePeople(people, input.targetPersonId, input.sourcePersonId);
       const preview = await this.buildMergePreview(tx, input);
+      const aliasConflicts = preview.conflicts.filter(
+        (conflict) => conflict.type === 'alias',
+      );
+      if (aliasConflicts.length > 0) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Merge has alias conflicts. Resolve aliases before applying the merge.',
+        );
+      }
       if (
         input.expectedFingerprint &&
         preview.fingerprint !== input.expectedFingerprint

@@ -484,11 +484,9 @@ decisions. It stores app-grade memory in Postgres.
 flattened into `memory_items` and preserved in item metadata for visibility
 checks.
 
-#### MCP Tools (Selected/Reviewed Agent Surface)
+#### MCP Tools (Exposed to Agents)
 
-Host-owned hydration injects relevant personal or conversation memory before a
-turn. Agents may interact with memory via MCP tools over IPC only when those
-tools are selected/reviewed for the run:
+Agents interact with memory via MCP tools over IPC:
 
 | Tool                 | Purpose                                                                                   |
 | -------------------- | ----------------------------------------------------------------------------------------- |
@@ -498,8 +496,8 @@ tools are selected/reviewed for the run:
 | `procedure_save`     | Save a reusable multi-step procedure                                                      |
 | `file`               | List, read, write, or promote Gantry FileArtifacts by virtual scope/path                  |
 
-Patch and review tools exist in the host protocol for reviewed/admin flows.
-Memory tools are not part of the default agent capability bundle.
+Patch and review tools exist in the host protocol for reviewed/admin flows, but
+they are not part of the default agent capability bundle.
 Common/global memory writes are restricted to approved admin or service
 workflows; default agent IPC/MCP memory saves must not write shared common
 memory directly.

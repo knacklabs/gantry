@@ -60,14 +60,14 @@ Important rules:
 - provider sender ids are aliases, not the person itself
 - email, phone, and web SDK ids are also aliases
 - alias lookup is exact-match only
-- `providerConnectionId` is part of the alias key when it exists
+- `providerAccountId` is part of the alias key when it exists
 
 Storage and policy are implemented in:
 
 - [person-identity-service.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/application/identity/person-identity-service.ts)
 - [person-identity-repository.postgres.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts)
 - [person-identity-mappers.postgres.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts)
-- [0090_person_identity_management.sql](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/storage/postgres/schema/migrations/0090_person_identity_management.sql)
+- [0093_person_identity_management.sql](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/storage/postgres/schema/migrations/0093_person_identity_management.sql)
 
 ### 2. Runtime sender identity resolution
 
@@ -177,9 +177,10 @@ Implemented in:
 
 ## Why These Decisions Matter
 
-### Provider connection
+### Provider account
 
-`providerConnectionId` is the specific installed instance of a provider.
+`providerAccountId` is the specific installed provider account or workspace
+connection.
 
 Example:
 
@@ -188,7 +189,7 @@ Example:
 
 The same sender id in two different installations should not be treated as the
 same alias unless the full key matches. That is why the alias lookup includes
-`providerConnectionId` when it exists.
+`providerAccountId` when it exists.
 
 ### Group/channel memory vs personal memory
 
@@ -223,6 +224,20 @@ These were important follow-up decisions that became part of the final result:
    alias ids into personal long-term memory when resolver infrastructure fails.
 3. We aligned the schema and repository semantics around retired aliases so the
    final behavior is consistent, not accidental.
+4. We aligned the feature with the current provider-account model from `main`.
+   The active code and API now use `providerAccountId` / `provider_account_id`,
+   and the identity migration was renumbered to `0093` after the provider
+   account cutover migrations.
+5. We made public `POST /v1/identity/resolve` safer. A key with only
+   `identity:resolve` can perform a minimal, non-mutating lookup. Alias
+   creation requires `people:admin`, and rich alias details require
+   `people:read` or `people:admin`.
+6. We added alias-collision detection to person merge preview/apply. If a
+   source person and target person both have the same active alias key, apply
+   fails before moving aliases.
+7. We removed the unrelated baseline memory MCP tool change from this feature
+   scope. This PR keeps the identity-management work separate from any future
+   tool-surface cleanup.
 
 ## Where The Changes Landed
 
