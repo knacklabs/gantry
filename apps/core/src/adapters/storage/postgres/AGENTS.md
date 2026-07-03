@@ -82,6 +82,6 @@
   `memory_items.subject_type = 'user'`; group/channel/conversation memory rows
   must remain untouched.
 - Exact person alias lookup authority is
-  `appId + provider + providerConnectionId? + externalUserId`. Keep
-  `providerConnectionId` in route and alias resolution paths when it is known;
+  `appId + provider + providerAccountId? + externalUserId`. Keep
+  `providerAccountId` in route and alias resolution paths when it is known;
   do not fall back to fuzzy or display-name matching.

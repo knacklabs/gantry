@@ -95,7 +95,7 @@ export type IdentityEvidenceType = z.infer<typeof IdentityEvidenceTypeSchema>;
 export const IdentityResolveRequestSchema = z.object({
   appId: z.string().optional(),
   provider: z.string(),
-  providerConnectionId: z.string().nullable().optional(),
+  providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
   displayName: z.string().nullable().optional(),
   evidenceType: IdentityEvidenceTypeSchema,
@@ -119,7 +119,7 @@ export type IdentityResolveResponse = z.infer<
 
 export const AddPersonAliasRequestSchema = z.object({
   provider: z.string(),
-  providerConnectionId: z.string().nullable().optional(),
+  providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
   displayName: z.string().nullable().optional(),
   evidenceType: IdentityEvidenceTypeSchema,
@@ -155,8 +155,11 @@ export const PersonMergePreviewResponseSchema = z.object({
   }),
   conflicts: z.array(
     z.object({
-      sourceMemoryId: z.string(),
-      targetMemoryId: z.string(),
+      type: z.enum(['memory', 'alias']).optional(),
+      sourceMemoryId: z.string().optional(),
+      targetMemoryId: z.string().optional(),
+      sourceAliasId: z.string().optional(),
+      targetAliasId: z.string().optional(),
       agentId: z.string().nullable().optional(),
       kind: z.string(),
       key: z.string(),

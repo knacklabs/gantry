@@ -1,10 +1,64 @@
 import type { NewMessage } from '../domain/types.js';
+import type { ConversationRoute } from '../domain/types.js';
 import {
   publishIdentityResolvedEvent,
   publishMemoryHydrationDecisionEvent,
 } from '../application/identity/identity-runtime-events.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
+
+export function createCanonicalMemoryPersonResolver(input: {
+  resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
+  publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
+  appId: string;
+  rawUserId?: string;
+  defaultScope: 'user' | 'group';
+  conversationKind: 'dm' | 'channel';
+  messages: NewMessage[];
+  chatJid: string;
+  threadId?: string | null;
+  providerAccountId?: string;
+  identityEvidenceType?: 'provider_user' | 'web_user';
+  systemSenderIds?: readonly string[];
+}): () => Promise<string | undefined> {
+  let resolved: Promise<string | undefined> | null = null;
+  return () => {
+    resolved ??= resolveCanonicalMemoryPersonId(input);
+    return resolved;
+  };
+}
+
+export function createGroupProcessingPersonResolver(input: {
+  deps: Pick<GroupProcessingDeps, 'resolvePersonIdentity' | 'publishRuntimeEvent'>;
+  appId: string;
+  rawUserId?: string;
+  defaultScope: 'user' | 'group';
+  group: Pick<
+    ConversationRoute,
+    | 'conversationKind'
+    | 'providerAccountId'
+    | 'senderIdentityEvidenceType'
+    | 'systemSenderIds'
+  >;
+  messages: NewMessage[];
+  chatJid: string;
+  threadId?: string | null;
+}): () => Promise<string | undefined> {
+  return createCanonicalMemoryPersonResolver({
+    resolvePersonIdentity: input.deps.resolvePersonIdentity,
+    publishRuntimeEvent: input.deps.publishRuntimeEvent,
+    appId: input.appId,
+    rawUserId: input.rawUserId,
+    defaultScope: input.defaultScope,
+    conversationKind: input.group.conversationKind ?? 'channel',
+    messages: input.messages,
+    chatJid: input.chatJid,
+    threadId: input.threadId,
+    providerAccountId: input.group.providerAccountId,
+    identityEvidenceType: input.group.senderIdentityEvidenceType,
+    systemSenderIds: input.group.systemSenderIds,
+  });
+}
 
 export async function resolveCanonicalMemoryPersonId(input: {
   resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
@@ -16,7 +70,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
   messages: NewMessage[];
   chatJid: string;
   threadId?: string | null;
-  providerConnectionId?: string;
+  providerAccountId?: string;
   identityEvidenceType?: 'provider_user' | 'web_user';
   systemSenderIds?: readonly string[];
 }): Promise<string | undefined> {
@@ -37,7 +91,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       conversationJid: input.chatJid,
       threadId: input.threadId,
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       reason: 'missing_sender',
       memoryHydrationEligible: false,
     });
@@ -51,7 +105,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       conversationJid: input.chatJid,
       threadId: input.threadId,
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       reason: 'system_sender',
       memoryHydrationEligible: false,
     });
@@ -65,7 +119,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       conversationJid: input.chatJid,
       threadId: input.threadId,
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       reason: 'resolver_error',
       memoryHydrationEligible: false,
     });
@@ -75,7 +129,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
     const resolved = await input.resolvePersonIdentity({
       appId: input.appId,
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       externalUserId,
       displayName: message?.sender_name || externalUserId,
       evidenceType,
@@ -85,7 +139,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       appId: input.appId,
       source: 'live_turn',
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       evidenceType,
       status: resolved.status,
       personId: resolved.personId,
@@ -94,8 +148,10 @@ export async function resolveCanonicalMemoryPersonId(input: {
       conversationJid: input.chatJid,
       threadId: input.threadId,
     });
+    const canHydratePersonalMemory =
+      input.defaultScope === 'user' && resolved.memoryHydrationEligible;
     const personId =
-      resolved.memoryHydrationEligible && resolved.personId
+      canHydratePersonalMemory && resolved.personId
         ? resolved.personId
         : undefined;
     await publishMemoryHydrationDecisionEvent(input.publishRuntimeEvent, {
@@ -105,9 +161,9 @@ export async function resolveCanonicalMemoryPersonId(input: {
       conversationJid: input.chatJid,
       threadId: input.threadId,
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       personId,
-      reason: personId ? 'resolved' : 'unresolved',
+      reason: resolved.personId ? 'resolved' : 'unresolved',
       memoryHydrationEligible: Boolean(personId),
     });
     return personId;
@@ -119,7 +175,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       appId: input.appId,
       source: 'live_turn',
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       evidenceType,
       status: retiredAlias ? 'retired_alias' : 'resolver_error',
       verificationStatus: retiredAlias ? 'retired' : undefined,
@@ -134,7 +190,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       conversationJid: input.chatJid,
       threadId: input.threadId,
       provider,
-      providerConnectionId: input.providerConnectionId,
+      providerAccountId: input.providerAccountId,
       reason: retiredAlias ? 'retired_alias' : 'resolver_error',
       memoryHydrationEligible: false,
     });

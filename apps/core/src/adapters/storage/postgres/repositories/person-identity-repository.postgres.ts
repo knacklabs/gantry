@@ -24,13 +24,14 @@ import {
   auditToMergeApply,
   ensureApp,
   memoryCountsFromRows,
-  normalizeProviderConnectionId,
+  normalizeProviderAccountId,
   personalMemorySubjectHash,
   retargetMemorySource,
   stableId,
   toAlias,
   toPerson,
 } from './person-identity-mappers.postgres.js';
+import { findAliasMergeConflicts } from './person-identity-merge-conflicts.postgres.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -92,7 +93,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       const personId = stableId('person', [
         input.appId,
         input.provider,
-        normalizeProviderConnectionId(input.providerConnectionId) ?? '',
+        normalizeProviderAccountId(input.providerAccountId) ?? '',
         input.externalUserId,
       ]);
       await tx
@@ -111,7 +112,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         appId: input.appId,
         personId,
         provider: input.provider,
-        providerConnectionId: input.providerConnectionId,
+        providerAccountId: input.providerAccountId,
         externalUserId: input.externalUserId,
         displayName: input.displayName,
         verificationStatus: 'unverified',
@@ -252,6 +253,15 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         input.sourcePersonId,
       );
       const preview = await this.buildMergePreview(tx, input);
+      const aliasConflicts = preview.conflicts.filter(
+        (conflict) => conflict.type === 'alias',
+      );
+      if (aliasConflicts.length > 0) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Merge has alias conflicts. Resolve aliases before applying the merge.',
+        );
+      }
       if (
         preview.conflicts.length > 0 &&
         conflictResolution === 'fail_on_conflict'
@@ -344,12 +354,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     input: {
       appId: string;
       provider: string;
-      providerConnectionId?: string | null;
+      providerAccountId?: string | null;
       externalUserId: string;
     },
   ): Promise<AliasRow | null> {
-    const providerConnectionId = normalizeProviderConnectionId(
-      input.providerConnectionId,
+    const providerAccountId = normalizeProviderAccountId(
+      input.providerAccountId,
     );
     const rows = await executor
       .select()
@@ -358,12 +368,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         and(
           eq(pgSchema.userAliasesPostgres.appId, input.appId),
           eq(pgSchema.userAliasesPostgres.provider, input.provider),
-          providerConnectionId
+          providerAccountId
             ? eq(
-                pgSchema.userAliasesPostgres.providerConnectionId,
-                providerConnectionId,
+                pgSchema.userAliasesPostgres.providerAccountId,
+                providerAccountId,
               )
-            : isNull(pgSchema.userAliasesPostgres.providerConnectionId),
+            : isNull(pgSchema.userAliasesPostgres.providerAccountId),
           eq(pgSchema.userAliasesPostgres.externalUserId, input.externalUserId),
         ),
       )
@@ -377,7 +387,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     input: {
       appId: string;
       provider: string;
-      providerConnectionId?: string | null;
+      providerAccountId?: string | null;
       externalUserId: string;
     },
   ): Promise<AliasRow | null> {
@@ -391,7 +401,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       appId: string;
       personId: string;
       provider: string;
-      providerConnectionId?: string | null;
+      providerAccountId?: string | null;
       externalUserId: string;
       displayName?: string | null;
       evidence?: Record<string, unknown>;
@@ -400,13 +410,13 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       timestamp: string;
     },
   ): Promise<PersonAliasRecord> {
-    const providerConnectionId = normalizeProviderConnectionId(
-      input.providerConnectionId,
+    const providerAccountId = normalizeProviderAccountId(
+      input.providerAccountId,
     );
     const aliasId = stableId('person-alias', [
       input.appId,
       input.provider,
-      providerConnectionId ?? '',
+      providerAccountId ?? '',
       input.externalUserId,
     ]);
     const [row] = await executor
@@ -416,7 +426,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         appId: input.appId,
         userId: input.personId,
         provider: input.provider,
-        providerConnectionId,
+        providerAccountId,
         externalUserId: input.externalUserId,
         displayName: input.displayName ?? input.externalUserId,
         verificationStatus: input.verificationStatus,
@@ -547,6 +557,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       input,
       sourceRows,
     );
+    conflicts.push(...(await findAliasMergeConflicts(executor, input)));
     return {
       summary: 'Merge preview only. No data changed.',
       sourcePersonId: input.sourcePersonId,
@@ -583,6 +594,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         .limit(1);
       if (targetRows[0]) {
         conflicts.push({
+          type: 'memory',
           sourceMemoryId: source.id,
           targetMemoryId: targetRows[0].id,
           agentId: source.agentId,

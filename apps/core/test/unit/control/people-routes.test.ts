@@ -119,12 +119,23 @@ beforeEach(() => {
 });
 
 describe('people control routes', () => {
-  it('resolves identity through the identity:resolve scope', async () => {
+  it('resolves identity through the identity:resolve scope without creating or exposing alias details', async () => {
     fakeRepository.resolveIdentity.mockResolvedValue({
-      status: 'created',
+      status: 'resolved',
       personId: 'person-1',
       memoryHydrationEligible: true,
       verificationStatus: 'unverified',
+      matchedAlias: {
+        id: 'alias-1',
+        appId: 'app-one',
+        personId: 'person-1',
+        provider: 'slack',
+        providerAccountId: 'providerAccount-slack',
+        externalUserId: 'U1',
+        verificationStatus: 'unverified',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
     });
 
     const { res, body } = await call({
@@ -134,18 +145,25 @@ describe('people control routes', () => {
         provider: 'slack',
         externalUserId: 'U1',
         evidenceType: 'provider_user',
+        createIfMissing: true,
       },
       scopes: ['identity:resolve'],
     });
 
     expect(res.statusCode).toBe(200);
     expect(body).toMatchObject({
-      status: 'created',
+      status: 'resolved',
       personId: 'person-1',
       memoryHydrationEligible: true,
     });
+    expect(body.matchedAlias).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('U1');
     expect(fakeRepository.resolveIdentity).toHaveBeenCalledWith(
-      expect.objectContaining({ appId: 'app-one', provider: 'slack' }),
+      expect.objectContaining({
+        appId: 'app-one',
+        provider: 'slack',
+        createIfMissing: false,
+      }),
     );
     expect(runtimeEvents.publish).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -155,6 +173,51 @@ describe('people control routes', () => {
           evidenceType: 'provider_user',
           personId: 'person-1',
         }),
+      }),
+    );
+  });
+
+  it('allows people admins to create identities and read alias details through resolve', async () => {
+    fakeRepository.resolveIdentity.mockResolvedValue({
+      status: 'created',
+      personId: 'person-1',
+      memoryHydrationEligible: true,
+      verificationStatus: 'unverified',
+      createdAlias: {
+        id: 'alias-1',
+        appId: 'app-one',
+        personId: 'person-1',
+        provider: 'slack',
+        providerAccountId: 'providerAccount-slack',
+        externalUserId: 'U1',
+        verificationStatus: 'unverified',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    const { res, body } = await call({
+      method: 'POST',
+      pathname: '/v1/identity/resolve',
+      body: {
+        provider: 'slack',
+        providerAccountId: 'providerAccount-slack',
+        externalUserId: 'U1',
+        evidenceType: 'provider_user',
+        createIfMissing: true,
+      },
+      scopes: ['identity:resolve', 'people:read', 'people:admin'],
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(body.createdAlias).toMatchObject({
+      id: 'alias-1',
+      externalUserId: 'U1',
+    });
+    expect(fakeRepository.resolveIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: 'providerAccount-slack',
+        createIfMissing: true,
       }),
     );
   });
@@ -269,7 +332,7 @@ describe('people control routes', () => {
       appId: 'app-one',
       personId: 'person-1',
       provider: 'slack',
-      providerConnectionId: 'providerConnection-slack',
+      providerAccountId: 'providerAccount-slack',
       externalUserId: 'U123',
       verificationStatus: 'verified',
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -280,7 +343,7 @@ describe('people control routes', () => {
       appId: 'app-one',
       personId: 'person-1',
       provider: 'slack',
-      providerConnectionId: 'providerConnection-slack',
+      providerAccountId: 'providerAccount-slack',
       externalUserId: 'U123',
       verificationStatus: 'retired',
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -292,7 +355,7 @@ describe('people control routes', () => {
       pathname: '/v1/people/person-1/aliases',
       body: {
         provider: 'slack',
-        providerConnectionId: 'providerConnection-slack',
+        providerAccountId: 'providerAccount-slack',
         externalUserId: 'U123',
         evidenceType: 'provider_user',
       },
@@ -313,7 +376,7 @@ describe('people control routes', () => {
           personId: 'person-1',
           aliasId: 'alias-1',
           provider: 'slack',
-          providerConnectionId: 'providerConnection-slack',
+          providerAccountId: 'providerAccount-slack',
         }),
       }),
     );
@@ -324,7 +387,7 @@ describe('people control routes', () => {
           personId: 'person-1',
           aliasId: 'alias-1',
           provider: 'slack',
-          providerConnectionId: 'providerConnection-slack',
+          providerAccountId: 'providerAccount-slack',
         }),
       }),
     );

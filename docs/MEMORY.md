@@ -284,9 +284,9 @@ Before each agent run, the host uses the current message or scheduled job prompt
 as a lexical query against visible memory for the current
 app/agent/user/group/channel context. Matching memories are injected as a
 bounded JSON block of untrusted data-only evidence. If no memory matches, no
-memory block is injected. If selected memory tools are available, the agent may
-use them for more context, especially when the user asks to continue or resume.
-Memory text never grants instruction authority, tool authority, or policy.
+memory block is injected. The agent may call `memory_search` for more context,
+especially when the user asks to continue or resume. Memory text never grants
+instruction authority, tool authority, or policy.
 
 ## SDK APIs
 

@@ -569,7 +569,6 @@ describe('createGroupProcessor', () => {
 
       expect(result).toBe(true);
       expect(mockSpawnAgent).not.toHaveBeenCalled();
-      expect(deps.resolvePersonIdentity).not.toHaveBeenCalled();
       expect(
         (deps.opsRepository as any).getRecentTopLevelMessagesBefore,
       ).not.toHaveBeenCalled();
@@ -1738,7 +1737,11 @@ describe('createGroupProcessor', () => {
       const result = await processGroupMessages('group1@g.us');
 
       expect(result).toBe(false);
-      expect(publishRuntimeEvent).toHaveBeenCalledTimes(2);
+      expect(
+        publishRuntimeEvent.mock.calls.filter(
+          ([event]) => event.eventType === 'sandbox.blocked',
+        ),
+      ).toHaveLength(2);
     });
 
     it('does not fail the turn for non-JSON runtime event payloads', async () => {
@@ -2812,7 +2815,7 @@ describe('createGroupProcessor', () => {
       const group = makeGroup({
         requiresTrigger: false,
         conversationKind: 'channel',
-        providerConnectionId: 'channel-providerConnection:test:slack',
+        providerAccountId: 'channel-providerAccount:test:slack',
       });
       const messages = [makeMessage({ sender: 'sl:U123', content: 'hello' })];
       const { deps } = setupHappyPath({ group, messages, agentOutput });
@@ -2828,7 +2831,15 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('sl:C123');
 
-      expect(deps.resolvePersonIdentity).not.toHaveBeenCalled();
+      expect(deps.resolvePersonIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          provider: 'sl',
+          providerAccountId: 'channel-providerAccount:test:slack',
+          externalUserId: 'sl:U123',
+          evidenceType: 'provider_user',
+        }),
+      );
       expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationJid: 'sl:C123',

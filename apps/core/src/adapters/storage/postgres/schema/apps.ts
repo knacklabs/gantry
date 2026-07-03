@@ -57,7 +57,7 @@ export const userAliasesPostgres = pgTable(
       .notNull()
       .references(() => usersPostgres.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
-    providerConnectionId: text('provider_connection_id'),
+    providerAccountId: text('provider_account_id'),
     externalUserId: text('external_user_id').notNull(),
     displayName: text('display_name'),
     verificationStatus: text('verification_status')
@@ -88,7 +88,7 @@ export const userAliasesPostgres = pgTable(
       .on(
         table.appId,
         table.provider,
-        sql`COALESCE(${table.providerConnectionId}, '')`,
+        sql`COALESCE(${table.providerAccountId}, '')`,
         table.externalUserId,
       )
       .where(sql`${table.retiredAt} IS NULL`),

@@ -74,7 +74,7 @@ export function createArchiveCurrentSessionHandler(input: {
     const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
-    await archiveCurrentRuntimeSession({
+    return archiveCurrentRuntimeSession({
       ops: input.ops(),
       appId: input.appId,
       group: input.group,
@@ -155,6 +155,7 @@ export function createSessionCompactionHandlers(
 ) {
   const getContext = async () => {
     const ops = input.ops();
+    const memoryUserId = await readMemoryUserId(input.memoryUserId);
     const executionProviderId =
       await resolveSessionCommandExecutionProviderId(input);
     const context = await ops.getAgentTurnContext?.({
@@ -165,7 +166,7 @@ export function createSessionCompactionHandlers(
       providerAccountId: input.group.providerAccountId,
       threadId: input.threadId,
       conversationKind: input.group.conversationKind,
-      memoryUserId: input.memoryUserId,
+      memoryUserId,
       hydrateMemory: false,
     });
     const repository = input.getAsyncTaskRepository?.();

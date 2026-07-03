@@ -43,7 +43,7 @@ export function personalMemorySubjectHash(input: {
   return `msu_${hashText(`${input.appId}:${agentId}:user:${input.personId}`).slice(0, 32)}`;
 }
 
-export function normalizeProviderConnectionId(
+export function normalizeProviderAccountId(
   value: string | null | undefined,
 ): string | null {
   const trimmed = value?.trim();
@@ -70,7 +70,7 @@ export function toAlias(row: AliasRow): PersonAliasRecord {
     appId: row.appId,
     personId: row.userId,
     provider: row.provider,
-    providerConnectionId: row.providerConnectionId,
+    providerAccountId: row.providerAccountId,
     externalUserId: row.externalUserId,
     displayName: row.displayName,
     verificationStatus: aliasStatus(row),
