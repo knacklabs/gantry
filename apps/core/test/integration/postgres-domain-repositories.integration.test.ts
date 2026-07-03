@@ -154,11 +154,11 @@ maybeDescribe('Postgres domain repositories', () => {
     ).resolves.toMatchObject({ id: threadId });
   });
 
-  it('resolves aliases by exact app, provider, providerConnectionId, and external user id', async () => {
+  it('resolves aliases by exact app, provider, providerAccountId, and external user id', async () => {
     const created = await people.resolveIdentity({
       appId,
       provider: 'slack',
-      providerConnectionId,
+      providerAccountId,
       externalUserId: 'U-person-1',
       displayName: 'Slack User',
       evidenceType: 'provider_user',
@@ -171,7 +171,7 @@ maybeDescribe('Postgres domain repositories', () => {
       people.resolveIdentity({
         appId,
         provider: 'slack',
-        providerConnectionId,
+        providerAccountId,
         externalUserId: 'U-person-1',
         evidenceType: 'provider_user',
         createIfMissing: false,
@@ -186,8 +186,8 @@ maybeDescribe('Postgres domain repositories', () => {
       people.resolveIdentity({
         appId,
         provider: 'slack',
-        providerConnectionId:
-          'channel-providerConnection:test:other' as ProviderConnectionId,
+        providerAccountId:
+          'channel-providerAccount:test:other' as ProviderAccountId,
         externalUserId: 'U-person-1',
         evidenceType: 'provider_user',
         createIfMissing: false,
@@ -202,7 +202,7 @@ maybeDescribe('Postgres domain repositories', () => {
       people.resolveIdentity({
         appId: 'app-two' as AppId,
         provider: 'slack',
-        providerConnectionId,
+        providerAccountId,
         externalUserId: 'U-person-1',
         evidenceType: 'provider_user',
         createIfMissing: false,
@@ -265,7 +265,7 @@ maybeDescribe('Postgres domain repositories', () => {
     const created = await people.resolveIdentity({
       appId,
       provider: 'slack',
-      providerConnectionId,
+      providerAccountId,
       externalUserId: 'U-reactivate-1',
       displayName: 'Reactivate Me',
       evidenceType: 'provider_user',
@@ -286,7 +286,7 @@ maybeDescribe('Postgres domain repositories', () => {
       appId,
       personId: created.personId!,
       provider: 'slack',
-      providerConnectionId,
+      providerAccountId,
       externalUserId: 'U-reactivate-1',
       displayName: 'Reactivate Me Again',
       evidenceType: 'provider_user',

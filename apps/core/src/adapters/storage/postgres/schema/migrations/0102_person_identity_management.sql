@@ -11,7 +11,7 @@ SET verification_status = 'unverified'
 WHERE verification_status IS NULL OR verification_status = '';
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_aliases_active_provider_external
-  ON user_aliases(app_id, provider, COALESCE(provider_connection_id, ''), external_user_id)
+  ON user_aliases(app_id, provider, COALESCE(provider_account_id, ''), external_user_id)
   WHERE retired_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS person_merge_audit (

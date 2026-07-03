@@ -1,12 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
-import type {
-  ConversationDiscoveryInput,
-  ConversationInstallInput,
-  ProviderAccountInput,
-  ProviderAccountPatch,
-} from './provider-types.js';
+import type { ConversationDiscoveryInput, ConversationInstallInput, ProviderAccountInput, ProviderAccountPatch } from './provider-types.js';
 import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
@@ -23,16 +18,7 @@ import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
-import {
-  createIdentityClient,
-  createPeopleClient,
-  type IdentityEvidenceType,
-  type IdentityResolveInput,
-  type PersonAliasInput,
-  type PersonAliasVerificationStatus,
-  type PersonMergeConflictResolution,
-  type PersonMergeInput,
-} from './people.js';
+import { createIdentityClient, createPeopleClient } from './people.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { createModelsClient } from './models.js';
@@ -301,15 +287,13 @@ export class GantryClient {
     this.transport.request<T>(options);
   readonly ingresses: ReturnType<typeof createIngressesClient>;
   readonly models: ReturnType<typeof createModelsClient>;
-  readonly identity: ReturnType<typeof createIdentityClient>;
-  readonly people: ReturnType<typeof createPeopleClient>;
+  readonly identity: ReturnType<typeof createIdentityClient>; readonly people: ReturnType<typeof createPeopleClient>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
     this.models = createModelsClient(this.transport);
-    this.identity = createIdentityClient(this.request);
-    this.people = createPeopleClient(this.request);
+    this.identity = createIdentityClient(this.request); this.people = createPeopleClient(this.request);
   }
 
   health() {

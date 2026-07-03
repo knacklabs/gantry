@@ -16,7 +16,10 @@ import {
   publishIdentityAliasRetiredEvent,
   publishIdentityResolvedEvent,
 } from '../../../application/identity/identity-runtime-events.js';
-import { PersonIdentityService } from '../../../application/identity/person-identity-service.js';
+import {
+  type IdentityResolveResult,
+  PersonIdentityService,
+} from '../../../application/identity/person-identity-service.js';
 import { canAccessApp } from '../app-identity.js';
 import {
   authorizeControlRequest,
@@ -28,7 +31,7 @@ import {
   sendError,
   sendJson,
 } from '../http.js';
-import { isValidControlId, type ApiKeyRecord } from '../auth.js';
+import { isValidControlId, type ApiKeyRecord, type Scope } from '../auth.js';
 
 function service(): PersonIdentityService {
   return new PersonIdentityService(
@@ -56,6 +59,21 @@ function assertPeopleAppAccess(
     return false;
   }
   return true;
+}
+
+function hasScope(auth: ApiKeyRecord, scope: Scope): boolean {
+  return auth.scopes.has(scope);
+}
+
+function redactIdentityResolveResult(
+  result: IdentityResolveResult,
+): IdentityResolveResult {
+  return {
+    status: result.status,
+    personId: result.personId,
+    memoryHydrationEligible: result.memoryHydrationEligible,
+    verificationStatus: result.verificationStatus,
+  };
 }
 
 function personIdFromPath(pathname: string): string | null {
@@ -111,15 +129,23 @@ export async function handlePeopleRoutes(
     }
     const appId = parsed.data.appId?.trim() || auth.appId;
     if (!assertPeopleAppAccess(res, appId, auth)) return true;
+    const canCreate = hasScope(auth, 'people:admin');
+    const canReadAliasDetails =
+      hasScope(auth, 'people:read') || hasScope(auth, 'people:admin');
     try {
-      const result = await service().resolve({ ...parsed.data, appId });
+      const result = await service().resolve({
+        ...parsed.data,
+        appId,
+        createIfMissing:
+          parsed.data.createIfMissing === true ? canCreate : false,
+      });
       await publishIdentityResolvedEvent(
         (event) => getRuntimeEventExchange().publish(event),
         {
           appId,
           source: 'control_api',
           provider: parsed.data.provider,
-          providerConnectionId: parsed.data.providerConnectionId,
+          providerAccountId: parsed.data.providerAccountId,
           evidenceType: parsed.data.evidenceType,
           status: result.status,
           personId: result.personId,
@@ -127,7 +153,11 @@ export async function handlePeopleRoutes(
           memoryHydrationEligible: result.memoryHydrationEligible,
         },
       );
-      sendJson(res, 200, result);
+      sendJson(
+        res,
+        200,
+        canReadAliasDetails ? result : redactIdentityResolveResult(result),
+      );
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
@@ -185,7 +215,7 @@ export async function handlePeopleRoutes(
           personId: created.personId,
           aliasId: created.id,
           provider: created.provider,
-          providerConnectionId: created.providerConnectionId,
+          providerAccountId: created.providerAccountId,
           verificationStatus: created.verificationStatus,
           actor: auth.kid,
         },
@@ -216,7 +246,7 @@ export async function handlePeopleRoutes(
           personId: retired.personId,
           aliasId: retired.id,
           provider: retired.provider,
-          providerConnectionId: retired.providerConnectionId,
+          providerAccountId: retired.providerAccountId,
           verificationStatus: retired.verificationStatus,
           actor: auth.kid,
         },

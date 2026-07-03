@@ -32,14 +32,14 @@ describe('resolveCanonicalMemoryPersonId', () => {
         conversationKind: 'channel',
         messages: [baseMessage],
         chatJid: 'telegram:group-1',
-        providerConnectionId: 'provider-telegram-1',
+        providerAccountId: 'provider-telegram-1',
       }),
-    ).resolves.toBe('person:one');
+    ).resolves.toBeUndefined();
 
     expect(resolvePersonIdentity).toHaveBeenCalledWith({
       appId: 'app-one',
       provider: 'telegram',
-      providerConnectionId: 'provider-telegram-1',
+      providerAccountId: 'provider-telegram-1',
       externalUserId: 'external-user-1',
       displayName: 'External User',
       evidenceType: 'provider_user',
@@ -67,7 +67,7 @@ describe('resolveCanonicalMemoryPersonId', () => {
         identityEvidenceType: 'web_user',
         systemSenderIds: ['sdk'],
       }),
-    ).resolves.toBe('person:web-user');
+    ).resolves.toBeUndefined();
 
     expect(resolvePersonIdentity).toHaveBeenCalledWith(
       expect.objectContaining({

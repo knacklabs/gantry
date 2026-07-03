@@ -28,7 +28,7 @@ describe('buildGantryMcpProjection', () => {
     expect(projection.selectedToolNames).toContain('send_message');
     expect(projection.selectedToolNames).toContain('ask_user_question');
     expect(projection.selectedToolNames).toContain('todo_update');
-    expect(projection.selectedToolNames).not.toContain('memory_search');
+    expect(projection.selectedToolNames).toContain('memory_search');
     // No Browser selected and no browser IPC token -> browser tools absent.
     expect(projection.browserIpcEnabled).toBe(false);
     expect(projection.selectedToolNames).not.toContain('browser_open');

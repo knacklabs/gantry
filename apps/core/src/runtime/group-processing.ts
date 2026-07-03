@@ -28,7 +28,7 @@ import { createRuntimeModelStatusAccess } from './model-status-store.js';
 import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
 import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
-import { resolveCanonicalMemoryPersonId } from './group-person-identity.js';
+import { createGroupProcessingPersonResolver } from './group-person-identity.js';
 import { getGroupBrowserStatus } from './group-browser-status.js';
 import {
   handleFailure,
@@ -164,27 +164,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     );
     const rawMemoryUserId =
       options.memoryContext?.userId ?? resolveMemoryUserId(missedMessages);
-    let memoryUserIdPromise: Promise<string | undefined> | null = null;
-    const resolveActionMemoryUserId = async (): Promise<string | undefined> => {
-      if (defaultMemoryScope !== 'user') return undefined;
-      if (!memoryUserIdPromise) {
-        memoryUserIdPromise = resolveCanonicalMemoryPersonId({
-          resolvePersonIdentity: deps.resolvePersonIdentity,
-          publishRuntimeEvent: deps.publishRuntimeEvent,
-          appId: turnAppId,
-          rawUserId: rawMemoryUserId,
-          defaultScope: defaultMemoryScope,
-          conversationKind: group.conversationKind ?? 'channel',
-          messages: missedMessages,
-          chatJid,
-          threadId: activeThreadId,
-          providerConnectionId: group.providerConnectionId,
-          identityEvidenceType: group.senderIdentityEvidenceType,
-          systemSenderIds: group.systemSenderIds,
-        });
-      }
-      return memoryUserIdPromise;
-    };
+    const resolveActionMemoryUserId = createGroupProcessingPersonResolver({
+      deps,
+      appId: turnAppId,
+      rawUserId: rawMemoryUserId,
+      defaultScope: defaultMemoryScope,
+      group,
+      messages: missedMessages,
+      chatJid,
+      threadId: activeThreadId,
+    });
     const modelStatus = createRuntimeModelStatusAccess(
       group.folder,
       activeThreadId,

@@ -45,7 +45,7 @@ const PUBLIC_CATALOG = [
   'Rich UI: render_status, render_facts, render_list, render_table, render_form, render_media, render_progress',
   'Web: WebSearch, WebRead, Browser',
   'Files: FileSearch, FileRead, FileEdit, FileWrite, file',
-  'Memory: host-injected context plus selected reviewed memory tools',
+  'Memory: memory_search, memory_save, reviewed memory tools',
   'Skills: selected skills and skill request tools',
   'MCP/apps: mcp_list_tools, mcp_describe_tool, mcp_call_tool, async_mcp_call, request_mcp_server',
   'Commands: RunCommand(<argv pattern>)',

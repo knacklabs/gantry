@@ -252,9 +252,9 @@ Before each agent run, the host uses the current message or scheduled job prompt
 as a lexical query against visible memory for the current
 app/agent/user/group/channel context. Matching memories are injected as a
 bounded JSON block of untrusted data-only evidence. If no memory matches, no
-memory block is injected. If selected memory tools are available, the agent may
-use them for more context, especially when the user asks to continue or resume.
-Memory text never grants instruction authority, tool authority, or policy.
+memory block is injected. The agent may call `memory_search` for more context,
+especially when the user asks to continue or resume. Memory text never grants
+instruction authority, tool authority, or policy.
 
 ## SDK APIs
 
@@ -290,7 +290,7 @@ ids should be resolved through identity first.
 | Control API                  | Changed             | Memory save/search/list/patch/delete and dreaming routes operate over the app-bound memory service.                                                                                                                                                  |
 | SDK/contracts                | Changed             | Server-side SDK memory methods are the API-first management surface.                                                                                                                                                                                 |
 | CLI                          | Changed             | `gantry memory status`/`doctor` report memory, embeddings, dreaming, and live vector recall status; `gantry memory embeddings backfill` runs/resumes item indexing with truthful complete/paused/submitted output.                                   |
-| Gantry MCP tools/admin skill | Changed             | Host-owned hydration supplies baseline memory context; selected/reviewed memory tools can search, save, request `continuity_summary`, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP. |
+| Gantry MCP tools/admin skill | Changed             | Agent tools can search, save, request `continuity_summary`, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP. |
 | Channel/provider adapters    | Unchanged by design | Channels only provide source identity and conversation scope; memory storage stays channel-neutral.                                                                                                                                                  |
 | Docs/prompts                 | Changed             | Active docs state flattened memory items, hybrid lexical + vector retrieval with lexical fallback, resumable embedding backfill, and no compact-summary replay.                                                                                      |
 | Audit/events                 | Changed             | Evidence, recall, dream run, dream decision, review proposal, reviewer decision, and apply outcome rows remain audit surfaces for memory lifecycle decisions.                                                                                        |

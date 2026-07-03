@@ -15,7 +15,7 @@ export type PersonMergeConflictResolution = 'fail_on_conflict' | 'keep_target';
 export interface IdentityResolveInput {
   appId?: string;
   provider: string;
-  providerConnectionId?: string | null;
+  providerAccountId?: string | null;
   externalUserId: string;
   displayName?: string | null;
   evidenceType: IdentityEvidenceType;
@@ -25,7 +25,7 @@ export interface IdentityResolveInput {
 export interface PersonAliasInput {
   appId?: string;
   provider: string;
-  providerConnectionId?: string | null;
+  providerAccountId?: string | null;
   externalUserId: string;
   displayName?: string | null;
   evidenceType: IdentityEvidenceType;

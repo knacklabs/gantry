@@ -143,7 +143,7 @@ describe('effective enabled MCP tool projection', () => {
     expect(enabled.has('todo_update')).toBe(true);
     expect(enabled.has('delegate_task')).toBe(false);
     expect(enabled.has('task_message')).toBe(false);
-    expect(enabled.has('memory_search')).toBe(false);
+    expect(enabled.has('memory_search')).toBe(true);
     expect(enabled.has('agent_profile_read')).toBe(true);
   });
 

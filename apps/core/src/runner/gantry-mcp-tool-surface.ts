@@ -82,12 +82,8 @@ export const OPTIONAL_GANTRY_MCP_TOOL_NAMES = [
 ] as const;
 
 export const REVIEWED_GANTRY_MCP_TOOL_NAMES = [
-  'memory_search',
-  'memory_save',
   'memory_patch',
   'memory_demote',
-  'continuity_summary',
-  'procedure_save',
   'procedure_patch',
   'memory_dream',
   'memory_consolidate',

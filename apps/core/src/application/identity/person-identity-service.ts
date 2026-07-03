@@ -31,7 +31,7 @@ export interface PersonAliasRecord {
   appId: string;
   personId: string;
   provider: string;
-  providerConnectionId?: string | null;
+  providerAccountId?: string | null;
   externalUserId: string;
   displayName?: string | null;
   verificationStatus: AliasVerificationStatus;
@@ -47,7 +47,7 @@ export interface PersonAliasRecord {
 export interface IdentityResolveInput {
   appId: string;
   provider: string;
-  providerConnectionId?: string | null;
+  providerAccountId?: string | null;
   externalUserId: string;
   displayName?: string | null;
   evidenceType: IdentityEvidenceType;
@@ -67,7 +67,7 @@ export interface AddPersonAliasInput {
   appId: string;
   personId: string;
   provider: string;
-  providerConnectionId?: string | null;
+  providerAccountId?: string | null;
   externalUserId: string;
   displayName?: string | null;
   evidenceType: IdentityEvidenceType;
@@ -83,8 +83,11 @@ export interface RetirePersonAliasInput {
 }
 
 export interface PersonMergeConflict {
-  sourceMemoryId: string;
-  targetMemoryId: string;
+  type?: 'memory' | 'alias';
+  sourceMemoryId?: string;
+  targetMemoryId?: string;
+  sourceAliasId?: string;
+  targetAliasId?: string;
   agentId?: string | null;
   kind: string;
   key: string;

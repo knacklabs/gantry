@@ -21,7 +21,7 @@ export async function publishIdentityResolvedEvent(
     appId: string;
     source: IdentityEventSource;
     provider: string;
-    providerConnectionId?: string | null;
+    providerAccountId?: string | null;
     evidenceType: 'provider_user' | 'email' | 'phone' | 'web_user';
     status:
       | 'resolved'
@@ -45,8 +45,8 @@ export async function publishIdentityResolvedEvent(
     payload: {
       source: input.source,
       provider: input.provider,
-      ...(input.providerConnectionId
-        ? { providerConnectionId: input.providerConnectionId }
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
         : {}),
       evidenceType: input.evidenceType,
       status: input.status,
@@ -68,7 +68,7 @@ export async function publishIdentityAliasLinkedEvent(
     personId: string;
     aliasId: string;
     provider: string;
-    providerConnectionId?: string | null;
+    providerAccountId?: string | null;
     verificationStatus: 'verified' | 'unverified' | 'retired';
     actor: string;
   },
@@ -82,8 +82,8 @@ export async function publishIdentityAliasLinkedEvent(
       personId: input.personId,
       aliasId: input.aliasId,
       provider: input.provider,
-      ...(input.providerConnectionId
-        ? { providerConnectionId: input.providerConnectionId }
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
         : {}),
       verificationStatus: input.verificationStatus,
       actor: input.actor,
@@ -98,7 +98,7 @@ export async function publishIdentityAliasRetiredEvent(
     personId: string;
     aliasId: string;
     provider: string;
-    providerConnectionId?: string | null;
+    providerAccountId?: string | null;
     verificationStatus: 'verified' | 'unverified' | 'retired';
     actor: string;
   },
@@ -112,8 +112,8 @@ export async function publishIdentityAliasRetiredEvent(
       personId: input.personId,
       aliasId: input.aliasId,
       provider: input.provider,
-      ...(input.providerConnectionId
-        ? { providerConnectionId: input.providerConnectionId }
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
         : {}),
       verificationStatus: input.verificationStatus,
       actor: input.actor,
@@ -130,7 +130,7 @@ export async function publishMemoryHydrationDecisionEvent(
     conversationJid: string;
     threadId?: string | null;
     provider: string;
-    providerConnectionId?: string | null;
+    providerAccountId?: string | null;
     personId?: string | null;
     reason: MemoryHydrationDecisionReason;
     memoryHydrationEligible: boolean;
@@ -148,8 +148,8 @@ export async function publishMemoryHydrationDecisionEvent(
       conversationJid: input.conversationJid,
       ...(input.threadId ? { threadId: input.threadId } : {}),
       provider: input.provider,
-      ...(input.providerConnectionId
-        ? { providerConnectionId: input.providerConnectionId }
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
         : {}),
       ...(input.personId ? { personId: input.personId } : {}),
       reason: input.reason,
