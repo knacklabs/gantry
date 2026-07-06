@@ -49,6 +49,7 @@ import type {
 import { sendError } from './http.js';
 import { createRateLimiter } from './rate-limit.js';
 import { handleAgentRoutes } from './routes/agents.js';
+import { handleBrainRoutes } from './routes/brain.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleCredentialRoutes } from './routes/credentials.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
@@ -162,6 +163,7 @@ function createControlRequestHandler(
       if (await handleProviderConversationRoutes(req, res, ctx, url, pathname))
         return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleBrainRoutes(req, res, ctx, url, pathname)) return;
       if (await handleCredentialRoutes(req, res, ctx, pathname)) return;
       if (await handleModelRoutes(req, res, ctx, pathname)) return;
       if (await handleJobRoutes(req, res, ctx, url, pathname)) return;

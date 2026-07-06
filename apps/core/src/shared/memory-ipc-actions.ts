@@ -1,6 +1,9 @@
 export const MEMORY_IPC_ACTIONS_BY_TOOL_NAME = {
   memory_search: 'memory_search',
   memory_save: 'memory_save',
+  brain_search: 'brain_search',
+  brain_query: 'brain_query',
+  brain_write: 'brain_write',
   memory_patch: 'memory_patch',
   memory_demote: 'memory_demote',
   continuity_summary: 'continuity_summary',
@@ -18,6 +21,9 @@ export type GantryMemoryIpcAction =
 const MEMORY_IPC_ACTION_ORDER = [
   'memory_search',
   'memory_save',
+  'brain_search',
+  'brain_query',
+  'brain_write',
   'memory_patch',
   'memory_demote',
   'continuity_summary',
@@ -33,6 +39,9 @@ const MEMORY_IPC_ACTION_SET = new Set<string>(MEMORY_IPC_ACTION_ORDER);
 const DEFAULT_MEMORY_IPC_ACTIONS = [
   'memory_search',
   'memory_save',
+  'brain_search',
+  'brain_query',
+  'brain_write',
   'continuity_summary',
   'procedure_save',
 ] as const satisfies readonly GantryMemoryIpcAction[];

@@ -90,6 +90,7 @@ function usage(): string {
     '  gantry browser profiles|status',
     '  gantry jobs list|show|resume|trigger|set-route|events [--full|--json]',
     '  gantry model status|list|set|reset|why|use-preset|doctor',
+    '  gantry brain import|status',
     '  gantry credentials model|capability|browser ...',
     '  gantry settings validate|import|export|drift|revisions list',
     '  gantry workers list',
@@ -469,6 +470,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'memory') {
     const { runMemoryCommand } = await import('./memory.js');
     return runMemoryCommand(runtimeHome, rest);
+  }
+
+  if (command === 'brain') {
+    const { runBrainCommand } = await import('./brain.js');
+    return runBrainCommand(runtimeHome, rest);
   }
 
   if (command === 'browser') {

@@ -1174,6 +1174,9 @@ describe('agent-spawn timeout behavior', () => {
       allowedActions: [
         'memory_search',
         'memory_save',
+        'brain_search',
+        'brain_query',
+        'brain_write',
         'continuity_summary',
         'procedure_save',
       ],

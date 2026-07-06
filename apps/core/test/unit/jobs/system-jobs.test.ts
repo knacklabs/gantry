@@ -46,6 +46,7 @@ function makeRoute(
 async function loadSystemJobs(
   triggerDreaming = vi.fn(),
   listPendingReviews = vi.fn(async () => []),
+  configOverrides: Record<string, unknown> = {},
 ) {
   vi.resetModules();
   vi.doMock('@core/config/index.js', () => ({
@@ -63,6 +64,7 @@ async function loadSystemJobs(
     MEMORY_EMBED_DIMENSIONS: 1536,
     MEMORY_EMBED_BATCH_SIZE: 16,
     OPENAI_DAILY_EMBED_LIMIT: 500,
+    ...configOverrides,
   }));
   vi.doMock('@core/memory/app-memory-service.js', () => ({
     AppMemoryService: {
@@ -204,6 +206,33 @@ describe('system memory dreaming jobs', () => {
 
     expect(deleteJob).not.toHaveBeenCalled();
     expect(upsertJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers memory and brain embedding backfill jobs together', async () => {
+    const { registerSystemJobs } = await loadSystemJobs(vi.fn(), vi.fn(), {
+      MEMORY_BACKFILL_ENABLED: true,
+      MEMORY_EMBED_PROVIDER: 'test',
+    });
+    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const getJobById = vi.fn().mockResolvedValue(undefined);
+
+    await registerSystemJobs({
+      conversationRoutes: () => ({
+        'sl:C123': makeRoute({ folder: 'agent', conversationKind: 'channel' }),
+      }),
+      opsRepository: {
+        getJobById,
+        getAllJobs: vi.fn(async () => []),
+        deleteJob: vi.fn(async () => undefined),
+        upsertJob,
+      },
+    } as never);
+
+    expect(upsertJob.mock.calls.map((call) => call[0].id)).toEqual([
+      expect.stringMatching(/^system:dreaming:/),
+      'system:embedding-backfill',
+      'system:brain-embedding-backfill',
+    ]);
   });
 
   it('runs scheduled channel dreaming against whole channel subject without thread memory scope', async () => {

@@ -16,6 +16,8 @@ import {
 } from '../config/index.js';
 import type { AppId } from '../domain/app/app.js';
 import type { Job } from '../domain/types.js';
+import { createRuntimeBrainService } from '../brain/brain-runtime.js';
+import { runBrainEmbeddingBackfill } from '../brain/brain-embedding-backfill.js';
 import {
   getMemoryMaintenanceQueue,
   type MemoryMaintenanceQueueEnqueueResult,
@@ -49,6 +51,8 @@ import {
   MEMORY_DREAMING_JOB_ID_PREFIX,
   MEMORY_EMBEDDING_BACKFILL_JOB_ID,
   MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+  BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+  BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
@@ -57,6 +61,7 @@ import type { SchedulerDependencies } from './types.js';
 export {
   MEMORY_DREAM_SYSTEM_PROMPT,
   MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+  BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
@@ -161,6 +166,7 @@ export async function registerSystemJobs(
     dreamingCron: MEMORY_DREAMING_CRON,
     dreamingTimeoutMs: MEMORY_DREAM_SYSTEM_JOB_TIMEOUT_MS,
     backfillEnabled: embeddingBackfillEnabled(),
+    brainBackfillEnabled: embeddingBackfillEnabled(),
     backfillCron: MEMORY_BACKFILL_CRON,
     routes: registrations
       .map(({ jid, group }) => [
@@ -273,6 +279,46 @@ export async function registerSystemJobs(
         >[0],
       );
     }
+
+    const existingBrain = await deps.opsRepository.getJobById(
+      BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+    );
+    if (existingBrain?.status !== 'dead_lettered') {
+      const computedNextRun = computeNextJobRun(
+        { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
+        nowIso,
+      );
+      const target = buildCanonicalJobLifecycleTarget({
+        conversationJid: primary.jid,
+        workspaceKey: primary.group.folder,
+        threadId: null,
+        label: 'primary',
+      });
+      const brainBackfillJob = {
+        id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+        name: 'Brain Embedding Backfill',
+        prompt: BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+        schedule_type: 'cron',
+        schedule_value: MEMORY_BACKFILL_CRON,
+        session_id: null,
+        workspace_key: primary.group.folder,
+        created_by: 'agent',
+        status: existingBrain?.status === 'paused' ? 'paused' : 'active',
+        next_run: existingBrain?.next_run || computedNextRun,
+        silent: true,
+        timeout_ms: MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS,
+        max_retries: 1,
+        retry_backoff_ms: 30_000,
+        max_consecutive_failures: 3,
+        execution_context: target.executionContext,
+        notification_routes: target.notificationRoutes,
+      };
+      await deps.opsRepository.upsertJob(
+        brainBackfillJob as unknown as Parameters<
+          SchedulerDependencies['opsRepository']['upsertJob']
+        >[0],
+      );
+    }
   }
   setSystemJobRegistrationSignature(deps.opsRepository, registrationSignature);
 }
@@ -310,6 +356,9 @@ export async function handleSystemJob(
 ): Promise<string> {
   if (job.prompt === MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
     return runScheduledEmbeddingBackfill(options.signal);
+  }
+  if (job.prompt === BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
+    return runScheduledBrainEmbeddingBackfill(options.signal);
   }
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
     options.signal?.throwIfAborted();
@@ -375,6 +424,21 @@ export async function handleSystemJob(
     }
   }
   throw new Error(`Unknown system job: ${job.prompt}`);
+}
+
+async function runScheduledBrainEmbeddingBackfill(
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
+  if (!embeddingBackfillEnabled()) {
+    return 'Brain embedding backfill is disabled.';
+  }
+  return runBrainEmbeddingBackfill({
+    brain: createRuntimeBrainService(DEFAULT_MEMORY_APP_ID),
+    appId: DEFAULT_MEMORY_APP_ID,
+    limit: MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+    signal,
+  });
 }
 
 async function runScheduledEmbeddingBackfill(

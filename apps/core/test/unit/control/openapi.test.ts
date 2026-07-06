@@ -9,6 +9,7 @@ import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-sett
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
 import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
+import { handleBrainRoutes } from '@core/control/server/routes/brain.js';
 import { handleCapabilityCatalogRoutes } from '@core/control/server/routes/capability-catalog.js';
 import { handleCredentialRoutes } from '@core/control/server/routes/credentials.js';
 import { handleExternalIngressRoutes } from '@core/control/server/routes/external-ingress.js';
@@ -48,6 +49,8 @@ const expectedControlRoutes = [
   'GET /v1/agents/{agentId}/skills',
   'DELETE /v1/agents/{agentId}/skills/{skillId}',
   'PUT /v1/agents/{agentId}/skills/{skillId}',
+  'POST /v1/brain/import',
+  'GET /v1/brain/status',
   'GET /v1/capabilities',
   'GET /v1/capabilities/{capabilityId}',
   'GET /v1/conversations',
@@ -268,6 +271,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleSessionRoutes(req, res, ctx, url, pathname),
     () => handleProviderConversationRoutes(req, res, ctx, url, pathname),
     () => handleMemoryRoutes(req, res, ctx, url, pathname),
+    () => handleBrainRoutes(req, res, ctx, url, pathname),
     () => handleModelRoutes(req, res, ctx, pathname),
     () => handleCredentialRoutes(req, res, ctx, pathname),
     () => handleJobRoutes(req, res, ctx, url, pathname),

@@ -631,6 +631,13 @@
       "when": 1777317000000,
       "tag": "0092_provider_accounts_final_repairs",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1777320600000,
+      "tag": "0093_company_brain_core",
+      "breakpoints": true
     }
   ]
 }

@@ -167,6 +167,69 @@ export function formatMemoryReviewDecisionResponse(response: {
   ].join('\n');
 }
 
+export function formatBrainSearchResponse(response: {
+  provider?: string;
+  data?: unknown;
+}): string {
+  const data = objectRecord(response.data);
+  const results = Array.isArray(data?.results) ? data.results : [];
+  if (results.length === 0) return 'No company brain pages found.';
+  const lines = [
+    `Found ${results.length} company brain page${results.length === 1 ? '' : 's'}:`,
+  ];
+  results.slice(0, 20).forEach((rawResult, index) => {
+    const result = objectRecord(rawResult);
+    const page = objectRecord(result?.page);
+    const title = stringValue(page?.title) || stringValue(page?.slug) || 'page';
+    const slug = stringValue(page?.slug) || '';
+    const snippet = stringValue(result?.snippet) || '';
+    lines.push(
+      `${index + 1}. ${title}${slug ? ` (${slug})` : ''}${snippet ? ` - ${truncateText(snippet.replace(/\s+/g, ' '), 220)}` : ''}`,
+    );
+  });
+  return lines.join('\n');
+}
+
+export function formatBrainQueryResponse(response: {
+  provider?: string;
+  data?: unknown;
+}): string {
+  const data = objectRecord(response.data);
+  const query = objectRecord(data?.query);
+  if (!query) return 'No company brain answer returned.';
+  const answer = stringValue(query.answer) || 'No answer.';
+  const citations = Array.isArray(query.citations) ? query.citations : [];
+  const citationLines = citations
+    .map((rawCitation, index) => {
+      const citation = objectRecord(rawCitation);
+      const title =
+        stringValue(citation?.title) || stringValue(citation?.slug) || 'page';
+      const slug = stringValue(citation?.slug);
+      return `${index + 1}. ${title}${slug ? ` (${slug})` : ''}`;
+    })
+    .filter(Boolean);
+  const gaps = stringValue(query.gaps);
+  return [
+    answer,
+    citationLines.length > 0 ? `Citations:\n${citationLines.join('\n')}` : '',
+    gaps ? `Gaps: ${gaps}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+export function formatBrainWriteResponse(response: {
+  provider?: string;
+  data?: unknown;
+}): string {
+  const data = objectRecord(response.data);
+  const page = objectRecord(data?.page);
+  if (!page) return 'Company brain page saved.';
+  const title = stringValue(page.title) || stringValue(page.slug) || 'page';
+  const created = data?.created === true;
+  return `Company brain page ${created ? 'created' : 'updated'}: ${title}.`;
+}
+
 /**
  * Concise human-readable acknowledgement for memory WRITE actions
  * (save/patch/demote/procedure/consolidate/dream). Avoids dumping the raw

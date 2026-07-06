@@ -1074,7 +1074,7 @@ describe('Postgres migration journal', () => {
     ) as {
       entries: Array<{ idx: number; tag: string; when: number }>;
     };
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries.find((entry) => entry.idx === 92)).toMatchObject({
       idx: 92,
       when: 1777317000000,
       tag: '0092_provider_accounts_final_repairs',
@@ -1100,6 +1100,42 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain(
       'AND existing."idempotency_key" = repairs."idempotency_key"',
     );
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('RENAME TO');
+    expect(migration).not.toContain('ALTER TABLE');
+  });
+
+  it('registers company brain core tables after the 0092 repairs', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 93,
+      when: 1777320600000,
+      tag: '0093_company_brain_core',
+    });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0093_company_brain_core.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_pages');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_entities');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_edges');
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS brain_page_embeddings',
+    );
+    expect(migration).toContain('USING hnsw (embedding vector_cosine_ops)');
     expect(migration).not.toContain('DROP TABLE');
     expect(migration).not.toContain('RENAME TO');
     expect(migration).not.toContain('ALTER TABLE');

@@ -100,6 +100,9 @@ describe('contracts package', () => {
     expect(MEMORY_IPC_ACTIONS).toEqual([
       'memory_search',
       'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
       'memory_patch',
       'memory_demote',
       'continuity_summary',

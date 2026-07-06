@@ -489,6 +489,9 @@ describe('agent capability composition', () => {
     ).toEqual([
       'memory_search',
       'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
       'memory_patch',
       'memory_demote',
       'continuity_summary',
@@ -541,6 +544,9 @@ describe('agent capability composition', () => {
     ).toEqual([
       'memory_search',
       'memory_save',
+      'brain_search',
+      'brain_query',
+      'brain_write',
       'continuity_summary',
       'memory_review_pending',
       'memory_review_decision',
