@@ -85,7 +85,7 @@ async function importDirectory(
   let updated = 0;
   for (const file of files) {
     const markdown = fs.readFileSync(file, 'utf8');
-    const slug = normalizeBrainSlug(path.basename(file, '.md'));
+    const slug = normalizeBrainSlug(path.relative(root, file));
     const result = await brain.write({
       appId,
       slug,

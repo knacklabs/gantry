@@ -191,15 +191,29 @@ companies: [Knacklabs]
 ---
 Dana works at Knacklabs.`,
       );
+      fs.mkdirSync(path.join(fixtureDir, 'team-a'));
+      fs.mkdirSync(path.join(fixtureDir, 'team-b'));
+      fs.writeFileSync(
+        path.join(fixtureDir, 'team-a', 'README.md'),
+        '# Team A readme',
+      );
+      fs.writeFileSync(
+        path.join(fixtureDir, 'team-b', 'README.md'),
+        '# Team B readme',
+      );
       process.env.GANTRY_DATABASE_URL = process.env.GANTRY_TEST_DATABASE_URL;
       process.env.GANTRY_SETTINGS_POSTGRES_SCHEMA = runtime.schemaName;
       process.env.GANTRY_HOME = runtimeHome;
       process.env.GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING = '1';
 
+      const before = await brain.status('default');
       expect(await runBrainCommand(runtimeHome, ['import', fixtureDir])).toBe(
         0,
       );
       const first = await brain.status('default');
+      // Duplicate basenames in different directories must not collide:
+      // slugs derive from the path relative to the import root.
+      expect(first.pages - before.pages).toBe(3);
       expect(await runBrainCommand(runtimeHome, ['import', fixtureDir])).toBe(
         0,
       );
