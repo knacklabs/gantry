@@ -378,10 +378,7 @@ export function parseConversationHistoryIpcRequest(
     throw new Error('conversation history IPC threadId is required');
   }
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
-  if (
-    !requestId ||
-    !IPC_REQUEST_ID_PATTERN.test(requestId)
-  ) {
+  if (!requestId || !IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid conversation history IPC requestId');
   }
   const payload = isPlainObject(raw.payload) ? raw.payload : {};

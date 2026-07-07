@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  GantryAgentTaskResult,
   GantryStructuredTaskInput,
   GantryStructuredTaskResult,
   GantryStructuredTaskRunner,
@@ -14,6 +15,7 @@ import {
 } from '../shared/helpers.js';
 import { runGenericAgentTask } from './agent-task-runner.js';
 import { resolveStructuredModelProvider, unwrapStructuredJsonModelProviderResult } from './model-provider.js';
+import { observeGantryAgentSpan } from './model-observability.js';
 
 export function createStructuredModelTaskRunner(
   config: StructuredModelTaskRunnerConfig,
@@ -22,6 +24,20 @@ export function createStructuredModelTaskRunner(
   const runnerConfig = { ...config, model };
   return {
     runStructuredTask: async (input) => {
+      return await observeGantryAgentSpan<GantryStructuredTaskResult>({
+        operationName: 'runStructuredTask',
+        taskType: input.taskType,
+        correlationId: input.correlationId ?? null,
+        input: {
+          taskType: input.taskType,
+          input: input.input,
+          outputSchema: input.outputSchema ?? null,
+        },
+        output: (result: GantryStructuredTaskResult) => ({
+          status: result.status,
+          warning_count: result.warnings?.length ?? 0,
+        }),
+      }, async () => {
       const taskRunId = input.correlationId ?? randomUUID();
       let browserContext: Record<string, unknown> | undefined;
       let toolContext: Record<string, unknown> | null = null;
@@ -112,9 +128,24 @@ export function createStructuredModelTaskRunner(
           warnings: [message],
         };
       }
+      });
     },
     runAgentTask: async (input) =>
-      await runGenericAgentTask(runnerConfig, input),
+      await observeGantryAgentSpan<GantryAgentTaskResult>({
+        operationName: 'runAgentTask',
+        taskType: input.taskType,
+        correlationId: input.correlationId ?? null,
+        input: {
+          taskType: input.taskType,
+          input: input.input,
+          maxSteps: input.maxSteps,
+        },
+        output: (result: GantryAgentTaskResult) => ({
+          status: result.status,
+          step_count: result.steps.length,
+          warning_count: result.warnings?.length ?? 0,
+        }),
+      }, async () => runGenericAgentTask(runnerConfig, input)),
   };
 }
 

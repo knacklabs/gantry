@@ -170,7 +170,8 @@ function parseRemoteHostTaskExecutorConfigs(
       endpointUrl,
       authToken: readString(record.authToken),
       timeoutMs:
-        typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)
+        typeof record.timeoutMs === 'number' &&
+        Number.isFinite(record.timeoutMs)
           ? record.timeoutMs
           : null,
     });
