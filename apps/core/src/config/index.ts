@@ -143,7 +143,10 @@ function getPublicConfiguredConversations(settings: RuntimeSettings) {
     Object.entries(settings.conversations).map(([conversationId, entry]) => {
       const { providerConnection: _providerConnection, ...conversation } =
         entry;
-      return [conversationId, conversation];
+      return [
+        conversationId,
+        { ...conversation, brainHarvest: conversation.brainHarvest ?? false },
+      ];
     }),
   );
 }

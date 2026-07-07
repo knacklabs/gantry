@@ -557,6 +557,7 @@ describe('contracts package', () => {
             externalId: 'slack:C123',
             kind: 'channel',
             displayName: 'shared',
+            brainHarvest: false,
             senderPolicy: { allow: '*', mode: 'trigger' },
             controlApprovers: ['slack:UADMIN'],
             installedAgents: {

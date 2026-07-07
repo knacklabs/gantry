@@ -42,6 +42,7 @@ export interface BrainWriteInput {
   sourceKind?: BrainPageSourceKind;
   sourceRef?: string | null;
   authorId?: string | null;
+  embed?: boolean;
 }
 
 export interface BrainWriteResult {
@@ -65,10 +66,11 @@ export class BrainService {
     const parsed = parseBrainMarkdown(input.markdown);
     const slug = normalizeBrainSlug(input.slug);
     if (!slug) throw new Error('brain page slug is required');
-    const sourceKind = sourceKindFromFrontmatter(
-      parsed.frontmatter.source_kind,
-      input.sourceKind ?? 'agent',
-    );
+    // The caller's source kind wins: frontmatter is untrusted content and
+    // must not spoof internal kinds like 'channel' or 'dream'.
+    const sourceKind =
+      input.sourceKind ??
+      sourceKindFromFrontmatter(parsed.frontmatter.source_kind, 'agent');
     const { page, created } = await this.repository.upsertPage({
       appId: input.appId,
       slug,
@@ -119,8 +121,12 @@ export class BrainService {
           : [];
       }),
     );
-    await this.embedPageIfEnabled(page);
+    if (input.embed !== false) await this.embedPageIfEnabled(page);
     return { page, created, entities, edges };
+  }
+
+  getPageBySlug(appId: string, slug: string): Promise<BrainPage | null> {
+    return this.repository.getPageBySlug(appId, normalizeBrainSlug(slug));
   }
 
   async search(input: {

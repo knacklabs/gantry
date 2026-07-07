@@ -14,12 +14,16 @@ import type { ChannelWiringDeps } from './channel-wiring-types.js';
 
 type ChannelPersistenceRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
+type BrainHarvestRuntimeSettings = Parameters<
+  NonNullable<ChannelWiringDeps['brainHarvestTap']>['harvest']
+>[0]['settings'];
 
 interface ChannelPersistenceHandlerDeps {
   app: RuntimeApp;
   resolved: ChannelWiringDeps;
   ops: () => ChannelPersistenceRepository;
   persistenceQueue: AsyncTaskQueue;
+  runtimeSettings: () => BrainHarvestRuntimeSettings;
 }
 
 async function enqueueAndWait(
@@ -54,6 +58,7 @@ export function createChannelPersistenceHandlers({
   resolved,
   ops,
   persistenceQueue,
+  runtimeSettings,
 }: ChannelPersistenceHandlerDeps) {
   const chatIsGroup = new Map<string, boolean>();
 
@@ -168,6 +173,7 @@ export function createChannelPersistenceHandlers({
           const repository = ops();
           const shouldEnqueueLiveAdmission =
             routes.length > 0 && !msg.is_from_me && !msg.is_bot_message;
+          let stored = false;
           if (
             shouldEnqueueLiveAdmission &&
             repository.storeMessageWithLiveAdmission
@@ -184,9 +190,28 @@ export function createChannelPersistenceHandlers({
                 },
               });
             }
-            return;
+            stored = true;
+          } else {
+            await repository.storeMessage(msg);
+            stored = true;
           }
-          await repository.storeMessage(msg);
+          if (stored && !msg.is_from_me && !msg.is_bot_message) {
+            // Awaited inside the persistence queue so same-thread harvest
+            // read-modify-writes stay serialized; failures only warn and
+            // never break message persistence.
+            await resolved.brainHarvestTap
+              ?.harvest({
+                appId: resolved.appId,
+                message: msg,
+                settings: runtimeSettings(),
+              })
+              .catch((err) =>
+                resolved.logger.warn(
+                  { err, chatJid },
+                  'Brain channel harvest failed',
+                ),
+              );
+          }
         } catch (err) {
           resolved.logger.error({ err, chatJid }, 'Failed to store message');
           throw err;

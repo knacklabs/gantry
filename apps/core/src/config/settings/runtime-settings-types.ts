@@ -39,6 +39,7 @@ export interface RuntimeConfiguredConversation {
   externalId: string;
   kind: RuntimeConversationKind;
   displayName: string;
+  brainHarvest?: boolean;
   senderPolicy: import('./sender-allowlist.js').ChatAllowlistEntry;
   controlApprovers: string[];
   installedAgents: Record<string, RuntimeConfiguredConversationInstall>;

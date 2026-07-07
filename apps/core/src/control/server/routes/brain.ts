@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { createRuntimeBrainService } from '../../../brain/brain-runtime.js';
+import {
+  countRuntimeBrainHarvestEnabledConversations,
+  createRuntimeBrainService,
+} from '../../../brain/brain-runtime.js';
 import type { BrainPageSourceKind } from '../../../brain/brain-types.js';
 import { canAccessApp } from '../app-identity.js';
 import { isValidControlId, type ApiKeyRecord } from '../auth.js';
@@ -74,7 +77,13 @@ export async function handleBrainRoutes(
     const appId = url.searchParams.get('appId') || auth.appId;
     if (!assertAppAccess(res, appId, auth)) return true;
     const brain = createRuntimeBrainService(appId);
-    sendJson(res, 200, { status: await brain.status(appId) });
+    sendJson(res, 200, {
+      status: {
+        ...(await brain.status(appId)),
+        harvestEnabledConversations:
+          countRuntimeBrainHarvestEnabledConversations(),
+      },
+    });
     return true;
   }
 

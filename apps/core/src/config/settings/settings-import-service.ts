@@ -396,6 +396,7 @@ export function settingsToRevisionDocument(
       external_id: conversation.externalId,
       kind: conversation.kind,
       display_name: conversation.displayName,
+      brain_harvest: conversation.brainHarvest ? true : undefined,
       sender_policy: conversation.senderPolicy,
       control_approvers: conversation.controlApprovers,
       installed_agents: Object.fromEntries(

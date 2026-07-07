@@ -78,6 +78,10 @@ broker internals unless the user changed them from defaults. Binding timestamps
 are advanced state; keep them out of common examples and only preserve them
 where omitting the value would mutate live desired state.
 
+Conversation entries may render `brain_harvest: true` when an admin opts that
+conversation into company brain channel harvest. The default is off and should
+not render as `false`; the opt-in itself is the user/admin disclosure decision.
+
 `permissions.yolo_mode` is rendered only when the user changes it from shipped
 defaults. `denylist` and `denylist_paths` are user additions; the effective
 runtime policy always merges them with the shipped command and path defaults

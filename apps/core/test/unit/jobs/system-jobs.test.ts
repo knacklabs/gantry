@@ -100,7 +100,7 @@ describe('system memory dreaming jobs', () => {
       },
     } as never);
 
-    expect(upsertJob).toHaveBeenCalledTimes(2);
+    expect(upsertJob).toHaveBeenCalledTimes(3);
     expect(
       upsertJob.mock.calls.map((call) => call[0].execution_context),
     ).toEqual([
@@ -112,6 +112,12 @@ describe('system memory dreaming jobs', () => {
       },
       {
         conversationJid: 'sl:D123',
+        threadId: null,
+        workspaceKey: 'agent-a',
+        sessionId: null,
+      },
+      {
+        conversationJid: 'sl:C123',
         threadId: null,
         workspaceKey: 'agent-a',
         sessionId: null,
@@ -134,13 +140,21 @@ describe('system memory dreaming jobs', () => {
           label: 'primary',
         },
       ],
+      [
+        {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          label: 'primary',
+        },
+      ],
     ]);
     expect(upsertJob.mock.calls.map((call) => call[0].workspace_key)).toEqual([
       'agent-a',
       'agent-a',
+      'agent-a',
     ]);
     expect(upsertJob.mock.calls.map((call) => call[0].timeout_ms)).toEqual([
-      1_260_000, 1_260_000,
+      1_260_000, 1_260_000, 600_000,
     ]);
     expect(deleteJob).not.toHaveBeenCalled();
   });
@@ -175,7 +189,7 @@ describe('system memory dreaming jobs', () => {
 
     expect(deleteJob).toHaveBeenCalledWith('system:dreaming:agent:stale');
     expect(deleteJob).not.toHaveBeenCalledWith('manual:job');
-    expect(upsertJob).toHaveBeenCalledTimes(1);
+    expect(upsertJob).toHaveBeenCalledTimes(2);
   });
 
   it('keeps obsolete dreaming jobs while a run lease is unsettled', async () => {
@@ -205,7 +219,111 @@ describe('system memory dreaming jobs', () => {
     } as never);
 
     expect(deleteJob).not.toHaveBeenCalled();
-    expect(upsertJob).toHaveBeenCalledTimes(1);
+    expect(upsertJob).toHaveBeenCalledTimes(2);
+  });
+
+  it('deletes brain singleton jobs once their enabling condition goes away', async () => {
+    const { registerSystemJobs } = await loadSystemJobs(vi.fn(), vi.fn(), {
+      RUNTIME_MEMORY_DREAMING_ENABLED: false,
+    });
+    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const getJobById = vi.fn(async (id: string) =>
+      id === 'system:brain-dreaming'
+        ? makeJob({ id: 'system:brain-dreaming', name: 'Brain Dreaming' })
+        : undefined,
+    );
+    const getAllJobs = vi.fn(async () => []);
+    const deleteJob = vi.fn(async () => undefined);
+
+    await registerSystemJobs({
+      conversationRoutes: () => ({
+        'sl:C123': makeRoute({ folder: 'agent', conversationKind: 'channel' }),
+      }),
+      opsRepository: {
+        getJobById,
+        getAllJobs,
+        deleteJob,
+        upsertJob,
+      },
+    } as never);
+
+    expect(deleteJob).toHaveBeenCalledWith('system:brain-dreaming');
+    expect(upsertJob).not.toHaveBeenCalled();
+  });
+
+  it('keeps brain singleton jobs with unsettled leases when disabled', async () => {
+    const { registerSystemJobs } = await loadSystemJobs(vi.fn(), vi.fn(), {
+      RUNTIME_MEMORY_DREAMING_ENABLED: false,
+    });
+    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    const getJobById = vi.fn(async (id: string) =>
+      id === 'system:brain-dreaming'
+        ? makeJob({
+            id: 'system:brain-dreaming',
+            name: 'Brain Dreaming',
+            lease_run_id: 'run-active',
+            lease_expires_at: '2026-05-08T00:05:00.000Z',
+          })
+        : undefined,
+    );
+    const getAllJobs = vi.fn(async () => []);
+    const deleteJob = vi.fn(async () => undefined);
+
+    await registerSystemJobs({
+      conversationRoutes: () => ({
+        'sl:C123': makeRoute({ folder: 'agent', conversationKind: 'channel' }),
+      }),
+      opsRepository: {
+        getJobById,
+        getAllJobs,
+        deleteJob,
+        upsertJob,
+      },
+    } as never);
+
+    expect(deleteJob).not.toHaveBeenCalled();
+  });
+
+  it('cleans up a lease-protected singleton on a later pass despite the cached signature', async () => {
+    const { registerSystemJobs } = await loadSystemJobs(vi.fn(), vi.fn(), {
+      RUNTIME_MEMORY_DREAMING_ENABLED: false,
+    });
+    const upsertJob = vi.fn().mockResolvedValue({ created: true });
+    let leaseSettled = false;
+    const getJobById = vi.fn(async (id: string) =>
+      id === 'system:brain-dreaming'
+        ? makeJob({
+            id: 'system:brain-dreaming',
+            name: 'Brain Dreaming',
+            ...(leaseSettled
+              ? {}
+              : {
+                  lease_run_id: 'run-active',
+                  lease_expires_at: '2026-05-08T00:05:00.000Z',
+                }),
+          })
+        : undefined,
+    );
+    const getAllJobs = vi.fn(async () => []);
+    const deleteJob = vi.fn(async () => undefined);
+    const deps = {
+      conversationRoutes: () => ({
+        'sl:C123': makeRoute({ folder: 'agent', conversationKind: 'channel' }),
+      }),
+      opsRepository: {
+        getJobById,
+        getAllJobs,
+        deleteJob,
+        upsertJob,
+      },
+    } as never;
+
+    await registerSystemJobs(deps);
+    expect(deleteJob).not.toHaveBeenCalled();
+
+    leaseSettled = true;
+    await registerSystemJobs(deps);
+    expect(deleteJob).toHaveBeenCalledWith('system:brain-dreaming');
   });
 
   it('registers memory and brain embedding backfill jobs together', async () => {
@@ -230,6 +348,7 @@ describe('system memory dreaming jobs', () => {
 
     expect(upsertJob.mock.calls.map((call) => call[0].id)).toEqual([
       expect.stringMatching(/^system:dreaming:/),
+      'system:brain-dreaming',
       'system:embedding-backfill',
       'system:brain-embedding-backfill',
     ]);

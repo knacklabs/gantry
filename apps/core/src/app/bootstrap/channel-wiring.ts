@@ -222,6 +222,7 @@ export function createChannelWiring(
       resolved,
       ops,
       persistenceQueue,
+      runtimeSettings: () => currentRuntimeSettings,
     }),
     conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
@@ -248,7 +249,6 @@ export function createChannelWiring(
         );
         continue;
       }
-
       await connectProviderAccountChannels({
         provider,
         appId: resolved.appId,

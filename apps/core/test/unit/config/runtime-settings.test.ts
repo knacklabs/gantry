@@ -184,6 +184,7 @@ conversations:
       externalId: 'slack:C123',
       kind: 'channel',
       displayName: 'shared',
+      brainHarvest: false,
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: ['slack:UADMIN'],
       installedAgents: {},
@@ -196,6 +197,45 @@ conversations:
     expect(parseRuntimeSettings(rendered).conversations.shared_channel).toEqual(
       expect.objectContaining({ providerAccount: 'slack_one' }),
     );
+  });
+
+  it('round-trips per-conversation brain harvest with default off', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  opted_in:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    brain_harvest: true
+  default_off:
+    provider_account: slack_one
+    id: slack:C999
+    type: channel
+    display_name: quiet
+`);
+
+    expect(parsed.conversations.opted_in.brainHarvest).toBe(true);
+    expect(parsed.conversations.default_off.brainHarvest).toBe(false);
+    const rendered = renderRuntimeSettingsYaml(parsed);
+    expect(rendered).toContain('brain_harvest: true');
+    expect(rendered).not.toContain('brain_harvest: false');
+    expect(
+      parseRuntimeSettings(rendered).conversations.opted_in.brainHarvest,
+    ).toBe(true);
+    expect(
+      parseRuntimeSettings(rendered).conversations.default_off.brainHarvest,
+    ).toBe(false);
   });
 
   it('preserves thread-scoped conversation installs in derived bindings', () => {
