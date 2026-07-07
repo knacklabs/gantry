@@ -32,6 +32,7 @@ type BrowserActAction =
   | 'tab_close'
   | 'click'
   | 'type'
+  | 'type_secret'
   | 'wait_for'
   | 'screenshot'
   | 'evaluate'
@@ -192,6 +193,7 @@ const actAction = z.enum([
   'tab_close',
   'click',
   'type',
+  'type_secret',
   'wait_for',
   'screenshot',
   'evaluate',
@@ -506,6 +508,8 @@ function actBackendAction(action: BrowserActAction): BrowserBackendAction {
       return 'click';
     case 'type':
       return 'type';
+    case 'type_secret':
+      return 'type_secret';
     case 'wait_for':
       return 'wait_for';
     case 'screenshot':
@@ -544,6 +548,13 @@ function actBackendPayload(
   switch (action) {
     case 'back':
       return {};
+    case 'type_secret':
+      return {
+        target: payload.target,
+        secret_name: payload.secret_name,
+        ...(payload.slowly === true ? { slowly: true } : {}),
+        ...(payload.submit === true ? { submit: true } : {}),
+      };
     case 'tab_new':
       return { ...payload, action: 'new' };
     case 'tab_select':

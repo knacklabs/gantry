@@ -234,6 +234,15 @@ describe('runner browser MCP gateway tools', () => {
       payload: { ignored: true },
     });
     await server.tools.get('browser_act')?.({
+      action: 'type_secret',
+      payload: {
+        target: 'input[type=password]',
+        secret_name: 'SLACK_ADMIN_PASSWORD',
+        allowed_capability_ids: ['should-not-forward'],
+        submit: true,
+      },
+    });
+    await server.tools.get('browser_act')?.({
       action: 'download',
       profile: 'full',
       reason: 'Download the report requested by the user.',
@@ -266,6 +275,16 @@ describe('runner browser MCP gateway tools', () => {
     );
     expect(requestBrowserAction).toHaveBeenNthCalledWith(
       5,
+      'type_secret',
+      {
+        target: 'input[type=password]',
+        secret_name: 'SLACK_ADMIN_PASSWORD',
+        submit: true,
+      },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      6,
       'download',
       { target: 'a.report', filename: 'reports/latest.csv' },
       { timeoutMs: 120_000, publicToolName: 'browser_act' },
@@ -491,6 +510,16 @@ describe('runner browser MCP gateway tools', () => {
         profile: 'full',
         reason: 'Download the selected report artifact.',
         payload: { target: 'a.download', filename: 'reports/latest.csv' },
+      }).success,
+    ).toBe(true);
+    expect(
+      actSchema.safeParse({
+        action: 'type_secret',
+        payload: {
+          target: 'password',
+          secret_name: 'SLACK_ADMIN_PASSWORD',
+          submit: true,
+        },
       }).success,
     ).toBe(true);
     expect(

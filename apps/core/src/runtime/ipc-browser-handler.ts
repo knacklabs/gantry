@@ -36,6 +36,7 @@ import {
 import { type IpcDomainContext } from './ipc-domain-types.js';
 import { resolveBrowserFileAttachPayload } from './browser-file-attach-source.js';
 import { markBrowserProfileActivity } from './browser-profile-sync.js';
+import { resolveBrowserSecretTypePayload } from './browser-secret-typing.js';
 
 interface BrowserRequest {
   requestId: string;
@@ -60,7 +61,10 @@ type BrowserContext = Pick<
 > & {
   browserIpcAuthorized?: boolean;
   getFileArtifactStore?: IpcDomainContext['deps']['getFileArtifactStore'];
+  getCapabilitySecretRepository?: IpcDomainContext['deps']['getCapabilitySecretRepository'];
+  getToolRepository?: IpcDomainContext['deps']['getToolRepository'];
   callBrowserTool?: IpcDomainContext['deps']['callBrowserTool'];
+  publishRuntimeEvent?: IpcDomainContext['deps']['publishRuntimeEvent'];
   publishBrowserJobActivity?: IpcDomainContext['deps']['publishBrowserJobActivity'];
   closeBrowserToolBackends?: IpcDomainContext['deps']['closeBrowserToolBackends'];
   getBrowserUsageSettings?: IpcDomainContext['deps']['getBrowserUsageSettings'];
@@ -384,14 +388,19 @@ async function handleBrowserToolActionInner(
     context.sourceAgentFolder,
     'extra',
   );
-  const backendPayload = await resolveBrowserFileAttachPayload({
-    request,
-    sourceAgentFolder: context.sourceAgentFolder,
-    getFileArtifactStore: context.getFileArtifactStore,
-  });
+  const backendAction: BrowserBackendAction =
+    request.action === 'type_secret' ? 'type' : request.action;
+  const backendPayload =
+    request.action === 'type_secret'
+      ? await resolveBrowserSecretTypePayload({ request, context })
+      : await resolveBrowserFileAttachPayload({
+          request,
+          sourceAgentFolder: context.sourceAgentFolder,
+          getFileArtifactStore: context.getFileArtifactStore,
+        });
   markProfileTouched?.();
   const result = await context.callBrowserTool({
-    toolName: request.action,
+    toolName: backendAction,
     arguments: backendPayload,
     session,
     fileAccessRoot,

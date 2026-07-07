@@ -43,6 +43,7 @@ vi.mock('@core/runtime/browser-cdp-targets.js', () => ({
 }));
 
 import type { BrowserBackendAction } from '../../../src/shared/browser-backend-actions.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 
 import {
   createIpcResponseSigningKeyPair,
@@ -193,6 +194,191 @@ describe('ipc-browser-handler', () => {
       }),
     );
     expect(response.data).toEqual({ content: 'tool-result' });
+  });
+
+  it('resolves type_secret through selected capability and dispatches internal type', async () => {
+    const callBrowserTool = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'Typed text.' }],
+    }));
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-type-secret',
+        action: 'type_secret' as BrowserBackendAction,
+        payload: {
+          target: 'input[type=password]',
+          secret_name: 'slack_admin_password',
+          submit: true,
+        },
+        appId: 'app:test',
+        agentId: 'agent:main',
+        runId: 'run-1',
+        publicToolName: 'browser_act',
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool,
+        publishRuntimeEvent,
+        getToolRepository: () =>
+          ({
+            listAgentToolBindings: vi.fn(async () => [
+              {
+                id: 'binding:1',
+                appId: 'app:test',
+                agentId: 'agent:main',
+                toolId: 'tool:itops',
+                status: 'active',
+                createdAt: '2026-07-07T00:00:00.000Z',
+                updatedAt: '2026-07-07T00:00:00.000Z',
+              },
+            ]),
+            getTool: vi.fn(async () => ({
+              id: 'tool:itops',
+              appId: 'app:test',
+              name: 'capability:itops.access.manage',
+              displayName: 'IT Ops access',
+              description: 'IT Ops access',
+              kind: 'host',
+              provider: 'gantry',
+              category: 'admin',
+              risk: 'admin',
+              selectable: true,
+              status: 'active',
+              adapterRef: 'gantry',
+              createdAt: '2026-07-07T00:00:00.000Z',
+              updatedAt: '2026-07-07T00:00:00.000Z',
+              inputSchema: semanticCapabilityInputSchema({
+                capabilityId: 'itops.access.manage',
+                displayName: 'IT Ops access',
+                category: 'itops',
+                risk: 'admin',
+                can: 'Use reviewed IT Ops access.',
+                cannot: 'Expose raw credentials.',
+                credentialSource: 'configured_access',
+                implementationBindings: [
+                  { kind: 'tool_rule', rule: 'mcp__itops__itops_invite_user' },
+                ],
+              }),
+            })),
+          }) as never,
+        getCapabilitySecretRepository: () =>
+          ({
+            getSecret: vi.fn(async () => ({
+              id: 'capability-secret:1',
+              appId: 'app:test',
+              name: 'SLACK_ADMIN_PASSWORD',
+              value: 'super-secret-password',
+              allowedCapabilityIds: ['itops.access.manage'],
+              createdAt: '2026-07-07T00:00:00.000Z',
+              updatedAt: '2026-07-07T00:00:00.000Z',
+            })),
+          }) as never,
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(callBrowserTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'type',
+        arguments: {
+          target: 'input[type=password]',
+          text: 'super-secret-password',
+          submit: true,
+        },
+      }),
+    );
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:main',
+        runId: 'run-1',
+        actor: 'browser.type_secret',
+        payload: {
+          secretName: 'SLACK_ADMIN_PASSWORD',
+          capabilityIds: ['itops.access.manage'],
+          publicToolName: 'browser_act',
+          browserAction: 'type_secret',
+        },
+      }),
+    );
+    expect(JSON.stringify(response)).not.toContain('super-secret-password');
+    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+      'super-secret-password',
+    );
+  });
+
+  it('rejects model-supplied capability ids for type_secret', async () => {
+    const callBrowserTool = vi.fn(async () => ({ content: 'tool-result' }));
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-type-secret-spoof',
+        action: 'type_secret' as BrowserBackendAction,
+        payload: {
+          target: 'input[type=password]',
+          secret_name: 'SLACK_ADMIN_PASSWORD',
+          allowed_capability_ids: ['itops.access.manage'],
+        },
+        appId: 'app:test',
+        agentId: 'agent:main',
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool,
+      },
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain('allowed_capability_ids');
+    expect(callBrowserTool).not.toHaveBeenCalled();
+  });
+
+  it('denies type_secret when the secret is not scoped to a selected capability', async () => {
+    const callBrowserTool = vi.fn(async () => ({ content: 'tool-result' }));
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-type-secret-denied',
+        action: 'type_secret' as BrowserBackendAction,
+        payload: {
+          target: 'input[type=password]',
+          secret_name: 'SLACK_ADMIN_PASSWORD',
+        },
+        appId: 'app:test',
+        agentId: 'agent:main',
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserProfileName: 'c-main-abc123abc123',
+        browserIpcAuthorized: true,
+        callBrowserTool,
+        getToolRepository: () =>
+          ({
+            listAgentToolBindings: vi.fn(async () => []),
+          }) as never,
+        getCapabilitySecretRepository: () =>
+          ({
+            getSecret: vi.fn(async () => ({
+              id: 'capability-secret:1',
+              appId: 'app:test',
+              name: 'SLACK_ADMIN_PASSWORD',
+              value: 'super-secret-password',
+              allowedCapabilityIds: ['itops.access.manage'],
+              createdAt: '2026-07-07T00:00:00.000Z',
+              updatedAt: '2026-07-07T00:00:00.000Z',
+            })),
+          }) as never,
+      },
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain(
+      'Browser secret is not approved for this agent',
+    );
+    expect(JSON.stringify(response)).not.toContain('super-secret-password');
+    expect(callBrowserTool).not.toHaveBeenCalled();
   });
 
   it('resolves file_attach artifact sources before direct backend dispatch', async () => {
