@@ -13,6 +13,7 @@ import {
   listReadyModelCredentialProviders,
   promptModelCredentialPayload,
   storeModelCredentialInput,
+  verifyModelCredentialInputWithPrompt,
 } from './credentials.js';
 import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 import { prepareOnboardingCredentialStorage } from './onboarding-config.js';
@@ -161,19 +162,49 @@ export async function runCredentialsStep(
     ) {
       return { type: captureChoice };
     }
-    const credentialInput = await promptModelCredentialPayload(provider.id, {
-      authMode: selectedModeId,
-    });
-    if (!credentialInput) return { type: 'cancel' };
+    let credentialInput:
+      | Awaited<ReturnType<typeof promptModelCredentialPayload>>
+      | undefined;
+    let verification:
+      | Awaited<ReturnType<typeof verifyModelCredentialInputWithPrompt>>
+      | undefined;
+    while (true) {
+      credentialInput = await promptModelCredentialPayload(provider.id, {
+        authMode: selectedModeId,
+      });
+      if (!credentialInput) return { type: 'cancel' };
+      verification = await verifyModelCredentialInputWithPrompt({
+        providerId: provider.id,
+        authMode: credentialInput.authMode,
+        payload: credentialInput.payload,
+        allowBackResume: true,
+      });
+      if (verification.type === 'reenter') continue;
+      if (
+        verification.type === 'back' ||
+        verification.type === 'resume' ||
+        verification.type === 'cancel'
+      ) {
+        return { type: verification.type };
+      }
+      break;
+    }
+    if (!credentialInput || !verification) return { type: 'cancel' };
     await storeModelCredentialInput({
       runtimeHome,
       providerId: provider.id,
       authMode: credentialInput.authMode,
       payload: credentialInput.payload,
     });
-    p.log.success(
-      `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
-    );
+    if (verification.type === 'skip') {
+      p.log.warn(
+        `${provider.label} credential stored without live verification: ${verification.reason}`,
+      );
+    } else {
+      p.log.success(
+        `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
+      );
+    }
   }
   return { type: 'next' };
 }

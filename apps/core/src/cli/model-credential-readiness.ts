@@ -1,8 +1,10 @@
 import { ModelCredentialService } from '../application/model-credentials/model-credential-service.js';
 import { requiredModelCredentialProviders } from '../application/model-resolution/required-model-credential-providers.js';
 import type { AppId } from '../domain/app/app.js';
+import type { ModelCredentialProvider } from '../domain/model-credentials/model-credentials.js';
 import type { DoctorCheck } from './doctor.js';
 import type { GuidedActionRef } from '../application/guided-actions/guided-action-model.js';
+import { verifyModelProviderCredentialLive } from './model-credential-verify.js';
 
 type ModelCredentialReadinessSettings = {
   credentialBroker: { mode: string };
@@ -40,6 +42,7 @@ type ModelCredentialReadinessStorage = {
 export async function inspectModelCredentialReadiness(
   runtimeHome: string,
   settings: ModelCredentialReadinessSettings,
+  options: { live?: boolean } = {},
 ): Promise<DoctorCheck> {
   if (settings.credentialBroker.mode !== 'gantry') {
     return {
@@ -98,6 +101,50 @@ export async function inspectModelCredentialReadiness(
         nextAction: missingCredentialAction.label,
         action: missingCredentialAction,
       };
+    }
+    if (options.live) {
+      const liveResults = await Promise.all(
+        requiredProviders.map(async (providerId) => {
+          const credential = await service.getActiveCredential({
+            appId: 'default' as AppId,
+            providerId: providerId as ModelCredentialProvider,
+          });
+          if (!credential) {
+            return {
+              providerId,
+              result: {
+                ok: false,
+                message: `No active ${providerId} model credential was found.`,
+              },
+            };
+          }
+          return {
+            providerId,
+            result: await verifyModelProviderCredentialLive({
+              providerId,
+              authMode: credential.authMode,
+              payload: credential.payload,
+            }),
+          };
+        }),
+      );
+      const failed = liveResults.find(
+        (item) => 'ok' in item.result && !item.result.ok,
+      );
+      if (failed && 'ok' in failed.result && !failed.result.ok) {
+        const actionLabel = `gantry credentials model set ${failed.providerId}`;
+        return {
+          id: 'model-access-credentials',
+          title: 'Model Access Credentials',
+          status: 'fail',
+          message: `${failed.providerId} live credential check failed: ${failed.result.message}`,
+          nextAction: actionLabel,
+          action: {
+            type: 'connect_provider',
+            label: actionLabel,
+          },
+        };
+      }
     }
     return {
       id: 'model-access-credentials',

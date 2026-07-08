@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockListModelCredentials = vi.hoisted(() => vi.fn());
 const mockGetCapabilitySecret = vi.hoisted(() => vi.fn());
 const mockValidateTelegramBotToken = vi.hoisted(() => vi.fn());
+const mockValidateSlackBotToken = vi.hoisted(() => vi.fn());
+const mockValidateSlackAppToken = vi.hoisted(() => vi.fn());
 const mockInspectRuntimeSecretReadiness = vi.hoisted(() => vi.fn());
+const mockVerifyModelProviderCredentialLive = vi.hoisted(() => vi.fn());
 
 vi.mock(
   '@core/application/model-credentials/model-credential-service.js',
@@ -21,6 +24,19 @@ vi.mock(
               row.health ?? (row.status === 'active' ? 'ready' : 'missing'),
           }),
         );
+      }
+
+      async getActiveCredential(input: { appId: string; providerId: string }) {
+        const row = (await mockListModelCredentials(input)).find(
+          (item: { providerId: string }) =>
+            item.providerId === input.providerId,
+        );
+        if (!row || row.status !== 'active') return null;
+        return {
+          ...row,
+          authMode: row.authMode ?? 'api_key',
+          payload: row.payload ?? { apiKey: `${input.providerId}-key` },
+        };
       }
     },
   }),
@@ -64,6 +80,22 @@ vi.mock('@core/infrastructure/service/platform.js', () => ({
 vi.mock('@core/cli/telegram.js', () => ({
   validateTelegramBotToken: mockValidateTelegramBotToken,
 }));
+
+vi.mock('@core/cli/slack.js', () => ({
+  validateSlackBotToken: mockValidateSlackBotToken,
+  validateSlackAppToken: mockValidateSlackAppToken,
+}));
+
+vi.mock('@core/cli/model-credential-verify.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@core/cli/model-credential-verify.js')
+    >();
+  return {
+    ...actual,
+    verifyModelProviderCredentialLive: mockVerifyModelProviderCredentialLive,
+  };
+});
 
 vi.mock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
   inspectRuntimeStorageReadiness: vi.fn(async () => ({
@@ -164,7 +196,10 @@ afterEach(() => {
   mockListModelCredentials.mockReset();
   mockGetCapabilitySecret.mockReset();
   mockValidateTelegramBotToken.mockReset();
+  mockValidateSlackBotToken.mockReset();
+  mockValidateSlackAppToken.mockReset();
   mockInspectRuntimeSecretReadiness.mockReset();
+  mockVerifyModelProviderCredentialLive.mockReset();
   vi.resetModules();
   for (const runtimeHome of runtimeHomes.splice(0)) {
     fs.rmSync(runtimeHome, { recursive: true, force: true });
@@ -177,6 +212,7 @@ describe('doctor model credential readiness', () => {
       status: 'pass',
       message: 'Runtime secret refs are ready.',
     });
+    mockVerifyModelProviderCredentialLive.mockResolvedValue({ ok: true });
   });
 
   it('accepts the fleet rehearsal postgres service hostname in runtime storage checks', async () => {
@@ -396,6 +432,145 @@ describe('doctor model credential readiness', () => {
         id: 'model-access-credentials',
         status: 'pass',
         message: expect.stringContaining('anthropic'),
+      }),
+    );
+  });
+
+  it('downgrades ready model credentials when live verification rejects them', async () => {
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        payload: { apiKey: 'bad-key' },
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    mockVerifyModelProviderCredentialLive.mockResolvedValue({
+      ok: false,
+      message:
+        'Anthropic credential verification failed with HTTP 401: bad key',
+    });
+    const runtimeHome = makeRuntimeHome();
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'model-access-credentials',
+        status: 'fail',
+        message: expect.stringContaining('HTTP 401'),
+        nextAction: 'gantry credentials model set anthropic',
+      }),
+    );
+  });
+
+  it('validates Slack bot and app tokens in network doctor', async () => {
+    const now = new Date().toISOString();
+    mockListModelCredentials.mockResolvedValue([
+      {
+        id: 'model-credential:default:anthropic',
+        appId: 'default',
+        providerId: 'anthropic',
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:anthropic',
+        fieldFingerprints: [{ field: 'apiKey', fingerprint: 'sha256:field' }],
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    mockValidateSlackBotToken.mockResolvedValue({
+      ok: true,
+      message: 'bot ok',
+    });
+    mockValidateSlackAppToken.mockResolvedValue({
+      ok: true,
+      message: 'app ok',
+    });
+    const runtimeHome = makeRuntimeHome();
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      [
+        'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:15432/gantry',
+        `SECRET_ENCRYPTION_KEY=${strongEncryptionKey}`,
+        'SLACK_BOT_TOKEN=xoxb-valid',
+        'SLACK_APP_TOKEN=xapp-valid',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(runtimeHome, 'settings.yaml'),
+      [
+        'providers:',
+        '  slack:',
+        '    enabled: true',
+        'provider_accounts:',
+        '  slack_default:',
+        '    agent: main_agent',
+        '    provider: slack',
+        '    label: Slack',
+        '    runtime_secret_refs:',
+        '      bot_token: env:SLACK_BOT_TOKEN',
+        '      app_token: env:SLACK_APP_TOKEN',
+        'agents:',
+        '  main_agent:',
+        '    name: Main',
+        'storage:',
+        '  postgres:',
+        '    url_env: GANTRY_DATABASE_URL',
+        '    schema: gantry',
+        'model_access:',
+        '  enabled: true',
+        'memory:',
+        '  enabled: true',
+        '  embeddings:',
+        '    enabled: false',
+        '    provider: disabled',
+        '    model: text-embedding-3-small',
+        '  dreaming:',
+        '    enabled: false',
+        '    embeddings:',
+        '      enabled: false',
+        '      provider: disabled',
+        '      model: text-embedding-3-small',
+        '  llm:',
+        '    models:',
+        '      extractor: haiku',
+        '      dreaming: sonnet',
+        '      consolidation: sonnet',
+        '',
+      ].join('\n'),
+    );
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    const report = await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+    });
+
+    expect(mockValidateSlackBotToken).toHaveBeenCalledWith(
+      'xoxb-valid',
+      undefined,
+    );
+    expect(mockValidateSlackAppToken).toHaveBeenCalledWith(
+      'xapp-valid',
+      undefined,
+    );
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'slack-token-api',
+        status: 'pass',
       }),
     );
   });

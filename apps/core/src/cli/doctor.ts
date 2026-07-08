@@ -1,10 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import '../channels/register-builtins.js';
-import {
-  getProvider,
-  listConnectableChannelProviders,
-} from '../channels/provider-registry.js';
+import { listConnectableChannelProviders } from '../channels/provider-registry.js';
 import { readEnvFile } from '../config/env/file.js';
 import {
   assertRuntimeEntryExists,
@@ -25,7 +22,6 @@ import {
   ensureRuntimeSettings,
   type RuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-import { validateTelegramBotToken } from './telegram.js';
 import { inspectMemoryHealth } from './memory-health.js';
 import {
   fleetRehearsalPlaintextPostgresHosts,
@@ -42,7 +38,10 @@ import {
   resolveRuntimeEnvValue,
 } from './runtime-credential-check.js';
 import { collectUnresolvedRuntimeSecretProviderIds } from './runtime-secret-status.js';
-import { resolveTelegramTokenForDoctor } from './telegram-doctor-token.js';
+import {
+  inspectSlackTokenLiveCheck,
+  inspectTelegramTokenLiveCheck,
+} from './model-credential-verify.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import {
   hasConfiguredChannelProvider,
@@ -60,21 +59,22 @@ export interface DoctorCheck {
   action?: GuidedActionRef;
 }
 
-export interface DoctorReport {
+export type DoctorReport = {
   ok: boolean;
   blockingFailures: number;
   warnings: number;
   checks: DoctorCheck[];
-}
+};
 
-export interface DoctorNetworkOptions {
+export type DoctorNetworkOptions = {
   validateTelegramToken?: boolean;
   telegramTimeoutMs?: number;
-}
+  slackTimeoutMs?: number;
+};
 
-interface DoctorRuntimeSecretOptions {
+type DoctorRuntimeSecretOptions = {
   unresolvedRuntimeSecretProviderIds?: Set<string>;
-}
+};
 
 export function hasRuntimeConfig(runtimeHome: string): boolean {
   try {
@@ -598,62 +598,25 @@ export async function runDoctorWithNetwork(
     unresolvedRuntimeSecretProviderIds,
   });
   const validateTelegramToken = options.validateTelegramToken !== false;
+  const env = readEnvFile(envFilePath(runtimeHome));
   if (validateTelegramToken) {
-    const telegramProvider = getProvider('telegram');
-    if (telegramProvider) {
-      if (settings?.providers[telegramProvider.id]?.enabled) {
-        const env = readEnvFile(envFilePath(runtimeHome));
-        const token = await resolveTelegramTokenForDoctor({
+    const telegramCheck = settings
+      ? await inspectTelegramTokenLiveCheck({
           settings,
           env,
-        });
-        if (token.token) {
-          const validation = await validateTelegramBotToken(
-            token.token,
-            options.telegramTimeoutMs,
-          );
-          if (validation.ok) {
-            report = addToReport(report, {
-              id: 'telegram-token-api',
-              title: 'Telegram Token API Validation',
-              status: 'pass',
-              message: validation.message,
-            });
-          } else {
-            const telegramTokenNextAction =
-              validation.nextAction ||
-              'Refresh TELEGRAM_BOT_TOKEN and rerun doctor.';
-            report = addToReport(report, {
-              id: 'telegram-token-api',
-              title: 'Telegram Token API Validation',
-              status: 'warn',
-              message: validation.message,
-              nextAction: telegramTokenNextAction,
-              action: {
-                type: 'connect_provider',
-                label: telegramTokenNextAction,
-              },
-            });
-          }
-        } else if (token.unresolvedStoredRef) {
-          const telegramTokenNextAction =
-            'Run `gantry provider connect telegram` to refresh the Telegram token.';
-          report = addToReport(report, {
-            id: 'telegram-token-api',
-            title: 'Telegram Token API Validation',
-            status: 'warn',
-            message:
-              'Telegram token reference is configured but the secret value could not be resolved.',
-            nextAction: telegramTokenNextAction,
-            action: {
-              type: 'connect_provider',
-              label: telegramTokenNextAction,
-            },
-          });
-        }
-      }
-    }
+          timeoutMs: options.telegramTimeoutMs,
+        })
+      : null;
+    if (telegramCheck) report = addToReport(report, telegramCheck);
   }
+  const slackCheck = settings
+    ? await inspectSlackTokenLiveCheck({
+        settings,
+        env,
+        timeoutMs: options.slackTimeoutMs,
+      })
+    : null;
+  if (slackCheck) report = addToReport(report, slackCheck);
 
   const storageReadiness = await inspectRuntimeStorageReadiness(runtimeHome);
   report = addToReport(report, {
@@ -672,7 +635,9 @@ export async function runDoctorWithNetwork(
   if (settings) {
     report = addToReport(
       report,
-      await inspectModelCredentialReadiness(runtimeHome, settings),
+      await inspectModelCredentialReadiness(runtimeHome, settings, {
+        live: true,
+      }),
     );
   }
   return report;
