@@ -37,6 +37,9 @@ export async function preflightModelProvider(input: {
 }): Promise<ModelProviderPreflightResult> {
   void input.runtimeHome;
   const { providerId, settings } = input;
+  // The gateway broker rejects bindings without an app id; CLI callers run
+  // in the single-app default scope.
+  const appId = input.appId ?? ('default' as AppId);
   const provider = getModelProviderDefinition(providerId);
   const model = input.chatAlias
     ? resolveModelSelectionForWorkload(input.chatAlias, 'chat')
@@ -90,7 +93,7 @@ export async function preflightModelProvider(input: {
     const injection = await getAgentCredentialInjection({
       mode: 'gantry',
       purpose: 'model_runtime',
-      appId: input.appId,
+      appId,
       runId,
       modelRouteId: model.entry.modelRoute.id,
       broker,
@@ -120,7 +123,7 @@ export async function preflightModelProvider(input: {
         binding: {
           profile: 'gantry',
           purpose: 'model_runtime',
-          appId: input.appId,
+          appId,
           runId,
           modelRouteId: model.entry.modelRoute.id,
         },

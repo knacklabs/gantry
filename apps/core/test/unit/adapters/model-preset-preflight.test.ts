@@ -102,6 +102,9 @@ describe('model provider preflight', () => {
         purpose: 'model_runtime',
         modelRouteId: 'anthropic',
         runId: expect.stringMatching(/^model-preflight:/),
+        // CLI callers omit appId; the broker requires one, so the preflight
+        // must default to the single-app scope.
+        appId: 'default',
       }),
     });
     expect(broker.close).toHaveBeenCalledOnce();
