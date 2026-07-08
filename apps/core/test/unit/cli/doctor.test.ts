@@ -400,6 +400,8 @@ describe('doctor model credential readiness', () => {
       expect.objectContaining({
         id: 'slack-tokens',
         status: 'warn',
+        nextAction:
+          're-run `gantry provider connect slack`, then `gantry restart`',
       }),
     );
   });

@@ -36,6 +36,11 @@ type RuntimeSettingsForLiveCredentialCheck = {
   >;
 };
 
+const SLACK_CHANNEL_TOKEN_NEXT_ACTION =
+  're-run `gantry provider connect slack`, then `gantry restart`';
+const TELEGRAM_CHANNEL_TOKEN_NEXT_ACTION =
+  're-run `gantry provider connect telegram`, then `gantry restart`';
+
 export async function verifyModelProviderCredentialLive(input: {
   providerId: string;
   authMode: string;
@@ -142,9 +147,7 @@ export async function inspectSlackTokenLiveCheck(input: {
       };
     }
     const failed = [botValidation, appValidation].filter((item) => !item.ok);
-    const nextAction =
-      failed.find((item) => item.nextAction)?.nextAction ||
-      'Run `gantry provider connect slack` to refresh Slack tokens.';
+    const nextAction = SLACK_CHANNEL_TOKEN_NEXT_ACTION;
     return {
       id: 'slack-token-api',
       title: 'Slack Token API Validation',
@@ -157,8 +160,7 @@ export async function inspectSlackTokenLiveCheck(input: {
   if (!botToken.unresolvedStoredRef && !appToken.unresolvedStoredRef) {
     return null;
   }
-  const nextAction =
-    'Run `gantry provider connect slack` to refresh Slack tokens.';
+  const nextAction = SLACK_CHANNEL_TOKEN_NEXT_ACTION;
   return {
     id: 'slack-token-api',
     title: 'Slack Token API Validation',
@@ -190,8 +192,7 @@ export async function inspectTelegramTokenLiveCheck(input: {
         message: validation.message,
       };
     }
-    const nextAction =
-      validation.nextAction || 'Refresh TELEGRAM_BOT_TOKEN and rerun doctor.';
+    const nextAction = TELEGRAM_CHANNEL_TOKEN_NEXT_ACTION;
     return {
       id: 'telegram-token-api',
       title: 'Telegram Token API Validation',
@@ -202,8 +203,7 @@ export async function inspectTelegramTokenLiveCheck(input: {
     };
   }
   if (!token.unresolvedStoredRef) return null;
-  const nextAction =
-    'Run `gantry provider connect telegram` to refresh the Telegram token.';
+  const nextAction = TELEGRAM_CHANNEL_TOKEN_NEXT_ACTION;
   return {
     id: 'telegram-token-api',
     title: 'Telegram Token API Validation',

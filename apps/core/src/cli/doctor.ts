@@ -127,6 +127,11 @@ function addToReport(report: DoctorReport, check: DoctorCheck): DoctorReport {
   };
 }
 
+function channelTokenRestartNextAction(providerId: string): string | undefined {
+  if (providerId !== 'slack' && providerId !== 'telegram') return undefined;
+  return `re-run \`gantry provider connect ${providerId}\`, then \`gantry restart\``;
+}
+
 function loadSettingsForDoctor(runtimeHome: string): {
   settings?: RuntimeSettings;
   error?: string;
@@ -462,6 +467,11 @@ export function runDoctor(
       });
     } else {
       const partialConfigured = configuredKeys.length > 0;
+      const nextAction =
+        (unresolvedRuntimeSecretProviderIds?.has(provider.id)
+          ? channelTokenRestartNextAction(provider.id)
+          : undefined) ??
+        `Run \`gantry provider connect ${provider.id}\` to configure ${provider.label}.`;
       add(checks, {
         id: envCheckId,
         title: envCheckTitle,
@@ -472,10 +482,10 @@ export function runDoctor(
             : provider.id === 'slack' && partialConfigured
               ? 'Slack token setup is incomplete (both bot and app tokens are required).'
               : `${provider.label} credential references are missing.`,
-        nextAction: `Run \`gantry provider connect ${provider.id}\` to configure ${provider.label}.`,
+        nextAction,
         action: {
           type: 'connect_provider',
-          label: `Run \`gantry provider connect ${provider.id}\` to configure ${provider.label}.`,
+          label: nextAction,
         },
       });
     }

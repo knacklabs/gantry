@@ -13,6 +13,7 @@ import {
   ensureConfiguredAgent,
   loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
@@ -105,13 +106,15 @@ export async function persistOnboardingConfig(
     input.telegramBotToken?.trim() ||
     (input.slackBotToken?.trim() && input.slackAppToken?.trim()),
   );
+  const restartRequired: string[] = [];
   if (storesRuntimeSecrets) {
-    await writeDesiredRuntimeSettings({
+    const result = await writeDesiredRuntimeSettings({
       runtimeHome: input.runtimeHome,
       settings,
       previousSettings,
       createdBy: 'cli:onboarding',
     });
+    restartRequired.push(...(result.restartRequired ?? []));
     previousSettingsForFinalWrite = structuredClone(settings);
   }
   applyModelDefaults(settings, model.alias || DEFAULT_SETUP_MODEL_ALIAS);
@@ -198,11 +201,16 @@ export async function persistOnboardingConfig(
     },
   };
   await Promise.all(secretWrites);
-  await writeDesiredRuntimeSettings({
+  const result = await writeDesiredRuntimeSettings({
     runtimeHome: input.runtimeHome,
     settings,
     previousSettings: previousSettingsForFinalWrite,
     createdBy: 'cli:onboarding',
+  });
+  noteRestartRequired({
+    restartRequired: [
+      ...new Set([...restartRequired, ...(result.restartRequired ?? [])]),
+    ],
   });
   upsertEnvFile(envPath, {
     TELEGRAM_BOT_TOKEN: null,

@@ -85,14 +85,14 @@ function usage(): string {
     '  gantry restart',
     '  gantry logs',
     '  gantry local setup|start|stop|status|logs|doctor',
-    '  gantry provider list|connect|doctor',
+    '  gantry provider list|connect|doctor|account',
     '  gantry conversation info|approvers  # direct/private and group/channel permission approvers',
-    '  gantry agent list|info|add|remove|trigger|policy|access',
+    '  gantry agent list|info|name|add|remove|trigger|policy|access|harness|profile',
     '  gantry browser profiles|status',
     '  gantry jobs list|show|resume|trigger|set-route|events [--full|--json]',
     '  gantry model status|list|set|reset|why|doctor',
     '  gantry brain import|status',
-    '  gantry credentials model|capability|browser ...',
+    '  gantry credentials model|access|browser ...',
     '  gantry settings validate|import|export|drift|revisions list',
     '  gantry workers list',
     '  gantry bake status',
@@ -158,6 +158,9 @@ async function runStatusCommand(
 
 async function runStartCommand(runtimeHome: string): Promise<number> {
   process.env.GANTRY_HOME = runtimeHome;
+  p.log.info(
+    'gantry start runs the runtime in the FOREGROUND. Manage the background service with `gantry service install` and `gantry restart`.',
+  );
   const { runPostgresMigrations } = await import('../postgres-migrate.js');
   await runPostgresMigrations();
   const runtime = await import('../app/index.js');

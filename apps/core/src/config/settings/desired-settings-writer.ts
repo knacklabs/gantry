@@ -4,6 +4,7 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from './runtime-settings.js';
+import { classifySettingsChanges } from './desired-state-service-helpers.js';
 import {
   importWorkstationSettings,
   settingsFromRevisionDocument,
@@ -21,6 +22,21 @@ export interface DesiredSettingsWriteStorage {
   settingsRevisions?: SettingsRevisionRepository;
   pool?: SettingsRevisionMirror['pool'];
   close?: () => Promise<void>;
+}
+
+export interface DesiredRuntimeSettingsWriteResult {
+  reconciled: boolean;
+  restartRequired: string[];
+}
+
+export function noteRestartRequired(input: {
+  restartRequired?: readonly string[];
+}): void {
+  if (input.restartRequired?.length) {
+    console.log(
+      'This change requires a restart to take effect — run `gantry restart`.',
+    );
+  }
 }
 
 let storageProvider:
@@ -52,11 +68,17 @@ export async function writeDesiredRuntimeSettings(input: {
   previousSettings?: RuntimeSettings;
   appId?: AppId;
   createdBy?: string;
-}): Promise<{ reconciled: boolean }> {
+}): Promise<DesiredRuntimeSettingsWriteResult> {
   const deploymentMode = input.settings.runtime.deploymentMode;
   if (!storageProvider) {
+    const previousSettings =
+      input.previousSettings ?? loadRuntimeSettings(input.runtimeHome);
+    const restartRequired = classifySettingsChanges(
+      previousSettings,
+      input.settings,
+    ).restartRequired;
     saveRuntimeSettings(input.runtimeHome, input.settings);
-    return { reconciled: false };
+    return { reconciled: false, restartRequired };
   }
   const storage = await storageProvider({ settings: input.settings });
   if (!storage) {
@@ -80,6 +102,10 @@ export async function writeDesiredRuntimeSettings(input: {
     const appId = input.appId ?? ('default' as AppId);
     const previousSettings =
       input.previousSettings ?? loadRuntimeSettings(input.runtimeHome);
+    const restartRequired = classifySettingsChanges(
+      previousSettings,
+      input.settings,
+    ).restartRequired;
     await importWorkstationSettings(
       {
         runtimeHome: input.runtimeHome,
@@ -96,7 +122,7 @@ export async function writeDesiredRuntimeSettings(input: {
       },
       input.settings,
     );
-    return { reconciled: true };
+    return { reconciled: true, restartRequired };
   } finally {
     await storage.close?.();
   }

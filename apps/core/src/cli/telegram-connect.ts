@@ -6,6 +6,7 @@ import {
   ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
@@ -338,11 +339,12 @@ export async function runTelegramConnectCommand(
       bot_token: tokenSecret.ref,
     },
   };
-  await writeDesiredRuntimeSettings({
+  const result = await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,
     previousSettings,
   });
+  noteRestartRequired(result);
 
   if (normalizedChatJid) {
     p.outro('Telegram connected. Secret stored encrypted in Gantry.');

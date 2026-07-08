@@ -16,6 +16,7 @@ import {
   DEFAULT_EMBED_MODEL,
   getProviderManagedMemoryDefaults,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
   type EmbeddingProviderName,
 } from '../config/settings/runtime-settings.js';
@@ -129,11 +130,12 @@ async function setEmbeddings(
   } else if (!settings.memory.embeddings.model.trim()) {
     settings.memory.embeddings.model = DEFAULT_EMBED_MODEL;
   }
-  await writeDesiredRuntimeSettings({
+  const result = await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,
     previousSettings,
   });
+  noteRestartRequired(result);
   return { ok: true };
 }
 
@@ -145,11 +147,12 @@ async function setDreaming(
   const previousSettings = structuredClone(settings);
   settings.memory.dreaming.enabled = enabled;
   if (enabled && !settings.memory.enabled) settings.memory.enabled = true;
-  await writeDesiredRuntimeSettings({
+  const result = await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,
     previousSettings,
   });
+  noteRestartRequired(result);
 }
 
 export async function runMemoryCommand(

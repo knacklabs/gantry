@@ -22,6 +22,7 @@ import {
   ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { chooseSlackChatForConnect } from './slack-connect-chat-picker.js';
@@ -631,11 +632,12 @@ export async function runSlackConnectCommand(
       app_token: appSecret.ref,
     },
   };
-  await writeDesiredRuntimeSettings({
+  const result = await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,
     previousSettings,
   });
+  noteRestartRequired(result);
 
   if (normalizedChatJid) {
     p.outro('Slack connected. Secret stored encrypted in Gantry.');

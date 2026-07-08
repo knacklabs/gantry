@@ -30,6 +30,7 @@ import { providerLabel } from '../shared/model-catalog-availability.js';
 import {
   applyProviderManagedMemoryDefaults,
   ensureRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
   type RuntimeSettings,
 } from '../config/settings/runtime-settings.js';
@@ -305,7 +306,7 @@ export async function runModelCommand(
     previousSettings: RuntimeSettings,
     nextSettings: RuntimeSettings,
   ) => {
-    await writeDesiredRuntimeSettings({
+    return writeDesiredRuntimeSettings({
       runtimeHome,
       settings: nextSettings,
       previousSettings,
@@ -545,9 +546,10 @@ export async function runModelCommand(
     } else if (target === 'memory') {
       applyProviderManagedMemoryDefaults(settings, providerId);
     }
-    await persistSettings(previousSettings, settings);
+    const writeResult = await persistSettings(previousSettings, settings);
     console.log(formatTarget(settings, target));
     if (target === 'memory') {
+      noteRestartRequired(writeResult);
       await noteUnconfiguredMemoryProviders(runtimeHome, settings);
     }
     return 0;

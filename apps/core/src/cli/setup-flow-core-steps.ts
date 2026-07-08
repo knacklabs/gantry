@@ -8,6 +8,7 @@ import {
 import {
   ensureConfiguredAgent,
   loadDesiredRuntimeSettingsForWrite,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
@@ -131,12 +132,13 @@ export async function runAddAgentSetupSlice(
     agentFolder: agentId,
   });
   settings.agents[agentId]!.model = resolved.alias;
-  await writeDesiredRuntimeSettings({
+  const writeResult = await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,
     previousSettings,
     createdBy: 'cli:setup-add-agent',
   });
+  noteRestartRequired(writeResult);
 
   if (
     !(await ensureModelCredentialForProvider(

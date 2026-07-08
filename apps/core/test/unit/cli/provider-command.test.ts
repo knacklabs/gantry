@@ -492,6 +492,7 @@ describe('channel CLI command', () => {
     }));
     vi.doMock('@core/config/settings/desired-settings-writer.js', () => ({
       loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
+      noteRestartRequired: vi.fn(),
       writeDesiredRuntimeSettings,
     }));
     vi.doMock('@core/config/settings/runtime-settings.js', () => ({
@@ -571,6 +572,7 @@ describe('channel CLI command', () => {
     }));
     vi.doMock('@core/config/settings/desired-settings-writer.js', () => ({
       loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
+      noteRestartRequired: vi.fn(),
       writeDesiredRuntimeSettings,
     }));
     vi.doMock('@core/config/settings/runtime-settings.js', () => ({
@@ -645,6 +647,7 @@ describe('channel CLI command', () => {
     }));
     vi.doMock('@core/config/settings/desired-settings-writer.js', () => ({
       loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
+      noteRestartRequired: vi.fn(),
       writeDesiredRuntimeSettings,
     }));
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({

@@ -588,6 +588,7 @@ async function loadGroupStep() {
   vi.doMock('@core/config/settings/runtime-settings.js', () => ({
     loadRuntimeSettings: vi.fn(() => settings),
     saveRuntimeSettings,
+    noteRestartRequired: vi.fn(),
     writeDesiredRuntimeSettings,
     ensureConfiguredConversationBinding,
   }));

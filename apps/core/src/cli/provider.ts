@@ -10,6 +10,7 @@ import {
 } from '../channels/provider-registry.js';
 import {
   loadDesiredRuntimeSettingsForWrite,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/desired-settings-writer.js';
 import type { AgentId } from '../domain/agent/agent.js';
@@ -328,12 +329,13 @@ async function runProviderAccountCommand(
       runtimeSecretRefs,
       config: {},
     };
-    await writeDesiredRuntimeSettings({
+    const result = await writeDesiredRuntimeSettings({
       runtimeHome,
       settings,
       previousSettings,
       createdBy: 'cli:provider-account-connect',
     });
+    noteRestartRequired(result);
     p.note(
       [
         `Provider Account: ${label}`,
@@ -372,12 +374,13 @@ async function runProviderAccountCommand(
       ...account,
       runtimeSecretRefs: { ...(account.runtimeSecretRefs ?? {}), [key]: ref },
     };
-    await writeDesiredRuntimeSettings({
+    const result = await writeDesiredRuntimeSettings({
       runtimeHome,
       settings,
       previousSettings,
       createdBy: 'cli:provider-account-rotate-secret',
     });
+    noteRestartRequired(result);
     p.note('Provider Account secret ref updated.', 'Provider Account');
     return 0;
   }
@@ -477,12 +480,13 @@ async function runConversationInstallCommand(
         },
       },
     };
-    await writeDesiredRuntimeSettings({
+    const result = await writeDesiredRuntimeSettings({
       runtimeHome,
       settings,
       previousSettings,
       createdBy: 'cli:conversation-install',
     });
+    noteRestartRequired(result);
     p.note(
       [
         `Agent: ${agentFolder}`,

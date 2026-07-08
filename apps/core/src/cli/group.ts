@@ -373,9 +373,6 @@ async function runName(runtimeHome: string, args: string[]): Promise<number> {
     p.log.success(
       `Default agent name updated from "${previous}" to "${nextName}".`,
     );
-    p.log.info(
-      'Restart Gantry for all running processes to pick up the new identity.',
-    );
     return 0;
   } catch (err) {
     p.log.error(

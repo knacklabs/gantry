@@ -35,6 +35,34 @@ afterEach(() => {
 });
 
 describe('CLI local routing', () => {
+  it('uses credentials access in top-level help', async () => {
+    const output: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((message?: unknown) => {
+      output.push(String(message));
+    });
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      note: vi.fn(),
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+      select: vi.fn(),
+      text: vi.fn(),
+      spinner: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        message: vi.fn(),
+      })),
+    }));
+    const { main } = await import('@core/cli/index.js');
+
+    const code = await main(['--help']);
+
+    expect(code).toBe(0);
+    expect(output.join('\n')).toContain(
+      'gantry credentials model|access|browser',
+    );
+    expect(output.join('\n')).not.toContain('credentials capability');
+  });
+
   it.each([
     ['welcome', 'welcome'],
     ['channel', 'channel'],
@@ -300,10 +328,16 @@ describe('CLI local routing', () => {
       validateRuntimePreflightWithStorage,
       formatRuntimePreflightFailure: vi.fn(),
     }));
+    const log = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      success: vi.fn(),
+    };
     vi.doMock('@clack/prompts', () => ({
       isCancel: () => false,
       note: vi.fn(),
-      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+      log,
       select: vi.fn(),
       text: vi.fn(),
       spinner: vi.fn(() => ({
@@ -320,6 +354,9 @@ describe('CLI local routing', () => {
     expect(runPostgresMigrations).toHaveBeenCalledBefore(startGantryRuntime);
     expect(startGantryRuntime).toHaveBeenCalledWith();
     expect(validateRuntimePreflightWithStorage).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(
+      'gantry start runs the runtime in the FOREGROUND. Manage the background service with `gantry service install` and `gantry restart`.',
+    );
   });
 
   it('runs migrations before smart CLI status checks', async () => {

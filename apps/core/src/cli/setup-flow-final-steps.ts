@@ -8,6 +8,7 @@ import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import {
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
@@ -163,12 +164,13 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
         requiresTrigger: false,
         approverIds,
       });
-      await writeDesiredRuntimeSettings({
+      const writeResult = await writeDesiredRuntimeSettings({
         runtimeHome: draft.runtimeHome,
         settings,
         previousSettings,
         createdBy: 'cli:onboarding',
       });
+      noteRestartRequired(writeResult);
       draft.workspaceKey = result.folder;
       draft.conversationLabel = conversationLabel;
       spinner.stop(`Registered ${result.groupName} (${result.folder})`);
