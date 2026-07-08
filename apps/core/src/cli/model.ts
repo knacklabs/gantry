@@ -11,6 +11,7 @@ import {
 } from '../shared/model-catalog.js';
 import {
   isModelFamilyAlias,
+  resolveModelFamilyAlias,
   resolveModelSelectionForWorkloadWithFamilies,
 } from '../shared/model-families.js';
 import { formatModelWhy } from '../shared/model-why-format.js';
@@ -76,25 +77,30 @@ async function preflightAliasProviders(input: {
 }): Promise<boolean> {
   const providers = new Map<string, string | undefined>();
   const familyOrder = familyOrderFromSettings(input.settings);
+  // Family aliases preflight the same member the runtime would choose: the
+  // first member whose provider has a configured credential, falling back to
+  // the first member when none are (or the control API is unreachable).
+  const hasFamilyAlias = input.aliases.some(
+    ({ alias }) => alias && isModelFamilyAlias(alias),
+  );
+  const configuredProviders = hasFamilyAlias
+    ? await fetchConfiguredProviders(input.runtimeHome)
+    : undefined;
   for (const { alias, workload } of input.aliases) {
     if (!alias) continue;
-    // Family-aware so aliases like gpt-oss preflight their selected member's
-    // provider instead of silently skipping the credential check.
-    const resolved = resolveModelSelectionForWorkloadWithFamilies(
-      alias,
-      workload,
-      familyOrder,
-    );
+    const concreteInput = isModelFamilyAlias(alias)
+      ? (resolveModelFamilyAlias(alias, {
+          isProviderConfigured: (providerId) =>
+            configuredProviders?.has(providerId) ?? false,
+          order: familyOrder,
+        })?.alias ?? alias)
+      : alias;
+    const resolved = resolveModelSelectionForWorkload(concreteInput, workload);
     if (resolved.ok) {
       const providerId = resolved.entry.modelRoute.id;
-      // The preflight resolves chatAlias with the non-family resolver, so a
-      // family input must hand over its selected member's concrete alias.
-      const concreteAlias = isModelFamilyAlias(alias)
-        ? resolved.entry.recommendedAlias
-        : resolved.alias;
       providers.set(
         providerId,
-        workload === 'chat' ? concreteAlias : providers.get(providerId),
+        workload === 'chat' ? resolved.alias : providers.get(providerId),
       );
     }
   }
