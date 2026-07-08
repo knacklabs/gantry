@@ -388,7 +388,16 @@ export async function registerSlackMainGroup(options: {
       options.agentId?.trim() ||
       allocateDefaultAgentFolder(options.runtimeHome, existing);
 
-    const groupName = normalizeDefaultAgentName(options.displayName);
+    // A conversation owned by a DIFFERENT agent than the requested one is
+    // reused as-is: rewriting its display name would rename someone else's
+    // route with no rollback path in the route DB.
+    const requestedAgentId = options.agentId?.trim();
+    const keepExistingRoute = Boolean(
+      existingGroup && requestedAgentId && existingGroup.folder !== requestedAgentId,
+    );
+    const groupName = keepExistingRoute
+      ? existingGroup!.name
+      : normalizeDefaultAgentName(options.displayName);
 
     const route = {
       name: groupName,
