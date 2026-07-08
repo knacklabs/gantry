@@ -122,23 +122,11 @@ export async function runAddAgentSetupSlice(
     return 1;
   }
 
-  const settings = await loadDesiredRuntimeSettingsForWrite({ runtimeHome });
-  const previousSettings = structuredClone(settings);
   const name = String(agentName).trim();
-  const agentId = agentIdFromName(name, settings.agents);
-  ensureConfiguredAgent(settings, {
-    agentId,
-    agentName: name,
-    agentFolder: agentId,
-  });
-  settings.agents[agentId]!.model = resolved.alias;
-  const writeResult = await writeDesiredRuntimeSettings({
-    runtimeHome,
-    settings,
-    previousSettings,
-    createdBy: 'cli:setup-add-agent',
-  });
-  noteRestartRequired(writeResult);
+  const agentId = agentIdFromName(
+    name,
+    (await loadDesiredRuntimeSettingsForWrite({ runtimeHome })).agents,
+  );
 
   if (
     !(await ensureModelCredentialForProvider(
@@ -163,7 +151,32 @@ export async function runAddAgentSetupSlice(
   if (p.isCancel(provider) || provider === 'cancel') return 1;
 
   const { runProviderConnectCommand } = await import('./provider-connect.js');
-  return runProviderConnectCommand(runtimeHome, String(provider), agentId);
+  const connectCode = await runProviderConnectCommand(
+    runtimeHome,
+    String(provider),
+    agentId,
+  );
+  if (connectCode !== 0) return connectCode;
+
+  // Persist the agent's name and model only after credential and channel
+  // connection succeeded — a cancelled flow must not leave a dangling agent.
+  const settings = await loadDesiredRuntimeSettingsForWrite({ runtimeHome });
+  const previousSettings = structuredClone(settings);
+  ensureConfiguredAgent(settings, {
+    agentId,
+    agentName: name,
+    agentFolder: agentId,
+  });
+  settings.agents[agentId]!.name = name;
+  settings.agents[agentId]!.model = resolved.alias;
+  const writeResult = await writeDesiredRuntimeSettings({
+    runtimeHome,
+    settings,
+    previousSettings,
+    createdBy: 'cli:setup-add-agent',
+  });
+  noteRestartRequired(writeResult);
+  return 0;
 }
 
 export async function runWelcomeStep(): Promise<FlowAction> {
