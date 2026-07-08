@@ -373,6 +373,9 @@ function renderConversationsYaml(
       `    type: ${quoteYamlString(conversation.kind === 'group' ? 'channel' : conversation.kind)}`,
       `    display_name: ${quoteYamlString(conversation.displayName)}`,
     );
+    if (conversation.brainHarvest) {
+      lines.push('    brain_harvest: true');
+    }
     lines.push(
       '    sender_policy:',
       `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,

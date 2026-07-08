@@ -16,7 +16,14 @@ export const BRAIN_EDGE_TYPES = [
 ] as const;
 export type BrainEdgeType = (typeof BRAIN_EDGE_TYPES)[number];
 
-export type BrainPageSourceKind = 'import' | 'agent' | 'user';
+export const BRAIN_PAGE_SOURCE_KINDS = [
+  'import',
+  'agent',
+  'user',
+  'channel',
+  'dream',
+] as const;
+export type BrainPageSourceKind = (typeof BRAIN_PAGE_SOURCE_KINDS)[number];
 
 export interface BrainPage {
   id: string;
@@ -83,8 +90,12 @@ export interface BrainQueryResult {
 
 export interface BrainStatus {
   pages: number;
+  channelPages: number;
+  dreamPages: number;
   entities: number;
   edges: number;
+  dreamDecisions: number;
+  lastDreamCursor: string | null;
   readyEmbeddings: number;
   pendingEmbeddings: number;
 }

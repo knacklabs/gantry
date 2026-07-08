@@ -3,6 +3,7 @@ import {
   logger,
 } from '../infrastructure/logging/logger.js';
 import { createChannelWiring } from './bootstrap/channel-wiring.js';
+import { createRuntimeBrainChannelHarvestTap } from '../brain/brain-runtime.js';
 import { getDefaultRuntimeApp } from './bootstrap/runtime-app.js';
 import {
   startRuntimeServices,
@@ -92,6 +93,7 @@ export async function startGantryRuntime(
     },
   });
   const channelWiring = createChannelWiring(app, {
+    brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
     },

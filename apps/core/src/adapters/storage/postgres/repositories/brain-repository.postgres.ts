@@ -18,6 +18,8 @@ import type {
 } from '../../../../brain/brain-types.js';
 import type {
   BrainEdgeWrite,
+  BrainDreamCursor,
+  BrainDreamDecisionWrite,
   BrainEntityWrite,
   BrainPageWrite,
   BrainPendingEmbeddingPage,
@@ -26,6 +28,12 @@ import type {
 } from '../../../../brain/brain-repository.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
+import {
+  getBrainDreamCursor,
+  journalBrainDreamDecision,
+  listBrainPagesForDream,
+  saveBrainDreamCursor,
+} from './brain-dream-repository.postgres.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 
@@ -33,9 +41,14 @@ const Pages = pgSchema.brainPagesPostgres;
 const Entities = pgSchema.brainEntitiesPostgres;
 const Edges = pgSchema.brainEdgesPostgres;
 const Embeddings = pgSchema.brainPageEmbeddingsPostgres;
+const DreamDecisions = pgSchema.brainDreamDecisionsPostgres;
 
 export class PostgresBrainRepository implements BrainRepository {
   constructor(private readonly db: Db) {}
+
+  async getPageBySlug(appId: string, slug: string): Promise<BrainPage | null> {
+    return this.pageBySlug(appId, slug);
+  }
 
   async upsertPage(
     input: BrainPageWrite,
@@ -71,6 +84,25 @@ export class PostgresBrainRepository implements BrainRepository {
       })
       .returning();
     return { page: toPage(row!), created: !existing };
+  }
+
+  async getEntityByName(
+    appId: string,
+    kind: BrainEntity['kind'],
+    normalizedName: string,
+  ): Promise<BrainEntity | null> {
+    const [row] = await this.db
+      .select()
+      .from(Entities)
+      .where(
+        and(
+          eq(Entities.appId, appId),
+          eq(Entities.kind, kind),
+          eq(Entities.normalizedName, normalizedName),
+        ),
+      )
+      .limit(1);
+    return row ? toEntity(row) : null;
   }
 
   async upsertEntities(
@@ -138,6 +170,68 @@ export class PostgresBrainRepository implements BrainRepository {
         })),
       )
       .onConflictDoNothing()
+      .returning();
+    return rows.map(toEdge);
+  }
+
+  async getEdge(input: {
+    appId: string;
+    type: BrainEdge['type'];
+    fromEntityId: string;
+    toEntityId: string;
+    evidencePageId: string;
+  }): Promise<BrainEdge | null> {
+    const [row] = await this.db
+      .select()
+      .from(Edges)
+      .where(
+        and(
+          eq(Edges.appId, input.appId),
+          eq(Edges.type, input.type),
+          eq(Edges.fromEntityId, input.fromEntityId),
+          eq(Edges.toEntityId, input.toEntityId),
+          eq(Edges.evidencePageId, input.evidencePageId),
+        ),
+      )
+      .limit(1);
+    return row ? toEdge(row) : null;
+  }
+
+  async upsertEdges(
+    appId: string,
+    pageId: string,
+    edges: BrainEdgeWrite[],
+  ): Promise<BrainEdge[]> {
+    const unique = new Map<string, BrainEdgeWrite>();
+    for (const edge of edges) {
+      unique.set(`${edge.type}:${edge.fromEntityId}:${edge.toEntityId}`, edge);
+    }
+    if (unique.size === 0) return [];
+    const stamp = nowIso();
+    const rows = await this.db
+      .insert(Edges)
+      .values(
+        [...unique.values()].map((edge) => ({
+          id: `brg_${randomUUID().replace(/-/g, '')}`,
+          appId,
+          type: edge.type,
+          fromEntityId: edge.fromEntityId,
+          toEntityId: edge.toEntityId,
+          evidencePageId: pageId,
+          createdAt: stamp,
+          updatedAt: stamp,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [
+          Edges.appId,
+          Edges.type,
+          Edges.fromEntityId,
+          Edges.toEntityId,
+          Edges.evidencePageId,
+        ],
+        set: { updatedAt: stamp },
+      })
       .returning();
     return rows.map(toEdge);
   }
@@ -432,48 +526,89 @@ export class PostgresBrainRepository implements BrainRepository {
     appId: string,
     embedding?: BrainEmbeddingConfig,
   ): Promise<BrainStatus> {
-    const [pages, entities, edges, ready] = await Promise.all([
-      this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(Pages)
-        .where(eq(Pages.appId, appId)),
-      this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(Entities)
-        .where(eq(Entities.appId, appId)),
-      this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(Edges)
-        .where(eq(Edges.appId, appId)),
-      embedding
-        ? this.db
-            .select({ count: sql<number>`count(*)::int` })
-            .from(Embeddings)
-            .innerJoin(Pages, eq(Embeddings.pageId, Pages.id))
-            .where(
-              and(
-                eq(Pages.appId, appId),
-                eq(Embeddings.provider, embedding.provider),
-                eq(Embeddings.model, embedding.model),
-                eq(Embeddings.dimensions, embedding.dimensions),
-                eq(Embeddings.status, 'ready'),
-                sql`${Embeddings.embedding} is not null`,
-                sql`${Embeddings.contentHash} = ${pageContentHashSql()}`,
-              ),
-            )
-        : Promise.resolve([{ count: 0 }]),
-    ]);
+    const [pages, channelPages, dreamPages, entities, edges, decisions, ready] =
+      await Promise.all([
+        this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(Pages)
+          .where(eq(Pages.appId, appId)),
+        this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(Pages)
+          .where(and(eq(Pages.appId, appId), eq(Pages.sourceKind, 'channel'))),
+        this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(Pages)
+          .where(and(eq(Pages.appId, appId), eq(Pages.sourceKind, 'dream'))),
+        this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(Entities)
+          .where(eq(Entities.appId, appId)),
+        this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(Edges)
+          .where(eq(Edges.appId, appId)),
+        this.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(DreamDecisions)
+          .where(eq(DreamDecisions.appId, appId)),
+        embedding
+          ? this.db
+              .select({ count: sql<number>`count(*)::int` })
+              .from(Embeddings)
+              .innerJoin(Pages, eq(Embeddings.pageId, Pages.id))
+              .where(
+                and(
+                  eq(Pages.appId, appId),
+                  eq(Embeddings.provider, embedding.provider),
+                  eq(Embeddings.model, embedding.model),
+                  eq(Embeddings.dimensions, embedding.dimensions),
+                  eq(Embeddings.status, 'ready'),
+                  sql`${Embeddings.embedding} is not null`,
+                  sql`${Embeddings.contentHash} = ${pageContentHashSql()}`,
+                ),
+              )
+          : Promise.resolve([{ count: 0 }]),
+      ]);
+    const cursor = await this.getDreamCursor(appId);
     const pageCount = Number(pages[0]?.count ?? 0);
     const readyEmbeddings = Number(ready[0]?.count ?? 0);
     return {
       pages: pageCount,
+      channelPages: Number(channelPages[0]?.count ?? 0),
+      dreamPages: Number(dreamPages[0]?.count ?? 0),
       entities: Number(entities[0]?.count ?? 0),
       edges: Number(edges[0]?.count ?? 0),
+      dreamDecisions: Number(decisions[0]?.count ?? 0),
+      lastDreamCursor: cursor?.updatedAt ?? null,
       readyEmbeddings,
       pendingEmbeddings: embedding
         ? Math.max(0, pageCount - readyEmbeddings)
         : 0,
     };
+  }
+
+  async getDreamCursor(appId: string): Promise<BrainDreamCursor | null> {
+    return getBrainDreamCursor(this.db, appId);
+  }
+
+  async listPagesForDream(input: {
+    appId: string;
+    cursor?: BrainDreamCursor | null;
+    limit: number;
+  }): Promise<BrainPage[]> {
+    return listBrainPagesForDream(this.db, input);
+  }
+
+  async saveDreamCursor(
+    appId: string,
+    cursor: BrainDreamCursor,
+  ): Promise<void> {
+    await saveBrainDreamCursor(this.db, appId, cursor);
+  }
+
+  async journalDreamDecision(input: BrainDreamDecisionWrite): Promise<void> {
+    await journalBrainDreamDecision(this.db, input);
   }
 
   private async pageBySlug(

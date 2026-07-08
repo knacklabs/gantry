@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import {
   BRAIN_EDGE_TYPES,
   BRAIN_ENTITY_KINDS,
+  BRAIN_PAGE_SOURCE_KINDS,
   type BrainEdgeType,
   type BrainEntityKind,
   type BrainPageSourceKind,
@@ -30,7 +31,13 @@ export interface BrainPageExtraction {
   edges: BrainEdgeRef[];
 }
 
-const SOURCE_KINDS = new Set(['import', 'agent', 'user']);
+// Frontmatter is untrusted content: it may only claim external source kinds.
+// Internal kinds ('channel', 'dream') are set exclusively by their pipelines.
+const SOURCE_KINDS = new Set<string>(
+  BRAIN_PAGE_SOURCE_KINDS.filter(
+    (kind) => kind !== 'channel' && kind !== 'dream',
+  ),
+);
 
 export function normalizeBrainSlug(value: string): string {
   return value

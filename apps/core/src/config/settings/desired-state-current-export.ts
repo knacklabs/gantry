@@ -205,6 +205,7 @@ export async function exportCurrentDesiredState(input: {
         conversation.title ??
         externalId ??
         String(conversation.id),
+      brainHarvest: existingConversation?.brainHarvest ?? false,
       senderPolicy: existingConversation?.senderPolicy ?? {
         allow: '*',
         mode: 'trigger',
@@ -432,6 +433,7 @@ export async function exportCurrentDesiredState(input: {
       externalId,
       kind,
       displayName: existingConversation?.displayName ?? group.name,
+      brainHarvest: existingConversation?.brainHarvest ?? false,
       senderPolicy: existingConversation?.senderPolicy ?? {
         allow: '*',
         mode: 'trigger',

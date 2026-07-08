@@ -1116,7 +1116,10 @@ describe('Postgres migration journal', () => {
     ) as {
       entries: Array<{ idx: number; tag: string; when: number }>;
     };
-    expect(journal.entries.at(-1)).toMatchObject({
+    const entry = journal.entries.find(
+      (item) => item.tag === '0093_company_brain_core',
+    );
+    expect(entry).toMatchObject({
       idx: 93,
       when: 1777320600000,
       tag: '0093_company_brain_core',
@@ -1136,6 +1139,41 @@ describe('Postgres migration journal', () => {
       'CREATE TABLE IF NOT EXISTS brain_page_embeddings',
     );
     expect(migration).toContain('USING hnsw (embedding vector_cosine_ops)');
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('RENAME TO');
+    expect(migration).not.toContain('ALTER TABLE');
+  });
+
+  it('registers brain dreaming journal tables after the company brain core migration', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 94,
+      when: 1777324200000,
+      tag: '0094_brain_dreaming',
+    });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0094_brain_dreaming.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_dream_state');
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS brain_dream_decisions',
+    );
+    expect(migration).toContain('op_json jsonb NOT NULL');
+    expect(migration).toContain('idx_brain_dream_decisions_run');
     expect(migration).not.toContain('DROP TABLE');
     expect(migration).not.toContain('RENAME TO');
     expect(migration).not.toContain('ALTER TABLE');

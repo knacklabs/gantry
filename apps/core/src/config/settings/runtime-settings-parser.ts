@@ -186,12 +186,13 @@ function parseConversations(
         key !== 'kind' &&
         key !== 'type' &&
         key !== 'display_name' &&
+        key !== 'brain_harvest' &&
         key !== 'sender_policy' &&
         key !== 'control_approvers' &&
         key !== 'installed_agents'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure provider_account, external_id, kind, display_name, sender_policy, control_approvers, or installed_agents.`,
+          `${pathPrefix}.${key} is not supported. Configure provider_account, external_id, kind, display_name, brain_harvest, sender_policy, control_approvers, or installed_agents.`,
         );
       }
     }
@@ -239,6 +240,11 @@ function parseConversations(
         map.display_name,
         `${pathPrefix}.display_name`,
         conversationId,
+      ),
+      brainHarvest: parseBooleanValue(
+        map.brain_harvest,
+        `${pathPrefix}.brain_harvest`,
+        false,
       ),
       senderPolicy: parseSenderPolicy(
         map.sender_policy,

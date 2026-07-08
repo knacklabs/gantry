@@ -35,17 +35,26 @@ export async function runBrainCommand(
   }
   if (!command || command === 'status') {
     const jsonMode = args.includes('--json') || rest.includes('--json');
-    return withBrain(runtimeHome, async (brain, appId, close) => {
+    return withBrain(runtimeHome, async (brain, appId, close, opened) => {
       try {
         const status = await brain.status(appId);
+        const fullStatus = {
+          ...status,
+          harvestEnabledConversations: opened.harvestEnabledConversations,
+        };
         if (jsonMode) {
-          process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
+          process.stdout.write(`${JSON.stringify(fullStatus, null, 2)}\n`);
         } else {
           p.note(
             [
               `Pages: ${status.pages}`,
+              `Channel pages: ${status.channelPages}`,
+              `Dream pages: ${status.dreamPages}`,
               `Entities: ${status.entities}`,
               `Edges: ${status.edges}`,
+              `Dream decisions: ${status.dreamDecisions}`,
+              `Last dream cursor: ${status.lastDreamCursor ?? 'never'}`,
+              `Harvest-enabled conversations: ${opened.harvestEnabledConversations}`,
               `Ready embeddings: ${status.readyEmbeddings}`,
               `Pending embeddings: ${status.pendingEmbeddings}`,
             ].join('\n'),
@@ -68,10 +77,11 @@ async function withBrain(
     brain: BrainService,
     appId: string,
     close: () => Promise<void>,
+    opened: Awaited<ReturnType<typeof openBrainFromHome>>,
   ) => Promise<number>,
 ): Promise<number> {
   const opened = await openBrainFromHome(runtimeHome);
-  return work(opened.brain, opened.appId, opened.close);
+  return work(opened.brain, opened.appId, opened.close, opened);
 }
 
 async function importDirectory(

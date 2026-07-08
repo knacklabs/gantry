@@ -114,6 +114,7 @@ export const RuntimeSettingsConversationSchema = z
       'web',
     ]),
     displayName: z.string(),
+    brainHarvest: z.boolean(),
     senderPolicy: z
       .object({
         allow: z.union([z.literal('*'), z.array(z.string().trim().min(1))]),

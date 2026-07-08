@@ -174,3 +174,50 @@ export const brainPageEmbeddingsPostgres = pgTable(
       .where(sql`status = 'ready' AND embedding IS NOT NULL`),
   }),
 );
+
+export const brainDreamStatePostgres = pgTable('brain_dream_state', {
+  appId: text('app_id')
+    .primaryKey()
+    .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+  cursorUpdatedAt: timestamp('cursor_updated_at', {
+    withTimezone: true,
+    mode: 'string',
+  }),
+  cursorPageId: text('cursor_page_id'),
+  updatedAt: timestamp('updated_at', {
+    withTimezone: true,
+    mode: 'string',
+  }).notNull(),
+});
+
+export const brainDreamDecisionsPostgres = pgTable(
+  'brain_dream_decisions',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    runId: text('run_id').notNull(),
+    pageId: text('page_id').references(() => brainPagesPostgres.id, {
+      onDelete: 'set null',
+    }),
+    opJson: jsonb('op_json').notNull(),
+    outcome: text('outcome').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+  },
+  (table) => ({
+    runIdx: index('idx_brain_dream_decisions_run').on(table.runId),
+    appIdx: index('idx_brain_dream_decisions_app').on(
+      table.appId,
+      table.createdAt,
+    ),
+  }),
+);

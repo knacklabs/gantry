@@ -397,6 +397,7 @@ export function ensureConfiguredConversationBinding(
     externalId,
     kind: provider.isGroupJid(input.jid) ? 'channel' : 'dm',
     displayName: input.displayName.trim() || input.jid,
+    brainHarvest: existingConversation?.brainHarvest ?? false,
     senderPolicy: existingConversation?.senderPolicy || {
       allow: '*',
       mode: 'trigger',

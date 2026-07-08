@@ -36,6 +36,7 @@ import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
 } from '../../channels/channel-provider.js';
+import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -119,6 +120,7 @@ export interface ChannelWiringDeps {
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
   runtimeSecrets: RuntimeSecretProvider;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  brainHarvestTap?: BrainChannelHarvestTap;
 }
 
 export interface ChannelWiring {
