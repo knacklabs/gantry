@@ -56,7 +56,13 @@ export function createRuntimeBrainChannelHarvestTap(): BrainChannelHarvestTap {
         );
         boundDb = storage.service.db;
       }
-      await harvester.harvest(input);
+      // Evaluate the opt-in against fresh (mtime-cached) settings so live
+      // brain_harvest toggles apply without a restart; the wiring passes a
+      // startup snapshot that goes stale after a settings reload.
+      await harvester.harvest({
+        ...input,
+        settings: getRuntimeSettingsForConfig(),
+      });
     },
   };
 }
