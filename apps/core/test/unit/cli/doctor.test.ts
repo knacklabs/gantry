@@ -577,6 +577,45 @@ describe('doctor model credential readiness', () => {
     );
   });
 
+  it('skips Slack live token validation when disabled', async () => {
+    mockListModelCredentials.mockResolvedValue([]);
+    const runtimeHome = makeRuntimeHome();
+    fs.appendFileSync(
+      path.join(runtimeHome, '.env'),
+      ['SLACK_BOT_TOKEN=xoxb-valid', 'SLACK_APP_TOKEN=xapp-valid', ''].join(
+        '\n',
+      ),
+    );
+    fs.writeFileSync(
+      path.join(runtimeHome, 'settings.yaml'),
+      [
+        'providers:',
+        '  slack:',
+        '    enabled: true',
+        'provider_accounts:',
+        '  slack_default:',
+        '    agent: main_agent',
+        '    provider: slack',
+        '    label: Slack',
+        '    runtime_secret_refs:',
+        '      bot_token: env:SLACK_BOT_TOKEN',
+        '      app_token: env:SLACK_APP_TOKEN',
+        'model_access:',
+        '  enabled: true',
+        '',
+      ].join('\n'),
+    );
+    const { runDoctorWithNetwork } = await import('@core/cli/doctor.js');
+
+    await runDoctorWithNetwork(import.meta.url, runtimeHome, {
+      validateTelegramToken: false,
+      validateSlackToken: false,
+    });
+
+    expect(mockValidateSlackBotToken).not.toHaveBeenCalled();
+    expect(mockValidateSlackAppToken).not.toHaveBeenCalled();
+  });
+
   it('accepts keyring-only model credential encryption in doctor output', async () => {
     mockListModelCredentials.mockResolvedValue([]);
     const runtimeHome = makeRuntimeHome({ keyringOnly: true });

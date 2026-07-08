@@ -24,6 +24,11 @@ afterEach(() => {
   vi.doUnmock('@core/cli/credentials.js');
   vi.doUnmock('@core/cli/onboarding-state.js');
   vi.doUnmock('@core/cli/setup-flow.js');
+  vi.doUnmock('@core/cli/setup-flow-core-steps.js');
+  vi.doUnmock('@core/cli/setup-credentials.js');
+  vi.doUnmock('@core/cli/setup-flow-provider-steps.js');
+  vi.doUnmock('@core/cli/setup-flow-final-steps.js');
+  vi.doUnmock('@core/cli/setup-ready.js');
   vi.doUnmock('@core/cli/local.js');
   vi.doUnmock('@core/app/index.js');
   vi.doUnmock('@core/postgres-migrate.js');
@@ -112,6 +117,122 @@ describe('CLI local routing', () => {
       });
     },
   );
+
+  it('skips channel reconnect steps for memory maintenance when a binding exists', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const onboarding = await import('@core/cli/onboarding-state.js');
+    const state = onboarding.createInitialState(runtimeHome);
+    state.status = 'completed';
+    state.currentStep = 'ready';
+    onboarding.writeOnboardingState(runtimeHome, state);
+    fs.writeFileSync(path.join(runtimeHome, 'settings.yaml'), 'providers: {}\n');
+
+    const runMemoryStep = vi.fn(async () => ({ type: 'next' }));
+    const runCredentialsStep = vi.fn(async () => ({ type: 'next' }));
+    const runTelegramStep = vi.fn(async () => ({ type: 'next' }));
+    const runSlackStep = vi.fn(async () => ({ type: 'next' }));
+    const runConfigStep = vi.fn(async () => ({ type: 'next' }));
+    const runGroupStep = vi.fn(async () => ({ type: 'next' }));
+    const runVerifyStep = vi.fn(async () => ({ type: 'next' }));
+    const runReadyStep = vi.fn(async () => ({ type: 'next' }));
+    const select = vi.fn(async () => 'memory');
+
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+      isCancel: () => false,
+      select,
+      log: {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        success: vi.fn(),
+        step: vi.fn(),
+        message: vi.fn(),
+      },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import('@core/config/settings/runtime-settings.js')
+          >();
+        const settings = actual.createDefaultRuntimeSettings();
+        settings.providers.slack.enabled = true;
+        settings.providerAccounts.slack_default = {
+          agentId: 'main_agent',
+          provider: 'slack',
+          label: 'Slack',
+          runtimeSecretRefs: {
+            bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
+            app_token: 'gantry-secret:SLACK_APP_TOKEN',
+          },
+        };
+        settings.agents.main_agent = {
+          name: 'Main',
+          folder: 'main_agent',
+          model: 'opus',
+          bindings: {
+            main: {
+              jid: 'sl:C123',
+              provider: 'slack',
+              name: 'Ops',
+              trigger: '@Main',
+              addedAt: '2026-01-01T00:00:00.000Z',
+              requiresTrigger: false,
+            },
+          },
+          sources: { skills: [], mcpServers: [], tools: [] },
+          capabilities: [],
+          accessPreset: 'full',
+        };
+        return {
+          ...actual,
+          configureDesiredSettingsStorageProvider: vi.fn(),
+          ensureRuntimeSettings: vi.fn(() => settings),
+          loadRuntimeSettingsFromPath: vi.fn(() => settings),
+        };
+      },
+    );
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runAddAgentSetupSlice: vi.fn(),
+      runWelcomeStep: vi.fn(),
+      runRuntimeHomeStep: vi.fn(),
+      runStorageStep: vi.fn(),
+      runChannelStep: vi.fn(),
+      runModelStep: vi.fn(),
+      runMemoryStep,
+    }));
+    vi.doMock('@core/cli/setup-credentials.js', () => ({
+      runCredentialsStep,
+    }));
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep,
+      runSlackStep,
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep,
+      runGroupStep,
+      runVerifyStep,
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep,
+    }));
+
+    const { main } = await import('@core/cli/index.js');
+    const code = await main(['--runtime-home', runtimeHome, 'setup']);
+
+    expect(code).toBe(0);
+    expect(runMemoryStep).toHaveBeenCalledTimes(1);
+    expect(runCredentialsStep).toHaveBeenCalledTimes(1);
+    expect(runConfigStep).toHaveBeenCalledTimes(1);
+    expect(runVerifyStep).toHaveBeenCalledTimes(1);
+    expect(runReadyStep).toHaveBeenCalledTimes(1);
+    expect(runTelegramStep).not.toHaveBeenCalled();
+    expect(runSlackStep).not.toHaveBeenCalled();
+    expect(runGroupStep).not.toHaveBeenCalled();
+  });
 
   it('runs the completed setup add-agent mini-flow', async () => {
     const runtimeHome = makeRuntimeHome();

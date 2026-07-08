@@ -14,6 +14,7 @@ import {
   loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
   noteRestartRequired,
+  type RuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
@@ -42,6 +43,29 @@ export interface OnboardingConfigInput {
   memoryEnabled: boolean;
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
+}
+
+const REQUIRED_CHANNEL_SECRET_REFS = {
+  telegram: ['bot_token'],
+  slack: ['bot_token', 'app_token'],
+} as const satisfies Record<
+  OnboardingConfigInput['primaryProvider'],
+  readonly string[]
+>;
+
+function hasEnabledProviderWithStoredSecretRefs(
+  settings: RuntimeSettings,
+  providerId: OnboardingConfigInput['primaryProvider'],
+): boolean {
+  if (!settings.providers[providerId]?.enabled) return false;
+  return Object.values(settings.providerAccounts).some(
+    (account) =>
+      account.provider === providerId &&
+      account.status !== 'disabled' &&
+      REQUIRED_CHANNEL_SECRET_REFS[providerId].every((key) =>
+        Boolean(account.runtimeSecretRefs[key]?.trim()),
+      ),
+  );
 }
 
 export async function persistOnboardingConfig(
@@ -122,12 +146,23 @@ export async function persistOnboardingConfig(
     settings.agent.agentHarness = input.agentHarness;
   }
   settings.credentialBroker.mode = input.credentialMode;
-  settings.providers.telegram.enabled =
-    input.primaryProvider === 'telegram' && Boolean(input.telegramBotToken);
-  settings.providers.slack.enabled =
+  const hasTelegramBotToken = Boolean(input.telegramBotToken?.trim());
+  const hasSlackTokens = Boolean(
+    input.slackBotToken?.trim() && input.slackAppToken?.trim(),
+  );
+  const preserveTelegram =
+    input.primaryProvider === 'telegram' &&
+    !hasTelegramBotToken &&
+    hasEnabledProviderWithStoredSecretRefs(previousSettings, 'telegram');
+  const preserveSlack =
     input.primaryProvider === 'slack' &&
-    Boolean(input.slackBotToken) &&
-    Boolean(input.slackAppToken);
+    !hasSlackTokens &&
+    hasEnabledProviderWithStoredSecretRefs(previousSettings, 'slack');
+  settings.providers.telegram.enabled =
+    input.primaryProvider === 'telegram' &&
+    (hasTelegramBotToken || preserveTelegram);
+  settings.providers.slack.enabled =
+    input.primaryProvider === 'slack' && (hasSlackTokens || preserveSlack);
   const secretWrites: Promise<void>[] = [];
   if (input.telegramBotToken?.trim()) {
     secretWrites.push(

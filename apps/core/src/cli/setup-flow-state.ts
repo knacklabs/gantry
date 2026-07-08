@@ -68,6 +68,8 @@ export interface SetupDraft {
   workspaceKey: string;
   conversationLabel: string;
   startAfterSetup: boolean;
+  maintenanceMode: boolean;
+  hasConfiguredChannelBinding: boolean;
 }
 
 export interface SetupFlowOptions {
@@ -93,6 +95,16 @@ export function shouldSkipStep(
   step: OnboardingStep,
   draft: SetupDraft,
 ): boolean {
+  if (
+    draft.maintenanceMode &&
+    draft.hasConfiguredChannelBinding &&
+    (step === 'channel' ||
+      step === 'telegram' ||
+      step === 'slack' ||
+      step === 'group')
+  ) {
+    return true;
+  }
   if (step === 'telegram' && draft.primaryProvider !== 'telegram') return true;
   if (step === 'slack' && draft.primaryProvider !== 'slack') return true;
   return false;
@@ -126,6 +138,7 @@ export function updateStateData(
     memoryEnabled: draft.memoryEnabled,
     embeddingsEnabled: draft.embeddingsEnabled,
     dreamingEnabled: draft.dreamingEnabled,
+    maintenanceMode: draft.maintenanceMode || undefined,
   };
 }
 
@@ -170,6 +183,7 @@ export function updateDraftFromState(
   draft.embeddingsEnabled =
     state.data.embeddingsEnabled ?? draft.embeddingsEnabled;
   draft.dreamingEnabled = state.data.dreamingEnabled ?? draft.dreamingEnabled;
+  draft.maintenanceMode = state.data.maintenanceMode ?? draft.maintenanceMode;
 }
 
 export function persistProgress(
@@ -214,6 +228,9 @@ export function restoreDraft(
   const postgresDatabaseUrl =
     env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';
   const readySummary = resolveReadySummary(settings, primaryProvider);
+  const hasConfiguredChannelBinding = Boolean(
+    settings.providers[primaryProvider]?.enabled && readySummary.conversationJid,
+  );
   const draft: SetupDraft = {
     runtimeHome,
     postgresSetupKind:
@@ -259,6 +276,8 @@ export function restoreDraft(
     workspaceKey: readySummary.workspaceKey,
     conversationLabel: readySummary.conversationLabel,
     startAfterSetup: false,
+    maintenanceMode: state?.data.maintenanceMode ?? false,
+    hasConfiguredChannelBinding,
   };
   if (state) updateDraftFromState(draft, state);
   return draft;

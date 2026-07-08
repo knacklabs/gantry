@@ -168,6 +168,16 @@ async function runStartCommand(runtimeHome: string): Promise<number> {
   return 0;
 }
 
+function isMaintenanceSetupChoice(value: unknown): value is OnboardingStep {
+  return (
+    value === 'model' ||
+    value === 'memory' ||
+    value === 'credentials' ||
+    value === 'storage' ||
+    value === 'verify'
+  );
+}
+
 async function runStopCommand(runtimeHome: string): Promise<number> {
   const serviceOutcome = stopService(runtimeHome);
   if (!serviceOutcome.ok) {
@@ -390,6 +400,7 @@ async function runSetupCommand(
     startStep = choice as OnboardingStep;
     const nextState = createInitialState(runtimeHome);
     nextState.currentStep = startStep;
+    nextState.data.maintenanceMode = isMaintenanceSetupChoice(choice);
     clearOnboardingState(runtimeHome);
     writeOnboardingState(runtimeHome, nextState);
   }

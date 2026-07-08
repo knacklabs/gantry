@@ -8,6 +8,9 @@ const settingsWrites: Array<{
   previousSchema?: string;
   telegramEnabled: boolean;
   telegramBotRef?: string;
+  slackEnabled: boolean;
+  slackBotRef?: string;
+  slackAppRef?: string;
   agentHarness: string;
 }> = [];
 const desiredSettings = createDefaultRuntimeSettings();
@@ -67,6 +70,13 @@ vi.mock('@core/config/settings/runtime-settings.js', async (importOriginal) => {
           telegramBotRef:
             input.settings.providerAccounts.telegram_default?.runtimeSecretRefs
               .bot_token,
+          slackEnabled: Boolean(input.settings.providers.slack.enabled),
+          slackBotRef:
+            input.settings.providerAccounts.slack_default?.runtimeSecretRefs
+              .bot_token,
+          slackAppRef:
+            input.settings.providerAccounts.slack_default?.runtimeSecretRefs
+              .app_token,
           agentHarness: input.settings.agent.agentHarness,
         });
         return { reconciled: false };
@@ -164,6 +174,38 @@ describe('persistOnboardingConfig', () => {
       schema: 'custom_schema',
       previousSchema: 'latest_schema',
       agentHarness: 'auto',
+    });
+  });
+
+  it('preserves an enabled provider with stored refs when no new token is supplied', async () => {
+    desiredSettings.providers.slack.enabled = true;
+    desiredSettings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: {
+        bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
+        app_token: 'gantry-secret:SLACK_APP_TOKEN',
+      },
+    };
+    const { persistOnboardingConfig } =
+      await import('@core/cli/onboarding-config.js');
+
+    await persistOnboardingConfig({
+      runtimeHome: '/tmp/gantry',
+      primaryProvider: 'slack',
+      agentHarness: 'auto',
+      credentialMode: 'gantry',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: false,
+    });
+
+    expect(events).toEqual(['loadDesired:gantry', 'write:gantry']);
+    expect(settingsWrites.at(-1)).toMatchObject({
+      slackEnabled: true,
+      slackBotRef: 'gantry-secret:SLACK_BOT_TOKEN',
+      slackAppRef: 'gantry-secret:SLACK_APP_TOKEN',
     });
   });
 });

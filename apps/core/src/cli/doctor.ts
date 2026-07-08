@@ -68,6 +68,7 @@ export type DoctorReport = {
 
 export type DoctorNetworkOptions = {
   validateTelegramToken?: boolean;
+  validateSlackToken?: boolean;
   telegramTimeoutMs?: number;
   slackTimeoutMs?: number;
 };
@@ -608,6 +609,7 @@ export async function runDoctorWithNetwork(
     unresolvedRuntimeSecretProviderIds,
   });
   const validateTelegramToken = options.validateTelegramToken !== false;
+  const validateSlackToken = options.validateSlackToken !== false;
   const env = readEnvFile(envFilePath(runtimeHome));
   if (validateTelegramToken) {
     const telegramCheck = settings
@@ -619,14 +621,16 @@ export async function runDoctorWithNetwork(
       : null;
     if (telegramCheck) report = addToReport(report, telegramCheck);
   }
-  const slackCheck = settings
-    ? await inspectSlackTokenLiveCheck({
-        settings,
-        env,
-        timeoutMs: options.slackTimeoutMs,
-      })
-    : null;
-  if (slackCheck) report = addToReport(report, slackCheck);
+  if (validateSlackToken) {
+    const slackCheck = settings
+      ? await inspectSlackTokenLiveCheck({
+          settings,
+          env,
+          timeoutMs: options.slackTimeoutMs,
+        })
+      : null;
+    if (slackCheck) report = addToReport(report, slackCheck);
+  }
 
   const storageReadiness = await inspectRuntimeStorageReadiness(runtimeHome);
   report = addToReport(report, {

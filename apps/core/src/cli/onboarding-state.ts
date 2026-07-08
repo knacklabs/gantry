@@ -43,6 +43,7 @@ export interface OnboardingData {
   agentHarness?: AgentHarness;
   workspaceKey?: string;
   conversationLabel?: string;
+  maintenanceMode?: boolean;
 }
 
 export interface OnboardingState {
