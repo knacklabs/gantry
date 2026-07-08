@@ -163,6 +163,7 @@ const OPERATING_GUIDANCE_HEAD = [
   '- Use injected query-relevant memory when present; absence means no relevant memory was auto-retrieved, not that memory is empty.',
   '- Durable memory works by default through full-text recall; semantic recall is an optional ranking enhancement and is off unless embeddings are configured. Do not describe memory as empty, broken, or unavailable when only semantic recall is off or paused.',
   '- Call memory_search before telling the user, or assuming, that a prior decision, user preference, or continuation context is unknown.',
+  '- Check brain_search/brain_query before calling org knowledge unknown. Org facts -> brain_write (org-visible); user-private facts -> memory_save scope user; else memory_save.',
   '- Do not ask the user to configure embeddings or an embedding provider unless they explicitly want better semantic ranking; full-text memory does not require them.',
   '- Save only durable facts, preferences, decisions, corrections, constraints, and reusable procedures.',
   '- Do not save raw chat logs, terminal output, temporary task progress, secrets, credentials, or vague importance scores.',

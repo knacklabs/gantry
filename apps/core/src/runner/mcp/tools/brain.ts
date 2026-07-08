@@ -34,7 +34,7 @@ async function brainToolResult(
 export function registerBrainTools(server: McpServer): void {
   server.tool(
     'brain_search',
-    'Search the shared Gantry company brain across agents. Returns app-scoped markdown pages with graph evidence and citations.',
+    'Search the shared Gantry company brain across agents. Returns app-scoped markdown pages with graph evidence and citations. Check it before saying organization-level information is unknown.',
     {
       query: z.string().min(1),
       limit: z.number().int().min(1).max(20).optional(),
@@ -47,7 +47,7 @@ export function registerBrainTools(server: McpServer): void {
 
   server.tool(
     'brain_query',
-    'Answer a question from the shared Gantry company brain with citations and explicit gaps.',
+    'Answer a question from the shared Gantry company brain with citations and explicit gaps. Use it before telling the user organization-level knowledge is unknown.',
     {
       question: z.string().min(1),
       limit: z.number().int().min(1).max(20).optional(),
@@ -60,7 +60,7 @@ export function registerBrainTools(server: McpServer): void {
 
   server.tool(
     'brain_write',
-    'Write or update one markdown page in the shared Gantry company brain. Use stable slugs and cite source details in frontmatter or page body.',
+    'Write or update one markdown page in the shared Gantry company brain. Pages are visible to every agent and user in this org: only write durable organization-level facts (people, companies, projects, decisions). Never write personal or user-private context — that belongs in memory_save. Use stable slugs and cite source details in frontmatter or page body.',
     {
       slug: z.string().min(1),
       markdown: z.string().min(1),
