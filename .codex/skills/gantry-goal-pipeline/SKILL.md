@@ -20,8 +20,10 @@ subagents, verify, review, restart, smoke test, and publish.
    splitting, diff inspection, integration checks, review triage, commits, PR
    updates, and final reporting. The orchestrator does not implement directly.
 3. Every Codex implementation handoff must include:
-   - `--effort xhigh` (and `--resume` to continue an unfinished stage;
-     `--fresh` for a new stage).
+   - `--model gpt-5.6-sol --effort xhigh` (and `--resume` to continue an
+     unfinished stage; `--fresh` for a new stage). `gpt-5.6-sol` is the
+     current implementation model (needs codex CLI >= 0.144.0); update here
+     when a newer model ships.
    - `Use ponytail.`
    - `No commentary.`
    - `Return changed files, checks run, and blockers only.`

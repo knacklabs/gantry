@@ -17,7 +17,7 @@
     "apps/core/src/channels/telegram/channel-delivery.ts": 766,
     "apps/core/src/cli/group.ts": 824,
     "apps/core/src/cli/model.ts": 723,
-    "apps/core/src/config/settings/desired-state-service.ts": 820,
+    "apps/core/src/config/settings/desired-state-service.ts": 830,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
     "apps/core/src/application/jobs/job-readiness-service.ts": 754,
     "apps/core/src/jobs/execution.ts": 822,

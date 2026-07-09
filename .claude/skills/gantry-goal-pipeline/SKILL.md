@@ -28,8 +28,10 @@ Split work into stages sized for one Codex run (~10 min). One handoff at a
 time — never two writers in the same worktree. For each stage, spawn an Agent
 with `subagent_type: codex:codex-rescue` whose prompt contains:
 
-- `--effort xhigh --fresh` on the first line (`--resume` instead to continue an
-  unfinished stage).
+- `--model gpt-5.6-sol --effort xhigh --fresh` on the first line (`--resume`
+  instead of `--fresh` to continue an unfinished stage). `gpt-5.6-sol` is the
+  current implementation model; it needs codex CLI >= 0.144.0 (npm
+  `@openai/codex`, not homebrew). If a newer model ships, update this line.
 - The stage scope, referencing the goal prompt file as the contract.
 - The exact bounded write scope ("Nothing else").
 - Repo gate notes: import from source modules in tests, no provider-name
