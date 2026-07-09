@@ -89,6 +89,7 @@ export interface RuntimeMemorySettings {
   dreaming: {
     enabled: boolean;
     cron: string;
+    alerts: boolean;
     embeddings: {
       enabled: boolean;
       provider: EmbeddingProviderName;

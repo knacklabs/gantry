@@ -138,6 +138,7 @@ function renderMemorySettingsYaml(
     '  dreaming:',
     `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
     `    cron: ${quoteYamlString(memory.dreaming.cron)}`,
+    `    alerts: ${memory.dreaming.alerts ? 'true' : 'false'}`,
     '    embeddings:',
     `      enabled: ${memory.dreaming.embeddings.enabled ? 'true' : 'false'}`,
     `      provider: ${memory.dreaming.embeddings.provider}`,
@@ -474,6 +475,7 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
       DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS &&
     memory.dreaming.enabled === false &&
     memory.dreaming.cron === DEFAULT_MEMORY_DREAMING_CRON &&
+    memory.dreaming.alerts === true &&
     memory.dreaming.embeddings.enabled === false &&
     memory.dreaming.embeddings.provider === 'disabled' &&
     memory.dreaming.embeddings.model === DEFAULT_EMBED_MODEL &&

@@ -210,6 +210,7 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       dreaming: {
         enabled: false,
         cron: DEFAULT_MEMORY_DREAMING_CRON,
+        alerts: true,
         embeddings: {
           enabled: false,
           provider: 'disabled',
@@ -311,11 +312,11 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       );
     }
   }
-  const dreamingKeys = new Set(['enabled', 'cron', 'embeddings']);
+  const dreamingKeys = new Set(['enabled', 'cron', 'alerts', 'embeddings']);
   for (const key of Object.keys(dreamingMap)) {
     if (!dreamingKeys.has(key)) {
       throw new Error(
-        `memory.dreaming.${key} is not supported. Use memory.dreaming.enabled, cron, or embeddings.`,
+        `memory.dreaming.${key} is not supported. Use memory.dreaming.enabled, cron, alerts, or embeddings.`,
       );
     }
   }
@@ -402,6 +403,11 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
         dreamingMap.cron,
         'memory.dreaming.cron',
         DEFAULT_MEMORY_DREAMING_CRON,
+      ),
+      alerts: parseBooleanValue(
+        dreamingMap.alerts,
+        'memory.dreaming.alerts',
+        true,
       ),
       embeddings: {
         enabled: dreamingEmbeddingsEnabled,

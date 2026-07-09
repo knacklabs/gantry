@@ -144,6 +144,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     dreaming: {
       enabled: false,
       cron: DEFAULT_MEMORY_DREAMING_CRON,
+      alerts: true,
       embeddings: {
         enabled: false,
         provider: 'disabled',

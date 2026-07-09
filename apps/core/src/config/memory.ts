@@ -18,6 +18,7 @@ import {
 import type { MemoryLlmModelProfile } from '../domain/ports/memory-llm-client.js';
 
 export {
+  RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
   RUNTIME_MEMORY_DREAMING_ENABLED,
   RUNTIME_MEMORY_ENABLED,
 } from './memory-state.js';

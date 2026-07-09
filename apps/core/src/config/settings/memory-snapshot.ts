@@ -13,6 +13,7 @@ export interface RuntimeMemorySettingsSnapshot {
   backfillProviderBatchMinItems?: number;
   dreamingEnabled?: boolean;
   dreamingCron?: string;
+  dreamingAlerts?: boolean;
   dreamingEmbeddingsEnabled?: boolean;
   dreamingEmbeddingProvider?: string;
   dreamingEmbeddingModel?: string;
@@ -253,6 +254,10 @@ export function parseRuntimeMemorySnapshotFromRoot(
       'memory.dreaming.enabled',
     ),
     dreamingCron: parseOptionalString(dreaming.cron),
+    dreamingAlerts: parseOptionalBoolean(
+      dreaming.alerts,
+      'memory.dreaming.alerts',
+    ),
     dreamingEmbeddingsEnabled: parseOptionalBoolean(
       dreamingEmbeddings.enabled,
       'memory.dreaming.embeddings.enabled',
