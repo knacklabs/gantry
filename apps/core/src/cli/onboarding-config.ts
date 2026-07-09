@@ -17,10 +17,8 @@ import {
   type RuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-import {
-  DEFAULT_SETUP_MODEL_ALIAS,
-  resolveModelSelectionForWorkload,
-} from '../shared/model-catalog.js';
+import { DEFAULT_SETUP_MODEL_ALIAS } from '../shared/model-catalog.js';
+import { resolveModelSelectionForWorkloadWithFamilies } from '../shared/model-families.js';
 import {
   gantryRuntimeSecretRef,
   normalizeRuntimeSecretRefString,
@@ -341,7 +339,13 @@ function resolveOnboardingModel(value: string | undefined): {
 } {
   const trimmed = value?.trim();
   if (!trimmed) return { alias: '' };
-  const resolved = resolveModelSelectionForWorkload(trimmed, 'chat');
+  // Family-aware: maintenance runs carry the stored chat alias through the
+  // draft, and a family selection (gpt-oss) must survive a non-model edit
+  // verbatim instead of being rejected or reset.
+  const resolved = resolveModelSelectionForWorkloadWithFamilies(
+    trimmed,
+    'chat',
+  );
   if (!resolved.ok) {
     throw new Error(resolved.message);
   }

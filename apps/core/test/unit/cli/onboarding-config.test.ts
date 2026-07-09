@@ -308,6 +308,29 @@ describe('persistOnboardingConfig', () => {
     });
   });
 
+  it('carries a family chat alias through a non-model maintenance save', async () => {
+    desiredSettings.agent.defaultModel = 'gpt-oss';
+    desiredSettings.agent.oneTimeJobDefaultModel = 'haiku';
+    const { persistOnboardingConfig } =
+      await import('@core/cli/onboarding-config.js');
+
+    await persistOnboardingConfig({
+      runtimeHome: '/tmp/gantry',
+      primaryProvider: 'telegram',
+      modelAlias: 'gpt-oss',
+      agentHarness: 'auto',
+      credentialMode: 'gantry',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: false,
+    });
+
+    expect(settingsWrites.at(-1)).toMatchObject({
+      defaultModel: 'gpt-oss',
+      oneTimeJobDefaultModel: 'haiku',
+    });
+  });
+
   it('re-derives defaults when the chat model changes', async () => {
     desiredSettings.agent.defaultModel = 'kimi';
     desiredSettings.agent.oneTimeJobDefaultModel = 'haiku';
