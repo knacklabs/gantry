@@ -2,8 +2,8 @@ import type { AppId } from '../app/app.js';
 import type { ToolCatalogRepository } from '../ports/repositories.js';
 import type { ToolCatalogItem, ToolId } from './tools.js';
 import {
-  adminMcpToolIdForFullName,
-  isAdminMcpToolFullName,
+  durableExactGantryMcpToolIdForFullName,
+  isDurableExactGantryMcpToolFullName,
 } from '../../shared/admin-mcp-tools.js';
 import {
   persistentPermissionToolId,
@@ -185,13 +185,13 @@ export async function resolveAgentToolReference(input: {
   );
   if (byName) return validateCatalogTool(input.appId, byName.id, byName);
 
-  if (isAdminMcpToolFullName(reference)) {
-    const adminId = adminMcpToolIdForFullName(reference);
-    const adminTool = await input.repository.getTool(adminId as ToolId);
-    if (adminTool) {
-      return validateCatalogTool(input.appId, adminId, adminTool);
+  if (isDurableExactGantryMcpToolFullName(reference)) {
+    const toolId = durableExactGantryMcpToolIdForFullName(reference);
+    const tool = await input.repository.getTool(toolId as ToolId);
+    if (tool) {
+      return validateCatalogTool(input.appId, toolId, tool);
     }
-    return { error: `Tool catalog row ${adminId} is unavailable.` };
+    return { error: `Tool catalog row ${toolId} is unavailable.` };
   }
 
   const validation = validateReadableAgentToolRule(reference);

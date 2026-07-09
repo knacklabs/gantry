@@ -10,6 +10,28 @@ export const ADMIN_MCP_TOOL_NAMES = [
 
 export type AdminMcpToolName = (typeof ADMIN_MCP_TOOL_NAMES)[number];
 
+export const SCHEDULER_MCP_TOOL_NAMES = [
+  'scheduler_list_models',
+  'scheduler_upsert_job',
+  'scheduler_get_job',
+  'scheduler_list_jobs',
+  'scheduler_list_notification_targets',
+  'scheduler_update_job',
+  'scheduler_delete_job',
+  'scheduler_pause_job',
+  'scheduler_resume_job',
+  'scheduler_run_now',
+  'scheduler_list_runs',
+  'scheduler_list_events',
+  'scheduler_wait_for_events',
+  'scheduler_get_dead_letter',
+] as const;
+
+export type SchedulerMcpToolName = (typeof SCHEDULER_MCP_TOOL_NAMES)[number];
+export type DurableExactGantryMcpToolName =
+  | AdminMcpToolName
+  | SchedulerMcpToolName;
+
 // Authority-changing Gantry tools let an agent request new install/setup/access
 // authority. The canonical names live here
 // (provider-neutral shared layer) so config-layer access policy can consume
@@ -28,8 +50,24 @@ export const ADMIN_MCP_TOOL_FULL_NAMES = ADMIN_MCP_TOOL_NAMES.map(
   (toolName) => `mcp__gantry__${toolName}`,
 ) as readonly `mcp__gantry__${AdminMcpToolName}`[];
 
+export const SCHEDULER_MCP_TOOL_FULL_NAMES = SCHEDULER_MCP_TOOL_NAMES.map(
+  (toolName) => `mcp__gantry__${toolName}`,
+) as readonly `mcp__gantry__${SchedulerMcpToolName}`[];
+
+export const DURABLE_EXACT_GANTRY_MCP_TOOL_FULL_NAMES = [
+  ...ADMIN_MCP_TOOL_FULL_NAMES,
+  ...SCHEDULER_MCP_TOOL_FULL_NAMES,
+] as const;
+
 const ADMIN_MCP_TOOL_NAME_SET = new Set<string>(ADMIN_MCP_TOOL_NAMES);
 const ADMIN_MCP_TOOL_FULL_NAME_SET = new Set<string>(ADMIN_MCP_TOOL_FULL_NAMES);
+const SCHEDULER_MCP_TOOL_NAME_SET = new Set<string>(SCHEDULER_MCP_TOOL_NAMES);
+const SCHEDULER_MCP_TOOL_FULL_NAME_SET = new Set<string>(
+  SCHEDULER_MCP_TOOL_FULL_NAMES,
+);
+const DURABLE_EXACT_GANTRY_MCP_TOOL_FULL_NAME_SET = new Set<string>(
+  DURABLE_EXACT_GANTRY_MCP_TOOL_FULL_NAMES,
+);
 
 export function adminMcpToolFullName(
   toolName: AdminMcpToolName,
@@ -37,7 +75,19 @@ export function adminMcpToolFullName(
   return `mcp__gantry__${toolName}`;
 }
 
+export function durableExactGantryMcpToolFullName(
+  toolName: DurableExactGantryMcpToolName,
+): `mcp__gantry__${DurableExactGantryMcpToolName}` {
+  return `mcp__gantry__${toolName}`;
+}
+
 export function adminMcpToolIdForFullName(toolFullName: string): string {
+  return `tool:${toolFullName}`;
+}
+
+export function durableExactGantryMcpToolIdForFullName(
+  toolFullName: string,
+): string {
   return `tool:${toolFullName}`;
 }
 
@@ -45,8 +95,41 @@ export function isAdminMcpToolName(value: string): value is AdminMcpToolName {
   return ADMIN_MCP_TOOL_NAME_SET.has(value);
 }
 
+export function isSchedulerMcpToolName(
+  value: string,
+): value is SchedulerMcpToolName {
+  return SCHEDULER_MCP_TOOL_NAME_SET.has(value);
+}
+
+export function isDurableExactGantryMcpToolName(
+  value: string,
+): value is DurableExactGantryMcpToolName {
+  return isAdminMcpToolName(value) || isSchedulerMcpToolName(value);
+}
+
 export function isAdminMcpToolFullName(value: string): boolean {
   return ADMIN_MCP_TOOL_FULL_NAME_SET.has(value);
+}
+
+export function isSchedulerMcpToolFullName(value: string): boolean {
+  return SCHEDULER_MCP_TOOL_FULL_NAME_SET.has(value);
+}
+
+export function isDurableExactGantryMcpToolFullName(value: string): boolean {
+  return DURABLE_EXACT_GANTRY_MCP_TOOL_FULL_NAME_SET.has(value);
+}
+
+export function durableExactGantryMcpToolFullNameFromName(
+  value: string,
+): `mcp__gantry__${DurableExactGantryMcpToolName}` | null {
+  const trimmed = value.trim();
+  if (isDurableExactGantryMcpToolFullName(trimmed)) {
+    return trimmed as `mcp__gantry__${DurableExactGantryMcpToolName}`;
+  }
+  if (isDurableExactGantryMcpToolName(trimmed)) {
+    return durableExactGantryMcpToolFullName(trimmed);
+  }
+  return null;
 }
 
 export function adminMcpToolNameFromFullName(

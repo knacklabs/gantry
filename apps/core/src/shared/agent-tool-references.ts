@@ -77,7 +77,7 @@ export const BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON =
 export const BASH_SCOPE_REJECTION_REASON =
   'Persistent RunCommand scope is too broad; include a literal argv prefix such as RunCommand(npm test *).';
 export const SDK_SANDBOX_NETWORK_ACCESS_REJECTION_REASON =
-  'SDK sandbox network prompts are internal defense-in-depth callbacks and cannot be persisted as agent tool rules; approve the underlying semantic capability, canonical Browser grant, exact admin MCP tool, MCP server binding, or scoped RunCommand fallback instead.';
+  'SDK sandbox network prompts are internal defense-in-depth callbacks and cannot be persisted as agent tool rules; approve the underlying semantic capability, canonical Browser grant, exact durable Gantry MCP tool, MCP server binding, or scoped RunCommand fallback instead.';
 export function parseReadableScopedToolRule(
   value: string,
 ): { toolName: string; scope: string } | null {

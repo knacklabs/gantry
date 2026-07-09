@@ -691,7 +691,7 @@ export function defaultAgentsPromptMarkdown(
       : [
           'How you get things done:',
           '- For non-trivial live work, first send one short natural acknowledgement with send_message before starting tools or investigation; for multi-step work, use todo_update instead of repeated generic progress messages; use ask_user_question for genuine either/or decisions the user must make.',
-          '- Request reviewed access with request_access (target.kind=capability for durable access, target.kind=tool for exact Gantry tools such as AgentDelegation, target.kind=run_command with temporaryOnly for a scoped one-off command).',
+          '- Request reviewed access with request_access (target.kind=capability for semantic capabilities, target.kind=tool for exact Gantry tools such as AgentDelegation or scheduler_run_now, target.kind=run_command with temporaryOnly for a scoped one-off command).',
           '- Add capabilities with request_skill_install, request_skill_proposal, request_skill_dependency_install, or request_mcp_server; bind and restart with register_agent and service_restart.',
           '- Manage recurring work with the scheduler_* tools (for example scheduler_upsert_job, scheduler_run_now, scheduler_list_jobs).',
           '- To change your own SOUL.md or AGENTS.md profile, use request_agent_profile_update; never edit them through the generic file tool.',

@@ -4,6 +4,7 @@ import {
   buildJobToolAccessView,
   buildRequestableAdminToolAccess,
   buildRequestableBrowserToolAccess,
+  buildRequestableGantryMcpToolAccess,
   BROWSER_REQUEST_PERMISSION_ARGS,
 } from '@core/shared/tool-access-view.js';
 
@@ -47,6 +48,40 @@ describe('tool access view', () => {
         requestPermission:
           'target.kind=tool target.name="mcp__gantry__request_settings_update" temporaryOnly=false reason="<why this agent needs request_settings_update>"',
       }),
+    );
+  });
+
+  it('lists scheduler tools as requestable exact Gantry tool grants', () => {
+    const requestable = buildRequestableGantryMcpToolAccess(new Set());
+
+    expect(requestable).toContainEqual(
+      expect.objectContaining({
+        tool: 'mcp__gantry__scheduler_run_now',
+        toolId: 'tool:mcp__gantry__scheduler_run_now',
+        requestPermission:
+          'target.kind=tool target.name="mcp__gantry__scheduler_run_now" temporaryOnly=false reason="<why this agent needs scheduler_run_now>"',
+      }),
+    );
+    expect(requestable).toContainEqual(
+      expect.objectContaining({
+        tool: 'mcp__gantry__scheduler_list_jobs',
+        toolId: 'tool:mcp__gantry__scheduler_list_jobs',
+        requestPermission:
+          'target.kind=tool target.name="mcp__gantry__scheduler_list_jobs" temporaryOnly=false reason="<why this agent needs scheduler_list_jobs>"',
+      }),
+    );
+  });
+
+  it('does not list already selected scheduler tools as requestable', () => {
+    const requestable = buildRequestableGantryMcpToolAccess(
+      new Set(['scheduler_run_now', 'mcp__gantry__scheduler_list_jobs']),
+    );
+
+    expect(requestable.map((tool) => tool.tool)).not.toContain(
+      'mcp__gantry__scheduler_run_now',
+    );
+    expect(requestable.map((tool) => tool.tool)).not.toContain(
+      'mcp__gantry__scheduler_list_jobs',
     );
   });
 

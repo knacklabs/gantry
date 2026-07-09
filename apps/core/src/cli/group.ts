@@ -53,11 +53,11 @@ import {
 import { printPolicyChannel } from './group-policy-format.js';
 import {
   buildAgentToolAccessView,
-  buildRequestableAdminToolAccess,
+  buildRequestableGantryMcpToolAccess,
   formatAgentToolAccess,
   PERMISSION_GATED_NATIVE_TOOLS,
 } from '../shared/tool-access-view.js';
-import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
+import { durableExactGantryMcpToolFullNameFromName } from '../shared/admin-mcp-tools.js';
 import { nowIso } from '../shared/time/datetime.js';
 
 const errorMessage = (err: unknown): string =>
@@ -126,7 +126,7 @@ async function runInfo(
     const configuredTools = (
       settings.agents[found.group.folder]?.capabilities ?? []
     ).map(({ id }) => capabilityToToolRule(id));
-    const enabledAdminTools = selectedAdminToolNames(configuredTools);
+    const enabledGantryMcpTools = selectedGantryMcpToolNames(configuredTools);
     const gatedTools = PERMISSION_GATED_NATIVE_TOOLS.filter(
       (toolName) =>
         !configuredTools.some(
@@ -148,8 +148,9 @@ async function runInfo(
           configuredTools,
           defaultTools: [],
           availableButGatedTools: gatedTools,
-          requestableAdminTools:
-            buildRequestableAdminToolAccess(enabledAdminTools),
+          requestableAdminTools: buildRequestableGantryMcpToolAccess(
+            enabledGantryMcpTools,
+          ),
           source: `settings.yaml agents.${found.group.folder}.capabilities`,
         }),
       ),
@@ -161,9 +162,11 @@ async function runInfo(
   }
 }
 
-const selectedAdminToolNames = (tools: readonly string[]): Set<string> =>
+const selectedGantryMcpToolNames = (tools: readonly string[]): Set<string> =>
   new Set(
-    tools.map(adminMcpToolNameFromFullName).filter((name) => name !== null),
+    tools
+      .map(durableExactGantryMcpToolFullNameFromName)
+      .filter((name) => name !== null),
   );
 
 async function runAdd(runtimeHome: string, args: string[]): Promise<number> {

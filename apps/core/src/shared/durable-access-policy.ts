@@ -1,5 +1,5 @@
 import {
-  isAdminMcpToolFullName,
+  isDurableExactGantryMcpToolFullName,
   isGantryMcpWildcardRule,
 } from './admin-mcp-tools.js';
 import {
@@ -42,13 +42,13 @@ import {
  *   - projected semantic capabilities `capability:<id>`
  *   - canonical Browser
  *   - exact Gantry facade file/web tools
- *   - exact Gantry admin MCP tools (the closed admin allowlist)
+ *   - exact durable Gantry MCP tools (the closed admin + scheduler allowlist)
  *   - scoped `RunCommand(...)` with the bash-parser durable safety rejections
  * Gantry MCP wildcards and generated runtime skill paths are rejected.
  */
 
 export const DURABLE_ACCESS_RULE_REJECTION_REASON =
-  'Persistent access approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin tools; use request_access with target.kind=capability for reviewed semantic app/tool access.';
+  'Persistent access approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact durable Gantry MCP tools; use request_access with target.kind=capability for reviewed semantic app/tool access.';
 
 export interface DurableAccessRuleOptions {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
@@ -164,7 +164,7 @@ export function validateDurableAccessRule(
   }
 
   if (isCanonicalBrowserCapabilityRule(trimmed)) return { ok: true };
-  if (isAdminMcpToolFullName(trimmed)) return { ok: true };
+  if (isDurableExactGantryMcpToolFullName(trimmed)) return { ok: true };
 
   return {
     ok: false,
@@ -221,10 +221,10 @@ function formatDurableAccessRuleForUser(
     if (definition) return definition.displayName;
   }
   if (isCanonicalBrowserCapabilityRule(trimmed)) return 'Browser';
-  const adminName = isAdminMcpToolFullName(trimmed)
+  const gantryMcpName = isDurableExactGantryMcpToolFullName(trimmed)
     ? trimmed.replace(/^mcp__gantry__/, '').replaceAll(/[._-]+/g, ' ')
     : undefined;
-  if (adminName) return `Gantry ${titleCase(adminName)}`;
+  if (gantryMcpName) return `Gantry ${titleCase(gantryMcpName)}`;
   return truncate(redactSensitiveText(trimmed), 160);
 }
 

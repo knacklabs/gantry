@@ -1,6 +1,7 @@
 import {
   ADMIN_MCP_TOOL_NAMES,
   AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+  SCHEDULER_MCP_TOOL_NAMES,
 } from '../shared/admin-mcp-tools.js';
 import { getRuntimeSettingsForConfig } from './index.js';
 
@@ -64,6 +65,7 @@ export const LOCKED_DENIED_IPC_TASK_TYPES: ReadonlySet<string> =
     'task_cancel',
     'task_message',
     ...ADMIN_MCP_TOOL_NAMES,
+    ...SCHEDULER_MCP_TOOL_NAMES,
   ]);
 
 export function isLockedDeniedIpcTaskType(taskType: string): boolean {

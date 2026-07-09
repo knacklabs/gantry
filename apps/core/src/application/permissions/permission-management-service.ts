@@ -34,8 +34,8 @@ import {
 } from './mcp-capability-source-bindings.js';
 import { permissionDecisionExpiresAt } from './permission-decision-expiry.js';
 import {
-  adminMcpToolIdForFullName,
-  isAdminMcpToolFullName,
+  durableExactGantryMcpToolIdForFullName,
+  isDurableExactGantryMcpToolFullName,
 } from '../../shared/admin-mcp-tools.js';
 import {
   displayToolReference,
@@ -170,15 +170,16 @@ export class PermissionManagementService {
     );
     try {
       for (const allowedRule of allowedRules) {
-        const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
+        const gantryMcpTool =
+          durableExactGantryMcpToolFullNameFromRule(allowedRule);
         let toolId = (
           isCanonicalBrowserCapabilityRule(allowedRule)
             ? 'tool:Browser'
-            : adminMcpTool
-              ? adminMcpToolIdForFullName(adminMcpTool)
+            : gantryMcpTool
+              ? durableExactGantryMcpToolIdForFullName(gantryMcpTool)
               : persistentPermissionToolId(input.appId, allowedRule)
         ) as AgentToolBinding['toolId'];
-        if (adminMcpTool || isCanonicalBrowserCapabilityRule(allowedRule)) {
+        if (gantryMcpTool || isCanonicalBrowserCapabilityRule(allowedRule)) {
           const existing =
             (await input.toolRepository.getTool(toolId)) ??
             (isCanonicalBrowserCapabilityRule(allowedRule)
@@ -477,10 +478,11 @@ export class PermissionManagementService {
       allowUnknownSemanticCapability: false,
     });
     if (!validation.ok) throw new Error(validation.reason);
-    const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
-    if (adminMcpTool && adminMcpTool !== allowedRule) {
+    const gantryMcpTool =
+      durableExactGantryMcpToolFullNameFromRule(allowedRule);
+    if (gantryMcpTool && gantryMcpTool !== allowedRule) {
       throw new Error(
-        'Persistent Gantry admin MCP tool grants must request the exact tool name without a scoped rule.',
+        'Persistent Gantry MCP tool grants must request the exact tool name without a scoped rule.',
       );
     }
   }
@@ -590,11 +592,13 @@ function persistentPermissionGrantAuditMetadata(input: {
     : {};
 }
 
-function adminMcpToolFullNameFromRule(allowedRule: string): string | null {
+function durableExactGantryMcpToolFullNameFromRule(
+  allowedRule: string,
+): string | null {
   const trimmed = allowedRule.trim();
   const scoped = parseReadableScopedToolRule(trimmed);
   const toolName = scoped ? scoped.toolName : trimmed;
-  return isAdminMcpToolFullName(toolName) ? toolName : null;
+  return isDurableExactGantryMcpToolFullName(toolName) ? toolName : null;
 }
 
 function persistentPermissionBindingId(
@@ -680,8 +684,8 @@ function expandedRevocationLiveRules(input: {
 function candidateToolIdsForRule(appId: AppId, rule: string): Set<ToolId> {
   const out = new Set<ToolId>();
   if (isCanonicalBrowserCapabilityRule(rule)) out.add('tool:Browser' as ToolId);
-  if (isAdminMcpToolFullName(rule)) {
-    out.add(adminMcpToolIdForFullName(rule) as ToolId);
+  if (isDurableExactGantryMcpToolFullName(rule)) {
+    out.add(durableExactGantryMcpToolIdForFullName(rule) as ToolId);
   }
   const semanticCapabilityId = parseSemanticCapabilityRule(rule);
   if (semanticCapabilityId) {

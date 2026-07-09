@@ -128,6 +128,13 @@ describe('storage-service', () => {
     await service.close();
   });
 
+  it('seeds exact scheduler Gantry MCP tools in the default catalog', () => {
+    const toolIds = new Set(DEFAULT_TOOL_CATALOG.map((tool) => tool.id));
+
+    expect(toolIds).toContain('tool:mcp__gantry__scheduler_list_jobs');
+    expect(toolIds).toContain('tool:mcp__gantry__scheduler_run_now');
+  });
+
   it('rejects skipped runtime migrations before the current migration head', async () => {
     const service = new PostgresStorageService(
       'postgres://user:pass@127.0.0.1:5432/gantry',

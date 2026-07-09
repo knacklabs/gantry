@@ -16,7 +16,7 @@ import {
 import {
   buildAgentToolAccessView,
   buildRequestableBrowserToolAccess,
-  buildRequestableAdminToolAccess,
+  buildRequestableGantryMcpToolAccess,
   formatAgentToolAccess,
   PERMISSION_GATED_NATIVE_TOOLS,
 } from '../../shared/tool-access-view.js';
@@ -266,7 +266,7 @@ export function capabilityStatusText(): string {
           'Agent access model:',
           '- Use an available action when one fits.',
           '- If the action is missing, request_access target.kind=capability for the reviewed capability id.',
-          '- If an exact Gantry facade or admin tool is missing, request_access target.kind=tool with a durable Gantry tool name such as AgentDelegation or mcp__gantry__request_settings_update.',
+          '- If an exact Gantry facade or durable Gantry MCP tool is missing, request_access target.kind=tool with a durable Gantry tool name such as AgentDelegation, mcp__gantry__request_settings_update, or mcp__gantry__scheduler_run_now.',
           '- If setup is missing, request source setup through the Gantry access flow; setup records inventory, not authority.',
           '- Use request_access target.kind=run_command only as a temporary exact-command fallback when no reviewed capability fits.',
           '- Use admin_permission_list (read-only, no grant needed) to review current permissions, suggest cleanup of unused or overly broad access, or spot missing access; report findings in plain language.',
@@ -373,7 +373,9 @@ export function capabilityStatusText(): string {
         ),
     ),
     requestableAdminTools: [
-      ...buildRequestableAdminToolAccess(currentAdminTools),
+      ...buildRequestableGantryMcpToolAccess(
+        new Set([...currentAllowedTools, ...currentAdminTools]),
+      ),
       ...requestableBrowserTools,
     ],
     source:

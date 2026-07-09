@@ -77,7 +77,7 @@ const PROVIDER_NATIVE_EXACT_TOOL_NAMES = new Set([
 ]);
 
 export const PROVIDER_NATIVE_TOOL_REJECTION_REASON =
-  'Provider-native SDK tools are execution-harness projections and cannot be persisted as Gantry tool rules; select a Gantry capability such as Browser, a Gantry file/web tool, a semantic capability, an exact Gantry admin MCP tool, or a scoped RunCommand(...) fallback.';
+  'Provider-native SDK tools are execution-harness projections and cannot be persisted as Gantry tool rules; select a Gantry capability such as Browser, a Gantry file/web tool, a semantic capability, an exact durable Gantry MCP tool, or a scoped RunCommand(...) fallback.';
 
 export interface GantryHarnessToolProjection {
   exactTools: Partial<Record<GantryFacadeExactToolName, readonly string[]>>;

@@ -1975,6 +1975,33 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('submits request_access Gantry scheduler tool targets as reviewed permission requests', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'tool', name: 'scheduler_run_now' },
+      reason: 'Trigger an approved scheduled job without asking every time.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      payload: {
+        capabilityRequestSource: 'request_access',
+        permissionKind: 'tool',
+        toolName: 'mcp__gantry__scheduler_run_now',
+      },
+    });
+  });
+
   it('rejects browser-control skill install requests with request_permission guidance', async () => {
     const fixture = createMcpFixture();
 

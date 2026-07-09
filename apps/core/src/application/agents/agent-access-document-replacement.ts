@@ -29,7 +29,7 @@ import type {
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
 import { isGantryFacadeExactToolRule } from '../../shared/agent-tool-references.js';
 import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
-import { isAdminMcpToolFullName } from '../../shared/admin-mcp-tools.js';
+import { isDurableExactGantryMcpToolFullName } from '../../shared/admin-mcp-tools.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
 import { nextMcpSourceBindings } from './agent-mcp-source-bindings.js';
 import {
@@ -251,7 +251,12 @@ function capabilitySelectionToToolReference(capabilityId: string): string {
   const id = capabilityId.trim();
   if (id === 'browser.use') return 'Browser';
   if (id.startsWith('RunCommand(')) return id;
-  if (isAdminMcpToolFullName(id) || isGantryFacadeExactToolRule(id)) return id;
+  if (
+    isDurableExactGantryMcpToolFullName(id) ||
+    isGantryFacadeExactToolRule(id)
+  ) {
+    return id;
+  }
   return `capability:${id}`;
 }
 

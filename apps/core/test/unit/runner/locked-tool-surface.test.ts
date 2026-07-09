@@ -12,7 +12,11 @@ import {
   parseEnabledGantryMcpToolNames,
   selectedGantryMcpToolNames,
 } from '@core/runner/gantry-mcp-tool-surface.js';
-import { ADMIN_MCP_TOOL_NAMES } from '@core/shared/admin-mcp-tools.js';
+import {
+  ADMIN_MCP_TOOL_NAMES,
+  SCHEDULER_MCP_TOOL_FULL_NAMES,
+  SCHEDULER_MCP_TOOL_NAMES,
+} from '@core/shared/admin-mcp-tools.js';
 
 const RAW_DEEPAGENTS_ASYNC_TOOL_NAMES = [
   'start_async_task',
@@ -41,12 +45,14 @@ afterAll(() => {
   fs.rmSync(ipcRoot, { recursive: true, force: true });
 });
 
-function hasAnyAuthorityOrAdminTool(names: Iterable<string>): boolean {
+function hasAnyRestrictedTool(names: Iterable<string>): boolean {
   const set = new Set(names);
   return (
     AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES.some((toolName) =>
       set.has(toolName),
-    ) || ADMIN_MCP_TOOL_NAMES.some((toolName) => set.has(toolName))
+    ) ||
+    ADMIN_MCP_TOOL_NAMES.some((toolName) => set.has(toolName)) ||
+    SCHEDULER_MCP_TOOL_NAMES.some((toolName) => set.has(toolName))
   );
 }
 
@@ -70,17 +76,18 @@ describe('locked tool surface mounting', () => {
     }
   });
 
-  it('locked preset excludes every authority and admin tool', () => {
+  it('locked preset excludes every authority, admin, and scheduler tool', () => {
     const names = effectiveEnabledMcpToolNames(
       JSON.stringify([
         ...DEFAULT_GANTRY_MCP_TOOL_NAMES,
         ...AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES,
+        ...SCHEDULER_MCP_TOOL_NAMES,
       ]),
       JSON.stringify([...ADMIN_MCP_TOOL_NAMES]),
       undefined,
       true,
     );
-    expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
+    expect(hasAnyRestrictedTool(names)).toBe(false);
     // pre-provisioned baseline tools still mount.
     expect(names.has('send_message')).toBe(true);
     expect(names.has('mcp_list_tools')).toBe(true);
@@ -110,10 +117,13 @@ describe('locked tool surface mounting', () => {
   });
 
   it('selectedGantryMcpToolNames excludes authority tools for locked agents', () => {
-    const names = selectedGantryMcpToolNames([], {
-      excludeAuthorityTools: true,
-    });
-    expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
+    const names = selectedGantryMcpToolNames(
+      [...SCHEDULER_MCP_TOOL_FULL_NAMES],
+      {
+        excludeAuthorityTools: true,
+      },
+    );
+    expect(hasAnyRestrictedTool(names)).toBe(false);
   });
 
   it('withholds async task controls unless the executor is enabled', () => {
@@ -231,7 +241,7 @@ describe('locked fail-closed env parsing', () => {
     const names = parseEnabledGantryMcpToolNames(undefined, {
       lockedPreset: true,
     });
-    expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
+    expect(hasAnyRestrictedTool(names)).toBe(false);
     expect(names.has('send_message')).toBe(true);
   });
 
@@ -239,14 +249,14 @@ describe('locked fail-closed env parsing', () => {
     const names = parseEnabledGantryMcpToolNames('{not json', {
       lockedPreset: true,
     });
-    expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
+    expect(hasAnyRestrictedTool(names)).toBe(false);
   });
 
   it('returns the locked base set for a non-array JSON value', () => {
     const names = parseEnabledGantryMcpToolNames('{"a":1}', {
       lockedPreset: true,
     });
-    expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
+    expect(hasAnyRestrictedTool(names)).toBe(false);
   });
 
   it('drops authority tools even when present in a valid env array', () => {
@@ -259,7 +269,7 @@ describe('locked fail-closed env parsing', () => {
       { lockedPreset: true },
     );
     expect(names.has('send_message')).toBe(true);
-    expect(hasAnyAuthorityOrAdminTool(names)).toBe(false);
+    expect(hasAnyRestrictedTool(names)).toBe(false);
   });
 
   it('full preset still fails open to the default set on corrupt env', () => {

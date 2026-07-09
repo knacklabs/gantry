@@ -308,7 +308,10 @@ function normalizeTypedCredentialBroker(
   normalized: Record<string, unknown>,
   root: Record<string, unknown>,
 ): void {
-  if (normalized.model_access !== undefined || !isRecord(root.credentialBroker)) {
+  if (
+    normalized.model_access !== undefined ||
+    !isRecord(root.credentialBroker)
+  ) {
     delete normalized.credentialBroker;
     return;
   }

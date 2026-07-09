@@ -5,7 +5,10 @@ import {
   isLockedDeniedIpcTaskType,
   resolveAgentAccessPolicy,
 } from '@core/config/profiles.js';
-import { ADMIN_MCP_TOOL_NAMES } from '@core/shared/admin-mcp-tools.js';
+import {
+  ADMIN_MCP_TOOL_NAMES,
+  SCHEDULER_MCP_TOOL_NAMES,
+} from '@core/shared/admin-mcp-tools.js';
 import { AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES } from '@core/runner/gantry-mcp-tool-surface.js';
 
 describe('agent access policy resolution', () => {
@@ -40,7 +43,7 @@ describe('agent access policy resolution', () => {
     expect(policy.installMode).toBe('preprovisioned');
   });
 
-  it('denies every authority-changing and admin IPC task type for locked agents', () => {
+  it('denies every authority-changing, admin, and scheduler IPC task type for locked agents', () => {
     for (const toolName of AUTHORITY_CHANGING_GANTRY_MCP_TOOL_NAMES) {
       const ipcType =
         toolName === 'request_access' ? 'request_permission' : toolName;
@@ -49,12 +52,14 @@ describe('agent access policy resolution', () => {
     for (const toolName of ADMIN_MCP_TOOL_NAMES) {
       expect(isLockedDeniedIpcTaskType(toolName)).toBe(true);
     }
+    for (const toolName of SCHEDULER_MCP_TOOL_NAMES) {
+      expect(isLockedDeniedIpcTaskType(toolName)).toBe(true);
+    }
   });
 
   it('does not deny non-authority IPC task types', () => {
     expect(isLockedDeniedIpcTaskType('send_message')).toBe(false);
     expect(isLockedDeniedIpcTaskType('agent_profile_read')).toBe(false);
     expect(isLockedDeniedIpcTaskType('mcp_list_tools')).toBe(false);
-    expect(isLockedDeniedIpcTaskType('scheduler_upsert_job')).toBe(false);
   });
 });

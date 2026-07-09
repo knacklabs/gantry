@@ -4,7 +4,8 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from './schema/schema.js';
 import {
   ADMIN_MCP_TOOL_FULL_NAMES,
-  adminMcpToolIdForFullName,
+  durableExactGantryMcpToolIdForFullName,
+  SCHEDULER_MCP_TOOL_FULL_NAMES,
 } from '../../../shared/admin-mcp-tools.js';
 import {
   GANTRY_FACADE_EXACT_TOOL_NAMES,
@@ -195,6 +196,15 @@ export const DEFAULT_TOOL_CATALOG = [
       'high',
     ),
   ),
+  ...SCHEDULER_MCP_TOOL_FULL_NAMES.map((name) =>
+    hostTool(
+      name,
+      schedulerToolDisplayName(name),
+      schedulerToolDescription(name),
+      'admin',
+      schedulerToolRisk(name),
+    ),
+  ),
 ] as const;
 
 function gantryFacadeTool(
@@ -234,7 +244,7 @@ function hostTool(
   risk: 'low' | 'medium' | 'high',
 ) {
   return {
-    id: adminMcpToolIdForFullName(name),
+    id: durableExactGantryMcpToolIdForFullName(name),
     name,
     kind: 'host',
     provider: 'gantry',
@@ -344,5 +354,67 @@ function adminToolDescription(name: string): string {
       return 'Bind a channel conversation to an agent.';
     default:
       return 'Built-in Gantry admin MCP tool.';
+  }
+}
+
+function schedulerToolDisplayName(name: string): string {
+  return name
+    .replace(/^mcp__gantry__/, '')
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function schedulerToolDescription(name: string): string {
+  switch (name) {
+    case 'mcp__gantry__scheduler_list_models':
+      return 'List scheduler model aliases available for jobs.';
+    case 'mcp__gantry__scheduler_list_jobs':
+      return 'List scheduled jobs visible to the agent.';
+    case 'mcp__gantry__scheduler_get_job':
+      return 'Inspect one scheduled job visible to the agent.';
+    case 'mcp__gantry__scheduler_list_notification_targets':
+      return 'List notification targets available to scheduled jobs.';
+    case 'mcp__gantry__scheduler_list_runs':
+      return 'List recent scheduler runs visible to the agent.';
+    case 'mcp__gantry__scheduler_list_events':
+      return 'List scheduler events visible to the agent.';
+    case 'mcp__gantry__scheduler_wait_for_events':
+      return 'Wait briefly for scheduler events visible to the agent.';
+    case 'mcp__gantry__scheduler_get_dead_letter':
+      return 'Inspect scheduler dead-letter details visible to the agent.';
+    case 'mcp__gantry__scheduler_upsert_job':
+      return 'Create or update a scheduled job after approval.';
+    case 'mcp__gantry__scheduler_update_job':
+      return 'Update a scheduled job after approval.';
+    case 'mcp__gantry__scheduler_delete_job':
+      return 'Delete a scheduled job after approval.';
+    case 'mcp__gantry__scheduler_pause_job':
+      return 'Pause a scheduled job after approval.';
+    case 'mcp__gantry__scheduler_resume_job':
+      return 'Resume a scheduled job after approval.';
+    case 'mcp__gantry__scheduler_run_now':
+      return 'Trigger an approved scheduled job immediately.';
+    default:
+      return 'Built-in Gantry scheduler MCP tool.';
+  }
+}
+
+function schedulerToolRisk(name: string): 'low' | 'medium' | 'high' {
+  switch (name) {
+    case 'mcp__gantry__scheduler_list_models':
+    case 'mcp__gantry__scheduler_list_jobs':
+    case 'mcp__gantry__scheduler_get_job':
+    case 'mcp__gantry__scheduler_list_notification_targets':
+    case 'mcp__gantry__scheduler_list_runs':
+    case 'mcp__gantry__scheduler_list_events':
+    case 'mcp__gantry__scheduler_wait_for_events':
+    case 'mcp__gantry__scheduler_get_dead_letter':
+      return 'low';
+    case 'mcp__gantry__scheduler_run_now':
+    case 'mcp__gantry__scheduler_pause_job':
+    case 'mcp__gantry__scheduler_resume_job':
+      return 'medium';
+    default:
+      return 'high';
   }
 }

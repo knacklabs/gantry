@@ -14,11 +14,7 @@ import {
   validateReadableAgentToolRule,
 } from '../../../shared/agent-tool-references.js';
 import { validateDurableAccessRule } from '../../../shared/durable-access-policy.js';
-import {
-  adminMcpToolFullName,
-  isAdminMcpToolFullName,
-  isAdminMcpToolName,
-} from '../../../shared/admin-mcp-tools.js';
+import { durableExactGantryMcpToolFullNameFromName } from '../../../shared/admin-mcp-tools.js';
 
 type ToolResponse = {
   content: { type: 'text'; text: string }[];
@@ -235,7 +231,7 @@ export function registerAccessRequestTool(
                   type: 'text' as const,
                   text: [
                     `No exact requestable Gantry tool matches "${target.name}".`,
-                    'Use target.kind=tool only for exact Gantry facade tools such as AgentDelegation or exact Gantry admin tools such as mcp__gantry__request_settings_update.',
+                    'Use target.kind=tool only for exact Gantry facade tools such as AgentDelegation or exact durable Gantry MCP tools such as mcp__gantry__request_settings_update or mcp__gantry__scheduler_run_now.',
                     'Use target.kind=capability for reviewed semantic capability ids, and target.kind=run_command for scoped command access.',
                   ].join('\n'),
                 },
@@ -500,8 +496,9 @@ function normalizeExactRequestableToolName(value: string): string | null {
   if (trimmed === 'delegate_task' || trimmed === 'task_message') {
     return 'AgentDelegation';
   }
-  if (isAdminMcpToolFullName(trimmed)) return trimmed;
-  if (isAdminMcpToolName(trimmed)) return adminMcpToolFullName(trimmed);
+  const durableGantryMcpTool =
+    durableExactGantryMcpToolFullNameFromName(trimmed);
+  if (durableGantryMcpTool) return durableGantryMcpTool;
   if (isGantryFacadeExactToolName(trimmed)) {
     const validation = validateDurableAccessRule(trimmed);
     return validation.ok ? (trimmed as GantryFacadeExactToolName) : null;
