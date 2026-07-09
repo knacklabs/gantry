@@ -12,11 +12,6 @@ import type { JobControlPort } from '@core/application/jobs/job-management-types
 import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
 import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
-import {
-  getSystemJobRegistrationSignature,
-  invalidateSystemJobRegistrationSignature,
-  setSystemJobRegistrationSignature,
-} from '@core/jobs/system-registration-cache.js';
 import { DEFAULT_AGENT_ENGINE } from '@core/shared/agent-engine.js';
 import {
   configureCustomModelCatalogEntries,
@@ -1289,15 +1284,12 @@ describe('job application use cases', () => {
       next_run: null,
     });
     const ops = makeOps(systemJob);
-    const repo = ops as RuntimeJobRepository;
-    setSystemJobRegistrationSignature(repo, 'stale-signature');
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: repo,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
-      invalidateSystemJobRegistrationSignature,
     });
 
     await service.resumeJob({ jobId: systemJob.id });
@@ -1311,7 +1303,6 @@ describe('job application use cases', () => {
       }),
     );
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith(systemJob.id);
-    expect(getSystemJobRegistrationSignature(repo)).toBeUndefined();
   });
 
   it('rejects public resume for untrusted reserved system job ids', async () => {

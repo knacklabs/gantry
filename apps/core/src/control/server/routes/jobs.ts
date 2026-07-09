@@ -25,7 +25,6 @@ import {
   requestSchedulerSync,
   schedulerNotReadyReason,
 } from '../../../jobs/scheduler.js';
-import { invalidateSystemJobRegistrationSignature } from '../../../jobs/system-registration-cache.js';
 import {
   formatBrowserProfileLabel,
   resolveConversationBrowserProfile,
@@ -151,7 +150,6 @@ export function createJobManagementService(ctx?: ControlRouteContext) {
     runtimeEvents: getRuntimeEventExchange(),
     scheduler: { requestSchedulerSync },
     schedulePlanner: runtimeJobSchedulePlanner,
-    invalidateSystemJobRegistrationSignature,
     clock: { now: nowIso },
     triggerQueue: {
       isReady: isJobTriggerQueueReady,

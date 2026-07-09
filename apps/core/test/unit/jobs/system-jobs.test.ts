@@ -165,10 +165,15 @@ describe('system memory dreaming jobs', () => {
     expect(deleteJob).not.toHaveBeenCalled();
   });
 
-  it('registers dreaming jobs silent when dreaming alerts are disabled', async () => {
+  it('re-stamps silent on dead-lettered dreaming jobs without reviving them', async () => {
     const { registerSystemJobs } = await loadSystemJobs();
     const upsertJob = vi.fn().mockResolvedValue({ created: true });
-    const getJobById = vi.fn().mockResolvedValue(undefined);
+    const updateJob = vi.fn(async () => undefined);
+    const getJobById = vi.fn(async (id: string) =>
+      id.startsWith('system:dreaming:')
+        ? makeJob({ id, status: 'dead_lettered', silent: false })
+        : undefined,
+    );
     const getAllJobs = vi.fn(async () => []);
     const deleteJob = vi.fn(async () => undefined);
 
@@ -181,14 +186,20 @@ describe('system memory dreaming jobs', () => {
         getAllJobs,
         deleteJob,
         upsertJob,
+        updateJob,
       },
     } as never);
 
-    const dreamingCalls = upsertJob.mock.calls.filter(
-      (call) => call[0].prompt === '__system:memory_dream',
+    expect(updateJob).toHaveBeenCalledTimes(1);
+    expect(updateJob).toHaveBeenCalledWith(
+      expect.stringMatching(/^system:dreaming:/),
+      { silent: true },
     );
-    expect(dreamingCalls).toHaveLength(1);
-    expect(dreamingCalls[0][0].silent).toBe(true);
+    expect(
+      upsertJob.mock.calls.filter(
+        (call) => call[0].prompt === '__system:memory_dream',
+      ),
+    ).toHaveLength(0);
   });
 
   it('registers per-conversation dreaming jobs non-silent when dreaming alerts are enabled', async () => {

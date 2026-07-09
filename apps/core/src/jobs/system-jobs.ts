@@ -225,6 +225,13 @@ export async function registerSystemJobs(
       const jobId = systemDreamingJobId({ folder: group.folder, jid });
       const existing = await deps.opsRepository.getJobById(jobId);
       if (existing?.status === 'dead_lettered') {
+        // Dead-lettered jobs are not revived here, but silent must still track
+        // the current alerts setting so a later resume reactivates the job
+        // with the correct value (the resume path itself never re-stamps it).
+        const desiredSilent = !RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED;
+        if (existing.silent !== desiredSilent) {
+          await deps.opsRepository.updateJob(jobId, { silent: desiredSilent });
+        }
         continue;
       }
       const computedNextRun = computeNextJobRun(
