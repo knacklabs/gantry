@@ -21,6 +21,7 @@ import type {
 import {
   enqueueJobTrigger,
   isJobTriggerQueueReady,
+  invalidateSystemJobRegistrationSignature,
   runtimeJobSchedulePlanner,
   requestSchedulerSync,
   schedulerNotReadyReason,
@@ -150,6 +151,7 @@ export function createJobManagementService(ctx?: ControlRouteContext) {
     runtimeEvents: getRuntimeEventExchange(),
     scheduler: { requestSchedulerSync },
     schedulePlanner: runtimeJobSchedulePlanner,
+    invalidateSystemJobRegistrationSignature,
     clock: { now: nowIso },
     triggerQueue: {
       isReady: isJobTriggerQueueReady,

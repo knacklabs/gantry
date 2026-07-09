@@ -38,6 +38,7 @@ export const DEFAULT_OPENAI_DAILY_EMBED_LIMIT = 500;
 export const DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS = 8;
 export const DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE = 0.6;
 export const DEFAULT_MEMORY_DREAMING_CRON = '15 3 * * *';
+export const DEFAULT_MEMORY_DREAMING_ALERTS = false;
 export const DEFAULT_MEMORY_EMBED_BATCH_SIZE = 16;
 export const DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING = 5_000;
 export const DEFAULT_MEMORY_BACKFILL_ENABLED = true;
@@ -144,7 +145,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     dreaming: {
       enabled: false,
       cron: DEFAULT_MEMORY_DREAMING_CRON,
-      alerts: false,
+      alerts: DEFAULT_MEMORY_DREAMING_ALERTS,
       embeddings: {
         enabled: false,
         provider: 'disabled',

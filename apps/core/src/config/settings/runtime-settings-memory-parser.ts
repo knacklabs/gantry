@@ -6,6 +6,7 @@ import {
   DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
   DEFAULT_MEMORY_BACKFILL_MODE,
   DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
+  DEFAULT_MEMORY_DREAMING_ALERTS,
   DEFAULT_MEMORY_DREAMING_CRON,
   DEFAULT_MEMORY_EMBED_BATCH_SIZE,
   DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
@@ -210,7 +211,7 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       dreaming: {
         enabled: false,
         cron: DEFAULT_MEMORY_DREAMING_CRON,
-        alerts: false,
+        alerts: DEFAULT_MEMORY_DREAMING_ALERTS,
         embeddings: {
           enabled: false,
           provider: 'disabled',
@@ -407,7 +408,7 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       alerts: parseBooleanValue(
         dreamingMap.alerts,
         'memory.dreaming.alerts',
-        false,
+        DEFAULT_MEMORY_DREAMING_ALERTS,
       ),
       embeddings: {
         enabled: dreamingEmbeddingsEnabled,

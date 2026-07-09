@@ -603,7 +603,7 @@ continuation state.
 | `memory.llm.extractor_min_confidence` | `0.6`                    | Min confidence for extracted candidates                         |
 | `memory.dreaming.enabled`             | `false`                  | Enables scheduled dreaming maintenance                          |
 | `memory.dreaming.cron`                | `15 3 * * *`             | Dreaming maintenance schedule                                   |
-| `memory.dreaming.alerts`              | `false`                  | Send alerts around dreaming job runs (`true` enables them)      |
+| `memory.dreaming.alerts`              | `false`                  | Send alerts for per-conversation memory dreaming jobs only      |
 | `memory.maintenance.max_pending`      | `5000`                   | Max pending memory maintenance items per pass                   |
 
 ---

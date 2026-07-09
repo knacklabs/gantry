@@ -377,6 +377,9 @@ export class JobManagementService {
     });
     applyJobReadinessToUpdates(updates, readiness);
     await this.deps.ops.updateJob(job.id, updates);
+    if (isTrustedSystemJob(job)) {
+      this.deps.invalidateSystemJobRegistrationSignature?.(this.deps.ops);
+    }
     if (!readiness.ready) {
       await recordJobSetupRequired({
         deps: this.deps,

@@ -149,6 +149,9 @@ export interface JobManagementServiceDeps {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
+  invalidateSystemJobRegistrationSignature?: (
+    opsRepository: RuntimeJobRepository,
+  ) => void;
 }
 
 export interface CreateManagedJobInput {
