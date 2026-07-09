@@ -30,6 +30,7 @@ import {
 } from './runtime-settings-validation.js';
 import type {
   RuntimeSettings,
+  AgentRuntime,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
 import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
@@ -89,6 +90,7 @@ export type {
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
   RuntimeMemorySettingsSnapshot,
+  AgentRuntime,
   RuntimeSettings,
   RuntimeSettingsValidationFailure,
   RuntimeSettingsValidationResult,
@@ -140,6 +142,7 @@ export function ensureConfiguredAgent(
   settings.agents[agentId] ??= {
     name: input.agentName.trim() || settings.agent.name,
     folder,
+    runtime: 'worker',
     persona: input.persona ?? 'developer',
     bindings: {},
     sources: { skills: [], mcpServers: [], tools: [] },

@@ -13,6 +13,7 @@ import {
   getRuntimeSettingsForConfig,
   getEffectiveModelConfig,
   getSelectedAgentHarness,
+  getSelectedAgentRuntime,
 } from '../config/index.js';
 import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -156,6 +157,7 @@ export async function spawnAgent(
       validateAgentPreSpawnAdmission({
         agentInput: input,
         agentEngine,
+        agentRuntime: getSelectedAgentRuntime(group.folder),
         securityEnv: process.env,
         sandboxProvider: runtimeSettings.runtime.sandbox.provider,
       }),

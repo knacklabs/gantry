@@ -17,6 +17,7 @@ import type {
 import type { AgentPersona } from '../shared/agent-persona.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
 import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-access.js';
+import type { AgentRuntime } from '../shared/agent-runtime.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import type {
   AgentExecutionAdapter,
@@ -66,6 +67,7 @@ export interface AgentInput {
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
   runtimeAccess?: CapabilityRuntimeAccess[];
+  runtime?: AgentRuntime;
   deepAgentSkills?: DeepAgentSkillProjection;
 }
 

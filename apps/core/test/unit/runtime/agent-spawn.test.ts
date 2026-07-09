@@ -42,6 +42,7 @@ vi.mock('@core/config/index.js', () => ({
       : { source: 'unset' },
   ),
   getSelectedAgentHarness: vi.fn(() => 'auto'),
+  getSelectedAgentRuntime: vi.fn(() => 'worker'),
   getDeploymentMode: vi.fn(() => 'workstation'),
   getRuntimeSettingsForConfig: vi.fn(() => ({
     permissions: {

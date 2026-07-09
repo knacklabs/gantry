@@ -29,6 +29,10 @@ import type {
   RuntimeSettings,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
+import {
+  formatInlineAgentWorkerOnlyConfigError,
+  inlineWorkerOnlyConfiguredCapabilityLabels,
+} from './runtime-settings-agent-runtime.js';
 
 export function validateLoadedRuntimeSettings(
   runtimeHome: string,
@@ -216,6 +220,17 @@ export function validateLoadedRuntimeSettings(
   }
 
   for (const [agentId, agent] of Object.entries(settings.agents)) {
+    const inlineBlockers = inlineWorkerOnlyConfiguredCapabilityLabels({
+      agent,
+    });
+    if (inlineBlockers.length > 0) {
+      details.push(
+        formatInlineAgentWorkerOnlyConfigError(
+          `agents.${agentId}`,
+          inlineBlockers,
+        ),
+      );
+    }
     const effectiveModel = (
       agent.model ||
       settings.agent.defaultModel ||

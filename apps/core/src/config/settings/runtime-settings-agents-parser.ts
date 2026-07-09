@@ -18,6 +18,11 @@ import {
   parseStringArrayValue,
   parseStringValue,
 } from './runtime-settings-parse-primitives.js';
+import {
+  formatInlineAgentWorkerOnlyConfigError,
+  inlineWorkerOnlyConfiguredCapabilityLabels,
+  parseAgentRuntimeValue,
+} from './runtime-settings-agent-runtime.js';
 
 function parseOptionalAgentHarnessValue(
   raw: unknown,
@@ -280,6 +285,7 @@ export function parseConfiguredAgents(
         key !== 'name' &&
         key !== 'persona' &&
         key !== 'relationship_mode' &&
+        key !== 'runtime' &&
         key !== 'model' &&
         key !== 'agent_harness' &&
         key !== 'one_time_job_default_model' &&
@@ -287,10 +293,14 @@ export function parseConfiguredAgents(
         key !== 'access'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, model, agent_harness, job model defaults, or access. Install agents under conversations.*.installed_agents.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, runtime, model, agent_harness, job model defaults, or access. Install agents under conversations.*.installed_agents.`,
         );
       }
     }
+    const runtime = parseAgentRuntimeValue(
+      map.runtime,
+      `${pathPrefix}.runtime`,
+    );
     const model =
       map.model === undefined
         ? undefined
@@ -342,9 +352,10 @@ export function parseConfiguredAgents(
         );
       }
     }
-    result[folder] = {
+    const agent: RuntimeConfiguredAgent = {
       name: parseStringValue(map.name, `${pathPrefix}.name`),
       folder,
+      runtime,
       persona: parseAgentPersona(map.persona, `${pathPrefix}.persona`),
       relationshipMode: parseAgentRelationshipMode(
         map.relationship_mode,
@@ -360,6 +371,13 @@ export function parseConfiguredAgents(
       bindings: {},
       ...parseConfiguredAgentAccess(map.access, `${pathPrefix}.access`),
     };
+    const blockers = inlineWorkerOnlyConfiguredCapabilityLabels({ agent });
+    if (blockers.length > 0) {
+      throw new Error(
+        formatInlineAgentWorkerOnlyConfigError(pathPrefix, blockers),
+      );
+    }
+    result[folder] = agent;
   }
   for (const [folder, agent] of Object.entries(result)) {
     const seenJids = new Set<string>();

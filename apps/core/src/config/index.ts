@@ -18,7 +18,11 @@ import {
 import { settingsFilePath } from './settings/runtime-home.js';
 import { DEFAULT_AGENT_NAME } from './settings/runtime-settings-defaults.js';
 import type { RuntimeDeploymentMode } from '../shared/runtime-deployment-mode.js';
-import type { RuntimeSettings } from './settings/runtime-settings-types.js';
+import type {
+  AgentRuntime,
+  RuntimeSettings,
+} from './settings/runtime-settings-types.js';
+import { resolveConfiguredAgentRuntime } from './settings/runtime-settings-agent-runtime.js';
 import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
@@ -124,6 +128,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         folder: agent.folder,
         persona: agent.persona,
         relationshipMode: agent.relationshipMode,
+        runtime: resolveConfiguredAgentRuntime(agent),
         model: agent.model,
         agentHarness: agent.agentHarness,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
@@ -436,6 +441,14 @@ export function getSelectedAgentHarness(agentFolder?: string): AgentHarness {
     settings.agent.agentHarness ??
     AUTO_AGENT_HARNESS
   );
+}
+
+export function getSelectedAgentRuntime(agentFolder?: string): AgentRuntime {
+  const settings = getRuntimeSettingsForConfig();
+  const configuredAgent = agentFolder
+    ? settings.agents[agentFolder]
+    : undefined;
+  return resolveConfiguredAgentRuntime(configuredAgent);
 }
 
 export const MESSAGE_FETCH_PAGE_SIZE = Math.max(

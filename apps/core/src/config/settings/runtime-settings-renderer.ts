@@ -47,6 +47,7 @@ import {
   renderModelAliasesYaml,
   renderModelFamiliesYaml,
 } from './runtime-settings-optional-blocks-renderer.js';
+import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
 
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
 
@@ -217,6 +218,10 @@ function renderConfiguredAgentsYaml(
       lines.push(
         `    relationship_mode: ${quoteYamlString(agent.relationshipMode)}`,
       );
+    }
+    const agentRuntime = resolveConfiguredAgentRuntime(agent);
+    if (agentRuntime !== 'worker') {
+      lines.push(`    runtime: ${quoteYamlString(agentRuntime)}`);
     }
     if (agent.model) {
       lines.push(`    model: ${quoteYamlString(agent.model)}`);

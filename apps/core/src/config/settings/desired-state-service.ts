@@ -16,6 +16,7 @@ import type {
   ProviderId,
 } from '../../domain/provider/provider.js';
 import {
+  inlineAgentRuntimeCapabilityErrors,
   replaceDesiredStateCapabilities,
   settingsCapabilityToToolReference,
 } from './desired-state-capability-reconcile.js';
@@ -723,6 +724,15 @@ export class SettingsDesiredStateService {
           statuses: ['active'],
         }),
       );
+    errors.push(
+      ...(await inlineAgentRuntimeCapabilityErrors({
+        appId: this.appId,
+        settings,
+        repositories: this.deps.repositories,
+        servers,
+        catalogSemanticCapabilityDefinitions,
+      })),
+    );
     for (const [folder, agent] of Object.entries(settings.agents)) {
       const resolvedSkills = await resolveConfiguredSkillReferences({
         repository: this.deps.repositories.skills,

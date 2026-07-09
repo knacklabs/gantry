@@ -8,6 +8,7 @@ import type { AgentRelationshipMode } from '../../shared/agent-relationship-mode
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import type { EgressSettings } from '../../shared/egress-policy.js';
 import type { AgentHarness } from '../../shared/agent-engine.js';
+import type { AgentRuntime } from '../../shared/agent-runtime.js';
 import type { ModelWorkload } from '../../shared/model-catalog.js';
 
 export interface RuntimeProviderSettings {
@@ -172,10 +173,12 @@ export interface RuntimeConfiguredAgentCapability {
 }
 
 export type AgentAccessPreset = 'full' | 'locked';
+export type { AgentRuntime };
 
 export interface RuntimeConfiguredAgent {
   name: string;
   folder: string;
+  runtime?: AgentRuntime;
   persona?: AgentPersona;
   relationshipMode?: AgentRelationshipMode;
   model?: string;
