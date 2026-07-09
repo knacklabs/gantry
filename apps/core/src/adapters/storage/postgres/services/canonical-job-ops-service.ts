@@ -458,7 +458,8 @@ export class CanonicalJobOpsService {
       notification_routes: notificationRoutes,
       access_requirements: accessRequirements,
       idempotency_key:
-        typeof target.idempotencyKey === 'string' && target.idempotencyKey.trim()
+        typeof target.idempotencyKey === 'string' &&
+        target.idempotencyKey.trim()
           ? target.idempotencyKey.trim()
           : null,
       setup_state: setupState,
