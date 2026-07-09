@@ -14,6 +14,7 @@ import {
   createDefaultRuntimeSettings,
   getRuntimeSettingsForConfig,
   resolveRuntimeStorageConfig,
+  resolveRuntimeStorageConfigFromSettings,
   type RuntimeSettings,
 } from '../../../config/index.js';
 import { LocalFileArtifactBytes } from '../../artifacts/files/local-file-artifact-bytes.js';
@@ -114,7 +115,10 @@ export function createStorageRuntime(
   options: StorageRuntimeOptions = {},
 ): StorageRuntime {
   const service = createStorageService(
-    options.storageConfig ?? config ?? resolveStorageConfigFromRuntime(),
+    options.storageConfig ??
+      config ??
+      resolveStorageConfigFromSettings(options.runtimeSettings) ??
+      resolveStorageConfigFromRuntime(),
   );
   const runtimeSettings =
     options.runtimeSettings ?? getRuntimeSettingsForStorageRuntime();
@@ -175,6 +179,16 @@ export function createStorageRuntime(
     skillArtifacts,
     browserProfileSnapshots,
   };
+}
+
+function resolveStorageConfigFromSettings(
+  runtimeSettings: RuntimeSettings | undefined,
+): ResolvedStorageConfig | undefined {
+  if (!runtimeSettings) return undefined;
+  return resolveRuntimeStorageConfigFromSettings({
+    postgresUrlEnv: runtimeSettings.storage.postgres.urlEnv,
+    postgresSchema: runtimeSettings.storage.postgres.schema,
+  });
 }
 
 function createSkillArtifactStore(

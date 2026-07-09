@@ -45,6 +45,8 @@ export interface OnboardingData {
   workspaceKey?: string;
   conversationLabel?: string;
   maintenanceMode?: boolean;
+  completedProviderSteps?: Array<'telegram' | 'slack'>;
+  storedProviderSecretRefs?: Array<'telegram' | 'slack'>;
 }
 
 export interface OnboardingState {

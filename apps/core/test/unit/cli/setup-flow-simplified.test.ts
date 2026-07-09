@@ -197,6 +197,7 @@ describe('simplified setup sequence', () => {
       defaultStepIndex: (step: string | undefined) =>
         step ? sequence.indexOf(step) : 0,
       shouldSkipStep: (step: string) => step === 'slack',
+      shouldAutoSkipAnsweredProviderStep: () => false,
       restoreDraft: vi.fn(() => draft),
       updateStateData: vi.fn(),
       persistProgress: vi.fn(),
@@ -280,6 +281,529 @@ describe('simplified setup sequence', () => {
       'verify',
       'ready',
     ]);
+  });
+
+  it('resumes after failed Create Runtime with storage prefilled and still allows Telegram repair', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-setup-resume-'),
+    );
+    const postgresUrl =
+      'postgres://gantry_app:pass@localhost:5432/gantry_resume';
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      `GANTRY_DATABASE_URL=${postgresUrl}\n`,
+    );
+    fs.writeFileSync(path.join(runtimeHome, 'settings.yaml'), 'agent: {}\n');
+    const { createInitialState, writeOnboardingState } =
+      await import('@core/cli/onboarding-state.js');
+    const state = createInitialState(runtimeHome);
+    state.currentStep = 'config';
+    state.data = {
+      runtimeHome,
+      postgresSchema: 'resume_schema',
+      primaryProvider: 'telegram',
+      telegramChatJid: 'tg:-100123',
+      telegramDisplayName: 'Ops Room',
+      telegramPermissionApproverIds: '5759865942',
+      selectedModel: 'sonnet',
+      agentHarness: 'auto',
+      credentialMode: 'gantry',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+      completedProviderSteps: ['telegram'],
+      storedProviderSecretRefs: ['telegram'],
+    };
+    writeOnboardingState(runtimeHome, state);
+
+    const calls: string[] = [];
+    const runTelegramStep = vi.fn(async () => {
+      calls.push('telegram');
+      return { type: 'next' };
+    });
+    const runStorageStep = vi.fn(async () => {
+      calls.push('storage');
+      return { type: 'next' };
+    });
+    let configDraft: Record<string, unknown> | undefined;
+
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+      log: { step: vi.fn(), message: vi.fn() },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import('@core/config/settings/runtime-settings.js')
+          >();
+        return {
+          ...actual,
+          loadRuntimeSettingsFromPath: vi.fn(() =>
+            actual.createDefaultRuntimeSettings(),
+          ),
+        };
+      },
+    );
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runWelcomeStep: vi.fn(),
+      runRuntimeHomeStep: vi.fn(),
+      runStorageStep,
+      runChannelStep: vi.fn(),
+      runModelStep: vi.fn(),
+      runMemoryStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-credentials.js', () => ({
+      runCredentialsStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep,
+      runSlackStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep: vi.fn(async (draft: Record<string, unknown>) => {
+        calls.push('config');
+        if (!configDraft) {
+          configDraft = { ...draft };
+          return { type: 'goto', step: 'telegram' };
+        }
+        return { type: 'next' };
+      }),
+      runGroupStep: vi.fn(async () => {
+        calls.push('group');
+        return { type: 'next' };
+      }),
+      runVerifyStep: vi.fn(async () => {
+        calls.push('verify');
+        return { type: 'next' };
+      }),
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep: vi.fn(async () => {
+        calls.push('ready');
+        return { type: 'next' };
+      }),
+    }));
+
+    try {
+      const { runSetupFlow } = await import('@core/cli/setup-flow.js');
+
+      await expect(
+        runSetupFlow({
+          importMetaUrl: 'file:///test',
+          runtimeHome,
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        runtimeHome,
+        startAfterSetup: false,
+      });
+
+      expect(runStorageStep).not.toHaveBeenCalled();
+      expect(calls).toEqual([
+        'config',
+        'telegram',
+        'config',
+        'group',
+        'verify',
+        'ready',
+      ]);
+      expect(configDraft).toMatchObject({
+        postgresDatabaseUrl: postgresUrl,
+        postgresSchema: 'resume_schema',
+        telegramBotToken: '',
+        telegramChatJid: 'tg:-100123',
+        hasStoredTelegramSecretRefs: true,
+      });
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves stored secret refs written before config pauses setup', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-setup-secret-marker-'),
+    );
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      [
+        'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:5432/gantry_resume',
+        'TELEGRAM_BOT_TOKEN=123:token',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(path.join(runtimeHome, 'settings.yaml'), 'agent: {}\n');
+    const { createInitialState, readOnboardingState, writeOnboardingState } =
+      await import('@core/cli/onboarding-state.js');
+    const state = createInitialState(runtimeHome);
+    state.currentStep = 'config';
+    state.data = {
+      runtimeHome,
+      postgresSchema: 'gantry',
+      primaryProvider: 'telegram',
+      telegramChatJid: 'tg:-100123',
+      telegramPermissionApproverIds: '5759865942',
+      selectedModel: 'sonnet',
+      agentHarness: 'auto',
+      credentialMode: 'gantry',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+      completedProviderSteps: ['telegram'],
+    };
+    writeOnboardingState(runtimeHome, state);
+
+    const calls: string[] = [];
+
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+      log: { step: vi.fn(), message: vi.fn() },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import('@core/config/settings/runtime-settings.js')
+          >();
+        return {
+          ...actual,
+          loadRuntimeSettingsFromPath: vi.fn(() =>
+            actual.createDefaultRuntimeSettings(),
+          ),
+        };
+      },
+    );
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runWelcomeStep: vi.fn(),
+      runRuntimeHomeStep: vi.fn(),
+      runStorageStep: vi.fn(),
+      runChannelStep: vi.fn(),
+      runModelStep: vi.fn(),
+      runMemoryStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-credentials.js', () => ({
+      runCredentialsStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep: vi.fn(),
+      runSlackStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep: vi.fn(async () => {
+        calls.push('config');
+        const latest = readOnboardingState(runtimeHome);
+        expect(latest).toBeTruthy();
+        latest!.data.storedProviderSecretRefs = ['telegram'];
+        writeOnboardingState(runtimeHome, latest!);
+        return { type: 'resume' };
+      }),
+      runGroupStep: vi.fn(),
+      runVerifyStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep: vi.fn(),
+    }));
+
+    try {
+      const { runSetupFlow } = await import('@core/cli/setup-flow.js');
+
+      await expect(
+        runSetupFlow({
+          importMetaUrl: 'file:///test',
+          runtimeHome,
+        }),
+      ).resolves.toEqual({
+        status: 'resumed',
+        runtimeHome,
+        startAfterSetup: false,
+      });
+
+      expect(calls).toEqual(['config']);
+      expect(readOnboardingState(runtimeHome)?.data).toMatchObject({
+        completedProviderSteps: ['telegram'],
+        storedProviderSecretRefs: ['telegram'],
+      });
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('re-asks only the provider step when a config resume has no recoverable channel secret', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-setup-missing-secret-'),
+    );
+    fs.writeFileSync(path.join(runtimeHome, 'settings.yaml'), 'agent: {}\n');
+    const { createInitialState, writeOnboardingState } =
+      await import('@core/cli/onboarding-state.js');
+    const state = createInitialState(runtimeHome);
+    state.currentStep = 'config';
+    state.data = {
+      runtimeHome,
+      postgresSchema: 'gantry',
+      primaryProvider: 'telegram',
+      telegramChatJid: 'tg:-100123',
+      telegramPermissionApproverIds: '5759865942',
+      selectedModel: 'sonnet',
+      agentHarness: 'auto',
+      credentialMode: 'gantry',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+    };
+    writeOnboardingState(runtimeHome, state);
+
+    const calls: string[] = [];
+    const runTelegramStep = vi.fn(async (draft: Record<string, unknown>) => {
+      calls.push('telegram');
+      draft.telegramBotToken = '123:token';
+      return { type: 'next' };
+    });
+    let configDraft: Record<string, unknown> | undefined;
+
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+      log: { step: vi.fn(), message: vi.fn() },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import('@core/config/settings/runtime-settings.js')
+          >();
+        return {
+          ...actual,
+          loadRuntimeSettingsFromPath: vi.fn(() =>
+            actual.createDefaultRuntimeSettings(),
+          ),
+        };
+      },
+    );
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runWelcomeStep: vi.fn(),
+      runRuntimeHomeStep: vi.fn(),
+      runStorageStep: vi.fn(async () => {
+        calls.push('storage');
+        return { type: 'next' };
+      }),
+      runChannelStep: vi.fn(),
+      runModelStep: vi.fn(),
+      runMemoryStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-credentials.js', () => ({
+      runCredentialsStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep,
+      runSlackStep: vi.fn(),
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep: vi.fn(async (draft: Record<string, unknown>) => {
+        calls.push('config');
+        configDraft = { ...draft };
+        return { type: 'next' };
+      }),
+      runGroupStep: vi.fn(async () => {
+        calls.push('group');
+        return { type: 'next' };
+      }),
+      runVerifyStep: vi.fn(async () => {
+        calls.push('verify');
+        return { type: 'next' };
+      }),
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep: vi.fn(async () => {
+        calls.push('ready');
+        return { type: 'next' };
+      }),
+    }));
+
+    try {
+      const { runSetupFlow } = await import('@core/cli/setup-flow.js');
+
+      await expect(
+        runSetupFlow({
+          importMetaUrl: 'file:///test',
+          runtimeHome,
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        runtimeHome,
+        startAfterSetup: false,
+      });
+
+      expect(calls).toEqual(['telegram', 'config', 'group', 'verify', 'ready']);
+      expect(configDraft).toMatchObject({
+        telegramBotToken: '123:token',
+        telegramChatJid: 'tg:-100123',
+        hasStoredTelegramSecretRefs: false,
+      });
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('does not auto-skip provider maintenance from stored secret refs alone', async () => {
+    const { createInitialState } =
+      await import('@core/cli/onboarding-state.js');
+    const { shouldAutoSkipAnsweredProviderStep } =
+      await import('@core/cli/setup-flow-state.js');
+    const state = createInitialState('/tmp/gantry-slack-maintenance');
+    const draft = {
+      primaryProvider: 'slack',
+      hasStoredSlackSecretRefs: true,
+      slackChatJid: 'slack:C123',
+      slackPermissionApproverIds: 'U123',
+    };
+
+    expect(
+      shouldAutoSkipAnsweredProviderStep('slack', draft as never, state),
+    ).toBe(false);
+
+    state.data.slackChatJid = 'slack:C123';
+    state.data.slackPermissionApproverIds = 'U123';
+
+    expect(
+      shouldAutoSkipAnsweredProviderStep('slack', draft as never, state),
+    ).toBe(false);
+
+    state.currentStep = 'slack';
+
+    expect(
+      shouldAutoSkipAnsweredProviderStep('slack', draft as never, state),
+    ).toBe(false);
+
+    state.data.completedProviderSteps = ['slack'];
+
+    expect(
+      shouldAutoSkipAnsweredProviderStep('slack', draft as never, state),
+    ).toBe(true);
+  });
+
+  it('does not mistake restored Slack settings for resumed provider answers', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-slack-channel-'),
+    );
+    fs.writeFileSync(path.join(runtimeHome, 'settings.yaml'), 'agent: {}\n');
+    const { createInitialState, writeOnboardingState } =
+      await import('@core/cli/onboarding-state.js');
+    const state = createInitialState(runtimeHome);
+    state.currentStep = 'channel';
+    writeOnboardingState(runtimeHome, state);
+
+    const calls: string[] = [];
+    const step = (name: string) =>
+      vi.fn(async () => {
+        calls.push(name);
+        return { type: 'next' };
+      });
+    const runSlackStep = step('slack');
+
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+      log: { step: vi.fn(), message: vi.fn() },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import('@core/config/settings/runtime-settings.js')
+          >();
+        return {
+          ...actual,
+          loadRuntimeSettingsFromPath: vi.fn(() => {
+            const settings = actual.createDefaultRuntimeSettings();
+            settings.providers.telegram.enabled = false;
+            settings.providers.slack.enabled = true;
+            settings.providerAccounts.slack_default = {
+              agentId: 'main_agent',
+              provider: 'slack',
+              label: 'Slack Default',
+              runtimeSecretRefs: {
+                bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
+                app_token: 'gantry-secret:SLACK_APP_TOKEN',
+              },
+            };
+            settings.agents.main_agent = {
+              folder: 'main_agent',
+              bindings: {
+                main: {
+                  provider: 'slack',
+                  jid: 'slack:C123',
+                  name: 'Ops',
+                },
+              },
+            } as never;
+            settings.conversations.slack_main = {
+              providerAccount: 'slack_default',
+              controlApprovers: ['U123'],
+            } as never;
+            return settings;
+          }),
+        };
+      },
+    );
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runWelcomeStep: vi.fn(),
+      runRuntimeHomeStep: vi.fn(),
+      runStorageStep: vi.fn(),
+      runChannelStep: step('channel'),
+      runModelStep: step('model'),
+      runMemoryStep: step('memory'),
+    }));
+    vi.doMock('@core/cli/setup-credentials.js', () => ({
+      runCredentialsStep: step('credentials'),
+    }));
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep: vi.fn(),
+      runSlackStep,
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep: step('config'),
+      runGroupStep: step('group'),
+      runVerifyStep: step('verify'),
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep: step('ready'),
+    }));
+
+    try {
+      const { runSetupFlow } = await import('@core/cli/setup-flow.js');
+
+      await expect(
+        runSetupFlow({
+          importMetaUrl: 'file:///test',
+          runtimeHome,
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        runtimeHome,
+        startAfterSetup: false,
+      });
+
+      expect(runSlackStep).toHaveBeenCalledTimes(1);
+      expect(calls).toEqual([
+        'channel',
+        'model',
+        'memory',
+        'credentials',
+        'slack',
+        'config',
+        'group',
+        'verify',
+        'ready',
+      ]);
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
   });
 });
 

@@ -297,6 +297,70 @@ describe('importFleetSettingsRevision', () => {
     expect(repo.rows).toHaveLength(2);
   });
 
+  it('canonicalizes old revision rows before stale revision comparison', async () => {
+    capabilityErrors = [];
+    applyRuntimeSettingsDesiredState.mockReset();
+    applyRuntimeSettingsDesiredState.mockImplementation(
+      async (input: { settings: unknown }) => input.settings,
+    );
+    const previousSettings = createDefaultRuntimeSettings();
+    previousSettings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: {},
+    };
+    previousSettings.agents.main_agent = {
+      name: 'Main Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+      relationshipMode: 'personal',
+    };
+    const legacyDocument = settingsToRevisionDocument(previousSettings);
+    (
+      legacyDocument.provider_accounts as Record<
+        string,
+        Record<string, unknown>
+      >
+    ).telegram_default.config = {};
+    (
+      legacyDocument.agents as Record<string, Record<string, unknown>>
+    ).main_agent.relationship_mode = 'personal';
+    const repo = new FakeRevisionRepo();
+    await repo.appendSettingsRevision({
+      appId: 'default',
+      settingsDocument: legacyDocument,
+      minReaderVersion: CURRENT_SETTINGS_READER_VERSION,
+      createdBy: 'seed',
+    });
+    const nextSettings = structuredClone(previousSettings);
+    nextSettings.agent.name = 'next';
+
+    await importWorkstationSettings(
+      {
+        runtimeHome: '/tmp/gantry-import-test',
+        ops: {} as never,
+        repositories: {} as never,
+        appId: 'default' as never,
+        previousSettings,
+        revisionMirror: {
+          settingsRevisions: repo,
+          createdBy: 'test:fleet',
+        },
+        revisionMirrorRequired: true,
+      },
+      nextSettings,
+    );
+
+    expect(repo.rows).toHaveLength(2);
+    expect(
+      (repo.rows[1]?.settingsDocument.agent as { name?: string }).name,
+    ).toBe('next');
+  });
+
   it('normalizes previous settings before stale revision comparison', async () => {
     capabilityErrors = [];
     applyRuntimeSettingsDesiredState.mockReset();

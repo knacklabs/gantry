@@ -9,7 +9,7 @@ import {
   createInitialState,
   readOnboardingState,
 } from './onboarding-state.js';
-import type { OnboardingStep } from './onboarding-state.js';
+import type { OnboardingState, OnboardingStep } from './onboarding-state.js';
 import { runCredentialsStep } from './setup-credentials.js';
 import {
   runChannelStep,
@@ -30,6 +30,7 @@ import {
   FULL_SEQUENCE,
   persistProgress,
   restoreDraft,
+  shouldAutoSkipAnsweredProviderStep,
   shouldSkipStep,
   updateStateData,
 } from './setup-flow-state.js';
@@ -63,17 +64,37 @@ export async function runSetupFlow(
   const state =
     readOnboardingState(runtimeHome) || createInitialState(runtimeHome);
   const draft = restoreDraft(runtimeHome, state);
+  const autoSkipState =
+    state.status === 'in_progress'
+      ? {
+          ...state,
+          data: { ...state.data },
+        }
+      : null;
 
   if (runtimeHome !== draft.runtimeHome) {
     runtimeHome = draft.runtimeHome;
   }
 
-  const initialStep = options.initialStep || state.currentStep;
+  const initialStep = resolveInitialStep(
+    options.initialStep || state.currentStep,
+    draft,
+  );
   let index = defaultStepIndex(initialStep);
+  let explicitStep: OnboardingStep | null = null;
 
   while (index < FULL_SEQUENCE.length) {
     const step = FULL_SEQUENCE[index];
+    const isExplicitStep = explicitStep === step;
+    explicitStep = null;
     if (shouldSkipStep(step, draft)) {
+      index += 1;
+      continue;
+    }
+    if (
+      !isExplicitStep &&
+      shouldAutoSkipAnsweredProviderStep(step, draft, autoSkipState)
+    ) {
       index += 1;
       continue;
     }
@@ -123,6 +144,11 @@ export async function runSetupFlow(
       action = await runReadyStep(draft);
     }
 
+    if (markCompletedProviderStep(state, step, action)) {
+      updateStateData(state, draft);
+      persistProgress(state, runtimeHome);
+    }
+
     if (action.type === 'cancel') {
       clearOnboardingState(runtimeHome);
       p.outro('Setup cancelled.');
@@ -132,6 +158,7 @@ export async function runSetupFlow(
     if (action.type === 'resume') {
       state.currentStep = step;
       state.status = 'in_progress';
+      mergeStoredProviderSecretRefs(state, readOnboardingState(runtimeHome));
       updateStateData(state, draft);
       persistProgress(state, runtimeHome);
       p.outro('Setup paused. Run `gantry` or `gantry setup` to resume.');
@@ -141,6 +168,7 @@ export async function runSetupFlow(
     if (action.type === 'goto') {
       const target = FULL_SEQUENCE.indexOf(action.step);
       index = target >= 0 ? target : index;
+      explicitStep = target >= 0 ? action.step : null;
       continue;
     }
 
@@ -156,6 +184,7 @@ export async function runSetupFlow(
         previous -= 1;
       }
       index = Math.max(0, previous);
+      explicitStep = FULL_SEQUENCE[index] ?? null;
       continue;
     }
 
@@ -172,6 +201,54 @@ export async function runSetupFlow(
     runtimeHome,
     startAfterSetup: draft.startAfterSetup,
   };
+}
+
+function resolveInitialStep(
+  initialStep: OnboardingStep,
+  draft: ReturnType<typeof restoreDraft>,
+): OnboardingStep {
+  if (initialStep !== 'config') return initialStep;
+  if (
+    draft.primaryProvider === 'telegram' &&
+    !draft.hasStoredTelegramSecretRefs &&
+    !draft.telegramBotToken
+  ) {
+    return 'telegram';
+  }
+  if (
+    draft.primaryProvider === 'slack' &&
+    !draft.hasStoredSlackSecretRefs &&
+    (!draft.slackBotToken || !draft.slackAppToken)
+  ) {
+    return 'slack';
+  }
+  return initialStep;
+}
+
+function markCompletedProviderStep(
+  state: OnboardingState,
+  step: OnboardingStep,
+  action: FlowAction,
+): boolean {
+  if (action.type !== 'next') return false;
+  if (step !== 'telegram' && step !== 'slack') return false;
+  const completedProviderSteps = new Set(
+    state.data.completedProviderSteps ?? [],
+  );
+  completedProviderSteps.add(step);
+  state.data.completedProviderSteps = [...completedProviderSteps];
+  return true;
+}
+
+function mergeStoredProviderSecretRefs(
+  state: OnboardingState,
+  latestState: OnboardingState | null,
+): void {
+  const latestRefs = latestState?.data.storedProviderSecretRefs;
+  if (!latestRefs?.length) return;
+  state.data.storedProviderSecretRefs = [
+    ...new Set([...(state.data.storedProviderSecretRefs ?? []), ...latestRefs]),
+  ];
 }
 
 const STEP_DETAILS: Record<OnboardingStep, { label: string; purpose: string }> =

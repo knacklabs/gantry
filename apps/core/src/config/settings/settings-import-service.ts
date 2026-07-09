@@ -171,8 +171,10 @@ export async function importWorkstationSettings(
     }
     if (
       latest &&
-      stableJson(latest.settingsDocument) !==
-        stableJson(settingsToRevisionDocument(previousRevisionSettings))
+      !revisionDocumentMatchesSettings(
+        latest.settingsDocument,
+        previousRevisionSettings,
+      )
     ) {
       throw new Error(
         'Settings mutation is based on stale settings; reload latest desired state and retry.',
@@ -180,8 +182,7 @@ export async function importWorkstationSettings(
     }
     if (
       latest &&
-      stableJson(latest.settingsDocument) ===
-        stableJson(settingsToRevisionDocument(revisionSettings))
+      revisionDocumentMatchesSettings(latest.settingsDocument, revisionSettings)
     ) {
       await applyRuntimeSettingsDesiredState({
         runtimeHome: deps.runtimeHome,
@@ -255,8 +256,7 @@ export async function importWorkstationSettings(
       );
     if (
       latest &&
-      stableJson(latest.settingsDocument) ===
-        stableJson(settingsToRevisionDocument(appliedSettings))
+      revisionDocumentMatchesSettings(latest.settingsDocument, appliedSettings)
     ) {
       return {};
     }
@@ -395,7 +395,10 @@ export function settingsToRevisionDocument(
       status: account.status === 'disabled' ? account.status : undefined,
       runtime_secret_refs: account.runtimeSecretRefs,
       external_identity_ref: account.externalIdentityRef,
-      config: account.config,
+      config:
+        Object.keys(account.config ?? {}).length > 0
+          ? account.config
+          : undefined,
     })),
     conversations: mapRecord(settings.conversations, (conversation) => ({
       provider_account:
@@ -429,7 +432,10 @@ export function settingsToRevisionDocument(
     agents: mapRecord(settings.agents, (agent) => ({
       name: agent.name,
       persona: agent.persona,
-      relationship_mode: agent.relationshipMode,
+      relationship_mode:
+        agent.relationshipMode && agent.relationshipMode !== 'personal'
+          ? agent.relationshipMode
+          : undefined,
       model: agent.model,
       agent_harness: agent.agentHarness,
       one_time_job_default_model: agent.oneTimeJobDefaultModel,
@@ -502,10 +508,32 @@ export async function settingsMatchesLatestRevision(input: {
     input.appId,
   );
   if (!latest) return false;
-  return (
-    stableJson(latest.settingsDocument) ===
-    stableJson(settingsToRevisionDocument(input.settings))
+  return revisionDocumentMatchesSettings(
+    latest.settingsDocument,
+    input.settings,
   );
+}
+
+function revisionDocumentMatchesSettings(
+  document: Record<string, unknown>,
+  settings: RuntimeSettings,
+): boolean {
+  return (
+    stableJson(canonicalizeRevisionDocument(document)) ===
+    stableJson(
+      canonicalizeRevisionDocument(settingsToRevisionDocument(settings)),
+    )
+  );
+}
+
+function canonicalizeRevisionDocument(
+  document: Record<string, unknown>,
+): Record<string, unknown> {
+  try {
+    return settingsToRevisionDocument(settingsFromRevisionDocument(document));
+  } catch {
+    return document;
+  }
 }
 
 export function stableJson(value: unknown): string {

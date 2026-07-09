@@ -18,7 +18,10 @@ import {
   DEFAULT_SETUP_MODEL_ALIAS,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
-import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
+import {
+  ensureRuntimeSettings,
+  type RuntimeSettings,
+} from '../config/settings/runtime-settings.js';
 
 const DEFAULT_APP_ID = 'default' as AppId;
 
@@ -80,11 +83,14 @@ async function withCredentialServices<T>(
     model: ModelCredentialService;
     capability: CapabilitySecretService;
   }) => Promise<T>,
+  options: { runtimeSettings?: RuntimeSettings } = {},
 ): Promise<T> {
   process.env.GANTRY_HOME = runtimeHome;
   const { createStorageRuntime } =
     await import('../adapters/storage/postgres/factory.js');
-  const storage = createStorageRuntime();
+  const storage = createStorageRuntime(undefined, {
+    runtimeSettings: options.runtimeSettings,
+  });
   try {
     await storage.service.assertMigrationsCurrent();
     return await fn({
@@ -202,15 +208,19 @@ export async function storeRuntimeSecretInput(input: {
   name: string;
   value: string;
   actor?: string;
+  runtimeSettings?: RuntimeSettings;
 }): Promise<void> {
   const name = normalizeCapabilitySecretName(input.name);
-  await withCredentialServices(input.runtimeHome, ({ capability }) =>
-    capability.set({
-      appId: DEFAULT_APP_ID,
-      name,
-      value: input.value,
-      actor: input.actor ?? 'cli',
-    }),
+  await withCredentialServices(
+    input.runtimeHome,
+    ({ capability }) =>
+      capability.set({
+        appId: DEFAULT_APP_ID,
+        name,
+        value: input.value,
+        actor: input.actor ?? 'cli',
+      }),
+    { runtimeSettings: input.runtimeSettings },
   );
 }
 

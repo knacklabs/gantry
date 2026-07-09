@@ -71,6 +71,8 @@ export interface SetupDraft {
   startAfterSetup: boolean;
   maintenanceMode: boolean;
   hasConfiguredChannelBinding: boolean;
+  hasStoredTelegramSecretRefs: boolean;
+  hasStoredSlackSecretRefs: boolean;
 }
 
 export interface SetupFlowOptions {
@@ -111,10 +113,56 @@ export function shouldSkipStep(
   return false;
 }
 
+export function shouldAutoSkipAnsweredProviderStep(
+  step: OnboardingStep,
+  draft: SetupDraft,
+  state: OnboardingState | null,
+): boolean {
+  const savedTelegramAnswer = Boolean(
+    state?.status === 'in_progress' &&
+    state.data.completedProviderSteps?.includes('telegram') &&
+    state.data.telegramChatJid &&
+    state.data.telegramPermissionApproverIds,
+  );
+  const savedSlackAnswer = Boolean(
+    state?.status === 'in_progress' &&
+    state.data.completedProviderSteps?.includes('slack') &&
+    state.data.slackChatJid &&
+    state.data.slackPermissionApproverIds,
+  );
+  if (
+    step === 'telegram' &&
+    draft.primaryProvider === 'telegram' &&
+    savedTelegramAnswer &&
+    draft.hasStoredTelegramSecretRefs &&
+    draft.telegramChatJid &&
+    draft.telegramPermissionApproverIds
+  ) {
+    return true;
+  }
+  if (
+    step === 'slack' &&
+    draft.primaryProvider === 'slack' &&
+    savedSlackAnswer &&
+    draft.hasStoredSlackSecretRefs &&
+    draft.slackChatJid &&
+    draft.slackPermissionApproverIds
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function updateStateData(
   state: OnboardingState,
   draft: SetupDraft,
 ): void {
+  const completedProviderSteps = state.data.completedProviderSteps?.length
+    ? state.data.completedProviderSteps
+    : undefined;
+  const storedProviderSecretRefs = state.data.storedProviderSecretRefs?.length
+    ? state.data.storedProviderSecretRefs
+    : undefined;
   state.data = {
     runtimeHome: draft.runtimeHome,
     postgresSetupKind: draft.postgresSetupKind,
@@ -143,6 +191,8 @@ export function updateStateData(
     embeddingsEnabled: draft.embeddingsEnabled,
     dreamingEnabled: draft.dreamingEnabled,
     maintenanceMode: draft.maintenanceMode || undefined,
+    completedProviderSteps,
+    storedProviderSecretRefs,
   };
 }
 
@@ -212,6 +262,26 @@ function loadExistingRuntimeSettings(runtimeHome: string) {
   }
 }
 
+const REQUIRED_CHANNEL_SECRET_REFS = {
+  telegram: ['bot_token'],
+  slack: ['bot_token', 'app_token'],
+} as const;
+
+function hasEnabledProviderWithStoredSecretRefs(
+  settings: ReturnType<typeof loadExistingRuntimeSettings>,
+  providerId: SetupDraft['primaryProvider'],
+): boolean {
+  if (!settings.providers[providerId]?.enabled) return false;
+  return Object.values(settings.providerAccounts).some(
+    (account) =>
+      account.provider === providerId &&
+      account.status !== 'disabled' &&
+      REQUIRED_CHANNEL_SECRET_REFS[providerId].every((key) =>
+        Boolean(account.runtimeSecretRefs[key]?.trim()),
+      ),
+  );
+}
+
 export function restoreDraft(
   runtimeHome: string,
   state: OnboardingState | null,
@@ -239,6 +309,12 @@ export function restoreDraft(
     settings.providers[primaryProvider]?.enabled &&
     readySummary.conversationJid,
   );
+  const hasStoredTelegramSecretRefs =
+    hasEnabledProviderWithStoredSecretRefs(settings, 'telegram') ||
+    Boolean(state?.data.storedProviderSecretRefs?.includes('telegram'));
+  const hasStoredSlackSecretRefs =
+    hasEnabledProviderWithStoredSecretRefs(settings, 'slack') ||
+    Boolean(state?.data.storedProviderSecretRefs?.includes('slack'));
   const draft: SetupDraft = {
     runtimeHome,
     postgresSetupKind:
@@ -288,6 +364,8 @@ export function restoreDraft(
     startAfterSetup: false,
     maintenanceMode: state?.data.maintenanceMode ?? false,
     hasConfiguredChannelBinding,
+    hasStoredTelegramSecretRefs,
+    hasStoredSlackSecretRefs,
   };
   if (state) updateDraftFromState(draft, state);
   return draft;

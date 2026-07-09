@@ -41,6 +41,7 @@ export {
 export {
   resolveRuntimeBootstrapStorageConfigFromEnv,
   resolveRuntimeStorageConfig,
+  resolveRuntimeStorageConfigFromSettings,
 } from './settings/storage.js';
 export type { RuntimeSettings } from './settings/runtime-settings-types.js';
 export type ControlEnvKey =
