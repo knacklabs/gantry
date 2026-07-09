@@ -60,13 +60,13 @@ export interface CapabilityDispatchDeps {
  */
 export async function decideCapabilityDispatch(
   deps: CapabilityDispatchDeps,
-  job: Pick<Job, 'workspace_key'>,
+  job: Pick<Job, 'workspace_key' | 'required_capabilities'>,
 ): Promise<CapabilityDispatchDecision> {
   if (deps.deploymentMode !== 'fleet') {
     return { outcome: 'eligible', requiredCapabilities: [] };
   }
   const agentId = agentIdForJobWorkspaceKey(job.workspace_key);
-  const required = await resolveRequiredCapabilities(
+  const resolved = await resolveRequiredCapabilities(
     {
       deploymentMode: deps.deploymentMode,
       skills: deps.skills,
@@ -74,6 +74,10 @@ export async function decideCapabilityDispatch(
     },
     { appId: DEFAULT_JOB_RUNTIME_APP_ID, agentId },
   );
+  const required = normalizeCapabilitySet([
+    ...resolved,
+    ...(job.required_capabilities ?? []),
+  ]);
   if (required.length === 0) {
     return { outcome: 'eligible', requiredCapabilities: [] };
   }

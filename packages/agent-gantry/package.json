@@ -41,6 +41,7 @@
     "test": "npm run verify:botframework-openid-fetch && vitest run -c vitest.config.ts"
   },
   "dependencies": {
+    "@langfuse/tracing": "^5.9.1",
     "botbuilder": "^4.23.3",
     "pg": "^8.16.3"
   },

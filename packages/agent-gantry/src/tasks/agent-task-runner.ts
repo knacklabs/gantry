@@ -7,6 +7,7 @@ import type {
   GantryAgentTaskResult,
   GantryAgentTaskStep,
   GantryAgentTool,
+  GantryStructuredModelUsage,
   StructuredModelTaskRunnerConfig,
   StructuredJsonModelProvider,
 } from '../shared/types.js';
@@ -29,6 +30,7 @@ import {
   runWithOptionalTimeout,
   summarizeAgentObservation,
 } from './agent-task-runner-helpers.js';
+import { unwrapStructuredJsonModelProviderResult } from './model-provider.js';
 
 export async function runGenericAgentTask(
   config: Omit<StructuredModelTaskRunnerConfig, 'model'> & {
@@ -42,6 +44,7 @@ export async function runGenericAgentTask(
   const startedAt = Date.now();
   const steps: GantryAgentTaskStep[] = [];
   const warnings: string[] = [];
+  const modelUsages: GantryStructuredModelUsage[] = [];
   const repeatedFailures = new Map<string, number>();
   const traceDir = resolveAgentModelTraceDir(input);
   const state: Record<string, unknown> = {
@@ -175,6 +178,12 @@ export async function runGenericAgentTask(
     validationReport?: Record<string, unknown> | null,
     error?: string | null,
   ): Promise<GantryAgentTaskResult> => {
+    const modelUsage = aggregateModelUsage({
+      usages: modelUsages,
+      taskType: input.taskType,
+      correlationId: input.correlationId ?? null,
+      durationMs: Date.now() - startedAt,
+    });
     const outputWithTrace = {
       ...output,
       agentTaskTrace: { steps, warnings },
@@ -187,6 +196,7 @@ export async function runGenericAgentTask(
         readValidationReport(outputWithTrace, status, steps),
       steps,
       warnings,
+      modelUsage,
     };
     await config.storage?.recordStructuredTaskRun?.({
       taskRunId,
@@ -270,6 +280,7 @@ export async function runGenericAgentTask(
         outputSchema: actionSchema,
         attachments,
       });
+      promptMetrics = attachPromptCacheRequestMetrics(promptMetrics, input);
       const traceAttachments = await persistTraceAttachments(
         traceDir,
         step,
@@ -290,12 +301,14 @@ export async function runGenericAgentTask(
       });
       let generated: unknown;
       try {
-        generated = await runWithOptionalTimeout(
+        const generatedResult = unwrapStructuredJsonModelProviderResult(await runWithOptionalTimeout(
           config.model.generateJson({
             taskType: input.taskType,
             instructions,
             input: modelInput,
             outputSchema: actionSchema,
+            cacheablePrefix: input.cacheablePrefix,
+            promptCache: input.promptCache,
             correlationId: input.correlationId
               ? `${input.correlationId}:step:${step}`
               : undefined,
@@ -303,7 +316,10 @@ export async function runGenericAgentTask(
           }),
           input.modelStepTimeoutMs ?? input.stepTimeoutMs ?? remainingMs,
           'agent_model_step_timeout',
-        );
+        ));
+        generated = generatedResult.output;
+        recordModelUsage(modelUsages, generatedResult.modelUsage);
+        promptMetrics = attachModelUsagePromptMetrics(promptMetrics, generatedResult.modelUsage);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (message !== 'agent_model_step_timeout' || !input.projectStepStateForModel) {
@@ -322,6 +338,7 @@ export async function runGenericAgentTask(
           outputSchema: actionSchema,
           attachments,
         });
+        let retryPromptMetricsWithCache = attachPromptCacheRequestMetrics(retryPromptMetrics, input);
         await writeAgentModelTrace(traceDir, {
           kind: 'model_input_timeout_retry',
           taskRunId,
@@ -333,17 +350,19 @@ export async function runGenericAgentTask(
           modelInput: retryModelInput,
           outputSchema: actionSchema,
           attachments: traceAttachments,
-          promptMetrics: retryPromptMetrics,
+          promptMetrics: retryPromptMetricsWithCache,
           previousError: message,
         });
         modelInput = retryModelInput;
-        promptMetrics = retryPromptMetrics;
-        generated = await runWithOptionalTimeout(
+        promptMetrics = retryPromptMetricsWithCache;
+        const generatedResult = unwrapStructuredJsonModelProviderResult(await runWithOptionalTimeout(
           config.model.generateJson({
             taskType: input.taskType,
             instructions,
             input: modelInput,
             outputSchema: actionSchema,
+            cacheablePrefix: input.cacheablePrefix,
+            promptCache: input.promptCache,
             correlationId: input.correlationId
               ? `${input.correlationId}:step:${step}:timeout_retry`
               : undefined,
@@ -351,7 +370,10 @@ export async function runGenericAgentTask(
           }),
           input.modelStepTimeoutMs ?? input.stepTimeoutMs ?? remainingMs,
           'agent_model_step_timeout',
-        );
+        ));
+        generated = generatedResult.output;
+        recordModelUsage(modelUsages, generatedResult.modelUsage);
+        promptMetrics = attachModelUsagePromptMetrics(promptMetrics, generatedResult.modelUsage);
       }
       action =
         typeof generated === 'string'
@@ -935,6 +957,7 @@ export async function runGenericAgentTask(
             outputSchema: actionSchema,
             attachments: [],
           });
+          let recoveryPromptMetricsWithCache = attachPromptCacheRequestMetrics(recoveryPromptMetrics, input);
           await writeAgentModelTrace(traceDir, {
             kind: 'model_input_tool_error_recovery',
             taskRunId,
@@ -946,16 +969,18 @@ export async function runGenericAgentTask(
             modelInput: recoveryModelInput,
             outputSchema: actionSchema,
             attachments: [],
-            promptMetrics: recoveryPromptMetrics,
+            promptMetrics: recoveryPromptMetricsWithCache,
             previousError: message,
           });
           try {
-            const generated = await runWithOptionalTimeout(
+            const generatedResult = unwrapStructuredJsonModelProviderResult(await runWithOptionalTimeout(
               config.model.generateJson({
                 taskType: input.taskType,
                 instructions: recoveryInstructions,
                 input: recoveryModelInput,
                 outputSchema: actionSchema,
+                cacheablePrefix: input.cacheablePrefix,
+                promptCache: input.promptCache,
                 correlationId: input.correlationId
                   ? `${input.correlationId}:step:${step}:tool_error_recovery`
                   : undefined,
@@ -963,6 +988,12 @@ export async function runGenericAgentTask(
               }),
               input.modelStepTimeoutMs ?? input.stepTimeoutMs ?? remainingMs,
               'agent_model_step_timeout',
+            ));
+            const generated = generatedResult.output;
+            recordModelUsage(modelUsages, generatedResult.modelUsage);
+            recoveryPromptMetricsWithCache = attachModelUsagePromptMetrics(
+              recoveryPromptMetricsWithCache,
+              generatedResult.modelUsage,
             );
             const recoveryAction =
               typeof generated === 'string'
@@ -977,7 +1008,7 @@ export async function runGenericAgentTask(
               createdAt: new Date().toISOString(),
               rawOutput: generated,
               parsedAction: recoveryAction,
-              promptMetrics: recoveryPromptMetrics,
+              promptMetrics: recoveryPromptMetricsWithCache,
               previousError: message,
             });
             const recoveryParsed = parseGenericAgentAction(recoveryAction);
@@ -1004,7 +1035,7 @@ export async function runGenericAgentTask(
                   completedAt: new Date().toISOString(),
                   durationMs: 0,
                   observation: summarizeAgentObservation(recoveryParsed.output),
-                  promptMetrics: recoveryPromptMetrics,
+                  promptMetrics: recoveryPromptMetricsWithCache,
                   auditNote: recoveryParsed.auditNote,
                   whyThisStep: recoveryParsed.whyThisStep,
                   expectedOutcome: recoveryParsed.expectedOutcome,
@@ -1038,7 +1069,7 @@ export async function runGenericAgentTask(
                   source: 'model_final',
                   validation: recoveryValidation,
                 }),
-                promptMetrics: recoveryPromptMetrics,
+                promptMetrics: recoveryPromptMetricsWithCache,
                 auditNote: 'Tool timeout recovery final output rejected by task-specific validator.',
               });
             }
@@ -1055,7 +1086,7 @@ export async function runGenericAgentTask(
               createdAt: new Date().toISOString(),
               error: recoveryMessage,
               previousError: message,
-              promptMetrics: recoveryPromptMetrics,
+              promptMetrics: recoveryPromptMetricsWithCache,
             });
             await recordStep({
               step,
@@ -1071,7 +1102,7 @@ export async function runGenericAgentTask(
                 originalError: message,
                 recoveryError: recoveryMessage,
               },
-              promptMetrics: recoveryPromptMetrics,
+              promptMetrics: recoveryPromptMetricsWithCache,
             });
           }
         }
@@ -1152,6 +1183,119 @@ function resolveAgentModelTraceDir(input: GantryAgentTaskInput): string | null {
     input.correlationId ?? randomUUID(),
   );
   return path.resolve(baseDir, safeTask, safeCorrelation);
+}
+
+function attachPromptCacheRequestMetrics(
+  promptMetrics: Record<string, unknown>,
+  input: GantryAgentTaskInput,
+): Record<string, unknown> {
+  const prefix = input.cacheablePrefix?.trim();
+  const promptCache = input.promptCache;
+  if (!prefix || promptCache?.enabled !== true) {
+    return promptMetrics;
+  }
+  return {
+    ...promptMetrics,
+    promptCache: {
+      enabled: true,
+      ttl: promptCache.ttl ?? '1h',
+      prefixHash: promptCache.prefixHash ?? null,
+      prefixCharCount: prefix.length,
+    },
+  };
+}
+
+function attachModelUsagePromptMetrics(
+  promptMetrics: Record<string, unknown>,
+  modelUsage: GantryStructuredModelUsage | null,
+): Record<string, unknown> {
+  if (!modelUsage) {
+    return promptMetrics;
+  }
+  const promptCache = asRecord(promptMetrics.promptCache);
+  if (!promptCache) {
+    return promptMetrics;
+  }
+  return {
+    ...promptMetrics,
+    promptCache: {
+      ...promptCache,
+      cacheCreationInputTokens: modelUsage.cacheCreationInputTokens ?? null,
+      cacheReadInputTokens: modelUsage.cacheReadInputTokens ?? null,
+      cachedTokens: modelUsage.cachedTokens ?? null,
+      promptCacheTtl: modelUsage.promptCacheTtl ?? null,
+      promptCachePrefixHash: modelUsage.promptCachePrefixHash ?? promptCache.prefixHash ?? null,
+    },
+  };
+}
+
+function recordModelUsage(
+  usages: GantryStructuredModelUsage[],
+  modelUsage: GantryStructuredModelUsage | null,
+): void {
+  if (modelUsage) {
+    usages.push(modelUsage);
+  }
+}
+
+function aggregateModelUsage(input: {
+  readonly usages: readonly GantryStructuredModelUsage[];
+  readonly taskType: string;
+  readonly correlationId: string | null;
+  readonly durationMs: number;
+}): GantryStructuredModelUsage | null {
+  if (input.usages.length === 0) return null;
+  const providers = uniqueDefined(input.usages.map((usage) => usage.provider));
+  const models = uniqueDefined(input.usages.map((usage) => usage.model));
+  const usageSources = uniqueDefined(input.usages.map((usage) => usage.usageSource));
+  const promptCacheTtls = uniquePromptCacheTtls(input.usages.map((usage) => usage.promptCacheTtl));
+  const promptCachePrefixHashes = uniqueDefined(input.usages.map((usage) => usage.promptCachePrefixHash));
+  const inputTokens = sumOptionalNumbers(input.usages.map((usage) => usage.inputTokens));
+  const outputTokens = sumOptionalNumbers(input.usages.map((usage) => usage.outputTokens));
+  const totalTokens = sumOptionalNumbers(input.usages.map((usage) => usage.totalTokens))
+    ?? addOptionalNumbers(inputTokens, outputTokens);
+  const durationMs = sumOptionalNumbers(input.usages.map((usage) => usage.durationMs)) ?? input.durationMs;
+  return {
+    provider: providers.length === 1 ? providers[0] : providers.length > 1 ? 'mixed' : null,
+    model: models.length === 1 ? models[0] : models.length > 1 ? 'mixed' : null,
+    taskType: input.taskType,
+    correlationId: input.correlationId,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedTokens: sumOptionalNumbers(input.usages.map((usage) => usage.cachedTokens)),
+    cacheCreationInputTokens: sumOptionalNumbers(input.usages.map((usage) => usage.cacheCreationInputTokens)),
+    cacheReadInputTokens: sumOptionalNumbers(input.usages.map((usage) => usage.cacheReadInputTokens)),
+    promptCacheTtl: promptCacheTtls.length === 1 ? promptCacheTtls[0] : null,
+    promptCachePrefixHash: promptCachePrefixHashes.length === 1 ? promptCachePrefixHashes[0] : null,
+    durationMs,
+    usageSource: usageSources.length === 1 ? usageSources[0] : 'mixed',
+  };
+}
+
+function uniqueDefined(values: readonly (string | null | undefined)[]): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function uniquePromptCacheTtls(values: readonly (string | null | undefined)[]): Array<'5m' | '1h'> {
+  return [...new Set(values.filter((value): value is '5m' | '1h' => value === '5m' || value === '1h'))];
+}
+
+function sumOptionalNumbers(values: readonly (number | null | undefined)[]): number | null {
+  let total = 0;
+  let seen = false;
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      total += value;
+      seen = true;
+    }
+  }
+  return seen ? total : null;
+}
+
+function addOptionalNumbers(left: number | null, right: number | null): number | null {
+  if (left === null && right === null) return null;
+  return (left ?? 0) + (right ?? 0);
 }
 
 async function writeAgentModelTrace(

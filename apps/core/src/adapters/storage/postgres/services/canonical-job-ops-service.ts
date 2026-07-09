@@ -29,6 +29,7 @@ import {
   parseRequiredCapabilities,
   parseSetupState,
 } from './canonical-job-target-state.js';
+import { parseHostTaskTarget } from '../../../../jobs/host-task-executors.js';
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
 type CanonicalExecutionContext = NonNullable<Job['execution_context']>;
@@ -426,6 +427,7 @@ export class CanonicalJobOpsService {
     const requiredCapabilities = parseRequiredCapabilities(
       target.requiredCapabilities,
     );
+    const hostTask = parseHostTaskTarget(target.hostTask);
     return {
       id: row.id,
       name: row.name,
@@ -455,9 +457,15 @@ export class CanonicalJobOpsService {
       execution_context: executionContext,
       notification_routes: notificationRoutes,
       access_requirements: accessRequirements,
+      idempotency_key:
+        typeof target.idempotencyKey === 'string' &&
+        target.idempotencyKey.trim()
+          ? target.idempotencyKey.trim()
+          : null,
       setup_state: setupState,
       recovery_intent: recoveryIntent,
       required_capabilities: requiredCapabilities,
+      host_task: hostTask,
     };
   }
 
@@ -492,8 +500,10 @@ export class CanonicalJobOpsService {
         consecutiveFailures: job.consecutive_failures ?? 0,
         pauseReason: job.pause_reason ?? null,
         accessRequirements: parseAccessRequirements(job.access_requirements),
+        idempotencyKey: job.idempotency_key ?? null,
         setupState: parseSetupState(job.setup_state),
         recoveryIntent: parseRecoveryIntent(job.recovery_intent),
+        hostTask: job.host_task ?? null,
         requiredCapabilities: parseRequiredCapabilities(
           job.required_capabilities,
         ),

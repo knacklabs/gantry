@@ -49,6 +49,7 @@ import {
 import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
 import { nowMs as currentTimeMs } from '../../../shared/time/datetime.js';
 import { modelPreviewFor, resolveCreateJobModel } from './job-model-preview.js';
+import { parseHostTaskTarget } from '../../../jobs/host-task-executors.js';
 
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ApplicationError)) return false;
@@ -125,6 +126,10 @@ function parseCreateJobRequest(
     formatJobRequestIssue(parsed.error.issues[0]),
   );
   return undefined;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 function parseUpdateJobRequest(
@@ -292,10 +297,8 @@ export async function handleJobRoutes(
   if (pathname === '/v1/jobs' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
-    const body = parseCreateJobRequest(
-      res,
-      (await readJson(req)) as Record<string, unknown>,
-    );
+    const rawBody = (await readJson(req)) as Record<string, unknown>;
+    const body = parseCreateJobRequest(res, rawBody);
     if (!body) return true;
     const kind = body.kind ?? 'manual';
     try {
@@ -308,10 +311,13 @@ export async function handleJobRoutes(
       const executionContext = requestExecutionContextToInternal(
         body.executionContext,
       );
+      const hostTaskTarget = parseHostTaskTarget(body.target);
       const created = await createJobManagementService(ctx).createJob({
         appId: auth.appId,
         name: String(body.name || ''),
-        prompt: String(body.prompt || ''),
+        prompt: typeof body.prompt === 'string' ? body.prompt : undefined,
+        idempotencyKey: readOptionalString(rawBody.idempotencyKey),
+        target: hostTaskTarget ?? undefined,
         sessionId: body.executionContext.sessionId,
         executionContext,
         notificationRoutes: body.notificationRoutes,

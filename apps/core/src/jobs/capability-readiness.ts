@@ -8,6 +8,7 @@ import { nowIso } from '../shared/time/datetime.js';
 import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 import { WORKER_STALE_AFTER_MS } from '../shared/worker-heartbeat.js';
 import { resolveRequiredCapabilities } from './capability-eligibility.js';
+import { normalizeCapabilitySet } from './capability-eligibility.js';
 import { fleetMissingRequiredCapabilities } from './capability-starvation.js';
 
 /**
@@ -42,7 +43,7 @@ export interface FleetCapabilityReadinessResult {
  */
 export async function evaluateFleetCapabilityReadiness(
   deps: FleetCapabilityReadinessDeps,
-  input: { appId: string; agentId: string },
+  input: { appId: string; agentId: string; extraCapabilities?: string[] },
 ): Promise<FleetCapabilityReadinessResult> {
   if (deps.deploymentMode !== 'fleet' || !deps.workerRegistry) {
     return {
@@ -51,7 +52,7 @@ export async function evaluateFleetCapabilityReadiness(
       missingCapabilities: [],
     };
   }
-  const required = await resolveRequiredCapabilities(
+  const resolved = await resolveRequiredCapabilities(
     {
       deploymentMode: deps.deploymentMode,
       skills: deps.skills,
@@ -59,6 +60,10 @@ export async function evaluateFleetCapabilityReadiness(
     },
     input,
   );
+  const required = normalizeCapabilitySet([
+    ...resolved,
+    ...(input.extraCapabilities ?? []),
+  ]);
   if (required.length === 0) {
     return {
       satisfiable: true,

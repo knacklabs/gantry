@@ -147,9 +147,11 @@ export interface Job {
   execution_context?: JobExecutionContext;
   notification_routes?: JobNotificationRoute[];
   access_requirements?: JobAccessRequirement[];
+  idempotency_key?: string | null;
   setup_state?: JobSetupState;
   recovery_intent?: JobRecoveryIntent | null;
   required_capabilities?: string[];
+  host_task?: import('../jobs/host-task-executors.js').HostTaskTarget | null;
 }
 
 export type JobRunStatus =

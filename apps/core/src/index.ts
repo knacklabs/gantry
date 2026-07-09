@@ -5,6 +5,7 @@ import {
 import { startGantryRuntime } from './app/index.js';
 
 export * from './app/index.js';
+export * from './jobs/host-task-executors.js';
 
 const isDirectRun =
   process.argv[1] &&

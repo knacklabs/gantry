@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildExternalNotificationAdaptiveCard,
   createAnthropicStructuredModelProvider,
@@ -87,10 +87,141 @@ describe('@cawstudios/agent-gantry', () => {
     });
   });
 
+  it('returns aggregate model usage from multi-step generic agent tasks', async () => {
+    let callCount = 0;
+    const runner = createStructuredModelTaskRunner({
+      model: {
+        generateJson: async () => {
+          callCount += 1;
+          return {
+            output: callCount === 1
+              ? { action: 'call_tool', toolName: 'lookup', input: { q: 'x' } }
+              : { action: 'final', output: { status: 'ok' } },
+            modelUsage: {
+              provider: 'anthropic',
+              model: 'claude-test',
+              taskType: 'task.agent.usage',
+              inputTokens: callCount === 1 ? 10 : 20,
+              outputTokens: callCount === 1 ? 2 : 3,
+              totalTokens: callCount === 1 ? 12 : 23,
+              cacheReadInputTokens: callCount === 1 ? 1 : 4,
+              durationMs: callCount === 1 ? 100 : 200,
+              usageSource: 'provider',
+            },
+          };
+        },
+      },
+    });
+
+    const result = await runner.runAgentTask?.({
+      taskType: 'task.agent.usage',
+      instructions: 'Use the tool, then finish.',
+      input: {},
+      tools: [{
+        name: 'lookup',
+        execute: async () => ({ status: 'ok' }),
+      }],
+      maxSteps: 2,
+      correlationId: 'agent-usage-1',
+    });
+
+    expect(result?.status).toBe('completed');
+    expect(result?.modelUsage).toMatchObject({
+      provider: 'anthropic',
+      model: 'claude-test',
+      taskType: 'task.agent.usage',
+      correlationId: 'agent-usage-1',
+      inputTokens: 30,
+      outputTokens: 5,
+      totalTokens: 35,
+      cacheReadInputTokens: 5,
+      durationMs: 300,
+      usageSource: 'provider',
+    });
+  });
+
+  it('includes tool timeout recovery model usage in generic agent task usage', async () => {
+    let callCount = 0;
+    const runner = createStructuredModelTaskRunner({
+      model: {
+        generateJson: async () => {
+          callCount += 1;
+          return {
+            output: callCount === 1
+              ? { action: 'call_tool', toolName: 'slow', input: {} }
+              : { action: 'final', output: { status: 'recovered' } },
+            modelUsage: {
+              provider: 'anthropic',
+              model: 'claude-test',
+              inputTokens: callCount === 1 ? 7 : 11,
+              outputTokens: callCount === 1 ? 1 : 2,
+              totalTokens: callCount === 1 ? 8 : 13,
+              usageSource: 'provider',
+            },
+          };
+        },
+      },
+    });
+
+    const result = await runner.runAgentTask?.({
+      taskType: 'task.agent.recovery-usage',
+      instructions: 'Recover from tool timeout.',
+      input: {},
+      tools: [{
+        name: 'slow',
+        execute: async () => {
+          throw new Error('agent_tool_timeout:slow');
+        },
+      }],
+      recoverFromToolError: async () => ({ attempt: 'tool_error_recovery' }),
+      maxSteps: 1,
+      correlationId: 'agent-recovery-usage-1',
+    });
+
+    expect(result?.status).toBe('completed');
+    expect(result?.modelUsage).toMatchObject({
+      provider: 'anthropic',
+      model: 'claude-test',
+      inputTokens: 18,
+      outputTokens: 3,
+      totalTokens: 21,
+      usageSource: 'provider',
+    });
+  });
+
+  it('accepts markdown-fenced JSON with surrounding text from structured model task final output', async () => {
+    const runner = createStructuredModelTaskRunner({
+      model: {
+        generateJson: async () =>
+          [
+            'Here is the final JSON:',
+            '```json',
+            JSON.stringify({ action: 'final', output: { status: 'ok' } }),
+            '```',
+            'Done.',
+          ].join('\n'),
+      },
+    });
+
+    const result = await runner.runAgentTask?.({
+      taskType: 'task.noisy-fenced-json',
+      instructions: 'Return raw JSON.',
+      input: {},
+      tools: [],
+      maxSteps: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'completed',
+      output: { status: 'ok' },
+    });
+  });
+
   it('still rejects non-JSON prose from structured model task final output', async () => {
     const runner = createStructuredModelTaskRunner({
       model: {
-        generateJson: async () => 'Here is the answer: {"action":"final","output":{"status":"ok"}}',
+        generateJson: async () =>
+          'Here is the answer: {"action":"final","output":{"status":"ok"}}',
       },
     });
 
@@ -118,7 +249,10 @@ describe('@cawstudios/agent-gantry', () => {
           seenInputSizes.push(JSON.stringify(input).length);
           if (calls === 1) {
             return await new Promise<Record<string, unknown>>((resolve) => {
-              setTimeout(() => resolve({ action: 'final', output: { status: 'late' } }), 50);
+              setTimeout(
+                () => resolve({ action: 'final', output: { status: 'late' } }),
+                50,
+              );
             });
           }
           return { action: 'final', output: { status: 'ok' } };
@@ -133,9 +267,14 @@ describe('@cawstudios/agent-gantry', () => {
       tools: [],
       maxSteps: 1,
       modelStepTimeoutMs: 5,
-      projectStepStateForModel: ({ attempt, state }) => attempt === 'timeout_retry'
-        ? { input: { retry: true }, observations: [], agentMemory: { nextGoal: { recommendedTool: 'final' } } }
-        : state,
+      projectStepStateForModel: ({ attempt, state }) =>
+        attempt === 'timeout_retry'
+          ? {
+              input: { retry: true },
+              observations: [],
+              agentMemory: { nextGoal: { recommendedTool: 'final' } },
+            }
+          : state,
     });
 
     expect(result).toMatchObject({
@@ -268,13 +407,14 @@ describe('@cawstudios/agent-gantry', () => {
         expect(state.input).toMatchObject({ large: expect.any(String) });
         return { instructions: 'Return final JSON now.', tools: [] };
       },
-      projectStepStateForModel: ({ attempt, state }) => attempt === 'tool_error_recovery'
-        ? {
-            input: { recovery: true },
-            observations: [],
-            agentMemory: { nextGoal: { recommendedTool: 'final' } },
-          }
-        : state,
+      projectStepStateForModel: ({ attempt, state }) =>
+        attempt === 'tool_error_recovery'
+          ? {
+              input: { recovery: true },
+              observations: [],
+              agentMemory: { nextGoal: { recommendedTool: 'final' } },
+            }
+          : state,
     });
 
     expect(result).toMatchObject({
@@ -284,7 +424,10 @@ describe('@cawstudios/agent-gantry', () => {
     expect(modelCalls).toBe(2);
     expect(recoveryHookCalls).toBe(1);
     expect(recoveryAvailableToolCount).toBe(0);
-    expect(result?.steps.map((step) => step.status)).toEqual(['failed', 'completed']);
+    expect(result?.steps.map((step) => step.status)).toEqual([
+      'failed',
+      'completed',
+    ]);
   });
 
   it('keeps stepTimeoutMs as the generic agent timeout fallback', async () => {
@@ -430,6 +573,11 @@ describe('@cawstudios/agent-gantry', () => {
         return new Response(
           JSON.stringify({
             content: [{ type: 'text', text: '{"status":"completed"}' }],
+            usage: {
+              input_tokens: 12,
+              output_tokens: 3,
+              cache_read_input_tokens: 2,
+            },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -443,7 +591,20 @@ describe('@cawstudios/agent-gantry', () => {
         input: { value: 1 },
         correlationId: 'corr-1',
       }),
-    ).resolves.toEqual({ status: 'completed' });
+    ).resolves.toMatchObject({
+      output: { status: 'completed' },
+      modelUsage: {
+        provider: 'anthropic',
+        model: 'claude-task',
+        taskType: 'task.test',
+        correlationId: 'corr-1',
+        inputTokens: 12,
+        outputTokens: 3,
+        totalTokens: 15,
+        cachedTokens: 2,
+        usageSource: 'provider',
+      },
+    });
     expect(requestBody).toMatchObject({
       model: 'claude-task',
       max_tokens: 4096,
@@ -453,6 +614,277 @@ describe('@cawstudios/agent-gantry', () => {
     expect(requestBody).not.toHaveProperty('thinking');
     expect(requestBody).not.toHaveProperty('output_config');
     expect(JSON.stringify(requestBody)).not.toContain('test-key');
+  });
+
+  it('adds Anthropic prompt cache control only to the stable prefix block', async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      fetchImpl: async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '{"status":"completed"}' }],
+            usage: {
+              input_tokens: 100,
+              output_tokens: 5,
+              cache_creation_input_tokens: 40,
+              cache_read_input_tokens: 60,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'agent.tender.deep_analysis.section',
+        instructions: 'Return JSON for commercial financial terms.',
+        cacheablePrefix: 'stable tender evidence scope',
+        promptCache: { enabled: true, ttl: '1h', prefixHash: 'prefix-hash' },
+        input: {
+          sectionKey: 'commercial_financial_terms',
+          correlationId: 'dynamic-correlation',
+        },
+        correlationId: 'dynamic-correlation',
+      }),
+    ).resolves.toMatchObject({
+      output: { status: 'completed' },
+      modelUsage: {
+        cacheCreationInputTokens: 40,
+        cacheReadInputTokens: 60,
+        promptCacheTtl: '1h',
+        promptCachePrefixHash: 'prefix-hash',
+      },
+    });
+
+    const messages = requestBody?.messages as Array<{ content?: unknown }> | undefined;
+    const content = messages?.[0]?.content as Array<Record<string, unknown>>;
+    expect(String(requestBody?.system)).not.toContain('commercial financial terms');
+    expect(content).toHaveLength(2);
+    expect(content[0]).toMatchObject({
+      type: 'text',
+      text: 'stable tender evidence scope',
+      cache_control: { type: 'ephemeral', ttl: '1h' },
+    });
+    expect(JSON.stringify(content[0])).not.toContain('commercial_financial_terms');
+    expect(JSON.stringify(content[0])).not.toContain('dynamic-correlation');
+    expect(content[1]).toMatchObject({ type: 'text' });
+    expect(JSON.stringify(content[1])).toContain('Return JSON for commercial financial terms.');
+    expect(JSON.stringify(content[1])).toContain('commercial_financial_terms');
+    expect(JSON.stringify(content[1])).toContain('dynamic-correlation');
+    expect(content[1]).not.toHaveProperty('cache_control');
+  });
+
+  it('keeps the existing Anthropic single-block prompt shape when prompt cache is disabled', async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      fetchImpl: async (_url, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '{"status":"completed"}' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      },
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'agent.tender.deep_analysis.section',
+        instructions: 'Return JSON.',
+        cacheablePrefix: 'stable tender evidence scope',
+        promptCache: { enabled: false, ttl: '1h' },
+        input: { sectionKey: 'commercial_financial_terms' },
+      }),
+    ).resolves.toMatchObject({ output: { status: 'completed' } });
+
+    const messages = requestBody?.messages as Array<{ content?: unknown }> | undefined;
+    const content = messages?.[0]?.content as Array<Record<string, unknown>>;
+    expect(content).toHaveLength(1);
+    expect(content[0]?.cache_control).toBeUndefined();
+    expect(JSON.stringify(content)).not.toContain('stable tender evidence scope');
+  });
+
+  it.each([
+    ['raw JSON', '{"status":"completed"}'],
+    ['markdown-fenced JSON', '```json\n{"status":"completed"}\n```'],
+    [
+      'prose with markdown-fenced JSON',
+      'Here is the JSON:\n```json\n{"status":"completed"}\n```',
+    ],
+  ])('parses Anthropic text content as %s', async (_label, text) => {
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.anthropic_json_shape',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+      }),
+    ).resolves.toMatchObject({ output: { status: 'completed' } });
+  });
+
+  it('rejects malformed Anthropic JSON text content', async () => {
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      maxRetries: 1,
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '{"status":' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.anthropic_malformed_json',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+      }),
+    ).rejects.toThrow(
+      'Anthropic task.anthropic_malformed_json failed after 1 attempts',
+    );
+  });
+
+  it('rejects non-object Anthropic JSON text content', async () => {
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      maxRetries: 1,
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '["completed"]' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.anthropic_non_object_json',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+      }),
+    ).rejects.toThrow('Structured task model output must be a JSON object.');
+  });
+
+  it('retries transient Anthropic overload responses before succeeding', async () => {
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Response(
+          JSON.stringify({ error: { message: 'Overloaded' } }),
+          { status: 529, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          content: [{ type: 'text', text: '{"status":"completed"}' }],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      maxRetries: 2,
+      retryBaseDelayMs: 0,
+      retryMaxDelayMs: 0,
+      fetchImpl: fetchMock,
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.overloaded',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+      }),
+    ).resolves.toMatchObject({ output: { status: 'completed' } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry non-transient Anthropic validation failures', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: 'Bad request' } }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      maxRetries: 3,
+      retryBaseDelayMs: 0,
+      retryMaxDelayMs: 0,
+      fetchImpl: fetchMock,
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.bad_request',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+      }),
+    ).rejects.toThrow('Anthropic task.bad_request failed after 3 attempts');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('estimates generic Anthropic token usage when provider usage is missing', async () => {
+    const model = createAnthropicStructuredModelProvider({
+      provider: 'anthropic',
+      apiKey: 'test-key',
+      defaultModel: 'claude-test',
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '{"status":"completed"}' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    });
+
+    await expect(
+      model.generateJson({
+        taskType: 'task.estimated',
+        instructions: 'Return JSON.',
+        input: { value: 1 },
+      }),
+    ).resolves.toMatchObject({
+      output: { status: 'completed' },
+      modelUsage: {
+        provider: 'anthropic',
+        model: 'claude-test',
+        taskType: 'task.estimated',
+        usageSource: 'estimated',
+      },
+    });
   });
 
   it('applies Anthropic task policies to model, effort, and max tokens', async () => {
@@ -474,6 +906,11 @@ describe('@cawstudios/agent-gantry', () => {
         return new Response(
           JSON.stringify({
             content: [{ type: 'text', text: '{"status":"completed"}' }],
+            usage: {
+              input_tokens: 12,
+              output_tokens: 3,
+              cache_read_input_tokens: 2,
+            },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -486,7 +923,7 @@ describe('@cawstudios/agent-gantry', () => {
         instructions: 'Return JSON.',
         input: { value: 1 },
       }),
-    ).resolves.toEqual({ status: 'completed' });
+    ).resolves.toMatchObject({ output: { status: 'completed' } });
 
     expect(requestBody).toMatchObject({
       model: 'claude-sonnet-task',
@@ -514,6 +951,11 @@ describe('@cawstudios/agent-gantry', () => {
         return new Response(
           JSON.stringify({
             content: [{ type: 'text', text: '{"status":"completed"}' }],
+            usage: {
+              input_tokens: 12,
+              output_tokens: 3,
+              cache_read_input_tokens: 2,
+            },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
         );
@@ -526,7 +968,7 @@ describe('@cawstudios/agent-gantry', () => {
         instructions: 'Return JSON.',
         input: { value: 1 },
       }),
-    ).resolves.toEqual({ status: 'completed' });
+    ).resolves.toMatchObject({ output: { status: 'completed' } });
 
     expect(requestBody).toMatchObject({
       model: 'claude-haiku-task',
@@ -567,7 +1009,7 @@ describe('@cawstudios/agent-gantry', () => {
           },
         ],
       }),
-    ).resolves.toEqual({ status: 'completed' });
+    ).resolves.toMatchObject({ output: { status: 'completed' } });
     const messages = requestBody?.messages;
     expect(Array.isArray(messages)).toBe(true);
     const firstMessage = (messages as Array<{ content?: unknown }>)[0];
@@ -1280,6 +1722,43 @@ describe('@cawstudios/agent-gantry', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('rejects Teams card sends when Bot Framework returns no provider message id', async () => {
+    const adapter: BotFrameworkAdapterLike = {
+      processActivity: async () => undefined,
+      continueConversation: async (_reference, logic) => {
+        await logic({
+          sendActivity: async () => undefined,
+        } as never);
+      },
+    };
+    const transport = createBotFrameworkTeamsTransport({
+      botAppId: 'bot',
+      botAppPassword: 'secret',
+      storage: {
+        getTeamsConversationReference: () => ({
+          exists: true,
+          conversationId: 'conversation',
+          conversationJid: 'teams:conversation',
+          serviceUrl: 'https://smba.trafficmanager.net/emea/',
+          rawReferenceJson: JSON.stringify({
+            serviceUrl: 'https://smba.trafficmanager.net/emea/',
+            conversation: { id: 'conversation' },
+          }),
+        }),
+      },
+      adapter,
+    });
+
+    await expect(
+      transport.sendCard({
+        conversationId: 'conversation',
+        card: { type: 'AdaptiveCard' },
+      }),
+    ).rejects.toThrow(
+      'Teams delivery did not return a provider message id for conversation conversation.',
+    );
+  });
+
   it('sends Teams cards to the base channel when the stored reference is message-scoped', async () => {
     const sent: unknown[] = [];
     const references: unknown[] = [];
@@ -1410,6 +1889,43 @@ describe('@cawstudios/agent-gantry', () => {
     ]);
   });
 
+  it('rejects Teams thread replies when Bot Framework returns no provider message id', async () => {
+    const transport = createBotFrameworkTeamsTransport({
+      botAppId: 'bot',
+      botAppPassword: 'secret',
+      storage: {
+        getTeamsConversationReference: (conversationId: string) => ({
+          exists: true,
+          conversationId,
+          conversationJid: `teams:${conversationId}`,
+          serviceUrl: 'https://smba.trafficmanager.net/emea/',
+          rawReferenceJson: JSON.stringify({
+            serviceUrl: 'https://smba.trafficmanager.net/emea/',
+            conversation: { id: conversationId },
+          }),
+        }),
+      },
+      adapter: {
+        processActivity: async () => undefined,
+        continueConversation: async (_reference, logic) => {
+          await logic({
+            sendActivity: async () => undefined,
+          } as never);
+        },
+      },
+    });
+
+    await expect(
+      transport.sendThreadReply({
+        conversationId: '19:channel',
+        replyToId: 'parent-message',
+        text: 'hello',
+      }),
+    ).rejects.toThrow(
+      'Teams delivery did not return a provider message id for conversation 19:channel;messageid=parent-message.',
+    );
+  });
+
   it('returns a stable missing-reference result for Teams DMs', async () => {
     const transport = createBotFrameworkTeamsTransport({
       botAppId: 'bot',
@@ -1492,6 +2008,55 @@ describe('@cawstudios/agent-gantry', () => {
     ).resolves.toMatchObject({ accepted: true, statusCode: 202 });
     expect(createdConversation).toBe(true);
     expect(sent).toEqual(['hello']);
+  });
+
+  it('rejects Teams DMs when Bot Framework returns no provider message id', async () => {
+    const transport = createBotFrameworkTeamsTransport({
+      botAppId: 'bot',
+      botAppPassword: 'secret',
+      storage: {
+        getTeamsPersonalConversationReference: () => ({
+          exists: true,
+          conversationId: '19:channel-thread',
+          conversationJid: 'teams:19:channel-thread',
+          serviceUrl: 'https://smba.test/',
+          tenantId: 'tenant-1',
+          teamsUserId: 'user-1',
+          rawReferenceJson: JSON.stringify({
+            serviceUrl: 'https://smba.test/',
+            user: { id: '29:user', aadObjectId: 'user-1' },
+            bot: { id: '28:bot' },
+            conversation: {
+              id: '19:channel-thread',
+              conversationType: 'channel',
+              isGroup: true,
+              tenantId: 'tenant-1',
+            },
+          }),
+        }),
+      },
+      adapter: {
+        processActivity: async () => undefined,
+        continueConversation: async () => {
+          throw new Error('should create a personal conversation first');
+        },
+        createConversation: async (_reference, _parameters, logic) => {
+          await logic({
+            sendActivity: async () => undefined,
+          } as never);
+        },
+      },
+    });
+
+    await expect(
+      transport.sendDm({
+        teamsUserId: 'user-1',
+        teamsTenantId: 'tenant-1',
+        text: 'hello',
+      }),
+    ).rejects.toThrow(
+      'Teams delivery did not return a provider message id for conversation 19:channel-thread.',
+    );
   });
 
   it('creates pg-backed runtime storage using the Gantry schema', async () => {

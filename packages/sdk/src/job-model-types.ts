@@ -372,7 +372,13 @@ export interface ModelPreviewResponse {
 
 export interface CreateJobInput {
   name: string;
-  prompt: string;
+  prompt?: string;
+  idempotencyKey?: string;
+  target?: {
+    kind: 'host_task';
+    executorId: string;
+    inputRef: string;
+  };
   executionContext: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
   accessRequirements?: JobAccessRequirement[];

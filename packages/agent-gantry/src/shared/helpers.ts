@@ -159,12 +159,23 @@ export function readOptionalNumberOrString(
 }
 
 export function parseJsonRecord(value: string): Record<string, unknown> {
-  const parsed = JSON.parse(stripOuterJsonFence(value)) as unknown;
-  const record = asRecord(parsed);
-  if (!record) {
-    throw new Error('Structured task model output must be a JSON object.');
+  const candidates = [stripOuterJsonFence(value), ...extractFencedJsonCandidates(value)];
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      const record = asRecord(parsed);
+      if (!record) {
+        throw new Error('Structured task model output must be a JSON object.');
+      }
+      return record;
+    } catch (error) {
+      lastError = error;
+    }
   }
-  return record;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Structured task model output must be valid JSON.');
 }
 
 function stripOuterJsonFence(value: string): string {
@@ -175,6 +186,16 @@ function stripOuterJsonFence(value: string): string {
   const inner = fenced[1]?.trim() ?? '';
   if (!isJsonShaped(inner)) return value;
   return inner;
+}
+
+function extractFencedJsonCandidates(value: string): string[] {
+  const candidates: string[] = [];
+  const fencedBlocks = value.matchAll(/```(?:json|JSON)?\s*\r?\n?([\s\S]*?)\r?\n?```/gu);
+  for (const block of fencedBlocks) {
+    const inner = block[1]?.trim() ?? '';
+    if (isJsonShaped(inner)) candidates.push(inner);
+  }
+  return candidates;
 }
 
 function isJsonShaped(value: string): boolean {

@@ -168,9 +168,14 @@ function teamsDeliveryReceiptBody(
   response: ResourceResponse | undefined,
   conversationId: string,
 ): Record<string, unknown> {
-  const activityId = response?.id ?? null;
+  const activityId = response?.id?.trim();
+  if (!activityId) {
+    throw new Error(
+      `Teams delivery did not return a provider message id for conversation ${conversationId}.`,
+    );
+  }
   return {
-    ...(response ? { resourceResponse: response } : {}),
+    resourceResponse: response,
     id: activityId,
     messageId: activityId,
     activityId,

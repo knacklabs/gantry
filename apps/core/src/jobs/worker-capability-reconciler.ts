@@ -7,6 +7,7 @@ import type { SkillArtifactMaterializer } from '../domain/ports/skill-artifact-s
 import type { ToolchainArtifactMaterializer } from '../domain/ports/toolchain-artifact-store.js';
 import type { WorkerRegistryRepository } from '../domain/ports/worker-coordination.js';
 import { readImageCapabilityInventory } from '../shared/worker-image-inventory.js';
+import { configuredRemoteHostTaskCapabilityIds } from './host-task-executors.js';
 import type { ManifestWakeupSource } from './toolchain-manifest-listener.js';
 
 /** Capability id a worker advertises for an activated skill artifact. */
@@ -218,6 +219,9 @@ export class WorkerCapabilityReconciler {
     const inventory =
       this.deps.imageInventory?.() ?? readImageCapabilityInventory() ?? [];
     const advertised = new Set<string>(inventory);
+    for (const capabilityId of configuredRemoteHostTaskCapabilityIds()) {
+      advertised.add(capabilityId);
+    }
     for (const entry of this.activated.values()) {
       advertised.add(entry.capabilityId);
     }

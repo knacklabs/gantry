@@ -43,6 +43,7 @@ export async function pauseJobForSetupIfNeeded(input: {
     deps: input.deps,
     appId,
     agentId,
+    extraCapabilities: input.currentJob.required_capabilities,
     previous: input.currentJob.setup_state,
   });
   if (fleetSetupState) {
@@ -77,6 +78,7 @@ async function fleetCapabilitySetupStateIfUnsatisfiable(input: {
   deps: SchedulerDependencies;
   appId: string;
   agentId: string;
+  extraCapabilities?: string[];
   previous?: Job['setup_state'];
 }): Promise<Job['setup_state'] | null> {
   if (getDeploymentMode() !== 'fleet') return null;
@@ -87,7 +89,11 @@ async function fleetCapabilitySetupStateIfUnsatisfiable(input: {
       runtimeDependencies: getRuntimeStorage().repositories.runtimeDependencies,
       workerRegistry: getWorkerCoordinationRepository(),
     },
-    { appId: input.appId, agentId: input.agentId },
+    {
+      appId: input.appId,
+      agentId: input.agentId,
+      extraCapabilities: input.extraCapabilities,
+    },
   );
   if (fleet.satisfiable) return null;
   return fleetCapabilitySetupState({

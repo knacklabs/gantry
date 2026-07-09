@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ApplicationError } from '../common/application-error.js';
 import type {
   CreateManagedJobInput,
@@ -21,6 +22,7 @@ import {
   SETUP_REQUIRED_PAUSE_REASON,
 } from './job-readiness-service.js';
 import { recordJobSetupRequired } from './job-management-readiness.js';
+import { hostTaskCapabilityId } from '../../jobs/host-task-executors.js';
 
 export async function createManagedJob(
   deps: JobManagementServiceDeps,
@@ -33,10 +35,11 @@ export async function createManagedJob(
     );
   }
   const session = await deps.control.getAppSessionById(input.sessionId);
-  if (!input.name.trim() || !input.prompt.trim() || !session) {
+  const prompt = input.prompt?.trim() ?? '';
+  if (!input.name.trim() || (!prompt && !input.target) || !session) {
     throw new ApplicationError(
       'INVALID_REQUEST',
-      'name, prompt, and sessionId are required',
+      'name, prompt or target, and sessionId are required',
     );
   }
   if (session.appId !== input.appId) {
@@ -45,7 +48,7 @@ export async function createManagedJob(
       'API key cannot access this session',
     );
   }
-  assertPublicJobNamespace({ prompt: input.prompt });
+  if (prompt) assertPublicJobNamespace({ prompt });
 
   const kind = input.kind ?? 'manual';
   const schedule = deps.schedulePlanner.planAppSchedule({
@@ -62,7 +65,6 @@ export async function createManagedJob(
     workload,
     agentHarness: input.agentHarness,
   });
-  const jobId = deps.schedulePlanner.createManualJobId();
   const sessionBoundContext = {
     conversationJid: session.conversationJid,
     workspaceKey: session.workspaceKey,
@@ -93,6 +95,39 @@ export async function createManagedJob(
       'executionContext.sessionId must match the authenticated app session.',
     );
   }
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+  if (idempotencyKey && input.dryRun !== true) {
+    const existingJobs = await deps.ops.listJobs({
+      workspaceKey: session.workspaceKey,
+      conversationJid: session.conversationJid,
+    });
+    const existing = existingJobs.find(
+      (job) =>
+        job.idempotency_key === idempotencyKey &&
+        job.session_id === session.sessionId,
+    );
+    if (existing) {
+      return {
+        jobId: existing.id,
+        created: false,
+        modelAlias,
+        runtimeContext: {
+          sessionId: session.sessionId,
+          conversationJid: session.conversationJid,
+          workspaceKey: session.workspaceKey,
+          threadId: existing.thread_id ?? executionContext.threadId ?? null,
+        },
+        setupState: existing.setup_state,
+      };
+    }
+  }
+  const jobId = idempotencyKey
+    ? createIdempotentJobId({
+        appId: session.appId,
+        sessionId: session.sessionId,
+        idempotencyKey,
+      })
+    : deps.schedulePlanner.createManualJobId();
   const runtimeContext = {
     sessionId: session.sessionId,
     conversationJid: session.conversationJid,
@@ -122,7 +157,7 @@ export async function createManagedJob(
   const jobInput: JobUpsertInput = {
     id: jobId,
     name: input.name.trim(),
-    prompt: input.prompt.trim(),
+    prompt,
     model: modelAlias ?? null,
     schedule_type: schedule.scheduleType,
     schedule_value: schedule.scheduleValue,
@@ -135,6 +170,11 @@ export async function createManagedJob(
     execution_context: executionContext,
     notification_routes: notificationRoutes,
     access_requirements: accessRequirements,
+    idempotency_key: idempotencyKey,
+    host_task: input.target ?? null,
+    required_capabilities: input.target
+      ? [hostTaskCapabilityId(input.target.executorId)]
+      : undefined,
   };
   const readiness = await evaluateJobReadiness({
     job: jobInput,
@@ -193,4 +233,25 @@ export async function createManagedJob(
     runtimeContext,
     setupState: readiness.setupState,
   };
+}
+
+function normalizeIdempotencyKey(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized.slice(0, 200) : null;
+}
+
+function createIdempotentJobId(input: {
+  readonly appId: string;
+  readonly sessionId: string;
+  readonly idempotencyKey: string;
+}): string {
+  const digest = createHash('sha256')
+    .update(input.appId)
+    .update('\0')
+    .update(input.sessionId)
+    .update('\0')
+    .update(input.idempotencyKey)
+    .digest('hex')
+    .slice(0, 32);
+  return `job-idem-${digest}`;
 }

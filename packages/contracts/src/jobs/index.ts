@@ -317,10 +317,19 @@ export type JobAccessRequirement = z.infer<typeof JobAccessRequirementSchema>;
 export const CreateJobRequestSchema = z
   .object({
     name: z.string().min(1),
-    prompt: z.string().min(1),
+    prompt: z.string().min(1).optional(),
+    idempotencyKey: z.string().trim().min(1).max(200).optional(),
     executionContext: JobRequestExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
     accessRequirements: z.array(JobAccessRequirementSchema).optional(),
+    target: z
+      .object({
+        kind: z.literal('host_task'),
+        executorId: z.string().regex(/^[A-Za-z0-9._:-]{1,160}$/),
+        inputRef: z.string().regex(/^[A-Za-z0-9._:-]{1,160}$/),
+      })
+      .strict()
+      .optional(),
     kind: z.enum(['manual', 'once', 'recurring']).optional(),
     runAt: IsoDateTimeSchema.optional(),
     schedule: z
@@ -331,6 +340,10 @@ export const CreateJobRequestSchema = z
       .optional(),
     modelAlias: z.string().optional(),
     dryRun: z.boolean().optional(),
+  })
+  .refine((value) => Boolean(value.prompt || value.target?.kind === 'host_task'), {
+    message: 'prompt is required unless target.kind is host_task',
+    path: ['prompt'],
   })
   .strict();
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;

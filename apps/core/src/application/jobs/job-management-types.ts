@@ -24,6 +24,7 @@ import type { Clock } from '../common/clock.js';
 import type { SchedulerCoordinationPort } from './scheduler-coordination-port.js';
 import type { JobReadinessBrowserStatus } from './job-readiness-service.js';
 import type { AgentHarness } from '../../shared/agent-engine.js';
+import type { HostTaskTarget } from '../../jobs/host-task-executors.js';
 
 export type JobKind = 'manual' | 'once' | 'recurring';
 
@@ -153,7 +154,9 @@ export interface JobManagementServiceDeps {
 export interface CreateManagedJobInput {
   appId: string;
   name: string;
-  prompt: string;
+  prompt?: string;
+  idempotencyKey?: string;
+  target?: HostTaskTarget;
   sessionId: string;
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];

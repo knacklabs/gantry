@@ -95,6 +95,7 @@ import { isTrustedSystemJob } from '../shared/system-job-identity.js';
 import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
 import { hasAsyncTaskRepository } from './async-command-task-helpers.js';
+import { getHostTaskExecutor } from './host-task-executors.js';
 import type {
   JobTurnContext,
   SchedulerDependencies,
@@ -280,7 +281,37 @@ export async function runJob(
       });
       deletionGuard.resetDeliveryDeletionCheck();
     }
-    if (!error && isTrustedSystemJob(currentJob)) {
+    if (!error && currentJob.host_task) {
+      const executor = getHostTaskExecutor(currentJob.host_task.executorId);
+      if (!executor) {
+        error = 'No host task executor is registered for this job.';
+      } else {
+        try {
+          const outcome = await executor({
+            job: currentJob,
+            runId,
+            leaseToken: leaseContext.lease.leaseToken,
+            fencingVersion: leaseContext.lease.fencingVersion,
+            workerInstanceId: leaseContext.lease.workerInstanceId,
+            target: currentJob.host_task,
+            signal: runLeaseAbort.signal,
+            emitProgress: async (payload) => {
+              await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_STREAMING, {
+                kind: 'host_task_progress',
+                ...payload,
+              });
+            },
+          });
+          if (runLeaseAbort.isAborted()) {
+            error = runLeaseAbort.error;
+          } else if (outcome?.resultSummary) {
+            appendResultSummary(outcome.resultSummary);
+          }
+        } catch (err) {
+          error = runLeaseAbort.errorFor(err);
+        }
+      }
+    } else if (!error && isTrustedSystemJob(currentJob)) {
       const systemOutcome = await runSystemJobTurn({
         currentJob,
         startedAtMs,

@@ -40,9 +40,11 @@ export interface JobUpsertInput {
   execution_context?: Job['execution_context'];
   notification_routes?: Job['notification_routes'];
   access_requirements?: Job['access_requirements'];
+  idempotency_key?: Job['idempotency_key'];
   setup_state?: Job['setup_state'];
   recovery_intent?: Job['recovery_intent'];
   required_capabilities?: Job['required_capabilities'];
+  host_task?: Job['host_task'];
 }
 
 export interface JobListFilters {
