@@ -41,8 +41,48 @@ describe('deepagents model factory', () => {
     expect(underlying.model).toBe('gpt-5.5');
     expect(underlying.streamUsage).toBe(true);
     expect(underlying.clientConfig?.baseURL).toBe(loopbackBaseUrl);
+    expect(
+      (underlying as { modelKwargs?: Record<string, unknown> }).modelKwargs,
+    ).not.toHaveProperty('prompt_cache_key');
     expect(underlying.apiKey).toBe(gatewayToken);
     expect(resolved.modelId).toBe('gpt-5.5');
+  });
+
+  it('adds prompt_cache_key to ChatOpenAI modelKwargs only when present', async () => {
+    const withKey = await buildRunnerModel({
+      provider: 'xai',
+      modelId: 'grok-4.3',
+      gatewayBaseUrl: 'http://127.0.0.1:4567/xai',
+      gatewayToken,
+      promptCacheKey: 'cache-key-123',
+    });
+    const withKeyUnderlying = await (
+      withKey.model as unknown as {
+        _getModelInstance: () => Promise<{
+          modelKwargs?: Record<string, unknown>;
+        }>;
+      }
+    )._getModelInstance();
+    expect(withKeyUnderlying.modelKwargs).toEqual({
+      prompt_cache_key: 'cache-key-123',
+    });
+
+    const withoutKey = await buildRunnerModel({
+      provider: 'xai',
+      modelId: 'grok-4.3',
+      gatewayBaseUrl: 'http://127.0.0.1:4567/xai',
+      gatewayToken,
+    });
+    const withoutKeyUnderlying = await (
+      withoutKey.model as unknown as {
+        _getModelInstance: () => Promise<{
+          modelKwargs?: Record<string, unknown>;
+        }>;
+      }
+    )._getModelInstance();
+    expect(withoutKeyUnderlying.modelKwargs).not.toHaveProperty(
+      'prompt_cache_key',
+    );
   });
 
   it.each([

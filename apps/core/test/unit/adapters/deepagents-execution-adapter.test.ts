@@ -56,6 +56,22 @@ function catalogEntry(alias: string): ModelCatalogEntry {
   return resolved.entry;
 }
 
+function projectionFor(
+  providerId: string,
+  brokerAuthMode = 'api_key',
+): AgentExecutionAdapterPrepareInput['modelCredentialProjection'] {
+  return {
+    env: Object.fromEntries([
+      [openAiBaseUrlKey(), `http://127.0.0.1:4567/${providerId}`],
+      [openAiApiKeyKey(), 'gtw_test'],
+    ]),
+    credentialProviders: {},
+    brokerProfile: 'gantry',
+    brokerApplied: true,
+    brokerAuthMode,
+  };
+}
+
 function installedSkill(): SkillCatalogItem {
   return {
     id: 'skill:release' as never,
@@ -195,6 +211,89 @@ describe('DeepAgentsLangChainExecutionAdapter', () => {
     // gpt-5.5 has a real library profile, so the catalog declares no curated
     // window and the host must NOT project the max-input-tokens env.
     expect(prepared.env.GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS).toBeUndefined();
+  });
+
+  it('projects prompt cache keys only for provider-declared support', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+
+    for (const [alias, providerId] of [
+      ['grok', 'xai'],
+      ['fireworks', 'fireworks'],
+    ] as const) {
+      const entry = catalogEntry(alias);
+      const prepared = await adapter.prepare(
+        prepareInput({
+          input: {
+            prompt: 'hello',
+            chatJid: 'conversation-1',
+            threadId: 'thread-a',
+            isScheduledJob: true,
+          },
+          effectiveModel: entry.runnerModel,
+          effectiveModelEntry: entry,
+          modelCredentialProjection: projectionFor(providerId),
+        }),
+      );
+
+      expect(prepared.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).toMatch(
+        /^[0-9a-f]{64}$/,
+      );
+    }
+
+    for (const [alias, providerId, brokerAuthMode] of [
+      ['gpt', 'openai', 'api_key'],
+      ['groq', 'groq', 'api_key'],
+      ['deepseek', 'deepseek', 'api_key'],
+      ['vertex', 'vertex', 'service_account'],
+      ['bedrock-oss', 'bedrock', 'bedrock_api_key'],
+    ] as const) {
+      const entry = catalogEntry(alias);
+      const prepared = await adapter.prepare(
+        prepareInput({
+          input: {
+            prompt: 'hello',
+            chatJid: 'conversation-1',
+            threadId: 'thread-a',
+            isScheduledJob: true,
+          },
+          effectiveModel: entry.runnerModel,
+          effectiveModelEntry: entry,
+          modelCredentialProjection: projectionFor(providerId, brokerAuthMode),
+        }),
+      );
+
+      expect(prepared.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).toBeUndefined();
+    }
+  });
+
+  it('uses stable prompt cache keys per conversation thread', async () => {
+    const adapter = new DeepAgentsLangChainExecutionAdapter();
+    const entry = catalogEntry('grok');
+    const base = {
+      prompt: 'hello',
+      chatJid: 'conversation-1',
+      isScheduledJob: true,
+    };
+    const prepare = (threadId: string) =>
+      adapter.prepare(
+        prepareInput({
+          input: { ...base, threadId },
+          effectiveModel: entry.runnerModel,
+          effectiveModelEntry: entry,
+          modelCredentialProjection: projectionFor('xai'),
+        }),
+      );
+
+    const first = await prepare('thread-a');
+    const second = await prepare('thread-a');
+    const otherThread = await prepare('thread-b');
+
+    expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).toBe(
+      second.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
+    );
+    expect(first.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY).not.toBe(
+      otherThread.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY,
+    );
   });
 
   it('uses a disposable per-run DeepAgents runtime config dir', async () => {

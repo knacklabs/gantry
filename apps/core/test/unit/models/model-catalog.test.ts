@@ -69,11 +69,8 @@ describe('model catalog resolution', () => {
       maxOutputTokens: 32_768,
       inputUsdPerMillionTokens: 0.95,
       outputUsdPerMillionTokens: 3,
-      cacheMode: 'openrouter-provider-prompt',
-      cacheTokenFields: [
-        'prompt_tokens_details.cached_tokens',
-        'prompt_tokens_details.cache_write_tokens',
-      ],
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: [
         'chat',
         'one_time_job',
@@ -665,6 +662,46 @@ describe('model catalog resolution', () => {
         available: true,
       },
     });
+  });
+
+  it('keeps undocumented prompt-cache catalog entries unsupported', () => {
+    for (const alias of [
+      'groq',
+      'groq-fast',
+      'together',
+      'together-qwen',
+      'cerebras-glm',
+      'glm-5.2',
+    ]) {
+      const resolved = resolveModelSelection(alias);
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) continue;
+      expect(resolveModelCacheSupport(resolved.entry)).toMatchObject({
+        cacheProvider: 'none',
+        prompt: {
+          supported: false,
+          accounted: false,
+        },
+      });
+      expect(
+        normalizeModelUsage({
+          message: { usage: { prompt_tokens: 100, completion_tokens: 10 } },
+          fallbackModel: resolved.entry.runnerModel,
+        }),
+      ).toMatchObject({
+        cacheProvider: 'none',
+        cacheStatus: 'unsupported',
+      });
+    }
+    for (const alias of ['groq-oss', 'cerebras']) {
+      const resolved = resolveModelSelection(alias);
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) continue;
+      expect(resolveModelCacheSupport(resolved.entry)).toMatchObject({
+        cacheProvider: 'openai',
+        statusLabel: 'automatic provider cache',
+      });
+    }
   });
 });
 

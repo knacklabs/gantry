@@ -95,6 +95,7 @@ export interface ModelProviderCacheUsageFields {
 export interface ModelProviderPromptCacheSupport {
   mode: ModelProviderPromptCacheMode;
   automatic: boolean;
+  promptCacheKey?: boolean;
   requestControl: 'none' | 'cache_control_blocks' | 'provider_automatic_prefix';
   ttlOptions: readonly string[];
   minimumTokenThresholds: readonly {

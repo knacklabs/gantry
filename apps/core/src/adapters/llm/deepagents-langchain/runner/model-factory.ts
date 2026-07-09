@@ -67,6 +67,7 @@ export async function buildRunnerModel(input: {
   // Durable session id for OpenRouter sticky cache routing (see below). OpenAI
   // has no session_id concept, so this is applied to the openrouter lane only.
   sessionId?: string;
+  promptCacheKey?: string;
   // Curated context window (host-projected GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS)
   // for ids the LangChain library has no built-in profile for. When present it
   // becomes the model profile's `maxInputTokens` so DeepAgents summarizes at 85%
@@ -118,6 +119,9 @@ export async function buildRunnerModel(input: {
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
       configuration: { baseURL },
+      ...(input.promptCacheKey
+        ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
+        : {}),
       streamUsage: true,
       // initChatModel stores `profile` on the ConfigurableModel wrapper and its
       // `.profile` getter returns it first, so the curated window reaches both
