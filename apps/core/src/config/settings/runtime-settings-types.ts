@@ -302,6 +302,8 @@ export interface RuntimeCustomModelAlias {
   maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   supportsThinking?: boolean;
   supportsTools?: boolean;
   source: RuntimeCustomModelAliasSource;

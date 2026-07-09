@@ -141,6 +141,8 @@ export interface ModelCatalogEntry {
   maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCacheMode;
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
@@ -276,6 +278,8 @@ export function executableModelEntry(input: {
   maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCacheMode;
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
@@ -338,6 +342,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
+    cachedInputUsdPerMillionTokens: 0.5,
+    cacheWriteUsdPerMillionTokens: 6.25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
@@ -356,6 +362,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
+    cachedInputUsdPerMillionTokens: 0.5,
+    cacheWriteUsdPerMillionTokens: 6.25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
@@ -374,6 +382,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
+    cachedInputUsdPerMillionTokens: 0.5,
+    cacheWriteUsdPerMillionTokens: 6.25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
@@ -392,6 +402,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 64_000,
     inputUsdPerMillionTokens: 3,
     outputUsdPerMillionTokens: 15,
+    cachedInputUsdPerMillionTokens: 0.3,
+    cacheWriteUsdPerMillionTokens: 3.75,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
@@ -410,6 +422,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 64_000,
     inputUsdPerMillionTokens: 1,
     outputUsdPerMillionTokens: 5,
+    cachedInputUsdPerMillionTokens: 0.1,
+    cacheWriteUsdPerMillionTokens: 1.25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: false,
@@ -487,6 +501,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 30,
+    cachedInputUsdPerMillionTokens: 0.5,
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportsThinking: true,
@@ -510,6 +525,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 2.5,
     outputUsdPerMillionTokens: 15,
+    cachedInputUsdPerMillionTokens: 0.25,
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportsThinking: true,
@@ -534,6 +550,7 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 0.75,
     outputUsdPerMillionTokens: 4.5,
+    cachedInputUsdPerMillionTokens: 0.075,
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportsThinking: true,

@@ -56,6 +56,8 @@ type ExecutableModelEntryFn = (input: {
   contextWindowTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCatalogEntry['cacheMode'];
   cacheTokenFields: readonly string[];
   supportedWorkloads: readonly ModelWorkload[];
@@ -214,6 +216,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_DEEPSEEK_V4,
       inputUsdPerMillionTokens: 0.435,
       outputUsdPerMillionTokens: 0.87,
+      cachedInputUsdPerMillionTokens: 0.003625,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['prompt_cache_hit_tokens'],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -230,6 +233,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_DEEPSEEK_V4,
       inputUsdPerMillionTokens: 0.14,
       outputUsdPerMillionTokens: 0.28,
+      cachedInputUsdPerMillionTokens: 0.0028,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['prompt_cache_hit_tokens'],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -247,6 +251,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_GROK,
       inputUsdPerMillionTokens: 1.25,
       outputUsdPerMillionTokens: 2.5,
+      cachedInputUsdPerMillionTokens: 0.2,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -263,6 +268,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_GROK,
       inputUsdPerMillionTokens: 1.0,
       outputUsdPerMillionTokens: 2.0,
+      cachedInputUsdPerMillionTokens: 0.2,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -357,6 +363,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_128K,
       inputUsdPerMillionTokens: 0.35,
       outputUsdPerMillionTokens: 0.75,
+      cachedInputUsdPerMillionTokens: 0.35,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
