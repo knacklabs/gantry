@@ -3,6 +3,7 @@ import {
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
 } from './gantry-tool-facades.js';
+import { isCanonicalBrowserCapabilityRule } from './agent-tool-references.js';
 
 export type AgentRuntime = 'worker' | 'inline';
 
@@ -27,6 +28,7 @@ export function formatInlineAgentWorkerOnlyConfigError(
 }
 
 export function isInlineWorkerOnlyToolRule(rule: string): boolean {
+  if (isCanonicalBrowserCapabilityRule(rule)) return true;
   if (isRunCommandToolRule(rule)) return true;
   const publicName = publicGantryToolNameForSdkTool(ruleHeadName(rule));
   return (

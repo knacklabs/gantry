@@ -99,6 +99,16 @@ export async function finishDurablePermissionInteraction(input: {
     requestId: input.request.requestId,
   });
   if (!applied) return false;
+  return resolveDurablePermissionInteraction(input);
+}
+
+export function resolveDurablePermissionInteraction(input: {
+  request: PermissionApprovalRequest;
+  sourceAgentFolder: string;
+  decision: PermissionApprovalDecision;
+  updatedPermissions?: PermissionApprovalDecision['updatedPermissions'];
+  operations?: DurableInteractionOperations;
+}): Promise<boolean> {
   return (input.operations ?? defaultOperations).resolve({
     kind: 'permission',
     sourceAgentFolder: input.sourceAgentFolder,

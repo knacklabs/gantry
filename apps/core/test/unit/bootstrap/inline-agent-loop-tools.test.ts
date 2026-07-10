@@ -75,6 +75,10 @@ function laneInput() {
     modelCredentialEnv: {},
     mcpServers: [],
     runtimeDataDir: '/tmp/inline-tools-test',
+    jobActivity: {
+      beginPermissionRequest: vi.fn(),
+      finishPermissionRequest: vi.fn(),
+    },
     emitOutput: vi.fn(async () => undefined),
   } as never;
 }
@@ -144,6 +148,11 @@ describe('inline core tool bootstrap', () => {
     expect(input.emitOutput).toHaveBeenCalledWith(
       expect.objectContaining({ interactionBoundary: 'user_interaction' }),
     );
+    expect(input.jobActivity.beginPermissionRequest).toHaveBeenCalledWith(
+      expect.any(String),
+      'mcp__crm__read',
+    );
+    expect(input.jobActivity.finishPermissionRequest).toHaveBeenCalledOnce();
     expect(
       publishRuntimeEvent.mock.calls.map(([event]) => event.eventType),
     ).toEqual([

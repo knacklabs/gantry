@@ -56,9 +56,11 @@ describe('agent runtime settings', () => {
           version: builtin
         - id: FileRead
           version: builtin
+        - id: Browser
+          version: builtin
 `),
     ).toThrow(
-      'agents.main_agent.runtime inline is incompatible with worker-only capabilities: FileRead, RunCommand(npm test *), acme-cli, skill:writer',
+      'agents.main_agent.runtime inline is incompatible with worker-only capabilities: Browser, FileRead, RunCommand(npm test *), acme-cli, skill:writer',
     );
   });
 

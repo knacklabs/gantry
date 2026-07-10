@@ -324,6 +324,89 @@ describe('runInlineAgent', () => {
     });
   });
 
+  it('keeps a scheduled run alive while an inline permission prompt is pending', async () => {
+    vi.useFakeTimers();
+    const previousIdleTimeout =
+      process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
+    process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS = '60000';
+    const streamed: AgentOutput[] = [];
+    let releaseLane: (() => void) | undefined;
+    let markLaneStarted: (() => void) | undefined;
+    const laneStarted = new Promise<void>((resolve) => {
+      markLaneStarted = resolve;
+    });
+    try {
+      const run = runInlineAgent(
+        group,
+        {
+          ...agentInput,
+          appId: 'app-1',
+          agentId: 'agent-1',
+          isScheduledJob: true,
+          jobId: 'job-1',
+          runId: 'run-1',
+        },
+        vi.fn(),
+        async (output) => {
+          streamed.push(output);
+        },
+        options(async ({ jobActivity, emitOutput }) => {
+          await emitOutput({
+            status: 'success',
+            result: null,
+            runtimeEventOnly: true,
+            runtimeEvents: [
+              {
+                eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+                payload: { phase: 'started', tool: 'AgentDelegation' },
+              },
+            ],
+          });
+          jobActivity.beginPermissionRequest('permission-1', 'AgentDelegation');
+          markLaneStarted?.();
+          await new Promise<void>((resolve) => {
+            releaseLane = resolve;
+          });
+          jobActivity.finishPermissionRequest('permission-1');
+          return { status: 'success', result: null };
+        }),
+      );
+      let settled = false;
+      void run.finally(() => {
+        settled = true;
+      });
+
+      await laneStarted;
+      await vi.advanceTimersByTimeAsync(75_000);
+
+      expect(settled).toBe(false);
+      expect(streamed.at(-1)).toMatchObject({
+        runtimeEvents: [
+          {
+            eventType: RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
+            payload: {
+              lastTool: 'AgentDelegation',
+              pendingPermissionRequests: 1,
+              pendingPermissionToolNames: ['AgentDelegation'],
+              totalToolCalls: 1,
+            },
+          },
+        ],
+      });
+
+      releaseLane?.();
+      await expect(run).resolves.toMatchObject({ status: 'success' });
+    } finally {
+      releaseLane?.();
+      if (previousIdleTimeout === undefined) {
+        delete process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
+      } else {
+        process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS = previousIdleTimeout;
+      }
+      vi.useRealTimers();
+    }
+  });
+
   it('narrows remote MCP projection to reviewed tool names', async () => {
     const record = {
       definition: {

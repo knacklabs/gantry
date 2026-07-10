@@ -2,6 +2,7 @@ import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../../domain/types.js';
+import type { PausedJobCapabilityRecheckResult } from '../jobs/job-permission-recovery.js';
 import {
   applyRecoveredPersistentPermissionGrant,
   type PermissionPersistenceBackend,
@@ -17,6 +18,11 @@ export interface PermissionInteractionDecisionInput {
   runLeaseFencingVersion?: number | null;
   toolName: string;
   requestId: string;
+  permissionPersistence?: PermissionPersistenceBackend;
+  ipcDir?: string;
+  onPersistentGrantApplied?: (
+    recovery: PausedJobCapabilityRecheckResult,
+  ) => Promise<void> | void;
 }
 
 interface PermissionInteractionGrantDependencies {
@@ -40,9 +46,11 @@ export async function applyPendingInteractionGrantDecision(
     input.decision.mode === 'allow_persistent_rule' &&
     input.decision.decisionClassification === 'user_permanent'
   ) {
-    if (!input.request || !dependencies.permissionPersistence) return false;
+    const persistence =
+      input.permissionPersistence ?? dependencies.permissionPersistence;
+    if (!input.request || !persistence) return false;
     return applyRecoveredPersistentPermissionGrant({
-      persistence: dependencies.permissionPersistence,
+      persistence,
       request: {
         ...input.request,
         requestId: input.requestId,
@@ -50,6 +58,8 @@ export async function applyPendingInteractionGrantDecision(
       },
       sourceAgentFolder: input.sourceAgentFolder,
       decision: input.decision,
+      ipcDir: input.ipcDir,
+      onApplied: input.onPersistentGrantApplied,
     });
   }
   if (input.decision.decisionClassification === 'user_permanent') return true;

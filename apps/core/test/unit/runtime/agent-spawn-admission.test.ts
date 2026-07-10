@@ -22,7 +22,7 @@ describe('agent spawn admission', () => {
         ...baseInput,
         attachedSkillSourceIds: ['skill:writer'],
         attachedMcpSourceIds: ['mcp:stdio-crm'],
-        toolPolicyRules: ['RunCommand(npm test *)', 'FileWrite'],
+        toolPolicyRules: ['RunCommand(npm test *)', 'FileWrite', 'Browser'],
         runtimeAccess: [
           {
             selectedCapabilityId: 'acme.local-cli.read',
@@ -37,7 +37,7 @@ describe('agent spawn admission', () => {
     });
 
     expect(error).toBe(
-      'agent.runtime inline is incompatible with worker-only capabilities: FileWrite, RunCommand(npm test *), acme.local-cli.read, mcp:stdio-crm, skill:writer',
+      'agent.runtime inline is incompatible with worker-only capabilities: Browser, FileWrite, RunCommand(npm test *), acme.local-cli.read, mcp:stdio-crm, skill:writer',
     );
   });
 

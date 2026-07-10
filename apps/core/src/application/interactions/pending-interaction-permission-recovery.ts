@@ -14,6 +14,7 @@ import type {
 import type { JobManagementServiceDeps } from '../jobs/job-management-types.js';
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../jobs/job-permission-recovery.js';
+import type { PausedJobCapabilityRecheckResult } from '../jobs/job-permission-recovery.js';
 import { PermissionManagementService } from '../permissions/permission-management-service.js';
 
 export interface PermissionPersistenceBackend {
@@ -47,6 +48,10 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
   decision: PermissionApprovalDecision;
+  ipcDir?: string;
+  onApplied?: (
+    recovery: PausedJobCapabilityRecheckResult,
+  ) => Promise<void> | void;
 }): Promise<boolean> {
   const toolRepository = input.persistence.getToolRepository?.();
   const mirrorAgentToolRulesToSettings =
@@ -66,6 +71,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     mirrorAgentToolRulesToSettings,
     permissionRepository: input.persistence.getPermissionRepository?.(),
     semanticCapabilityDefinitions: input.request.semanticCapabilityDefinitions,
+    ipcDir: input.ipcDir,
     runHandle: input.request.runHandle,
     requestId: input.request.requestId,
     actor: input.decision.decidedBy,
@@ -75,7 +81,7 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     jobId: input.request.jobId,
     reason: input.decision.reason,
   });
-  await recheckSetupPausedJobsAfterCapabilityUpdate({
+  const recovery = await recheckSetupPausedJobsAfterCapabilityUpdate({
     appId: input.request.appId,
     sourceAgentFolder: input.sourceAgentFolder,
     conversationJid: input.request.targetJid,
@@ -93,5 +99,6 @@ export async function applyRecoveredPersistentPermissionGrant(input: {
     getBrowserStatus: input.persistence.getBrowserStatus,
     publishRuntimeEvent: input.persistence.publishRuntimeEvent,
   });
+  await input.onApplied?.(recovery);
   return true;
 }

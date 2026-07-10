@@ -121,6 +121,13 @@ export function createInlineCoreTools(
     requestPermissionApproval: deps.requestPermissionApproval,
     publishRuntimeEvent: deps.publishRuntimeEvent,
     emitAgentOutput: laneInput.emitOutput,
+    onPermissionPromptStarted: (request) =>
+      laneInput.jobActivity.beginPermissionRequest(
+        request.requestId,
+        request.toolName,
+      ),
+    onPermissionPromptFinished: (request) =>
+      laneInput.jobActivity.finishPermissionRequest(request.requestId),
     taskLifecycleBackend: deps.createTaskLifecycleBackend(laneInput),
     evaluateToolPreChecks: support.evaluateToolPreChecks,
     evaluateToolPolicy: support.evaluateToolPolicy,
@@ -192,6 +199,10 @@ export function createInlineCoreTools(
         request,
         sourceAgentFolder: laneInput.group.folder,
         beforePrompt: async () => {
+          laneInput.jobActivity.beginPermissionRequest(
+            request.requestId,
+            request.toolName,
+          );
           await laneInput.emitOutput({
             status: 'success',
             result: null,
@@ -243,6 +254,7 @@ export function createInlineCoreTools(
               decisionMode: permissionDecision.mode,
             }),
           );
+          laneInput.jobActivity.finishPermissionRequest(request.requestId);
         },
       });
       return interaction.resolved && interaction.decision.approved

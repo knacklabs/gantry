@@ -6,7 +6,7 @@ import type {
 } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
-import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
+import type { PausedJobCapabilityRecheckResult } from '../application/jobs/job-permission-recovery.js';
 import {
   formatDurableAccessRuleForEvent,
   formatDurableAccessRulesForUser,
@@ -23,16 +23,16 @@ import {
 } from './ipc-auth.js';
 import { durablePermissionCallbackId } from './ipc-durable-permission.js';
 import {
+  applyPermissionInteractionDecision,
   isActiveRunLeaseForInteraction,
-  recordRunScopedTransientGrant,
   resolvePendingInteractionRecord,
 } from '../application/interactions/pending-interaction-durability.js';
 import {
   beginDurablePermissionInteraction,
   beginDurableQuestionInteraction,
   durablePermissionRequestSnapshot,
-  finishDurablePermissionInteraction,
   finishDurableQuestionInteraction,
+  resolveDurablePermissionInteraction,
 } from '../application/interactions/durable-interaction-handler.js';
 import {
   resolveAgentLockStatus,
@@ -223,27 +223,6 @@ export async function processPermissionInteractionIpc(input: {
       requestPermissionApproval: input.deps.requestPermissionApproval,
     });
     await assertActiveScheduledPermissionLease(input);
-    if (
-      decision.approved === true &&
-      decision.decisionClassification !== 'user_permanent' &&
-      input.request.runId
-    ) {
-      // Transient authority stays run-scoped: bound to the active run lease
-      // and gone when the lease ends. Only the persistent path below commits
-      // durable grants.
-      await recordRunScopedTransientGrant({
-        appId: input.request.appId,
-        runId: input.request.runId,
-        runLeaseToken: input.request.runLeaseToken,
-        runLeaseFencingVersion: input.request.runLeaseFencingVersion,
-        grant: {
-          toolName: input.request.toolName,
-          mode: decision.mode,
-          requestId: input.request.requestId,
-        },
-        expiresAtMs: decision.timedGrantExpiresAtMs,
-      });
-    }
     const decisionContext = permissionTelemetryContext(input.request, {
       sourceAgentFolder: input.sourceAgentFolder,
       decision: permissionDecisionName(decision),
@@ -255,90 +234,79 @@ export async function processPermissionInteractionIpc(input: {
       eventType: permissionDecisionEventType(decision),
       payload: decisionContext,
     });
-    const permissionService = new PermissionManagementService();
-    if (
-      decision.approved === true &&
-      decision.mode === 'allow_persistent_rule' &&
-      decision.decisionClassification === 'user_permanent' &&
-      (decision.updatedPermissions?.length ?? 0) > 0
-    ) {
-      await assertActiveScheduledPermissionLease(input);
-      const persistentScopeRequest = persistentPermissionScopeRequest(
-        input.request,
-      );
-      const updatedPermissions = decision.updatedPermissions ?? [];
-      const toolRepository = input.deps.getToolRepository?.();
-      const mirrorAgentToolRulesToSettings =
-        input.deps.mirrorAgentToolRulesToSettings;
-      if (!toolRepository || !mirrorAgentToolRulesToSettings) {
-        throw new Error(
-          'Persistent permission approval requires tool repository and settings mirror',
-        );
-      }
-      await permissionService.applyPersistentToolRuleGrant({
-        appId: input.request.appId as never,
-        agentId: (input.request.agentId ??
-          `agent:${input.sourceAgentFolder}`) as never,
-        sourceAgentFolder: input.sourceAgentFolder,
-        updates: updatedPermissions,
-        toolRepository,
-        mcpServerRepository: input.deps.getMcpServerRepository?.(),
-        mirrorAgentToolRulesToSettings,
-        permissionRepository: input.deps.getPermissionRepository?.(),
-        semanticCapabilityDefinitions:
-          input.request.semanticCapabilityDefinitions,
-        ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
-        runHandle: input.request.runHandle,
-        requestId: input.request.requestId,
-        actor: decision.decidedBy,
-        conversationId: persistentScopeRequest.targetJid,
-        threadId: persistentScopeRequest.threadId,
-        runId: input.request.runId,
-        jobId: input.request.jobId,
-        reason: decision.reason,
-      });
-      const persistedContext = permissionTelemetryContext(
-        persistentScopeRequest,
-        {
-          sourceAgentFolder: input.sourceAgentFolder,
-          decision: 'persisted',
-          persistedRules: permissionUpdateAllowedToolRules(
-            decision.updatedPermissions,
-          ).map(formatDurableAccessRuleForEvent),
-        },
-      );
-      input.logger.info?.(persistedContext, 'Permission persisted');
-      await publishPermissionRuntimeEvent(input.deps, persistentScopeRequest, {
-        eventType: RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
-        payload: persistedContext,
-      });
-      const recovery = await recheckSetupPausedJobsAfterCapabilityUpdate({
-        appId: input.request.appId,
-        sourceAgentFolder: input.sourceAgentFolder,
-        conversationJid: input.request.targetJid,
-        jobId: input.request.jobId,
+    await assertActiveScheduledPermissionLease(input);
+    const applied = await applyPermissionInteractionDecision({
+      request: input.request,
+      sourceAgentFolder: input.sourceAgentFolder,
+      decision,
+      appId: input.request.appId,
+      runId: input.request.runId,
+      runLeaseToken: input.request.runLeaseToken,
+      runLeaseFencingVersion: input.request.runLeaseFencingVersion,
+      toolName: input.request.toolName,
+      requestId: input.request.requestId,
+      ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
+      permissionPersistence: {
         opsRepository: input.deps.opsRepository,
-        scheduler: {
-          requestSchedulerSync: input.deps.onSchedulerChanged,
-        },
-        toolRepository,
-        skillRepository: input.deps.getSkillRepository?.(),
-        mcpServerRepository: input.deps.getMcpServerRepository?.(),
-        capabilitySecretRepository:
-          input.deps.getCapabilitySecretRepository?.(),
-        credentialBroker: await input.deps.getCredentialBroker?.(),
+        getToolRepository: input.deps.getToolRepository,
+        getPermissionRepository: input.deps.getPermissionRepository,
+        mirrorAgentToolRulesToSettings:
+          input.deps.mirrorAgentToolRulesToSettings,
+        onSchedulerChanged: input.deps.onSchedulerChanged,
+        getSkillRepository: input.deps.getSkillRepository,
+        getMcpServerRepository: input.deps.getMcpServerRepository,
+        getCapabilitySecretRepository: input.deps.getCapabilitySecretRepository,
+        getCredentialBroker: input.deps.getCredentialBroker,
         getBrowserStatus: input.deps.getBrowserStatus,
         publishRuntimeEvent: input.deps.publishRuntimeEvent,
-      });
-      await sendPermissionOutcomeMessage(input.deps, input.request, {
-        text: formatPersistentPermissionOutcome({
-          rules: permissionUpdateAllowedToolRules(decision.updatedPermissions),
-          semanticCapabilityDefinitions:
-            input.request.semanticCapabilityDefinitions,
-          recovery,
-        }),
-      });
-    } else {
+      },
+      onPersistentGrantApplied: async (recovery) => {
+        const persistentScopeRequest = persistentPermissionScopeRequest(
+          input.request,
+        );
+        const persistedContext = permissionTelemetryContext(
+          persistentScopeRequest,
+          {
+            sourceAgentFolder: input.sourceAgentFolder,
+            decision: 'persisted',
+            persistedRules: permissionUpdateAllowedToolRules(
+              decision.updatedPermissions,
+            ).map(formatDurableAccessRuleForEvent),
+          },
+        );
+        input.logger.info?.(persistedContext, 'Permission persisted');
+        await publishPermissionRuntimeEvent(
+          input.deps,
+          persistentScopeRequest,
+          {
+            eventType: RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
+            payload: persistedContext,
+          },
+        );
+        await sendPermissionOutcomeMessage(input.deps, input.request, {
+          text: formatPersistentPermissionOutcome({
+            rules: permissionUpdateAllowedToolRules(
+              decision.updatedPermissions,
+            ),
+            semanticCapabilityDefinitions:
+              input.request.semanticCapabilityDefinitions,
+            recovery,
+          }),
+        });
+      },
+    });
+    if (!applied) {
+      input.logger.warn(
+        decisionContext,
+        'Withholding permission IPC response because grant application failed',
+      );
+      return;
+    }
+    const permissionService = new PermissionManagementService();
+    if (
+      decision.mode !== 'allow_persistent_rule' ||
+      decision.decisionClassification !== 'user_permanent'
+    ) {
       await permissionService.recordDecision({
         appId: input.request.appId as never,
         agentId: input.request.agentId as never,
@@ -380,7 +348,7 @@ export async function processPermissionInteractionIpc(input: {
       | PermissionApprovalDecision['updatedPermissions']
       | undefined;
     await assertActiveScheduledPermissionLease(input);
-    const resolved = await finishDurablePermissionInteraction({
+    const resolved = await resolveDurablePermissionInteraction({
       request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
       decision,
@@ -553,9 +521,7 @@ function persistentPermissionScopeRequest(
 function formatPersistentPermissionOutcome(input: {
   rules: string[];
   semanticCapabilityDefinitions?: PermissionApprovalRequest['semanticCapabilityDefinitions'];
-  recovery: Awaited<
-    ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
-  >;
+  recovery: PausedJobCapabilityRecheckResult;
 }): string {
   const lines = [
     `Allowed for future: ${formatDurableAccessRulesForUser(input.rules, {

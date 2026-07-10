@@ -86,6 +86,11 @@ export class InMemoryInlineRunnerControlPort implements ContinuationRunnerContro
   }
 }
 
+export interface InlineJobActivity {
+  beginPermissionRequest(requestId: string, toolName: string): void;
+  finishPermissionRequest(requestId: string): void;
+}
+
 export interface InlineAgentLoopLaneInput {
   group: ConversationRoute;
   input: AgentInput & { compiledSystemPrompt: string };
@@ -96,6 +101,7 @@ export interface InlineAgentLoopLaneInput {
   mcpServers: readonly MaterializedMcpCapability[];
   mcpHostnameLookup?: HostnameLookup;
   runtimeDataDir: string;
+  jobActivity: InlineJobActivity;
   emitOutput(output: AgentOutput): Promise<void>;
 }
 
@@ -278,12 +284,38 @@ async function executeInlineRun(input: {
   let providerSessionId: string | undefined;
   let active = true;
   let lastActivityAtMs = currentTimeMs();
+  let lastTool: string | undefined;
+  let totalToolCalls = 0;
+  const pendingPermissionTools = new Map<string, string>();
+  const recordToolActivity = (toolName: string) => {
+    lastTool = toolName;
+    totalToolCalls += 1;
+    lastActivityAtMs = currentTimeMs();
+  };
+  const jobActivity: InlineJobActivity = {
+    beginPermissionRequest(requestId, toolName) {
+      pendingPermissionTools.set(requestId, toolName);
+      lastActivityAtMs = currentTimeMs();
+    },
+    finishPermissionRequest(requestId) {
+      pendingPermissionTools.delete(requestId);
+      lastActivityAtMs = currentTimeMs();
+    },
+  };
   let outputChain = Promise.resolve();
   let resetTimeout = () => undefined;
   const deliverOutput = async (output: AgentOutput, marksActivity: boolean) => {
     if (!active) return;
     resetTimeout();
     if (marksActivity) lastActivityAtMs = currentTimeMs();
+    for (const event of output.runtimeEvents ?? []) {
+      if (event.eventType !== RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY) continue;
+      const payload = event.payload as Record<string, unknown> | undefined;
+      if (payload?.phase !== 'started') continue;
+      if (typeof payload.tool === 'string') {
+        recordToolActivity(payload.tool);
+      }
+    }
     providerSessionId =
       providerSessionExternalSessionId(output) ?? providerSessionId;
     const normalized = outputWithProviderSession(output, providerSessionId);
@@ -332,7 +364,11 @@ async function executeInlineRun(input: {
   let scheduledIdleStall: ScheduledJobHeartbeatPayload | undefined;
   const heartbeat = input.input.isScheduledJob
     ? async () => {
-        const output = inlineHeartbeat(input.input, lastActivityAtMs);
+        const output = inlineHeartbeat(input.input, lastActivityAtMs, {
+          lastTool,
+          pendingPermissionToolNames: [...pendingPermissionTools.values()],
+          totalToolCalls,
+        });
         const payload = readScheduledJobHeartbeat(output) ?? undefined;
         await deliverOutput(output, false);
         if (
@@ -399,6 +435,7 @@ async function executeInlineRun(input: {
         mcpServers: input.mcpServers,
         mcpHostnameLookup: input.options.mcpHostnameLookup,
         runtimeDataDir: input.runtimeDataDir,
+        jobActivity,
         emitOutput,
       }),
     )
@@ -552,6 +589,11 @@ function intersectInlineMcpToolScopes(
 function inlineHeartbeat(
   input: AgentInput,
   lastActivityAtMs: number,
+  activity: {
+    lastTool?: string;
+    pendingPermissionToolNames: readonly string[];
+    totalToolCalls: number;
+  },
 ): AgentOutput {
   const emittedAtMs = currentTimeMs();
   return {
@@ -570,11 +612,14 @@ function inlineHeartbeat(
         actor: 'runner',
         responseMode: 'none',
         payload: {
+          ...(activity.lastTool ? { lastTool: activity.lastTool } : {}),
           lastActivityAt: new Date(lastActivityAtMs).toISOString(),
           lastActivityAgoMs: Math.max(0, emittedAtMs - lastActivityAtMs),
-          pendingPermissionRequests: 0,
-          pendingPermissionToolNames: [],
-          totalToolCalls: 0,
+          pendingPermissionRequests: activity.pendingPermissionToolNames.length,
+          pendingPermissionToolNames: [
+            ...new Set(activity.pendingPermissionToolNames),
+          ],
+          totalToolCalls: activity.totalToolCalls,
         },
       },
     ],

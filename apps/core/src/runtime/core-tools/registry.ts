@@ -116,6 +116,12 @@ export interface CoreToolRegistryDeps extends CoreSendMessageDeps {
     request: PermissionApprovalRequest,
     decision: PermissionApprovalDecision,
   ) => Promise<void> | void;
+  onPermissionPromptStarted?: (
+    request: PermissionApprovalRequest,
+  ) => Promise<void> | void;
+  onPermissionPromptFinished?: (
+    request: PermissionApprovalRequest,
+  ) => Promise<void> | void;
   durability?: DurableInteractionOperations;
   requestId?: (prefix: string) => string;
   evaluateToolPreChecks(input: {
@@ -394,8 +400,9 @@ async function gateCoreTool(
     request,
     sourceAgentFolder: deps.context.sourceAgentFolder,
     operations: deps.durability,
-    beforePrompt: () =>
-      publishPermissionEvent(
+    beforePrompt: async () => {
+      await deps.onPermissionPromptStarted?.(request);
+      await publishPermissionEvent(
         deps,
         request,
         RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
@@ -403,7 +410,8 @@ async function gateCoreTool(
           sourceAgentFolder: deps.context.sourceAgentFolder,
           decision: 'requested',
         }),
-      ),
+      );
+    },
     prompt: async () =>
       deps.requestPermissionApproval?.(request) ?? {
         approved: false,
@@ -446,6 +454,7 @@ async function gateCoreTool(
           decisionMode: permissionDecision.mode,
         }),
       );
+      await deps.onPermissionPromptFinished?.(request);
     },
   });
   if (!interaction.resolved) {
