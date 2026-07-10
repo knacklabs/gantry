@@ -117,6 +117,9 @@ export function createInlineCoreTools(
       accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
     },
     sendMessage: deps.sendMessage,
+    ...(deps.getFileArtifactStore
+      ? { getFileArtifactStore: deps.getFileArtifactStore }
+      : {}),
     requestUserAnswer: deps.requestUserAnswer,
     requestPermissionApproval: deps.requestPermissionApproval,
     publishRuntimeEvent: deps.publishRuntimeEvent,
@@ -332,6 +335,7 @@ export function wireInlineAgentLoopTools(input: {
   getAgentAccessPreset(folder: string): 'full' | 'locked';
   getYoloMode(): YoloModeSettings;
   getToolRepository?: () => ToolCatalogRepository | undefined;
+  getFileArtifactStore?: CoreSendMessageDeps['getFileArtifactStore'];
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getAsyncTaskRepository?: () => AsyncTaskRepository | undefined;
   opsRepository?: Pick<
@@ -381,6 +385,9 @@ export function wireInlineAgentLoopTools(input: {
         throwOnMissing: true,
         ...(messageOptions ? { messageOptions } : {}),
       }),
+    ...(input.getFileArtifactStore
+      ? { getFileArtifactStore: input.getFileArtifactStore }
+      : {}),
     requestPermissionApproval,
     requestUserAnswer,
     getAgentAccessPreset: input.getAgentAccessPreset,

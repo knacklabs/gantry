@@ -110,7 +110,10 @@ type RuntimeDependencyRepositoryFactory = () =>
   | RuntimeDependencyRepository
   | undefined;
 type WaitingStatusMonitor = { oldestWaitingSeconds: () => number };
-interface Deps {
+interface Deps extends Pick<
+  IpcDeps,
+  'getAsyncTaskRepository' | 'getFileArtifactStore'
+> {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
   writeGroupsSnapshot: typeof writeGroupsSnapshot;
@@ -121,7 +124,6 @@ interface Deps {
   collectSessionMemory: SessionMemoryCollector;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
-  getAsyncTaskRepository?: IpcDeps['getAsyncTaskRepository'];
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
   runApprovedCommand?: IpcDeps['runApprovedCommand'];

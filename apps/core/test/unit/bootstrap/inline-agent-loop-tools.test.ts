@@ -15,6 +15,7 @@ import {
 } from '@core/runner/mcp/formatting.js';
 
 const publishRuntimeEvent = vi.fn(async () => undefined);
+const sendMessage = vi.fn(async () => undefined);
 const requestPermissionApproval = vi.fn(async () => ({
   approved: true,
   mode: 'allow_once' as const,
@@ -34,7 +35,7 @@ function wire(overrides: Record<string, unknown> = {}) {
       resolveExecutionProviderId: vi.fn(async () => 'test:inline'),
     },
     channelWiring: {
-      sendMessage: vi.fn(async () => undefined),
+      sendMessage,
       requestPermissionApproval,
       requestUserAnswer: vi.fn(async (request) => ({
         requestId: request.requestId,
@@ -123,6 +124,51 @@ describe('inline core tool bootstrap', () => {
       }),
     );
     expect(repository.listTasks).toHaveBeenCalledOnce();
+  });
+
+  it('resolves send_message attachments from the runtime file store', async () => {
+    const fileArtifacts = {
+      listFileArtifacts: vi.fn(async () => [
+        { virtualPath: 'reports/status.txt', version: 1, sizeBytes: 4 },
+      ]),
+      readFileArtifact: vi.fn(async () => ({
+        artifact: {
+          virtualPath: 'reports/status.txt',
+          version: 1,
+          contentType: 'text/plain',
+          sizeBytes: 4,
+        },
+        content: 'done',
+      })),
+    };
+    wire({ getFileArtifactStore: () => fileArtifacts });
+    const tools = createInlineCoreTools(laneInput(), support());
+
+    await expect(
+      tools.execute('send_message', {
+        text: 'Status attached.',
+        files: [{ path: 'reports/status.txt' }],
+      }),
+    ).resolves.toEqual({
+      content: [{ type: 'text', text: 'Message sent.' }],
+    });
+
+    expect(fileArtifacts.readFileArtifact).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(
+      'conversation:test',
+      expect.stringContaining('reports/status.txt'),
+      expect.objectContaining({
+        messageOptions: expect.objectContaining({
+          files: [
+            expect.objectContaining({
+              filename: 'status.txt',
+              contentType: 'text/plain',
+              content: Buffer.from('done'),
+            }),
+          ],
+        }),
+      }),
+    );
   });
 
   it('publishes permission lifecycle events for remote MCP prompts', async () => {
