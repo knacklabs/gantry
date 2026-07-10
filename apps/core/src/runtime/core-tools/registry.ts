@@ -381,6 +381,7 @@ async function gateCoreTool(
     suggestions: [
       {
         type: 'addRules',
+        behavior: 'allow',
         rules: [{ toolName: gateName }],
         destination: 'session',
       },

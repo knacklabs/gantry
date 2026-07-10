@@ -16,7 +16,7 @@ import { formatDuration } from '../shared/human-format.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
-import { reviewedExternalMcpToolNamesFromRuntimeAccess } from '../shared/capability-runtime-access.js';
+import { mcpToolPatternCovers } from '../shared/mcp-tool-scope.js';
 import {
   getHostRuntimeCredentialEnv,
   prepareInlineAgentHostContext,
@@ -457,7 +457,7 @@ async function materializeInlineMcpServers(
     .filter(
       ({ definition }) =>
         (definition.transport === 'http' || definition.transport === 'sse') &&
-        reviewedInlineMcpToolNames(input, definition.name).length > 0,
+        inlineMcpToolAuthority(input, definition.name).length > 0,
     )
     .map(({ definition }) => definition.id);
   if (serverIds.length === 0) return [];
@@ -484,16 +484,17 @@ async function materializeInlineMcpServers(
     credentialEnv,
   });
   return capabilities.flatMap((capability) => {
-    const reviewed = new Set(
-      reviewedInlineMcpToolNames(input, capability.name),
-    );
-    const allowedToolNames = capability.allowedToolNames.filter((toolName) =>
-      reviewed.has(toolName),
+    const allowedToolNames = intersectInlineMcpToolScopes(
+      capability.name,
+      inlineMcpToolAuthority(input, capability.name),
+      capability.allowedToolNames,
     );
     if (allowedToolNames.length === 0) return [];
     const prefix = `mcp__${capability.name}__`;
-    const autoApproveToolNames = capability.autoApproveToolNames.filter(
-      (toolName) => reviewed.has(toolName),
+    const autoApproveToolNames = intersectInlineMcpToolScopes(
+      capability.name,
+      allowedToolNames,
+      capability.autoApproveToolNames,
     );
     return [
       {
@@ -511,13 +512,41 @@ async function materializeInlineMcpServers(
   });
 }
 
-function reviewedInlineMcpToolNames(
+function inlineMcpToolAuthority(
   input: AgentInput,
   serverName: string,
 ): string[] {
-  return reviewedExternalMcpToolNamesFromRuntimeAccess(input.runtimeAccess, {
-    serverNames: [serverName],
-  });
+  const prefix = `mcp__${serverName}__`;
+  return (input.runtimeAccess ?? []).flatMap((access) =>
+    access.sourceType === 'mcp_server'
+      ? access.allowedTools.filter((tool) => tool.startsWith(prefix))
+      : [],
+  );
+}
+
+function intersectInlineMcpToolScopes(
+  serverName: string,
+  authority: readonly string[],
+  sourceScope: readonly string[],
+): string[] {
+  const prefix = `mcp__${serverName}__`;
+  const patterns = new Set<string>();
+  for (const authorityTool of authority) {
+    if (!authorityTool.startsWith(prefix)) continue;
+    const authorityPattern = authorityTool.slice(prefix.length);
+    if (!authorityPattern) continue;
+    for (const sourceTool of sourceScope) {
+      if (!sourceTool.startsWith(prefix)) continue;
+      const sourcePattern = sourceTool.slice(prefix.length);
+      if (!sourcePattern) continue;
+      if (mcpToolPatternCovers(authorityPattern, sourcePattern)) {
+        patterns.add(sourcePattern);
+      } else if (mcpToolPatternCovers(sourcePattern, authorityPattern)) {
+        patterns.add(authorityPattern);
+      }
+    }
+  }
+  return [...patterns].map((pattern) => `${prefix}${pattern}`);
 }
 
 function inlineHeartbeat(

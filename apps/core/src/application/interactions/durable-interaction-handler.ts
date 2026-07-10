@@ -5,6 +5,7 @@ import type {
   UserQuestionResponse,
 } from '../../domain/types.js';
 import {
+  applyPermissionInteractionDecision,
   recordPendingInteractionRequested,
   resolvePendingInteractionRecord,
 } from './pending-interaction-durability.js';
@@ -86,6 +87,18 @@ export async function finishDurablePermissionInteraction(input: {
   updatedPermissions?: PermissionApprovalDecision['updatedPermissions'];
   operations?: DurableInteractionOperations;
 }): Promise<boolean> {
+  const applied = await applyPermissionInteractionDecision({
+    request: input.request,
+    sourceAgentFolder: input.sourceAgentFolder,
+    decision: input.decision,
+    appId: input.request.appId,
+    runId: input.request.runId,
+    runLeaseToken: input.request.runLeaseToken,
+    runLeaseFencingVersion: input.request.runLeaseFencingVersion,
+    toolName: input.request.toolName,
+    requestId: input.request.requestId,
+  });
+  if (!applied) return false;
   return (input.operations ?? defaultOperations).resolve({
     kind: 'permission',
     sourceAgentFolder: input.sourceAgentFolder,

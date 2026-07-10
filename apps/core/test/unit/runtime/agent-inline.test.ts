@@ -364,6 +364,54 @@ describe('runInlineAgent', () => {
       result: null,
     }));
 
+    const exactScopeResult = await runInlineAgent(
+      group,
+      {
+        ...agentInput,
+        attachedMcpSourceIds: ['server-1'],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'crm.read',
+            sourceType: 'mcp_server',
+            auditLabel: 'CRM read',
+            reviewedServerId: 'crm',
+            allowedTools: ['mcp__crm__read'],
+            credentialRefs: [],
+            networkHosts: ['mcp.example.com:443'],
+          },
+        ],
+      },
+      vi.fn(),
+      undefined,
+      {
+        ...options(lane),
+        mcpServerRepository: repository as never,
+        mcpContext: { appId: 'app-1', agentId: 'agent-1' },
+        mcpHostnameLookup: vi.fn(async () => [
+          { family: 4 as const, address: '93.184.216.34' },
+        ]),
+      },
+    );
+
+    expect(exactScopeResult).toEqual({ status: 'success', result: null });
+    expect(lane).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpServers: [
+          expect.objectContaining({
+            name: 'crm',
+            allowedToolNames: ['mcp__crm__read'],
+            allowedToolPatterns: ['read'],
+            autoApproveToolNames: ['mcp__crm__read'],
+            autoApproveToolPatterns: ['read'],
+          }),
+        ],
+      }),
+    );
+
+    record.definition.allowedToolPatterns = ['*'];
+    record.definition.autoApproveToolPatterns = ['*'];
+    record.binding.allowedToolPatterns = ['*'];
+    lane.mockClear();
     await runInlineAgent(
       group,
       {

@@ -213,7 +213,18 @@ describe('core tool registry', () => {
     expect(order).toEqual(['record', 'prompt', 'resolve']);
     expect(record.mock.calls[0]?.[0]).toMatchObject({
       callbackRoute: null,
-      payload: { request: { toolName: 'AgentDelegation' } },
+      payload: {
+        request: {
+          toolName: 'AgentDelegation',
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'AgentDelegation' }],
+            },
+          ],
+        },
+      },
     });
     expect(record.mock.calls[0]?.[0].payload.request).not.toHaveProperty(
       'toolInput',
