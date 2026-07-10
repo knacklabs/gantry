@@ -327,6 +327,20 @@ export async function startRuntimeServices(
       warn: (context, message) => resolved.logger.warn(context, message),
     });
   const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
+  const inlineInteractions = wireInlineAgentLoopTools({
+    ...resolved,
+    app,
+    channelWiring,
+    interactionsEnabled: liveTurnsEnabled && liveExecution,
+    getAgentAccessPreset: (folder) =>
+      getRuntimeSettingsForConfig().agents?.[folder]?.accessPreset === 'locked'
+        ? 'locked'
+        : 'full',
+    getYoloMode: () => getRuntimeSettingsForConfig().permissions.yoloMode,
+    getMcpServerRepository: resolved.getMcpServerRepository,
+    publishRuntimeEvent: resolved.publishRuntimeEvent,
+    warn: (context, message) => resolved.logger.warn(context, message),
+  });
   const asyncTaskRecoveryDeps = {
     ...resolved,
     conversationRoutes: () => app.getConversationRoutes(),
@@ -402,20 +416,6 @@ export async function startRuntimeServices(
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });
-  const inlineInteractions = wireInlineAgentLoopTools({
-    ...resolved,
-    app,
-    channelWiring,
-    interactionsEnabled: liveTurnsEnabled && liveExecution,
-    getAgentAccessPreset: (folder) =>
-      getRuntimeSettingsForConfig().agents?.[folder]?.accessPreset === 'locked'
-        ? 'locked'
-        : 'full',
-    getYoloMode: () => getRuntimeSettingsForConfig().permissions.yoloMode,
-    getMcpServerRepository: resolved.getMcpServerRepository,
-    publishRuntimeEvent: resolved.publishRuntimeEvent,
-    warn: (context, message) => resolved.logger.warn(context, message),
-  });
   const mirrorAgentToolRulesToSettings = createAgentToolRuleSettingsMirror({
     opsRepository: resolved.opsRepository,
     repositories: resolved.settingsRepositories,

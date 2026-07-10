@@ -400,21 +400,12 @@ function remoteMcpAuditHooks(
   Array<{ hooks: HookCallback[] }>
 > {
   const startedAt = new Map<string, number>();
-  const pre: HookCallback = async (hookInput, _toolUseId, options) => {
+  const pre: HookCallback = async (hookInput) => {
     if (hookInput.hook_event_name !== 'PreToolUse') return { continue: true };
     const tool = remoteMcpTool(input, hookInput.tool_name);
     if (!tool) return { continue: true };
-    const authorization = tool.allowedByWildcard
-      ? await input.coreTools.authorizeThirdPartyMcpTool(
-          hookInput.tool_name,
-          hookInput.tool_input,
-          { signal: options.signal },
-        )
-      : undefined;
-    if (!tool.allowed || authorization?.allowed === false) {
-      const reason = !tool.allowed
-        ? `Tool ${hookInput.tool_name} is outside its reviewed MCP scope.`
-        : (authorization?.reason ?? 'Permission denied.');
+    if (!tool.allowed) {
+      const reason = `Tool ${hookInput.tool_name} is outside its reviewed MCP scope.`;
       return {
         continue: false,
         decision: 'block',
@@ -435,15 +426,7 @@ function remoteMcpAuditHooks(
       outcome: 'attempt',
       latencyMs: 0,
     });
-    return authorization
-      ? {
-          continue: true,
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse',
-            permissionDecision: 'allow',
-          },
-        }
-      : { continue: true };
+    return { continue: true };
   };
   const success: HookCallback = async (hookInput) => {
     if (hookInput.hook_event_name !== 'PostToolUse') return { continue: true };
@@ -516,8 +499,6 @@ function remoteMcpTool(
       serverName: server.name,
       toolName,
       allowed,
-      allowedByWildcard:
-        allowed && !server.allowedToolPatterns.includes(toolName),
     };
   }
   return undefined;

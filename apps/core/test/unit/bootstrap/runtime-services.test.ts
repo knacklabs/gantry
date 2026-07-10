@@ -24,6 +24,56 @@ import {
   FakeLiveTurns,
 } from '../application/live-turn-lease-fakes.js';
 
+const startupOrder = vi.hoisted(() => ({
+  wireInlineTools: vi.fn(),
+  recoverAsyncTasks: vi.fn(),
+  startAsyncRecoveryLoop: vi.fn(),
+}));
+
+vi.mock(
+  '@core/app/bootstrap/inline-agent-loop-tools.js',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('@core/app/bootstrap/inline-agent-loop-tools.js')
+      >();
+    return {
+      ...actual,
+      wireInlineAgentLoopTools: (
+        ...args: Parameters<typeof actual.wireInlineAgentLoopTools>
+      ) => {
+        startupOrder.wireInlineTools();
+        return actual.wireInlineAgentLoopTools(...args);
+      },
+    };
+  },
+);
+
+vi.mock(
+  '@core/app/bootstrap/runtime-services-async-task-recovery.js',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('@core/app/bootstrap/runtime-services-async-task-recovery.js')
+      >();
+    return {
+      ...actual,
+      recoverStaleAsyncCommandTasks: async (
+        ...args: Parameters<typeof actual.recoverStaleAsyncCommandTasks>
+      ) => {
+        startupOrder.recoverAsyncTasks();
+        return actual.recoverStaleAsyncCommandTasks(...args);
+      },
+      startAsyncTaskRecoveryLoop: (
+        ...args: Parameters<typeof actual.startAsyncTaskRecoveryLoop>
+      ) => {
+        startupOrder.startAsyncRecoveryLoop();
+        return actual.startAsyncTaskRecoveryLoop(...args);
+      },
+    };
+  },
+);
+
 function makeApp(): RuntimeApp {
   const queue = {
     registerProcess: vi.fn(),
@@ -284,6 +334,12 @@ describe('startRuntimeServices', () => {
       'writeGroupsSnapshot',
       'runtime-ready-log',
     ]);
+    expect(startupOrder.wireInlineTools).toHaveBeenCalledBefore(
+      startupOrder.recoverAsyncTasks,
+    );
+    expect(startupOrder.recoverAsyncTasks).toHaveBeenCalledBefore(
+      startupOrder.startAsyncRecoveryLoop,
+    );
 
     expect((app.queue.setProcessMessagesFn as any).mock.calls).toHaveLength(1);
   });

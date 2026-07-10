@@ -373,12 +373,10 @@ describe('Claude inline lane', () => {
           toolName,
           { signal: input.signal },
         );
-      await expect(
-        invokePreToolUse(testCase.allowedTool),
-      ).resolves.toMatchObject({
+      await expect(invokePreToolUse(testCase.allowedTool)).resolves.toEqual({
         continue: true,
-        hookSpecificOutput: { permissionDecision: 'allow' },
       });
+      expect(input.coreTools.authorizeThirdPartyMcpTool).not.toHaveBeenCalled();
       await expect(
         queryOptions.canUseTool(
           testCase.allowedTool,
@@ -386,6 +384,14 @@ describe('Claude inline lane', () => {
           { signal: input.signal, toolUseID: 'allowed-tool' },
         ),
       ).resolves.toMatchObject({ behavior: 'allow' });
+      expect(input.coreTools.authorizeThirdPartyMcpTool).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(input.coreTools.authorizeThirdPartyMcpTool).toHaveBeenCalledWith(
+        testCase.allowedTool,
+        {},
+        { signal: input.signal },
+      );
       if (testCase.deniedTool) {
         await expect(
           invokePreToolUse(testCase.deniedTool),
