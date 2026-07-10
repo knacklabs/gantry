@@ -100,6 +100,7 @@ import {
   recoverStaleAsyncCommandTasks,
   startAsyncTaskRecoveryLoop,
 } from './runtime-services-async-task-recovery.js';
+import { wireInlineAgentLoopTools } from './inline-agent-loop-tools.js';
 export { stopAsyncTaskRecoveryLoop } from './runtime-services-async-task-recovery.js';
 type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 type LiveTurnCommandWakeupSourceFactory = () =>
@@ -401,15 +402,20 @@ export async function startRuntimeServices(
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });
-  const rejectNonLiveInteraction = (kind: 'permission' | 'question'): never => {
-    resolved.logger.warn(
-      { kind },
-      'Rejecting interaction IPC on a worker without live-turn callbacks',
-    );
-    throw new Error(
-      'This worker cannot receive provider interaction callbacks. Retry on a live-turn worker.',
-    );
-  };
+  const inlineInteractions = wireInlineAgentLoopTools({
+    ...resolved,
+    app,
+    channelWiring,
+    interactionsEnabled: liveTurnsEnabled && liveExecution,
+    getAgentAccessPreset: (folder) =>
+      getRuntimeSettingsForConfig().agents?.[folder]?.accessPreset === 'locked'
+        ? 'locked'
+        : 'full',
+    getYoloMode: () => getRuntimeSettingsForConfig().permissions.yoloMode,
+    getMcpServerRepository: resolved.getMcpServerRepository,
+    publishRuntimeEvent: resolved.publishRuntimeEvent,
+    warn: (context, message) => resolved.logger.warn(context, message),
+  });
   const mirrorAgentToolRulesToSettings = createAgentToolRuleSettingsMirror({
     opsRepository: resolved.opsRepository,
     repositories: resolved.settingsRepositories,
@@ -467,14 +473,8 @@ export async function startRuntimeServices(
     getBrowserStatus,
     closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
-    requestPermissionApproval: (request) =>
-      liveTurnsEnabled && liveExecution
-        ? channelWiring.requestPermissionApproval(request)
-        : Promise.reject(rejectNonLiveInteraction('permission')),
-    requestUserAnswer: (request) =>
-      liveTurnsEnabled && liveExecution
-        ? channelWiring.requestUserAnswer(request)
-        : Promise.reject(rejectNonLiveInteraction('question')),
+    requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+    requestUserAnswer: inlineInteractions.requestUserAnswer,
     renderAgentTodo: (jid, render, options) =>
       liveTurnsEnabled && liveExecution
         ? channelWiring.renderAgentTodo(jid, render, options)

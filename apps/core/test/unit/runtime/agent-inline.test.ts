@@ -57,6 +57,7 @@ import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js'
 import {
   INLINE_AGENT_LOOP_NOT_AVAILABLE,
   InMemoryInlineRunnerControlPort,
+  configureDefaultInlineAgentLoopLane,
   runInlineAgent,
   type InlineAgentLoopLane,
 } from '@core/runtime/agent-inline.js';
@@ -101,6 +102,7 @@ describe('runInlineAgent', () => {
   });
 
   afterEach(() => {
+    configureDefaultInlineAgentLoopLane(undefined);
     fs.rmSync(INLINE_DATA_DIR, { recursive: true, force: true });
   });
 
@@ -264,6 +266,22 @@ describe('runInlineAgent', () => {
       result: null,
       error: `${INLINE_AGENT_LOOP_NOT_AVAILABLE}: Inline agent loop lanes are not available in this build.`,
     });
+  });
+
+  it('uses the configured default inline lane when no per-run override exists', async () => {
+    const lane = vi.fn<InlineAgentLoopLane>(async () => ({
+      status: 'success',
+      result: 'default lane',
+    }));
+    configureDefaultInlineAgentLoopLane(lane);
+
+    await expect(
+      runInlineAgent(group, agentInput, vi.fn(), undefined, options()),
+    ).resolves.toMatchObject({
+      status: 'success',
+      result: 'default lane',
+    });
+    expect(lane).toHaveBeenCalledOnce();
   });
 
   it('emits a synthetic scheduled-job heartbeat', async () => {

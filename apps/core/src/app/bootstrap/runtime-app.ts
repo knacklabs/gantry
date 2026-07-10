@@ -1,5 +1,7 @@
 import {
   ASSISTANT_NAME,
+  STORAGE_POSTGRES_SCHEMA,
+  STORAGE_POSTGRES_URL,
   getCredentialBrokerRuntimeConfig,
   getDefaultModelConfig,
   getRuntimeQueueConfig,
@@ -59,17 +61,14 @@ import { applyHostCapacityToQueuePolicy } from '../../shared/host-capacity.js';
 import { AppMemoryService } from '../../memory/app-memory-service.js';
 import { collectDurableMemoryAtBoundary } from '../../memory/app-memory-session-boundary-collector.js';
 import { memoryAgentIdForWorkspaceFolder } from '../../memory/app-memory-boundaries.js';
-import {
-  createDefaultAgentExecutionAdapterRegistry,
-  createDefaultMemoryLlmClient,
-  createDefaultRunnerSandboxProvider,
-} from '../../adapters/llm/default-runtime-adapters.js';
+import * as defaultLlmAdapters from '../../adapters/llm/default-runtime-adapters.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
 import type { AgentExecutionAdapterRegistry } from '../../application/agent-execution/agent-execution-adapter-registry.js';
 import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 import type { RunnerSandboxProvider } from '../../shared/runner-sandbox-provider.js';
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
+import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
@@ -157,7 +156,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let lastAgentTimestamp: Record<string, string> = {};
   let stateSaveInFlight: Promise<void> | undefined;
   let stateSaveDirty = false;
-
   const queue =
     options.queue ??
     new GroupQueue(
@@ -166,19 +164,23 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         options.processRole,
       ),
     );
-  const executionAdapters =
-    options.executionAdapters ?? createDefaultAgentExecutionAdapterRegistry();
-  const executionAdapter =
-    options.executionAdapter ?? executionAdapters.list()[0];
-  if (!executionAdapter) {
-    throw new Error('Runtime requires at least one model execution adapter.');
-  }
-  const runnerSandboxProvider =
-    options.runnerSandboxProvider ??
-    createDefaultRunnerSandboxProvider(
-      getRuntimeSettingsForConfig().runtime.sandbox,
-    );
-  registerMemoryLlmClient(createDefaultMemoryLlmClient());
+  const {
+    executionAdapters,
+    executionAdapter,
+    runnerSandboxProvider,
+    memoryLlmClient,
+  } = resolveRuntimeDefaultAdapters({
+    executionAdapters: options.executionAdapters,
+    executionAdapter: options.executionAdapter,
+    runnerSandboxProvider: options.runnerSandboxProvider,
+    sandboxSettings: getRuntimeSettingsForConfig().runtime.sandbox,
+    databaseUrl: STORAGE_POSTGRES_URL,
+    databaseSchema: STORAGE_POSTGRES_SCHEMA,
+    getEgressDenylist: () =>
+      getRuntimeSettingsForConfig().permissions.egress.denylist,
+    llmAdapters: defaultLlmAdapters,
+  });
+  registerMemoryLlmClient(memoryLlmClient);
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
   let credentialBrokerPromise:
     | Promise<AgentCredentialBroker | undefined>
@@ -680,9 +682,7 @@ let defaultRuntimeApp: RuntimeApp | null = null;
 export function getDefaultRuntimeApp(
   options: RuntimeAppOptions = {},
 ): RuntimeApp {
-  if (!defaultRuntimeApp) {
-    defaultRuntimeApp = createRuntimeApp(options);
-  }
+  if (!defaultRuntimeApp) defaultRuntimeApp = createRuntimeApp(options);
   return defaultRuntimeApp;
 }
 

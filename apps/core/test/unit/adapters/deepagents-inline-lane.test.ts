@@ -1,0 +1,498 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+
+const deep = vi.hoisted(() => ({
+  createAgent: vi.fn(),
+  streamEvents: vi.fn(),
+}));
+
+const checkpoint = vi.hoisted(() => {
+  class Saver {
+    static instances: Saver[] = [];
+    getTuple = vi.fn(async () => ({ checkpoint: {} }));
+    end = vi.fn(async () => undefined);
+
+    constructor(
+      readonly pool: unknown,
+      readonly serde?: unknown,
+      readonly options?: { schema?: string },
+    ) {
+      Saver.instances.push(this);
+    }
+  }
+  class Pool {
+    static instances: Pool[] = [];
+    constructor(readonly options: unknown) {
+      Pool.instances.push(this);
+    }
+  }
+  return { Saver, Pool, ensure: vi.fn(async () => undefined) };
+});
+
+const model = vi.hoisted(() => ({
+  build: vi.fn(async () => ({
+    model: { profile: { maxInputTokens: 100 } },
+    endpointFamily: 'openai',
+    modelId: 'test-model',
+  })),
+}));
+
+const remote = vi.hoisted(() => {
+  class Client {
+    static instances: Client[] = [];
+    connect = vi.fn(async () => undefined);
+    close = vi.fn(async () => undefined);
+    constructor(readonly info: unknown) {
+      Client.instances.push(this);
+    }
+  }
+  class HttpTransport {
+    static instances: HttpTransport[] = [];
+    constructor(
+      readonly url: URL,
+      readonly options: Record<string, unknown>,
+    ) {
+      HttpTransport.instances.push(this);
+    }
+  }
+  class SseTransport extends HttpTransport {}
+  return {
+    Client,
+    HttpTransport,
+    SseTransport,
+    invoke: vi.fn(async () => 'remote result'),
+    loadTools: vi.fn(),
+  };
+});
+
+const checkpointPackage = vi.hoisted(() =>
+  ['@langchain', 'langgraph-checkpoint-postgres'].join('/'),
+);
+const mcpAdaptersPackage = vi.hoisted(() =>
+  ['@langchain', 'mcp-adapters'].join('/'),
+);
+
+vi.mock('deepagents', () => ({
+  createDeepAgent: deep.createAgent,
+  StateBackend: class StateBackend {},
+}));
+
+vi.mock(checkpointPackage, () => ({
+  PostgresSaver: checkpoint.Saver,
+}));
+
+vi.mock('pg', () => ({
+  default: { Pool: checkpoint.Pool },
+  Pool: checkpoint.Pool,
+}));
+
+vi.mock('@core/adapters/llm/deepagents-langchain/checkpoint-setup.js', () => ({
+  ensureDeepAgentsCheckpointSchema: checkpoint.ensure,
+}));
+
+vi.mock(
+  '@core/adapters/llm/deepagents-langchain/runner/model-factory.js',
+  () => ({ buildRunnerModel: model.build }),
+);
+
+vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
+  Client: remote.Client,
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+  StreamableHTTPClientTransport: remote.HttpTransport,
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
+  SSEClientTransport: remote.SseTransport,
+}));
+
+vi.mock(mcpAdaptersPackage, () => ({
+  loadMcpTools: remote.loadTools,
+}));
+
+import { createDeepAgentsInlineAgentLoopLane } from '@core/adapters/llm/deepagents-langchain/inline-lane/index.js';
+import { InMemoryInlineRunnerControlPort } from '@core/runtime/agent-inline.js';
+import { DEEPAGENTS_ENGINE } from '@core/shared/agent-engine.js';
+
+function laneInput(overrides: Record<string, unknown> = {}) {
+  const coreTools = {
+    tools: [
+      {
+        name: 'send_message',
+        description: 'Send a message.',
+        inputSchema: z.object({ text: z.string() }),
+      },
+    ],
+    execute: vi.fn(async () => ({
+      content: [{ type: 'text' as const, text: 'sent' }],
+    })),
+    authorizeThirdPartyMcpTool: vi.fn(async () => ({ allowed: true })),
+    recordThirdPartyMcpToolActivity: vi.fn(async () => undefined),
+  };
+  return {
+    group: {
+      name: 'Test',
+      folder: 'main_agent',
+      trigger: '@test',
+      added_at: new Date(0).toISOString(),
+    },
+    input: {
+      prompt: 'first prompt',
+      workspaceFolder: 'main_agent',
+      chatJid: 'conversation:test',
+      compiledSystemPrompt: 'system prompt',
+    },
+    signal: new AbortController().signal,
+    controlPort: new InMemoryInlineRunnerControlPort(),
+    resolvedModel: {
+      ok: true,
+      value: {
+        agentEngine: DEEPAGENTS_ENGINE,
+        runnerModel: 'test-model',
+        modelEntry: {
+          modelRoute: { id: 'openai' },
+          contextWindowTokens: 100,
+          providerRouting: {
+            openrouter: { order: ['route-a'] },
+          },
+        },
+      },
+    },
+    modelCredentialEnv: {
+      OPENAI_BASE_URL: 'http://127.0.0.1:9999/openai',
+      OPENAI_API_KEY: 'gtw_test',
+    },
+    mcpServers: [
+      {
+        name: 'crm',
+        config: { type: 'http', url: 'https://mcp.example.test/rpc' },
+        allowedToolPatterns: ['read'],
+      },
+    ],
+    mcpHostnameLookup: vi.fn(async () => [
+      { family: 4 as const, address: '93.184.216.34' },
+    ]),
+    egressDenylist: [],
+    runtimeDataDir: '/tmp/gantry-inline-test',
+    emitOutput: vi.fn(async () => undefined),
+    coreTools,
+    ...overrides,
+  } as never;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  checkpoint.Saver.instances = [];
+  checkpoint.Pool.instances = [];
+  remote.Client.instances = [];
+  remote.HttpTransport.instances = [];
+  deep.createAgent.mockReturnValue({ streamEvents: deep.streamEvents });
+  remote.loadTools.mockResolvedValue([
+    {
+      name: 'read',
+      description: 'Read CRM.',
+      schema: z.object({ id: z.string() }),
+      invoke: remote.invoke,
+    },
+  ]);
+});
+
+describe('DeepAgents inline lane', () => {
+  it('uses PostgresSaver, LangChain core tools, remote MCP, and continuations', async () => {
+    let releaseFirst: (() => void) | undefined;
+    deep.streamEvents.mockImplementation((_input, options) => {
+      const turn = deep.streamEvents.mock.calls.length;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield streamEvent(turn === 1 ? 'first' : 'second');
+          if (turn === 1) {
+            await new Promise<void>((resolve) => {
+              releaseFirst = resolve;
+            });
+          }
+          options.signal.throwIfAborted();
+        },
+      };
+    });
+    const input = laneInput();
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+    const result = lane(input);
+    await vi.waitFor(() =>
+      expect(input.emitOutput).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'first' }),
+      ),
+    );
+
+    input.controlPort.writeContinuationInput({
+      workspaceFolder: 'main_agent',
+      text: 'follow up',
+      sequence: 2,
+    });
+    releaseFirst?.();
+
+    await expect(result).resolves.toMatchObject({
+      status: 'success',
+      result: null,
+      newSessionId: expect.any(String),
+    });
+    expect(checkpoint.ensure).toHaveBeenCalledWith({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+    expect(model.build).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openRouterProviderRouting: { order: ['route-a'] },
+      }),
+    );
+    const saver = checkpoint.Saver.instances[0];
+    expect(deep.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkpointer: saver,
+        subagents: [],
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: 'send_message' }),
+          expect.objectContaining({ name: 'mcp__crm__read' }),
+        ]),
+        systemPrompt: expect.stringContaining('system prompt'),
+      }),
+    );
+    expect(remote.loadTools).toHaveBeenCalledWith(
+      'crm',
+      remote.Client.instances[0],
+      { prefixToolNameWithServerName: false },
+    );
+    expect(remote.HttpTransport.instances[0]?.options.fetch).toEqual(
+      expect.any(Function),
+    );
+    expect(deep.streamEvents).toHaveBeenCalledTimes(2);
+    expect(deep.streamEvents.mock.calls[1]?.[0].messages[0].content).toBe(
+      'follow up',
+    );
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ continuedByFollowup: true }),
+    );
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionInit: true }),
+    );
+
+    const tools = deep.createAgent.mock.calls[0]?.[0].tools;
+    await tools
+      .find((tool) => tool.name === 'send_message')
+      .invoke({
+        text: 'hello',
+      });
+    expect(input.coreTools.execute).toHaveBeenCalledWith(
+      'send_message',
+      { text: 'hello' },
+      { signal: input.signal },
+    );
+    await tools
+      .find((tool) => tool.name === 'mcp__crm__read')
+      .invoke({ id: 'crm-1' });
+    expect(input.coreTools.authorizeThirdPartyMcpTool).toHaveBeenCalledWith(
+      'mcp__crm__read',
+      { id: 'crm-1' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(remote.invoke).toHaveBeenCalledOnce();
+    expect(
+      input.coreTools.recordThirdPartyMcpToolActivity,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'crm',
+        toolName: 'read',
+        outcome: 'attempt',
+      }),
+    );
+    expect(
+      input.coreTools.recordThirdPartyMcpToolActivity,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'crm',
+        toolName: 'read',
+        outcome: 'success',
+      }),
+    );
+    expect(saver?.end).toHaveBeenCalledOnce();
+    expect(remote.Client.instances[0]?.close).toHaveBeenCalledOnce();
+  });
+
+  it('terminates when the run signal is aborted', async () => {
+    deep.streamEvents.mockImplementation((_input, options) => ({
+      async *[Symbol.asyncIterator]() {
+        yield streamEvent('started');
+        await new Promise<void>((_resolve, reject) =>
+          options.signal.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true },
+          ),
+        );
+      },
+    }));
+    const controller = new AbortController();
+    const input = laneInput({
+      signal: controller.signal,
+      mcpServers: [],
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+    const result = lane(input);
+    await vi.waitFor(() =>
+      expect(input.emitOutput).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'started' }),
+      ),
+    );
+
+    controller.abort();
+
+    await expect(result).resolves.toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('aborted'),
+    });
+    expect(checkpoint.Saver.instances[0]?.end).toHaveBeenCalledOnce();
+  });
+
+  it('runs a continuation received while terminal output is being delivered', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        const turn = deep.streamEvents.mock.calls.length;
+        yield streamEvent(turn === 1 ? 'first' : 'second');
+      },
+    }));
+    let terminalDeliveryStarted: (() => void) | undefined;
+    let releaseTerminalDelivery: (() => void) | undefined;
+    const terminalStarted = new Promise<void>((resolve) => {
+      terminalDeliveryStarted = resolve;
+    });
+    const emitOutput = vi.fn(async (output: Record<string, unknown>) => {
+      if (
+        deep.streamEvents.mock.calls.length === 1 &&
+        output.result === null &&
+        output.usage
+      ) {
+        terminalDeliveryStarted?.();
+        await new Promise<void>((resolve) => {
+          releaseTerminalDelivery = resolve;
+        });
+      }
+    });
+    const input = laneInput({ emitOutput });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+    const result = lane(input);
+    await terminalStarted;
+
+    input.controlPort.writeContinuationInput({
+      workspaceFolder: 'main_agent',
+      text: 'late follow up',
+      sequence: 2,
+    });
+    releaseTerminalDelivery?.();
+
+    await expect(result).resolves.toMatchObject({ status: 'success' });
+    expect(deep.streamEvents).toHaveBeenCalledTimes(2);
+    expect(deep.streamEvents.mock.calls[1]?.[0].messages[0].content).toBe(
+      'late follow up',
+    );
+  });
+
+  it('runs scheduled jobs without opening a checkpoint session', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        const tools = deep.createAgent.mock.calls[0]?.[0].tools;
+        await tools
+          .find((tool) => tool.name === 'send_message')
+          .invoke({ text: 'scheduled hello' });
+        await tools
+          .find((tool) => tool.name === 'mcp__crm__read')
+          .invoke({ id: 'scheduled-crm' });
+        yield streamEvent('scheduled result');
+      },
+    }));
+    const input = laneInput({
+      input: {
+        ...laneInput().input,
+        isScheduledJob: true,
+      },
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: null,
+      schema: '',
+    });
+
+    await expect(lane(input)).resolves.toMatchObject({ status: 'success' });
+    expect(checkpoint.ensure).not.toHaveBeenCalled();
+    expect(checkpoint.Saver.instances).toHaveLength(0);
+    expect(deep.createAgent).toHaveBeenCalledWith(
+      expect.not.objectContaining({ checkpointer: expect.anything() }),
+    );
+    expect(input.emitOutput).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sessionInit: true }),
+    );
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'started',
+              tool: 'send_message',
+            }),
+          }),
+        ],
+      }),
+    );
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEventOnly: true,
+        runtimeEvents: [
+          expect.objectContaining({
+            eventType: 'job.tool_activity',
+            payload: expect.objectContaining({
+              phase: 'started',
+              tool: 'mcp__crm__read',
+            }),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('rejects remote MCP hosts on the runtime egress denylist', async () => {
+    const input = laneInput({ egressDenylist: ['mcp.example.test'] });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    await expect(lane(input)).rejects.toThrow('matches the egress denylist');
+    expect(remote.Client.instances).toHaveLength(0);
+    expect(checkpoint.Saver.instances[0]?.end).toHaveBeenCalledOnce();
+  });
+});
+
+function streamEvent(text: string) {
+  return {
+    event: 'on_chat_model_stream',
+    data: {
+      chunk: {
+        content: text,
+        usage_metadata: { input_tokens: 3, output_tokens: 1 },
+      },
+    },
+  };
+}

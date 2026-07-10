@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { ConversationRoute } from '../domain/types.js';
 import type { MaterializedMcpServer } from '../domain/mcp/mcp-servers.js';
+import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import {
   McpServerService,
   type MaterializedMcpCapability,
@@ -93,6 +94,8 @@ export interface InlineAgentLoopLaneInput {
   resolvedModel: Awaited<ReturnType<typeof resolveSpawnModel>>['resolvedModel'];
   modelCredentialEnv: Readonly<Record<string, string>>;
   mcpServers: readonly MaterializedMcpCapability[];
+  mcpHostnameLookup?: HostnameLookup;
+  runtimeDataDir: string;
   emitOutput(output: AgentOutput): Promise<void>;
 }
 
@@ -104,16 +107,23 @@ export interface InlineRunAgentOptions extends RunAgentOptions {
   inlineAgentLoopLane?: InlineAgentLoopLane;
 }
 
+let defaultInlineAgentLoopLane: InlineAgentLoopLane | undefined;
+
+export function configureDefaultInlineAgentLoopLane(
+  lane: InlineAgentLoopLane | undefined,
+): void {
+  defaultInlineAgentLoopLane = lane;
+}
+
 /**
  * Follow-up loop-lane work replaces this seam, not the execution shell.
  * Implementations must observe signal.abort; the run remains active until the
  * lane settles so cancellation cannot leave hidden in-process work behind.
  */
 export async function runInlineAgentLoopLane(
-  _input: InlineAgentLoopLaneInput,
+  input: InlineAgentLoopLaneInput,
 ): Promise<AgentOutput> {
-  // Deliberately fail closed for this execution-shell stage. A worker fallback
-  // would violate the selected runtime; the follow-up stage replaces this seam.
+  if (defaultInlineAgentLoopLane) return defaultInlineAgentLoopLane(input);
   return {
     status: 'error',
     result: null,
@@ -233,6 +243,7 @@ export async function runInlineAgent(
       resolvedModel,
       defaultTimeoutMs: hostContext.defaultTimeoutMs,
       idleTimeoutMs: hostContext.idleTimeoutMs,
+      runtimeDataDir: hostContext.dataDir,
     });
   } catch (error) {
     return inlineFailure('Inline agent setup failed', error);
@@ -259,6 +270,7 @@ async function executeInlineRun(input: {
   resolvedModel: Awaited<ReturnType<typeof resolveSpawnModel>>['resolvedModel'];
   defaultTimeoutMs: number;
   idleTimeoutMs: number;
+  runtimeDataDir: string;
 }): Promise<AgentOutput> {
   const controlPort = new InMemoryInlineRunnerControlPort();
   const handle = createInlineRunHandle(input.controller, controlPort);
@@ -385,6 +397,8 @@ async function executeInlineRun(input: {
         resolvedModel: input.resolvedModel,
         modelCredentialEnv: input.credentials.env,
         mcpServers: input.mcpServers,
+        mcpHostnameLookup: input.options.mcpHostnameLookup,
+        runtimeDataDir: input.runtimeDataDir,
         emitOutput,
       }),
     )
