@@ -272,6 +272,17 @@ describe('direct LLM control routes', () => {
         model: 'gpt',
         stream: true,
         messages: [{ role: 'user', content: 'hi' }],
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'lookup_weather',
+              parameters: { type: 'object', properties: {} },
+            },
+          },
+        ],
+        response_format: { type: 'json_object' },
+        reasoning_effort: 'medium',
       },
     });
     const res = new TestResponse();
@@ -297,6 +308,86 @@ describe('direct LLM control routes', () => {
       Buffer.from(fetchMock.mock.calls[0]![1]!.body as Buffer).toString('utf8'),
     );
     expect(upstreamBody.model).toBe('gpt-5.5');
+    expect(upstreamBody.tools[0].type).toBe('function');
+    expect(upstreamBody.response_format).toEqual({ type: 'json_object' });
+    expect(upstreamBody.reasoning_effort).toBe('medium');
+  });
+
+  it.each([
+    {
+      name: 'Anthropic server tool',
+      path: '/llm/v1/messages',
+      body: {
+        model: 'sonnet',
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      },
+      field: 'tools[0].type',
+      detail: 'web_search_20250305',
+    },
+    {
+      name: 'Anthropic MCP servers',
+      path: '/llm/v1/messages',
+      body: { model: 'sonnet', mcp_servers: [] },
+      field: 'mcp_servers',
+    },
+    {
+      name: 'Anthropic container',
+      path: '/llm/v1/messages',
+      body: { model: 'sonnet', container: 'container_1' },
+      field: 'container',
+    },
+    {
+      name: 'Anthropic execution beta',
+      path: '/llm/v1/messages',
+      body: { model: 'sonnet', betas: ['computer-use-2025-01-24'] },
+      field: 'betas[0]',
+      detail: 'computer-use-2025-01-24',
+    },
+    {
+      name: 'OpenAI hosted tool',
+      path: '/llm/v1/chat/completions',
+      body: { model: 'gpt', tools: [{ type: 'file_search' }] },
+      field: 'tools[0].type',
+      detail: 'file_search',
+    },
+    {
+      name: 'OpenAI hosted field',
+      path: '/llm/v1/chat/completions',
+      body: { model: 'gpt', web_search_options: {} },
+      field: 'web_search_options',
+    },
+    {
+      name: 'OpenAI file attachment',
+      path: '/llm/v1/chat/completions',
+      body: { model: 'gpt', messages: [{ role: 'user', attachments: [] }] },
+      field: 'messages[0].attachments',
+    },
+  ])('rejects $name with a shaped unsupported-field error', async (input) => {
+    const gatewayBroker = broker();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const res = new TestResponse();
+
+    await handleLlmRoutes(
+      request({ body: input.body }),
+      res as unknown as ServerResponse,
+      context({ broker: gatewayBroker }),
+      input.path,
+    );
+
+    expect(res.statusCode).toBe(400);
+    const response = JSON.parse(res.body());
+    expect(response).toMatchObject({
+      error: {
+        code: 'UNSUPPORTED_FIELD',
+        details: { field: input.field },
+        retryable: false,
+      },
+    });
+    expect(response.error.message).toContain(input.field);
+    if (input.detail) expect(response.error.message).toContain(input.detail);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(gatewayBroker.getInjection).not.toHaveBeenCalled();
   });
 
   it('returns a shaped unavailable error when gateway setup fails', async () => {

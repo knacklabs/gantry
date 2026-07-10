@@ -345,6 +345,15 @@ route does not receive provider credentials or implement provider
 authentication. These calls do not run an agent loop or grant access to agent
 tools and capabilities.
 
+The passthrough supports ordinary chat and streaming, caller-defined
+client-side tools (Anthropic tools with `input_schema` and OpenAI `function`
+tools), structured outputs, and thinking or effort parameters. It does not
+delegate execution to provider-hosted tools: Anthropic server tools, remote MCP
+servers, containers, and execution betas are rejected, as are OpenAI hosted
+tools, hosted-tool fields, attachments, and file references. Unsupported
+surfaces return `400` with code `UNSUPPORTED_FIELD` and identify the rejected
+field or tool type.
+
 Clients authenticate with a Control API bearer key carrying `llm:invoke`.
 Missing or invalid keys return `401`; a valid key without the scope returns
 `403`. The request `model` must be a registered Gantry model alias for the

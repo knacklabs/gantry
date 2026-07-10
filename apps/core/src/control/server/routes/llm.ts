@@ -19,6 +19,10 @@ import {
   type ControlRouteContext,
 } from '../handler-context.js';
 import { readRawBody, recordControlRequestLog, sendError } from '../http.js';
+import {
+  findUnsupportedLlmRequestField,
+  type LlmPassthroughEndpoint,
+} from './llm-request-validator.js';
 
 const MAX_LLM_BODY_BYTES = 16 * 1024 * 1024;
 const LLM_RATE_LIMIT_PER_KEY = 120;
@@ -42,10 +46,8 @@ const BLOCKED_LOOPBACK_RESPONSE_HEADERS = new Set([
   'transfer-encoding',
 ]);
 
-type LlmEndpoint = 'messages' | 'chat_completions';
-
 type ResolvedLlmRequest = {
-  endpoint: LlmEndpoint;
+  endpoint: LlmPassthroughEndpoint;
   body: Buffer;
   entry: ModelCatalogEntry;
   alias: string;
@@ -167,19 +169,28 @@ export async function handleLlmRoutes(
   return true;
 }
 
-function llmEndpointFor(pathname: string): LlmEndpoint | undefined {
+function llmEndpointFor(pathname: string): LlmPassthroughEndpoint | undefined {
   if (pathname === '/llm/v1/messages') return 'messages';
   if (pathname === '/llm/v1/chat/completions') return 'chat_completions';
   return undefined;
 }
 
 function resolveLlmRequest(
-  endpoint: LlmEndpoint,
+  endpoint: LlmPassthroughEndpoint,
   rawBody: Buffer,
   res: ServerResponse,
 ): ResolvedLlmRequest | null {
   const body = parseBody(rawBody, res);
   if (!body) return null;
+  const unsupported = findUnsupportedLlmRequestField(endpoint, body);
+  if (unsupported) {
+    sendError(res, 400, 'UNSUPPORTED_FIELD', unsupported.message, {
+      field: unsupported.field,
+      ...(unsupported.toolType ? { toolType: unsupported.toolType } : {}),
+      ...(unsupported.value ? { value: unsupported.value } : {}),
+    });
+    return null;
+  }
   const model = typeof body.model === 'string' ? body.model.trim() : '';
   const resolution = resolveModelSelectionForWorkload(model, 'chat');
   if (!resolution.ok) {
@@ -231,7 +242,7 @@ function parseBody(
 }
 
 function endpointCompatibilityError(
-  endpoint: LlmEndpoint,
+  endpoint: LlmPassthroughEndpoint,
   provider: ModelProviderDefinition,
 ): string | undefined {
   if (endpoint === 'messages') {

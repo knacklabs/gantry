@@ -489,6 +489,12 @@ describe('control OpenAPI documentation', () => {
       operationId: 'invokeLlmMessages',
       'x-gantry-required-scopes': ['llm:invoke'],
     });
+    expect(spec.paths['/llm/v1/messages']?.post.description).toContain(
+      'Rejects provider-side server tools',
+    );
+    expect(spec.paths['/llm/v1/chat/completions']?.post.description).toContain(
+      'Rejects hosted provider tools',
+    );
     expect(
       spec.paths['/v1/sessions/{sessionId}/messages']?.post.requestBody.content[
         'application/json'
