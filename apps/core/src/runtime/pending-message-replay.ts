@@ -83,15 +83,10 @@ function selectPendingMessageBatch(
   if (firstSchema < 0) {
     return { messages, hasMore, cursorAfter: messagesCursor(messages) };
   }
-  const multipleSchemas = messages
-    .slice(firstSchema + 1)
-    .some((message) => message.responseSchema !== undefined);
-  const selected = multipleSchemas
-    ? messages.slice(0, firstSchema + 1)
-    : messages;
+  const selected = messages.slice(0, firstSchema + 1);
   return {
     messages: selected,
-    hasMore: hasMore || multipleSchemas,
+    hasMore: hasMore || selected.length < messages.length,
     cursorAfter: messagesCursor(selected),
     responseSchema: messages[firstSchema]!.responseSchema,
   };

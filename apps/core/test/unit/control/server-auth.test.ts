@@ -17,7 +17,10 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
-import { getControlEnvValue } from '@core/config/index.js';
+import {
+  getControlEnvValue,
+  getSelectedAgentRuntime,
+} from '@core/config/index.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
 import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
@@ -41,6 +44,7 @@ vi.mock('@core/cli/slack-chat-discovery.js', () => ({
 
 const mockedPreflightModelProvider = vi.mocked(preflightModelProvider);
 const mockedGetControlEnvValue = vi.mocked(getControlEnvValue);
+const mockedGetSelectedAgentRuntime = vi.mocked(getSelectedAgentRuntime);
 const mockedListSlackRecentChats = vi.mocked(listSlackRecentChats);
 
 vi.mock('@core/config/index.js', async () => {
@@ -123,6 +127,7 @@ vi.mock('@core/config/index.js', async () => {
         'auto'
       );
     }),
+    getSelectedAgentRuntime: vi.fn(() => 'worker'),
     getPublicRuntimeSettings: toPublic,
     configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
   };
@@ -487,6 +492,7 @@ beforeEach(() => {
   mockedGetControlEnvValue.mockImplementation(
     (key: string) => process.env[key]?.trim() || '',
   );
+  mockedGetSelectedAgentRuntime.mockReturnValue('worker');
   mockedPreflightModelProvider.mockResolvedValue({
     ok: true,
     status: 'pass',
@@ -3608,6 +3614,67 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('rejects response schemas for worker session runtimes with a shaped error', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-message-worker-schema',
+        scopes: ['sessions:write'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'worker-agent',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    const app = {
+      registerGroup: vi.fn(),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    const handle = startControlServer({ app: app as any });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/session-1/messages`,
+        'token-message-worker-schema',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            message: 'hello',
+            response_schema: { type: 'object' },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'response_schema requires an inline agent runtime',
+        },
+      });
+      expect(mockedGetSelectedAgentRuntime).toHaveBeenCalledWith(
+        'worker-agent',
+      );
+      expect(opsRepo.storeChatMetadata).not.toHaveBeenCalled();
+      expect(controlRepo.upsertAppResponseRoute).not.toHaveBeenCalled();
+      expect(opsRepo.storeMessage).not.toHaveBeenCalled();
+      expect(runtimeEvents.publish).not.toHaveBeenCalled();
+      expect(app.queue.enqueueMessageCheck).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('persists SDK session messages, emits control events, and queues app work', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
@@ -3629,6 +3696,7 @@ describe('control server runtime hardening', () => {
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
     });
+    mockedGetSelectedAgentRuntime.mockReturnValueOnce('inline');
     const app = {
       registerGroup: vi.fn(),
       queue: { enqueueMessageCheck: vi.fn() },
@@ -3678,7 +3746,13 @@ describe('control server runtime hardening', () => {
           sender_name: 'SDK',
           content: 'hello from sdk',
           thread_id: 'thread-1',
+          responseSchema: {
+            oneOf: [{ type: 'object', required: ['answer'] }],
+          },
         }),
+      );
+      expect(mockedGetSelectedAgentRuntime).toHaveBeenCalledWith(
+        'app_app_one_conv_1',
       );
       expect(controlRepo.upsertAppResponseRoute).toHaveBeenCalledWith({
         sessionId: 'session-1',

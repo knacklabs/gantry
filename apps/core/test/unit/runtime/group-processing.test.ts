@@ -746,6 +746,51 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledTimes(1);
     });
 
+    it('ends a turn at the first schema message and drains trailing plain messages', async () => {
+      const responseSchema = { type: 'object', title: 'structured' };
+      const messages = [
+        makeMessage({ id: '1', timestamp: '1', content: 'plain first' }),
+        makeMessage({
+          id: '2',
+          timestamp: '2',
+          content: 'structured',
+          responseSchema,
+        }),
+        makeMessage({ id: '3', timestamp: '3', content: 'plain follow-up' }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      let cursor = '0';
+      deps.getCursor = vi.fn(() => cursor);
+      deps.setCursor = vi.fn((_queueJid, nextCursor) => {
+        cursor = nextCursor;
+      });
+      mockGetMessagesSince.mockImplementation((_jid, cursor) => {
+        const afterTimestamp = decodeGroupMessageCursor(
+          String(cursor),
+        ).timestamp;
+        return messages.filter(
+          (message) => Number(message.timestamp) > Number(afterTimestamp),
+        );
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+      await processGroupMessages('group1@g.us');
+
+      expect(
+        mockSpawnAgent.mock.calls.map((call) => call[1].responseSchema),
+      ).toEqual([responseSchema, undefined]);
+      expect(
+        mockFormatConversationContextMessages.mock.calls.map((call) =>
+          call[0].currentMessages.map((message: NewMessage) => message.id),
+        ),
+      ).toEqual([['1', '2'], ['3']]);
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'group1@g.us',
+      );
+      expect(deps.queue.enqueueMessageCheck).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps plain message turns schema-less', async () => {
       const { deps } = setupHappyPath();
 

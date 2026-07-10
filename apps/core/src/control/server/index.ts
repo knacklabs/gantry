@@ -18,6 +18,7 @@ import {
   getControlEnvValue,
   getDefaultModelConfig,
   getSelectedAgentHarness,
+  getSelectedAgentRuntime,
   getRuntimeSettingsForConfig,
   getRuntimeModelDefaults,
   getPublicRuntimeSettings,
@@ -391,6 +392,8 @@ export function startControlServer(input: {
     },
     getSelectedAgentHarness: (agentFolder?: string) =>
       getSelectedAgentHarness(agentFolder),
+    getSelectedAgentRuntime: (agentFolder?: string) =>
+      getSelectedAgentRuntime(agentFolder),
   };
 
   const server = http.createServer(
