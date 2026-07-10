@@ -675,6 +675,8 @@ describe('agent-spawn timeout behavior', () => {
     vi.mocked(getEffectiveModelConfig).mockClear();
     vi.mocked(getSelectedAgentHarness).mockReset();
     vi.mocked(getSelectedAgentHarness).mockReturnValue('auto');
+    vi.mocked(getSelectedAgentRuntime).mockReset();
+    vi.mocked(getSelectedAgentRuntime).mockReturnValue('worker');
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {
         yoloMode: {
@@ -4249,6 +4251,50 @@ describe('agent-spawn timeout behavior', () => {
       '/tmp/gantry-test-data/ipc/test-group',
       'inline',
     );
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('uses an explicit worker runtime for worker admission and spawning', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValue('inline');
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        runtime: 'worker',
+        attachedSkillSourceIds: ['skill:writer'],
+      },
+      vi.fn(),
+    );
+    emitOutputMarker(fakeProc, { status: 'success', result: 'Done' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'success',
+      result: 'Done',
+    });
+    expect(getSelectedAgentRuntime).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledOnce();
+  });
+
+  it('uses the configured inline runtime for inline admission', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValue('inline');
+
+    const result = await spawnTestAgent(
+      testGroup,
+      { ...testInput, attachedSkillSourceIds: ['skill:writer'] },
+      vi.fn(),
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining(
+        'agent.runtime inline is incompatible with worker-only capabilities: skill:writer',
+      ),
+    });
+    expect(getSelectedAgentRuntime).toHaveBeenCalledOnce();
     expect(spawn).not.toHaveBeenCalled();
   });
 });

@@ -109,7 +109,8 @@ export async function spawnAgent(
   onOutput: ((output: AgentOutput) => Promise<void>) | undefined,
   options: RunAgentOptions,
 ): Promise<AgentOutput> {
-  if ((input.runtime ?? getSelectedAgentRuntime(group.folder)) === 'inline') {
+  const agentRuntime = input.runtime ?? getSelectedAgentRuntime(group.folder);
+  if (agentRuntime === 'inline') {
     const { runInlineAgent } = await import('./agent-inline.js');
     return runInlineAgent(group, input, onProcess, onOutput, options);
   }
@@ -157,7 +158,7 @@ export async function spawnAgent(
       validateAgentPreSpawnAdmission({
         agentInput: input,
         agentEngine,
-        agentRuntime: getSelectedAgentRuntime(group.folder),
+        agentRuntime,
         securityEnv: process.env,
         sandboxProvider: runtimeSettings.runtime.sandbox.provider,
       }),
