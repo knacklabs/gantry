@@ -480,12 +480,19 @@ describe('Claude inline lane', () => {
       },
     }));
     const input = laneInput({
-      input: { ...laneInput().input, isScheduledJob: true },
+      input: {
+        ...laneInput().input,
+        isScheduledJob: true,
+        sessionId: 'scheduled-session-must-not-resume',
+      },
     });
 
     await expect(runClaudeInlineAgentLoopLane(input)).resolves.toMatchObject({
       status: 'success',
     });
+    const queryOptions = sdk.query.mock.calls[0]?.[0].options;
+    expect(queryOptions.persistSession).toBe(false);
+    expect(queryOptions.resume).toBeUndefined();
     for (const tool of ['send_message', 'mcp__crm__read']) {
       expect(input.emitOutput).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -520,6 +527,12 @@ describe('Claude inline lane', () => {
     const first = await runClaudeInlineAgentLoopLane(resumedInput());
     const second = await runClaudeInlineAgentLoopLane(resumedInput());
 
+    for (const call of sdk.query.mock.calls) {
+      expect(call[0].options).toMatchObject({
+        persistSession: true,
+        resume: 'session-1',
+      });
+    }
     expect(first.usageEventId).toContain('session-1:run:');
     expect(second.usageEventId).not.toBe(first.usageEventId);
   });

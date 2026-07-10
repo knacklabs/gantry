@@ -14,7 +14,7 @@ describe('exportCurrentDesiredState', () => {
       providerAccounts: {},
       conversations: {},
       bindings: {},
-      agents: {},
+      agents: { main_agent: { runtime: 'worker' } },
     };
     const deps = {
       ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
@@ -123,10 +123,15 @@ describe('exportCurrentDesiredState', () => {
         externalId: 'C123',
       }),
     ]);
+    expect(exported.agents.main_agent?.runtime).toBeUndefined();
   });
 
   it('exports stored route bindings as conversation installed agents', async () => {
-    const settings = createDefaultRuntimeSettings();
+    const settings = parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    runtime: inline
+`);
     settings.conversations = {
       shared_channel: {
         providerConnection: 'slack-default',
@@ -291,6 +296,7 @@ describe('exportCurrentDesiredState', () => {
     expect(exported.providerAccounts['slack-default']?.agentId).toBe(
       'main_agent',
     );
+    expect(exported.agents.main_agent?.runtime).toBe('inline');
     const yaml = renderRuntimeSettingsYaml(exported as any);
     expect(yaml).toContain('installed_agents:');
     expect(yaml).toContain('      main_agent:');
@@ -373,6 +379,7 @@ describe('exportCurrentDesiredState', () => {
     expect(Object.values(exported.conversations)[0]?.providerAccount).toBe(
       'slack-disabled',
     );
+    expect(exported.agents.main_agent?.runtime).toBeUndefined();
     expect(() =>
       parseRuntimeSettings(renderRuntimeSettingsYaml(exported)),
     ).not.toThrow();
@@ -415,7 +422,11 @@ describe('exportCurrentDesiredState', () => {
       },
     };
 
-    const settings = createDefaultRuntimeSettings();
+    const settings = parseRuntimeSettings(`agents:
+  main_agent:
+    name: Main
+    runtime: inline
+`);
     settings.providerAccounts.slack_custom = {
       agentId: 'main_agent',
       provider: 'slack',
@@ -457,6 +468,7 @@ describe('exportCurrentDesiredState', () => {
       requiresTrigger: true,
       model: 'opus',
     });
+    expect(exported.agents.main_agent?.runtime).toBe('inline');
   });
 
   it('keeps route-less channel installs trigger gated on export', async () => {

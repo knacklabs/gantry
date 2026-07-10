@@ -111,13 +111,16 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
       egressDenylist: input.egressDenylist,
       lookupHostname: input.mcpHostnameLookup,
     });
+    const persistSdkSession = !input.input.isScheduledJob;
     const sdkQuery = query({
       prompt,
       options: {
         abortController,
         model: input.resolvedModel.value.runnerModel,
-        ...(input.input.sessionId ? { resume: input.input.sessionId } : {}),
-        persistSession: true,
+        ...(persistSdkSession && input.input.sessionId
+          ? { resume: input.input.sessionId }
+          : {}),
+        persistSession: persistSdkSession,
         systemPrompt: inlineSystemPrompt(input),
         env: isolatedSdkEnv(
           input.modelCredentialEnv,

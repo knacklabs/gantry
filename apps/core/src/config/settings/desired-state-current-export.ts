@@ -228,6 +228,7 @@ export async function exportCurrentDesiredState(input: {
       relationshipMode: existing?.relationshipMode ?? 'personal',
       model: existing?.model,
       agentHarness: existing?.agentHarness,
+      runtime: existing?.runtime === 'inline' ? 'inline' : undefined,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: existing?.bindings ?? {},
@@ -486,6 +487,7 @@ export async function exportCurrentDesiredState(input: {
         'personal',
       model: existing?.model ?? group.agentConfig?.model,
       agentHarness: existing?.agentHarness,
+      runtime: existing?.runtime === 'inline' ? 'inline' : undefined,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: {
