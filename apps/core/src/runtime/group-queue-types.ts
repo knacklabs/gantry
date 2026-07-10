@@ -77,6 +77,33 @@ export interface GroupStateFields {
   continuationHandler: ContinuationHandler | null;
 }
 
+export function isGroupStateIdle(
+  state: GroupStateFields & { process: unknown },
+): boolean {
+  return (
+    !state.active &&
+    state.pendingMessages.length === 0 &&
+    state.pendingTasks.length === 0 &&
+    !state.runningTaskId &&
+    !state.process &&
+    !state.idleWaiting
+  );
+}
+
+export function enqueuePendingMessageSignal(
+  pendingMessages: QueuedMessageSignal[],
+  signal: QueuedMessageSignal,
+): void {
+  if (
+    signal.responseSchema === undefined &&
+    pendingMessages.at(-1)?.responseSchema === undefined &&
+    pendingMessages.length > 0
+  ) {
+    return;
+  }
+  pendingMessages.push(signal);
+}
+
 export interface GroupQueueOptions extends GroupQueuePolicyOptions {
   setTimeoutFn?: typeof setTimeout;
   runnerControlPort?: ContinuationRunnerControlPort;

@@ -3555,7 +3555,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('rejects non-object session response schemas with a shaped error', async () => {
+  it('rejects invalid session response schemas with a shaped error', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -3573,7 +3573,13 @@ describe('control server runtime hardening', () => {
     const handle = startControlServer({ app: app as any });
 
     try {
-      for (const responseSchema of [null, [], 'object', 42]) {
+      for (const responseSchema of [
+        null,
+        [],
+        'object',
+        42,
+        { name: 'answer' },
+      ]) {
         const response = await requestWithRetry(
           `http://127.0.0.1:${port}/v1/sessions/session-1/messages`,
           'token-message-schema',
@@ -3591,7 +3597,7 @@ describe('control server runtime hardening', () => {
         await expect(response.json()).resolves.toMatchObject({
           error: {
             code: 'INVALID_REQUEST',
-            message: 'response_schema must be a JSON object',
+            message: 'response_schema must be a JSON Schema object',
           },
         });
       }
@@ -3642,8 +3648,7 @@ describe('control server runtime hardening', () => {
             correlationId: 'corr-1',
             responseMode: 'sse',
             response_schema: {
-              type: 'object',
-              required: ['answer'],
+              oneOf: [{ type: 'object', required: ['answer'] }],
             },
           }),
         },
@@ -3695,8 +3700,7 @@ describe('control server runtime hardening', () => {
         'app:app-one:conv-1::thread:thread-1',
         {
           responseSchema: {
-            type: 'object',
-            required: ['answer'],
+            oneOf: [{ type: 'object', required: ['answer'] }],
           },
         },
       );

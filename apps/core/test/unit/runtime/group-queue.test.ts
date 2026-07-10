@@ -105,6 +105,78 @@ describe('GroupQueue', () => {
     });
   });
 
+  it('coalesces schema-less wakeups queued during an active run', async () => {
+    const seen: Array<{
+      finalRetry: boolean;
+      responseSchema?: Record<string, unknown>;
+    }> = [];
+    let releaseFirst: () => void;
+
+    queue.setProcessMessagesFn(async (_groupJid, context) => {
+      seen.push(context);
+      if (seen.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group1@g.us');
+
+    releaseFirst!();
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(seen).toEqual([{ finalRetry: false }, { finalRetry: false }]);
+  });
+
+  it('keeps schema-carrying wakeups individually ordered and bound', async () => {
+    const schemaA = { type: 'object', required: ['answer'] };
+    const schemaB = { type: 'object', required: ['choice'] };
+    const seen: Array<{
+      finalRetry: boolean;
+      responseSchema?: Record<string, unknown>;
+    }> = [];
+    let releaseFirst: () => void;
+
+    queue.setProcessMessagesFn(async (_groupJid, context) => {
+      seen.push(context);
+      if (seen.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group1@g.us', { responseSchema: schemaA });
+    queue.enqueueMessageCheck('group1@g.us', { responseSchema: schemaB });
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group1@g.us');
+
+    releaseFirst!();
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(seen).toEqual([
+      { finalRetry: false },
+      { finalRetry: false },
+      { finalRetry: false, responseSchema: schemaA },
+      { finalRetry: false, responseSchema: schemaB },
+      { finalRetry: false },
+    ]);
+  });
+
   it('keeps response schemas attached to waiting and drained message signals', async () => {
     queue = new GroupQueue({ maxMessageRuns: 1 });
     const responseSchema = { type: 'object', required: ['answer'] };

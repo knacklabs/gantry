@@ -10,6 +10,8 @@ import {
 } from './group-queue-policy.js';
 import { createLiveTurnLocalRunnerHooks } from './group-queue-live-turn-hooks.js';
 import {
+  enqueuePendingMessageSignal,
+  isGroupStateIdle,
   localContinuationRunnerControlPort,
   type ContinuationHandler,
   type ContinuationOptions,
@@ -91,14 +93,7 @@ export class GroupQueue {
   }
 
   private deleteGroupIfIdle(groupJid: string, state: GroupState): boolean {
-    if (
-      state.active ||
-      state.pendingMessages.length ||
-      state.pendingTasks.length
-    )
-      return false;
-    if (state.runningTaskId || state.process || state.idleWaiting) return false;
-    return this.groups.delete(groupJid);
+    return isGroupStateIdle(state) && this.groups.delete(groupJid);
   }
 
   setProcessMessagesFn(fn: ProcessMessagesFn): void {
@@ -237,7 +232,7 @@ export class GroupQueue {
     const signal = ctx ?? {};
 
     if (state.active) {
-      state.pendingMessages.push(signal);
+      enqueuePendingMessageSignal(state.pendingMessages, signal);
       logger.debug({ groupJid }, 'Agent run active, message queued');
       return true;
     }
@@ -252,10 +247,10 @@ export class GroupQueue {
           },
           'Message queue backlog cap reached, deferring enqueue signal',
         );
-        state.pendingMessages.push(signal);
+        enqueuePendingMessageSignal(state.pendingMessages, signal);
         return false;
       }
-      state.pendingMessages.push(signal);
+      enqueuePendingMessageSignal(state.pendingMessages, signal);
       this.enqueueWaitingGroup('message', groupJid);
       logger.debug(
         { groupJid, activeMessageCount: this.activeMessageCount },

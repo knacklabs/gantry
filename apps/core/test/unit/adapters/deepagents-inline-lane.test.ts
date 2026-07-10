@@ -484,7 +484,12 @@ Always mention the migration impact.
     const result = await lane(input);
 
     expect(deep.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ responseFormat: responseSchema }),
+      expect.objectContaining({
+        responseFormat: expect.objectContaining({
+          schema: responseSchema,
+          strict: true,
+        }),
+      }),
     );
     expect(result).toMatchObject({
       status: 'success',
