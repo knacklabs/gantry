@@ -4,6 +4,9 @@ sandbox_mode = "workspace-write"
 web_search = "cached"
 max_concurrent_threads_per_session = 8
 
+[sandbox_workspace_write]
+network_access = true
+
 
 [features]
 hooks = false
