@@ -250,7 +250,14 @@ autoreview result (`python3 ~/.claude/skills/autoreview/scripts/autoreview
 - `apps/core/src/config/settings/**` (knob parsing/validation + reader version)
 - `apps/core/src/runtime/agent-inline.ts`, `apps/core/src/runtime/agent-spawn-host.ts`,
   `apps/core/src/runtime/agent-spawn-admission.ts`, `apps/core/src/runtime/agent-spawn-types.ts`,
-  `apps/core/src/runtime/group-agent-runner.ts` (knob threading + failure field)
+  `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runtime/group-agent-runner.ts`
+  (knob threading + failure field; spawn seam carries worker defaults into runner input)
+- `apps/core/src/domain/types.ts`,
+  `apps/core/src/application/sessions/session-interaction-module.ts`,
+  `apps/core/src/runtime/pending-message-replay.ts`,
+  `apps/core/src/runtime/group-processing.ts`,
+  `apps/core/src/runtime/message-loop.ts` (per-request overrides must survive
+  durable message admission and replay to reach the runner)
 - `apps/core/src/adapters/llm/anthropic-claude-agent/**`,
   `apps/core/src/adapters/llm/deepagents-langchain/**`,
   `apps/core/src/adapters/llm/inline-lane-dispatcher.ts` (lane mappings)
