@@ -30,6 +30,19 @@ function fakeTool(name: string): ToolLike {
   return { name } as unknown as ToolLike;
 }
 
+function structuredTool(
+  name: string,
+  description: string,
+  invoke: (input: unknown) => Promise<unknown>,
+) {
+  return {
+    name,
+    description,
+    schema: z.object({}).passthrough(),
+    invoke,
+  };
+}
+
 describe('dropCollidingThirdPartyTools', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -90,6 +103,131 @@ describe('dropCollidingThirdPartyTools', () => {
 });
 
 describe('declarative DeepAgents tool-rule wrapper', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    mcpState.serverTools = {};
+  });
+
+  it('enforces canonical Bash block rules on the RunCommand model tool', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv('GANTRY_DEEPAGENTS_SHELL_ENABLED', '1');
+    mcpState.serverTools = { gantry: [] };
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: ['RunCommand(echo *)'],
+      toolRules: [
+        { tool: 'Bash', action: 'block', reason: 'shell is blocked' },
+      ],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: true,
+      } as never,
+    });
+
+    const shell = connected.tools.find(({ name }) => name === 'RunCommand');
+    await expect(
+      shell?.invoke({ command: 'echo must-not-run' } as never),
+    ).resolves.toMatchObject({
+      isError: true,
+      error: { message: expect.stringContaining('shell is blocked') },
+    });
+    await connected.close();
+  });
+
+  it('enforces canonical mcp__server__tool rules on bare MCP model names', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    const lookup = vi.fn(async () => 'looked up');
+    mcpState.serverTools = {
+      gantry: [],
+      crm: [structuredTool('lookup', 'Look up CRM data.', lookup)],
+    };
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: ['mcp__crm__lookup'],
+      toolRules: [
+        {
+          tool: 'mcp__crm__lookup',
+          action: 'block',
+          reason: 'CRM lookup is blocked',
+        },
+      ],
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: true,
+      } as never,
+    });
+
+    const modelTool = connected.tools.find(({ name }) => name === 'lookup');
+    await expect(modelTool?.invoke({} as never)).resolves.toMatchObject({
+      isError: true,
+      error: { message: expect.stringContaining('CRM lookup is blocked') },
+    });
+    expect(lookup).not.toHaveBeenCalled();
+    await connected.close();
+  });
+
+  it('does not count a gated denial as require_prior success', async () => {
+    vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
+    vi.stubEnv('GANTRY_DEEPAGENTS_SHELL_ENABLED', '1');
+    const memorySearch = vi.fn(async () => ({
+      content: [{ type: 'text', text: 'results' }],
+    }));
+    mcpState.serverTools = {
+      gantry: [structuredTool('memory_search', 'Search memory.', memorySearch)],
+    };
+    const connected = await connectGantryAndThirdPartyMcpTools({
+      configuredAllowedTools: ['RunCommand(echo allowed)'],
+      toolRules: [
+        {
+          tool: 'memory_search',
+          action: 'require_prior',
+          prior: 'Bash',
+          reason: 'run the approved command first',
+        },
+      ],
+      toolSuccessLedger: new RunScopedToolSuccessLedger(),
+      hideAuthorityTools: false,
+      gate: {
+        workspaceFolder: 'group',
+        memoryBlock: '',
+        gateContext: { conversationId: 'tg:group' },
+        permissionEnv: {},
+        lockedAccessPreset: true,
+      } as never,
+    });
+    const shell = connected.tools.find(({ name }) => name === 'RunCommand');
+    const guarded = connected.tools.find(
+      ({ name }) => name === 'memory_search',
+    );
+
+    await expect(
+      shell?.invoke({ command: 'echo denied' } as never),
+    ).resolves.toMatchObject({ isError: true });
+    await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
+      isError: true,
+      error: {
+        message: expect.stringContaining('run the approved command first'),
+      },
+    });
+    expect(memorySearch).not.toHaveBeenCalled();
+
+    await expect(
+      shell?.invoke({ command: 'echo allowed' } as never),
+    ).resolves.toContain('allowed');
+    await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'results' }],
+    });
+    expect(memorySearch).toHaveBeenCalledOnce();
+    await connected.close();
+  });
+
   it('denies require_prior, then allows after the prior tool succeeds', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
     const sendMessage = vi.fn(async () => ({
@@ -98,16 +236,6 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     const memorySearch = vi.fn(async () => ({
       content: [{ type: 'text', text: 'results' }],
     }));
-    const structuredTool = (
-      name: string,
-      description: string,
-      invoke: (input: unknown) => Promise<unknown>,
-    ) => ({
-      name,
-      description,
-      schema: z.object({}).passthrough(),
-      invoke,
-    });
     mcpState.serverTools = {
       gantry: [
         structuredTool('send_message', 'Send a message.', sendMessage),

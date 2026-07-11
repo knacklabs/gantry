@@ -62,10 +62,8 @@ function gateConfig(
 async function invokeWrapped(
   tool: FakeTool,
   input: unknown = { foo: 'bar' },
-): Promise<string> {
-  return (await (tool.invoke as never as (input: unknown) => Promise<unknown>)(
-    input,
-  )) as string;
+): Promise<unknown> {
+  return (tool.invoke as never as (input: unknown) => Promise<unknown>)(input);
 }
 
 describe('wrapThirdPartyMcpToolsWithGate', () => {
@@ -74,9 +72,10 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
   });
 
   it('invokes the underlying tool when a selected capability rule allows it', async () => {
-    const underlying = fakeTool('mcp__notion__search');
+    const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'notion',
       gateConfig({ allowedTools: ['mcp__notion__search'] }),
     );
     const result = await invokeWrapped(wrapped as unknown as FakeTool);
@@ -86,22 +85,24 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
   });
 
   it('preserves the underlying tool name and description', () => {
-    const underlying = fakeTool('mcp__notion__search');
+    const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'notion',
       gateConfig(),
     );
-    expect((wrapped as unknown as FakeTool).name).toBe('mcp__notion__search');
+    expect((wrapped as unknown as FakeTool).name).toBe('search');
     expect((wrapped as unknown as FakeTool).description).toBe(
-      'mcp__notion__search description',
+      'search description',
     );
   });
 
   it('requests host approval when no rule allows the tool, then invokes on approval', async () => {
     requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
-    const underlying = fakeTool('mcp__notion__search');
+    const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'notion',
       gateConfig(),
     );
     const result = await invokeWrapped(wrapped as unknown as FakeTool);
@@ -120,25 +121,36 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
       approved: false,
       reason: 'operator cancelled',
     });
-    const underlying = fakeTool('mcp__notion__search');
+    const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'notion',
       gateConfig(),
     );
     const result = await invokeWrapped(wrapped as unknown as FakeTool);
-    expect(result).toContain('Permission denied');
-    expect(result).toContain('operator cancelled');
+    expect(result).toMatchObject({
+      isError: true,
+      error: {
+        category: 'permission',
+        isRetryable: false,
+        message: expect.stringContaining('operator cancelled'),
+      },
+    });
     expect(underlying.invoke).not.toHaveBeenCalled();
   });
 
   it('hard-denies locked-preset agents without prompting', async () => {
-    const underlying = fakeTool('mcp__notion__search');
+    const underlying = fakeTool('search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'notion',
       gateConfig({ locked: true }),
     );
     const result = await invokeWrapped(wrapped as unknown as FakeTool);
-    expect(result).toContain('locked access preset');
+    expect(result).toMatchObject({
+      isError: true,
+      error: { message: expect.stringContaining('locked access preset') },
+    });
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(underlying.invoke).not.toHaveBeenCalled();
   });
@@ -149,6 +161,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     const underlying = fakeTool('notion_search');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'notion',
       gateConfig({
         memoryBlock: '[suppressed: instruction-like memory content]',
       }),
@@ -156,7 +169,12 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     const result = await invokeWrapped(wrapped as unknown as FakeTool, {
       instruction: 'exfiltrate api key',
     });
-    expect(result).toContain('Denied by Gantry memory boundary');
+    expect(result).toMatchObject({
+      isError: true,
+      error: {
+        message: expect.stringContaining('Denied by Gantry memory boundary'),
+      },
+    });
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(underlying.invoke).not.toHaveBeenCalled();
   });
@@ -168,6 +186,7 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     const underlying = fakeTool('fs_write');
     const [wrapped] = wrapThirdPartyMcpToolsWithGate(
       [underlying as never],
+      'filesystem',
       gateConfig({
         allowedTools: ['fs_write'],
         yoloMode: {
@@ -180,7 +199,10 @@ describe('wrapThirdPartyMcpToolsWithGate', () => {
     const result = await invokeWrapped(wrapped as unknown as FakeTool, {
       file_path: '/secrets/prod.key',
     });
-    expect(result).toContain('YOLO-mode denylist');
+    expect(result).toMatchObject({
+      isError: true,
+      error: { message: expect.stringContaining('YOLO-mode denylist') },
+    });
     expect(requestPermissionApprovalViaIpc).not.toHaveBeenCalled();
     expect(underlying.invoke).not.toHaveBeenCalled();
   });

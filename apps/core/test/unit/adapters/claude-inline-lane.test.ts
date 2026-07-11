@@ -221,6 +221,7 @@ describe('Claude inline lane', () => {
       status: 'error',
       result: null,
       error: 'Structured output did not match the schema.',
+      structuredOutputValidationFailure: true,
     });
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
   });

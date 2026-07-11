@@ -26,6 +26,7 @@ export type InlineAgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 type InlineAgentOutputFrame = RunnerOutputFrame & {
   failure?: AgentFailureMetadata;
+  structuredOutputValidationFailure?: true;
 };
 
 export function inlineAgentMaxTurnsError(
@@ -194,12 +195,23 @@ export function createInlineAgentLoopLaneDispatcher(input: {
           }
         },
       });
-      if (output.status === 'error') {
+      if (
+        output.status === 'error' &&
+        output.structuredOutputValidationFailure !== true
+      ) {
         await laneInput.emitOutput(output);
         return output;
       }
 
-      const validation = validateResponse(output.result, validate);
+      const validation =
+        output.status === 'error'
+          ? {
+              valid: false as const,
+              error:
+                output.error ??
+                'the provider could not produce output matching response_schema',
+            }
+          : validateResponse(output.result, validate);
       if (validation.valid) {
         await laneInput.emitOutput(output);
         return output;

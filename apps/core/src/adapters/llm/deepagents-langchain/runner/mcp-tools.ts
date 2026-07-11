@@ -5,16 +5,20 @@ import { tool, type StructuredToolInterface } from '@langchain/core/tools';
 
 import { buildGantryMcpProjection } from './gantry-mcp-env.js';
 import {
+  canonicalThirdPartyMcpToolName,
   wrapThirdPartyMcpToolsWithGate,
   type ThirdPartyMcpGateConfig,
 } from './third-party-mcp-gate.js';
 import {
   createGantryShellTool,
   GANTRY_SHELL_TOOL_NAME,
+  SHELL_POLICY_TOOL_NAME,
 } from './gantry-shell-tool.js';
 import {
   createGantryFacadeTools,
   DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES,
+  gantryFacadePolicyToolRequest,
+  type DeepAgentsFacadeToolName,
 } from './gantry-facade-tools.js';
 import { isHostPrivateBrowserMcpServerName } from '../../../../shared/agent-tool-references.js';
 import { isRunCommandToolRule } from '../../../../shared/gantry-tool-facades.js';
@@ -158,29 +162,49 @@ export async function connectGantryAndThirdPartyMcpTools(
     ...DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES,
   ]);
 
-  const thirdPartyTools: StructuredToolInterface[] = [];
+  const thirdPartyToolEntries: DeclarativeToolEntry[] = [];
   for (const [name, tools] of Object.entries(serverTools)) {
     if (name === GANTRY_SERVER_NAME) continue;
-    thirdPartyTools.push(
-      ...dropCollidingThirdPartyTools(name, tools, reservedToolNames),
+    const gated = wrapThirdPartyMcpToolsWithGate(
+      dropCollidingThirdPartyTools(name, tools, reservedToolNames),
+      name,
+      {
+        ...input.gate,
+        configuredAllowedTools: input.configuredAllowedTools,
+      },
+    );
+    thirdPartyToolEntries.push(
+      ...gated.map((tool) => ({
+        tool,
+        canonicalName: () => canonicalThirdPartyMcpToolName(name, tool.name),
+      })),
     );
   }
-  const gatedThirdPartyTools = wrapThirdPartyMcpToolsWithGate(thirdPartyTools, {
-    ...input.gate,
-    configuredAllowedTools: input.configuredAllowedTools,
-  });
 
   const shellTools = projectGantryShellTool(input);
 
-  const tools = [
-    ...gantryTools,
-    ...facadeTools,
-    ...gatedThirdPartyTools,
-    ...shellTools,
+  const toolEntries: DeclarativeToolEntry[] = [
+    ...gantryTools.map((tool) => ({
+      tool,
+      canonicalName: () => tool.name,
+    })),
+    ...facadeTools.map((tool) => ({
+      tool,
+      canonicalName: (toolInput: unknown) =>
+        gantryFacadePolicyToolRequest(
+          tool.name as DeepAgentsFacadeToolName,
+          toolInput,
+        ).toolName,
+    })),
+    ...thirdPartyToolEntries,
+    ...shellTools.map((tool) => ({
+      tool,
+      canonicalName: () => SHELL_POLICY_TOOL_NAME,
+    })),
   ];
   return {
     tools: wrapWithDeclarativeToolRules(
-      tools,
+      toolEntries,
       input.toolRules,
       input.toolSuccessLedger,
       input.onToolRuleDenial,
@@ -189,25 +213,31 @@ export async function connectGantryAndThirdPartyMcpTools(
   };
 }
 
+interface DeclarativeToolEntry {
+  tool: StructuredToolInterface;
+  canonicalName: (input: unknown) => string;
+}
+
 function wrapWithDeclarativeToolRules(
-  tools: StructuredToolInterface[],
+  entries: DeclarativeToolEntry[],
   rules?: readonly DeclarativeToolRule[],
   successLedger?: RunScopedToolSuccessLedger,
   onDenial?: ConnectGantryMcpInput['onToolRuleDenial'],
 ): StructuredToolInterface[] {
-  if (!rules?.length) return tools;
-  return tools.map(
-    (underlying) =>
+  if (!rules?.length) return entries.map(({ tool }) => tool);
+  return entries.map(
+    ({ tool: underlying, canonicalName }) =>
       tool(
         async (input, config) => {
+          const toolName = canonicalName(input);
           const denial = evaluateDeclarativeToolRules({
-            toolName: underlying.name,
+            toolName,
             toolInput: input,
             rules,
             successLedger,
           });
           if (denial) {
-            onDenial?.(underlying.name, denial);
+            onDenial?.(toolName, denial);
             return {
               content: [{ type: 'text', text: denial.error.message }],
               isError: true,
@@ -216,7 +246,7 @@ function wrapWithDeclarativeToolRules(
           }
           const result = await underlying.invoke(input as never, config);
           if (!toolResultIsError(result)) {
-            successLedger?.recordSuccess(underlying.name);
+            successLedger?.recordSuccess(toolName);
           }
           return result;
         },

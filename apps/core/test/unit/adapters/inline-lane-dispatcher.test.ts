@@ -143,6 +143,92 @@ describe('inline lane dispatcher', () => {
     );
   });
 
+  it('retries a lane-marked structured-output error exactly once', async () => {
+    const claudeLane = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'error',
+        result: null,
+        error: 'Provider structured output validation failed: answer required',
+        structuredOutputValidationFailure: true,
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: '{"answer":"corrected"}',
+      });
+    const input = laneInput(DEFAULT_AGENT_ENGINE);
+    input.input.responseSchema = responseSchema();
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane,
+      deepAgentsLane: vi.fn(),
+      createCoreTools: () => ({ tools: [] }) as never,
+      getEgressDenylist: () => [],
+    });
+
+    await expect(dispatcher(input)).resolves.toMatchObject({
+      status: 'success',
+      result: '{"answer":"corrected"}',
+    });
+    expect(claudeLane).toHaveBeenCalledTimes(2);
+    expect(claudeLane.mock.calls[1]?.[0].input.prompt).toMatch(
+      /Provider structured output validation failed: answer required/,
+    );
+  });
+
+  it('keeps non-schema lane errors terminal when response_schema is present', async () => {
+    const claudeLane = vi.fn(async () => ({
+      status: 'error' as const,
+      result: null,
+      error: 'Provider authentication failed',
+    }));
+    const input = laneInput(DEFAULT_AGENT_ENGINE);
+    input.input.responseSchema = responseSchema();
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane,
+      deepAgentsLane: vi.fn(),
+      createCoreTools: () => ({ tools: [] }) as never,
+      getEgressDenylist: () => [],
+    });
+
+    await expect(dispatcher(input)).resolves.toMatchObject({
+      status: 'error',
+      error: 'Provider authentication failed',
+    });
+    expect(claudeLane).toHaveBeenCalledOnce();
+  });
+
+  it('carries the last candidate when lane-marked schema retries exhaust', async () => {
+    const claudeLane = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'error',
+        result: '{"wrong":"first"}',
+        error: 'First structured output validation failure',
+        structuredOutputValidationFailure: true,
+      })
+      .mockResolvedValueOnce({
+        status: 'error',
+        result: '{"wrong":"last"}',
+        error: 'Last structured output validation failure',
+        structuredOutputValidationFailure: true,
+      });
+    const input = laneInput(DEFAULT_AGENT_ENGINE);
+    input.input.responseSchema = responseSchema();
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane,
+      deepAgentsLane: vi.fn(),
+      createCoreTools: () => ({ tools: [] }) as never,
+      getEgressDenylist: () => [],
+    });
+
+    await expect(dispatcher(input)).resolves.toMatchObject({
+      status: 'error',
+      result: '{"wrong":"last"}',
+      failure: { partialResult: '{"wrong":"last"}' },
+    });
+    expect(claudeLane).toHaveBeenCalledTimes(2);
+  });
+
   it('returns the Tier-1 failure metadata with the last candidate after retry exhaustion', async () => {
     const claudeLane = vi
       .fn()

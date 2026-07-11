@@ -680,12 +680,13 @@ function responseFormatForSchema(
 function structuredOutputError(
   error: unknown,
   newSessionId: string,
-): RunnerOutputFrame {
+): RunnerOutputFrame & { structuredOutputValidationFailure: true } {
   const detail = error instanceof Error ? ` ${error.message}` : '';
   return {
     status: 'error',
     result: null,
     error: `Inline structured output failed schema validation.${detail}`,
+    structuredOutputValidationFailure: true,
     newSessionId,
   };
 }

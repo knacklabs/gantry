@@ -685,6 +685,7 @@ Always mention the migration impact.
       status: 'error',
       result: null,
       error: expect.stringMatching(/structured output.*schema validation/i),
+      structuredOutputValidationFailure: true,
     });
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
   });

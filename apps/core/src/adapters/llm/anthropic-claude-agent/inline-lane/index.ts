@@ -593,11 +593,12 @@ function jsonString(value: unknown): string | undefined {
 function structuredOutputError(
   error: string,
   newSessionId?: string,
-): RunnerOutputFrame {
+): RunnerOutputFrame & { structuredOutputValidationFailure: true } {
   return {
     status: 'error',
     result: null,
     error,
+    structuredOutputValidationFailure: true,
     ...(newSessionId ? { newSessionId } : {}),
   };
 }
