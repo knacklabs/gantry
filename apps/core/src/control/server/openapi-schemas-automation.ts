@@ -81,6 +81,31 @@ const arrayEnvelope = (name: string, itemRef: string): JsonSchema =>
   });
 
 export const automationOpenApiSchemas: Record<string, JsonSchema> = {
+  UsageAggregate: {
+    type: 'object',
+    required: ['requestCount', 'inputTokens', 'outputTokens'],
+    additionalProperties: false,
+    properties: {
+      requestCount: { type: 'integer', minimum: 0 },
+      inputTokens: { type: 'integer', minimum: 0 },
+      outputTokens: { type: 'integer', minimum: 0 },
+      agentId: { type: 'string' },
+      apiKeyId: { type: 'string' },
+      model: { type: 'string' },
+      day: { type: 'string', format: 'date' },
+    },
+  },
+  UsageQueryResponse: {
+    type: 'object',
+    required: ['usage'],
+    additionalProperties: false,
+    properties: {
+      usage: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/UsageAggregate' },
+      },
+    },
+  },
   Job: {
     type: 'object',
     required: ['id', 'name', 'status', 'kind'],

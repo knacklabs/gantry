@@ -59,6 +59,7 @@ import { prepareCompactionDeltaReplay } from './group-agent-runner-compaction-de
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
 import { hasAsyncTaskRepository } from './group-agent-runner-async-task-repository.js';
 import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const DEFAULT_TURN_APP_ID = 'default';
@@ -268,26 +269,29 @@ export function createGroupAgentRunner(input: {
     };
     const wrappedOnOutput = async (output: AgentOutput) => {
       await persistProviderSessionFromOutput(output);
+      defaultRuntimeModel ??=
+        group.agentConfig?.model ?? defaultInteractiveModel;
       if (output.usage) {
         recordRuntimeModelUsage({
           group,
           threadId: sessionThreadId,
           usage: output.usage,
           usageEventId: output.usageEventId,
-          getDefaultModel: () => {
-            defaultRuntimeModel ??=
-              group.agentConfig?.model ?? defaultInteractiveModel;
-            return defaultRuntimeModel;
-          },
+          getDefaultModel: () => defaultRuntimeModel,
+        });
+        (output.runtimeEvents ??= []).push({
+          eventType: RUNTIME_EVENT_TYPES.MODEL_USAGE,
+          payload: {
+            usage: output.usage,
+            usageEventId: output.usageEventId,
+            modelAlias: output.usage.model ?? defaultRuntimeModel,
+            providerId: output.usage.provider,
+          } satisfies import('../domain/events/events.js').NormalizedUsageEventPayload,
         });
       }
       if (output.contextUsage) {
         modelStatus.updateSelection({
-          ...defaultModelStatusSelection(
-            group.agentConfig?.model ??
-              (defaultRuntimeModel ??=
-                group.agentConfig?.model ?? defaultInteractiveModel),
-          ),
+          ...defaultModelStatusSelection(defaultRuntimeModel),
           selectionSource: group.agentConfig?.model
             ? 'session override'
             : 'chat default',

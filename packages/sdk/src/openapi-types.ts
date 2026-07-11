@@ -87,6 +87,9 @@ export type ListRunsQuery = Query<'listRuns'>;
 export type ListRunsResponse = JsonResponse<'listRuns', 200>;
 export type GetRunResponse = JsonResponse<'getRun', 200>;
 
+export type QueryUsageQuery = Query<'queryUsage'>;
+export type QueryUsageResponse = JsonResponse<'queryUsage', 200>;
+
 export type ListProvidersResponse = JsonResponse<'listProviders', 200>;
 export type CreateProviderAccountResponse = JsonResponse<
   'createProviderAccount',

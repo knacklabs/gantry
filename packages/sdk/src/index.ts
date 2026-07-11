@@ -398,6 +398,14 @@ export class GantryClient {
       }),
   };
 
+  readonly usage = {
+    query: (input: OpenApi.QueryUsageQuery) =>
+      this.transport.request<OpenApi.QueryUsageResponse>({
+        method: 'GET',
+        path: `/v1/usage${querySuffix(input)}`,
+      }),
+  };
+
   readonly skills = createSkillsClient({ request: this.request });
   readonly mcpServers = mcpServerClients.createMcpServersClient({
     request: this.request,

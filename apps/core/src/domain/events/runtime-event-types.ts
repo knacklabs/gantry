@@ -47,6 +47,7 @@ export const RUNTIME_EVENT_TYPES = {
   EGRESS_CONNECT: 'egress.connect',
   MCP_TOOL_ACTIVITY: 'mcp.tool_activity',
   SANDBOX_BLOCKED: 'sandbox.blocked',
+  MODEL_USAGE: 'model.usage',
   RUN_STARTED: 'run.started',
   RUN_STARTUP_DIAGNOSTIC: 'run.startup_diagnostic',
   RUN_FAILOVER: 'run.failover',

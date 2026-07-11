@@ -26,6 +26,7 @@ import { handleSessionRoutes } from '@core/control/server/routes/sessions.js';
 import { handleSettingsRoutes } from '@core/control/server/routes/settings.js';
 import { handleSkillRoutes } from '@core/control/server/routes/skills.js';
 import { handleSystemRoutes } from '@core/control/server/routes/system.js';
+import { handleUsageRoutes } from '@core/control/server/routes/usage.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
 
 const expectedControlRoutes = [
@@ -130,6 +131,7 @@ const expectedControlRoutes = [
   'GET /v1/skills/{skillId}/files',
   'GET /v1/skills/{skillId}/files/{filePath}',
   'GET /v1/triggers/{triggerId}/wait',
+  'GET /v1/usage',
   'GET /v1/webhooks',
   'POST /v1/webhooks',
   'DELETE /v1/webhooks/{webhookId}',
@@ -282,6 +284,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleJobRoutes(req, res, ctx, url, pathname),
     () => handleExternalIngressRoutes(req, res, ctx, pathname),
     () => handleRunRoutes(req, res, ctx, url, pathname),
+    () => handleUsageRoutes(req, res, ctx, url, pathname),
     () => handleSettingsRoutes(req, res, ctx, pathname),
     () => handleSkillRoutes(req, res, ctx, url, pathname),
     () => handleMcpServerRoutes(req, res, ctx, url, pathname),
@@ -480,6 +483,31 @@ describe('control OpenAPI documentation', () => {
       operationId: 'getStatus',
       'x-gantry-required-scopes': ['agents:admin'],
     });
+    expect(spec.paths['/v1/usage']?.get).toMatchObject({
+      operationId: 'queryUsage',
+      'x-gantry-required-scopes': ['usage:read'],
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UsageQueryResponse' },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.paths['/v1/usage']?.get.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'from', required: true }),
+        expect.objectContaining({ name: 'to', required: true }),
+        expect.objectContaining({
+          name: 'group_by',
+          schema: expect.objectContaining({
+            enum: ['agent', 'api_key', 'model', 'day'],
+          }),
+        }),
+      ]),
+    );
     expect(spec.paths['/v1/sessions/{sessionId}/messages']?.post).toMatchObject(
       {
         operationId: 'sendSessionMessage',

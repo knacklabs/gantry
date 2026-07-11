@@ -31,6 +31,7 @@ import {
   type ModelProviderDefinition,
 } from '../../../shared/model-provider-registry.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
+import { normalizeModelUsage } from '../../../shared/model-usage.js';
 import {
   assertProviderPathAllowed,
   injectProviderAuth,
@@ -480,6 +481,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       req.off('aborted', onClientAbort);
       res.off('close', onClientAbort);
     }
+    const usage = await extractGatewayResponseUsage(response, body);
     await this.publishGatewayUseAudit(tokenRecord, {
       outcome: response.ok ? 'forwarded' : 'upstream_error',
       method: req.method ?? 'GET',
@@ -487,6 +489,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       upstreamHost: upstreamUrl.host,
       upstreamPath: upstreamUrl.pathname,
       credentialFingerprint: credential.fingerprint,
+      usage,
     });
     res.statusCode = response.status;
     response.headers.forEach((value, key) => {
@@ -509,6 +512,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       upstreamHost?: string;
       upstreamPath?: string;
       credentialFingerprint?: string;
+      usage?: ReturnType<typeof normalizeModelUsage>;
     },
   ): Promise<void> {
     if (!this.audit) return;
@@ -540,6 +544,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
             : {}),
           ...(input.upstreamHost ? { upstreamHost: input.upstreamHost } : {}),
           ...(input.upstreamPath ? { upstreamPath: input.upstreamPath } : {}),
+          usage: input.usage,
+          modelAlias: input.usage?.model,
         },
       });
     } catch (err) {
@@ -596,6 +602,32 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         this.tokens.delete(token);
       }
     }
+  }
+}
+
+export async function extractGatewayResponseUsage(
+  response: Response,
+  requestBody: Buffer,
+) {
+  if (!response.ok) return undefined;
+  if (response.headers.get('content-type')?.includes('text/event-stream'))
+    return undefined;
+  try {
+    const requestJson = requestBody.toString('utf8');
+    const request = JSON.parse(requestJson) as Record<string, unknown>;
+    if (request.stream === true) return undefined;
+    const payload = (await response.clone().json()) as Record<string, unknown>;
+    return normalizeModelUsage({
+      message: payload,
+      fallbackModel:
+        typeof payload.model === 'string'
+          ? payload.model
+          : typeof request.model === 'string'
+            ? request.model
+            : undefined,
+    });
+  } catch {
+    return undefined;
   }
 }
 
