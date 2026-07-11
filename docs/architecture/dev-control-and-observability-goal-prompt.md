@@ -282,7 +282,10 @@ autoreview result (`python3 ~/.claude/skills/autoreview/scripts/autoreview
   `apps/core/src/control/server/webhook-delivery.ts`, OpenAPI modules under
   `apps/core/src/control/server/` (routes + schemas)
 - `apps/core/src/adapters/storage/postgres/**` (webhook subscription fields,
-  outbox consumer)
+  outbox consumer, and the webhook persistence seam:
+  `apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts`,
+  `apps/core/src/adapters/storage/postgres/schema/control-plane-records.postgres.ts`,
+  `apps/core/src/adapters/storage/postgres/schema/control-plane-canonical.postgres.ts`)
 - `apps/core/src/domain/events/**` (pending-interaction event, envelope fields)
 - `packages/sdk/**` (generated types + adoption), root/workspace package.json
   scripts for generation/drift check
