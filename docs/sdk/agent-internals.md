@@ -148,6 +148,22 @@ Postgres is the runtime store:
 - Postgres full-text search remains the always-available retrieval path and the lexical fallback when query embedding is unavailable.
 - Control events, messages, jobs, runs, triggers, sessions, webhooks, deliveries, and memory records are first-party Gantry tables.
 
+## Tool Errors
+
+Gantry's built-in tools return a structured error envelope alongside the MCP
+`isError` flag: `category` (`transient | validation | business | permission`),
+`isRetryable`, and a human-readable message. Agents use it to decide between
+retry, alternative approaches, and escalation instead of guessing from prose.
+
+Remote MCP tools called through `mcp_call_tool` keep their nested `isError` and
+`structuredContent` — a failing remote tool is visible to the agent as a
+failure, so remote MCP servers should return accurate `isError` flags and
+structured error detail rather than encoding failures as plain success text.
+
+Delegated subagent tasks that fail carry typed failure metadata (failure type,
+what was attempted, partial results when available) through `task_get` and the
+parent agent's tool result, instead of a generic failure string.
+
 ## Event Contract
 
 Every control event has:
