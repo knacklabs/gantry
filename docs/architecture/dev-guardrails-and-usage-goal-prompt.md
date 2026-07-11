@@ -152,8 +152,20 @@ autoreview clean result (branch mode vs origin/main), remaining risks.
 ## Bounded Write Scope
 
 - `apps/core/src/config/settings/**` (tool_rules parsing + reader version)
-- `apps/core/src/runner/tool-gate-core.ts` + the gate call sites that thread
-  the run-scoped ledger (name them before editing if outside listed files)
+- `apps/core/src/runner/tool-gate-core.ts` + the rule threading and
+  post-execution ledger seams: `apps/core/src/runtime/agent-spawn-types.ts`,
+  `apps/core/src/runtime/agent-spawn-host.ts`,
+  `apps/core/src/runtime/agent-inline.ts`,
+  `apps/core/src/runtime/core-tools/registry.ts`,
+  `apps/core/src/app/bootstrap/inline-agent-loop-tools.ts`,
+  `apps/core/src/adapters/llm/anthropic-claude-agent/runner/types.ts`,
+  `apps/core/src/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.ts`,
+  `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts`,
+  `apps/core/src/adapters/llm/deepagents-langchain/runner/types.ts`,
+  `apps/core/src/adapters/llm/deepagents-langchain/runner/deep-agent-runner.ts`,
+  `apps/core/src/adapters/llm/deepagents-langchain/runner/mcp-tools.ts`
+  (success is only observable at the tool-result seams; rules ride the run
+  input contracts)
 - `apps/core/src/control/server/routes/sessions.ts` (schema compile),
   shared lane boundary modules for validation-retry
   (`apps/core/src/adapters/llm/**` lane output paths)
