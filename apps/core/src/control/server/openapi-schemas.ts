@@ -263,9 +263,13 @@ export const openApiSchemas: Record<string, JsonSchema> = {
   },
   HealthResponse: {
     type: 'object',
-    required: ['status', 'transport', 'features'],
+    required: ['status', 'processRole', 'transport', 'features'],
     properties: {
       status: { type: 'string', example: 'ok' },
+      processRole: {
+        type: 'string',
+        enum: ['all', 'control', 'live-worker', 'job-worker'],
+      },
       transport: metadata,
       features: metadata,
     },
@@ -572,7 +576,10 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       appId: { type: 'string', description: 'Optional API key app assertion.' },
       conversationId: { type: 'string' },
       title: { type: 'string' },
-      responseMode: { type: 'string', enum: ['sse', 'webhook'] },
+      responseMode: {
+        type: 'string',
+        enum: ['sse', 'webhook', 'both', 'none'],
+      },
       webhookId: { type: 'string' },
     },
   },
@@ -586,21 +593,6 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       chatJid: { type: 'string' },
     },
   },
-  SessionDetails: metadata,
-  SessionMessage: {
-    type: 'object',
-    required: ['messageId', 'sessionId', 'senderId', 'message', 'createdAt'],
-    properties: {
-      messageId: { type: 'string' },
-      sessionId: { type: 'string' },
-      senderId: { type: 'string' },
-      senderName: { type: 'string' },
-      message: { type: 'string' },
-      threadId: { type: 'string' },
-      createdAt: isoDateTime,
-    },
-  },
-  SessionMessageListResponse: arrayEnvelope('messages', 'SessionMessage'),
   SendSessionMessageRequest: {
     type: 'object',
     required: ['message'],
@@ -610,7 +602,10 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       senderName: { type: 'string', default: 'SDK' },
       threadId: { type: 'string' },
       correlationId: { type: 'string' },
-      responseMode: { type: 'string', enum: ['sse', 'webhook'] },
+      responseMode: {
+        type: 'string',
+        enum: ['sse', 'webhook', 'both', 'none'],
+      },
       webhookId: { type: 'string' },
       response_schema: {
         type: 'object',
@@ -666,15 +661,6 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     },
   },
   RuntimeEventListResponse: arrayEnvelope('events', 'RuntimeEvent'),
-  WaitEventResponse: {
-    allOf: [
-      { $ref: '#/components/schemas/RuntimeEvent' },
-      {
-        type: 'object',
-        properties: { afterEventId: { type: 'integer' } },
-      },
-    ],
-  },
   Run: {
     type: 'object',
     required: ['run_id', 'job_id', 'status'],

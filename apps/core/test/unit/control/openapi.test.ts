@@ -489,6 +489,22 @@ describe('control OpenAPI documentation', () => {
     expect(spec.paths['/llm/v1/messages']?.post).toMatchObject({
       operationId: 'invokeLlmMessages',
       'x-gantry-required-scopes': ['llm:invoke'],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/LlmMessagesRequest' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LlmMessagesResponse' },
+            },
+          },
+        },
+      },
     });
     expect(spec.paths['/llm/v1/messages']?.post.description).toContain(
       'Rejects provider-side server tools',
@@ -532,11 +548,119 @@ describe('control OpenAPI documentation', () => {
     expect(spec.paths['/llm/v1/chat/completions']?.post.description).toContain(
       'Rejects hosted provider tools',
     );
+    expect(spec.paths['/llm/v1/chat/completions']?.post).toMatchObject({
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/LlmChatCompletionsRequest',
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/LlmChatCompletionsResponse',
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.components.schemas.LlmMessagesRequest).toMatchObject({
+      required: ['model', 'messages', 'max_tokens'],
+      additionalProperties: false,
+      properties: {
+        max_tokens: { type: 'integer', minimum: 1 },
+        stream: { type: 'boolean' },
+      },
+    });
+    expect(spec.components.schemas.LlmChatCompletionsRequest).toMatchObject({
+      required: ['model', 'messages'],
+      additionalProperties: false,
+      properties: {
+        max_tokens: { type: 'integer', minimum: 1 },
+        max_completion_tokens: { type: 'integer', minimum: 1 },
+        stream: { type: 'boolean' },
+      },
+    });
     expect(
       spec.paths['/v1/sessions/{sessionId}/messages']?.post.requestBody.content[
         'application/json'
       ].schema,
     ).toEqual({ $ref: '#/components/schemas/SendSessionMessageRequest' });
+    expect(spec.components.schemas.SessionDetails).toMatchObject({
+      required: ['session', 'providerSession'],
+      additionalProperties: false,
+      properties: {
+        session: {
+          required: ['id', 'appId', 'agentId', 'status', 'createdAt', 'updatedAt'], // prettier-ignore
+          additionalProperties: false,
+        },
+        providerSession: { oneOf: expect.any(Array) },
+      },
+    });
+    const responseModes = ['sse', 'webhook', 'both', 'none'];
+    expect(
+      spec.components.schemas.SessionEnsureRequest.properties.responseMode,
+    ).toEqual({ type: 'string', enum: responseModes });
+    expect(
+      spec.components.schemas.SendSessionMessageRequest.properties.responseMode,
+    ).toEqual({ type: 'string', enum: responseModes });
+    expect(spec.components.schemas.SessionMessage).toMatchObject({
+      required: [
+        'id',
+        'appId',
+        'conversationId',
+        'direction',
+        'trust',
+        'createdAt',
+        'parts',
+        'attachments',
+      ],
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string' },
+        direction: {
+          enum: ['inbound', 'outbound', 'system', 'tool'],
+        },
+        parts: { type: 'array' },
+        attachments: { type: 'array' },
+      },
+    });
+    expect(
+      spec.components.schemas.SessionMessage.properties,
+    ).not.toHaveProperty('messageId');
+    expect(
+      spec.paths['/v1/sessions/{sessionId}/events']?.get.responses['200']
+        .content['application/json'].schema,
+    ).toEqual({
+      $ref: '#/components/schemas/SessionRuntimeEventListResponse',
+    });
+    expect(spec.components.schemas.SessionRuntimeEvent).toMatchObject({
+      required: expect.arrayContaining([
+        'eventId',
+        'eventType',
+        'sessionId',
+        'threadId',
+        'correlationId',
+        'createdAt',
+        'payload',
+      ]),
+      properties: {
+        sessionId: { type: ['string', 'null'] },
+        threadId: { type: ['string', 'null'] },
+        correlationId: { type: ['string', 'null'] },
+      },
+    });
+    expect(
+      spec.paths['/v1/sessions/{sessionId}/wait']?.get.responses['200'].content[
+        'application/json'
+      ].schema,
+    ).toEqual({ $ref: '#/components/schemas/SessionWaitEventResponse' });
     expect(
       spec.components.schemas.SendSessionMessageRequest.properties
         .response_schema,
@@ -551,6 +675,41 @@ describe('control OpenAPI documentation', () => {
       thinking: { oneOf: expect.any(Array) },
       max_output_tokens: { type: 'integer', minimum: 1 },
     });
+    expect(
+      spec.paths['/v1/sessions/{sessionId}/wait']?.get.parameters,
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'timeoutMs',
+        schema: { type: 'integer', minimum: 1000, maximum: 300000 },
+      }),
+    );
+    expect(spec.components.schemas.HealthResponse).toMatchObject({
+      required: ['status', 'processRole', 'transport', 'features'],
+      properties: {
+        processRole: {
+          type: 'string',
+          enum: ['all', 'control', 'live-worker', 'job-worker'],
+        },
+      },
+    });
+    expect(spec.components.schemas.MemoryDreamingTriggerRequest).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        subjectType: {
+          enum: ['user', 'group', 'channel', 'common'],
+        },
+        phase: { enum: ['light', 'rem', 'deep', 'all'] },
+        dryRun: { type: 'boolean' },
+        timeoutMs: { type: 'number', minimum: 0 },
+        deadlineAtMs: { type: 'number', minimum: 0 },
+      },
+    });
+    expect(spec.paths['/v1/memory']?.get.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'includeCommon',
+        schema: { type: 'boolean', default: true },
+      }),
+    );
     expect(
       spec.paths['/v1/jobs']?.post.responses['201'].content['application/json']
         .schema,

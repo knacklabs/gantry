@@ -39,6 +39,25 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List jobs',
     'Lists jobs visible to the API key app scope.',
     ['jobs:read'],
+    {
+      parameters: [
+        query('status', 'Status filters; repeat for multiple values.', {
+          type: 'array',
+          items: { type: 'string' },
+        }),
+        query('workspaceKey', 'Workspace key filter.'),
+        query('agentId', 'Agent id filter.'),
+        query('kind', 'Job kind filter.', {
+          type: 'string',
+          enum: ['manual', 'once', 'recurring'],
+        }),
+        query('conversationJid', 'Conversation JID filter.'),
+        query('limit', 'Maximum number of jobs.', {
+          type: 'integer',
+          minimum: 1,
+        }),
+      ],
+    },
   ),
   doc(
     'post',
@@ -88,7 +107,23 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List job events',
     'Lists persisted runtime events for a job.',
     ['jobs:read'],
-    { parameters: [ids.job] },
+    {
+      parameters: [
+        ids.job,
+        query('run', 'Run id filter.'),
+        query('runId', 'Run id filter alias.'),
+        query('eventType', 'Runtime event type filter.'),
+        query('sinceId', 'Return events after this event id.', {
+          type: 'integer',
+          minimum: 1,
+        }),
+        query('since', 'Return events after this timestamp.'),
+        query('limit', 'Maximum number of events.', {
+          type: 'integer',
+          minimum: 1,
+        }),
+      ],
+    },
   ),
   doc(
     'post',
@@ -128,7 +163,16 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Wait for trigger completion',
     'Long-polls for a previously accepted job trigger.',
     ['jobs:read'],
-    { parameters: [ids.trigger] },
+    {
+      parameters: [
+        ids.trigger,
+        query('timeoutMs', 'Timeout in milliseconds.', {
+          type: 'integer',
+          minimum: 1000,
+          maximum: 300000,
+        }),
+      ],
+    },
   ),
   doc(
     'get',
@@ -316,6 +360,28 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List memory items',
     'Lists app-scoped memory items with optional subject filters.',
     ['memory:read'],
+    {
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id filter.'),
+        query('userId', 'User id filter.'),
+        query('groupId', 'Group id filter.'),
+        query('channelId', 'Channel id filter.'),
+        query('threadId', 'Thread id filter.'),
+        query('q', 'Text query.'),
+        query('limit', 'Maximum number of memory items.', {
+          type: 'number',
+        }),
+        query('includeCommon', 'Include common memory.', {
+          type: 'boolean',
+          default: true,
+        }),
+        query('subjectType', 'Subject type filters.', {
+          type: 'array',
+          items: { type: 'string' },
+        }),
+      ],
+    },
   ),
   doc(
     'post',
@@ -355,7 +421,18 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Delete memory item',
     'Deletes a memory item in the requested subject scope.',
     ['memory:admin'],
-    { body: 'none', parameters: [ids.memory] },
+    {
+      body: 'none',
+      parameters: [
+        ids.memory,
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id filter.'),
+        query('userId', 'User id filter.'),
+        query('groupId', 'Group id filter.'),
+        query('channelId', 'Channel id filter.'),
+        query('threadId', 'Thread id filter.'),
+      ],
+    },
   ),
   doc(
     'post',
@@ -375,6 +452,12 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Get memory dreaming status',
     'Returns recent memory dreaming runs.',
     ['memory:read'],
+    {
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id filter.'),
+      ],
+    },
   ),
   doc(
     'post',
@@ -404,6 +487,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List skills',
     'Lists installed skill records.',
     ['skills:read'],
+    { parameters: [query('agentId', 'Agent id filter.')] },
   ),
   doc(
     'post',
@@ -413,7 +497,15 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Install skill',
     'Installs a zip package as a local skill.',
     ['skills:admin'],
-    { body: 'zip', status: '201' },
+    {
+      body: 'zip',
+      status: '201',
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id to bind after install.'),
+        query('createdBy', 'Installer identity.'),
+      ],
+    },
   ),
   doc(
     'get',
@@ -473,6 +565,20 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List MCP servers',
     'Lists MCP server definitions, optionally filtered by status.',
     ['mcp:read'],
+    {
+      parameters: [
+        query('status', 'Server status filter.', {
+          type: 'string',
+          enum: ['active', 'disabled'],
+        }),
+        query('limit', 'Maximum number of servers.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 500,
+        }),
+        query('cursor', 'Pagination cursor.'),
+      ],
+    },
   ),
   doc(
     'post',

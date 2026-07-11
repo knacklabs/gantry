@@ -10,15 +10,11 @@ export type RouteDoc = {
   summary: string;
   description: string;
   scopes?: string[];
-  status?: '200' | '201' | '202';
+  status?: '200' | '201' | '202' | '409';
   body?: BodyKind;
   parameters?: JsonSchema[];
 };
 
-export const jsonObject = {
-  type: 'object',
-  additionalProperties: true,
-} as const;
 export const errors: Record<string, JsonSchema> = {
   '400': { $ref: '#/components/responses/BadRequest' },
   '401': { $ref: '#/components/responses/Unauthorized' },
@@ -34,12 +30,16 @@ const id = (name: string, description: string): JsonSchema => ({
   description,
   schema: { type: 'string' },
 });
-export const query = (name: string, description: string): JsonSchema => ({
+export const query = (
+  name: string,
+  description: string,
+  schema: JsonSchema = { type: 'string' },
+): JsonSchema => ({
   name,
   in: 'query',
   required: false,
   description,
-  schema: { type: 'string' },
+  schema,
 });
 
 export const ids = {

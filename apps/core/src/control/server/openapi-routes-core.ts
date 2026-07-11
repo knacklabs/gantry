@@ -142,7 +142,7 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
     'Attempt a settings mutation',
     'The typed settings API is read-only and returns SETTINGS_READ_ONLY.',
     ['agents:admin'],
-    { body: 'json' },
+    { body: 'json', status: '409' },
   ),
   doc(
     'get',
@@ -300,7 +300,14 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
     'Lists durable session message history.',
     ['sessions:read'],
     {
-      parameters: [ids.session, query('limit', 'Maximum number of messages.')],
+      parameters: [
+        ids.session,
+        query('limit', 'Maximum number of messages.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+        }),
+      ],
     },
   ),
   doc(
@@ -321,7 +328,15 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
     'List or stream session events',
     'Returns JSON history or Server-Sent Events.',
     ['sessions:read'],
-    { parameters: [ids.session, query('afterEventId', 'Event cursor.')] },
+    {
+      parameters: [
+        ids.session,
+        query('afterEventId', 'Event cursor.', {
+          type: 'integer',
+          minimum: 0,
+        }),
+      ],
+    },
   ),
   doc(
     'get',
@@ -334,8 +349,15 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
     {
       parameters: [
         ids.session,
-        query('afterEventId', 'Event cursor.'),
-        query('timeoutMs', 'Timeout in milliseconds.'),
+        query('afterEventId', 'Event cursor.', {
+          type: 'integer',
+          minimum: 0,
+        }),
+        query('timeoutMs', 'Timeout in milliseconds.', {
+          type: 'integer',
+          minimum: 1000,
+          maximum: 300000,
+        }),
       ],
     },
   ),
@@ -347,7 +369,16 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
     'List session runs',
     'Lists runtime runs associated with a session.',
     ['sessions:read'],
-    { parameters: [ids.session] },
+    {
+      parameters: [
+        ids.session,
+        query('limit', 'Maximum number of runs.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+        }),
+      ],
+    },
   ),
   doc(
     'get',
@@ -484,7 +515,11 @@ export const coreOpenApiRouteDocs: RouteDoc[] = [
         ids.conversation,
         query('threadId', 'Thread or topic id.'),
         query('after', 'Cursor or timestamp.'),
-        query('limit', 'Maximum number of messages.'),
+        query('limit', 'Maximum number of messages.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+        }),
       ],
     },
   ),

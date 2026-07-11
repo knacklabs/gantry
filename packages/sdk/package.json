@@ -41,6 +41,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "emit:openapi": "node --import tsx scripts/emit-openapi.ts",
+    "generate": "node --import tsx scripts/generate-openapi-types.ts",
+    "check:generated": "node --import tsx scripts/generate-openapi-types.ts --check"
   }
 }

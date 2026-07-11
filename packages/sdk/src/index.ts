@@ -17,9 +17,9 @@ import type {
   MemorySaveInput,
   MemorySearchInput,
   RequestOptions,
-  SessionEventEnvelope,
   SseEvent,
 } from './types.js';
+import type * as OpenApi from './openapi-types.js';
 import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
@@ -30,7 +30,6 @@ import { createModelsClient } from './models.js';
 import type {
   CreateJobInput,
   CreateJobResponse,
-  JobEventRecord,
   JobRecord,
   JobTriggerWaitResult,
   ListJobEventsInput,
@@ -61,25 +60,7 @@ export type {
   ModelPreviewResponse,
   UpdateJobInput,
 } from './job-model-types.js';
-export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
-export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
-export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
-
-export type ProcessRole = 'all' | 'control' | 'live-worker' | 'job-worker';
-
-export interface HealthResponse {
-  status: string;
-  processRole: ProcessRole;
-  transport:
-    | { kind: 'tcp'; port: number }
-    | { kind: 'unix'; socketPath: string };
-  features: {
-    sessions: boolean;
-    jobs: boolean;
-    events: boolean;
-    webhooks: boolean;
-  };
-}
+export type * from './openapi-types.js';
 
 export interface GantryError extends Error {
   code: string;
@@ -292,14 +273,14 @@ export class GantryClient {
   }
 
   health() {
-    return this.transport.request<HealthResponse>({
+    return this.transport.request<OpenApi.HealthResponse>({
       method: 'GET',
       path: '/v1/health',
     });
   }
 
   doctor() {
-    return this.transport.request<{ status: string; checks: unknown[] }>({
+    return this.transport.request<OpenApi.DoctorResponse>({
       method: 'GET',
       path: '/v1/doctor',
     });
@@ -308,71 +289,36 @@ export class GantryClient {
   readonly settings = createSettingsClient({ request: this.request });
 
   readonly sessions = {
-    ensure: (input: {
-      appId?: string;
-      conversationId: string;
-      title?: string;
-      responseMode?: ResponseMode;
-      webhookId?: string;
-    }) =>
-      this.transport.request<{
-        sessionId: string;
-        appId: string;
-        conversationId: string;
-        chatJid: string;
-      }>({
+    ensure: (input: OpenApi.EnsureSessionRequest) =>
+      this.transport.request<OpenApi.EnsureSessionResponse>({
         method: 'POST',
         path: '/v1/sessions/ensure',
         body: input,
       }),
-    sendMessage: (input: {
-      sessionId: string;
-      message: string;
-      senderId?: string;
-      senderName?: string;
-      threadId?: string;
-      correlationId?: string;
-      responseMode?: ResponseMode;
-      webhookId?: string;
-    }) =>
-      this.transport.request<{
-        accepted: boolean;
-        messageId: string;
-        acceptedEventId: number;
-      }>({
+    sendMessage: ({ sessionId, ...body }: OpenApi.SendSessionMessageInput) =>
+      this.transport.request<OpenApi.SendSessionMessageResponse>({
         method: 'POST',
-        path: `/v1/sessions/${encodeURIComponent(input.sessionId)}/messages`,
-        body: input,
+        path: `/v1/sessions/${encodeURIComponent(sessionId)}/messages`,
+        body,
       }),
-    listEvents: (sessionId: string, afterEventId?: number) =>
-      this.transport.request<{
-        events: SessionEventEnvelope[];
-      }>({
+    listEvents: (
+      sessionId: string,
+      afterEventId?: OpenApi.ListSessionEventsQuery['afterEventId'],
+    ) =>
+      this.transport.request<OpenApi.ListSessionEventsResponse>({
         method: 'GET',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/events${afterEventId ? `?afterEventId=${afterEventId}` : ''}`,
       }),
     stream: (
       sessionId: string,
-      input: { afterEventId?: number; signal?: AbortSignal } = {},
+      input: OpenApi.SessionEventStreamOptions = {},
     ) =>
       this.transport.stream(
         `/v1/sessions/${encodeURIComponent(sessionId)}/events${input.afterEventId ? `?afterEventId=${input.afterEventId}` : ''}`,
         input.signal,
       ),
-    wait: (
-      sessionId: string,
-      input: { afterEventId?: number; timeoutMs?: number } = {},
-    ) =>
-      this.transport.request<{
-        eventId: number;
-        eventType: string;
-        sessionId: string | null;
-        threadId: string | null;
-        correlationId: string | null;
-        payload: unknown;
-        createdAt: string;
-        afterEventId?: number;
-      }>({
+    wait: (sessionId: string, input: OpenApi.WaitForSessionEventQuery = {}) =>
+      this.transport.request<OpenApi.WaitForSessionEventResponse>({
         method: 'GET',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/wait?afterEventId=${input.afterEventId || 0}&timeoutMs=${input.timeoutMs || 60_000}`,
       }),
@@ -386,7 +332,7 @@ export class GantryClient {
         body: input,
       }),
     list: (input?: ListJobsInput) =>
-      this.transport.request<{ jobs: JobRecord[] }>({
+      this.transport.request<OpenApi.ListJobsResponse>({
         method: 'GET',
         path: `/v1/jobs${jobListQuery(input)}`,
       }),
@@ -402,7 +348,7 @@ export class GantryClient {
         body: patch,
       }),
     events: (jobId: string, input: ListJobEventsInput = {}) =>
-      this.transport.request<{ events: JobEventRecord[] }>({
+      this.transport.request<OpenApi.ListJobEventsResponse>({
         method: 'GET',
         path: `/v1/jobs/${encodeURIComponent(jobId)}/events${querySuffix({
           run: input.runId,
@@ -413,22 +359,22 @@ export class GantryClient {
         })}`,
       }),
     delete: (jobId: string) =>
-      this.transport.request<{ deleted: boolean }>({
+      this.transport.request<OpenApi.DeleteJobResponse>({
         method: 'DELETE',
         path: `/v1/jobs/${encodeURIComponent(jobId)}`,
       }),
     pause: (jobId: string) =>
-      this.transport.request<{ paused: boolean }>({
+      this.transport.request<OpenApi.PauseJobResponse>({
         method: 'POST',
         path: `/v1/jobs/${encodeURIComponent(jobId)}/pause`,
       }),
     resume: (jobId: string) =>
-      this.transport.request<{ resumed: boolean }>({
+      this.transport.request<OpenApi.ResumeJobResponse>({
         method: 'POST',
         path: `/v1/jobs/${encodeURIComponent(jobId)}/resume`,
       }),
     trigger: (jobId: string) =>
-      this.transport.request<{ triggerId: string }>({
+      this.transport.request<OpenApi.TriggerJobResponse>({
         method: 'POST',
         path: `/v1/jobs/${encodeURIComponent(jobId)}/trigger`,
       }),
@@ -440,13 +386,13 @@ export class GantryClient {
   };
 
   readonly runs = {
-    list: (jobId?: string) =>
-      this.transport.request<{ runs: unknown[] }>({
+    list: (jobId?: OpenApi.ListRunsQuery['jobId']) =>
+      this.transport.request<OpenApi.ListRunsResponse>({
         method: 'GET',
         path: `/v1/runs${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`,
       }),
     get: (runId: string) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<OpenApi.GetRunResponse>({
         method: 'GET',
         path: `/v1/runs/${encodeURIComponent(runId)}`,
       }),
@@ -459,7 +405,7 @@ export class GantryClient {
 
   readonly providers = {
     list: () =>
-      this.transport.request<{ providers: unknown[] }>({
+      this.transport.request<OpenApi.ListProvidersResponse>({
         method: 'GET',
         path: '/v1/providers',
       }),
@@ -467,32 +413,29 @@ export class GantryClient {
 
   readonly providerAccounts = {
     create: (input: ProviderAccountInput) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<OpenApi.CreateProviderAccountResponse>({
         method: 'POST',
         path: '/v1/provider-accounts',
         body: input,
       }),
     list: () =>
-      this.transport.request<{ providerAccounts: unknown[] }>({
+      this.transport.request<OpenApi.ListProviderAccountsResponse>({
         method: 'GET',
         path: '/v1/provider-accounts',
       }),
     get: (providerAccountId: string) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<OpenApi.GetProviderAccountResponse>({
         method: 'GET',
         path: `/v1/provider-accounts/${encodeURIComponent(providerAccountId)}`,
       }),
     update: (providerAccountId: string, patch: ProviderAccountPatch) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<OpenApi.UpdateProviderAccountResponse>({
         method: 'PATCH',
         path: `/v1/provider-accounts/${encodeURIComponent(providerAccountId)}`,
         body: patch,
       }),
     delete: (providerAccountId: string) =>
-      this.transport.request<{
-        deleted: boolean;
-        providerAccount?: unknown;
-      }>({
+      this.transport.request<OpenApi.DisableProviderAccountResponse>({
         method: 'DELETE',
         path: `/v1/provider-accounts/${encodeURIComponent(providerAccountId)}`,
       }),
@@ -500,7 +443,7 @@ export class GantryClient {
       providerAccountId: string,
       input: ConversationDiscoveryInput = {},
     ) =>
-      this.transport.request<{ conversations: unknown[] }>({
+      this.transport.request<OpenApi.DiscoverProviderConversationsResponse>({
         method: 'POST',
         path: `/v1/provider-accounts/${encodeURIComponent(providerAccountId)}/discover-conversations`,
         body: input,
@@ -508,32 +451,35 @@ export class GantryClient {
   };
 
   readonly conversations = {
-    list: (input: { providerAccountId?: string } = {}) =>
-      this.transport.request<{ conversations: unknown[] }>({
+    list: (input: OpenApi.ListConversationsQuery = {}) =>
+      this.transport.request<OpenApi.ListConversationsResponse>({
         method: 'GET',
         path: `/v1/conversations${querySuffix(input)}`,
       }),
     get: (conversationId: string) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<OpenApi.GetConversationResponse>({
         method: 'GET',
         path: `/v1/conversations/${encodeURIComponent(conversationId)}`,
       }),
     getApprovers: (conversationId: string) =>
-      this.transport.request<{ approvers: { userIds: string[] } }>({
+      this.transport.request<OpenApi.ListConversationApproversResponse>({
         method: 'GET',
         path: `/v1/conversations/${encodeURIComponent(conversationId)}/approvers`,
       }),
-    setApprovers: (conversationId: string, userIds: string[]) =>
-      this.transport.request<{ approvers: { userIds: string[] } }>({
+    setApprovers: (
+      conversationId: string,
+      userIds: OpenApi.ReplaceConversationApproversRequest['userIds'],
+    ) =>
+      this.transport.request<OpenApi.ReplaceConversationApproversResponse>({
         method: 'PUT',
         path: `/v1/conversations/${encodeURIComponent(conversationId)}/approvers`,
         body: { userIds },
       }),
     messages: (
       conversationId: string,
-      input: { threadId?: string; after?: string; limit?: number } = {},
+      input: OpenApi.ListConversationMessagesQuery = {},
     ) =>
-      this.transport.request<{ messages: unknown[] }>({
+      this.transport.request<OpenApi.ListConversationMessagesResponse>({
         method: 'GET',
         path: `/v1/conversations/${encodeURIComponent(conversationId)}/messages${querySuffix(input)}`,
       }),
@@ -547,7 +493,7 @@ export class GantryClient {
     }),
     conversationInstalls: {
       list: (agentId: string) =>
-        this.transport.request<{ conversationInstalls: unknown[] }>({
+        this.transport.request<OpenApi.ListConversationInstallsResponse>({
           method: 'GET',
           path: `/v1/agents/${encodeURIComponent(agentId)}/conversation-installs`,
         }),
@@ -556,7 +502,7 @@ export class GantryClient {
         conversationId: string,
         input: ConversationInstallInput = {},
       ) =>
-        this.transport.request<Record<string, unknown>>({
+        this.transport.request<OpenApi.EnableConversationInstallResponse>({
           method: 'PUT',
           path: `/v1/agents/${encodeURIComponent(agentId)}/conversation-installs/${encodeURIComponent(conversationId)}`,
           body: input,
@@ -566,7 +512,7 @@ export class GantryClient {
         conversationId: string,
         patch: ConversationInstallInput,
       ) =>
-        this.transport.request<Record<string, unknown>>({
+        this.transport.request<OpenApi.UpdateConversationInstallResponse>({
           method: 'PATCH',
           path: `/v1/agents/${encodeURIComponent(agentId)}/conversation-installs/${encodeURIComponent(conversationId)}`,
           body: patch,
@@ -574,12 +520,9 @@ export class GantryClient {
       disable: (
         agentId: string,
         conversationId: string,
-        input: { threadId?: string } = {},
+        input: OpenApi.DisableConversationInstallQuery = {},
       ) =>
-        this.transport.request<{
-          disabled: boolean;
-          conversationInstall?: unknown;
-        }>({
+        this.transport.request<OpenApi.DisableConversationInstallResponse>({
           method: 'DELETE',
           path: `/v1/agents/${encodeURIComponent(agentId)}/conversation-installs/${encodeURIComponent(conversationId)}${querySuffix(input)}`,
         }),
@@ -587,53 +530,40 @@ export class GantryClient {
   };
 
   readonly webhooks = {
-    register: (input: {
-      name: string;
-      url: string;
-      secret?: string;
-      enabled?: boolean;
-    }) =>
-      this.transport.request<Record<string, unknown>>({
+    register: (input: OpenApi.WebhookRequest) =>
+      this.transport.request<OpenApi.CreateWebhookResponse>({
         method: 'POST',
         path: '/v1/webhooks',
         body: input,
       }),
     list: () =>
-      this.transport.request<{ webhooks: unknown[] }>({
+      this.transport.request<OpenApi.ListWebhooksResponse>({
         method: 'GET',
         path: '/v1/webhooks',
       }),
-    update: (
-      webhookId: string,
-      patch: {
-        name?: string;
-        url?: string;
-        secret?: string;
-        enabled?: boolean;
-      },
-    ) =>
-      this.transport.request<Record<string, unknown>>({
+    update: (webhookId: string, patch: OpenApi.UpdateWebhookRequest) =>
+      this.transport.request<OpenApi.UpdateWebhookResponse>({
         method: 'PATCH',
         path: `/v1/webhooks/${encodeURIComponent(webhookId)}`,
         body: patch,
       }),
     delete: (webhookId: string) =>
-      this.transport.request<{ deleted: boolean }>({
+      this.transport.request<OpenApi.DeleteWebhookResponse>({
         method: 'DELETE',
         path: `/v1/webhooks/${encodeURIComponent(webhookId)}`,
       }),
     test: (webhookId: string) =>
-      this.transport.request<{ accepted: boolean; eventId: number }>({
+      this.transport.request<OpenApi.TestWebhookResponse>({
         method: 'POST',
         path: `/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
       }),
     replayDeadLetter: (webhookId: string) =>
-      this.transport.request<{ replayed: number }>({
+      this.transport.request<OpenApi.ReplayWebhookDeadLettersResponse>({
         method: 'POST',
         path: `/v1/webhooks/${encodeURIComponent(webhookId)}/replay-dead-letter`,
       }),
     purgeDeadLetter: (webhookId: string) =>
-      this.transport.request<{ purged: number }>({
+      this.transport.request<OpenApi.PurgeWebhookDeadLettersResponse>({
         method: 'POST',
         path: `/v1/webhooks/${encodeURIComponent(webhookId)}/purge-dead-letter`,
       }),
@@ -641,49 +571,42 @@ export class GantryClient {
 
   readonly memory = {
     save: (input: MemorySaveInput) =>
-      this.transport.request<{ memory: unknown }>({
+      this.transport.request<OpenApi.CreateMemoryResponse>({
         method: 'POST',
         path: '/v1/memory',
         body: input,
       }),
     search: (input: MemorySearchInput) =>
-      this.transport.request<{ results: unknown[] }>({
+      this.transport.request<OpenApi.SearchMemoryResponse>({
         method: 'POST',
         path: '/v1/memory/search',
         body: input,
       }),
     list: (input: MemorySearchInput = {}) =>
-      this.transport.request<{ memories: unknown[] }>({
+      this.transport.request<OpenApi.ListMemoryResponse>({
         method: 'GET',
         path: `/v1/memory${querySuffix(input)}`,
       }),
     patch: (memoryId: string, patch: MemoryPatchInput) =>
-      this.transport.request<{ memory: unknown }>({
+      this.transport.request<OpenApi.PatchMemoryResponse>({
         method: 'PATCH',
         path: `/v1/memory/${encodeURIComponent(memoryId)}`,
         body: patch,
       }),
     delete: (memoryId: string, input: MemoryContext = {}) =>
-      this.transport.request<{ deleted: boolean }>({
+      this.transport.request<OpenApi.DeleteMemoryResponse>({
         method: 'DELETE',
         path: `/v1/memory/${encodeURIComponent(memoryId)}${querySuffix(input)}`,
       }),
     dreaming: {
-      trigger: (
-        input: MemoryContext & {
-          subjectType?: MemorySubjectType;
-          subjectId?: string;
-          phase?: DreamPhase;
-          dryRun?: boolean;
-        } = {},
-      ) =>
-        this.transport.request<{ run: unknown }>({
+      trigger: (input: OpenApi.TriggerMemoryDreamingRequest = {}) =>
+        this.transport.request<OpenApi.TriggerMemoryDreamingResponse>({
           method: 'POST',
           path: '/v1/memory/dreaming/trigger',
           body: input,
         }),
       status: (input: MemoryContext = {}) =>
-        this.transport.request<{ runs: unknown[] }>({
+        this.transport.request<OpenApi.MemoryDreamingStatusResponse>({
           method: 'GET',
           path: `/v1/memory/dreaming/status${querySuffix(input)}`,
         }),
