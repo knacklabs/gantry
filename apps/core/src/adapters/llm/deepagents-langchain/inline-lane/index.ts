@@ -89,6 +89,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
     }
     if (laneInput.signal.aborted) return abortedOutput();
     const maxTurns = laneInput.maxTurns ?? DEFAULT_INLINE_AGENT_MAX_TURNS;
+    const toolsDisabled = laneInput.input.disableTools === true;
     const skillProjection = await resolveDeepAgentSkillProjection({
       selectedSkillIds: laneInput.input.attachedSkillSourceIds,
       skillRepository: laneInput.skillRepository,
@@ -180,7 +181,9 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           ? READONLY_SKILLS_FILESYSTEM
           : DENY_ALL_FILESYSTEM,
         subagents: [],
-        tools: tools as StructuredToolInterface[] as never,
+        tools: toolsDisabled
+          ? []
+          : (tools as StructuredToolInterface[] as never),
         middleware: [
           memoryMiddleware,
           ...(skillProjection
@@ -192,7 +195,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
               ]
             : []),
           createBuiltinToolExclusionMiddleware({
-            exposeSkillReadTools: hasProjectedSkills,
+            exposeSkillReadTools: hasProjectedSkills && !toolsDisabled,
           }),
         ] as never,
         systemPrompt: inlineSystemPrompt(laneInput),

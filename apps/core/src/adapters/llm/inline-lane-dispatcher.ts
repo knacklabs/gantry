@@ -65,6 +65,7 @@ export interface AdapterInlineAgentInput {
   runLeaseToken?: string;
   runLeaseFencingVersion?: number;
   responseSchema?: Record<string, unknown>;
+  disableTools?: boolean;
 }
 
 export interface AdapterInlineControlPort {
@@ -232,6 +233,7 @@ export function createInlineAgentLoopLaneDispatcher(input: {
         input: {
           ...laneInput.input,
           prompt: `${laneInput.input.prompt}\n\nYour previous response failed response_schema validation. Validation error: ${validation.error}\nReturn one corrected JSON response matching response_schema.`,
+          disableTools: true,
         },
       };
     }

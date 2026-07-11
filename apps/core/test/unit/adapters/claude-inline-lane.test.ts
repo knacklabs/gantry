@@ -226,6 +226,41 @@ describe('Claude inline lane', () => {
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
   });
 
+  it('does not project tools during response_schema repair', async () => {
+    sdk.query.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          ...resultMessage('structured-repair', 'ignored text'),
+          structured_output: { answer: 'repaired' },
+        };
+      },
+    }));
+    const input = laneInput({
+      input: {
+        ...laneInput().input,
+        responseSchema: { type: 'object' },
+        disableTools: true,
+      },
+    });
+
+    await runClaudeInlineAgentLoopLane(input);
+
+    const options = sdk.query.mock.calls[0]?.[0].options;
+    expect(options.allowedTools).toEqual([]);
+    expect(options.mcpServers).toEqual({});
+    expect(sdk.createServer).not.toHaveBeenCalled();
+    await expect(
+      options.canUseTool(
+        'mcp__gantry__send_message',
+        {},
+        {
+          signal: input.signal,
+          toolUseID: 'repair-tool',
+        },
+      ),
+    ).resolves.toMatchObject({ behavior: 'deny' });
+  });
+
   it('emits and returns a named max_turns terminal error', async () => {
     sdk.query.mockImplementation(() => ({
       async *[Symbol.asyncIterator]() {

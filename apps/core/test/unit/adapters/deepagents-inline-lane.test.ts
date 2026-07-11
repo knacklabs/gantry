@@ -690,6 +690,35 @@ Always mention the migration impact.
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
   });
 
+  it('does not project tools during response_schema repair', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          event: 'on_chain_end',
+          data: { output: { structuredResponse: { answer: 'repaired' } } },
+        };
+      },
+    }));
+    const base = laneInput();
+    const input = laneInput({
+      input: {
+        ...base.input,
+        responseSchema: { type: 'object' },
+        disableTools: true,
+      },
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    await lane(input);
+
+    expect(deep.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: [] }),
+    );
+  });
+
   it('uses PostgresSaver, LangChain core tools, remote MCP, and continuations', async () => {
     const preparedMemoryContext = [
       '<gantry_memory_context trust="untrusted_data_only">hydrated continuity</gantry_memory_context>',

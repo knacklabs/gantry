@@ -129,9 +129,11 @@ describe('inline lane dispatcher', () => {
       result: '{"answer":"corrected"}',
     });
     expect(claudeLane).toHaveBeenCalledTimes(2);
+    expect(claudeLane.mock.calls[0]?.[0].input.disableTools).toBeUndefined();
     expect(claudeLane.mock.calls[1]?.[0]).toMatchObject({
       input: {
         prompt: expect.stringMatching(/validation.*required.*answer/is),
+        disableTools: true,
       },
     });
     // corrective retry must not resume the invalid attempt's provider session

@@ -21,6 +21,12 @@ describe('Claude query loop usage event IDs', () => {
 });
 
 describe('Claude query loop declarative tool names', () => {
+  it('canonicalizes first-party Gantry MCP names to bare rule names', () => {
+    expect(canonicalGantryToolRuleName('mcp__gantry__send_message')).toBe(
+      'send_message',
+    );
+  });
+
   it.each([
     'mcp__gantry__delegate_task',
     'mcp__gantry__task_message',
@@ -34,5 +40,9 @@ describe('Claude query loop declarative tool names', () => {
     expect(canonicalGantryToolRuleName('mcp__crm__delete')).toBe(
       'mcp__crm__delete',
     );
+  });
+
+  it('keeps native tool names unchanged', () => {
+    expect(canonicalGantryToolRuleName('Bash')).toBe('Bash');
   });
 });

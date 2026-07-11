@@ -70,6 +70,7 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
   if (input.signal.aborted) return abortedOutput();
   const maxTurns = input.maxTurns ?? DEFAULT_INLINE_AGENT_MAX_TURNS;
   const responseSchema = input.input.responseSchema;
+  const toolsDisabled = input.input.disableTools === true;
   const configuredControls = resolveConfiguredAgentControlOptions(
     input.configuredThinking,
     input.effort,
@@ -151,14 +152,21 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         skills: [],
         settingSources: [],
         tools: [],
-        allowedTools: [
-          ...input.coreTools.tools.map(
-            ({ name }) => `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
-          ),
-        ],
+        allowedTools: toolsDisabled
+          ? []
+          : input.coreTools.tools.map(
+              ({ name }) => `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
+            ),
         permissionMode: 'dontAsk',
         hooks: remoteMcpAuditHooks(input, toolActivity),
         canUseTool: async (toolName, toolInput, options) => {
+          if (toolsDisabled) {
+            return {
+              behavior: 'deny',
+              message: `Tool ${toolName} is unavailable during response_schema repair.`,
+              toolUseID: options.toolUseID,
+            };
+          }
           const isCoreTool = input.coreTools.tools.some(
             ({ name }) => toolName === `mcp__${CORE_MCP_SERVER_NAME}__${name}`,
           );
@@ -197,15 +205,20 @@ export const runClaudeInlineAgentLoopLane: ProviderInlineAgentLoopLane = async (
         },
         includePartialMessages: true,
         strictMcpConfig: true,
-        mcpServers: {
-          [CORE_MCP_SERVER_NAME]: createCoreSdkMcpServer(input, toolActivity),
-          ...Object.fromEntries(
-            remoteMcp.servers.map((server) => [
-              server.name,
-              remoteSdkMcpConfig(server),
-            ]),
-          ),
-        },
+        mcpServers: toolsDisabled
+          ? {}
+          : {
+              [CORE_MCP_SERVER_NAME]: createCoreSdkMcpServer(
+                input,
+                toolActivity,
+              ),
+              ...Object.fromEntries(
+                remoteMcp.servers.map((server) => [
+                  server.name,
+                  remoteSdkMcpConfig(server),
+                ]),
+              ),
+            },
       },
     }) as AsyncIterable<unknown>;
 

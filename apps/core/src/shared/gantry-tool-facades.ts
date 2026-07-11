@@ -17,16 +17,17 @@ const GANTRY_FACADE_EXACT_TOOL_NAME_SET = new Set<string>(
   GANTRY_FACADE_EXACT_TOOL_NAMES,
 );
 const GANTRY_DELEGATION_TOOL_NAME_SET = new Set([
-  'mcp__gantry__delegate_task',
-  'mcp__gantry__task_message',
   'delegate_task',
   'task_message',
 ]);
 
 export function canonicalGantryToolRuleName(toolName: string): string {
-  return GANTRY_DELEGATION_TOOL_NAME_SET.has(toolName)
-    ? 'AgentDelegation'
+  const canonicalToolName = toolName.startsWith('mcp__gantry__')
+    ? toolName.slice('mcp__gantry__'.length)
     : toolName;
+  return GANTRY_DELEGATION_TOOL_NAME_SET.has(canonicalToolName)
+    ? 'AgentDelegation'
+    : canonicalToolName;
 }
 
 const PROVIDER_NATIVE_TOOL_REPLACEMENTS = new Map<string, string>([
