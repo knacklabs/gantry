@@ -79,4 +79,117 @@ describe('inline lane dispatcher', () => {
     expect(deepAgentsLane).toHaveBeenCalledOnce();
     expect(claudeLane).not.toHaveBeenCalled();
   });
+
+  it('returns a valid structured response without another model call', async () => {
+    const claudeLane = vi.fn(async () => ({
+      status: 'success' as const,
+      result: '{"answer":"ok"}',
+    }));
+    const input = laneInput(DEFAULT_AGENT_ENGINE);
+    input.input.responseSchema = responseSchema();
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane,
+      deepAgentsLane: vi.fn(),
+      createCoreTools: () => ({ tools: [] }) as never,
+      getEgressDenylist: () => [],
+    });
+
+    await expect(dispatcher(input)).resolves.toMatchObject({
+      status: 'success',
+      result: '{"answer":"ok"}',
+    });
+    expect(claudeLane).toHaveBeenCalledOnce();
+  });
+
+  it('retries once with validation feedback and returns the corrected response', async () => {
+    const claudeLane = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: '{"wrong":"shape"}',
+        newSessionId: 'session-1',
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: '{"answer":"corrected"}',
+        newSessionId: 'session-1',
+      });
+    const input = laneInput(DEFAULT_AGENT_ENGINE);
+    input.input.responseSchema = responseSchema();
+    const createCoreTools = vi.fn(() => ({ tools: [] }) as never);
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane,
+      deepAgentsLane: vi.fn(),
+      createCoreTools,
+      getEgressDenylist: () => [],
+    });
+
+    await expect(dispatcher(input)).resolves.toMatchObject({
+      status: 'success',
+      result: '{"answer":"corrected"}',
+    });
+    expect(claudeLane).toHaveBeenCalledTimes(2);
+    expect(claudeLane.mock.calls[1]?.[0]).toMatchObject({
+      input: {
+        prompt: expect.stringMatching(/validation.*required.*answer/is),
+      },
+    });
+    // corrective retry must not resume the invalid attempt's provider session
+    expect(claudeLane.mock.calls[1]?.[0].input.sessionId).toBeUndefined();
+    expect(createCoreTools).toHaveBeenCalledOnce();
+    expect(input.emitOutput).toHaveBeenCalledOnce();
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ result: '{"answer":"corrected"}' }),
+    );
+  });
+
+  it('returns the Tier-1 failure metadata with the last candidate after retry exhaustion', async () => {
+    const claudeLane = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: '{"wrong":"first"}',
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: '{"wrong":"last"}',
+      });
+    const input = laneInput(DEFAULT_AGENT_ENGINE);
+    input.input.responseSchema = responseSchema();
+    const dispatcher = createInlineAgentLoopLaneDispatcher({
+      claudeLane,
+      deepAgentsLane: vi.fn(),
+      createCoreTools: () => ({ tools: [] }) as never,
+      getEgressDenylist: () => [],
+    });
+
+    await expect(dispatcher(input)).resolves.toMatchObject({
+      status: 'error',
+      result: '{"wrong":"last"}',
+      error: expect.stringMatching(/failed response_schema validation/i),
+      failure: {
+        type: 'execution',
+        attemptedAction: expect.stringMatching(/response_schema/),
+        partialResult: '{"wrong":"last"}',
+      },
+    });
+    expect(claudeLane).toHaveBeenCalledTimes(2);
+    expect(input.emitOutput).toHaveBeenCalledOnce();
+    expect(input.emitOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'error',
+        failure: expect.objectContaining({
+          partialResult: '{"wrong":"last"}',
+        }),
+      }),
+    );
+  });
 });
+
+function responseSchema(): Record<string, unknown> {
+  return {
+    type: 'object',
+    properties: { answer: { type: 'string' } },
+    required: ['answer'],
+  };
+}

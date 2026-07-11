@@ -1375,6 +1375,30 @@ describe('createGroupProcessor', () => {
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
     });
 
+    it('delivers the last response_schema candidate from structured failure metadata', async () => {
+      const candidate = '{"wrong":"last"}';
+      const { deps, channel } = setupHappyPath({
+        agentOutput: {
+          status: 'error',
+          result: candidate,
+          error: 'Inline response failed response_schema validation',
+          failure: {
+            type: 'execution',
+            attemptedAction: 'Validate inline response against response_schema',
+            partialResult: candidate,
+          },
+        },
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        candidate,
+      );
+    });
+
     it('publishes terminal runner runtime events on error', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];

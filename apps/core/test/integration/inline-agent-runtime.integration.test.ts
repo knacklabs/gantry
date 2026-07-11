@@ -48,6 +48,10 @@ const deep = vi.hoisted(() => ({
 }));
 const model = vi.hoisted(() => ({ build: vi.fn() }));
 const delegatedSpawn = vi.hoisted(() => ({ run: vi.fn() }));
+const structuredAttemptPrompts = {
+  claude: [] as string[],
+  deepAgents: [] as string[],
+};
 
 vi.mock('@core/runtime/agent-spawn.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@core/runtime/agent-spawn.js')>()),
@@ -380,6 +384,8 @@ async function callRemoteTool(
 }
 
 function configureProviderMocks(): void {
+  structuredAttemptPrompts.claude.length = 0;
+  structuredAttemptPrompts.deepAgents.length = 0;
   deep.createAgent.mockReset();
   deep.createAgentMemoryMiddleware.mockReset();
   deep.createAgentMemoryMiddleware.mockReturnValue({
@@ -387,7 +393,7 @@ function configureProviderMocks(): void {
     stateSchema: {},
   });
   deep.createSkillsMiddleware.mockReset();
-  sdk.query.mockImplementation(({ options }) => ({
+  sdk.query.mockImplementation(({ options, prompt }) => ({
     async *[Symbol.asyncIterator]() {
       yield {
         type: 'system',
@@ -395,12 +401,19 @@ function configureProviderMocks(): void {
         session_id: 'claude-inline-session',
       };
       if (options.outputFormat) {
+        const initialPrompt = await (prompt as AsyncIterable<unknown>)
+          [Symbol.asyncIterator]()
+          .next();
+        const structuredAttempt = structuredAttemptPrompts.claude.push(
+          JSON.stringify(initialPrompt.value),
+        );
         yield {
           type: 'result',
           subtype: 'success',
           uuid: 'claude-structured-usage',
           result: '',
-          structured_output: { lane: 'first' },
+          structured_output:
+            structuredAttempt === 1 ? { wrong: 'first' } : { lane: 'first' },
           usage: { input_tokens: 4, output_tokens: 2 },
         };
         return;
@@ -450,11 +463,21 @@ function configureProviderMocks(): void {
   }));
 
   deep.createAgent.mockImplementation(({ tools, responseFormat }) => ({
-    async *streamEvents() {
+    async *streamEvents(input) {
       if (responseFormat) {
+        const structuredAttempt = structuredAttemptPrompts.deepAgents.push(
+          JSON.stringify(input),
+        );
         yield {
           event: 'on_chain_end',
-          data: { output: { structuredResponse: { lane: 'second' } } },
+          data: {
+            output: {
+              structuredResponse:
+                structuredAttempt === 1
+                  ? { wrong: 'second' }
+                  : { lane: 'second' },
+            },
+          },
         };
         return;
       }
@@ -1288,8 +1311,8 @@ maybeDescribe('inline session turns through the control API', () => {
       responseSchema,
     );
 
-    expect(sdk.query).toHaveBeenCalledTimes(2);
-    expect(deep.createAgent).toHaveBeenCalledTimes(2);
+    expect(sdk.query).toHaveBeenCalledTimes(3);
+    expect(deep.createAgent).toHaveBeenCalledTimes(3);
     expect(sdk.query.mock.calls[1]?.[0].options.outputFormat).toEqual({
       type: 'json_schema',
       schema: responseSchema,
@@ -1307,6 +1330,13 @@ maybeDescribe('inline session turns through the control API', () => {
         }),
       }),
     });
+    for (const prompts of Object.values(structuredAttemptPrompts)) {
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).not.toBe(prompts[0]);
+      expect(prompts[1]).toMatch(/validat/i);
+      expect(prompts[1]).toMatch(/required/i);
+      expect(prompts[1]).toContain('lane');
+    }
     expect(mcpCalls).toEqual([{ value: 'claude' }, { value: 'openai' }]);
     expect(gatewayCalls).toContain('/openai/mock');
     expect(channelEffects.outbound.map(({ text }) => text)).toEqual(

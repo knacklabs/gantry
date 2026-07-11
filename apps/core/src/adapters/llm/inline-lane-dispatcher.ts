@@ -1,6 +1,9 @@
+import { Ajv, type AnySchema, type ValidateFunction } from 'ajv';
+
 import type { MaterializedMcpCapability } from '../../application/mcp/mcp-server-service.js';
 import type { LlmProfileResolution } from '../../application/model-resolution/llm-profile-resolution-service.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
+import type { AgentFailureMetadata } from '../../domain/ports/async-tasks.js';
 import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../domain/ports/repositories.js';
 import type {
@@ -13,7 +16,17 @@ import { DEFAULT_AGENT_ENGINE } from '../../shared/agent-engine.js';
 import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 
 export const DEFAULT_INLINE_AGENT_MAX_TURNS = 50;
+const RESPONSE_SCHEMA_RETRY_LIMIT = 1;
+const responseSchemaCompiler = new Ajv({
+  addUsedSchema: false,
+  allErrors: true,
+  strict: false,
+});
 export type InlineAgentEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+type InlineAgentOutputFrame = RunnerOutputFrame & {
+  failure?: AgentFailureMetadata;
+};
 
 export function inlineAgentMaxTurnsError(
   limit: number,
@@ -77,7 +90,7 @@ export interface AdapterInlineAgentLoopLaneInput {
   effort?: InlineAgentEffort;
   configuredThinking?: AgentControlThinking;
   maxOutputTokens?: number;
-  emitOutput(output: RunnerOutputFrame): Promise<void>;
+  emitOutput(output: InlineAgentOutputFrame): Promise<void>;
 }
 
 export interface InlineCoreToolRegistry {
@@ -119,14 +132,14 @@ export interface InlineCoreToolSupport {
 
 export type AdapterInlineAgentLoopLane = (
   input: AdapterInlineAgentLoopLaneInput,
-) => Promise<RunnerOutputFrame>;
+) => Promise<InlineAgentOutputFrame>;
 
 export type ProviderInlineAgentLoopLane = (
   input: AdapterInlineAgentLoopLaneInput & {
     coreTools: InlineCoreToolRegistry;
     egressDenylist: readonly string[];
   },
-) => Promise<RunnerOutputFrame>;
+) => Promise<InlineAgentOutputFrame>;
 
 export function createInlineAgentLoopLaneDispatcher(input: {
   claudeLane: ProviderInlineAgentLoopLane;
@@ -148,10 +161,153 @@ export function createInlineAgentLoopLaneDispatcher(input: {
       laneInput.resolvedModel.value.agentEngine === DEFAULT_AGENT_ENGINE
         ? input.claudeLane
         : input.deepAgentsLane;
-    return lane({
-      ...laneInput,
-      coreTools: input.createCoreTools(laneInput),
-      egressDenylist: input.getEgressDenylist(),
-    });
+    const coreTools = input.createCoreTools(laneInput);
+    const egressDenylist = input.getEgressDenylist();
+    if (!laneInput.input.responseSchema) {
+      return lane({ ...laneInput, coreTools, egressDenylist });
+    }
+
+    let validate: ValidateFunction;
+    try {
+      validate = responseSchemaCompiler.compile(
+        laneInput.input.responseSchema as AnySchema,
+      );
+    } catch (error) {
+      const terminal = responseSchemaFailure(
+        `response_schema could not be compiled: ${errorMessage(error)}`,
+        null,
+        laneInput.input.sessionId,
+      );
+      await laneInput.emitOutput(terminal);
+      return terminal;
+    }
+
+    let attemptInput = laneInput;
+    for (let attempt = 0; ; attempt += 1) {
+      const output = await lane({
+        ...attemptInput,
+        coreTools,
+        egressDenylist,
+        emitOutput: async (frame) => {
+          if (isObservableNonTerminalFrame(frame)) {
+            await laneInput.emitOutput(frame);
+          }
+        },
+      });
+      if (output.status === 'error') {
+        await laneInput.emitOutput(output);
+        return output;
+      }
+
+      const validation = validateResponse(output.result, validate);
+      if (validation.valid) {
+        await laneInput.emitOutput(output);
+        return output;
+      }
+      await emitInvalidAttemptUsage(laneInput.emitOutput, output);
+      if (attempt >= RESPONSE_SCHEMA_RETRY_LIMIT) {
+        const terminal = responseSchemaFailure(
+          `Inline response failed response_schema validation after ${RESPONSE_SCHEMA_RETRY_LIMIT} retry: ${validation.error}`,
+          output.result,
+          output.newSessionId,
+        );
+        await laneInput.emitOutput(terminal);
+        return terminal;
+      }
+
+      attemptInput = {
+        ...laneInput,
+        input: {
+          ...laneInput.input,
+          prompt: `${laneInput.input.prompt}\n\nYour previous response failed response_schema validation. Validation error: ${validation.error}\nReturn one corrected JSON response matching response_schema.`,
+        },
+      };
+    }
   };
+}
+
+function validateResponse(
+  candidate: string | null,
+  validate: ValidateFunction,
+): { valid: true } | { valid: false; error: string } {
+  if (candidate === null) {
+    return { valid: false, error: 'the model returned no candidate text' };
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(candidate);
+  } catch (error) {
+    return {
+      valid: false,
+      error: `candidate is not valid JSON: ${errorMessage(error)}`,
+    };
+  }
+  if (validate(value)) return { valid: true };
+  const errors = validate.errors ?? [];
+  return {
+    valid: false,
+    error:
+      errors
+        .slice(0, 3)
+        .map(
+          (error) =>
+            `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`,
+        )
+        .join('; ') || '/ is invalid',
+  };
+}
+
+function responseSchemaFailure(
+  error: string,
+  candidate: string | null,
+  newSessionId?: string,
+): InlineAgentOutputFrame {
+  return {
+    status: 'error',
+    result: candidate,
+    error,
+    failure: {
+      type: 'execution',
+      attemptedAction: 'Validate inline response against response_schema',
+      partialResult: candidate,
+    },
+    ...(newSessionId ? { newSessionId } : {}),
+  };
+}
+
+async function emitInvalidAttemptUsage(
+  emitOutput: AdapterInlineAgentLoopLaneInput['emitOutput'],
+  frame: InlineAgentOutputFrame,
+): Promise<void> {
+  if (
+    !frame.usage &&
+    !frame.usageEventId &&
+    !frame.contextUsage &&
+    !frame.runtimeEvents?.length
+  ) {
+    return;
+  }
+  await emitOutput({
+    status: 'success',
+    result: null,
+    runtimeEventOnly: true,
+    ...(frame.newSessionId ? { newSessionId: frame.newSessionId } : {}),
+    ...(frame.usage ? { usage: frame.usage } : {}),
+    ...(frame.usageEventId ? { usageEventId: frame.usageEventId } : {}),
+    ...(frame.contextUsage ? { contextUsage: frame.contextUsage } : {}),
+    ...(frame.runtimeEvents ? { runtimeEvents: frame.runtimeEvents } : {}),
+  });
+}
+
+function isObservableNonTerminalFrame(output: RunnerOutputFrame): boolean {
+  return Boolean(
+    output.sessionInit ||
+    output.runtimeEventOnly ||
+    output.compactBoundary ||
+    output.interactionBoundary,
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
