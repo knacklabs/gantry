@@ -123,6 +123,95 @@ describe('core tool registry', () => {
     });
   });
 
+  it.each(['delegate_task', 'task_message'] as const)(
+    'enforces canonical AgentDelegation block rules for %s',
+    async (toolName) => {
+      const backend = taskBackend();
+      const registry = createCoreToolRegistry(
+        registryDeps({
+          context: {
+            sourceAgentFolder: 'main_agent',
+            conversationId: 'conversation:test',
+            toolRules: [
+              {
+                tool: 'AgentDelegation',
+                action: 'block',
+                reason: 'delegation disabled',
+              },
+            ],
+          },
+          taskLifecycleBackend: backend,
+        }),
+      );
+
+      const result = await registry.execute(
+        toolName,
+        toolName === 'delegate_task'
+          ? { objective: 'Investigate' }
+          : { taskId: 'task-1', message: 'Continue' },
+      );
+
+      expect(result).toEqual({
+        content: [
+          {
+            type: 'text',
+            text: 'Denied by Gantry tool rule: delegation disabled',
+          },
+        ],
+        isError: true,
+        error: {
+          category: 'permission',
+          isRetryable: false,
+          message: 'Denied by Gantry tool rule: delegation disabled',
+        },
+      });
+      expect(backend[toolName]).not.toHaveBeenCalled();
+    },
+  );
+
+  it('records successful delegation under the canonical prior-tool name', async () => {
+    const successful = new Set<string>();
+    const backend = taskBackend();
+    const registry = createCoreToolRegistry(
+      registryDeps({
+        context: {
+          sourceAgentFolder: 'main_agent',
+          conversationId: 'conversation:test',
+          allowedToolRules: ['AgentDelegation'],
+          toolRules: [
+            {
+              tool: 'task_message',
+              action: 'require_prior',
+              prior: 'AgentDelegation',
+              reason: 'delegate first',
+            },
+          ],
+          toolSuccessLedger: {
+            recordSuccess: (name) => successful.add(name),
+            hasSuccess: (name) => successful.has(name),
+          },
+        },
+        taskLifecycleBackend: backend,
+      }),
+    );
+
+    await expect(
+      registry.execute('task_message', {
+        taskId: 'task-1',
+        message: 'Continue',
+      }),
+    ).resolves.toMatchObject({ isError: true });
+    await expect(
+      registry.execute('delegate_task', { objective: 'Investigate' }),
+    ).resolves.toEqual({ content: [{ type: 'text', text: 'delegated' }] });
+    await expect(
+      registry.execute('task_message', {
+        taskId: 'task-1',
+        message: 'Continue',
+      }),
+    ).resolves.toEqual({ content: [{ type: 'text', text: 'sent' }] });
+  });
+
   it('records a durable question before the interaction boundary and resolves it after the answer', async () => {
     const order: string[] = [];
     const record = vi.fn(async () => {

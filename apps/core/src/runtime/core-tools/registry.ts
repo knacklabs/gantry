@@ -395,8 +395,11 @@ export function createCoreToolRegistry(deps: CoreToolRegistryDeps): {
       if (gate) return gate;
       try {
         const result = await tool.handler(parsed.data, context);
-        if (!result.isError)
+        if (!result.isError) {
           deps.context.toolSuccessLedger?.recordSuccess(name);
+          const gateName = coreToolGateName(name);
+          if (gateName) deps.context.toolSuccessLedger?.recordSuccess(gateName);
+        }
         return result;
       } catch (error) {
         return errorResult(
@@ -433,18 +436,24 @@ async function gateCoreTool(
   deps: CoreToolRegistryDeps,
   id: (prefix: string) => string,
 ): Promise<McpCompatibleToolResult | null> {
-  const gateName =
-    name === 'delegate_task' || name === 'task_message'
-      ? 'AgentDelegation'
-      : null;
+  const gateName = coreToolGateName(name);
   if (!gateName) return null;
   const precheck = deps.evaluateToolPreChecks({
     toolName: gateName,
     toolInput: args,
     memoryBlock: deps.context.memoryBlock ?? '',
     yoloMode: deps.context.yoloMode,
+    toolRules: deps.context.toolRules,
+    successLedger: deps.context.toolSuccessLedger,
   });
-  if (precheck) return permissionDenied(precheck.reason);
+  if (precheck) {
+    const error = precheck.error ?? {
+      category: 'permission' as const,
+      isRetryable: false,
+      message: precheck.reason,
+    };
+    return errorResult(error.message, error.category, error.isRetryable);
+  }
   const decision = deps.evaluateToolPolicy({
     classifier: new ToolExecutionClassifier(),
     policy: new ToolExecutionPolicyService(),
@@ -561,6 +570,12 @@ async function gateCoreTool(
   return interaction.decision.approved
     ? null
     : permissionDenied(interaction.decision.reason ?? 'request cancelled');
+}
+
+function coreToolGateName(name: CoreToolName): 'AgentDelegation' | null {
+  return name === 'delegate_task' || name === 'task_message'
+    ? 'AgentDelegation'
+    : null;
 }
 
 async function memoryResult(
