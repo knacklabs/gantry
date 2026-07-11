@@ -142,16 +142,18 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
       }
 
       const model = await buildInlineModel(laneInput, sessionId);
-      remoteMcp = await connectRemoteMcpTools(laneInput.mcpServers, {
-        authorizeThirdPartyMcpTool:
-          laneInput.coreTools.authorizeThirdPartyMcpTool,
-        recordThirdPartyMcpToolActivity:
-          laneInput.coreTools.recordThirdPartyMcpToolActivity,
-        egressDenylist: laneInput.egressDenylist,
-        lookupHostname: laneInput.mcpHostnameLookup,
-        signal,
-        toolActivity,
-      });
+      remoteMcp = toolsDisabled
+        ? { tools: [], close: () => Promise.resolve() }
+        : await connectRemoteMcpTools(laneInput.mcpServers, {
+            authorizeThirdPartyMcpTool:
+              laneInput.coreTools.authorizeThirdPartyMcpTool,
+            recordThirdPartyMcpToolActivity:
+              laneInput.coreTools.recordThirdPartyMcpToolActivity,
+            egressDenylist: laneInput.egressDenylist,
+            lookupHostname: laneInput.mcpHostnameLookup,
+            signal,
+            toolActivity,
+          });
       const tools = [
         ...buildCoreLangChainTools(laneInput, toolActivity),
         ...remoteMcp.tools,

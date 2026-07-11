@@ -247,7 +247,9 @@ function wrapWithDeclarativeToolRules(
               error: denial.error,
             };
           }
-          const result = await underlying.invoke(input as never, config);
+          const innerConfig = { ...config };
+          delete innerConfig.toolCall;
+          const result = await underlying.invoke(input as never, innerConfig);
           if (!toolResultIsError(result)) {
             successLedger?.recordSuccess(toolName);
           }
@@ -263,10 +265,19 @@ function wrapWithDeclarativeToolRules(
 }
 
 function toolResultIsError(result: unknown): boolean {
-  return Boolean(
-    result &&
-    typeof result === 'object' &&
-    (result as { isError?: unknown }).isError === true,
+  if (Array.isArray(result)) return result.some(toolResultIsError);
+  if (!result || typeof result !== 'object') return false;
+  const value = result as {
+    isError?: unknown;
+    status?: unknown;
+    error?: unknown;
+    content?: unknown;
+  };
+  return (
+    value.isError === true ||
+    value.status === 'error' ||
+    Boolean(value.error) ||
+    toolResultIsError(value.content)
   );
 }
 

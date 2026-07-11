@@ -717,6 +717,7 @@ Always mention the migration impact.
     expect(deep.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({ tools: [] }),
     );
+    expect(remote.Client.instances).toHaveLength(0);
   });
 
   it('uses PostgresSaver, LangChain core tools, remote MCP, and continuations', async () => {

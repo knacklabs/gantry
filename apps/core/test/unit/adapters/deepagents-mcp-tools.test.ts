@@ -274,7 +274,7 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     await connected.close();
   });
 
-  it('counts only a successful RunCommand toward require_prior', async () => {
+  it('counts only a successful RunCommand with tool-call config toward require_prior', async () => {
     vi.stubEnv('GANTRY_MCP_SERVER_PATH', '/tmp/fake-gantry-mcp.js');
     vi.stubEnv('GANTRY_DEEPAGENTS_SHELL_ENABLED', '1');
     const memorySearch = vi.fn(async () => ({
@@ -309,12 +309,16 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     );
 
     await expect(
-      shell?.invoke({ command: 'false' } as never),
+      shell?.invoke({ command: 'false' } as never, {
+        toolCall: {
+          id: 'failed-run',
+          name: 'RunCommand',
+          args: { command: 'false' },
+          type: 'tool_call',
+        },
+      }),
     ).resolves.toMatchObject({
-      isError: true,
-      content: [
-        { type: 'text', text: expect.stringContaining('exited with code 1') },
-      ],
+      content: expect.stringContaining('"isError":true'),
     });
     await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
       isError: true,
@@ -325,8 +329,15 @@ describe('declarative DeepAgents tool-rule wrapper', () => {
     expect(memorySearch).not.toHaveBeenCalled();
 
     await expect(
-      shell?.invoke({ command: 'echo allowed' } as never),
-    ).resolves.toContain('allowed');
+      shell?.invoke({ command: 'echo allowed' } as never, {
+        toolCall: {
+          id: 'successful-run',
+          name: 'RunCommand',
+          args: { command: 'echo allowed' },
+          type: 'tool_call',
+        },
+      }),
+    ).resolves.toMatchObject({ content: expect.stringContaining('allowed') });
     await expect(guarded?.invoke({} as never)).resolves.toMatchObject({
       content: [{ type: 'text', text: 'results' }],
     });
