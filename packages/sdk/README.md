@@ -73,6 +73,16 @@ endpoints on the running runtime:
 - `client.ingresses` — manage external ingress configurations
 - `conversationMessageTarget` — build a typed signed-ingress target for an existing Gantry conversation/thread.
 
+### Generated OpenAPI types
+
+Request/response types are generated from the runtime's OpenAPI document into
+`src/generated/openapi.ts` (re-exported through `src/openapi-types.ts`) and are
+the single source of truth for wire shapes; the transport stays handwritten.
+Contributors regenerate with `npm run generate --workspace @gantry/sdk`;
+`npm run check:generated --workspace @gantry/sdk` fails on drift between the
+control-server spec and the committed types. The generated file is excluded
+from prettier — the generator owns its formatting.
+
 ### Standalone signing helpers
 
 ```ts
