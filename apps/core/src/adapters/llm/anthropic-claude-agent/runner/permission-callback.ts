@@ -6,6 +6,7 @@ import { formatDuration } from '../../../../shared/human-format.js';
 import { isPlainObject } from '../../../../shared/object.js';
 import { persistentPermissionUpdates } from '../../../../shared/permission-tool-rules.js';
 import { stableSha256Json } from '../../../../shared/stable-hash.js';
+import { AUTO_PERMISSION_CLASSIFIER_WAIT_MS } from '../../../../shared/permission-mode.js';
 import { hasValidIpcResponseSignature } from './ipc-signing.js';
 import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
 import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
@@ -20,8 +21,10 @@ import {
   JOB_RUN_LEASE_FENCING_VERSION,
   JOB_RUN_LEASE_TOKEN,
   IPC_RESPONSE_KEY_ID,
+  PERMISSION_MODE,
   PERMISSION_REQUEST_TIMEOUT_MS,
   PROVIDER_ACCOUNT_ID,
+  TURN_INTENT_SUMMARY,
   resolveWorkspaceIpcDir,
 } from './runtime-env.js';
 import type { PermissionDecision } from './types.js';
@@ -237,6 +240,10 @@ async function requestPermissionApprovalInner(options: {
           }
         : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
+      ...(TURN_INTENT_SUMMARY
+        ? { turnIntentSummary: TURN_INTENT_SUMMARY.slice(0, 1_500) }
+        : {}),
+      unattended: PERMISSION_REQUEST_TIMEOUT_MS <= 0,
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
@@ -260,7 +267,9 @@ async function requestPermissionApprovalInner(options: {
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 
-    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0) {
+    const autoClassifierWait =
+      PERMISSION_REQUEST_TIMEOUT_MS <= 0 && PERMISSION_MODE === 'auto';
+    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0 && !autoClassifierWait) {
       return {
         approved: false,
         reason:
@@ -270,7 +279,10 @@ async function requestPermissionApprovalInner(options: {
     }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
-    const deadline = nowMs() + PERMISSION_REQUEST_TIMEOUT_MS;
+    const waitMs = autoClassifierWait
+      ? AUTO_PERMISSION_CLASSIFIER_WAIT_MS
+      : PERMISSION_REQUEST_TIMEOUT_MS;
+    const deadline = nowMs() + waitMs;
     while (nowMs() < deadline) {
       if (fs.existsSync(responsePath)) {
         try {
@@ -399,7 +411,7 @@ async function requestPermissionApprovalInner(options: {
     }
     return {
       approved: false,
-      reason: `Timed out waiting ${formatDuration(PERMISSION_REQUEST_TIMEOUT_MS)} for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
+      reason: `Timed out waiting ${formatDuration(waitMs)} for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
       decisionClassification: 'user_reject',
     };
   } catch (err) {

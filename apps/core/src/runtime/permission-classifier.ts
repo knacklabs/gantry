@@ -3,6 +3,10 @@ import { ContractMetadataSchema } from '@gantry/contracts';
 import type { AppId } from '../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
+import {
+  isPermissionClassifierEligible,
+  type PermissionClassifierRequestFamily,
+} from '../application/permissions/permission-classifier.js';
 import type {
   MemoryLlmClient,
   MemoryLlmModelProfile,
@@ -14,6 +18,7 @@ import {
   runWithMemoryOperationTimeout,
 } from '../shared/memory-dreaming-timeout.js';
 import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 
 export const PERMISSION_CLASSIFIER_TIMEOUT_MS = 3_000;
 export const PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS = 4_000;
@@ -58,8 +63,8 @@ export interface PermissionClassifierResult {
 export interface PublishPermissionClassifierDecisionInput {
   publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
   appId: RuntimeEventPublishInput['appId'];
-  agentId: NonNullable<RuntimeEventPublishInput['agentId']>;
-  runId: NonNullable<RuntimeEventPublishInput['runId']>;
+  agentId: RuntimeEventPublishInput['agentId'];
+  runId: RuntimeEventPublishInput['runId'];
   jobId?: NonNullable<RuntimeEventPublishInput['jobId']>;
   conversationId?: NonNullable<RuntimeEventPublishInput['conversationId']>;
   threadId?: NonNullable<RuntimeEventPublishInput['threadId']>;
@@ -71,6 +76,34 @@ export interface PublishPermissionClassifierDecisionInput {
   latencyMs: number;
   failureCode?: PermissionClassifierFailureCode;
   suggestionKey?: string;
+}
+
+export interface PermissionClassifierPromptConsultInput {
+  permissionMode: PermissionMode;
+  requestFamily: PermissionClassifierRequestFamily;
+  appId?: string;
+  agentId?: string;
+  agentName?: string;
+  agentFolder: string;
+  runId?: string;
+  jobId?: string;
+  conversationId?: string;
+  threadId?: string;
+  correlationId: string;
+  actor: RuntimeEventPublishInput['actor'];
+  turnIntentSummary: string;
+  canonicalToolName: string;
+  toolInput: unknown;
+  policyDecisionReason: string;
+  classifierConfig: PermissionClassifierRuntimeConfig;
+  signal?: AbortSignal;
+  publishRuntimeEvent: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  classifierConsult?: typeof consultPermissionClassifier;
+}
+
+export interface PermissionClassifierRuntimeConfig {
+  autoModeModel?: string;
+  memoryExtractorModel: string;
 }
 
 const VERDICT_KEYS = new Set(['decision', 'reason']);
@@ -179,6 +212,53 @@ export async function consultPermissionClassifier(
     reason: (verdict.data.reason as string).trim(),
     latencyMs: Date.now() - startedAt,
   };
+}
+
+export async function consultPermissionClassifierBeforePrompt(
+  input: PermissionClassifierPromptConsultInput,
+): Promise<PermissionClassifierResult | undefined> {
+  if (
+    input.permissionMode !== 'auto' ||
+    !isPermissionClassifierEligible(
+      input.canonicalToolName,
+      input.requestFamily,
+    )
+  ) {
+    return undefined;
+  }
+  const result = await (input.classifierConsult ?? consultPermissionClassifier)(
+    {
+      appId: (input.appId ?? 'default') as AppId,
+      agentIdentity: {
+        id: input.agentId ?? input.agentFolder,
+        ...(input.agentName ? { name: input.agentName } : {}),
+        folder: input.agentFolder,
+      },
+      turnIntentSummary: input.turnIntentSummary,
+      canonicalToolName: input.canonicalToolName,
+      toolInput: input.toolInput,
+      policyDecisionReason: input.policyDecisionReason,
+      autoModeModel: input.classifierConfig.autoModeModel,
+      memoryModelConfig: {
+        extractor: input.classifierConfig.memoryExtractorModel,
+      },
+      signal: input.signal,
+    },
+  );
+  await publishPermissionClassifierDecision({
+    publishRuntimeEvent: input.publishRuntimeEvent,
+    appId: (input.appId ?? 'default') as never,
+    agentId: input.agentId as never,
+    runId: input.runId as never,
+    jobId: input.jobId as never,
+    conversationId: input.conversationId as never,
+    threadId: input.threadId as never,
+    correlationId: input.correlationId as never,
+    actor: input.actor,
+    toolName: input.canonicalToolName,
+    ...result,
+  });
+  return result;
 }
 
 function resolveClassifierModel(input: PermissionClassifierInput): {

@@ -474,7 +474,7 @@ async function gateCoreTool(
   if (deps.context.accessPreset === 'locked') {
     return permissionDenied(LOCKED_ACCESS_PRESET_DENY_REASON);
   }
-
+  // Auto classifier omitted: only ineligible AgentDelegation reaches this seam.
   const request: PermissionApprovalRequest = {
     requestId: id('permission'),
     sourceAgentFolder: deps.context.sourceAgentFolder,

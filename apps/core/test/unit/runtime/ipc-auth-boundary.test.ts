@@ -1061,6 +1061,8 @@ describe('validateIpcAuthRequest', () => {
       runLeaseToken: 'lease-token-1',
       runLeaseFencingVersion: 1,
       toolName: 'Bash',
+      unattended: true,
+      turnIntentSummary: 'Inspect the current repository state.',
       decisionOptions: [
         'allow_once',
         'allow_persistent_rule',
@@ -1078,6 +1080,8 @@ describe('validateIpcAuthRequest', () => {
         appId: 'app:one',
         agentId: 'agent:team',
         providerAccountId: 'provider-account:slack:a',
+        unattended: true,
+        turnIntentSummary: 'Inspect the current repository state.',
         chatJid: 'tg:team',
         jobId: 'job-1',
         runId: 'run-1',

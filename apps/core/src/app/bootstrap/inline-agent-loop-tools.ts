@@ -26,6 +26,11 @@ import type {
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { RunAgentOptions } from '../../runtime/agent-spawn-types.js';
 import {
+  consultPermissionClassifierBeforePrompt,
+  type PermissionClassifierPromptConsultInput,
+  type PermissionClassifierRuntimeConfig,
+} from '../../runtime/permission-classifier.js';
+import {
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillContext,
   resolveTurnSemanticCapabilities,
@@ -59,8 +64,15 @@ interface InlineCoreToolHostDeps extends CoreSendMessageDeps {
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   getAgentAccessPreset(folder: string): 'full' | 'locked';
-  getYoloMode(): YoloModeSettings;
+  getPermissionRuntimeSettings(): {
+    permissions: {
+      autoMode: { model?: string };
+      yoloMode: YoloModeSettings;
+    };
+    memory: { llm: { models: { extractor: string } } };
+  };
   getMcpServerRepository(): McpServerRepository | undefined;
   createTaskLifecycleBackend(
     laneInput: InlineAgentLoopLaneInput,
@@ -108,6 +120,13 @@ export function createInlineCoreTools(
   const deps = inlineCoreToolHostDeps;
   if (!deps) throw new Error('Inline core tool host is not configured.');
   const run = laneInput.input;
+  const permissionSettings = deps.getPermissionRuntimeSettings();
+  const autoModeModel = permissionSettings.permissions.autoMode.model;
+  const permissionRuntimeConfig: PermissionClassifierRuntimeConfig = {
+    ...(autoModeModel ? { autoModeModel } : {}),
+    memoryExtractorModel: permissionSettings.memory.llm.models.extractor,
+  };
+  const yoloMode = run.yoloMode ?? permissionSettings.permissions.yoloMode;
   const toolSuccessLedger = run.toolRules?.length
     ? createToolSuccessLedger()
     : undefined;
@@ -131,7 +150,7 @@ export function createInlineCoreTools(
       ...(toolSuccessLedger
         ? { toolRules: run.toolRules, toolSuccessLedger }
         : {}),
-      yoloMode: run.yoloMode ?? deps.getYoloMode(),
+      yoloMode,
       permissionMode: run.permissionMode,
       accessPreset: deps.getAgentAccessPreset(laneInput.group.folder),
     },
@@ -233,7 +252,7 @@ export function createInlineCoreTools(
             toolName: name,
             toolInput,
             memoryBlock: run.memoryContextBlock ?? '',
-            yoloMode: run.yoloMode ?? deps.getYoloMode(),
+            yoloMode,
             toolRules: run.toolRules,
             successLedger: toolSuccessLedger,
           })
@@ -264,7 +283,7 @@ export function createInlineCoreTools(
         toolName: name,
         toolInput,
         memoryBlock: run.memoryContextBlock ?? '',
-        yoloMode: run.yoloMode ?? deps.getYoloMode(),
+        yoloMode,
       });
       if (precheck) return { allowed: false, reason: precheck.reason };
       const decision = support.evaluateToolPolicy({
@@ -277,7 +296,7 @@ export function createInlineCoreTools(
           threadId: run.threadId,
           jobId: run.jobId,
           isScheduledJob: run.isScheduledJob,
-          yoloMode: run.yoloMode ?? deps.getYoloMode(),
+          yoloMode,
         },
         allowedToolRules: [
           ...(run.toolPolicyRules ?? []),
@@ -294,8 +313,34 @@ export function createInlineCoreTools(
             'capability not provisioned: this agent runs with a locked access preset.',
         };
       }
+      const permissionRequestId = `permission-${randomUUID()}`;
+      if (deps.publishRuntimeEvent) {
+        const classifierDecision =
+          await consultPermissionClassifierBeforePrompt({
+            permissionMode: run.permissionMode,
+            requestFamily: 'tool',
+            appId: run.appId,
+            agentId: run.agentId,
+            agentFolder: laneInput.group.folder,
+            runId: run.runId,
+            jobId: run.jobId,
+            conversationId: run.chatJid,
+            threadId: run.threadId,
+            correlationId: permissionRequestId,
+            actor: 'permission',
+            turnIntentSummary: run.prompt,
+            canonicalToolName: name,
+            toolInput,
+            policyDecisionReason: decision.reason,
+            classifierConfig: permissionRuntimeConfig,
+            signal: context?.signal,
+            publishRuntimeEvent: deps.publishRuntimeEvent,
+            classifierConsult: deps.classifierConsult,
+          });
+        if (classifierDecision?.decision === 'allow') return { allowed: true };
+      }
       const request: PermissionApprovalRequest = {
-        requestId: `permission-${randomUUID()}`,
+        requestId: permissionRequestId,
         sourceAgentFolder: laneInput.group.folder,
         appId: run.appId,
         agentId: run.agentId,
@@ -402,7 +447,13 @@ export function wireInlineAgentLoopTools(input: {
   channelWiring: ChannelWiring;
   interactionsEnabled: boolean;
   getAgentAccessPreset(folder: string): 'full' | 'locked';
-  getYoloMode(): YoloModeSettings;
+  getPermissionRuntimeSettings(): {
+    permissions: {
+      autoMode: { model?: string };
+      yoloMode: YoloModeSettings;
+    };
+    memory: { llm: { models: { extractor: string } } };
+  };
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getFileArtifactStore?: CoreSendMessageDeps['getFileArtifactStore'];
   getMcpServerRepository?: () => McpServerRepository | undefined;
@@ -425,6 +476,7 @@ export function wireInlineAgentLoopTools(input: {
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
+  classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
   warn(context: Record<string, unknown>, message: string): void;
 }): {
   requestPermissionApproval: ChannelWiring['requestPermissionApproval'];
@@ -460,8 +512,9 @@ export function wireInlineAgentLoopTools(input: {
     requestPermissionApproval,
     requestUserAnswer,
     getAgentAccessPreset: input.getAgentAccessPreset,
-    getYoloMode: input.getYoloMode,
+    getPermissionRuntimeSettings: input.getPermissionRuntimeSettings,
     getMcpServerRepository: input.getMcpServerRepository ?? (() => undefined),
+    classifierConsult: input.classifierConsult,
     createTaskLifecycleBackend: (laneInput) =>
       createInlineAgentTaskLifecycle({
         laneInput,

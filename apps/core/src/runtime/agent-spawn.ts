@@ -546,6 +546,8 @@ export async function spawnAgent(
       hideAuthorityTools,
       agentAccessPreset: agentAccessPolicy.preset,
       deploymentMode: getDeploymentMode(),
+      permissionMode: input.permissionMode ?? 'ask',
+      turnIntentSummary: input.prompt,
       permissionTimeoutMs: PERMISSION_APPROVAL_TIMEOUT_MS,
       egressProxyUrl: egressGateway.proxyUrl,
       sandboxRuntimeProxy: runnerSandboxProviderId === 'sandbox_runtime',

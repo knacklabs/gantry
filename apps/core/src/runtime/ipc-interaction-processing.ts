@@ -41,11 +41,11 @@ import {
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import {
-  processPermissionIpcRequest,
   processUserQuestionIpcRequest,
   writePermissionIpcResponse,
   writeUserQuestionIpcResponse,
 } from './ipc-interaction-handler.js';
+import { resolvePermissionIpcDecision } from './ipc-permission-classifier-decision.js';
 import {
   permissionDecisionEventType,
   permissionDecisionName,
@@ -225,9 +225,7 @@ export async function processPermissionInteractionIpc(input: {
       payload: requestedContext,
     });
     await assertActiveScheduledPermissionLease(input);
-    const decision = await processPermissionIpcRequest(input.request, {
-      requestPermissionApproval: input.deps.requestPermissionApproval,
-    });
+    const decision = await resolvePermissionIpcDecision(input);
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {
       sourceAgentFolder: input.sourceAgentFolder,

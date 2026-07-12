@@ -44,7 +44,13 @@ function wire(overrides: Record<string, unknown> = {}) {
     },
     interactionsEnabled: true,
     getAgentAccessPreset: () => 'full',
-    getYoloMode: () => ({ enabled: false }),
+    getPermissionRuntimeSettings: () => ({
+      permissions: {
+        autoMode: {},
+        yoloMode: { enabled: false },
+      },
+      memory: { llm: { models: { extractor: 'sonnet' } } },
+    }),
     getAsyncTaskRepository: () => repository,
     publishRuntimeEvent,
     warn: vi.fn(),
@@ -326,4 +332,101 @@ describe('inline core tool bootstrap', () => {
     ).resolves.toEqual({ allowed: true });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
+
+  it('auto-allows an eligible remote MCP tool without rendering a prompt and audits the verdict', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'Read-only lookup matches the turn intent.',
+      latencyMs: 4,
+    }));
+    wire({ classifierConsult });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
+    ).resolves.toEqual({ allowed: true });
+    expect(classifierConsult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnIntentSummary: 'hello',
+        canonicalToolName: 'mcp__crm__read',
+      }),
+    );
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(input.emitOutput).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.classifier_decision',
+        payload: expect.objectContaining({
+          decision: 'allow',
+          toolName: 'mcp__crm__read',
+        }),
+      }),
+    );
+  });
+
+  it('audits an auto-classifier ask verdict before preserving the existing prompt flow', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'ask' as const,
+      reason: 'The requested scope is ambiguous.',
+      latencyMs: 5,
+      failureCode: 'parse_failure' as const,
+    }));
+    wire({ classifierConsult });
+    const input = laneInput();
+    input.input.permissionMode = 'auto';
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
+    ).resolves.toEqual({ allowed: true });
+    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(
+      publishRuntimeEvent.mock.calls.map(([event]) => event.eventType),
+    ).toContain('permission.classifier_decision');
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.classifier_decision',
+        payload: expect.objectContaining({ failureCode: 'parse_failure' }),
+      }),
+    );
+  });
+
+  it.each([
+    ['ask', 'mcp__crm__read'],
+    ['auto', 'mcp__gantry__request_access'],
+  ] as const)(
+    'does not consult in mode %s for ineligible/non-auto tool %s',
+    async (permissionMode, toolName) => {
+      const classifierConsult = vi.fn();
+      wire({ classifierConsult });
+      const input = laneInput();
+      input.input.permissionMode = permissionMode;
+      const tools = createInlineCoreTools(
+        input,
+        support((() => ({
+          status: 'prompt',
+          reason: 'Approval required.',
+        })) as never),
+      );
+
+      await tools.authorizeThirdPartyMcpTool(toolName, {});
+      expect(classifierConsult).not.toHaveBeenCalled();
+      expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    },
+  );
 });

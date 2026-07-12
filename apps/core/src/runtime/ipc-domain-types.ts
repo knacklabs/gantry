@@ -37,6 +37,8 @@ import type { AgentExecutionAdapter } from '../application/agent-execution/agent
 import type { AgentExecutionAdapterRegistry } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
+import type { PermissionClassifierPromptConsultInput } from './permission-classifier.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -99,6 +101,15 @@ export interface IpcDeps {
   getPermissionRepository?: () => PermissionRepository | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
+  classifierConsult?: PermissionClassifierPromptConsultInput['classifierConsult'];
+  getPermissionRuntimeSettings?: () => {
+    agents: Record<
+      string,
+      { permissionMode?: PermissionMode } | null | undefined
+    >;
+    permissions: { autoMode: { model?: string } };
+    memory: { llm: { models: { extractor: string } } };
+  };
   subscribeRuntimeEvents?: RuntimeEventPublisherPort['subscribe'];
   getEgressSettings?: () => EgressSettings;
   getJobControl?: () => JobControlPort | undefined;

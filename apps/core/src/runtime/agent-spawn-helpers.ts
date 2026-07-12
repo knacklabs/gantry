@@ -90,6 +90,8 @@ export function buildBaseRunnerEnv(input: {
   hideAuthorityTools: boolean;
   agentAccessPreset: string;
   deploymentMode: string;
+  permissionMode: NonNullable<AgentInput['permissionMode']>;
+  turnIntentSummary: string;
   permissionTimeoutMs: number;
   egressProxyUrl: string;
   sandboxRuntimeProxy: boolean;
@@ -162,6 +164,8 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_NO_PERMISSION_TOOLS: input.hideAuthorityTools ? '1' : '',
     GANTRY_AGENT_ACCESS_PRESET: input.agentAccessPreset,
     GANTRY_DEPLOYMENT_MODE: input.deploymentMode,
+    GANTRY_PERMISSION_MODE: input.permissionMode,
+    GANTRY_TURN_INTENT_SUMMARY: input.turnIntentSummary.slice(0, 1_500),
     GANTRY_INTERACTIVE_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_PERMISSION_TIMEOUT_MS: String(input.permissionTimeoutMs),
     GANTRY_EGRESS_PROXY_URL: input.egressProxyUrl,

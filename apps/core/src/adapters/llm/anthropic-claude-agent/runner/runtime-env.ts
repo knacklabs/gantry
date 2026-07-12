@@ -39,6 +39,10 @@ export const JOB_RUN_LEASE_FENCING_VERSION =
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.GANTRY_IPC_RESPONSE_KEY_ID || '';
+export const PERMISSION_MODE =
+  process.env.GANTRY_PERMISSION_MODE?.trim() === 'auto' ? 'auto' : 'ask';
+export const TURN_INTENT_SUMMARY =
+  process.env.GANTRY_TURN_INTENT_SUMMARY?.trim() || '';
 export const PERMISSION_REQUEST_TIMEOUT_MS = getPermissionTimeoutMs(
   JOB_ID ? 'autonomous' : 'interactive',
 );

@@ -350,7 +350,6 @@ export function parseMemoryIpcRequest(
       : {}),
   };
 }
-
 export function parsePermissionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
@@ -379,6 +378,7 @@ export function parsePermissionIpcRequest(
   const displayName = toTrimmedString(raw.displayName, { maxLen: 200 });
   const description = toTrimmedString(raw.description, { maxLen: 4000 });
   const decisionReason = toTrimmedString(raw.decisionReason, { maxLen: 2000 });
+  const intent = toTrimmedString(raw.turnIntentSummary, { maxLen: 1_500 });
   const blockedPath = toTrimmedString(raw.blockedPath, { maxLen: 2048 });
   const toolUseID = toTrimmedString(raw.toolUseID, { maxLen: 200 });
   const agentID = toTrimmedString(raw.agentID, { maxLen: 200 });
@@ -452,7 +452,6 @@ export function parsePermissionIpcRequest(
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
-
   return {
     requestId,
     appId,
@@ -468,6 +467,8 @@ export function parsePermissionIpcRequest(
     ...(targetJid ? { targetJid } : {}),
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
+    ...(raw.unattended === true ? { unattended: true } : {}),
+    ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
     ...(toolUseID ? { toolUseID } : {}),
     ...(agentID ? { agentID } : {}),
@@ -485,7 +486,6 @@ export function parsePermissionIpcRequest(
     ...(interaction ? { interaction } : {}),
   };
 }
-
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,

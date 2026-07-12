@@ -304,6 +304,33 @@ describe('core tool registry', () => {
     expect(backend.delegate_task).not.toHaveBeenCalled();
   });
 
+  it('keeps AgentDelegation on the human prompt path in auto mode', async () => {
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      mode: 'allow_once' as const,
+    }));
+    const deps = registryDeps({
+      context: {
+        sourceAgentFolder: 'main_agent',
+        conversationId: 'conversation:test',
+        permissionMode: 'auto',
+      },
+      durability: {
+        record: vi.fn(async () => true),
+        resolve: vi.fn(async () => true),
+      },
+      requestPermissionApproval,
+    });
+
+    await createCoreToolRegistry(deps).execute('delegate_task', {
+      objective: 'Investigate the failure',
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: 'AgentDelegation' }),
+    );
+  });
+
   it('fails closed without prompting when a locked agent lacks delegation access', async () => {
     const backend = taskBackend();
     const record = vi.fn(async () => true);

@@ -336,7 +336,7 @@ export async function startRuntimeServices(
       getRuntimeSettingsForConfig().agents?.[folder]?.accessPreset === 'locked'
         ? 'locked'
         : 'full',
-    getYoloMode: () => getRuntimeSettingsForConfig().permissions.yoloMode,
+    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
     getMcpServerRepository: resolved.getMcpServerRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
     warn: (context, message) => resolved.logger.warn(context, message),
@@ -462,6 +462,7 @@ export async function startRuntimeServices(
     runApprovedCommand: resolved.runApprovedCommand,
     getPermissionRepository: resolved.getPermissionRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
+    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
     subscribeRuntimeEvents: resolved.subscribeRuntimeEvents,
     getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
     mirrorAgentToolRulesToSettings,
@@ -995,7 +996,6 @@ export async function startRuntimeServices(
     );
     return;
   }
-
   const messageLoopDeps: MessageLoopDeps = {
     getConversationRoutes: () => app.getConversationRoutes(),
     getOrRecoverCursor: app.getOrRecoverCursor,

@@ -1166,7 +1166,13 @@ maybeDescribe('inline session turns through the control API', () => {
       } as never,
       interactionsEnabled: true,
       getAgentAccessPreset: () => 'full',
-      getYoloMode: () => ({ enabled: false }),
+      getPermissionRuntimeSettings: () => ({
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
       getAsyncTaskRepository: () => runtime.repositories.asyncTasks,
       opsRepository: runtime.ops,
       getMcpServerRepository: () =>

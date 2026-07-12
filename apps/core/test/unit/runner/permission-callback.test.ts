@@ -214,4 +214,93 @@ describe('requestPermissionApproval', () => {
     expect(secondDecision.approved).toBe(true);
     expect(secondDecision.mode).toBe('allow_once');
   });
+
+  it('still immediately denies zero-timeout ask mode', async () => {
+    process.env.GANTRY_JOB_ID = 'job-ask';
+    process.env.GANTRY_JOB_RUN_ID = 'run-ask';
+    process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_PERMISSION_MODE = 'ask';
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+
+    await expect(
+      requestPermissionApproval({
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        workspaceFolder: 'main_agent',
+        targetJid: 'tg:test',
+        toolName: 'Bash',
+        toolInput: { command: 'git status --short' },
+      }),
+    ).resolves.toMatchObject({
+      approved: false,
+      decisionClassification: 'user_reject',
+    });
+  });
+
+  it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
+    process.env.GANTRY_JOB_ID = 'job-auto';
+    process.env.GANTRY_JOB_RUN_ID = 'run-auto';
+    process.env.GANTRY_AUTONOMOUS_PERMISSION_TIMEOUT_MS = '0';
+    process.env.GANTRY_PERMISSION_MODE = 'auto';
+    process.env.GANTRY_TURN_INTENT_SUMMARY = 'Inspect the repository status.';
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js');
+    const decision = requestPermissionApproval({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      workspaceFolder: 'main_agent',
+      targetJid: 'tg:test',
+      toolName: 'Bash',
+      toolInput: { command: 'git status --short' },
+    });
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as {
+      requestId: string;
+      responseNonce: string;
+      unattended?: boolean;
+      turnIntentSummary?: string;
+    };
+    expect(request).toMatchObject({
+      unattended: true,
+      turnIntentSummary: 'Inspect the repository status.',
+    });
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        requestId: request.requestId,
+        responseNonce: request.responseNonce,
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'auto_classifier',
+        reason: 'allowed once',
+        decisionClassification: 'user_temporary',
+        signature: 'test-signature',
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'auto_classifier',
+      decisionClassification: 'user_temporary',
+    });
+  });
 });

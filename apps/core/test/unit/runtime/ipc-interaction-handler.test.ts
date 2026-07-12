@@ -554,6 +554,283 @@ describe('ipc-interaction-handler', () => {
     ).toBe(false);
   });
 
+  it('auto-classifies an eligible IPC ask and writes allow_once without rendering a prompt', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-auto-allow.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'allow' as const,
+      reason: 'The read-only command matches the turn intent.',
+      latencyMs: 6,
+    }));
+    const requestPermissionApproval = vi.fn();
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-auto-allow',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce-auto',
+        responseKeyId: envelope.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:auto',
+        toolName: 'Bash',
+        toolInput: { command: 'git status --short' },
+        decisionReason: 'No allow rule matched.',
+        turnIntentSummary: 'Inspect the current worktree.',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: () => ({
+          'tg:auto': {
+            folder: 'main_agent',
+            agentConfig: {},
+          },
+        }),
+        requestPermissionApproval,
+        classifierConsult,
+        publishRuntimeEvent,
+        getPermissionRuntimeSettings: () => ({
+          agents: { main_agent: { permissionMode: 'auto' } },
+          permissions: { autoMode: {} },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+      ipcBaseDir: tempDir,
+      file: 'claimed-auto-allow.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(classifierConsult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        canonicalToolName: 'Bash',
+        turnIntentSummary: 'Inspect the current worktree.',
+      }),
+    );
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            tempDir,
+            'main_agent',
+            'permission-responses',
+            'perm-auto-allow.json',
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'auto_classifier',
+      decisionClassification: 'user_temporary',
+    });
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.classifier_decision',
+        payload: expect.objectContaining({ decision: 'allow' }),
+      }),
+    );
+  });
+
+  it('publishes a failure-coded classifier ask before preserving the IPC prompt flow', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-auto-ask.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'ask' as const,
+      reason: 'Classifier unavailable (timeout); ask the user.',
+      latencyMs: 3_000,
+      failureCode: 'timeout' as const,
+    }));
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'owner',
+      decisionClassification: 'user_reject' as const,
+    }));
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-auto-ask',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce-auto-ask',
+        responseKeyId: envelope.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:auto',
+        toolName: 'mcp__crm__read',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: () => ({
+          'tg:auto': {
+            folder: 'main_agent',
+            agentConfig: { permissionMode: 'auto' },
+          },
+        }),
+        requestPermissionApproval,
+        classifierConsult,
+        publishRuntimeEvent,
+        getPermissionRuntimeSettings: () => ({
+          agents: {},
+          permissions: { autoMode: {} },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+      ipcBaseDir: tempDir,
+      file: 'claimed-auto-ask.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).toHaveBeenCalledOnce();
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'permission.classifier_decision',
+        payload: expect.objectContaining({
+          decision: 'ask',
+          failureCode: 'timeout',
+        }),
+      }),
+    );
+  });
+
+  it('turns an unattended auto-classifier ask into an immediate IPC denial', async () => {
+    const envelope = createIpcAuthEnvelope('main_agent', null);
+    const claimedPath = path.join(tempDir, 'claimed-unattended-ask.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'ask' as const,
+      reason: 'Mutation scope requires a human.',
+      latencyMs: 8,
+    }));
+    const requestPermissionApproval = vi.fn();
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-unattended-ask',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce-unattended-ask',
+        responseKeyId: envelope.responseKeyId,
+        sourceAgentFolder: 'main_agent',
+        targetJid: 'tg:auto',
+        toolName: 'RunCommand',
+        unattended: true,
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: () => ({
+          'tg:auto': {
+            folder: 'main_agent',
+            agentConfig: { permissionMode: 'auto' },
+          },
+        }),
+        requestPermissionApproval,
+        classifierConsult,
+        publishRuntimeEvent: vi.fn(async () => undefined),
+        getPermissionRuntimeSettings: () => ({
+          agents: {},
+          permissions: { autoMode: {} },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+      ipcBaseDir: tempDir,
+      file: 'claimed-unattended-ask.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            tempDir,
+            'main_agent',
+            'permission-responses',
+            'perm-unattended-ask.json',
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toMatchObject({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'runtime',
+      reason: expect.stringContaining('Mutation scope requires a human.'),
+      decisionClassification: 'user_reject',
+    });
+  });
+
+  it.each([
+    ['auto', 'mcp__gantry__request_access', true],
+    ['ask', 'Bash', false],
+  ] as const)(
+    'does not consult mode %s for %s when eligibility/mode excludes it',
+    async (permissionMode, toolName, unattended) => {
+      const envelope = createIpcAuthEnvelope('main_agent', null);
+      const requestId = `perm-no-consult-${permissionMode}`;
+      const claimedPath = path.join(tempDir, `${requestId}.json`);
+      fs.writeFileSync(claimedPath, '{}');
+      const classifierConsult = vi.fn();
+      const requestPermissionApproval = vi.fn(async () => ({
+        approved: false,
+        mode: 'cancel' as const,
+        decisionClassification: 'user_reject' as const,
+      }));
+
+      await processPermissionInteractionIpc({
+        request: {
+          requestId,
+          appId: 'app:test',
+          agentId: 'agent:test',
+          responseNonce: `nonce-${permissionMode}`,
+          responseKeyId: envelope.responseKeyId,
+          sourceAgentFolder: 'main_agent',
+          targetJid: 'tg:auto',
+          toolName,
+          unattended,
+        },
+        sourceAgentFolder: 'main_agent',
+        deps: {
+          conversationRoutes: () => ({
+            'tg:auto': {
+              folder: 'main_agent',
+              agentConfig: { permissionMode },
+            },
+          }),
+          requestPermissionApproval,
+          classifierConsult,
+          publishRuntimeEvent: vi.fn(async () => undefined),
+          getPermissionRuntimeSettings: () => ({
+            agents: {},
+            permissions: { autoMode: {} },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+        ipcBaseDir: tempDir,
+        file: `${requestId}.json`,
+        claimedPath,
+        logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+      });
+
+      expect(classifierConsult).not.toHaveBeenCalled();
+      if (unattended) {
+        expect(requestPermissionApproval).not.toHaveBeenCalled();
+      } else {
+        expect(requestPermissionApproval).toHaveBeenCalledOnce();
+      }
+    },
+  );
+
   it('emits structured permission events and redacted Bash command telemetry', async () => {
     const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
     fs.writeFileSync(claimedPath, '{}');

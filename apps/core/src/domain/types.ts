@@ -138,6 +138,8 @@ export interface PermissionApprovalRequest {
   threadId?: string;
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
+  unattended?: boolean;
+  turnIntentSummary?: string;
   toolName: string;
   toolUseID?: string;
   agentID?: string;
