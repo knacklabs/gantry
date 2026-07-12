@@ -9,7 +9,8 @@ without tying application code to one model provider or chat surface.
 Gantry is not a chatbot wrapper and not a personal assistant. It is the
 runtime boundary between:
 
-- human channels such as Slack, Microsoft Teams, Telegram, and web/SDK clients;
+- human channels such as Slack, Microsoft Teams, Telegram, Discord, and
+  web/SDK clients;
 - application events, SDK calls, and scheduled jobs;
 - approved tools, local CLIs, browser automation, skills, and MCP servers;
 - Postgres-backed runtime state, artifacts, settings, credentials, and audit.

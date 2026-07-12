@@ -42,12 +42,17 @@ export class AgentService {
     });
   }
 
-  async createManualJob(sessionId: string) {
+  async createManualJob(session: { sessionId: string; chatJid: string }) {
     return this.gantry.client.jobs.create({
-      sessionId,
       name: 'manual-summary',
       kind: 'manual',
       prompt: 'Summarize the most recent session activity.',
+      executionContext: {
+        conversationJid: session.chatJid,
+        threadId: null,
+        workspaceKey: 'main_agent',
+        sessionId: session.sessionId,
+      },
     });
   }
 

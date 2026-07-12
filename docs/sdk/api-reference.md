@@ -278,11 +278,11 @@ Inventory response:
 
 ```json
 {
-  "tools": [{ "id": "browser", "kind": "builtin", "displayName": "Browser" }],
-  "skills": [],
-  "mcpServers": [],
-  "adapters": [],
-  "localClis": []
+  "inventory": {
+    "tools": [{ "id": "browser", "kind": "builtin", "displayName": "Browser" }],
+    "skills": [],
+    "mcpServers": []
+  }
 }
 ```
 
@@ -303,10 +303,10 @@ Capability catalog response:
 }
 ```
 
-Agent sources replacement:
+Agent access replacement (sources and selections in one document):
 
 ```http
-PUT /v1/agents/agent:main_agent/sources
+PUT /v1/agents/agent:main_agent/access
 Content-Type: application/json
 
 {
@@ -319,25 +319,15 @@ Content-Type: application/json
     ],
     "mcpServers": [{ "id": "linkedin" }],
     "tools": [{ "id": "browser", "kind": "builtin" }]
-  }
-}
-```
-
-Agent capability replacement:
-
-```http
-PUT /v1/agents/agent:main_agent/capabilities
-Content-Type: application/json
-
-{
-  "capabilities": [
+  },
+  "selections": [
     { "id": "acme.records.append", "version": "1" },
     { "id": "browser.use", "version": "builtin" }
   ]
 }
 ```
 
-Agent capability responses include the visible sources, selected capabilities,
+Agent access responses include the visible sources, selected capabilities,
 and projected runtime access:
 
 ```json
@@ -353,7 +343,7 @@ and projected runtime access:
     "mcpServers": [{ "id": "linkedin" }],
     "tools": [{ "id": "browser", "kind": "builtin" }]
   },
-  "capabilities": [
+  "selections": [
     { "id": "acme.records.append", "version": "1" },
     { "id": "browser.use", "version": "builtin" }
   ],
@@ -374,8 +364,8 @@ and projected runtime access:
 }
 ```
 
-The routes validate catalog ownership, mirror readable entries into
-`settings.yaml`, reconcile the Postgres projection, and return `toolAccess`.
+The route validates catalog ownership, mirrors readable entries into
+`settings.yaml`, reconciles the Postgres projection, and returns `toolAccess`.
 
 ## Skills
 
@@ -390,9 +380,6 @@ client.skills.install({
   zip, // Uint8Array containing application/zip bytes
 })
 client.skills.list({ agentId? })
-
-client.skills.files.list(skillId)
-client.skills.files.get(skillId, path)
 
 client.agents.skills.list(agentId)
 client.agents.skills.enable(agentId, skillId)
@@ -730,14 +717,11 @@ catalog aliases.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
 job, and memory LLM defaults. Use `client.models.defaults.update()` or
-`PATCH /v1/models/defaults` to select a model preset, set chat/job
-aliases, or reset an area back to inheritance/preset-managed defaults:
+`PATCH /v1/models/defaults` to set chat/job aliases (including the `oneTime`
+and `recurring` job slots) or reset an area back to inherited or
+provider-managed defaults:
 
 ```ts
-await client.models.defaults.update({
-  preset: 'openrouter',
-});
-
 await client.models.defaults.update({
   chat: 'opus-4.8',
   jobs: 'inherit',
@@ -755,7 +739,7 @@ inherited defaults. `target: "agent"` with `agentId` resolves a `modelAlias`
 against the selected `agentHarness` and returns `credentialProfile` plus
 diagnostic `executionProviderId`. Explicit harness/model incompatibility fails
 before runner spawn with
-`Model <alias> cannot run on <harness>. Choose Auto or a compatible model.`
+`Model <alias> cannot run with agent harness <harness>.`
 DeepAgents with Claude OAuth/subscription credentials fails with `DeepAgents cannot use Claude OAuth/subscription credentials. Choose Anthropic SDK or configure Claude API-key Model Access.`
 
 ```ts
@@ -892,14 +876,12 @@ client.conversations.list({ providerAccountId? })
 client.conversations.get(conversationId)
 client.conversations.getApprovers(conversationId)
 client.conversations.setApprovers(conversationId, userIds)
-client.conversationInstalls.create({
-  agentId,
-  providerAccountId,
-  conversationId,
+client.agents.conversationInstalls.enable(agentId, conversationId, {
+  providerAccountId?,
   threadId?,
 })
-client.conversationInstalls.list({ agentId? })
-client.conversationInstalls.disable({ agentId, conversationId, threadId? })
+client.agents.conversationInstalls.list(agentId)
+client.agents.conversationInstalls.disable(agentId, conversationId, { threadId? })
 client.conversations.messages(conversationId, {
   threadId?,
   after?,
@@ -947,9 +929,9 @@ GET    /v1/conversations/:id/threads               conversations:read
 GET    /v1/conversations/:id/messages              messages:read
 
 GET    /v1/agents/:agentId/conversation-installs                 conversations:read
-PUT    /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
-PATCH  /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
-DELETE /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
+PUT    /v1/agents/:agentId/conversation-installs/:conversationId agents:admin + conversations:admin
+PATCH  /v1/agents/:agentId/conversation-installs/:conversationId agents:admin + conversations:admin
+DELETE /v1/agents/:agentId/conversation-installs/:conversationId agents:admin + conversations:admin
 ```
 
 `GET /v1/agents/:id/admin` returns Agent admin state, including
@@ -987,11 +969,9 @@ implemented.
 ## Conversation Installs
 
 ```ts
-client.conversationInstalls.list({ agentId? })
-client.conversationInstalls.create({
-  agentId,
-  conversationId,
-  providerAccountId,
+client.agents.conversationInstalls.list(agentId)
+client.agents.conversationInstalls.enable(agentId, conversationId, {
+  providerAccountId?,
   threadId?,
   displayName?,
   memoryScope?, // user | conversation | agent | app
@@ -999,12 +979,12 @@ client.conversationInstalls.create({
   workspaceSnapshotId?,
   permissionPolicyIds?,
 })
-client.conversationInstalls.update(installId, patch)
-client.conversationInstalls.disable(installId)
+client.agents.conversationInstalls.update(agentId, conversationId, patch)
+client.agents.conversationInstalls.disable(agentId, conversationId, { threadId? })
 ```
 
-Install writes require `agents:admin`. `disable()` marks the install disabled;
-it does not delete the row.
+Install writes require `agents:admin` plus `conversations:admin`. `disable()`
+marks the install disabled; it does not delete the row.
 
 ## Agent Skill Bindings
 
