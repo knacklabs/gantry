@@ -120,6 +120,7 @@ export interface PermissionClassifierPromptConsultInput {
   canonicalToolName: string;
   toolInput: unknown;
   toolInputSanitized?: boolean;
+  toolInputSanitizedPaths?: string[];
   policyDecisionReason: string;
   approvedCapabilityIds: string[];
   suggestions?: PermissionApprovalUpdate[];
@@ -279,7 +280,24 @@ export async function consultPermissionClassifierBeforePrompt(
     agentFolder: input.agentFolder,
     suggestionKey,
   });
-  const result: PermissionClassifierResult = input.toolInputSanitized
+  const shellRequest =
+    input.canonicalToolName === 'Bash' ||
+    input.canonicalToolName === 'RunCommand';
+  const classifierToolInput = shellRequest
+    ? {
+        command:
+          input.toolInput &&
+          typeof input.toolInput === 'object' &&
+          !Array.isArray(input.toolInput)
+            ? (input.toolInput as Record<string, unknown>).command
+            : undefined,
+      }
+    : input.toolInput;
+  const inputTruncated = shellRequest
+    ? input.toolInputSanitizedPaths?.includes('command') === true
+    : input.toolInputSanitized === true ||
+      (input.toolInputSanitizedPaths?.length ?? 0) > 0;
+  const result: PermissionClassifierResult = inputTruncated
     ? {
         decision: 'ask',
         reason:
@@ -296,7 +314,7 @@ export async function consultPermissionClassifierBeforePrompt(
         },
         turnIntentSummary: input.turnIntentSummary,
         canonicalToolName: input.canonicalToolName,
-        toolInput: input.toolInput,
+        toolInput: classifierToolInput,
         policyDecisionReason: input.policyDecisionReason,
         approvedCapabilityIds: input.approvedCapabilityIds,
         recentlyDeniedExactToolShape: wasRecentlyDenied(promotionCounter),

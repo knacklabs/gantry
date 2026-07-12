@@ -598,7 +598,14 @@ describe('ipc-interaction-handler', () => {
         targetJid: 'tg:auto',
         senderId: 'approver-1',
         toolName: 'Bash',
-        toolInput: { command: 'git status --short' },
+        toolInput: {
+          command: 'git status --short',
+          environment: {
+            HTTP_PROXY: `${'x'.repeat(500)}...[truncated]`,
+          },
+        },
+        toolInputSanitized: true,
+        toolInputSanitizedPaths: ['environment.HTTP_PROXY'],
         decisionReason: 'No allow rule matched.',
         turnIntentSummary: 'Inspect the current worktree.',
       },
@@ -639,6 +646,9 @@ describe('ipc-interaction-handler', () => {
         approvedCapabilityIds: ['google.drive.files.list'],
       }),
     );
+    expect(classifierConsult.mock.calls[0]?.[0].toolInput).toEqual({
+      command: 'git status --short',
+    });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(
       JSON.parse(
@@ -717,6 +727,9 @@ describe('ipc-interaction-handler', () => {
     });
 
     expect(classifierConsult).toHaveBeenCalledOnce();
+    expect(classifierConsult.mock.calls[0]?.[0].toolInput).toEqual({
+      command: 'git status --short',
+    });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
     expect(decision).toMatchObject({
       approved: true,
@@ -882,7 +895,9 @@ describe('ipc-interaction-handler', () => {
         targetJid: 'tg:auto',
         senderId: 'approver-1',
         toolName: 'mcp__crm__read',
+        toolInput: { id: 'crm-1', environment: { HTTP_PROXY: '[truncated]' } },
         toolInputSanitized: true,
+        toolInputSanitizedPaths: ['environment.HTTP_PROXY'],
       },
       sourceAgentFolder: 'main_agent',
       deps: {
@@ -950,7 +965,9 @@ describe('ipc-interaction-handler', () => {
         jobId: 'job:auto',
         toolName: 'RunCommand',
         unattended: true,
+        toolInput: { command: `${'x'.repeat(500)}...[truncated]` },
         toolInputSanitized: true,
+        toolInputSanitizedPaths: ['command'],
       },
       sourceAgentFolder: 'main_agent',
       deps: {

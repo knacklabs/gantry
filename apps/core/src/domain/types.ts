@@ -157,6 +157,7 @@ export interface PermissionApprovalRequest {
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
   toolInputSanitized?: boolean;
+  toolInputSanitizedPaths?: string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];

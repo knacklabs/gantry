@@ -99,6 +99,7 @@ export async function resolvePermissionIpcDecision(input: {
           canonicalToolName: input.request.toolName,
           toolInput: input.request.toolInput,
           toolInputSanitized: input.request.toolInputSanitized,
+          toolInputSanitizedPaths: input.request.toolInputSanitizedPaths,
           policyDecisionReason:
             input.request.decisionReason ?? 'Human approval is required.',
           approvedCapabilityIds,

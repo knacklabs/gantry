@@ -395,9 +395,11 @@ export function parsePermissionIpcRequest(
   }
   const targetJid = payloadTargetJid ?? contextTargetJid;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
-  const { toolInput, altered: toolInputSanitized } = sanitizeIpcToolInput(
-    raw.toolInput,
-  );
+  const {
+    toolInput,
+    altered: toolInputSanitized,
+    alteredPaths: toolInputSanitizedPaths,
+  } = sanitizeIpcToolInput(raw.toolInput);
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
   const semanticCapabilityDefinitions =
     parseSemanticCapabilityDefinitionsRecord(raw.semanticCapabilityDefinitions);
@@ -434,6 +436,7 @@ export function parsePermissionIpcRequest(
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
     ...(toolInputSanitized ? { toolInputSanitized: true } : {}),
+    ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
     ...(semanticCapabilityDefinitions ? { semanticCapabilityDefinitions } : {}),
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),

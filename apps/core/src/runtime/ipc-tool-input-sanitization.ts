@@ -28,23 +28,28 @@ export function redactSensitiveToolInputString(value: string): string {
 }
 
 interface SanitizationState {
-  altered: boolean;
+  alteredPaths: Set<string>;
+}
+
+function childPath(path: string, key: string | number): string {
+  return path ? `${path}.${key}` : String(key);
 }
 
 function sanitizeValue(
   value: unknown,
   depth: number,
+  path: string,
   state: SanitizationState,
 ): unknown {
   if (depth > TOOL_INPUT_MAX_DEPTH) {
-    state.altered = true;
+    state.alteredPaths.add(path);
     return '[TRUNCATED_DEPTH]';
   }
   if (typeof value === 'string') {
     const redacted = redactSensitiveToolInputString(value);
-    if (redacted !== value) state.altered = true;
+    if (redacted !== value) state.alteredPaths.add(path);
     if (redacted.length <= TOOL_INPUT_MAX_STRING_LENGTH) return redacted;
-    state.altered = true;
+    state.alteredPaths.add(path);
     return `${redacted.slice(0, TOOL_INPUT_MAX_STRING_LENGTH)}...[truncated]`;
   }
   if (
@@ -55,44 +60,63 @@ function sanitizeValue(
     return value;
   }
   if (Array.isArray(value)) {
-    if (value.length > TOOL_INPUT_MAX_ARRAY_ENTRIES) state.altered = true;
-    return value
+    const kept = value
       .slice(0, TOOL_INPUT_MAX_ARRAY_ENTRIES)
-      .map((entry) => sanitizeValue(entry, depth + 1, state));
+      .map((entry, index) =>
+        sanitizeValue(entry, depth + 1, childPath(path, index), state),
+      );
+    for (
+      let index = TOOL_INPUT_MAX_ARRAY_ENTRIES;
+      index < value.length;
+      index += 1
+    ) {
+      state.alteredPaths.add(childPath(path, index));
+    }
+    return kept;
   }
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
-    let seen = 0;
-    for (const key in value) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-      if (seen >= TOOL_INPUT_MAX_KEYS) {
-        state.altered = true;
-        out.__omitted_keys = 'more';
-        break;
-      }
-      seen += 1;
+    const keys = Object.keys(value);
+    for (const key of keys.slice(0, TOOL_INPUT_MAX_KEYS)) {
       const entry = value[key];
+      const entryPath = childPath(path, key);
       if (SENSITIVE_TOOL_INPUT_KEY_PATTERN.test(key)) {
-        state.altered = true;
+        state.alteredPaths.add(entryPath);
         out[key] = '[REDACTED]';
         continue;
       }
-      out[key] = sanitizeValue(entry, depth + 1, state);
+      out[key] = sanitizeValue(entry, depth + 1, entryPath, state);
+    }
+    if (keys.length > TOOL_INPUT_MAX_KEYS) {
+      out.__omitted_keys = 'more';
+      for (const key of keys.slice(TOOL_INPUT_MAX_KEYS)) {
+        state.alteredPaths.add(childPath(path, key));
+      }
     }
     return out;
   }
-  state.altered = true;
+  state.alteredPaths.add(path);
   return String(value);
 }
 
 export function sanitizeIpcToolInput(value: unknown): {
   toolInput?: Record<string, unknown>;
   altered: boolean;
+  alteredPaths: string[];
 } {
-  if (!isPlainObject(value)) return { altered: value !== undefined };
-  const state: SanitizationState = { altered: false };
+  if (!isPlainObject(value)) {
+    const alteredPaths = value === undefined ? [] : ['$'];
+    return { altered: alteredPaths.length > 0, alteredPaths };
+  }
+  const state: SanitizationState = { alteredPaths: new Set() };
+  const toolInput = sanitizeValue(value, 0, '', state) as Record<
+    string,
+    unknown
+  >;
+  const alteredPaths = [...state.alteredPaths];
   return {
-    toolInput: sanitizeValue(value, 0, state) as Record<string, unknown>,
-    altered: state.altered,
+    toolInput,
+    altered: alteredPaths.length > 0,
+    alteredPaths,
   };
 }
