@@ -720,7 +720,7 @@ function isSuccessfulMcpActivity(activity: ThirdPartyMcpToolActivity): boolean {
   if (activity.resultClass !== undefined) {
     return activity.resultClass === 'success' && resultOk;
   }
-  return activity.result !== undefined && resultOk;
+  return resultOk;
 }
 
 function isMcpErrorResult(result: unknown): boolean {

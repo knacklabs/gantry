@@ -189,6 +189,43 @@ describe('inline core tool bootstrap', () => {
     },
   );
 
+  it('satisfies a require_prior rule with a successful remote MCP activity without a result', async () => {
+    const appendAuditEvent = vi.fn(async () => undefined);
+    wire({
+      getMcpServerRepository: () => ({ appendAuditEvent }),
+    });
+    const input = laneInput();
+    input.input.toolRules = [
+      {
+        tool: 'mcp__crm__write',
+        action: 'require_prior',
+        prior: 'mcp__crm__read',
+        reason: 'CRM writes require a successful read first',
+      },
+    ];
+    input.mcpServers = [
+      {
+        name: 'crm',
+        allowedToolNames: ['mcp__crm__read', 'mcp__crm__write'],
+        autoApproveToolNames: ['mcp__crm__write'],
+      },
+    ] as never;
+    const tools = createInlineCoreTools(input, support());
+
+    await tools.recordThirdPartyMcpToolActivity({
+      serverName: 'crm',
+      toolName: 'read',
+      toolInput: { id: 'crm-1' },
+      outcome: 'success',
+      latencyMs: 4,
+    });
+
+    await expect(
+      tools.authorizeThirdPartyMcpTool('mcp__crm__write', { id: 'crm-1' }),
+    ).resolves.toEqual({ allowed: true });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('does not satisfy a require_prior rule with an isError remote MCP result', async () => {
     const appendAuditEvent = vi.fn(async () => undefined);
     wire({
