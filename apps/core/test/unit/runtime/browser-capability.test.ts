@@ -229,12 +229,14 @@ describe('browser-capability', () => {
     });
     existsSyncSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     const originalReadFileSync = fs.readFileSync;
-    readFileSyncSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((filePath, ...args: any[]) => {
-      if (String(filePath).startsWith('/proc/')) {
-        throw new Error('mock proc error');
-      }
-      return originalReadFileSync(filePath, ...args as [any]);
-    });
+    readFileSyncSpy = vi
+      .spyOn(fs, 'readFileSync')
+      .mockImplementation((filePath, ...args: any[]) => {
+        if (String(filePath).startsWith('/proc/')) {
+          throw new Error('mock proc error');
+        }
+        return originalReadFileSync(filePath, ...(args as [any]));
+      });
     statSyncSpy = vi.spyOn(fs, 'statSync').mockImplementation((filePath) => {
       const value = String(filePath);
       if (value.endsWith('/Default/Cookies')) {
