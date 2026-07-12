@@ -8,7 +8,7 @@
 # deploy. Refresh the digest deliberately (see docs/deployment/aws-terraform.md).
 #
 #   node:24-bookworm-slim @ 2026-06 (Node 24.16.0 "Krypton" LTS)
-ARG NODE_IMAGE=node:24-bookworm-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5
 
 # ---------------------------------------------------------------------------
 # Stage 1: deps — install ALL dependencies (incl. dev) for the build.

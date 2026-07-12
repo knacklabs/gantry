@@ -2353,14 +2353,15 @@ describe('TelegramChannel', () => {
         .mockResolvedValueOnce({ message_id: 201 })
         .mockRejectedValueOnce(parseError)
         .mockResolvedValueOnce({ message_id: 202 })
-        .mockResolvedValueOnce({ message_id: 203 });
+        .mockResolvedValueOnce({ message_id: 203 })
+        .mockResolvedValueOnce({ message_id: 204 });
 
       const result = await channel.sendMessage(
         'tg:100200300',
         chunkedWithLiteralMarkers,
       );
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(4);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(5);
       expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
         1,
         '100200300',
@@ -2403,12 +2404,18 @@ describe('TelegramChannel', () => {
         expect.any(String),
         {},
       );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        5,
+        '100200300',
+        expect.any(String),
+        {},
+      );
       expect(result).toEqual(
         expect.objectContaining({
-          deliveredParts: 3,
-          totalParts: 3,
-          externalMessageIds: ['201', '202', '203'],
-          warnings: ['telegram.message.chunked:3:3500'],
+          deliveredParts: 4,
+          totalParts: 4,
+          externalMessageIds: ['201', '202', '203', '204'],
+          warnings: ['telegram.message.chunked:4:3500'],
         }),
       );
     });
