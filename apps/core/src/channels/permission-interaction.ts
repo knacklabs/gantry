@@ -386,6 +386,11 @@ function formatPermissionContextLines(
   if (requestHasThreadRoute(request)) {
     lines.push('Approval applies to the parent conversation.');
   }
+  if (request.promotionHintCount) {
+    lines.push(
+      `You've allowed this ${request.promotionHintCount} times — 'Allow for future' makes it permanent.`,
+    );
+  }
   lines.push('The agent cannot approve this itself.');
   return lines;
 }

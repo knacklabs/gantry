@@ -32,6 +32,7 @@ maybeDescribe('Postgres permission promotion counters', () => {
     await expect(repository.incrementAndGet(input)).resolves.toMatchObject({
       allowCount: 1,
       lastOfferedAt: null,
+      deniedAt: null,
     });
     await repository.incrementAndGet(input);
     await expect(repository.incrementAndGet(input)).resolves.toMatchObject({
@@ -44,5 +45,17 @@ maybeDescribe('Postgres permission promotion counters', () => {
       allowCount: 4,
       lastOfferedAt: input.nowIso,
     });
+    const deniedAt = '2026-07-12T01:00:00.000Z';
+    await repository.markDenied({ ...input, nowIso: deniedAt });
+    await expect(repository.get(input)).resolves.toMatchObject({
+      allowCount: 0,
+      deniedAt,
+    });
+    await expect(
+      repository.incrementAndGet({ ...input, nowIso: deniedAt }),
+    ).resolves.toMatchObject({ allowCount: 1, deniedAt });
+    await expect(
+      repository.markOffered({ ...input, nowIso: deniedAt }),
+    ).resolves.toBe(false);
   });
 });

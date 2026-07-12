@@ -315,6 +315,48 @@ describe('inline core tool bootstrap', () => {
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
   });
 
+  it('shows the promotion hint and counts a human inline allow-once', async () => {
+    const counter = {
+      appId: 'default',
+      agentFolder: 'main_agent',
+      suggestionKey: 'main_agent|RunCommand(git status)',
+      allowCount: 3,
+      lastOfferedAt: null,
+      deniedAt: null,
+      createdAt: '2026-07-12T00:00:00.000Z',
+      updatedAt: '2026-07-12T00:00:00.000Z',
+    };
+    const incrementAndGet = vi.fn(async () => ({
+      ...counter,
+      allowCount: 4,
+    }));
+    wire({
+      getPermissionPromotionRepository: () => ({
+        incrementAndGet,
+        get: vi.fn(async () => counter),
+        markOffered: vi.fn(async () => false),
+        markDenied: vi.fn(async () => undefined),
+      }),
+    });
+    const input = laneInput();
+    const tools = createInlineCoreTools(
+      input,
+      support((() => ({
+        status: 'prompt',
+        reason: 'Approval required.',
+      })) as never),
+    );
+
+    await tools.authorizeThirdPartyMcpTool('RunCommand', {
+      command: 'git status',
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ promotionHintCount: 3 }),
+    );
+    await vi.waitFor(() => expect(incrementAndGet).toHaveBeenCalledOnce());
+  });
+
   it('does not prompt for auto-approved remote MCP tools', async () => {
     wire();
     const input = laneInput();
@@ -342,6 +384,7 @@ describe('inline core tool bootstrap', () => {
     wire({ classifierConsult });
     const input = laneInput();
     input.input.permissionMode = 'auto';
+    input.group.conversationKind = 'dm';
     const tools = createInlineCoreTools(
       input,
       support((() => ({
@@ -382,6 +425,7 @@ describe('inline core tool bootstrap', () => {
     wire({ classifierConsult });
     const input = laneInput();
     input.input.permissionMode = 'auto';
+    input.group.conversationKind = 'dm';
     const tools = createInlineCoreTools(
       input,
       support((() => ({
@@ -405,6 +449,57 @@ describe('inline core tool bootstrap', () => {
       }),
     );
   });
+
+  it.each([
+    ['DM', 'dm', undefined, false, false, true],
+    ['group approver', 'channel', 'approver-1', true, false, true],
+    ['group non-approver', 'channel', 'member-1', false, false, false],
+    ['unattended', 'channel', undefined, false, true, true],
+  ] as const)(
+    'applies the inline consult trust gate for %s requesters',
+    async (
+      _label,
+      conversationKind,
+      senderId,
+      isApprover,
+      isScheduledJob,
+      shouldConsult,
+    ) => {
+      const classifierConsult = vi.fn(async () => ({
+        decision: 'allow' as const,
+        reason: 'Read-only lookup.',
+        latencyMs: 1,
+      }));
+      wire({ classifierConsult });
+      const input = laneInput();
+      input.group.conversationKind = conversationKind;
+      input.input.permissionMode = 'auto';
+      input.input.memoryUserId = senderId;
+      input.input.memoryReviewerIsControlApprover = isApprover;
+      input.input.isScheduledJob = isScheduledJob;
+      const tools = createInlineCoreTools(
+        input,
+        support((() => ({
+          status: 'prompt',
+          reason: 'Approval required.',
+        })) as never),
+      );
+
+      await tools.authorizeThirdPartyMcpTool('mcp__crm__read', {
+        id: 'crm-1',
+      });
+
+      expect(classifierConsult).toHaveBeenCalledTimes(shouldConsult ? 1 : 0);
+      expect(
+        publishRuntimeEvent.mock.calls.filter(
+          ([event]) => event.eventType === 'permission.classifier_decision',
+        ),
+      ).toHaveLength(shouldConsult ? 1 : 0);
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(
+        shouldConsult ? 0 : 1,
+      );
+    },
+  );
 
   it.each([
     ['ask', 'mcp__crm__read'],

@@ -63,6 +63,13 @@ export interface IpcDeps {
   requestPermissionApproval: (
     request: PermissionApprovalRequest,
   ) => Promise<PermissionApprovalDecision>;
+  isControlApproverAllowed?: (input: {
+    conversationJid: string;
+    providerAccountId?: string;
+    userId: string;
+    sourceAgentFolder: string;
+    decisionPolicy?: 'same_channel';
+  }) => Promise<boolean>;
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;

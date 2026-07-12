@@ -480,6 +480,7 @@ export async function startRuntimeServices(
     closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
     requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+    isControlApproverAllowed: channelWiring.isControlApproverAllowed,
     requestUserAnswer: inlineInteractions.requestUserAnswer,
     renderAgentTodo: (jid, render, options) =>
       liveTurnsEnabled && liveExecution

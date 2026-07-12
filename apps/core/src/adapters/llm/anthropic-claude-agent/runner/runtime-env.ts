@@ -43,6 +43,9 @@ export const PERMISSION_MODE =
   process.env.GANTRY_PERMISSION_MODE?.trim() === 'auto' ? 'auto' : 'ask';
 export const TURN_INTENT_SUMMARY =
   process.env.GANTRY_TURN_INTENT_SUMMARY?.trim() || '';
+export const SENDER_ID = process.env.GANTRY_MEMORY_USER_ID?.trim() || '';
+export const SENDER_IS_CONTROL_APPROVER =
+  process.env.GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER === '1';
 export const PERMISSION_REQUEST_TIMEOUT_MS = getPermissionTimeoutMs(
   JOB_ID ? 'autonomous' : 'interactive',
 );

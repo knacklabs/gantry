@@ -328,6 +328,7 @@ export function parsePermissionIpcRequest(
   const description = toTrimmedString(raw.description, { maxLen: 4000 });
   const decisionReason = toTrimmedString(raw.decisionReason, { maxLen: 2000 });
   const intent = toTrimmedString(raw.turnIntentSummary, { maxLen: 1_500 });
+  const senderId = toTrimmedString(raw.senderId, { maxLen: 255 });
   const blockedPath = toTrimmedString(raw.blockedPath, { maxLen: 2048 });
   const toolUseID = toTrimmedString(raw.toolUseID, { maxLen: 200 });
   const agentID = toTrimmedString(raw.agentID, { maxLen: 200 });
@@ -419,6 +420,7 @@ export function parsePermissionIpcRequest(
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     ...(raw.unattended === true ? { unattended: true } : {}),
+    ...(senderId ? { senderId } : {}),
     ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
     ...(toolUseID ? { toolUseID } : {}),

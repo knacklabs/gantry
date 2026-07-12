@@ -492,6 +492,16 @@ describe('ipc-interaction-handler', () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-allow-once.json');
     fs.writeFileSync(claimedPath, '{}');
+    const incrementAndGet = vi.fn(async () => ({
+      appId: 'app:test',
+      agentFolder: 'main_agent',
+      suggestionKey: 'main_agent|RunCommand(npm test)',
+      allowCount: 1,
+      lastOfferedAt: null,
+      deniedAt: null,
+      createdAt: '2026-07-12T00:00:00.000Z',
+      updatedAt: '2026-07-12T00:00:00.000Z',
+    }));
 
     await processPermissionInteractionIpc({
       request: {
@@ -504,6 +514,7 @@ describe('ipc-interaction-handler', () => {
         runHandle: 'agent-run-once',
         targetJid: 'tg:team',
         toolName: 'Bash',
+        toolInput: { command: 'npm test' },
       },
       sourceAgentFolder: 'main_agent',
       deps: {
@@ -520,6 +531,12 @@ describe('ipc-interaction-handler', () => {
             },
           ],
         })),
+        getPermissionPromotionRepository: () => ({
+          incrementAndGet,
+          get: vi.fn(async () => null),
+          markOffered: vi.fn(async () => false),
+          markDenied: vi.fn(async () => undefined),
+        }),
       },
       ipcBaseDir: tempDir,
       file: 'claimed-allow-once.json',
@@ -545,6 +562,7 @@ describe('ipc-interaction-handler', () => {
       decisionClassification: 'user_temporary',
     });
     expect(response.updatedPermissions).toBeUndefined();
+    await vi.waitFor(() => expect(incrementAndGet).toHaveBeenCalledOnce());
     expect(
       fs.existsSync(
         path.join(
@@ -589,6 +607,7 @@ describe('ipc-interaction-handler', () => {
           'tg:auto': {
             folder: 'main_agent',
             agentConfig: {},
+            conversationKind: 'dm',
           },
         }),
         requestPermissionApproval,
@@ -673,6 +692,7 @@ describe('ipc-interaction-handler', () => {
             trigger: '@Gantry',
             added_at: '2026-07-12T00:00:00.000Z',
             agentConfig: { permissionMode: 'auto' },
+            conversationKind: 'dm',
           },
         }),
         requestPermissionApproval,
@@ -693,6 +713,130 @@ describe('ipc-interaction-handler', () => {
       mode: 'allow_once',
       decidedBy: 'auto_classifier',
     });
+  });
+
+  it.each([
+    ['DM', 'dm', 'member-1', false, false, true],
+    ['group approver', 'channel', 'approver-1', true, false, true],
+    ['group non-approver', 'channel', 'member-1', false, false, false],
+    ['unattended', 'channel', undefined, false, true, true],
+  ] as const)(
+    'consult trust gate handles %s requesters',
+    async (
+      _label,
+      conversationKind,
+      senderId,
+      approverAllowed,
+      unattended,
+      shouldConsult,
+    ) => {
+      const targetJid = 'tg:trusted-gate';
+      const sourceAgentFolder = 'main_agent';
+      const routeKey = makeAgentThreadQueueKey(
+        targetJid,
+        agentIdForFolder(sourceAgentFolder),
+      );
+      const classifierConsult = vi.fn(async () => ({
+        decision: 'allow' as const,
+        reason: 'Read-only lookup.',
+        latencyMs: 1,
+      }));
+      const publishRuntimeEvent = vi.fn(async () => undefined);
+      const requestPermissionApproval = vi.fn(async () => ({
+        approved: false,
+        mode: 'cancel' as const,
+        decidedBy: 'owner',
+      }));
+      const isControlApproverAllowed = vi.fn(async () => approverAllowed);
+
+      await resolvePermissionIpcDecision({
+        request: {
+          requestId: `perm-trusted-${conversationKind}-${senderId ?? 'none'}`,
+          sourceAgentFolder,
+          targetJid,
+          ...(senderId ? { senderId } : {}),
+          ...(unattended ? { unattended: true, jobId: 'job-1' } : {}),
+          toolName: 'mcp__crm__read',
+          toolInput: { id: 'crm-1' },
+        },
+        sourceAgentFolder,
+        deps: {
+          conversationRoutes: () => ({
+            [routeKey]: {
+              name: 'Gantry',
+              folder: sourceAgentFolder,
+              trigger: '@Gantry',
+              added_at: '2026-07-12T00:00:00.000Z',
+              agentConfig: { permissionMode: 'auto' },
+              conversationKind,
+            },
+          }),
+          requestPermissionApproval,
+          isControlApproverAllowed,
+          classifierConsult,
+          publishRuntimeEvent,
+          getPermissionRuntimeSettings: () => ({
+            agents: {},
+            permissions: { autoMode: {} },
+            memory: { llm: { models: { extractor: 'sonnet' } } },
+          }),
+        } as never,
+      });
+
+      expect(classifierConsult).toHaveBeenCalledTimes(shouldConsult ? 1 : 0);
+      expect(publishRuntimeEvent).toHaveBeenCalledTimes(shouldConsult ? 1 : 0);
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(
+        shouldConsult ? 0 : 1,
+      );
+    },
+  );
+
+  it('adds the repeated allow hint to an IPC ask prompt', async () => {
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      mode: 'cancel' as const,
+      decidedBy: 'owner',
+    }));
+    const counter = {
+      appId: 'app:test',
+      agentFolder: 'main_agent',
+      suggestionKey: 'main_agent|RunCommand(git status)',
+      allowCount: 3,
+      lastOfferedAt: null,
+      deniedAt: null,
+      createdAt: '2026-07-12T00:00:00.000Z',
+      updatedAt: '2026-07-12T00:00:00.000Z',
+    };
+
+    await resolvePermissionIpcDecision({
+      request: {
+        requestId: 'perm-ask-hint',
+        appId: 'app:test',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        conversationRoutes: () => ({}),
+        requestPermissionApproval,
+        getPermissionPromotionRepository: () => ({
+          incrementAndGet: vi.fn(),
+          get: vi.fn(async () => counter),
+          markOffered: vi.fn(),
+          markDenied: vi.fn(),
+        }),
+        getPermissionRuntimeSettings: () => ({
+          agents: { main_agent: { permissionMode: 'ask' } },
+          permissions: { autoMode: {} },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      } as never,
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ promotionHintCount: 3 }),
+    );
   });
 
   it('publishes an input-truncated ask before preserving the IPC prompt flow', async () => {
@@ -730,6 +874,7 @@ describe('ipc-interaction-handler', () => {
           'tg:auto': {
             folder: 'main_agent',
             agentConfig: { permissionMode: 'auto' },
+            conversationKind: 'dm',
           },
         }),
         requestPermissionApproval,
@@ -785,6 +930,7 @@ describe('ipc-interaction-handler', () => {
         responseKeyId: envelope.responseKeyId,
         sourceAgentFolder: 'main_agent',
         targetJid: 'tg:auto',
+        jobId: 'job:auto',
         toolName: 'RunCommand',
         unattended: true,
         toolInputSanitized: true,
@@ -795,6 +941,7 @@ describe('ipc-interaction-handler', () => {
           'tg:auto': {
             folder: 'main_agent',
             agentConfig: { permissionMode: 'auto' },
+            conversationKind: 'channel',
           },
         }),
         requestPermissionApproval,

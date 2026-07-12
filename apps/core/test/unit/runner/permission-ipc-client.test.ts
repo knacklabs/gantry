@@ -30,6 +30,8 @@ function runtimeEnv(
     ipcAuthToken: 'ipc-auth',
     ipcResponseVerifyKey: 'verify-key',
     ipcResponseKeyId: 'key-id',
+    senderId: 'operator-1',
+    senderIsControlApprover: true,
     permissionRequestTimeoutMs: 1_000,
     resolveWorkspaceIpcDir: (folder) => path.join(tempDir, 'ipc', folder),
     ...overrides,
@@ -78,6 +80,7 @@ describe('requestPermissionApprovalViaIpc', () => {
       requestId: string;
       toolName: string;
       sourceAgentFolder: string;
+      senderId?: string;
       signature?: string;
       context?: { responseKeyId?: string };
       toolInput?: { query?: string };
@@ -86,6 +89,7 @@ describe('requestPermissionApprovalViaIpc', () => {
     expect(request.requestId).toMatch(/^perm-/);
     expect(request.toolName).toBe('mcp__notion__search');
     expect(request.sourceAgentFolder).toBe('main_agent');
+    expect(request.senderId).toBe('operator-1');
     expect(request.toolInput?.query).toBe('roadmap');
     expect(request.context?.responseKeyId).toBe('key-id');
     // Signed so the host can verify it came from the trusted runner.

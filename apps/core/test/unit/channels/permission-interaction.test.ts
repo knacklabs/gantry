@@ -200,6 +200,20 @@ describe('permission interaction', () => {
     );
   });
 
+  it('adds the repeated allow-once hint to plain and structured prompts', () => {
+    const request = {
+      ...requestWithSuggestions([]),
+      promotionHintCount: 3,
+    } satisfies PermissionApprovalRequest;
+    const hint =
+      "You've allowed this 3 times — 'Allow for future' makes it permanent.";
+
+    expect(formatPermissionPromptText(request, 60_000)).toContain(hint);
+    expect(buildPermissionPromptParts(request, 60_000).contextLines).toContain(
+      hint,
+    );
+  });
+
   it('shows profile update proposed content and hash in the approval prompt', () => {
     const request = {
       ...requestWithSuggestions([]),

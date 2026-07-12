@@ -19,6 +19,7 @@ function repository(): PermissionPromotionRepository {
     suggestionKey: 'main_agent|RunCommand(git status)',
     allowCount: count,
     lastOfferedAt,
+    deniedAt: null,
     createdAt: '2026-07-12T00:00:00.000Z',
     updatedAt: '2026-07-12T00:00:00.000Z',
   });
@@ -27,11 +28,13 @@ function repository(): PermissionPromotionRepository {
       count += 1;
       return row();
     },
+    get: async () => row(),
     markOffered: async ({ nowIso }) => {
       if (lastOfferedAt) return false;
       lastOfferedAt = nowIso;
       return true;
     },
+    markDenied: async () => undefined,
   };
 }
 
@@ -94,7 +97,9 @@ describe('permission promotion', () => {
             incrementAndGet: async () => {
               throw new Error('database unavailable');
             },
+            get: async () => null,
             markOffered: async () => false,
+            markDenied: async () => undefined,
           },
           offer,
         ),

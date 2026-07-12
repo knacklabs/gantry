@@ -189,3 +189,26 @@ domain events + projection; postgres schema/migration + repository; docs)
 - Orchestrator runs all PG-gated tests and npm installs; codex runs focused
   unit tests + typecheck only.
 - No commits, no autoreview, no background processes from codex.
+
+## Stage F — decision-signal criteria (added 2026-07-12 after live smoke)
+
+Locked decisions on how human decisions and auto mode interact:
+
+1. **Human allow-once feeds the flywheel.** Interactive `allow_once` decisions
+   increment the same promotion counter as classifier auto-allows (when a
+   suggestion key is synthesizable). In ask mode, reaching the threshold adds
+   a hint line to the permission prompt itself ("allowed N times — Allow for
+   future makes this permanent") instead of a separate offer; the button is
+   already on the prompt. Offers as separate one-tap prompts remain
+   auto-mode-only.
+2. **Human deny is contrary evidence.** A `cancel`/reject decision resets the
+   shape's counter and stamps `denied_at`; recently-denied shapes are never
+   offered and the classifier prompt carries "the operator recently denied
+   this tool shape" context so verdicts lean ask.
+3. **Auto latitude is approver-scoped.** The classifier is only consulted when
+   the triggering context is trusted: unattended scheduled runs, DMs, or a
+   group sender who is a conversation control approver. Other senders always
+   get today's ask behavior regardless of mode.
+4. Invariant restated: mode changes never mutate durable policy; only human
+   taps write rules. Counters persist across mode flips; offers fire only in
+   auto mode and interactive contexts.

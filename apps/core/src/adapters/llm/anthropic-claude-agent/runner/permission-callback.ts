@@ -24,6 +24,8 @@ import {
   PERMISSION_MODE,
   PERMISSION_REQUEST_TIMEOUT_MS,
   PROVIDER_ACCOUNT_ID,
+  SENDER_ID,
+  SENDER_IS_CONTROL_APPROVER,
   TURN_INTENT_SUMMARY,
   resolveWorkspaceIpcDir,
 } from './runtime-env.js';
@@ -240,6 +242,9 @@ async function requestPermissionApprovalInner(options: {
           }
         : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
+      ...(SENDER_ID && SENDER_IS_CONTROL_APPROVER && !JOB_ID
+        ? { senderId: SENDER_ID }
+        : {}),
       ...(TURN_INTENT_SUMMARY
         ? { turnIntentSummary: TURN_INTENT_SUMMARY.slice(0, 1_500) }
         : {}),

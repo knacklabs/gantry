@@ -8,6 +8,7 @@ import {
   type PermissionClassifierRequestFamily,
 } from '../application/permissions/permission-classifier.js';
 import {
+  PERMISSION_PROMOTION_ALLOW_THRESHOLD,
   schedulePermissionPromotion,
   type PermissionPromotionInput,
 } from '../application/permissions/permission-promotion.js';
@@ -19,6 +20,7 @@ import type {
   MemoryLlmClient,
   MemoryLlmModelProfile,
 } from '../domain/ports/memory-llm-client.js';
+import type { PermissionPromotionRepository } from '../domain/ports/permission-promotion.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { getMemoryLlmClient } from '../memory/memory-llm-port.js';
 import {
@@ -27,11 +29,16 @@ import {
 } from '../shared/memory-dreaming-timeout.js';
 import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import type { PermissionMode } from '../shared/permission-mode.js';
-import type { PermissionApprovalUpdate } from '../domain/types.js';
+import type {
+  PermissionApprovalDecision,
+  PermissionApprovalRequest,
+  PermissionApprovalUpdate,
+} from '../domain/types.js';
 import { SENSITIVE_TOOL_INPUT_KEY_PATTERN } from './ipc-tool-input-sanitization.js';
 
 export const PERMISSION_CLASSIFIER_TIMEOUT_MS = 12_000;
 export const PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS = 4_000;
+const RECENT_PERMISSION_DENIAL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export type PermissionClassifierFailureCode =
   | 'llm_unconfigured'
@@ -54,6 +61,7 @@ export interface PermissionClassifierInput {
   canonicalToolName: string;
   toolInput: unknown;
   policyDecisionReason: string;
+  recentlyDeniedExactToolShape?: boolean;
   autoModeModel?: string;
   memoryModelConfig: {
     extractor: string;
@@ -91,6 +99,7 @@ export interface PublishPermissionClassifierDecisionInput {
 
 export interface PermissionClassifierPromptConsultInput {
   permissionMode: PermissionMode;
+  trustedRequester?: boolean;
   requestFamily: PermissionClassifierRequestFamily;
   appId?: string;
   agentId?: string;
@@ -118,6 +127,7 @@ export interface PermissionClassifierPromptConsultInput {
 export interface PermissionClassifierPromptConsultResult extends PermissionClassifierResult {
   suggestions?: PermissionApprovalUpdate[];
   suggestionKey?: string;
+  promotionHintCount?: number;
 }
 
 export interface PermissionClassifierRuntimeConfig {
@@ -236,6 +246,7 @@ export async function consultPermissionClassifierBeforePrompt(
   input: PermissionClassifierPromptConsultInput,
 ): Promise<PermissionClassifierPromptConsultResult | undefined> {
   if (
+    input.trustedRequester !== true ||
     input.permissionMode !== 'auto' ||
     !isPermissionClassifierEligible(
       input.canonicalToolName,
@@ -244,6 +255,19 @@ export async function consultPermissionClassifierBeforePrompt(
   ) {
     return undefined;
   }
+  const suggestions =
+    input.suggestions ??
+    synthesizeHostPermissionSuggestions(
+      input.canonicalToolName,
+      input.toolInput,
+    );
+  const suggestionKey = permissionSuggestionKey(input.agentFolder, suggestions);
+  const promotionCounter = await readPromotionCounter({
+    promotion: input.promotion,
+    appId: input.appId ?? 'default',
+    agentFolder: input.agentFolder,
+    suggestionKey,
+  });
   const result: PermissionClassifierResult = input.toolInputSanitized
     ? {
         decision: 'ask',
@@ -263,19 +287,13 @@ export async function consultPermissionClassifierBeforePrompt(
         canonicalToolName: input.canonicalToolName,
         toolInput: input.toolInput,
         policyDecisionReason: input.policyDecisionReason,
+        recentlyDeniedExactToolShape: wasRecentlyDenied(promotionCounter),
         autoModeModel: input.classifierConfig.autoModeModel,
         memoryModelConfig: {
           extractor: input.classifierConfig.memoryExtractorModel,
         },
         signal: input.signal,
       });
-  const suggestions =
-    input.suggestions ??
-    synthesizeHostPermissionSuggestions(
-      input.canonicalToolName,
-      input.toolInput,
-    );
-  const suggestionKey = permissionSuggestionKey(input.agentFolder, suggestions);
   await publishPermissionClassifierDecision({
     publishRuntimeEvent: input.publishRuntimeEvent,
     appId: (input.appId ?? 'default') as never,
@@ -316,7 +334,121 @@ export async function consultPermissionClassifierBeforePrompt(
     ...result,
     ...(suggestions ? { suggestions } : {}),
     ...(suggestionKey ? { suggestionKey } : {}),
+    ...(promotionCounter &&
+    promotionCounter.allowCount >= PERMISSION_PROMOTION_ALLOW_THRESHOLD
+      ? { promotionHintCount: promotionCounter.allowCount }
+      : {}),
   };
+}
+
+export async function permissionPromotionHintCount(input: {
+  promotion?: PermissionClassifierPromptConsultInput['promotion'];
+  appId?: string;
+  agentFolder: string;
+  canonicalToolName: string;
+  toolInput: unknown;
+  suggestions?: PermissionApprovalUpdate[];
+}): Promise<number | undefined> {
+  const suggestions =
+    input.suggestions ??
+    synthesizeHostPermissionSuggestions(
+      input.canonicalToolName,
+      input.toolInput,
+    );
+  const counter = await readPromotionCounter({
+    promotion: input.promotion,
+    appId: input.appId ?? 'default',
+    agentFolder: input.agentFolder,
+    suggestionKey: permissionSuggestionKey(input.agentFolder, suggestions),
+  });
+  return counter && counter.allowCount >= PERMISSION_PROMOTION_ALLOW_THRESHOLD
+    ? counter.allowCount
+    : undefined;
+}
+
+export function recordHumanPermissionPromotionSignal(input: {
+  repository?: PermissionPromotionRepository;
+  appId?: string;
+  agentFolder: string;
+  request: PermissionApprovalRequest;
+  decision: PermissionApprovalDecision;
+}): void {
+  if (!input.repository || !isHumanPermissionDecision(input.decision)) return;
+  const suggestionKey = permissionSuggestionKey(
+    input.agentFolder,
+    input.request.suggestions,
+  );
+  if (!suggestionKey) return;
+  const nowIso = new Date().toISOString();
+  const operation =
+    input.decision.approved && input.decision.mode === 'allow_once'
+      ? input.repository.incrementAndGet({
+          appId: input.appId ?? 'default',
+          agentFolder: input.agentFolder,
+          suggestionKey,
+          nowIso,
+        })
+      : input.decision.mode === 'cancel' ||
+          input.decision.decisionClassification === 'user_reject'
+        ? input.repository.markDenied({
+            appId: input.appId ?? 'default',
+            agentFolder: input.agentFolder,
+            suggestionKey,
+            nowIso,
+          })
+        : undefined;
+  void operation?.catch((error) =>
+    logger.warn(
+      {
+        error,
+        appId: input.appId,
+        agentFolder: input.agentFolder,
+        suggestionKey,
+      },
+      'Permission promotion decision signal failed',
+    ),
+  );
+}
+
+function isHumanPermissionDecision(
+  decision: PermissionApprovalDecision,
+): boolean {
+  return !['auto_classifier', 'runtime', 'system'].includes(
+    decision.decidedBy ?? '',
+  );
+}
+
+async function readPromotionCounter(input: {
+  promotion?: PermissionClassifierPromptConsultInput['promotion'];
+  appId: string;
+  agentFolder: string;
+  suggestionKey?: string;
+}) {
+  if (!input.promotion || !input.suggestionKey) return null;
+  try {
+    return await input.promotion.repository.get({
+      appId: input.appId,
+      agentFolder: input.agentFolder,
+      suggestionKey: input.suggestionKey,
+    });
+  } catch (error) {
+    logger.warn(
+      { error, appId: input.appId, agentFolder: input.agentFolder },
+      'Permission promotion context read failed',
+    );
+    return null;
+  }
+}
+
+function wasRecentlyDenied(
+  counter: Awaited<ReturnType<typeof readPromotionCounter>>,
+): boolean {
+  if (!counter?.deniedAt) return false;
+  const deniedAtMs = Date.parse(counter.deniedAt);
+  return (
+    Number.isFinite(deniedAtMs) &&
+    deniedAtMs >= Date.now() - RECENT_PERMISSION_DENIAL_MS
+  );
 }
 
 function resolveClassifierModel(input: PermissionClassifierInput): {
@@ -403,6 +535,11 @@ function classifierUserPayload(input: PermissionClassifierInput): string {
     canonicalToolName: input.canonicalToolName,
     toolInput: redactPermissionClassifierToolInput(input.toolInput),
     policyDecisionReason: truncate(input.policyDecisionReason, 1_000),
+    ...(input.recentlyDeniedExactToolShape
+      ? {
+          operatorContext: 'the operator recently denied this exact tool shape',
+        }
+      : {}),
   });
 }
 

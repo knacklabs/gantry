@@ -40,6 +40,8 @@ export interface PermissionIpcRuntimeEnv {
   agentRunHandle?: string;
   permissionRequestTimeoutMs: number;
   permissionMode?: 'ask' | 'auto';
+  senderId?: string;
+  senderIsControlApprover?: boolean;
   turnIntentSummary?: string;
   resolveWorkspaceIpcDir: (agentFolder: string) => string;
 }
@@ -146,6 +148,9 @@ export async function requestPermissionApprovalViaIpc(
           }
         : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
+      ...(env.senderId && env.senderIsControlApprover
+        ? { senderId: env.senderId }
+        : {}),
       ...(env.turnIntentSummary
         ? { turnIntentSummary: env.turnIntentSummary.slice(0, 1_500) }
         : {}),

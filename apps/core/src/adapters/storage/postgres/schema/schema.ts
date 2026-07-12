@@ -45,6 +45,10 @@ export const permissionPromotionCountersPostgres = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
+    deniedAt: timestamp('denied_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'string',

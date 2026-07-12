@@ -1063,6 +1063,7 @@ describe('validateIpcAuthRequest', () => {
       toolName: 'Bash',
       unattended: true,
       turnIntentSummary: 'Inspect the current repository state.',
+      senderId: 'operator-1',
       decisionOptions: [
         'allow_once',
         'allow_persistent_rule',
@@ -1080,6 +1081,7 @@ describe('validateIpcAuthRequest', () => {
         appId: 'app:one',
         agentId: 'agent:team',
         providerAccountId: 'provider-account:slack:a',
+        senderId: 'operator-1',
         unattended: true,
         turnIntentSummary: 'Inspect the current repository state.',
         chatJid: 'tg:team',

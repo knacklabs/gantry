@@ -29,6 +29,8 @@ import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { RunAgentOptions } from '../../runtime/agent-spawn-types.js';
 import {
   consultPermissionClassifierBeforePrompt,
+  permissionPromotionHintCount,
+  recordHumanPermissionPromotionSignal,
   type PermissionClassifierPromptConsultInput,
   type PermissionClassifierRuntimeConfig,
 } from '../../runtime/permission-classifier.js';
@@ -318,46 +320,72 @@ export function createInlineCoreTools(
       }
       const permissionRequestId = `permission-${randomUUID()}`;
       const suggestions = synthesizeHostPermissionSuggestions(name, toolInput);
+      const promotionRepository = deps.getPermissionPromotionRepository();
+      const promotion = promotionRepository
+        ? {
+            repository: promotionRepository,
+            offer: async (request: PermissionApprovalRequest) => {
+              const interaction = await runDurablePermissionInteraction({
+                request,
+                sourceAgentFolder: laneInput.group.folder,
+                prompt: deps.requestPermissionApproval,
+              });
+              if (interaction.resolved)
+                recordHumanPermissionPromotionSignal({
+                  repository: promotionRepository,
+                  appId: request.appId,
+                  agentFolder: laneInput.group.folder,
+                  request,
+                  decision: interaction.decision,
+                });
+              return interaction;
+            },
+          }
+        : undefined;
+      let classifierDecision:
+        | Awaited<ReturnType<typeof consultPermissionClassifierBeforePrompt>>
+        | undefined;
       if (deps.publishRuntimeEvent) {
-        const promotionRepository = deps.getPermissionPromotionRepository();
-        const classifierDecision =
-          await consultPermissionClassifierBeforePrompt({
-            permissionMode: run.permissionMode,
-            requestFamily: 'tool',
-            appId: run.appId,
-            agentId: run.agentId,
-            agentFolder: laneInput.group.folder,
-            runId: run.runId,
-            jobId: run.jobId,
-            conversationId: run.chatJid,
-            threadId: run.threadId,
-            correlationId: permissionRequestId,
-            actor: 'permission',
-            turnIntentSummary: run.prompt,
-            canonicalToolName: name,
-            toolInput,
-            policyDecisionReason: decision.reason,
-            suggestions,
-            ...(promotionRepository
-              ? {
-                  promotion: {
-                    repository: promotionRepository,
-                    offer: (request) =>
-                      runDurablePermissionInteraction({
-                        request,
-                        sourceAgentFolder: laneInput.group.folder,
-                        prompt: deps.requestPermissionApproval,
-                      }),
-                  },
-                }
-              : {}),
-            classifierConfig: permissionRuntimeConfig,
-            signal: context?.signal,
-            publishRuntimeEvent: deps.publishRuntimeEvent,
-            classifierConsult: deps.classifierConsult,
-          });
+        classifierDecision = await consultPermissionClassifierBeforePrompt({
+          permissionMode: run.permissionMode,
+          trustedRequester:
+            (run.isScheduledJob === true && !run.memoryUserId) ||
+            laneInput.group.conversationKind === 'dm' ||
+            (Boolean(run.memoryUserId) &&
+              run.memoryReviewerIsControlApprover === true),
+          requestFamily: 'tool',
+          appId: run.appId,
+          agentId: run.agentId,
+          agentFolder: laneInput.group.folder,
+          runId: run.runId,
+          jobId: run.jobId,
+          conversationId: run.chatJid,
+          threadId: run.threadId,
+          correlationId: permissionRequestId,
+          actor: 'permission',
+          turnIntentSummary: run.prompt,
+          canonicalToolName: name,
+          toolInput,
+          policyDecisionReason: decision.reason,
+          suggestions,
+          ...(promotion ? { promotion } : {}),
+          classifierConfig: permissionRuntimeConfig,
+          signal: context?.signal,
+          publishRuntimeEvent: deps.publishRuntimeEvent,
+          classifierConsult: deps.classifierConsult,
+        });
         if (classifierDecision?.decision === 'allow') return { allowed: true };
       }
+      const promotionHintCount =
+        classifierDecision?.promotionHintCount ??
+        (await permissionPromotionHintCount({
+          promotion,
+          appId: run.appId,
+          agentFolder: laneInput.group.folder,
+          canonicalToolName: name,
+          toolInput,
+          suggestions,
+        }));
       const request: PermissionApprovalRequest = {
         requestId: permissionRequestId,
         requestFamily: 'tool',
@@ -371,6 +399,9 @@ export function createInlineCoreTools(
         runLeaseFencingVersion: run.runLeaseFencingVersion,
         targetJid: run.chatJid,
         threadId: run.threadId,
+        ...(!run.isScheduledJob && run.memoryUserId
+          ? { senderId: run.memoryUserId }
+          : {}),
         toolName: name,
         displayName: name,
         description: 'Call a selected remote MCP tool.',
@@ -378,6 +409,7 @@ export function createInlineCoreTools(
         closestRule: decision.closestRule,
         toolInput: toolInput as Record<string, unknown>,
         suggestions,
+        ...(promotionHintCount ? { promotionHintCount } : {}),
         decisionOptions: suggestions
           ? ['allow_once', 'allow_persistent_rule', 'cancel']
           : ['allow_once', 'cancel'],
@@ -444,6 +476,14 @@ export function createInlineCoreTools(
           laneInput.jobActivity.finishPermissionRequest(request.requestId);
         },
       });
+      if (interaction.resolved)
+        recordHumanPermissionPromotionSignal({
+          repository: promotionRepository,
+          appId: request.appId,
+          agentFolder: laneInput.group.folder,
+          request,
+          decision: interaction.decision,
+        });
       return interaction.resolved && interaction.decision.approved
         ? { allowed: true }
         : {

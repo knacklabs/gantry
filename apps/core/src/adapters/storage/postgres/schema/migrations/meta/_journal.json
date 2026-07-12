@@ -673,6 +673,13 @@
       "when": 1777338600000,
       "tag": "0098_permission_promotion_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1783864800000,
+      "tag": "0099_permission_promotion_denied_at",
+      "breakpoints": true
     }
   ]
 }

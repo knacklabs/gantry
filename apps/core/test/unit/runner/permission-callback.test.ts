@@ -48,6 +48,8 @@ describe('requestPermissionApproval', () => {
     process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY = 'test-key';
     process.env.GANTRY_IPC_RESPONSE_KEY_ID = 'test-response-key';
     process.env.GANTRY_AGENT_RUN_HANDLE = 'run-handle-1';
+    process.env.GANTRY_MEMORY_USER_ID = 'operator-1';
+    process.env.GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER = '1';
   });
 
   afterEach(() => {
@@ -89,7 +91,8 @@ describe('requestPermissionApproval', () => {
     expect(requestFiles).toHaveLength(1);
     const request = JSON.parse(
       fs.readFileSync(path.join(requestDir, requestFiles[0]), 'utf-8'),
-    ) as { requestId: string; responseNonce: string };
+    ) as { requestId: string; responseNonce: string; senderId?: string };
+    expect(request.senderId).toBe('operator-1');
 
     const responseDir = path.join(
       tempDir,

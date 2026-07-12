@@ -22,6 +22,7 @@ import {
   PERMISSION_CLASSIFIER_MAX_TOOL_INPUT_CHARS,
   publishPermissionClassifierDecision,
   redactPermissionClassifierToolInput,
+  recordHumanPermissionPromotionSignal,
 } from '@core/runtime/permission-classifier.js';
 
 const baseInput = {
@@ -138,6 +139,17 @@ describe('permission classifier verdict client', () => {
     expect(request.prompt).toContain(baseInput.policyDecisionReason);
     expect(request.prompt).toContain('[REDACTED]');
     expect(request.prompt).not.toContain('private-value');
+  });
+
+  it('adds recent exact-shape denial context to the classifier payload', async () => {
+    await consultPermissionClassifier({
+      ...baseInput,
+      recentlyDeniedExactToolShape: true,
+    });
+
+    expect(query.mock.calls[0]?.[0].prompt).toContain(
+      'the operator recently denied this exact tool shape',
+    );
   });
 
   it('deep-redacts sensitive keys and truncates long tool input', async () => {
@@ -270,6 +282,117 @@ describe('permission classifier verdict client', () => {
 });
 
 describe('permission classifier decision events', () => {
+  it('records human cancellation as contrary evidence without blocking', async () => {
+    const markDenied = vi.fn(async () => undefined);
+    recordHumanPermissionPromotionSignal({
+      repository: {
+        incrementAndGet: vi.fn(),
+        get: vi.fn(),
+        markOffered: vi.fn(),
+        markDenied,
+      },
+      appId: 'app:test',
+      agentFolder: 'researcher',
+      request: {
+        requestId: 'request:cancel',
+        sourceAgentFolder: 'researcher',
+        toolName: 'RunCommand',
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'RunCommand', ruleContent: 'git status' }],
+          },
+        ],
+      },
+      decision: {
+        approved: false,
+        mode: 'cancel',
+        decidedBy: 'operator',
+        decisionClassification: 'user_reject',
+      },
+    });
+
+    await vi.waitFor(() => expect(markDenied).toHaveBeenCalledOnce());
+    expect(markDenied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        suggestionKey: 'researcher|RunCommand(git status)',
+      }),
+    );
+  });
+
+  it('skips untrusted requesters without consulting or publishing an event', async () => {
+    const classifierConsult = vi.fn();
+    const publishRuntimeEvent = vi.fn();
+
+    await expect(
+      consultPermissionClassifierBeforePrompt({
+        permissionMode: 'auto',
+        requestFamily: 'tool',
+        agentFolder: 'researcher',
+        correlationId: 'request:untrusted',
+        actor: 'permission',
+        turnIntentSummary: 'Inspect the repository status.',
+        canonicalToolName: 'RunCommand',
+        toolInput: { command: 'git status' },
+        policyDecisionReason: 'No durable rule matched.',
+        classifierConfig: { memoryExtractorModel: 'extractor-model' },
+        publishRuntimeEvent,
+        classifierConsult,
+      }),
+    ).resolves.toBeUndefined();
+    expect(classifierConsult).not.toHaveBeenCalled();
+    expect(publishRuntimeEvent).not.toHaveBeenCalled();
+  });
+
+  it('passes recent repository denial context into a trusted consultation', async () => {
+    const classifierConsult = vi.fn(async () => ({
+      decision: 'ask' as const,
+      reason: 'Recent contrary evidence.',
+      latencyMs: 1,
+    }));
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await consultPermissionClassifierBeforePrompt({
+      permissionMode: 'auto',
+      trustedRequester: true,
+      requestFamily: 'tool',
+      appId: 'app:test',
+      agentFolder: 'researcher',
+      correlationId: 'request:denied',
+      actor: 'permission',
+      turnIntentSummary: 'Inspect the repository status.',
+      canonicalToolName: 'RunCommand',
+      toolInput: { command: 'git status' },
+      policyDecisionReason: 'No durable rule matched.',
+      classifierConfig: { memoryExtractorModel: 'extractor-model' },
+      publishRuntimeEvent,
+      classifierConsult,
+      promotion: {
+        repository: {
+          incrementAndGet: vi.fn(),
+          get: vi.fn(async () => ({
+            appId: 'app:test',
+            agentFolder: 'researcher',
+            suggestionKey: 'researcher|RunCommand(git status)',
+            allowCount: 0,
+            lastOfferedAt: null,
+            deniedAt: new Date().toISOString(),
+            createdAt: '2026-07-12T00:00:00.000Z',
+            updatedAt: '2026-07-12T00:00:00.000Z',
+          })),
+          markOffered: vi.fn(),
+          markDenied: vi.fn(),
+        },
+        offer: vi.fn(),
+      },
+    });
+
+    expect(classifierConsult).toHaveBeenCalledWith(
+      expect.objectContaining({ recentlyDeniedExactToolShape: true }),
+    );
+  });
+
   it('counts keyed auto-allows and emits the promotion prompt without blocking', async () => {
     const offer = vi.fn(async () => undefined);
     const incrementAndGet = vi.fn(async () => ({
@@ -278,6 +401,7 @@ describe('permission classifier decision events', () => {
       suggestionKey: 'researcher|RunCommand(git status)',
       allowCount: 3,
       lastOfferedAt: null,
+      deniedAt: null,
       createdAt: '2026-07-12T00:00:00.000Z',
       updatedAt: '2026-07-12T00:00:00.000Z',
     }));
@@ -287,6 +411,7 @@ describe('permission classifier decision events', () => {
     await expect(
       consultPermissionClassifierBeforePrompt({
         permissionMode: 'auto',
+        trustedRequester: true,
         requestFamily: 'tool',
         appId: 'app:test',
         agentId: 'agent:test',
@@ -307,7 +432,12 @@ describe('permission classifier decision events', () => {
           latencyMs: 10,
         }),
         promotion: {
-          repository: { incrementAndGet, markOffered },
+          repository: {
+            incrementAndGet,
+            get: vi.fn(async () => null),
+            markOffered,
+            markDenied: vi.fn(async () => undefined),
+          },
           offer,
         },
       }),

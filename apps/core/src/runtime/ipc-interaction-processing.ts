@@ -46,6 +46,7 @@ import {
   writeUserQuestionIpcResponse,
 } from './ipc-interaction-handler.js';
 import { resolvePermissionIpcDecision } from './ipc-permission-classifier-decision.js';
+import { recordHumanPermissionPromotionSignal } from './permission-classifier.js';
 import { synthesizeHostPermissionSuggestions } from '../application/permissions/permission-suggestion-synthesis.js';
 import {
   permissionDecisionEventType,
@@ -311,6 +312,13 @@ export async function processPermissionInteractionIpc(input: {
       );
       return;
     }
+    recordHumanPermissionPromotionSignal({
+      repository: input.deps.getPermissionPromotionRepository?.(),
+      appId: input.request.appId,
+      agentFolder: input.sourceAgentFolder,
+      request: input.request,
+      decision,
+    });
     const permissionService = new PermissionManagementService();
     if (
       decision.mode !== 'allow_persistent_rule' ||

@@ -140,6 +140,7 @@ export interface PermissionApprovalRequest {
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   unattended?: boolean;
+  senderId?: string;
   turnIntentSummary?: string;
   toolName: string;
   toolUseID?: string;
@@ -159,6 +160,7 @@ export interface PermissionApprovalRequest {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];
+  promotionHintCount?: number;
   interaction?: InteractionDescriptor;
 }
 
