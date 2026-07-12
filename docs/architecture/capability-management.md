@@ -399,7 +399,10 @@ How a gray-zone call resolves:
    blanket-trusted. Everything else keeps today's behavior.
 3. One short LLM call judges the actual invocation against the turn intent
    (agent identity, triggering-message summary, canonical tool name,
-   secret-redacted input, policy reason). `allow` resolves the request as an
+   secret-redacted input, policy reason, and the agent's approved capability
+   selection ids as authoritative operator intent — a read-only action whose
+   credential plainly belongs to an approved capability may be allowed;
+   writes, unmatched credentials, spend, and ambiguity still ask). `allow` resolves the request as an
    `allow_once` decision recorded with `decidedBy: auto_classifier`; `ask`
    falls through to the normal prompt. Timeouts, parse failures, or an
    unconfigured model all collapse to `ask` — the worst case is exactly
