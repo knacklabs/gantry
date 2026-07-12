@@ -20,6 +20,7 @@ import * as jobToolPolicy from '../application/jobs/job-tool-policy.js';
 import { SETUP_REQUIRED_PAUSE_REASON } from '../application/jobs/job-readiness-service.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { nowIso, nowMs, toIso } from '../shared/time/datetime.js';
+import { accumulateModelUsage } from '../shared/model-usage.js';
 import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
 import { resolveModelFamilyCandidatesForApp } from '../runtime/model-family-resolution.js';
@@ -67,7 +68,6 @@ import {
   modelUseKindForJobSchedule,
   resolveJobExecutionProviderId,
   resolveJobModel,
-  type NormalizedModelUsage,
 } from './model-resolution.js';
 import {
   createJobRunDiagnostics,
@@ -259,7 +259,7 @@ export async function runJob(
       if (!delta) return;
       resultSummaryAccumulator.append(delta);
     };
-    let latestUsage: NormalizedModelUsage | undefined;
+    let accumulatedUsage: AgentOutput['usage'];
     let startNotified = false;
     try {
       const groupDir = resolveWorkspaceFolderPath(execution.group.folder);
@@ -523,7 +523,11 @@ export async function runJob(
                   diagnostics,
                   emitJobEvent,
                 });
-                if (streamedOutput.usage) latestUsage = streamedOutput.usage;
+                if (streamedOutput.usage)
+                  accumulatedUsage = accumulateModelUsage(
+                    accumulatedUsage,
+                    streamedOutput.usage,
+                  );
                 const streamedProviderSessionId =
                   providerSessionExternalSessionId(streamedOutput);
                 if (streamedProviderSessionId) {
@@ -776,7 +780,7 @@ export async function runJob(
         pause_reason: pauseReason,
         notified,
         summary,
-        ...jobCompletedModelPayload(resolvedModel, latestUsage),
+        ...jobCompletedModelPayload(resolvedModel, accumulatedUsage),
         diagnostics: terminalDiagnosticsPayload(diagnostics),
       },
     );

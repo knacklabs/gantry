@@ -80,6 +80,28 @@ export function estimateUsageCostUsd(
   );
 }
 
+export function accumulateModelUsage(
+  accumulated: NormalizedModelUsage | undefined,
+  usage: NormalizedModelUsage,
+): NormalizedModelUsage {
+  if (!accumulated) return usage;
+  const hasEstimatedCost =
+    typeof accumulated.estimatedCostUsd === 'number' ||
+    typeof usage.estimatedCostUsd === 'number';
+  return {
+    ...usage,
+    inputTokens: accumulated.inputTokens + usage.inputTokens,
+    outputTokens: accumulated.outputTokens + usage.outputTokens,
+    cacheReadTokens: accumulated.cacheReadTokens + usage.cacheReadTokens,
+    cacheWriteTokens: accumulated.cacheWriteTokens + usage.cacheWriteTokens,
+    totalBillableInputTokens:
+      accumulated.totalBillableInputTokens + usage.totalBillableInputTokens,
+    estimatedCostUsd: hasEstimatedCost
+      ? (accumulated.estimatedCostUsd ?? 0) + (usage.estimatedCostUsd ?? 0)
+      : undefined,
+  };
+}
+
 export function normalizeModelUsage(input: {
   message: unknown;
   fallbackModel?: string;

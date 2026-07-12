@@ -1524,6 +1524,84 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('accumulates usage from every scheduled runner output frame', async () => {
+    const job = makeJob();
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
+      await onStream({
+        status: 'success',
+        result: null,
+        usage: {
+          model: 'opus',
+          responseFamily: 'anthropic',
+          modelRoute: 'anthropic',
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadTokens: 3,
+          cacheWriteTokens: 4,
+          totalBillableInputTokens: 7,
+          estimatedCostUsd: 0.25,
+          cacheProvider: 'anthropic',
+          cacheStatus: 'partial',
+          at: '2026-05-08T00:00:01.000Z',
+        },
+      } as never);
+      await onStream({
+        status: 'success',
+        result: null,
+        usage: {
+          model: 'opus',
+          responseFamily: 'anthropic',
+          modelRoute: 'anthropic',
+          inputTokens: 20,
+          outputTokens: 5,
+          cacheReadTokens: 6,
+          cacheWriteTokens: 1,
+          totalBillableInputTokens: 14,
+          estimatedCostUsd: 0.5,
+          cacheProvider: 'anthropic',
+          cacheStatus: 'partial',
+          at: '2026-05-08T00:00:02.000Z',
+        },
+      } as never);
+      return {
+        status: 'success',
+        result: 'done',
+      };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    const completedEvent = runtimeStoreMock.publish.mock.calls.find(
+      ([event]) => event?.eventType === 'job.completed',
+    )?.[0];
+    expect(completedEvent?.payload?.usage).toEqual({
+      model: 'opus',
+      responseFamily: 'anthropic',
+      modelRoute: 'anthropic',
+      inputTokens: 30,
+      outputTokens: 7,
+      cacheReadTokens: 9,
+      cacheWriteTokens: 5,
+      totalBillableInputTokens: 21,
+      estimatedCostUsd: 0.75,
+      cacheProvider: 'anthropic',
+      cacheStatus: 'partial',
+      at: '2026-05-08T00:00:02.000Z',
+    });
+  });
+
   it('publishes scheduled runner heartbeat events with status payload', async () => {
     const job = makeJob();
     const opsRepository = makeOpsRepository(job);
