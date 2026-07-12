@@ -28,6 +28,46 @@ import {
   normalizeAgentMaxSteps,
   summarizeAgentObservation,
 } from '../src/tasks/agent-task-runner-helpers.js';
+import { observeGantryModelCall } from '../src/tasks/model-observability.js';
+
+const langfuseTracingMock = vi.hoisted(() => {
+  const state = {
+    throwOnUpdate: false,
+    updates: [] as Record<string, unknown>[],
+  };
+  return {
+    state,
+    propagateAttributes: vi.fn(
+      async (_attributes: unknown, fn: () => Promise<unknown>) => await fn(),
+    ),
+    startActiveObservation: vi.fn(
+      async (
+        _name: string,
+        fn: (observation: {
+          update(attributes: Record<string, unknown>): void;
+        }) => Promise<unknown>,
+      ) =>
+        await fn({
+          update: (attributes: Record<string, unknown>) => {
+            state.updates.push(attributes);
+            if (state.throwOnUpdate) {
+              throw new Error('Langfuse update failed');
+            }
+          },
+        }),
+    ),
+  };
+});
+
+vi.mock('@langfuse/tracing', () => ({
+  LangfuseOtelSpanAttributes: {
+    TRACE_NAME: 'langfuse.trace.name',
+    TRACE_TAGS: 'langfuse.trace.tags',
+    TRACE_SESSION_ID: 'langfuse.trace.sessionId',
+  },
+  propagateAttributes: langfuseTracingMock.propagateAttributes,
+  startActiveObservation: langfuseTracingMock.startActiveObservation,
+}));
 
 describe('@cawstudios/agent-gantry', () => {
   it('allows generic agent loops to run up to 100 steps', () => {
@@ -94,9 +134,10 @@ describe('@cawstudios/agent-gantry', () => {
         generateJson: async () => {
           callCount += 1;
           return {
-            output: callCount === 1
-              ? { action: 'call_tool', toolName: 'lookup', input: { q: 'x' } }
-              : { action: 'final', output: { status: 'ok' } },
+            output:
+              callCount === 1
+                ? { action: 'call_tool', toolName: 'lookup', input: { q: 'x' } }
+                : { action: 'final', output: { status: 'ok' } },
             modelUsage: {
               provider: 'anthropic',
               model: 'claude-test',
@@ -117,10 +158,12 @@ describe('@cawstudios/agent-gantry', () => {
       taskType: 'task.agent.usage',
       instructions: 'Use the tool, then finish.',
       input: {},
-      tools: [{
-        name: 'lookup',
-        execute: async () => ({ status: 'ok' }),
-      }],
+      tools: [
+        {
+          name: 'lookup',
+          execute: async () => ({ status: 'ok' }),
+        },
+      ],
       maxSteps: 2,
       correlationId: 'agent-usage-1',
     });
@@ -140,6 +183,127 @@ describe('@cawstudios/agent-gantry', () => {
     });
   });
 
+  it('passes generic observability context to model providers and tools', async () => {
+    const previousTracing = process.env.LANGFUSE_TRACING_ENABLED;
+    process.env.LANGFUSE_TRACING_ENABLED = 'false';
+    const seen: Record<string, unknown>[] = [];
+    const observability = {
+      flowId: 'flow-1',
+      flowType: 'chat',
+      flowStage: 'turn',
+      sessionId: 'session-1',
+      costCategory: 'agent',
+      costStage: 'agent.chat_turn',
+      metadata: { request_id: 'request-1' },
+    };
+    let callCount = 0;
+    const runner = createStructuredModelTaskRunner({
+      model: {
+        generateJson: async (input) => {
+          seen.push({ kind: 'model', observability: input.observability });
+          callCount += 1;
+          return callCount === 1
+            ? { action: 'call_tool', toolName: 'lookup', input: {} }
+            : { action: 'final', output: { status: 'ok' } };
+        },
+      },
+    });
+
+    const result = await runner.runAgentTask?.({
+      taskType: 'task.observed',
+      instructions: 'Use the tool, then finish.',
+      input: {},
+      observability,
+      tools: [
+        {
+          name: 'lookup',
+          execute: async (_input, context) => {
+            seen.push({ kind: 'tool', observability: context.observability });
+            return { status: 'ok' };
+          },
+        },
+      ],
+      maxSteps: 2,
+    });
+    if (previousTracing === undefined) {
+      delete process.env.LANGFUSE_TRACING_ENABLED;
+    } else {
+      process.env.LANGFUSE_TRACING_ENABLED = previousTracing;
+    }
+
+    expect(result?.status).toBe('completed');
+    expect(seen).toHaveLength(3);
+    expect(seen.every((entry) => Boolean(entry.observability))).toBe(true);
+    expect(seen[0]?.observability).toMatchObject({
+      ...observability,
+      metadata: {
+        request_id: 'request-1',
+        agent_step: 1,
+        agent_step_kind: 'model',
+        agent_step_detail: 'primary',
+      },
+    });
+    expect(seen[1]?.observability).toMatchObject({
+      ...observability,
+      metadata: {
+        request_id: 'request-1',
+        agent_step: 1,
+        agent_step_kind: 'tool',
+        agent_step_detail: 'lookup',
+      },
+    });
+  });
+
+  it('does not rerun model work when Langfuse update fails', async () => {
+    const previousTracing = process.env.LANGFUSE_TRACING_ENABLED;
+    process.env.LANGFUSE_TRACING_ENABLED = 'true';
+    langfuseTracingMock.state.throwOnUpdate = true;
+    langfuseTracingMock.state.updates = [];
+    let callCount = 0;
+    try {
+      const result = await observeGantryModelCall(
+        {
+          operationName: 'anthropic.generateJson',
+          taskType: 'task.no-rerun',
+          modelCallType: 'agent_step',
+          provider: 'anthropic',
+          model: 'claude-test',
+          metadata: { correlation_id: 'corr-raw' },
+          observability: {
+            flowId: 'flow-1',
+            flowType: 'chat',
+            flowStage: 'turn',
+            costCategory: 'agent',
+            costStage: 'agent.chat_turn',
+            metadata: { redact_correlation_id: true },
+          },
+        },
+        async () => {
+          callCount += 1;
+          return { ok: true };
+        },
+      );
+
+      expect(result).toEqual({ ok: true });
+      expect(callCount).toBe(1);
+      expect(langfuseTracingMock.state.updates[0]?.metadata).toMatchObject({
+        session_id: 'flow-1',
+        correlation_id_hash: expect.any(String),
+        correlation_id_redacted: true,
+      });
+      expect(JSON.stringify(langfuseTracingMock.state.updates)).not.toContain(
+        'corr-raw',
+      );
+    } finally {
+      langfuseTracingMock.state.throwOnUpdate = false;
+      if (previousTracing === undefined) {
+        delete process.env.LANGFUSE_TRACING_ENABLED;
+      } else {
+        process.env.LANGFUSE_TRACING_ENABLED = previousTracing;
+      }
+    }
+  });
+
   it('includes tool timeout recovery model usage in generic agent task usage', async () => {
     let callCount = 0;
     const runner = createStructuredModelTaskRunner({
@@ -147,9 +311,10 @@ describe('@cawstudios/agent-gantry', () => {
         generateJson: async () => {
           callCount += 1;
           return {
-            output: callCount === 1
-              ? { action: 'call_tool', toolName: 'slow', input: {} }
-              : { action: 'final', output: { status: 'recovered' } },
+            output:
+              callCount === 1
+                ? { action: 'call_tool', toolName: 'slow', input: {} }
+                : { action: 'final', output: { status: 'recovered' } },
             modelUsage: {
               provider: 'anthropic',
               model: 'claude-test',
@@ -167,12 +332,14 @@ describe('@cawstudios/agent-gantry', () => {
       taskType: 'task.agent.recovery-usage',
       instructions: 'Recover from tool timeout.',
       input: {},
-      tools: [{
-        name: 'slow',
-        execute: async () => {
-          throw new Error('agent_tool_timeout:slow');
+      tools: [
+        {
+          name: 'slow',
+          execute: async () => {
+            throw new Error('agent_tool_timeout:slow');
+          },
         },
-      }],
+      ],
       recoverFromToolError: async () => ({ attempt: 'tool_error_recovery' }),
       maxSteps: 1,
       correlationId: 'agent-recovery-usage-1',
@@ -661,19 +828,27 @@ describe('@cawstudios/agent-gantry', () => {
       },
     });
 
-    const messages = requestBody?.messages as Array<{ content?: unknown }> | undefined;
+    const messages = requestBody?.messages as
+      | Array<{ content?: unknown }>
+      | undefined;
     const content = messages?.[0]?.content as Array<Record<string, unknown>>;
-    expect(String(requestBody?.system)).not.toContain('commercial financial terms');
+    expect(String(requestBody?.system)).not.toContain(
+      'commercial financial terms',
+    );
     expect(content).toHaveLength(2);
     expect(content[0]).toMatchObject({
       type: 'text',
       text: 'stable tender evidence scope',
       cache_control: { type: 'ephemeral', ttl: '1h' },
     });
-    expect(JSON.stringify(content[0])).not.toContain('commercial_financial_terms');
+    expect(JSON.stringify(content[0])).not.toContain(
+      'commercial_financial_terms',
+    );
     expect(JSON.stringify(content[0])).not.toContain('dynamic-correlation');
     expect(content[1]).toMatchObject({ type: 'text' });
-    expect(JSON.stringify(content[1])).toContain('Return JSON for commercial financial terms.');
+    expect(JSON.stringify(content[1])).toContain(
+      'Return JSON for commercial financial terms.',
+    );
     expect(JSON.stringify(content[1])).toContain('commercial_financial_terms');
     expect(JSON.stringify(content[1])).toContain('dynamic-correlation');
     expect(content[1]).not.toHaveProperty('cache_control');
@@ -706,11 +881,15 @@ describe('@cawstudios/agent-gantry', () => {
       }),
     ).resolves.toMatchObject({ output: { status: 'completed' } });
 
-    const messages = requestBody?.messages as Array<{ content?: unknown }> | undefined;
+    const messages = requestBody?.messages as
+      | Array<{ content?: unknown }>
+      | undefined;
     const content = messages?.[0]?.content as Array<Record<string, unknown>>;
     expect(content).toHaveLength(1);
     expect(content[0]?.cache_control).toBeUndefined();
-    expect(JSON.stringify(content)).not.toContain('stable tender evidence scope');
+    expect(JSON.stringify(content)).not.toContain(
+      'stable tender evidence scope',
+    );
   });
 
   it.each([

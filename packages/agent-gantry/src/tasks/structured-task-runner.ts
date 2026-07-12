@@ -14,7 +14,10 @@ import {
   readString,
 } from '../shared/helpers.js';
 import { runGenericAgentTask } from './agent-task-runner.js';
-import { resolveStructuredModelProvider, unwrapStructuredJsonModelProviderResult } from './model-provider.js';
+import {
+  resolveStructuredModelProvider,
+  unwrapStructuredJsonModelProviderResult,
+} from './model-provider.js';
 import { observeGantryAgentSpan } from './model-observability.js';
 
 export function createStructuredModelTaskRunner(
@@ -24,128 +27,142 @@ export function createStructuredModelTaskRunner(
   const runnerConfig = { ...config, model };
   return {
     runStructuredTask: async (input) => {
-      return await observeGantryAgentSpan<GantryStructuredTaskResult>({
-        operationName: 'runStructuredTask',
-        taskType: input.taskType,
-        correlationId: input.correlationId ?? null,
-        input: {
+      return await observeGantryAgentSpan<GantryStructuredTaskResult>(
+        {
+          operationName: 'runStructuredTask',
           taskType: input.taskType,
-          input: input.input,
-          outputSchema: input.outputSchema ?? null,
-        },
-        output: (result: GantryStructuredTaskResult) => ({
-          status: result.status,
-          warning_count: result.warnings?.length ?? 0,
-        }),
-      }, async () => {
-      const taskRunId = input.correlationId ?? randomUUID();
-      let browserContext: Record<string, unknown> | undefined;
-      let toolContext: Record<string, unknown> | null = null;
-      try {
-        const tools = config.tools ?? { browser: config.browser };
-        browserContext = await (tools.browser ?? config.browser)?.runTask?.(
-          input,
-        );
-        toolContext = await collectStructuredToolContext(tools, input);
-        const generated = unwrapStructuredJsonModelProviderResult(await model.generateJson({
-          ...input,
+          correlationId: input.correlationId ?? null,
           input: {
-            ...input.input,
-            ...(browserContext ? { browserContext } : {}),
-            ...(toolContext ? { toolContext } : {}),
+            taskType: input.taskType,
+            input: input.input,
+            outputSchema: input.outputSchema ?? null,
           },
-        }));
-        const modelOutput =
-          typeof generated.output === 'string'
-            ? parseJsonRecord(generated.output)
-            : generated.output;
-        const output: Record<string, unknown> = {
-          ...modelOutput,
-          ...(browserContext ? { browserContext } : {}),
-          ...(toolContext ? { toolContext } : {}),
-        };
-        const status =
-          output.status === 'needs_review' || output.status === 'failed'
-            ? output.status
-            : 'completed';
-        const result: GantryStructuredTaskResult = {
-          status,
-          output,
-          validationReport: asRecord(output.validationReportJson) ?? { status },
-          warnings: Array.isArray(output.warnings)
-            ? output.warnings.filter(
-                (value): value is string => typeof value === 'string',
-              )
-            : [],
-          modelUsage: generated.modelUsage,
-        };
-        await config.storage?.recordStructuredTaskRun?.({
-          taskRunId,
-          taskType: input.taskType,
-          correlationId: input.correlationId,
-          status: result.status,
-          input: input.input,
-          output: result.output,
-          validationReport: result.validationReport,
-          occurredAt: new Date().toISOString(),
-        });
-        return result;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await config.storage?.recordStructuredTaskRun?.({
-          taskRunId,
-          taskType: input.taskType,
-          correlationId: input.correlationId,
-          status: 'failed',
-          input: input.input,
-          output: {
-            error: message,
-            ...(browserContext ? { browserContext } : {}),
-            ...(toolContext ? { toolContext } : {}),
-          },
-          validationReport: {
-            status: 'failed',
-            error: message,
-            ...(browserContext ? { browserContext } : {}),
-            ...(toolContext ? { toolContext } : {}),
-          },
-          error: message,
-          occurredAt: new Date().toISOString(),
-        });
-        return {
-          status: 'failed',
-          output: {
-            error: message,
-            ...(browserContext ? { browserContext } : {}),
-            ...(toolContext ? { toolContext } : {}),
-          },
-          validationReport: {
-            status: 'failed',
-            error: message,
-            ...(browserContext ? { browserContext } : {}),
-            ...(toolContext ? { toolContext } : {}),
-          },
-          warnings: [message],
-        };
-      }
-      });
+          output: (result: GantryStructuredTaskResult) => ({
+            status: result.status,
+            warning_count: result.warnings?.length ?? 0,
+          }),
+          observability: input.observability,
+        },
+        async () => {
+          const taskRunId = input.correlationId ?? randomUUID();
+          let browserContext: Record<string, unknown> | undefined;
+          let toolContext: Record<string, unknown> | null = null;
+          try {
+            const tools = config.tools ?? { browser: config.browser };
+            browserContext = await (tools.browser ?? config.browser)?.runTask?.(
+              input,
+            );
+            toolContext = await collectStructuredToolContext(tools, input);
+            const generated = unwrapStructuredJsonModelProviderResult(
+              await model.generateJson({
+                ...input,
+                input: {
+                  ...input.input,
+                  ...(browserContext ? { browserContext } : {}),
+                  ...(toolContext ? { toolContext } : {}),
+                },
+                observability: input.observability,
+              }),
+            );
+            const modelOutput =
+              typeof generated.output === 'string'
+                ? parseJsonRecord(generated.output)
+                : generated.output;
+            const output: Record<string, unknown> = {
+              ...modelOutput,
+              ...(browserContext ? { browserContext } : {}),
+              ...(toolContext ? { toolContext } : {}),
+            };
+            const status =
+              output.status === 'needs_review' || output.status === 'failed'
+                ? output.status
+                : 'completed';
+            const result: GantryStructuredTaskResult = {
+              status,
+              output,
+              validationReport: asRecord(output.validationReportJson) ?? {
+                status,
+              },
+              warnings: Array.isArray(output.warnings)
+                ? output.warnings.filter(
+                    (value): value is string => typeof value === 'string',
+                  )
+                : [],
+              modelUsage: generated.modelUsage,
+            };
+            await config.storage?.recordStructuredTaskRun?.({
+              taskRunId,
+              taskType: input.taskType,
+              correlationId: input.correlationId,
+              status: result.status,
+              input: input.input,
+              output: result.output,
+              validationReport: result.validationReport,
+              occurredAt: new Date().toISOString(),
+            });
+            return result;
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            await config.storage?.recordStructuredTaskRun?.({
+              taskRunId,
+              taskType: input.taskType,
+              correlationId: input.correlationId,
+              status: 'failed',
+              input: input.input,
+              output: {
+                error: message,
+                ...(browserContext ? { browserContext } : {}),
+                ...(toolContext ? { toolContext } : {}),
+              },
+              validationReport: {
+                status: 'failed',
+                error: message,
+                ...(browserContext ? { browserContext } : {}),
+                ...(toolContext ? { toolContext } : {}),
+              },
+              error: message,
+              occurredAt: new Date().toISOString(),
+            });
+            return {
+              status: 'failed',
+              output: {
+                error: message,
+                ...(browserContext ? { browserContext } : {}),
+                ...(toolContext ? { toolContext } : {}),
+              },
+              validationReport: {
+                status: 'failed',
+                error: message,
+                ...(browserContext ? { browserContext } : {}),
+                ...(toolContext ? { toolContext } : {}),
+              },
+              warnings: [message],
+            };
+          }
+        },
+      );
     },
     runAgentTask: async (input) =>
-      await observeGantryAgentSpan<GantryAgentTaskResult>({
-        operationName: 'runAgentTask',
-        taskType: input.taskType,
-        correlationId: input.correlationId ?? null,
-        input: {
+      await observeGantryAgentSpan<GantryAgentTaskResult>(
+        {
+          operationName: 'runAgentTask',
           taskType: input.taskType,
-          input: input.input,
-          maxSteps: input.maxSteps,
+          correlationId: input.correlationId ?? null,
+          input: {
+            taskType: input.taskType,
+            input: input.input,
+            maxSteps: input.maxSteps,
+          },
+          output: (result: GantryAgentTaskResult) => ({
+            status: result.status,
+            step_count: result.steps.length,
+            warning_count: result.warnings?.length ?? 0,
+          }),
+          observability: input.observability,
         },
-        output: (result: GantryAgentTaskResult) => ({
-          status: result.status,
-          step_count: result.steps.length,
-          warning_count: result.warnings?.length ?? 0,
-        }),
-      }, async () => runGenericAgentTask(runnerConfig, input)),
+        async () => runGenericAgentTask(runnerConfig, input),
+      ),
   };
 }
 

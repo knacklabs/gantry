@@ -341,10 +341,13 @@ export const CreateJobRequestSchema = z
     modelAlias: z.string().optional(),
     dryRun: z.boolean().optional(),
   })
-  .refine((value) => Boolean(value.prompt || value.target?.kind === 'host_task'), {
-    message: 'prompt is required unless target.kind is host_task',
-    path: ['prompt'],
-  })
+  .refine(
+    (value) => Boolean(value.prompt || value.target?.kind === 'host_task'),
+    {
+      message: 'prompt is required unless target.kind is host_task',
+      path: ['prompt'],
+    },
+  )
   .strict();
 export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
 

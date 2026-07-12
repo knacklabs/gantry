@@ -69,67 +69,90 @@ export function createAnthropicStructuredModelProvider(
           const observed = await observeGantryModelCall<{
             readonly payload: Record<string, unknown>;
             readonly output: Record<string, unknown>;
-          }>({
-            operationName: 'anthropic.generateJson',
-            taskType: input.taskType,
-            modelCallType: 'agent_step',
-            provider: 'anthropic',
-            model,
-            attempt,
-            input: {
+          }>(
+            {
+              operationName: 'anthropic.generateJson',
               taskType: input.taskType,
-              instructions: input.instructions,
-              input: input.input,
-              outputSchema: input.outputSchema ?? null,
-              attachments: input.attachments?.map((attachment) => ({
-                label: attachment.label ?? null,
-                mimeType: attachment.mimeType,
-                purpose: attachment.purpose ?? null,
-                sourceStep: attachment.sourceStep ?? null,
-                hasBase64: Boolean(attachment.base64),
-                hasLocalPath: Boolean(attachment.localPath),
-              })) ?? [],
-            },
-            output: (result: { readonly payload: Record<string, unknown>; readonly output: Record<string, unknown> }) => result.output,
-            usageDetails: (result: { readonly payload: Record<string, unknown>; readonly output: Record<string, unknown> }) => extractAnthropicUsageDetails(result.payload),
-            modelParameters: {
-              max_tokens: taskPolicy.maxTokens,
-              max_retries: maxRetries,
-              timeout_ms: timeoutMs,
-              ...(typeof taskPolicy.temperature === 'number' ? { temperature: taskPolicy.temperature } : {}),
-              ...(taskPolicy.effort ? { effort: taskPolicy.effort } : {}),
-            },
-            metadata: {
-              correlation_id: input.correlationId ?? null,
-              prompt_cache_ttl: promptCacheMetadata?.ttl ?? null,
-              prompt_cache_prefix_hash: promptCacheMetadata?.prefixHash ?? null,
-            },
-            resultMetadata: (result: { readonly payload: Record<string, unknown>; readonly output: Record<string, unknown> }) => ({
-              response_id: typeof result.payload.id === 'string' ? result.payload.id : null,
-              duration_ms: Date.now() - startedAt,
-            }),
-          }, async () => {
-            const response = await fetchWithTimeout(
-              fetchImpl,
-              'https://api.anthropic.com/v1/messages',
-              {
-                method: 'POST',
-                headers: {
-                  'anthropic-version': apiVersion,
-                  'content-type': 'application/json',
-                  'x-api-key': apiKey,
-                },
-                body: JSON.stringify(body),
+              modelCallType: 'agent_step',
+              provider: 'anthropic',
+              model,
+              attempt,
+              input: {
+                taskType: input.taskType,
+                instructions: input.instructions,
+                input: input.input,
+                outputSchema: input.outputSchema ?? null,
+                attachments:
+                  input.attachments?.map((attachment) => ({
+                    label: attachment.label ?? null,
+                    mimeType: attachment.mimeType,
+                    purpose: attachment.purpose ?? null,
+                    sourceStep: attachment.sourceStep ?? null,
+                    hasBase64: Boolean(attachment.base64),
+                    hasLocalPath: Boolean(attachment.localPath),
+                  })) ?? [],
               },
-              timeoutMs,
-            );
-            const payload = (await response.json()) as Record<string, unknown>;
-            if (!response.ok) {
-              throw buildAnthropicError(response.status, payload);
-            }
-            const output = parseAnthropicJsonPayload(payload);
-            return { payload, output };
-          });
+              output: (result: {
+                readonly payload: Record<string, unknown>;
+                readonly output: Record<string, unknown>;
+              }) => result.output,
+              usageDetails: (result: {
+                readonly payload: Record<string, unknown>;
+                readonly output: Record<string, unknown>;
+              }) => extractAnthropicUsageDetails(result.payload),
+              modelParameters: {
+                max_tokens: taskPolicy.maxTokens,
+                max_retries: maxRetries,
+                timeout_ms: timeoutMs,
+                ...(typeof taskPolicy.temperature === 'number'
+                  ? { temperature: taskPolicy.temperature }
+                  : {}),
+                ...(taskPolicy.effort ? { effort: taskPolicy.effort } : {}),
+              },
+              metadata: {
+                correlation_id: input.correlationId ?? null,
+                prompt_cache_ttl: promptCacheMetadata?.ttl ?? null,
+                prompt_cache_prefix_hash:
+                  promptCacheMetadata?.prefixHash ?? null,
+              },
+              observability: input.observability,
+              resultMetadata: (result: {
+                readonly payload: Record<string, unknown>;
+                readonly output: Record<string, unknown>;
+              }) => ({
+                response_id:
+                  typeof result.payload.id === 'string'
+                    ? result.payload.id
+                    : null,
+                duration_ms: Date.now() - startedAt,
+              }),
+            },
+            async () => {
+              const response = await fetchWithTimeout(
+                fetchImpl,
+                'https://api.anthropic.com/v1/messages',
+                {
+                  method: 'POST',
+                  headers: {
+                    'anthropic-version': apiVersion,
+                    'content-type': 'application/json',
+                    'x-api-key': apiKey,
+                  },
+                  body: JSON.stringify(body),
+                },
+                timeoutMs,
+              );
+              const payload = (await response.json()) as Record<
+                string,
+                unknown
+              >;
+              if (!response.ok) {
+                throw buildAnthropicError(response.status, payload);
+              }
+              const output = parseAnthropicJsonPayload(payload);
+              return { payload, output };
+            },
+          );
           const payload = observed.payload;
           const output = observed.output;
           return {
@@ -467,11 +490,13 @@ function readAnthropicModelUsage(input: {
   const usage = asRecord(input.payload.usage);
   const inputTokens = readOptionalNumber(usage?.input_tokens);
   const outputTokens = readOptionalNumber(usage?.output_tokens);
-  const cacheReadInputTokens = readOptionalNumber(usage?.cache_read_input_tokens);
-  const cacheCreationInputTokens = readOptionalNumber(usage?.cache_creation_input_tokens);
-  const cachedTokens =
-    cacheReadInputTokens ??
-    cacheCreationInputTokens;
+  const cacheReadInputTokens = readOptionalNumber(
+    usage?.cache_read_input_tokens,
+  );
+  const cacheCreationInputTokens = readOptionalNumber(
+    usage?.cache_creation_input_tokens,
+  );
+  const cachedTokens = cacheReadInputTokens ?? cacheCreationInputTokens;
   const promptCacheMetadata = input.promptCacheMetadata;
   const promptCharCount = JSON.stringify(input.body).length;
   if (inputTokens !== null || outputTokens !== null) {

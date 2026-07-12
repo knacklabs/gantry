@@ -118,17 +118,25 @@ export class GantryRuntime {
     },
     delegateAgentTask: async (
       input: import('../../shared/types.js').GantryDelegatedAgentTaskInput,
-    ): Promise<import('../../shared/types.js').GantryDelegatedAgentTaskHandle> => {
+    ): Promise<
+      import('../../shared/types.js').GantryDelegatedAgentTaskHandle
+    > => {
       if (!this.config.tasks?.delegateAgentTask) {
-        throw new Error('Gantry delegated agent task runner is not configured.');
+        throw new Error(
+          'Gantry delegated agent task runner is not configured.',
+        );
       }
       return await this.config.tasks.delegateAgentTask(input);
     },
     getDelegatedAgentTask: async (
       input: import('../../shared/types.js').GantryDelegatedAgentTaskLookup,
-    ): Promise<import('../../shared/types.js').GantryDelegatedAgentTaskResult> => {
+    ): Promise<
+      import('../../shared/types.js').GantryDelegatedAgentTaskResult
+    > => {
       if (!this.config.tasks?.getDelegatedAgentTask) {
-        throw new Error('Gantry delegated agent task lookup is not configured.');
+        throw new Error(
+          'Gantry delegated agent task lookup is not configured.',
+        );
       }
       return await this.config.tasks.getDelegatedAgentTask(input);
     },
