@@ -10,7 +10,7 @@
     "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
     "apps/core/src/app/bootstrap/channel-wiring.ts": 759,
-    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 730,
+    "apps/core/src/app/bootstrap/inline-agent-loop-tools.ts": 745,
     "apps/core/src/app/bootstrap/runtime-app.ts": 725,
     "apps/core/src/app/bootstrap/runtime-services.ts": 1080,
     "apps/core/src/channels/slack/channel-delivery-helpers.ts": 774,

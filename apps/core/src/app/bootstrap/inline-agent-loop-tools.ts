@@ -97,6 +97,18 @@ type InlineCoreToolSupport = Pick<
   | 'formatMemoryWriteResponse'
 > & { schemaFactory: Parameters<typeof createCoreToolSchemas>[0] };
 
+type ThirdPartyMcpToolActivity = {
+  serverName: string;
+  toolName: string;
+  toolInput: unknown;
+  outcome: 'attempt' | 'success' | 'failure';
+  latencyMs: number;
+  result?: unknown;
+  error?: unknown;
+  resultClass?: McpToolAuditResultClass;
+  structuredError?: McpCompatibleToolError;
+};
+
 function createToolSuccessLedger() {
   const successfulTools = new Set<string>();
   return {
@@ -116,16 +128,9 @@ export function createInlineCoreTools(
     input: unknown,
     context?: { signal?: AbortSignal },
   ): Promise<{ allowed: boolean; reason?: string }>;
-  recordThirdPartyMcpToolActivity(input: {
-    serverName: string;
-    toolName: string;
-    toolInput: unknown;
-    outcome: 'attempt' | 'success' | 'failure';
-    latencyMs: number;
-    error?: unknown;
-    resultClass?: McpToolAuditResultClass;
-    structuredError?: McpCompatibleToolError;
-  }): Promise<void>;
+  recordThirdPartyMcpToolActivity(
+    input: ThirdPartyMcpToolActivity,
+  ): Promise<void>;
 } {
   const deps = inlineCoreToolHostDeps;
   if (!deps) throw new Error('Inline core tool host is not configured.');
@@ -192,16 +197,9 @@ export function createInlineCoreTools(
   });
   const classifier = new ToolExecutionClassifier();
   const policy = new ToolExecutionPolicyService();
-  const recordThirdPartyMcpToolActivity = async (activity: {
-    serverName: string;
-    toolName: string;
-    toolInput: unknown;
-    outcome: 'attempt' | 'success' | 'failure';
-    latencyMs: number;
-    error?: unknown;
-    resultClass?: McpToolAuditResultClass;
-    structuredError?: McpCompatibleToolError;
-  }) => {
+  const recordThirdPartyMcpToolActivity = async (
+    activity: ThirdPartyMcpToolActivity,
+  ) => {
     const repository = deps.getMcpServerRepository();
     const appId = run.appId;
     if (!repository || !appId) {
@@ -212,6 +210,9 @@ export function createInlineCoreTools(
     );
     const resultClass =
       activity.resultClass ??
+      (activity.outcome === 'success' && isMcpErrorResult(activity.result)
+        ? 'failure'
+        : undefined) ??
       (activity.outcome === 'failure'
         ? classifyMcpToolAuditError(activity.error)
         : activity.outcome);
@@ -239,7 +240,7 @@ export function createInlineCoreTools(
       metadata: payload,
       createdAt: new Date().toISOString() as never,
     });
-    if (activity.outcome === 'success') {
+    if (isSuccessfulMcpActivity(activity)) {
       toolSuccessLedger?.recordSuccess(
         `mcp__${activity.serverName}__${activity.toolName}`,
       );
@@ -706,4 +707,27 @@ async function publishInlinePermissionEvent(
       payload,
     })
     .catch(() => undefined);
+}
+
+function isSuccessfulMcpActivity(activity: ThirdPartyMcpToolActivity): boolean {
+  if (
+    activity.outcome !== 'success' ||
+    activity.error ||
+    activity.structuredError
+  )
+    return false;
+  const resultOk = !isMcpErrorResult(activity.result);
+  if (activity.resultClass !== undefined) {
+    return activity.resultClass === 'success' && resultOk;
+  }
+  return activity.result !== undefined && resultOk;
+}
+
+function isMcpErrorResult(result: unknown): boolean {
+  return (
+    result !== null &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (result as { isError?: unknown }).isError === true
+  );
 }

@@ -189,6 +189,58 @@ describe('inline core tool bootstrap', () => {
     },
   );
 
+  it('does not satisfy a require_prior rule with an isError remote MCP result', async () => {
+    const appendAuditEvent = vi.fn(async () => undefined);
+    wire({
+      getMcpServerRepository: () => ({ appendAuditEvent }),
+    });
+    const input = laneInput();
+    input.input.toolRules = [
+      {
+        tool: 'mcp__crm__write',
+        action: 'require_prior',
+        prior: 'mcp__crm__read',
+        reason: 'CRM writes require a successful read first',
+      },
+    ];
+    input.mcpServers = [
+      {
+        name: 'crm',
+        allowedToolNames: ['mcp__crm__read', 'mcp__crm__write'],
+        autoApproveToolNames: ['mcp__crm__write'],
+      },
+    ] as never;
+    const tools = createInlineCoreTools(input, support());
+
+    await tools.recordThirdPartyMcpToolActivity({
+      serverName: 'crm',
+      toolName: 'read',
+      toolInput: { id: 'crm-1' },
+      outcome: 'success',
+      latencyMs: 4,
+      result: {
+        isError: true,
+        content: [{ type: 'text', text: 'CRM read failed.' }],
+      },
+    });
+
+    const result = await tools.authorizeThirdPartyMcpTool('mcp__crm__write', {
+      id: 'crm-1',
+    });
+    expect(result.allowed).toBe(false);
+    expect(JSON.parse(result.reason ?? '{}')).toMatchObject({
+      message: expect.stringContaining(
+        'Required prior tool "mcp__crm__read" has not completed successfully',
+      ),
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(appendAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ resultClass: 'failure' }),
+      }),
+    );
+  });
+
   it('mounts the shared durable task lifecycle tools', async () => {
     const repository = wire();
     const tools = createInlineCoreTools(laneInput(), support());

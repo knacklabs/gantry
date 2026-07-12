@@ -18,6 +18,11 @@ import {
 } from './permission-classifier.js';
 import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
 
+const FUTURE_MESSAGE_CURSOR = {
+  timestamp: '9999-12-31T23:59:59.999Z',
+  id: '\uffff',
+};
+
 export async function resolvePermissionIpcDecision(input: {
   request: PermissionApprovalRequest;
   sourceAgentFolder: string;
@@ -150,6 +155,13 @@ async function resolvePermissionIntent(
   summary: string;
   source: 'operator_message' | 'runner_summary' | 'none';
 }> {
+  const runnerSummary = input.request.turnIntentSummary?.trim();
+  if (runnerSummary) {
+    return {
+      summary: runnerSummary.slice(0, 1_500),
+      source: 'runner_summary',
+    };
+  }
   let operatorMessage: string | undefined;
   if (
     input.request.unattended !== true &&
@@ -158,21 +170,17 @@ async function resolvePermissionIntent(
   ) {
     try {
       const repository = input.deps.getPermissionMessageRepository();
-      const upperBound = {
-        timestamp: '9999-12-31T23:59:59.999Z',
-        id: '\uffff',
-      };
       const messages = input.request.threadId
         ? await repository.getLatestThreadMessages(
             input.request.targetJid,
             input.request.threadId,
-            upperBound,
+            FUTURE_MESSAGE_CURSOR,
             50,
             { providerAccountId: input.request.providerAccountId },
           )
         : await repository.getRecentTopLevelMessagesBefore(
             input.request.targetJid,
-            upperBound,
+            FUTURE_MESSAGE_CURSOR,
             30,
             { providerAccountId: input.request.providerAccountId },
           );
@@ -199,13 +207,6 @@ async function resolvePermissionIntent(
     return {
       summary: resolvedOperatorMessage.slice(0, 1_500),
       source: 'operator_message',
-    };
-  }
-  const runnerSummary = input.request.turnIntentSummary?.trim();
-  if (runnerSummary) {
-    return {
-      summary: runnerSummary.slice(0, 1_500),
-      source: 'runner_summary',
     };
   }
   return { summary: '', source: 'none' };
