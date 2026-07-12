@@ -860,6 +860,7 @@ Always mention the migration impact.
         serverName: 'crm',
         toolName: 'read',
         outcome: 'success',
+        result: 'remote result',
       }),
     );
     expect(saver?.end).toHaveBeenCalledOnce();

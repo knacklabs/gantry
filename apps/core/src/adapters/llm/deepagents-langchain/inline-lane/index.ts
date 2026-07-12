@@ -532,13 +532,15 @@ async function connectRemoteMcpTools(
                     args,
                     config?.signal ? { signal: config.signal } : undefined,
                   );
-                  await input.recordThirdPartyMcpToolActivity({
+                  const activity = {
                     serverName: server.name,
                     toolName: remoteTool.name,
                     toolInput: args,
                     outcome: 'success',
                     latencyMs: Date.now() - startedAt,
-                  });
+                    result,
+                  } as const;
+                  await input.recordThirdPartyMcpToolActivity(activity);
                   return typeof result === 'string'
                     ? result
                     : JSON.stringify(result);

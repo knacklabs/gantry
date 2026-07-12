@@ -360,10 +360,10 @@ export function createInlineCoreTools(
         classifierDecision = await consultPermissionClassifierBeforePrompt({
           permissionMode: run.permissionMode,
           attended: run.isScheduledJob !== true,
-          // Keep equivalent to isTrustedRequester() in ipc-permission-classifier-decision.ts:
-          // scheduled without a sender, or sender is a conversation control approver.
+          // Keep equivalent to the scheduled-job and control-approver branches in
+          // isTrustedRequester() in ipc-permission-classifier-decision.ts.
           trustedRequester:
-            (run.isScheduledJob === true && !run.memoryUserId) ||
+            (run.isScheduledJob === true && Boolean(run.jobId)) ||
             (Boolean(run.memoryUserId) &&
               run.memoryReviewerIsControlApprover === true),
           requestFamily: 'tool',
@@ -716,11 +716,11 @@ function isSuccessfulMcpActivity(activity: ThirdPartyMcpToolActivity): boolean {
     activity.structuredError
   )
     return false;
-  const resultOk = !isMcpErrorResult(activity.result);
+  if (isMcpErrorResult(activity.result)) return false;
   if (activity.resultClass !== undefined) {
-    return activity.resultClass === 'success' && resultOk;
+    return activity.resultClass === 'success';
   }
-  return resultOk;
+  return activity.result !== undefined;
 }
 
 function isMcpErrorResult(result: unknown): boolean {

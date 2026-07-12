@@ -249,6 +249,7 @@ describe('Claude inline lane', () => {
     expect(options.allowedTools).toEqual([]);
     expect(options.mcpServers).toEqual({});
     expect(sdk.createServer).not.toHaveBeenCalled();
+    expect(remoteProxy.create).not.toHaveBeenCalled();
     await expect(
       options.canUseTool(
         'mcp__gantry__send_message',
@@ -434,6 +435,30 @@ describe('Claude inline lane', () => {
         toolName: 'read',
         outcome: 'success',
         latencyMs: 5,
+        result: 'done',
+      }),
+    );
+    await queryOptions.hooks.PostToolUse[0].hooks[0](
+      {
+        hook_event_name: 'PostToolUse',
+        tool_name: 'mcp__crm__read',
+        tool_input: { id: 'crm-2' },
+        tool_response: { isError: true, content: [] },
+        tool_use_id: 'tool-3',
+        duration_ms: 4,
+      },
+      'tool-3',
+      { signal: input.signal },
+    );
+    expect(
+      input.coreTools.recordThirdPartyMcpToolActivity,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverName: 'crm',
+        toolName: 'read',
+        outcome: 'failure',
+        latencyMs: 4,
+        result: { isError: true, content: [] },
       }),
     );
     expect(remoteProxy.create).toHaveBeenCalledWith(

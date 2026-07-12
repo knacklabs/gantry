@@ -189,94 +189,73 @@ describe('inline core tool bootstrap', () => {
     },
   );
 
-  it('satisfies a require_prior rule with a successful remote MCP activity without a result', async () => {
-    const appendAuditEvent = vi.fn(async () => undefined);
-    wire({
-      getMcpServerRepository: () => ({ appendAuditEvent }),
-    });
-    const input = laneInput();
-    input.input.toolRules = [
+  it.each([
+    ['a genuine result', { content: [{ type: 'text', text: 'ok' }] }, true],
+    [
+      'an isError result',
       {
-        tool: 'mcp__crm__write',
-        action: 'require_prior',
-        prior: 'mcp__crm__read',
-        reason: 'CRM writes require a successful read first',
-      },
-    ];
-    input.mcpServers = [
-      {
-        name: 'crm',
-        allowedToolNames: ['mcp__crm__read', 'mcp__crm__write'],
-        autoApproveToolNames: ['mcp__crm__write'],
-      },
-    ] as never;
-    const tools = createInlineCoreTools(input, support());
-
-    await tools.recordThirdPartyMcpToolActivity({
-      serverName: 'crm',
-      toolName: 'read',
-      toolInput: { id: 'crm-1' },
-      outcome: 'success',
-      latencyMs: 4,
-    });
-
-    await expect(
-      tools.authorizeThirdPartyMcpTool('mcp__crm__write', { id: 'crm-1' }),
-    ).resolves.toEqual({ allowed: true });
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-  });
-
-  it('does not satisfy a require_prior rule with an isError remote MCP result', async () => {
-    const appendAuditEvent = vi.fn(async () => undefined);
-    wire({
-      getMcpServerRepository: () => ({ appendAuditEvent }),
-    });
-    const input = laneInput();
-    input.input.toolRules = [
-      {
-        tool: 'mcp__crm__write',
-        action: 'require_prior',
-        prior: 'mcp__crm__read',
-        reason: 'CRM writes require a successful read first',
-      },
-    ];
-    input.mcpServers = [
-      {
-        name: 'crm',
-        allowedToolNames: ['mcp__crm__read', 'mcp__crm__write'],
-        autoApproveToolNames: ['mcp__crm__write'],
-      },
-    ] as never;
-    const tools = createInlineCoreTools(input, support());
-
-    await tools.recordThirdPartyMcpToolActivity({
-      serverName: 'crm',
-      toolName: 'read',
-      toolInput: { id: 'crm-1' },
-      outcome: 'success',
-      latencyMs: 4,
-      result: {
         isError: true,
         content: [{ type: 'text', text: 'CRM read failed.' }],
       },
-    });
+      false,
+    ],
+    ['no result', undefined, false],
+  ])(
+    'records require_prior success for %s only with positive evidence',
+    async (_label, result, expectedAllowed) => {
+      const appendAuditEvent = vi.fn(async () => undefined);
+      wire({
+        getMcpServerRepository: () => ({ appendAuditEvent }),
+      });
+      const input = laneInput();
+      input.input.toolRules = [
+        {
+          tool: 'mcp__crm__write',
+          action: 'require_prior',
+          prior: 'mcp__crm__read',
+          reason: 'CRM writes require a successful read first',
+        },
+      ];
+      input.mcpServers = [
+        {
+          name: 'crm',
+          allowedToolNames: ['mcp__crm__read', 'mcp__crm__write'],
+          autoApproveToolNames: ['mcp__crm__write'],
+        },
+      ] as never;
+      const tools = createInlineCoreTools(input, support());
 
-    const result = await tools.authorizeThirdPartyMcpTool('mcp__crm__write', {
-      id: 'crm-1',
-    });
-    expect(result.allowed).toBe(false);
-    expect(JSON.parse(result.reason ?? '{}')).toMatchObject({
-      message: expect.stringContaining(
-        'Required prior tool "mcp__crm__read" has not completed successfully',
-      ),
-    });
-    expect(requestPermissionApproval).not.toHaveBeenCalled();
-    expect(appendAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadata: expect.objectContaining({ resultClass: 'failure' }),
-      }),
-    );
-  });
+      await tools.recordThirdPartyMcpToolActivity({
+        serverName: 'crm',
+        toolName: 'read',
+        toolInput: { id: 'crm-1' },
+        outcome: 'success',
+        latencyMs: 4,
+        result,
+      });
+
+      const authorization = await tools.authorizeThirdPartyMcpTool(
+        'mcp__crm__write',
+        { id: 'crm-1' },
+      );
+      expect(authorization.allowed).toBe(expectedAllowed);
+      expect(requestPermissionApproval).not.toHaveBeenCalled();
+      if (!expectedAllowed) {
+        expect(JSON.parse(authorization.reason ?? '{}')).toMatchObject({
+          message: expect.stringContaining(
+            'Required prior tool "mcp__crm__read" has not completed successfully',
+          ),
+        });
+      }
+      if (result && 'isError' in result) {
+        expect(appendAuditEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            metadata: expect.objectContaining({ resultClass: 'failure' }),
+          }),
+        );
+      }
+    },
+  );
 
   it('mounts the shared durable task lifecycle tools', async () => {
     const repository = wire();
@@ -609,6 +588,7 @@ describe('inline core tool bootstrap', () => {
     const input = laneInput();
     input.input.permissionMode = 'auto';
     input.input.isScheduledJob = true;
+    input.input.jobId = 'job-1';
     const tools = createInlineCoreTools(
       input,
       support((() => ({
@@ -634,7 +614,7 @@ describe('inline core tool bootstrap', () => {
     ['DM missing approver config', 'dm', 'member-1', undefined, false, false],
     ['group approver', 'channel', 'approver-1', true, false, true],
     ['group non-approver', 'channel', 'member-1', false, false, false],
-    ['unattended', 'channel', undefined, false, true, true],
+    ['scheduled DM job', 'dm', 'conversation:dm', false, true, true],
   ] as const)(
     'applies the inline consult trust gate for %s requesters',
     async (
@@ -657,6 +637,7 @@ describe('inline core tool bootstrap', () => {
       input.input.memoryUserId = senderId;
       input.input.memoryReviewerIsControlApprover = isApprover;
       input.input.isScheduledJob = isScheduledJob;
+      input.input.jobId = isScheduledJob ? 'job-1' : undefined;
       const tools = createInlineCoreTools(
         input,
         support((() => ({
