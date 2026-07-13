@@ -842,6 +842,46 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('keeps provider route ids in credential audit payloads instead of FK fields', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-old');
+    const audit = vi.fn(async () => undefined);
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: 'run:route-audit' as never,
+          conversationId: 'sl:C123' as never,
+          threadId: '1710000000.000100' as never,
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      const event = audit.mock.calls[0]?.[0];
+      expect(event).toEqual(
+        expect.objectContaining({
+          appId,
+          runId: 'run:route-audit',
+          eventType: 'credential.model.used',
+          actor: 'gantry-model-gateway',
+          payload: expect.objectContaining({
+            providerId: 'anthropic',
+            outcome: 'token_issued',
+            conversationJid: 'sl:C123',
+            threadId: '1710000000.000100',
+          }),
+        }),
+      );
+      expect(event).not.toHaveProperty('conversationId');
+      expect(event).not.toHaveProperty('threadId');
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('does not publish synthetic memory query scopes as runtime run ids', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-old');

@@ -1,5 +1,9 @@
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../domain/events/runtime-event-conversation.js';
+import {
   isRuntimeEventType,
   RUNTIME_EVENT_TYPES,
 } from '../domain/events/runtime-event-types.js';
@@ -35,6 +39,30 @@ function runtimeEventDedupKey(input: {
   ].join('\u001f');
 }
 
+function payloadWithRouteContext(input: {
+  payload: unknown;
+  conversationJid?: string;
+  threadId?: string | null;
+}): unknown {
+  if (
+    input.payload === null ||
+    typeof input.payload !== 'object' ||
+    Array.isArray(input.payload)
+  ) {
+    return input.payload;
+  }
+  const payload = input.payload as Record<string, unknown>;
+  return {
+    ...payload,
+    ...(!('conversationJid' in payload) && input.conversationJid
+      ? { conversationJid: input.conversationJid }
+      : {}),
+    ...(!('threadId' in payload) && input.threadId
+      ? { threadId: input.threadId }
+      : {}),
+  };
+}
+
 export async function forwardRuntimeEvents(input: {
   output: AgentOutput;
   publishRuntimeEvent?: (
@@ -65,6 +93,14 @@ export async function forwardRuntimeEvents(input: {
     });
     if (input.forwardedKeys.has(eventKey)) continue;
     input.forwardedKeys.add(eventKey);
+    const routeConversationId = event.conversationId ?? input.chatJid;
+    const routeThreadId = event.threadId ?? input.sessionThreadId;
+    const conversationId = isRuntimeEventConversationFkId(routeConversationId)
+      ? routeConversationId
+      : undefined;
+    const threadId = isRuntimeEventThreadFkId(routeThreadId ?? undefined)
+      ? routeThreadId
+      : undefined;
     await publishRuntimeEvent({
       appId: appId as never,
       ...((event.agentId ?? input.turnAgentId)
@@ -74,14 +110,16 @@ export async function forwardRuntimeEvents(input: {
         ? { runId: (event.runId ?? input.runId) as never }
         : {}),
       ...(event.jobId ? { jobId: event.jobId as never } : {}),
-      conversationId: (event.conversationId ?? input.chatJid) as never,
-      ...((event.threadId ?? input.sessionThreadId)
-        ? { threadId: (event.threadId ?? input.sessionThreadId) as never }
-        : {}),
+      ...(conversationId ? { conversationId: conversationId as never } : {}),
+      ...(threadId ? { threadId: threadId as never } : {}),
       eventType: event.eventType,
       actor: event.actor ?? 'runner',
       responseMode: event.responseMode ?? 'none',
-      payload: event.payload,
+      payload: payloadWithRouteContext({
+        payload: event.payload,
+        conversationJid: routeConversationId,
+        threadId: routeThreadId,
+      }),
     });
   }
 }

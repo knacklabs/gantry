@@ -1104,6 +1104,7 @@ describe('createChannelWiring', () => {
       },
     });
     const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const warn = vi.fn();
     const handlers = createChannelPersistenceHandlers({
       app,
       resolved: {
@@ -1116,7 +1117,7 @@ describe('createChannelWiring', () => {
         shouldLogDenied: vi.fn(() => false),
         logger: {
           info: vi.fn(),
-          warn: vi.fn(),
+          warn,
           debug: vi.fn(),
           error: vi.fn(),
         },
@@ -1141,6 +1142,14 @@ describe('createChannelWiring', () => {
     });
 
     expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'sl:C123',
+        providerAccountId: 'slack_alpha',
+        sender: 'U1',
+      }),
+      'Dropping channel message without configured conversation route',
+    );
   });
 
   it('does not match stale unscoped routes when inbound message has a Provider Account', async () => {

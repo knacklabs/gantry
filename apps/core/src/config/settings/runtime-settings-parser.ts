@@ -65,6 +65,7 @@ import {
   parseStringArrayValue,
   parseStringValue,
 } from './runtime-settings-parse-primitives.js';
+import { jidForConfiguredConversation } from './desired-state-provider-conversations.js';
 
 function parseAgentHarnessValue(
   raw: unknown,
@@ -908,12 +909,7 @@ function jidForConversation(
   conversation: RuntimeConfiguredConversation,
   providerAccounts: Record<string, RuntimeProviderAccountSettings>,
 ): string {
-  const connection = providerAccounts[conversation.providerAccount];
-  const provider = connection ? getProvider(connection.provider) : undefined;
-  if (!provider) return conversation.externalId;
-  return conversation.externalId.startsWith(provider.jidPrefix)
-    ? conversation.externalId
-    : `${provider.jidPrefix}${conversation.externalId}`;
+  return jidForConfiguredConversation(conversation, providerAccounts);
 }
 
 export function parseRuntimeSettings(raw: string): RuntimeSettings {

@@ -130,7 +130,20 @@ export function createChannelPersistenceHandlers({
     const isKnownDirect =
       chatIsGroup.get(chatJid) === false ||
       existingGroup?.conversationKind === 'dm';
-    if (!isKnownDirect) return Boolean(existingGroup);
+    if (!isKnownDirect) {
+      if (!existingGroup && !msg.is_from_me && !msg.is_bot_message) {
+        resolved.logger.warn(
+          {
+            chatJid,
+            threadId: msg.thread_id,
+            providerAccountId: msg.providerAccountId,
+            sender: msg.sender,
+          },
+          'Dropping channel message without configured conversation route',
+        );
+      }
+      return Boolean(existingGroup);
+    }
     if (!existingGroup && !msg.is_from_me && !msg.is_bot_message) {
       resolved.logger.warn(
         { chatJid, sender: msg.sender },

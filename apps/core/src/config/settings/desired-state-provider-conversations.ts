@@ -71,6 +71,29 @@ export function stripProviderPrefix(jid: string): string {
   return idx > 0 ? jid.slice(idx + 1) : jid;
 }
 
+function normalizeExternalIdForProvider(
+  externalId: string,
+  provider: SettingsProviderJidInfo,
+): string {
+  if (externalId.startsWith(provider.jidPrefix)) {
+    return externalId;
+  }
+  const providerLabelPrefix = `${provider.id}:`;
+  if (externalId.startsWith(providerLabelPrefix)) {
+    return `${provider.jidPrefix}${externalId.slice(providerLabelPrefix.length)}`;
+  }
+  return `${provider.jidPrefix}${externalId}`;
+}
+
+export function jidForProviderExternalId(
+  providerId: string,
+  externalId: string,
+): string {
+  const provider = providerInfoForId(providerId);
+  if (!provider) return externalId;
+  return normalizeExternalIdForProvider(externalId, provider);
+}
+
 export function jidForConfiguredConversation(
   conversation: RuntimeConfiguredConversation,
   providerAccounts: Record<string, RuntimeProviderAccountSettings>,
@@ -81,10 +104,9 @@ export function jidForConfiguredConversation(
   const provider = connection
     ? providerInfoForId(connection.provider)
     : undefined;
-  if (!provider) return conversation.externalId;
-  return conversation.externalId.startsWith(provider.jidPrefix)
-    ? conversation.externalId
-    : `${provider.jidPrefix}${conversation.externalId}`;
+  return provider
+    ? normalizeExternalIdForProvider(conversation.externalId, provider)
+    : conversation.externalId;
 }
 
 export function configuredConversationKind(

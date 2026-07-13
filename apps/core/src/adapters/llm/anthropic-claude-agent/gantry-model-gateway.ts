@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../../../domain/events/runtime-event-conversation.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { ModelCredentialRepository } from '../../../domain/ports/repositories.js';
@@ -543,6 +547,14 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     },
   ): Promise<void> {
     if (!this.audit) return;
+    const conversationId = isRuntimeEventConversationFkId(
+      tokenRecord.conversationId,
+    )
+      ? tokenRecord.conversationId
+      : undefined;
+    const threadId = isRuntimeEventThreadFkId(tokenRecord.threadId)
+      ? tokenRecord.threadId
+      : undefined;
     try {
       await this.audit({
         appId: tokenRecord.appId,
@@ -551,10 +563,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           ? { runId: runtimeEventRunIdFor(tokenRecord) }
           : {}),
         ...(tokenRecord.jobId ? { jobId: tokenRecord.jobId } : {}),
-        ...(tokenRecord.conversationId
-          ? { conversationId: tokenRecord.conversationId }
-          : {}),
-        ...(tokenRecord.threadId ? { threadId: tokenRecord.threadId } : {}),
+        ...(conversationId ? { conversationId } : {}),
+        ...(threadId ? { threadId } : {}),
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED,
         actor: 'gantry-model-gateway',
         payload: {
@@ -562,6 +572,10 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           tokenScope: tokenRecord.tokenScope,
           ...(tokenRecord.apiKeyId ? { apiKeyId: tokenRecord.apiKeyId } : {}),
           outcome: input.outcome,
+          ...(tokenRecord.conversationId
+            ? { conversationJid: tokenRecord.conversationId }
+            : {}),
+          ...(tokenRecord.threadId ? { threadId: tokenRecord.threadId } : {}),
           method: input.method,
           status: input.status,
           tokenIssuedAtMs: tokenRecord.createdAtMs,
@@ -584,6 +598,14 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     outcome: 'token_issued' | 'token_rejected',
   ): Promise<void> {
     if (!this.audit) return;
+    const conversationId = isRuntimeEventConversationFkId(
+      tokenRecord.conversationId,
+    )
+      ? tokenRecord.conversationId
+      : undefined;
+    const threadId = isRuntimeEventThreadFkId(tokenRecord.threadId)
+      ? tokenRecord.threadId
+      : undefined;
     try {
       await this.audit({
         appId: tokenRecord.appId,
@@ -592,10 +614,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           ? { runId: runtimeEventRunIdFor(tokenRecord) }
           : {}),
         ...(tokenRecord.jobId ? { jobId: tokenRecord.jobId } : {}),
-        ...(tokenRecord.conversationId
-          ? { conversationId: tokenRecord.conversationId }
-          : {}),
-        ...(tokenRecord.threadId ? { threadId: tokenRecord.threadId } : {}),
+        ...(conversationId ? { conversationId } : {}),
+        ...(threadId ? { threadId } : {}),
         eventType: RUNTIME_EVENT_TYPES.CREDENTIAL_MODEL_USED,
         actor: 'gantry-model-gateway',
         payload: {
@@ -603,6 +623,10 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
           tokenScope: tokenRecord.tokenScope,
           ...(tokenRecord.apiKeyId ? { apiKeyId: tokenRecord.apiKeyId } : {}),
           outcome,
+          ...(tokenRecord.conversationId
+            ? { conversationJid: tokenRecord.conversationId }
+            : {}),
+          ...(tokenRecord.threadId ? { threadId: tokenRecord.threadId } : {}),
           tokenIssuedAtMs: tokenRecord.createdAtMs,
           tokenExpiresAtMs: tokenRecord.expiresAtMs,
           credentialFingerprint: tokenRecord.credentialFingerprint,

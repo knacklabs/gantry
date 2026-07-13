@@ -107,14 +107,14 @@ describe('DeepAgents startup diagnostics', () => {
       agentId: 'agent-one',
       runId: 'run-one',
       jobId: 'job-one',
-      conversationId: 'tg:group-one',
-      threadId: 'reply-one',
       eventType: 'run.startup_diagnostic',
       actor: 'runtime',
       responseMode: 'none',
       payload: {
         provider: 'deepagents',
         diagnostic: 'runner_startup',
+        conversationJid: 'tg:group-one',
+        threadId: 'reply-one',
         modelProvider: 'openai',
         modelId: 'gpt-test',
         endpointFamily: 'openai',
@@ -141,6 +141,8 @@ describe('DeepAgents startup diagnostics', () => {
         toolStartCount: 2,
       },
     });
+    expect(event).not.toHaveProperty('conversationId');
+    expect(event).not.toHaveProperty('threadId');
 
     const serialized = JSON.stringify(event);
     expect(serialized).not.toContain('do not include this prompt');

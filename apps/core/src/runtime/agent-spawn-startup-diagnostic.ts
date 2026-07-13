@@ -8,8 +8,8 @@ import type {
   RuntimeEventPublishInput,
 } from '../domain/events/events.js';
 import {
-  normalizeRuntimeEventConversationId,
-  normalizeRuntimeEventThreadId,
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
 } from '../domain/events/runtime-event-conversation.js';
 import {
   RUNTIME_EVENT_TYPES,
@@ -93,13 +93,12 @@ export function countJsonStringArray(value: unknown): number {
 export function buildRunnerHostStartupDiagnosticEvent(
   input: RunnerHostStartupDiagnosticInput,
 ): RuntimeEventPublishInput {
-  const conversationId = normalizeRuntimeEventConversationId(
-    input.conversationId as ConversationId,
-  );
-  const threadId = normalizeRuntimeEventThreadId({
-    conversationId,
-    threadId: input.threadId as ConversationThreadId | undefined,
-  });
+  const conversationId = isRuntimeEventConversationFkId(input.conversationId)
+    ? (input.conversationId as ConversationId)
+    : undefined;
+  const threadId = isRuntimeEventThreadFkId(input.threadId)
+    ? (input.threadId as ConversationThreadId)
+    : undefined;
   return {
     appId: input.appId as AppId,
     ...(input.agentId ? { agentId: input.agentId as never } : {}),
@@ -113,6 +112,8 @@ export function buildRunnerHostStartupDiagnosticEvent(
     payload: {
       provider: 'host',
       diagnostic: 'host_startup_projection',
+      conversationJid: input.conversationId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
       agentEngine: input.agentEngine,
       executionProviderId: input.executionProviderId,
       hostPhases: input.hostPhases,

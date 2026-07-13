@@ -35,11 +35,7 @@ import {
 } from '../../runtime/group-registry.js';
 import { GroupQueue } from '../../runtime/group-queue.js';
 import { conversationRouteKeysForRemoval } from '../../runtime/conversation-route-removal.js';
-import {
-  makeAgentThreadQueueKey,
-  makeThreadQueueKey,
-  parseAgentThreadQueueKey,
-} from '../../shared/thread-queue-key.js';
+import { makeAgentThreadQueueKey, makeThreadQueueKey, parseAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';

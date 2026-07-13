@@ -1,12 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
-import type {
-  ConversationDiscoveryInput,
-  ConversationInstallInput,
-  ProviderAccountInput,
-  ProviderAccountPatch,
-} from './provider-types.js';
+import type { ConversationDiscoveryInput, ConversationInstallInput, ProviderAccountInput, ProviderAccountPatch } from './provider-types.js';
 import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
@@ -30,6 +25,7 @@ import { createModelsClient } from './models.js';
 import type {
   CreateJobInput,
   CreateJobResponse,
+  JobEventRecord,
   JobRecord,
   JobTriggerWaitResult,
   ListJobEventsInput,

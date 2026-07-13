@@ -288,7 +288,7 @@ conversations:
       parsed.agents.agent_one.bindings['agent_one_shared_channel_171.222'],
     ).toEqual(
       expect.objectContaining({
-        jid: 'sl:slack:C123',
+        jid: 'sl:C123',
         threadId: '171.222',
         providerAccountId: 'slack_one',
       }),

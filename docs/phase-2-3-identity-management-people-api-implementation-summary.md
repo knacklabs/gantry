@@ -238,6 +238,43 @@ These were important follow-up decisions that became part of the final result:
 7. We removed the unrelated baseline memory MCP tool change from this feature
    scope. This PR keeps the identity-management work separate from any future
    tool-surface cleanup.
+8. We fixed a Slack route-projection mismatch found during local setup
+   verification. Readable settings IDs such as `slack:C123` now normalize to
+   the inbound runtime JID `sl:C123`, so messages delivered by Slack Socket Mode
+   can match the configured conversation route. This is a settings projection
+   fix, not a memory-policy change.
+9. We fixed runtime-event FK misuse found during Slack smoke testing. Slack
+   route ids such as `sl:C123` and provider thread timestamps are useful
+   audit context, but they are not canonical `conversations.id` or
+   `conversation_threads.id` values. Identity, hydration, runner startup, and
+   model-gateway audit events now keep raw provider route context in payload
+   fields such as `conversationJid` and `threadId`; top-level
+   `conversationId` / `threadId` fields are used only when the producer already
+   has canonical FK ids.
+10. We added a runtime-event exchange guard so direct event publishers cannot
+    accidentally persist raw Slack/Telegram/Teams route ids as database foreign
+    keys. Raw provider route ids are moved into payload route-context fields
+    before persistence.
+11. We fixed sender-policy and control-approver lookup for readable Slack
+    conversation ids. Settings may contain readable ids such as `slack:C123`,
+    but inbound Slack events arrive as `sl:C123`; both now normalize to the
+    same runtime JID before allowlist checks.
+12. We fixed provider-account conversation memory subject drift. Canonical
+    route ids such as `conversation:slack_default:sl:C123` now hydrate the same
+    channel memory subject as live Slack turns, `conversation:sl:C123`, instead
+    of creating a second long-term memory bucket for the same channel.
+13. We removed raw alias values from person-merge conflict keys. Merge conflict
+    evidence now uses source/target alias ids, not Slack user ids, phone
+    numbers, web-user ids, or email-like alias values.
+14. We tightened SDK People/Identity response types to use the shared contract
+    response shapes. This avoids a weakly typed SDK surface drifting away from
+    the server API.
+15. We removed mandatory memory IPC authority from baseline runner projection.
+    Baseline personas may still expose selected Gantry MCP tool names through
+    the normal capability surface, but the host-signed
+    `GANTRY_MEMORY_IPC_ACTIONS_JSON` list is empty unless memory tools are
+    explicitly selected. Control approvers can receive only the dedicated
+    memory-review IPC actions.
 
 ## Where The Changes Landed
 
@@ -260,6 +297,35 @@ Docs:
 - [identity-management.md](/Users/caw-dev/Dev/Agent.Gantry/docs/architecture/identity-management.md)
 - [MEMORY.md](/Users/caw-dev/Dev/Agent.Gantry/docs/MEMORY.md)
 - [SPEC.md](/Users/caw-dev/Dev/Agent.Gantry/docs/SPEC.md)
+
+Settings projection and route normalization:
+
+- [desired-state-provider-conversations.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/config/settings/desired-state-provider-conversations.ts)
+- [runtime-settings-parser.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/config/settings/runtime-settings-parser.ts)
+- [runtime-settings.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/config/settings/runtime-settings.ts)
+- [channel-persistence-handlers.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/app/bootstrap/channel-persistence-handlers.ts)
+
+Runtime events and audit routing:
+
+- [runtime-event-conversation.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/domain/events/runtime-event-conversation.ts)
+- [identity-runtime-events.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/application/identity/identity-runtime-events.ts)
+- [runtime-event-exchange.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/application/runtime-events/runtime-event-exchange.ts)
+- [runtime-event-forwarding.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/runtime/runtime-event-forwarding.ts)
+- [agent-spawn-startup-diagnostic.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/runtime/agent-spawn-startup-diagnostic.ts)
+- [agent-spawn-process-diagnostic.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/runtime/agent-spawn-process-diagnostic.ts)
+- [runner-startup-diagnostic.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/llm/anthropic-claude-agent/runner/runner-startup-diagnostic.ts)
+- [startup-diagnostic.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/llm/deepagents-langchain/runner/startup-diagnostic.ts)
+- [gantry-model-gateway.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/llm/anthropic-claude-agent/gantry-model-gateway.ts)
+
+People merge and SDK typing:
+
+- [person-identity-merge-conflicts.postgres.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/adapters/storage/postgres/repositories/person-identity-merge-conflicts.postgres.ts)
+- [packages/sdk/src/people.ts](/Users/caw-dev/Dev/Agent.Gantry/packages/sdk/src/people.ts)
+
+Runner memory IPC authority:
+
+- [memory-ipc-actions.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/src/shared/memory-ipc-actions.ts)
+- [agent-capabilities.test.ts](/Users/caw-dev/Dev/Agent.Gantry/apps/core/test/unit/runner/agent-capabilities.test.ts)
 
 ## Examples
 
@@ -306,12 +372,58 @@ Focused verification was added for:
 - trigger-gated runtime behavior
 - people API behavior
 - alias retirement and re-link behavior
+- route normalization for Slack settings ids
+- runtime-event FK safety
+- channel memory subject normalization
+- SDK People/Identity response typing
 
 The important checks were:
 
 - unit tests for runtime behavior
 - repository integration coverage for exact alias matching and retirement
 - typecheck
+
+Commands run during this review cycle:
+
+```bash
+npm run test:unit -- apps/core/test/unit/platform/sender-allowlist.test.ts apps/core/test/unit/memory/app-memory-session-hydration.test.ts apps/core/test/unit/application/runtime-events/runtime-event-exchange.test.ts apps/core/test/unit/runtime/runtime-event-forwarding.test.ts apps/core/test/unit/config/runtime-settings.test.ts apps/core/test/unit/config/settings-desired-state-service.test.ts apps/core/test/unit/bootstrap/channel-wiring.test.ts apps/core/test/unit/runtime/group-person-identity.test.ts
+npm run test:unit -- apps/core/test/unit/platform/sender-allowlist.test.ts apps/core/test/unit/memory/app-memory-session-hydration.test.ts apps/core/test/unit/application/runtime-events/runtime-event-exchange.test.ts apps/core/test/unit/runtime/runtime-event-forwarding.test.ts apps/core/test/unit/config/runtime-settings.test.ts apps/core/test/unit/config/settings-desired-state-service.test.ts apps/core/test/unit/bootstrap/channel-wiring.test.ts apps/core/test/unit/runtime/group-person-identity.test.ts apps/core/test/unit/control/people-routes.test.ts apps/core/test/unit/core/gantry-model-gateway.test.ts apps/core/test/unit/runtime/agent-spawn-startup-diagnostic.test.ts apps/core/test/unit/runtime/agent-spawn-process.test.ts apps/core/test/unit/runtime/agent-spawn.test.ts apps/core/test/unit/adapters/deepagents-startup-diagnostic.test.ts apps/core/test/unit/runner/agent-capabilities.test.ts
+npm run typecheck
+npm run build
+npm link
+python3 .codex/scripts/check_task_completion.py
+node .codex/scripts/run_postgres_integration_with_url.mjs postgres://localhost/gantry_identity_test_20260713 run -c vitest.integration.config.ts --no-file-parallelism apps/core/test/integration/postgres-domain-repositories.integration.test.ts
+```
+
+Observed results:
+
+- focused unit suite passed with 15 files and 472 tests
+- `typecheck` passed
+- `build` passed
+- architecture completion check passed
+- focused Postgres repository integration passed with 1 file and 28 tests
+- temporary local database `gantry_identity_test_20260713` was created for the
+  focused Postgres check and dropped after the run
+- `check_task_completion.py` still reports a warning that repository/schema
+  files changed without detected repository/storage/schema tests, but the
+  focused Postgres repository test above was run manually with the checked-in
+  URL wrapper and passed
+
+## Surface Impact Matrix
+
+| Surface | Impact | Reason |
+|---|---|---|
+| Runtime behavior | Changed | Direct/private conversations hydrate current conversation memory plus resolved personal memory. Group/channel conversations hydrate current conversation memory plus group/channel long-term memory, not sender personal memory. Sender identity may still be resolved for evidence. |
+| `settings.yaml` | Read-only/observable | No new settings shape was added. Existing readable provider conversation ids are normalized more correctly when projected into runtime routes and allowlists. |
+| Postgres/runtime projection | Changed | Identity tables, aliases, merge audit, settings route projection, and runtime-event route-context persistence are part of the feature. Raw provider route ids are no longer written as runtime-event FK columns. |
+| Control API | Changed | People and identity routes expose resolve, list, inspect, alias add/retire, and merge preview/apply while preserving the existing identity resolve wire shape. |
+| SDK/contracts | Changed | Contracts define People/Identity request and response shapes, and the SDK exposes typed People/Identity clients backed by those contracts. |
+| CLI | Unchanged by design | No operator command was needed for the identity graph itself; setup fixes observed on `main` were kept out of this feature scope. |
+| Gantry MCP tools/admin skill | Unchanged by design | This feature changes host-owned identity, hydration, and People API behavior. It does not add or remove agent-facing MCP tools. |
+| Channel/provider adapters | Changed | Live channel ingress now carries sender evidence and provider-account metadata consistently enough for sender resolution and route projection. Slack route normalization was corrected after smoke testing. |
+| Docs/prompts | Changed | Identity architecture and this implementation summary document the room/person memory boundary and the review corrections. Agent-facing prompt behavior is unchanged. |
+| Audit/events | Changed | Identity resolution, alias admin actions, hydration decisions, startup diagnostics, runtime forwarding, and model-gateway audit events avoid raw provider ids in FK columns and keep provider route context in payload fields. |
+| Tests/verification | Changed | Unit, integration, and smoke coverage were expanded around identity resolution, group-vs-DM memory policy, provider-account alias lookup, Slack route projection, event persistence safety, and SDK typing. |
 
 ## Bottom Line
 

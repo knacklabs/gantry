@@ -9,9 +9,9 @@ import type {
   ChatAllowlistEntry,
   SenderAllowlistConfig,
 } from '../config/settings/sender-allowlist.js';
+import { jidForProviderExternalId } from '../config/settings/desired-state-provider-conversations.js';
 import { settingsFilePath } from '../config/settings/runtime-home.js';
 import {
-  getProvider,
   listChannelProviders,
   providerForJid,
 } from '../channels/provider-registry.js';
@@ -210,11 +210,7 @@ function jidForSettingsConversation(
   providerId: string,
   externalId: string,
 ): string {
-  const provider = getProvider(providerId);
-  if (!provider) return externalId;
-  return externalId.startsWith(provider.jidPrefix)
-    ? externalId
-    : `${provider.jidPrefix}${externalId}`;
+  return jidForProviderExternalId(providerId, externalId);
 }
 
 export function loadSenderAllowlist(

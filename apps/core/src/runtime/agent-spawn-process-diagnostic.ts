@@ -1,4 +1,8 @@
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../domain/events/runtime-event-conversation.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { RunnerProcessSpec } from './agent-spawn-types.js';
@@ -30,9 +34,13 @@ export function publishRunnerProcessStartupDiagnostic(input: {
     ...(agentInput.jobId
       ? { jobId: agentInput.jobId as RuntimeEventPublishInput['jobId'] }
       : {}),
-    conversationId:
-      agentInput.chatJid as RuntimeEventPublishInput['conversationId'],
-    ...(agentInput.threadId
+    ...(isRuntimeEventConversationFkId(agentInput.chatJid)
+      ? {
+          conversationId:
+            agentInput.chatJid as RuntimeEventPublishInput['conversationId'],
+        }
+      : {}),
+    ...(isRuntimeEventThreadFkId(agentInput.threadId)
       ? {
           threadId: agentInput.threadId as RuntimeEventPublishInput['threadId'],
         }
@@ -43,6 +51,8 @@ export function publishRunnerProcessStartupDiagnostic(input: {
     payload: {
       provider: 'host',
       diagnostic: 'runner_process_timing',
+      conversationJid: agentInput.chatJid,
+      ...(agentInput.threadId ? { threadId: agentInput.threadId } : {}),
       sandbox: {
         provider: input.spec.options?.runnerSandboxProvider.id,
         enforcing: input.spec.options?.runnerSandboxProvider.enforcing === true,

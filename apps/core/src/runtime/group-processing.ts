@@ -1,23 +1,14 @@
 import * as config from '../config/index.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../shared/message-cursor.js';
+import { encodeGroupMessageCursor, toGroupMessageCursor } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { MessageSendOptions } from '../domain/types.js';
-import {
-  createSerializedAgentOutputCallbacks,
-  isAgentTurnCompleteMarker,
-} from './agent-output-callbacks.js';
+import { createSerializedAgentOutputCallbacks, isAgentTurnCompleteMarker } from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
 import { formatMessages } from '../messaging/router.js';
 import type { AgentOutput } from './agent-spawn.js';
 import { handleSessionCommand } from '../session/session-commands.js';
-import type {
-  GroupProcessOptions,
-  GroupProcessingDeps,
-} from './group-processing-types.js';
+import type { GroupProcessOptions, GroupProcessingDeps } from './group-processing-types.js';
 import { getGroupMemoryStatus } from './group-memory-commands.js';
 import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
@@ -49,10 +40,7 @@ import {
   startGroupProgressHeartbeats,
 } from './group-progress-heartbeats.js';
 import { createProgressChannelSender } from './group-progress-channel-sender.js';
-import {
-  createGroupAgentRunner,
-  type GroupAgentRunResult,
-} from './group-agent-runner.js';
+import { createGroupAgentRunner, type GroupAgentRunResult } from './group-agent-runner.js';
 import { createSessionCommandAgentRunners } from './group-session-command-runner.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import {

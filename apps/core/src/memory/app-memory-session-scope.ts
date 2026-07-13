@@ -33,6 +33,22 @@ export function conversationJidFromSession(
 ): string | undefined {
   const id = session.conversationId?.trim();
   if (!id || !id.startsWith(CONVERSATION_ID_PREFIX)) return undefined;
-  const jid = id.slice(CONVERSATION_ID_PREFIX.length).trim();
+  const raw = id.slice(CONVERSATION_ID_PREFIX.length).trim();
+  const jid = liveConversationJidFromCanonicalSuffix(raw);
   return jid || undefined;
+}
+
+function liveConversationJidFromCanonicalSuffix(value: string): string {
+  const parts = value.split(':');
+  if (parts.length < 3) return value;
+  if (parts[0]?.includes('providerAccount') && parts.length > 3) {
+    const candidate = parts.slice(3).join(':').trim();
+    return looksLikeLiveConversationJid(candidate) ? candidate : value;
+  }
+  const candidate = parts.slice(1).join(':').trim();
+  return looksLikeLiveConversationJid(candidate) ? candidate : value;
+}
+
+function looksLikeLiveConversationJid(value: string): boolean {
+  return /^[a-z][a-z0-9_-]{1,31}:.+$/i.test(value);
 }
