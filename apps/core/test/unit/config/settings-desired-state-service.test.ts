@@ -1563,9 +1563,7 @@ conversations:
         saveConversation: vi.fn(async () => undefined),
         replaceConversationApprovers: vi.fn(async () => []),
         listParticipantExternalUserIds: vi.fn(async (conversationId: string) =>
-          conversationId === 'conversation:slack_one:sl:C123'
-            ? ['UADMIN']
-            : [],
+          conversationId === 'conversation:slack_one:sl:C123' ? ['UADMIN'] : [],
         ),
       },
     });

@@ -35,7 +35,11 @@ import {
 } from '../../runtime/group-registry.js';
 import { GroupQueue } from '../../runtime/group-queue.js';
 import { conversationRouteKeysForRemoval } from '../../runtime/conversation-route-removal.js';
-import { makeAgentThreadQueueKey, makeThreadQueueKey, parseAgentThreadQueueKey } from '../../shared/thread-queue-key.js';
+import {
+  makeAgentThreadQueueKey,
+  makeThreadQueueKey,
+  parseAgentThreadQueueKey,
+} from '../../shared/thread-queue-key.js';
 import { appIdFromConversationJid } from '../../shared/app-conversation-jid.js';
 import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { resolveConversationRoute } from './runtime-app-routes.js';
@@ -67,6 +71,7 @@ import type { RunnerSandboxProvider } from '../../shared/runner-sandbox-provider
 import { createMutableChannelRuntime } from './runtime-app-channel-runtime.js';
 import { resolveGroupRouteExecutionProviderId } from '../../runtime/group-initial-execution-provider.js';
 import { resolveRuntimeDefaultAdapters } from './runtime-default-adapters.js';
+import type { AvailableGroup } from '../../runtime/agent-spawn.js';
 export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
@@ -95,9 +100,7 @@ export interface RuntimeApp {
     thinking: ThinkingOverride | undefined,
   ) => Promise<void>;
   setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'];
-  getAvailableGroups: () => Promise<
-    import('../../runtime/agent-spawn.js').AvailableGroup[]
-  >;
+  getAvailableGroups: () => Promise<AvailableGroup[]>;
   setConversationRoutesForTest: (
     groups: Record<string, ConversationRoute>,
   ) => void;

@@ -170,7 +170,8 @@ describe('app memory session hydration scope', () => {
         channelId: 'conversation:sl:C123',
         kind: 'decision',
         key: 'decision:slack-channel',
-        value: 'Slack channel memory remains visible after provider account scoping.',
+        value:
+          'Slack channel memory remains visible after provider account scoping.',
       },
     ]);
 
@@ -180,8 +181,7 @@ describe('app memory session hydration scope', () => {
         appId: 'default' as never,
         agentId: 'agent:a' as never,
         conversationId: 'conversation:slack_default:sl:C123' as never,
-        threadId:
-          'thread:slack_default:sl:C123:1783507744.385419' as never,
+        threadId: 'thread:slack_default:sl:C123:1783507744.385419' as never,
         userId: 'agent:a' as never,
         status: 'active',
         createdAt: '2026-01-01T00:00:00.000Z' as never,

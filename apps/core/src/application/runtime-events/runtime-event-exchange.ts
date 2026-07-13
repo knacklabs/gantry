@@ -128,10 +128,7 @@ function normalizeRuntimeEventPublishInput(
   const threadId = isRuntimeEventThreadFkId(routeThreadId)
     ? routeThreadId
     : undefined;
-  if (
-    conversationId === input.conversationId &&
-    threadId === input.threadId
-  ) {
+  if (conversationId === input.conversationId && threadId === input.threadId) {
     return input;
   }
   const {
@@ -147,7 +144,9 @@ function normalizeRuntimeEventPublishInput(
     payload: payloadWithRouteContext({
       payload,
       conversationJid:
-        routeConversationId && !conversationId ? routeConversationId : undefined,
+        routeConversationId && !conversationId
+          ? routeConversationId
+          : undefined,
       threadId: routeThreadId && !threadId ? routeThreadId : undefined,
     }),
   };

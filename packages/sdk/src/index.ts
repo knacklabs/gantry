@@ -1,7 +1,12 @@
 import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
-import type { ConversationDiscoveryInput, ConversationInstallInput, ProviderAccountInput, ProviderAccountPatch } from './provider-types.js';
+import type {
+  ConversationDiscoveryInput,
+  ConversationInstallInput,
+  ProviderAccountInput,
+  ProviderAccountPatch,
+} from './provider-types.js';
 import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
@@ -39,35 +44,9 @@ export type {
   AgentAdminBoundConversation,
   AgentAdminResponse,
 } from './agents.js';
-export type {
-  CreateJobInput,
-  CreateJobResponse,
-  JobEventRecord,
-  JobHealth,
-  JobHealthState,
-  JobKind,
-  JobRecord,
-  JobSetup,
-  JobStatus,
-  JobTriggerWaitResult,
-  ListJobEventsInput,
-  ListJobsInput,
-  ModelRecord,
-  ModelDefaultsPatchRequest,
-  ModelDefaultsResponse,
-  ModelPreviewRequest,
-  ModelPreviewResponse,
-  UpdateJobInput,
-} from './job-model-types.js';
+export type * from './job-model-types.js';
 export type * from './openapi-types.js';
-export type {
-  IdentityEvidenceType,
-  IdentityResolveInput,
-  PersonAliasInput,
-  PersonAliasVerificationStatus,
-  PersonMergeConflictResolution,
-  PersonMergeInput,
-};
+export type * from './people.js';
 
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
