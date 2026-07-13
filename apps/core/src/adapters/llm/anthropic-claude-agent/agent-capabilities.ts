@@ -325,6 +325,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         : {}),
       GANTRY_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
         selectedMemoryIpcActions(ctx.configuredAllowedTools ?? [], {
+          excludeAuthorityTools: ctx.hideAuthorityTools === true,
+          asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
           memoryReviewerIsControlApprover: ctx.memoryReviewerIsControlApprover,
         }),
       ),

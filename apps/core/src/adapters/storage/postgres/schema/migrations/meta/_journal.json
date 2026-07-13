@@ -792,6 +792,27 @@
       "when": 1784924400000,
       "tag": "0115_brain_dream_review_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1777338600000,
+      "tag": "0098_drop_legacy_user_alias_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1777342200000,
+      "tag": "0099_people_identity_query_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1777345800000,
+      "tag": "0100_person_merge_audit_result",
+      "breakpoints": true
     }
   ]
 }

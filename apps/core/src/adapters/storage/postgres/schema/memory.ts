@@ -64,6 +64,16 @@ export const memoryItemsPostgres = pgTable(
       table.status,
       table.updatedAt.desc(),
     ),
+    personStatusIdx: index('idx_memory_items_person_status_key')
+      .on(
+        table.appId,
+        table.userId,
+        table.status,
+        table.agentId,
+        table.kind,
+        table.key,
+      )
+      .where(sql`${table.subjectType} = 'user'`),
     searchIdx: index('idx_memory_items_search').using(
       'gin',
       sql`to_tsvector('english', ${table.key} || ' ' || COALESCE(${table.valueJson}->>'value', '') || ' ' || COALESCE(${table.valueJson}->>'why', ''))`,

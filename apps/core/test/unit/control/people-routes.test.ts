@@ -119,6 +119,85 @@ beforeEach(() => {
 });
 
 describe('people control routes', () => {
+  it('paginates people with bounded limits and opaque cursors', async () => {
+    fakeRepository.listPeople
+      .mockResolvedValueOnce({
+        people: [{ personId: 'person-2' }],
+        nextCursor: {
+          updatedAt: '2026-01-02T00:00:00.000Z',
+          personId: 'person-2',
+        },
+      })
+      .mockResolvedValueOnce({ people: [], nextCursor: null });
+
+    const first = await call({
+      method: 'GET',
+      pathname: '/v1/people',
+      query: '?limit=1',
+      scopes: ['people:read'],
+    });
+    const second = await call({
+      method: 'GET',
+      pathname: '/v1/people',
+      query: `?limit=1&cursor=${encodeURIComponent(first.body.nextCursor)}`,
+      scopes: ['people:read'],
+    });
+
+    expect(first.res.statusCode).toBe(200);
+    expect(first.body).toMatchObject({ people: [{ personId: 'person-2' }] });
+    expect(typeof first.body.nextCursor).toBe('string');
+    expect(second.body).toEqual({ people: [], nextCursor: null });
+    expect(fakeRepository.listPeople).toHaveBeenNthCalledWith(1, 'app-one', {
+      limit: 1,
+      cursor: undefined,
+    });
+    expect(fakeRepository.listPeople).toHaveBeenNthCalledWith(2, 'app-one', {
+      limit: 1,
+      cursor: {
+        updatedAt: '2026-01-02T00:00:00.000Z',
+        personId: 'person-2',
+      },
+    });
+  });
+
+  it('rejects invalid people pagination before repository access', async () => {
+    const invalidLimit = await call({
+      method: 'GET',
+      pathname: '/v1/people',
+      query: '?limit=201',
+      scopes: ['people:read'],
+    });
+    const invalidCursor = await call({
+      method: 'GET',
+      pathname: '/v1/people',
+      query: '?cursor=not-a-cursor',
+      scopes: ['people:read'],
+    });
+
+    expect(invalidLimit.res.statusCode).toBe(400);
+    expect(invalidCursor.res.statusCode).toBe(400);
+    expect(fakeRepository.listPeople).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed encoded People path segments as invalid requests', async () => {
+    for (const pathname of [
+      '/v1/people/%E0%A4%A',
+      '/v1/people/person-1/aliases/%E0%A4%A',
+      '/v1/people/%E0%A4%A/merge',
+    ]) {
+      const { res, body } = await call({
+        method: pathname.endsWith('/%E0%A4%A') ? 'DELETE' : 'POST',
+        pathname,
+        scopes: ['people:read', 'people:admin'],
+      });
+      expect(res.statusCode).toBe(400);
+      expect(body.error).toMatchObject({
+        code: 'INVALID_REQUEST',
+        message: 'People path is invalid',
+      });
+    }
+  });
+
   it('resolves identity through the identity:resolve scope without creating or exposing alias details', async () => {
     fakeRepository.resolveIdentity.mockResolvedValue({
       status: 'resolved',
@@ -222,6 +301,35 @@ describe('people control routes', () => {
     );
   });
 
+  it('normalizes provider aliases before identity persistence', async () => {
+    fakeRepository.resolveIdentity.mockResolvedValue({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    const { res } = await call({
+      method: 'POST',
+      pathname: '/v1/identity/resolve',
+      body: {
+        provider: 'TG',
+        externalUserId: '123',
+        evidenceType: 'provider_user',
+      },
+      scopes: ['identity:resolve'],
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(fakeRepository.resolveIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'telegram' }),
+    );
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ provider: 'telegram' }),
+      }),
+    );
+  });
+
   it('accepts phone and web_user identity evidence without changing the wire shape', async () => {
     fakeRepository.resolveIdentity.mockResolvedValue({
       status: 'resolved',
@@ -281,6 +389,32 @@ describe('people control routes', () => {
 
     expect(res.statusCode).toBe(403);
     expect(body.error.message).toBe('Person is not accessible to this app.');
+  });
+
+  it('returns the non-disclosing access error for missing people and aliases', async () => {
+    fakeRepository.getPerson.mockResolvedValue(undefined);
+    fakeRepository.retireAlias.mockResolvedValue(undefined);
+
+    const missingPerson = await call({
+      method: 'GET',
+      pathname: '/v1/people/person-missing',
+      scopes: ['people:read'],
+    });
+    const missingAlias = await call({
+      method: 'DELETE',
+      pathname: '/v1/people/person-1/aliases/alias-missing',
+      scopes: ['people:admin'],
+    });
+
+    expect(missingPerson.res.statusCode).toBe(403);
+    expect(missingPerson.body.error.message).toBe(
+      'Person is not accessible to this app.',
+    );
+    expect(missingAlias.res.statusCode).toBe(403);
+    expect(missingAlias.body.error.message).toBe(
+      'Person is not accessible to this app.',
+    );
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
   });
 
   it('returns exact merge preview and apply summaries', async () => {

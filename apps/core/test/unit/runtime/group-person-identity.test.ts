@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { normalizeProviderId } from '@core/channels/provider-registry.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { resolveCanonicalMemoryPersonId } from '@core/runtime/group-person-identity.js';
 
@@ -28,7 +29,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         resolvePersonIdentity,
         appId: 'app-one',
         rawUserId: 'external-user-1',
-        defaultScope: 'group',
         conversationKind: 'channel',
         messages: [baseMessage],
         chatJid: 'telegram:group-1',
@@ -47,6 +47,57 @@ describe('resolveCanonicalMemoryPersonId', () => {
     });
   });
 
+  it.each([
+    ['tg:dm-1', 'telegram'],
+    ['telegram:dm-1', 'telegram'],
+    ['sl:D123', 'slack'],
+    ['slack:D123', 'slack'],
+  ])('normalizes the %s JID provider to %s', async (chatJid, provider) => {
+    const resolvePersonIdentity = vi.fn(async () => ({
+      status: 'resolved' as const,
+      personId: 'person:one',
+      memoryHydrationEligible: true,
+      verificationStatus: 'verified' as const,
+    }));
+
+    await resolveCanonicalMemoryPersonId({
+      resolvePersonIdentity,
+      normalizeProviderId,
+      appId: 'app-one',
+      rawUserId: 'external-user-1',
+      conversationKind: 'dm',
+      messages: [{ ...baseMessage, provider: '' }],
+      chatJid,
+    });
+
+    expect(resolvePersonIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ provider }),
+    );
+  });
+
+  it('canonicalizes an explicit message provider before alias resolution', async () => {
+    const resolvePersonIdentity = vi.fn(async () => ({
+      status: 'resolved' as const,
+      personId: 'person:one',
+      memoryHydrationEligible: true,
+      verificationStatus: 'verified' as const,
+    }));
+
+    await resolveCanonicalMemoryPersonId({
+      resolvePersonIdentity,
+      normalizeProviderId,
+      appId: 'app-one',
+      rawUserId: 'external-user-1',
+      conversationKind: 'dm',
+      messages: [{ ...baseMessage, provider: ' SL ' }],
+      chatJid: 'tg:dm-1',
+    });
+
+    expect(resolvePersonIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'slack' }),
+    );
+  });
+
   it('uses web_user evidence for explicit app-session senders', async () => {
     const resolvePersonIdentity = vi.fn(async () => ({
       status: 'created' as const,
@@ -60,7 +111,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         resolvePersonIdentity,
         appId: 'app-one',
         rawUserId: 'external-ci',
-        defaultScope: 'group',
         conversationKind: 'channel',
         messages: [{ ...baseMessage, provider: 'app', sender: 'external-ci' }],
         chatJid: 'app:app-one:conv-1',
@@ -88,7 +138,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         publishRuntimeEvent,
         appId: 'app-one',
         rawUserId: 'sdk',
-        defaultScope: 'group',
         conversationKind: 'channel',
         messages: [{ ...baseMessage, provider: 'app', sender: 'sdk' }],
         chatJid: 'app:app-one:conv-1',
@@ -122,7 +171,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         publishRuntimeEvent,
         appId: 'app-one',
         rawUserId: 'external-user-1',
-        defaultScope: 'user',
         conversationKind: 'dm',
         messages: [baseMessage],
         chatJid: 'telegram:dm-1',
@@ -163,7 +211,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         publishRuntimeEvent,
         appId: 'app-one',
         rawUserId: 'external-user-1',
-        defaultScope: 'group',
         conversationKind: 'channel',
         messages: [baseMessage],
         chatJid: 'sl:C123',
@@ -199,6 +246,62 @@ describe('resolveCanonicalMemoryPersonId', () => {
     );
   });
 
+  it('uses canonical conversation and thread ids as runtime-event foreign keys', async () => {
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const conversationJid = 'conversation:slack_default:sl:D123';
+    const threadId = 'thread:slack_default:sl:D123:1783348894.205129';
+
+    await resolveCanonicalMemoryPersonId({
+      resolvePersonIdentity: vi.fn(async () => ({
+        status: 'resolved' as const,
+        personId: 'person:one',
+        memoryHydrationEligible: true,
+        verificationStatus: 'verified' as const,
+      })),
+      publishRuntimeEvent,
+      appId: 'app-one',
+      rawUserId: 'external-user-1',
+      conversationKind: 'dm',
+      messages: [{ ...baseMessage, provider: 'sl' }],
+      chatJid: conversationJid,
+      threadId,
+    });
+
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: conversationJid,
+        threadId,
+        payload: expect.objectContaining({ conversationJid, threadId }),
+      }),
+    );
+  });
+
+  it('does not publish legacy person ids that embed a raw provider alias', async () => {
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const legacyPersonId = 'user:app-one:telegram:external-user-1';
+
+    await expect(
+      resolveCanonicalMemoryPersonId({
+        resolvePersonIdentity: vi.fn(async () => ({
+          status: 'resolved' as const,
+          personId: legacyPersonId,
+          memoryHydrationEligible: true,
+          verificationStatus: 'verified' as const,
+        })),
+        publishRuntimeEvent,
+        appId: 'app-one',
+        rawUserId: 'external-user-1',
+        conversationKind: 'dm',
+        messages: [baseMessage],
+        chatJid: 'telegram:dm-1',
+      }),
+    ).resolves.toBe(legacyPersonId);
+
+    for (const [event] of publishRuntimeEvent.mock.calls) {
+      expect(JSON.stringify(event)).not.toContain('external-user-1');
+    }
+  });
+
   it('skips dm personal memory when resolution infrastructure errors', async () => {
     const publishRuntimeEvent = vi.fn(async () => undefined);
 
@@ -210,7 +313,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         publishRuntimeEvent,
         appId: 'app-one',
         rawUserId: 'external-user-1',
-        defaultScope: 'user',
         conversationKind: 'dm',
         messages: [baseMessage],
         chatJid: 'telegram:dm-1',
@@ -245,7 +347,6 @@ describe('resolveCanonicalMemoryPersonId', () => {
         }),
         appId: 'app-one',
         rawUserId: 'external-user-1',
-        defaultScope: 'group',
         conversationKind: 'channel',
         messages: [baseMessage],
         chatJid: 'telegram:group-1',

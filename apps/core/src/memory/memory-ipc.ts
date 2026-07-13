@@ -180,13 +180,17 @@ export function resolveTrustedMemorySubject(
   context: TrustedMemoryContext | undefined,
   scope?: SaveMemoryInput['scope'] | SaveProcedureInput['scope'],
 ) {
+  const defaultScope = context?.defaultScope === 'user' ? 'user' : 'group';
+  if (scope && scope !== defaultScope) {
+    throw new Error('memory scope must match the trusted conversation scope');
+  }
   return resolveScopedMemorySubject({
     appId: DEFAULT_MEMORY_APP_ID,
     agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
     groupId: sourceAgentFolder,
     conversationId: canonicalConversationIdForMemory(context?.chatJid),
     userId: context?.userId,
-    defaultScope: context?.defaultScope,
+    defaultScope,
     ...(scope ? { scope } : {}),
   }).subject;
 }

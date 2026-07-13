@@ -77,6 +77,27 @@ export const PersonResponseSchema = UserResponseSchema.omit({
 });
 export type PersonResponse = z.infer<typeof PersonResponseSchema>;
 
+export const PEOPLE_LIST_DEFAULT_LIMIT = 50;
+export const PEOPLE_LIST_MAX_LIMIT = 200;
+
+export const PeopleListQuerySchema = z.object({
+  appId: z.string().optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(PEOPLE_LIST_MAX_LIMIT)
+    .default(PEOPLE_LIST_DEFAULT_LIMIT),
+  cursor: z.string().min(1).max(1024).optional(),
+});
+export type PeopleListQuery = z.input<typeof PeopleListQuerySchema>;
+
+export const PeopleListResponseSchema = z.object({
+  people: z.array(PersonResponseSchema),
+  nextCursor: z.string().nullable(),
+});
+export type PeopleListResponse = z.infer<typeof PeopleListResponseSchema>;
+
 export const IdentityResolveStatusSchema = z.enum([
   'resolved',
   'created',
@@ -118,6 +139,7 @@ export type IdentityResolveResponse = z.infer<
 >;
 
 export const AddPersonAliasRequestSchema = z.object({
+  appId: z.string().optional(),
   provider: z.string(),
   providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
@@ -136,6 +158,7 @@ export type PersonMergeConflictResolution = z.infer<
 >;
 
 export const PersonMergeRequestSchema = z.object({
+  appId: z.string().optional(),
   sourcePersonId: z.string(),
   idempotencyKey: z.string().optional(),
   conflictResolution: PersonMergeConflictResolutionSchema.optional(),

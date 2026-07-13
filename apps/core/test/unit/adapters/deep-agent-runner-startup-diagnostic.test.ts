@@ -172,13 +172,13 @@ describe('runDeepAgentTurn startup diagnostics', () => {
       appId: 'app-one',
       agentId: 'agent-one',
       runId: 'run-one',
-      conversationId: 'tg:room-one',
       eventType: 'run.startup_diagnostic',
       actor: 'runtime',
       responseMode: 'none',
       payload: {
         provider: 'deepagents',
         diagnostic: 'runner_startup',
+        conversationJid: 'tg:room-one',
         modelProvider: 'openai',
         modelId: 'gpt-test',
         endpointFamily: 'openai',
@@ -193,6 +193,7 @@ describe('runDeepAgentTurn startup diagnostics', () => {
         firstLangGraphEventName: 'on_chat_model_start',
       },
     });
+    expect(diagnostic).not.toHaveProperty('conversationId');
     expect(
       (diagnostic?.payload as { firstLangGraphEventMs?: unknown })
         .firstLangGraphEventMs,

@@ -125,6 +125,7 @@ export function registerTelegramMediaHandlers(input: {
         id: msgId,
         chat_jid: chatJid,
         provider: 'telegram',
+        providerAccountId: input.opts.providerAccountId,
         sender: ctx.from?.id?.toString() || '',
         sender_name: senderName,
         content,

@@ -943,6 +943,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/identity/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve identity
+         * @description Resolves provider identity evidence to an app-scoped person for host-owned memory hydration.
+         */
+        post: operations["resolveIdentity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List people
+         * @description Lists app-scoped people with aliases and personal memory counts.
+         */
+        get: operations["listPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get person
+         * @description Reads one app-scoped person with aliases and personal memory counts.
+         */
+        get: operations["getPerson"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/aliases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add person alias
+         * @description Links an alias to a person as verified after admin review.
+         */
+        post: operations["addPersonAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/aliases/{aliasId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Retire person alias
+         * @description Retires an alias without deleting personal memory.
+         */
+        delete: operations["retirePersonAlias"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/merge:preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview person merge
+         * @description Reports aliases, personal memory rows, excluded scopes, and conflicts without writing changes.
+         */
+        post: operations["previewPersonMerge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/people/{personId}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge person
+         * @description Atomically moves aliases and user-scoped personal memory to the target person.
+         */
+        post: operations["mergePerson"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/jobs": {
         parameters: {
             query?: never;
@@ -2056,6 +2196,155 @@ export interface components {
         };
         CapabilityListResponse: {
             capabilities: components["schemas"]["CapabilityManifest"][];
+        };
+        /** @enum {string} */
+        PersonAliasVerificationStatus: "verified" | "unverified" | "retired";
+        /** @enum {string} */
+        IdentityEvidenceType: "provider_user" | "email" | "phone" | "web_user";
+        PersonAlias: {
+            id: string;
+            appId: string;
+            personId: string;
+            provider: string;
+            providerAccountId?: string | null;
+            externalUserId: string;
+            displayName?: string | null;
+            verificationStatus: components["schemas"]["PersonAliasVerificationStatus"];
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            verifiedBy?: string | null;
+            /** Format: date-time */
+            retiredAt?: string | null;
+            retiredBy?: string | null;
+            evidence?: {
+                [key: string]: unknown;
+            };
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PersonMemoryCounts: {
+            personal: number;
+            active: number;
+            archived: number;
+            superseded: number;
+            deleted: number;
+        };
+        PersonAliasCounts: {
+            verified: number;
+            unverified: number;
+            retired: number;
+        };
+        Person: {
+            personId: string;
+            appId: string;
+            /** @enum {string} */
+            kind: "human" | "service";
+            displayName?: string | null;
+            /** @enum {string} */
+            status: "active" | "disabled" | "archived";
+            aliases?: components["schemas"]["PersonAlias"][];
+            memoryCounts?: components["schemas"]["PersonMemoryCounts"];
+            aliasCounts?: components["schemas"]["PersonAliasCounts"];
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        PeopleListResponse: {
+            people: components["schemas"]["Person"][];
+            nextCursor: string | null;
+        };
+        PersonGetResponse: {
+            person: components["schemas"]["Person"];
+        };
+        IdentityResolveRequest: {
+            appId?: string;
+            provider: string;
+            providerAccountId?: string | null;
+            externalUserId: string;
+            displayName?: string | null;
+            evidenceType: components["schemas"]["IdentityEvidenceType"];
+            createIfMissing?: boolean;
+        };
+        IdentityResolveResponse: {
+            /** @enum {string} */
+            status: "resolved" | "created" | "unresolved";
+            personId: string | null;
+            memoryHydrationEligible: boolean;
+            matchedAlias?: components["schemas"]["PersonAlias"];
+            createdAlias?: components["schemas"]["PersonAlias"];
+            verificationStatus?: components["schemas"]["PersonAliasVerificationStatus"];
+        };
+        AddPersonAliasRequest: {
+            appId?: string;
+            provider: string;
+            providerAccountId?: string | null;
+            externalUserId: string;
+            displayName?: string | null;
+            evidenceType: components["schemas"]["IdentityEvidenceType"];
+            evidence?: {
+                [key: string]: unknown;
+            };
+        };
+        PersonAliasMutationResponse: {
+            alias: components["schemas"]["PersonAlias"];
+        };
+        PersonMergeRequest: {
+            appId?: string;
+            sourcePersonId: string;
+            idempotencyKey?: string;
+            /** @enum {string} */
+            conflictResolution?: "fail_on_conflict" | "keep_target";
+        };
+        PersonMergeConflict: {
+            /** @enum {string} */
+            type?: "memory" | "alias";
+            sourceMemoryId?: string;
+            targetMemoryId?: string;
+            sourceAliasId?: string;
+            targetAliasId?: string;
+            agentId?: string | null;
+            kind: string;
+            key: string;
+        };
+        PersonMergePreviewResponse: {
+            /** @constant */
+            summary: "Merge preview only. No data changed.";
+            sourcePersonId: string;
+            targetPersonId: string;
+            aliasesToMove: components["schemas"]["PersonAlias"][];
+            memoryRowsToMove: number;
+            excludedMemoryScopes: {
+                group: number;
+                channel: number;
+                common: number;
+            };
+            conflicts: components["schemas"]["PersonMergeConflict"][];
+        };
+        PersonMergeApplyResponse: {
+            /** @constant */
+            summary: "Person merge completed. Personal memory and aliases now belong to the target person.";
+            sourcePersonId: string;
+            targetPersonId: string;
+            aliasesToMove: components["schemas"]["PersonAlias"][];
+            memoryRowsToMove: number;
+            excludedMemoryScopes: {
+                group: number;
+                channel: number;
+                common: number;
+            };
+            conflicts: components["schemas"]["PersonMergeConflict"][];
+            idempotencyKey: string;
+            auditId: string;
+            applied: boolean;
         };
         ModelCredentialStatus: {
             /** @example provider-id */
@@ -5732,6 +6021,231 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LlmChatCompletionsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resolveIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityResolveRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityResolveResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listPeople: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+                /** @description Maximum people to return. Defaults to 50. */
+                limit?: number;
+                /** @description Opaque cursor returned by the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleListResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getPerson: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonGetResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addPersonAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddPersonAliasRequest"];
+            };
+        };
+        responses: {
+            /** @description Resource created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAliasMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    retirePersonAlias: {
+        parameters: {
+            query?: {
+                /** @description App id. Defaults to API key app. */
+                appId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+                /** @description Person alias id. */
+                aliasId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonAliasMutationResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    previewPersonMerge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonMergePreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    mergePerson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Person id. */
+                personId: string;
+            };
+            cookie?: never;
+        };
+        /** @description JSON request payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Request succeeded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonMergeApplyResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

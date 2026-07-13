@@ -43,6 +43,7 @@ import {
 } from './channel-capability-ports.js';
 import {
   listChannelProviders,
+  normalizeProviderId,
   providerForJid,
   providerIdForJid,
 } from '../../channels/provider-registry.js';
@@ -92,6 +93,7 @@ export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
 ): ChannelWiring {
+  app.setProviderIdNormalizer?.(normalizeProviderId);
   const resolved: ChannelWiringDeps = {
     appId: 'default' as AppId,
     providerIds: listChannelProviders(),
@@ -278,7 +280,6 @@ export function createChannelWiring(
       runtimeAppId: resolved.appId,
     };
   }
-
   const hasChannel = (jid: string, options?: { providerAccountId?: string }) =>
     findBoundChannel(jid, options?.providerAccountId) !== undefined;
   function supportsStreaming(
@@ -707,9 +708,8 @@ export function createChannelWiring(
   }
   return {
     getRuntimeAppId: () => resolved.appId,
-    setRuntimeSecrets: (provider) => {
-      resolved.runtimeSecrets = provider;
-    },
+    normalizeProviderId,
+    setRuntimeSecrets: (provider) => void (resolved.runtimeSecrets = provider),
     describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,

@@ -61,3 +61,17 @@ describe('Postgres raw SQL allowlist', () => {
     expect(violations).toEqual([]);
   });
 });
+
+describe('person identity migration contract', () => {
+  it('adds the merge result payload required by the active schema', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0100_person_merge_audit_result.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS result_json jsonb');
+  });
+});

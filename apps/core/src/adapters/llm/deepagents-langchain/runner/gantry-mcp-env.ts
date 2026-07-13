@@ -88,7 +88,11 @@ export function buildGantryMcpProjection(
 
   const memoryIpcActions = selectedMemoryIpcActions(
     input.configuredAllowedTools,
-    { memoryReviewerIsControlApprover },
+    {
+      excludeAuthorityTools: input.hideAuthorityTools,
+      memoryReviewerIsControlApprover,
+      asyncTaskToolsEnabled,
+    },
   );
 
   const serverEnv: Record<string, string> = {

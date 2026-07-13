@@ -387,6 +387,7 @@ async function spawnAgentWithContext(
     const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
       trustedToolPolicyRules ?? [],
       {
+        excludeAuthorityTools: hideAuthorityTools,
         memoryReviewerIsControlApprover: input.memoryReviewerIsControlApprover,
       },
     );
