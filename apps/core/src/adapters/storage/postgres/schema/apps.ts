@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   integer,
+  index,
   jsonb,
   pgTable,
   text,
@@ -39,9 +40,10 @@ export const usersPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    appDisplayNameIdx: uniqueIndex('idx_users_app_display_name').on(
+    peoplePageIdx: index('idx_users_app_updated_id').on(
       table.appId,
-      table.displayName,
+      table.updatedAt.desc(),
+      table.id.desc(),
     ),
   }),
 );
@@ -84,6 +86,11 @@ export const userAliasesPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    personUpdatedIdx: index('idx_user_aliases_app_user_updated').on(
+      table.appId,
+      table.userId,
+      table.updatedAt.desc(),
+    ),
     providerAliasUnique: uniqueIndex(
       'idx_user_aliases_active_provider_external',
     )
@@ -94,6 +101,15 @@ export const userAliasesPostgres = pgTable(
         table.externalUserId,
       )
       .where(sql`${table.retiredAt} IS NULL`),
+    retiredProviderAliasIdx: index('idx_user_aliases_retired_provider_external')
+      .on(
+        table.appId,
+        table.provider,
+        sql`COALESCE(${table.providerAccountId}, '')`,
+        table.externalUserId,
+        table.updatedAt.desc(),
+      )
+      .where(sql`${table.retiredAt} IS NOT NULL`),
   }),
 );
 
@@ -114,6 +130,9 @@ export const personMergeAuditPostgres = pgTable(
     conflictsJson: jsonb('conflicts_json')
       .notNull()
       .default(sql`'[]'::jsonb`),
+    resultJson: jsonb('result_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

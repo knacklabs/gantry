@@ -13,6 +13,10 @@ const ALLOWED_RAW_SQL_FILES = new Set([
   'apps/core/src/adapters/storage/postgres/repositories/worker-coordination-lease.postgres.ts',
   // pg_advisory_xact_lock makes async task admission atomic across workers.
   'apps/core/src/adapters/storage/postgres/repositories/async-task-repository.postgres.ts',
+  // pg_advisory_xact_lock serializes exact identity-alias ownership changes.
+  'apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts',
+  // pg_advisory_xact_lock makes person-merge idempotency cluster-safe.
+  'apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts',
   // LISTEN/NOTIFY is wakeup-only; durable rows remain authoritative.
   'apps/core/src/adapters/storage/postgres/live-admission-notify.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
@@ -54,5 +58,19 @@ describe('Postgres raw SQL allowlist', () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+});
+
+describe('person identity migration contract', () => {
+  it('adds the merge result payload required by the active schema', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0100_person_merge_audit_result.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS result_json jsonb');
   });
 });

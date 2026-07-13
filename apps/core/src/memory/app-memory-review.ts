@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -27,7 +27,6 @@ import {
 import type {
   AppMemoryItem,
   DeleteAppMemoryInput,
-  DreamingRunStatus,
   MemoryLifecycleProposal,
   MemoryReviewDecisionInput,
   MemoryReviewEvidenceSnippet,

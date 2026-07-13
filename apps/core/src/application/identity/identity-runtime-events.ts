@@ -1,4 +1,8 @@
 import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
+import {
+  isRuntimeEventConversationFkId,
+  isRuntimeEventThreadFkId,
+} from '../../domain/events/runtime-event-conversation.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 
 type RuntimeEventPublisher = (
@@ -14,6 +18,11 @@ export type MemoryHydrationDecisionReason =
   | 'missing_sender'
   | 'system_sender'
   | 'resolver_error';
+
+function eventSafePersonId(personId: string | null | undefined) {
+  if (!personId || /^user:[^:]+:[^:]+:.+$/.test(personId)) return undefined;
+  return personId;
+}
 
 export async function publishIdentityResolvedEvent(
   publish: RuntimeEventPublisher | undefined,
@@ -37,8 +46,15 @@ export async function publishIdentityResolvedEvent(
   },
 ): Promise<void> {
   if (!publish) return;
+  const personId = eventSafePersonId(input.personId);
   await publish({
     appId: input.appId as never,
+    ...(isRuntimeEventConversationFkId(input.conversationJid)
+      ? { conversationId: input.conversationJid }
+      : {}),
+    ...(isRuntimeEventThreadFkId(input.threadId ?? undefined)
+      ? { threadId: input.threadId as never }
+      : {}),
     eventType: RUNTIME_EVENT_TYPES.IDENTITY_RESOLVED,
     actor: input.source,
     payload: {
@@ -49,7 +65,7 @@ export async function publishIdentityResolvedEvent(
         : {}),
       evidenceType: input.evidenceType,
       status: input.status,
-      ...(input.personId ? { personId: input.personId } : {}),
+      ...(personId ? { personId } : {}),
       ...(input.verificationStatus
         ? { verificationStatus: input.verificationStatus }
         : {}),
@@ -138,8 +154,15 @@ export async function publishMemoryHydrationDecisionEvent(
   },
 ): Promise<void> {
   if (!publish) return;
+  const personId = eventSafePersonId(input.personId);
   await publish({
     appId: input.appId as never,
+    ...(isRuntimeEventConversationFkId(input.conversationJid)
+      ? { conversationId: input.conversationJid }
+      : {}),
+    ...(isRuntimeEventThreadFkId(input.threadId ?? undefined)
+      ? { threadId: input.threadId as never }
+      : {}),
     eventType: RUNTIME_EVENT_TYPES.MEMORY_HYDRATION_DECISION,
     actor: input.source,
     payload: {
@@ -151,7 +174,7 @@ export async function publishMemoryHydrationDecisionEvent(
       ...(input.providerAccountId
         ? { providerAccountId: input.providerAccountId }
         : {}),
-      ...(input.personId ? { personId: input.personId } : {}),
+      ...(personId ? { personId } : {}),
       reason: input.reason,
       memoryHydrationEligible: input.memoryHydrationEligible,
     },

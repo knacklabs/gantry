@@ -524,6 +524,7 @@ describe('TelegramChannel', () => {
         expect.objectContaining({
           id: '1',
           chat_jid: 'tg:100200300',
+          providerAccountId: 'telegram_default',
           sender: '99001',
           sender_name: 'Alice',
           content: 'Hello everyone',
@@ -650,6 +651,7 @@ describe('TelegramChannel', () => {
         expect.objectContaining({
           chat_jid: 'tg:999999',
           provider: 'telegram',
+          providerAccountId: 'telegram_default',
           sender: '99001',
           content: 'Unknown private chat',
         }),
@@ -1040,6 +1042,7 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         expect.objectContaining({
           content: '[Photo] (attachments/photo_1.jpg)',
+          providerAccountId: 'telegram_default',
           attachments: [
             expect.objectContaining({ storageRef: 'attachments/photo_1.jpg' }),
           ],

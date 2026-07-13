@@ -282,7 +282,7 @@ export function parseEnabledGantryMcpToolNames(
 
 export function selectedMemoryIpcActions(
   configuredTools: readonly string[],
-  options: MemoryIpcActionSelectionOptions = {},
+  options: GantryMcpToolSelectionOptions = {},
 ): GantryMemoryIpcAction[] {
   return selectedMemoryIpcActionsFromToolRules(configuredTools, options);
 }

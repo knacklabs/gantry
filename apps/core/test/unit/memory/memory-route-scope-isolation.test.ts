@@ -59,6 +59,31 @@ describe('memory route scope isolation', () => {
     });
   });
 
+  it('rejects memory scope overrides across the trusted conversation boundary', () => {
+    expect(() =>
+      resolveTrustedMemorySubject(
+        'team-folder',
+        {
+          chatJid: 'sl:C999',
+          userId: 'person:one',
+          defaultScope: 'group',
+        },
+        'user',
+      ),
+    ).toThrow('memory scope must match the trusted conversation scope');
+    expect(() =>
+      resolveTrustedMemorySubject(
+        'dm-folder',
+        {
+          chatJid: 'sl:D999',
+          userId: 'person:one',
+          defaultScope: 'user',
+        },
+        'group',
+      ),
+    ).toThrow('memory scope must match the trusted conversation scope');
+  });
+
   it('keeps subject resolution independent of which family the router dispatches to', async () => {
     const openai = recordingClient('openai');
     const anthropicLane = recordingClient(['anth', 'ropic'].join(''));

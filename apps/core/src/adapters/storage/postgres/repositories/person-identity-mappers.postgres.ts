@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type {
@@ -7,16 +8,16 @@ import type {
   PersonAliasRecord,
   PersonMergeApplyResult,
   PersonMergeConflict,
-  PersonMergePreview,
+  PersonMergeInput,
   PersonRecord,
 } from '../../../../application/identity/person-identity-service.js';
+import { ApplicationError } from '../../../../application/common/application-error.js';
 import * as pgSchema from '../schema/schema.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
 type UserRow = typeof pgSchema.usersPostgres.$inferSelect;
 type AliasRow = typeof pgSchema.userAliasesPostgres.$inferSelect;
-type MemoryRow = typeof pgSchema.memoryItemsPostgres.$inferSelect;
 type AuditRow = typeof pgSchema.personMergeAuditPostgres.$inferSelect;
 
 const PERSON_STATUS = {
@@ -28,19 +29,6 @@ const PERSON_STATUS = {
 export function stableId(prefix: string, parts: string[]): string {
   const hash = createHash('sha256').update(parts.join('\0')).digest('hex');
   return `${prefix}:${hash.slice(0, 32)}`;
-}
-
-function hashText(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-export function personalMemorySubjectHash(input: {
-  appId: string;
-  agentId: string | null;
-  personId: string;
-}): string {
-  const agentId = input.agentId || 'agent:unknown';
-  return `msu_${hashText(`${input.appId}:${agentId}:user:${input.personId}`).slice(0, 32)}`;
 }
 
 export function normalizeProviderAccountId(
@@ -133,32 +121,6 @@ export function memoryCountsFromRows(
   return counts;
 }
 
-function parseMemorySource(row: MemoryRow): Record<string, unknown> {
-  return jsonRecord(row.sourceRefJson);
-}
-
-function sourceSubject(
-  source: Record<string, unknown>,
-): Record<string, unknown> {
-  return jsonRecord(source.subject);
-}
-
-export function retargetMemorySource(
-  row: MemoryRow,
-  targetPersonId: string,
-): Record<string, unknown> {
-  const source = parseMemorySource(row);
-  return {
-    ...source,
-    subject: {
-      ...sourceSubject(source),
-      subjectType: 'user',
-      subjectId: targetPersonId,
-      userId: targetPersonId,
-    },
-  };
-}
-
 export async function ensureApp(
   executor: Executor,
   appId: string,
@@ -174,24 +136,120 @@ export async function ensureApp(
     .onConflictDoNothing();
 }
 
+export async function lockPersonAliasKey(
+  executor: Executor,
+  input: {
+    appId: string;
+    provider: string;
+    providerAccountId?: string | null;
+    externalUserId: string;
+  },
+): Promise<void> {
+  const key = JSON.stringify([
+    'person-alias',
+    input.appId,
+    input.provider,
+    normalizeProviderAccountId(input.providerAccountId) ?? '',
+    input.externalUserId,
+  ]);
+  await executor.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`,
+  );
+}
+
+export async function rekeyPersonalMemory(
+  executor: Executor,
+  input: PersonMergeInput & {
+    conflictResolution: 'fail_on_conflict' | 'keep_target';
+    conflictSourceIds: string[];
+    timestamp: string;
+  },
+): Promise<number> {
+  const memory = pgSchema.memoryItemsPostgres;
+  const updates = {
+    subjectId: sql<string>`'msu_' || substr(encode(digest(${memory.appId} || ':' || COALESCE(${memory.agentId}, 'agent:unknown') || ':user:' || ${input.targetPersonId}, 'sha256'), 'hex'), 1, 32)`,
+    userId: input.targetPersonId,
+    sourceRefJson: sql<
+      Record<string, unknown>
+    >`(CASE WHEN jsonb_typeof(${memory.sourceRefJson}) = 'object' THEN ${memory.sourceRefJson} ELSE '{}'::jsonb END) || jsonb_build_object('subject', (CASE WHEN jsonb_typeof(${memory.sourceRefJson}->'subject') = 'object' THEN ${memory.sourceRefJson}->'subject' ELSE '{}'::jsonb END) || jsonb_build_object('subjectType', 'user', 'subjectId', ${input.targetPersonId}::text, 'userId', ${input.targetPersonId}::text))`,
+    updatedAt: input.timestamp,
+    ...(input.conflictResolution === 'keep_target' &&
+    input.conflictSourceIds.length > 0
+      ? {
+          status: sql<string>`CASE WHEN ${inArray(memory.id, input.conflictSourceIds)} THEN 'superseded' ELSE ${memory.status} END`,
+        }
+      : {}),
+  };
+  const moved = await executor
+    .update(memory)
+    .set(updates)
+    .where(
+      and(
+        eq(memory.appId, input.appId),
+        eq(memory.subjectType, 'user'),
+        eq(memory.userId, input.sourcePersonId),
+      ),
+    );
+  return moved.rowCount ?? 0;
+}
+
+export async function findMergeAudit(
+  executor: Executor,
+  appId: string,
+  idempotencyKey: string,
+): Promise<AuditRow | null> {
+  const [row] = await executor
+    .select()
+    .from(pgSchema.personMergeAuditPostgres)
+    .where(
+      and(
+        eq(pgSchema.personMergeAuditPostgres.appId, appId),
+        eq(pgSchema.personMergeAuditPostgres.idempotencyKey, idempotencyKey),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
 export function auditToMergeApply(
   audit: AuditRow,
-  preview: PersonMergePreview,
   idempotencyKey: string,
   applied: boolean,
-  movedOverride?: number,
 ): PersonMergeApplyResult {
+  const stored = jsonRecord(audit.resultJson);
+  const excluded = jsonRecord(stored.excludedMemoryScopes);
   return {
     summary:
       'Person merge completed. Personal memory and aliases now belong to the target person.',
     sourcePersonId: audit.sourcePersonId,
     targetPersonId: audit.targetPersonId,
-    aliasesToMove: preview.aliasesToMove,
-    memoryRowsToMove: movedOverride ?? audit.memoryRowsMoved,
-    excludedMemoryScopes: preview.excludedMemoryScopes,
+    aliasesToMove: jsonArray(stored.aliasesToMove) as PersonAliasRecord[],
+    memoryRowsToMove: audit.memoryRowsMoved,
+    excludedMemoryScopes: {
+      group: Number(excluded.group ?? 0),
+      channel: Number(excluded.channel ?? 0),
+      common: Number(excluded.common ?? 0),
+    },
     conflicts: jsonArray(audit.conflictsJson) as PersonMergeConflict[],
     idempotencyKey,
     auditId: audit.id,
     applied,
   };
+}
+
+export function assertMergeAuditMatches(
+  audit: AuditRow,
+  input: PersonMergeInput,
+  conflictResolution: 'fail_on_conflict' | 'keep_target',
+): void {
+  if (
+    audit.sourcePersonId !== input.sourcePersonId ||
+    audit.targetPersonId !== input.targetPersonId ||
+    audit.conflictResolution !== conflictResolution
+  ) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'idempotencyKey already belongs to a different person merge.',
+    );
+  }
 }

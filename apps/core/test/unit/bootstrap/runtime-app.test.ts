@@ -40,6 +40,7 @@ async function loadRuntimeApp() {
     getRuntimeSkillArtifactStore: vi.fn(),
     getRuntimeStorage: vi.fn(() => ({})),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+    resolveRuntimePersonIdentity: vi.fn(),
   }));
   return import('@core/app/bootstrap/runtime-app.js');
 }
@@ -74,6 +75,7 @@ async function loadRuntimeAppWithGroupProcessorSpy() {
     getRuntimeSkillArtifactStore: vi.fn(),
     getRuntimeStorage: vi.fn(() => ({})),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+    resolveRuntimePersonIdentity: vi.fn(),
   }));
   const runtimeApp = await import('@core/app/bootstrap/runtime-app.js');
   return { ...runtimeApp, createGroupProcessor };
@@ -121,6 +123,7 @@ async function loadRuntimeAppWithPersistedRoutes(
     getRuntimeStorage: vi.fn(() => ({ fileArtifacts })),
     getRuntimeSkillArtifactStore: vi.fn(),
     getConfiguredModelProvidersForApp: vi.fn(async () => new Set<string>()),
+    resolveRuntimePersonIdentity: vi.fn(),
   }));
   vi.doMock('@core/runtime/group-processing.js', () => ({
     createGroupProcessor: vi.fn(() => ({

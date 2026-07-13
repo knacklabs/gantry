@@ -1,4 +1,4 @@
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type { ChatInfo } from '../../../../domain/repositories/domain-types.js';
@@ -9,6 +9,10 @@ import {
 } from '../../../../channels/provider-registry.js';
 import { agentIdForFolder as canonicalAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import * as pgSchema from '../schema/schema.js';
+import {
+  lockPersonAliasKey,
+  stableId,
+} from './person-identity-mappers.postgres.js';
 
 export const CANONICAL_APP_ID = 'default';
 export const DEFAULT_LLM_PROFILE_ID = 'llm:default';
@@ -321,65 +325,109 @@ export class PostgresCanonicalGraphRepository {
       displayName?: string | null;
       timestamp?: string | null;
     },
-    executor: CanonicalExecutor = this.db,
+    executor?: CanonicalExecutor,
   ): Promise<string | null> {
+    if (!executor) {
+      return this.db.transaction((tx) => this.ensureParticipant(input, tx));
+    }
     const externalUserId = input.externalUserId.trim();
     if (!externalUserId) return null;
-    const safeProvider = input.providerId.replace(/[^a-zA-Z0-9._:-]/g, '_');
+    const providerAccountId = input.providerAccountId.trim();
     const safeUser = externalUserId.replace(/[^a-zA-Z0-9._:-]/g, '_');
-    const userId = `user:${CANONICAL_APP_ID}:${safeProvider}:${safeUser}`;
-    const aliasId = `user-alias:${CANONICAL_APP_ID}:${safeProvider}:${input.providerAccountId}:${safeUser}`;
     const participantId = `participant:${input.conversationId}:${safeUser}`;
     const now = input.timestamp || currentIso();
-    const displayName = input.displayName
-      ? `${input.displayName} (${input.providerId}:${externalUserId})`
-      : `${input.providerId}:${externalUserId}`;
-    await executor
-      .insert(pgSchema.usersPostgres)
-      .values({
-        id: userId,
-        appId: CANONICAL_APP_ID,
-        kind: 'human',
-        displayName,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.usersPostgres.id,
-        set: {
-          displayName,
-          updatedAt: now,
-        },
-      });
-    await executor
-      .insert(pgSchema.userAliasesPostgres)
-      .values({
-        id: aliasId,
-        appId: CANONICAL_APP_ID,
-        userId,
-        provider: input.providerId,
-        providerAccountId: input.providerAccountId,
+    const aliasKey = {
+      appId: CANONICAL_APP_ID,
+      provider: input.providerId,
+      providerAccountId,
+      externalUserId,
+    };
+    await lockPersonAliasKey(executor, aliasKey);
+    const findActiveAlias = async () => {
+      const [row] = await executor
+        .select({ userId: pgSchema.userAliasesPostgres.userId })
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.provider, input.providerId),
+            sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
+            eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
+            isNull(pgSchema.userAliasesPostgres.retiredAt),
+          ),
+        )
+        .limit(1);
+      return row;
+    };
+    const existingAlias = await findActiveAlias();
+    let participantUserId = existingAlias?.userId;
+    if (!participantUserId) {
+      const retiredAliases = await executor
+        .select({ id: pgSchema.userAliasesPostgres.id })
+        .from(pgSchema.userAliasesPostgres)
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, CANONICAL_APP_ID),
+            eq(pgSchema.userAliasesPostgres.provider, input.providerId),
+            sql`COALESCE(${pgSchema.userAliasesPostgres.providerAccountId}, '') = ${providerAccountId}`,
+            eq(pgSchema.userAliasesPostgres.externalUserId, externalUserId),
+            isNotNull(pgSchema.userAliasesPostgres.retiredAt),
+          ),
+        )
+        .orderBy(asc(pgSchema.userAliasesPostgres.id));
+      const identityParts = [
+        CANONICAL_APP_ID,
+        input.providerId,
+        providerAccountId,
         externalUserId,
-        displayName: input.displayName ?? externalUserId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.userAliasesPostgres.id,
-        set: {
-          userId,
-          displayName: input.displayName ?? externalUserId,
+        ...retiredAliases.map((row) => row.id),
+      ];
+      const userId = stableId('person', identityParts);
+      const aliasId = stableId('person-alias', identityParts);
+      const displayName = input.displayName ?? externalUserId;
+      await executor
+        .insert(pgSchema.usersPostgres)
+        .values({
+          id: userId,
+          appId: CANONICAL_APP_ID,
+          kind: 'human',
+          displayName,
+          status: 'active',
+          createdAt: now,
           updatedAt: now,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: pgSchema.usersPostgres.id,
+          set: { displayName, updatedAt: now },
+        });
+      const [insertedAlias] = await executor
+        .insert(pgSchema.userAliasesPostgres)
+        .values({
+          id: aliasId,
+          appId: CANONICAL_APP_ID,
+          userId,
+          provider: input.providerId,
+          providerAccountId,
+          externalUserId,
+          displayName,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning({ userId: pgSchema.userAliasesPostgres.userId });
+      participantUserId =
+        insertedAlias?.userId ?? (await findActiveAlias())?.userId;
+      if (!participantUserId) {
+        throw new Error('Could not create or resolve an active person alias.');
+      }
+    }
     await executor
       .insert(pgSchema.conversationParticipantsPostgres)
       .values({
         id: participantId,
         appId: CANONICAL_APP_ID,
         conversationId: input.conversationId,
-        userId,
+        userId: participantUserId,
         externalUserId,
         role: 'member',
         status: 'active',
@@ -389,13 +437,13 @@ export class PostgresCanonicalGraphRepository {
       .onConflictDoUpdate({
         target: pgSchema.conversationParticipantsPostgres.id,
         set: {
-          userId,
+          userId: participantUserId,
           externalUserId,
           status: 'active',
           updatedAt: now,
         },
       });
-    return userId;
+    return participantUserId;
   }
 
   async listChats(): Promise<ChatInfo[]> {

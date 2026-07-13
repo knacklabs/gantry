@@ -599,8 +599,10 @@ maybeDescribe('live admission work items (Postgres)', () => {
       agentId: 'agent:atomic_agent',
       conversationId: 'tg:live-admission-atomic',
       threadId: null,
-      queueJid: 'tg:live-admission-atomic',
-      messageId: 'message:tg:live-admission-atomic:msg-atomic-1',
+      queueJid:
+        'tg:live-admission-atomic::agent:agent%3Aatomic_agent::provider_account:channel-providerAccount%3Adefault%3Atelegram',
+      messageId:
+        'message:channel-providerAccount:default:telegram:tg:live-admission-atomic:msg-atomic-1',
       senderUserId: 'user-atomic',
       senderDisplayName: 'Atomic User',
       state: 'queued',
@@ -690,7 +692,8 @@ maybeDescribe('live admission work items (Postgres)', () => {
     });
     expect(result.liveAdmissionResult?.item).toMatchObject({
       state: 'queued',
-      messageId: 'message:tg:live-admission-event-atomic:msg-event-admission-1',
+      messageId:
+        'message:channel-providerAccount:default:telegram:tg:live-admission-event-atomic:msg-event-admission-1',
     });
     await expect(
       runtime.ops.getMessagesSince('tg:live-admission-event-atomic', '', 10, {

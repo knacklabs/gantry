@@ -20,7 +20,7 @@ LaunchAgent.
 Control API settings are read from process env and from `~/gantry/.env`:
 
 ```env
-GANTRY_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"replace-with-a-generated-token","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin","llm:invoke"]}]
+GANTRY_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"replace-with-a-generated-token","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin","identity:resolve","people:read","people:admin","llm:invoke"]}]
 GANTRY_CONTROL_PORT=8787
 GANTRY_CONTROL_HOST=127.0.0.1
 ```
@@ -1046,7 +1046,9 @@ Live provider-channel turns attempt sender identity resolution in both DMs and
 channels/groups when a sender id is present. SDK app-session turns use
 `evidenceType='web_user'` only for explicit `senderId` values; omitted
 `senderId` keeps the internal `sdk` sentinel and skips personal identity
-resolution.
+resolution. SDK sessions are app-channel turns, not DM/private routes: an
+explicit sender supplies identity evidence but does not add that person's
+long-term memory to the app-channel turn.
 
 ```ts
 client.memory.save({
@@ -1085,13 +1087,16 @@ client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })
 client.memory.dreaming.status({ appId?, agentId? })
 client.identity.resolve({ appId?, provider, providerAccountId?, externalUserId, displayName?, evidenceType, createIfMissing? })
-client.people.list({ appId? })
+client.people.list({ appId?, limit?, cursor? })
 client.people.get(personId, { appId? })
 client.people.aliases.add(personId, { provider, providerAccountId?, externalUserId, displayName?, evidenceType, evidence? })
 client.people.aliases.retire(personId, aliasId, { appId? })
 client.people.merge.preview(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
 client.people.merge.apply(personId, { sourcePersonId, idempotencyKey?, conflictResolution? })
 ```
+
+Identity lookup requires `identity:resolve`. People list/get operations require
+`people:read`; alias and merge administration require `people:admin`.
 
 `reference` memory is reserved for procedure/knowledge-source flows instead of
 direct `memory_save` payloads.

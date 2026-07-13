@@ -18,7 +18,7 @@ export function buildMemorySavePayload<T extends MemorySaveArgs>(
   delete (safeArgs as { user_id?: string }).user_id;
   return {
     ...(safeArgs as T),
-    scope: args.scope || ctx.memoryDefaultScope,
+    scope: ctx.memoryDefaultScope,
   };
 }
 

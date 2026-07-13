@@ -1,8 +1,21 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash } from 'node:crypto';
 
+import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
-import { AgentAccessRequestSchema } from '@gantry/contracts';
+import {
+  AddPersonAliasRequestSchema,
+  AgentAccessRequestSchema,
+  IdentityEvidenceTypeSchema,
+  IdentityResolveRequestSchema,
+  IdentityResolveResponseSchema,
+  PersonAliasResponseSchema,
+  PersonMergeApplyResponseSchema,
+  PersonMergePreviewResponseSchema,
+  PersonMergeRequestSchema,
+  PersonResponseSchema,
+  PeopleListResponseSchema,
+} from '@gantry/contracts';
 
 import { requiredModelCredentialProviders } from '@core/application/model-resolution/required-model-credential-providers.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
@@ -193,6 +206,73 @@ function documentedRoutes(): string[] {
     .sort();
 }
 
+const schemaAjv = new Ajv({ allowUnionTypes: true, strict: false });
+schemaAjv.addFormat('date-time', /^\d{4}-\d{2}-\d{2}T/);
+const schemaValidators = new Map<string, (value: unknown) => boolean>();
+
+function openApiSchemaAccepts(name: string, value: unknown): boolean {
+  let validate = schemaValidators.get(name);
+  if (!validate) {
+    const compiled = schemaAjv.compile({
+      $ref: `#/components/schemas/${name}`,
+      components: {
+        schemas: getGantryOpenApiDocument().components.schemas,
+      },
+    });
+    validate = (candidate) => compiled(candidate);
+    schemaValidators.set(name, validate);
+  }
+  return validate(value);
+}
+
+function expectSchemaParity(
+  name: string,
+  contract: { safeParse(value: unknown): { success: boolean } },
+  cases: Array<{ value: unknown; valid: boolean }>,
+): void {
+  for (const { value, valid } of cases) {
+    expect(contract.safeParse(value).success).toBe(valid);
+    expect(openApiSchemaAccepts(name, value)).toBe(valid);
+  }
+}
+
+const personAlias = {
+  id: 'alias-1',
+  appId: 'app-one',
+  personId: 'person-1',
+  provider: 'slack',
+  providerAccountId: null,
+  externalUserId: 'U1',
+  displayName: null,
+  verificationStatus: 'verified',
+  verifiedAt: null,
+  verifiedBy: null,
+  retiredAt: null,
+  retiredBy: null,
+  evidence: { evidenceType: 'provider_user' },
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const personMergePreview = {
+  summary: 'Merge preview only. No data changed.',
+  sourcePersonId: 'person-source',
+  targetPersonId: 'person-target',
+  aliasesToMove: [personAlias],
+  memoryRowsToMove: 1,
+  excludedMemoryScopes: { group: 2, channel: 3, common: 4 },
+  conflicts: [
+    {
+      type: 'memory',
+      sourceMemoryId: 'memory-source',
+      targetMemoryId: 'memory-target',
+      agentId: null,
+      kind: 'fact',
+      key: 'timezone',
+    },
+  ],
+};
+
 function samplePath(pathname: string): string {
   return pathname.replace(/\{[^}]+\}/g, 'test-id');
 }
@@ -321,6 +401,292 @@ describe('control OpenAPI documentation', () => {
         selections: [],
       }).success,
     ).toBe(true);
+  });
+
+  it('keeps People request schemas aligned with their contracts and route inputs', () => {
+    expectSchemaParity('IdentityEvidenceType', IdentityEvidenceTypeSchema, [
+      ...['provider_user', 'email', 'phone', 'web_user'].map((value) => ({
+        value,
+        valid: true,
+      })),
+      { value: 'provider_email', valid: false },
+    ]);
+    expectSchemaParity('IdentityResolveRequest', IdentityResolveRequestSchema, [
+      {
+        value: {
+          appId: 'app-one',
+          provider: 'email',
+          providerAccountId: null,
+          externalUserId: 'person@example.com',
+          displayName: null,
+          evidenceType: 'email',
+          createIfMissing: true,
+        },
+        valid: true,
+      },
+      {
+        value: { externalUserId: 'U1', evidenceType: 'provider_user' },
+        valid: false,
+      },
+    ]);
+    expectSchemaParity('AddPersonAliasRequest', AddPersonAliasRequestSchema, [
+      {
+        value: {
+          appId: 'app-one',
+          provider: 'slack',
+          providerAccountId: null,
+          externalUserId: 'U1',
+          displayName: null,
+          evidenceType: 'provider_user',
+          evidence: { source: 'admin' },
+        },
+        valid: true,
+      },
+      {
+        value: {
+          provider: 'slack',
+          externalUserId: 'U1',
+          evidenceType: 'provider_user',
+        },
+        valid: true,
+      },
+      {
+        value: { provider: 'slack', externalUserId: 'U1' },
+        valid: false,
+      },
+    ]);
+    expectSchemaParity('PersonMergeRequest', PersonMergeRequestSchema, [
+      {
+        value: {
+          appId: 'app-one',
+          sourcePersonId: 'person-source',
+          idempotencyKey: 'merge-1',
+          conflictResolution: 'keep_target',
+        },
+        valid: true,
+      },
+      { value: { sourcePersonId: 'person-source' }, valid: true },
+      {
+        value: {
+          sourcePersonId: 'person-source',
+          conflictResolution: 'prefer_target',
+        },
+        valid: false,
+      },
+    ]);
+    expect(
+      AddPersonAliasRequestSchema.parse({
+        appId: 'app-one',
+        provider: 'slack',
+        externalUserId: 'U1',
+        evidenceType: 'provider_user',
+      }).appId,
+    ).toBe('app-one');
+    expect(
+      PersonMergeRequestSchema.parse({
+        appId: 'app-one',
+        sourcePersonId: 'person-source',
+      }).appId,
+    ).toBe('app-one');
+  });
+
+  it('keeps People response schemas aligned with nullability, status, and merge contracts', () => {
+    expectSchemaParity('PersonAlias', PersonAliasResponseSchema, [
+      ...['verified', 'unverified', 'retired'].map((verificationStatus) => ({
+        value: { ...personAlias, verificationStatus },
+        valid: true,
+      })),
+      {
+        value: { ...personAlias, verificationStatus: 'rejected' },
+        valid: false,
+      },
+    ]);
+    expectSchemaParity('Person', PersonResponseSchema, [
+      {
+        value: {
+          personId: 'person-1',
+          appId: 'app-one',
+          kind: 'human',
+          displayName: null,
+          status: 'archived',
+          aliases: [personAlias],
+          memoryCounts: {
+            personal: 5,
+            active: 2,
+            archived: 1,
+            superseded: 1,
+            deleted: 1,
+          },
+          aliasCounts: { verified: 1, unverified: 0, retired: 0 },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+        valid: true,
+      },
+      {
+        value: {
+          personId: 'person-1',
+          appId: 'app-one',
+          kind: 'human',
+          status: 'merged',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+        valid: false,
+      },
+    ]);
+    expectSchemaParity('PeopleListResponse', PeopleListResponseSchema, [
+      { value: { people: [], nextCursor: null }, valid: true },
+      { value: { people: [], nextCursor: 'cursor' }, valid: true },
+      { value: { people: [] }, valid: false },
+    ]);
+    expectSchemaParity(
+      'IdentityResolveResponse',
+      IdentityResolveResponseSchema,
+      [
+        {
+          value: {
+            status: 'resolved',
+            personId: 'person-1',
+            memoryHydrationEligible: true,
+            matchedAlias: {
+              ...personAlias,
+              verificationStatus: 'unverified',
+            },
+            verificationStatus: 'unverified',
+          },
+          valid: true,
+        },
+        {
+          value: {
+            status: 'created',
+            personId: 'person-1',
+            memoryHydrationEligible: true,
+            createdAlias: personAlias,
+            verificationStatus: 'verified',
+          },
+          valid: true,
+        },
+        {
+          value: {
+            status: 'unresolved',
+            personId: null,
+            memoryHydrationEligible: false,
+          },
+          valid: true,
+        },
+        {
+          value: {
+            status: 'retired_alias',
+            personId: null,
+            memoryHydrationEligible: false,
+          },
+          valid: false,
+        },
+        {
+          value: {
+            status: 'unresolved',
+            memoryHydrationEligible: false,
+          },
+          valid: false,
+        },
+      ],
+    );
+    expectSchemaParity(
+      'PersonMergePreviewResponse',
+      PersonMergePreviewResponseSchema,
+      [
+        { value: personMergePreview, valid: true },
+        {
+          value: { ...personMergePreview, summary: 'Merge completed.' },
+          valid: false,
+        },
+      ],
+    );
+    expectSchemaParity(
+      'PersonMergeApplyResponse',
+      PersonMergeApplyResponseSchema,
+      [
+        {
+          value: {
+            ...personMergePreview,
+            summary:
+              'Person merge completed. Personal memory and aliases now belong to the target person.',
+            idempotencyKey: 'merge-1',
+            auditId: 'audit-1',
+            applied: true,
+          },
+          valid: true,
+        },
+        {
+          value: {
+            ...personMergePreview,
+            summary:
+              'Person merge completed. Personal memory and aliases now belong to the target person.',
+            auditId: 'audit-1',
+            applied: true,
+          },
+          valid: false,
+        },
+      ],
+    );
+  });
+
+  it('documents People operation schemas and app scope inputs', () => {
+    const spec = getGantryOpenApiDocument();
+
+    expect(spec.paths['/v1/identity/resolve']?.post).toMatchObject({
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/IdentityResolveRequest' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/IdentityResolveResponse' },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.paths['/v1/people']?.get.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'appId', in: 'query' }),
+        expect.objectContaining({
+          name: 'limit',
+          in: 'query',
+          schema: expect.objectContaining({ maximum: 200, default: 50 }),
+        }),
+        expect.objectContaining({ name: 'cursor', in: 'query' }),
+      ]),
+    );
+    expect(
+      spec.paths['/v1/people/{personId}/aliases/{aliasId}']?.delete.parameters,
+    ).toContainEqual(expect.objectContaining({ name: 'appId', in: 'query' }));
+    expect(spec.paths['/v1/people/{personId}/merge']?.post).toMatchObject({
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/PersonMergeRequest' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/PersonMergeApplyResponse',
+              },
+            },
+          },
+        },
+      },
+    });
   });
 
   it('serves the unified status read model from the system route', async () => {

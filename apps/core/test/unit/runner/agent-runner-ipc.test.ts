@@ -194,6 +194,10 @@ function createRunnerFixture(): {
     path.join(domainEventsDir, 'runtime-event-types.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/runtime-event-conversation.ts'),
+    path.join(domainEventsDir, 'runtime-event-conversation.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/time/datetime.ts'),
     path.join(sharedTimeDir, 'datetime.ts'),
   );

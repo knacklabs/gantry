@@ -361,8 +361,10 @@ function rewriteSseEndpointEvent(
         rewrittenLines.join(text.includes('\r\n') ? '\r\n' : '\n'),
       ),
     };
-  } catch {
-    throw new Error('Inline MCP SSE endpoint is invalid or not allowed.');
+  } catch (error) {
+    throw new Error('Inline MCP SSE endpoint is invalid or not allowed.', {
+      cause: error,
+    });
   }
 }
 

@@ -1,50 +1,35 @@
-import type { RequestOptions } from './types.js';
-import { querySuffix } from './query-string.js';
 import type {
+  AddPersonAliasRequest,
+  IdentityEvidenceType,
+  IdentityResolveRequest,
   IdentityResolveResponse,
   PersonAliasResponse,
+  PersonAliasVerificationStatus,
   PersonMergeApplyResponse,
+  PersonMergeConflictResolution,
+  PersonMergeRequest,
   PersonMergePreviewResponse,
+  PeopleListResponse,
   PersonResponse,
 } from '@gantry/contracts';
 
-export type IdentityEvidenceType =
-  | 'provider_user'
-  | 'email'
-  | 'phone'
-  | 'web_user';
-export type PersonAliasVerificationStatus =
-  | 'verified'
-  | 'unverified'
-  | 'retired';
-export type PersonMergeConflictResolution = 'fail_on_conflict' | 'keep_target';
+import { querySuffix } from './query-string.js';
+import type { RequestOptions } from './types.js';
 
-export interface IdentityResolveInput {
-  appId?: string;
-  provider: string;
-  providerAccountId?: string | null;
-  externalUserId: string;
-  displayName?: string | null;
-  evidenceType: IdentityEvidenceType;
-  createIfMissing?: boolean;
-}
+export type {
+  IdentityEvidenceType,
+  PersonAliasVerificationStatus,
+  PersonMergeConflictResolution,
+};
 
-export interface PersonAliasInput {
+export type IdentityResolveInput = IdentityResolveRequest;
+export type PersonAliasInput = AddPersonAliasRequest;
+export type PersonMergeInput = PersonMergeRequest;
+export type PeopleListInput = {
   appId?: string;
-  provider: string;
-  providerAccountId?: string | null;
-  externalUserId: string;
-  displayName?: string | null;
-  evidenceType: IdentityEvidenceType;
-  evidence?: Record<string, unknown>;
-}
-
-export interface PersonMergeInput {
-  appId?: string;
-  sourcePersonId: string;
-  idempotencyKey?: string;
-  conflictResolution?: PersonMergeConflictResolution;
-}
+  limit?: number;
+  cursor?: string;
+};
 
 type Requester = <T>(options: RequestOptions) => Promise<T>;
 
@@ -61,8 +46,8 @@ export function createIdentityClient(request: Requester) {
 
 export function createPeopleClient(request: Requester) {
   return {
-    list: (input: { appId?: string } = {}) =>
-      request<{ people: PersonResponse[] }>({
+    list: (input: PeopleListInput = {}) =>
+      request<PeopleListResponse>({
         method: 'GET',
         path: `/v1/people${querySuffix(input)}`,
       }),

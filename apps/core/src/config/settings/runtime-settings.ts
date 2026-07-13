@@ -30,7 +30,6 @@ import {
 } from './runtime-settings-validation.js';
 import type {
   RuntimeSettings,
-  AgentRuntime,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
 import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';

@@ -125,6 +125,7 @@ export interface ChannelWiringDeps {
 
 export interface ChannelWiring {
   getRuntimeAppId: () => AppId;
+  normalizeProviderId: (providerId: string) => string;
   describeDestinationJid: (jid: string) => {
     providerId?: string;
     internal: boolean;

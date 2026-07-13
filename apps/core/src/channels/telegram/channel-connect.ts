@@ -648,6 +648,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         id: msgId,
         chat_jid: chatJid,
         provider: 'telegram',
+        providerAccountId: this.opts.providerAccountId,
         sender,
         sender_name: senderName,
         content,

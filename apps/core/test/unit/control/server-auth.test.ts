@@ -2677,7 +2677,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('projects thread-scoped conversation installs to the live route table', async () => {
+  it('syncs desired settings before projecting thread-scoped conversation installs', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -2744,6 +2744,9 @@ describe('control server runtime hardening', () => {
       );
 
       expect(response.status).toBe(200);
+      expect(
+        mockedSyncRuntimeSettingsFromProjection.mock.invocationCallOrder[0],
+      ).toBeLessThan(app.projectConversationRoute.mock.invocationCallOrder[0]);
       expect(app.projectConversationRoute).toHaveBeenCalledWith(
         makeAgentThreadQueueKey('sl:C123', undefined, '171.222'),
         expect.objectContaining({
@@ -2752,6 +2755,71 @@ describe('control server runtime hardening', () => {
           conversationKind: 'channel',
         }),
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('does not project a conversation install when desired settings sync fails', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'conversation-admin-token',
+        scopes: ['agents:admin', 'conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    domainRepositories.providerAccounts.getProviderAccount.mockResolvedValue({
+      id: 'slack-one',
+      appId: 'app-one',
+      agentId: 'agent-1',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    domainRepositories.conversations.getConversation.mockResolvedValue({
+      id: 'conversation-1',
+      appId: 'app-one',
+      providerAccountId: 'slack-one',
+      externalRef: { kind: 'conversation', value: 'C123' },
+      kind: 'channel',
+      title: 'Engineering',
+      status: 'active',
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    mockedSyncRuntimeSettingsFromProjection.mockRejectedValueOnce(
+      new Error('settings sync failed'),
+    );
+    const app = {
+      projectConversationRoute: vi.fn(async () => undefined),
+      registerGroup: vi.fn(),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    const handle = startControlServer({ app: app as any });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents/agent-1/conversation-installs/conversation-1`,
+        'conversation-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ providerAccountId: 'slack-one' }),
+        },
+      );
+
+      expect(response.status).toBe(500);
+      expect(mockedSyncRuntimeSettingsFromProjection).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: 'app-one' }),
+      );
+      expect(app.projectConversationRoute).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }

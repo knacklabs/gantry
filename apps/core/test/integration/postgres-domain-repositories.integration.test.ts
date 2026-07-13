@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -5,6 +7,7 @@ import {
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresPersonIdentityRepository } from '@core/adapters/storage/postgres/repositories/person-identity-repository.postgres.js';
+import { PostgresCanonicalGraphRepository } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { PostgresCapabilitySecretRepository } from '@core/adapters/storage/postgres/repositories/capability-secret-repository.postgres.js';
 import {
@@ -30,6 +33,7 @@ import type {
 } from '@core/domain/conversation/conversation.js';
 import type { AgentRunId } from '@core/domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
+import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import type { MessageId } from '@core/domain/messages/messages.js';
 import type { PermissionDecisionId } from '@core/domain/permissions/permissions.js';
 import type {
@@ -46,7 +50,6 @@ const maybeDescribe = process.env.GANTRY_TEST_DATABASE_URL
   : describe.skip;
 const TEST_EXECUTION_PROVIDER_ID =
   'anthropic:claude-agent-sdk' as ExecutionProviderId;
-const TEST_CODEX_PROVIDER_ID = 'codex-sdk' as ExecutionProviderId;
 
 const appId = DEFAULT_APP_ID as AppId;
 const agentId = DEFAULT_AGENT_ID as AgentId;
@@ -200,6 +203,21 @@ maybeDescribe('Postgres domain repositories', () => {
 
     await expect(
       people.resolveIdentity({
+        appId,
+        provider: 'telegram',
+        providerAccountId,
+        externalUserId: 'U-person-1',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    await expect(
+      people.resolveIdentity({
         appId: 'app-two' as AppId,
         provider: 'slack',
         providerAccountId,
@@ -212,6 +230,165 @@ maybeDescribe('Postgres domain repositories', () => {
       personId: null,
       memoryHydrationEligible: false,
     });
+  });
+
+  it('allows duplicate display names without conflating people', async () => {
+    const [first, second] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-same-name-1',
+        displayName: 'Same Name',
+        evidenceType: 'provider_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-same-name-2',
+        displayName: 'Same Name',
+        evidenceType: 'provider_user',
+        createIfMissing: true,
+      }),
+    ]);
+
+    expect(first.personId).not.toBe(second.personId);
+    await expect(
+      people.getPerson(appId, first.personId!),
+    ).resolves.toMatchObject({ displayName: 'Same Name' });
+    await expect(
+      people.getPerson(appId, second.personId!),
+    ).resolves.toMatchObject({ displayName: 'Same Name' });
+  });
+
+  it('reuses active People aliases for participants without reviving retired aliases', async () => {
+    const graph = new PostgresCanonicalGraphRepository(service.db);
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-participant-alias',
+      displayName: 'Participant Alias',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+    const participantInput = {
+      conversationId,
+      providerId: 'slack',
+      providerAccountId,
+      externalUserId: 'U-participant-alias',
+      displayName: 'Participant Alias',
+      timestamp: now,
+    };
+
+    await expect(graph.ensureParticipant(participantInput)).resolves.toBe(
+      created.personId,
+    );
+    await people.retireAlias({
+      appId,
+      personId: created.personId!,
+      aliasId: created.createdAlias!.id,
+      actor: 'test',
+    });
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-participant-alias',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).rejects.toThrow(/retired/);
+
+    const replacementPersonId = await graph.ensureParticipant({
+      ...participantInput,
+      timestamp: '2026-04-27T00:00:01.000Z',
+    });
+    expect(replacementPersonId).not.toBe(created.personId);
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: 'slack',
+        providerAccountId,
+        externalUserId: 'U-participant-alias',
+        evidenceType: 'provider_user',
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({
+      status: 'resolved',
+      personId: replacementPersonId,
+    });
+
+    const aliases = await service.pool.query<{
+      user_id: string;
+      retired_at: string | null;
+    }>(
+      `SELECT user_id, retired_at
+       FROM user_aliases
+       WHERE app_id = $1
+         AND provider = $2
+         AND COALESCE(provider_account_id, '') = $3
+         AND external_user_id = $4
+       ORDER BY retired_at NULLS FIRST`,
+      [appId, 'slack', providerAccountId, 'U-participant-alias'],
+    );
+    expect(aliases.rows).toHaveLength(2);
+    expect(aliases.rows).toEqual(
+      expect.arrayContaining([
+        { user_id: replacementPersonId, retired_at: null },
+        expect.objectContaining({ user_id: created.personId }),
+      ]),
+    );
+    const index = await service.pool.query<{ indexdef: string }>(
+      `SELECT indexdef
+       FROM pg_indexes
+       WHERE schemaname = current_schema()
+         AND indexname = 'idx_user_aliases_active_provider_external'`,
+    );
+    expect(index.rows[0]?.indexdef).toContain('WHERE (retired_at IS NULL)');
+    const client = await service.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL enable_seqscan = off');
+      const explain = await client.query<{ 'QUERY PLAN': unknown }>(
+        `EXPLAIN (FORMAT JSON)
+         SELECT *
+         FROM user_aliases
+         WHERE app_id = $1
+           AND provider = $2
+           AND COALESCE(provider_account_id, '') = $3
+           AND external_user_id = $4
+           AND retired_at IS NULL
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [appId, 'slack', providerAccountId, 'U-participant-alias'],
+      );
+      expect(JSON.stringify(explain.rows[0]?.['QUERY PLAN'])).toContain(
+        'idx_user_aliases_active_provider_external',
+      );
+      const retiredExplain = await client.query<{ 'QUERY PLAN': unknown }>(
+        `EXPLAIN (FORMAT JSON)
+         SELECT *
+         FROM user_aliases
+         WHERE app_id = $1
+           AND provider = $2
+           AND COALESCE(provider_account_id, '') = $3
+           AND external_user_id = $4
+           AND retired_at IS NOT NULL
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [appId, 'slack', providerAccountId, 'U-participant-alias'],
+      );
+      expect(JSON.stringify(retiredExplain.rows[0]?.['QUERY PLAN'])).toContain(
+        'idx_user_aliases_retired_provider_external',
+      );
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 
   it('accepts web_user and phone evidence with the same exact-match alias rules', async () => {
@@ -301,6 +478,442 @@ maybeDescribe('Postgres domain repositories', () => {
       retiredBy: null,
       displayName: 'Reactivate Me Again',
     });
+  });
+
+  it('promotes a same-person unverified alias and replaces its evidence', async () => {
+    const created = await people.resolveIdentity({
+      appId,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-promote-alias',
+      displayName: 'Before Review',
+      evidenceType: 'provider_user',
+      createIfMissing: true,
+    });
+
+    const promoted = await people.addAlias({
+      appId,
+      personId: created.personId!,
+      provider: 'slack',
+      providerAccountId,
+      externalUserId: 'U-promote-alias',
+      displayName: 'After Review',
+      evidenceType: 'provider_user',
+      evidence: { source: 'admin-review', confidence: 'high' },
+      actor: 'admin:test',
+    });
+
+    expect(promoted).toMatchObject({
+      id: created.createdAlias!.id,
+      verificationStatus: 'verified',
+      verifiedBy: 'admin:test',
+      displayName: 'After Review',
+      evidence: {
+        source: 'admin-review',
+        confidence: 'high',
+        evidenceType: 'provider_user',
+      },
+    });
+    expect(promoted.verifiedAt).not.toBeNull();
+  });
+
+  it('paginates People without overlap and uses identity query indexes', async () => {
+    const pageAppId = `people-page-${process.pid}`;
+    const created = await Promise.all(
+      ['page-1', 'page-2', 'page-3'].map((externalUserId) =>
+        people.resolveIdentity({
+          appId: pageAppId,
+          provider: 'app',
+          externalUserId,
+          evidenceType: 'web_user',
+          createIfMissing: true,
+        }),
+      ),
+    );
+    await service.pool.query(
+      `UPDATE users
+       SET updated_at = CASE id
+         WHEN $1 THEN '2026-05-03T00:00:00.000Z'::timestamptz
+         WHEN $2 THEN '2026-05-02T00:00:00.000Z'::timestamptz
+         WHEN $3 THEN '2026-05-01T00:00:00.000Z'::timestamptz
+         ELSE updated_at
+       END
+       WHERE id = ANY($4::text[])`,
+      [
+        created[0]!.personId,
+        created[1]!.personId,
+        created[2]!.personId,
+        created.map((person) => person.personId),
+      ],
+    );
+
+    const first = await people.listPeople(pageAppId, { limit: 2 });
+    expect(first.people.map((person) => person.personId).slice(0, 2)).toEqual([
+      created[0]!.personId,
+      created[1]!.personId,
+    ]);
+    expect(first.nextCursor).toEqual({
+      updatedAt: expect.any(String),
+      personId: created[1]!.personId,
+    });
+    const second = await people.listPeople(pageAppId, {
+      limit: 2,
+      cursor: first.nextCursor!,
+    });
+    expect(second.people.map((person) => person.personId)).not.toContain(
+      created[1]!.personId,
+    );
+    expect(second.people.map((person) => person.personId)).toContain(
+      created[2]!.personId,
+    );
+
+    const client = await service.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL enable_seqscan = off');
+      const plans = [
+        await client.query<{ 'QUERY PLAN': unknown }>(
+          `EXPLAIN (FORMAT JSON)
+           SELECT * FROM users
+           WHERE app_id = $1
+           ORDER BY updated_at DESC, id DESC
+           LIMIT 2`,
+          [pageAppId],
+        ),
+        await client.query<{ 'QUERY PLAN': unknown }>(
+          `EXPLAIN (FORMAT JSON)
+           SELECT * FROM user_aliases
+           WHERE app_id = $1 AND user_id = ANY($2::text[])
+           ORDER BY updated_at DESC`,
+          [pageAppId, created.map((person) => person.personId)],
+        ),
+        await client.query<{ 'QUERY PLAN': unknown }>(
+          `EXPLAIN (FORMAT JSON)
+           SELECT user_id, status, count(*)
+           FROM memory_items
+           WHERE app_id = $1
+             AND subject_type = 'user'
+             AND user_id = ANY($2::text[])
+           GROUP BY user_id, status`,
+          [pageAppId, created.map((person) => person.personId)],
+        ),
+      ];
+      const text = plans.map((plan) => JSON.stringify(plan.rows[0])).join(' ');
+      expect(text).toContain('idx_users_app_updated_id');
+      expect(text).toContain('idx_user_aliases_app_user_updated');
+      expect(text).toContain('idx_memory_items_person_status_key');
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('never rebinds an alias when concurrent admins choose different people', async () => {
+    const [first, second] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'alias-race-person-1',
+        displayName: 'Alias Race',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'alias-race-person-2',
+        displayName: 'Alias Race',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    const aliasInput = {
+      appId,
+      provider: 'phone',
+      externalUserId: '+15550000001',
+      evidenceType: 'phone' as const,
+      actor: 'test',
+    };
+    const attempts = await Promise.allSettled([
+      people.addAlias({ ...aliasInput, personId: first.personId! }),
+      people.addAlias({ ...aliasInput, personId: second.personId! }),
+    ]);
+
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const winner = attempts.find((attempt) => attempt.status === 'fulfilled');
+    const loser = attempts.find((attempt) => attempt.status === 'rejected');
+    if (!winner || winner.status !== 'fulfilled') {
+      throw new Error('Expected one alias add to succeed.');
+    }
+    expect(String(loser?.reason)).toContain(
+      'Alias already belongs to another person.',
+    );
+    await expect(
+      people.resolveIdentity({
+        appId,
+        provider: aliasInput.provider,
+        externalUserId: aliasInput.externalUserId,
+        evidenceType: aliasInput.evidenceType,
+        createIfMissing: false,
+      }),
+    ).resolves.toMatchObject({ personId: winner.value.personId });
+    const activeOwners = await service.pool.query<{ user_id: string }>(
+      `SELECT user_id
+       FROM user_aliases
+       WHERE app_id = $1
+         AND provider = $2
+         AND provider_account_id IS NULL
+         AND external_user_id = $3
+         AND retired_at IS NULL`,
+      [appId, aliasInput.provider, aliasInput.externalUserId],
+    );
+    expect(activeOwners.rows).toEqual([{ user_id: winner.value.personId }]);
+  });
+
+  it('merges personal identity state atomically with stable idempotent results', async () => {
+    const [target, source] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-target',
+        displayName: 'Merge Person',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-source',
+        displayName: 'Merge Person',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    const subjectHash = (personId: string) =>
+      `msu_${createHash('sha256')
+        .update(`${appId}:${agentId}:user:${personId}`)
+        .digest('hex')
+        .slice(0, 32)}`;
+    const sourceRef = (personId: string) => ({
+      source: 'test',
+      subject: {
+        subjectType: 'user',
+        subjectId: personId,
+        userId: personId,
+      },
+    });
+    await service.db.insert(pgSchema.memoryItemsPostgres).values([
+      {
+        id: 'memory:merge:target-conflict',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: subjectHash(target.personId!),
+        userId: target.personId,
+        kind: 'fact',
+        key: 'shared-key',
+        valueJson: { value: 'target' },
+        sourceRefJson: sourceRef(target.personId!),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'memory:merge:source-conflict',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: subjectHash(source.personId!),
+        userId: source.personId,
+        kind: 'fact',
+        key: 'shared-key',
+        valueJson: { value: 'source' },
+        sourceRefJson: sourceRef(source.personId!),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'memory:merge:source-unique',
+        appId,
+        agentId,
+        subjectType: 'user',
+        subjectId: subjectHash(source.personId!),
+        userId: source.personId,
+        kind: 'fact',
+        key: 'source-only',
+        valueJson: { value: 'source-only' },
+        sourceRefJson: sourceRef(source.personId!),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'memory:merge:source-group',
+        appId,
+        agentId,
+        subjectType: 'group',
+        subjectId: conversationId,
+        userId: source.personId,
+        conversationId,
+        kind: 'fact',
+        key: 'group-only',
+        valueJson: { value: 'group' },
+        sourceRefJson: {
+          source: 'test',
+          subject: { subjectType: 'group', subjectId: conversationId },
+        },
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    const mergeInput = {
+      appId,
+      sourcePersonId: source.personId!,
+      targetPersonId: target.personId!,
+      idempotencyKey: 'merge-idempotency-stable',
+      actor: 'test',
+      conflictResolution: 'keep_target' as const,
+    };
+    const preview = await people.previewMerge(mergeInput);
+    expect(preview).toMatchObject({
+      memoryRowsToMove: 2,
+      excludedMemoryScopes: { group: 1, channel: 0, common: 0 },
+      conflicts: [
+        expect.objectContaining({
+          type: 'memory',
+          sourceMemoryId: 'memory:merge:source-conflict',
+          targetMemoryId: 'memory:merge:target-conflict',
+        }),
+      ],
+    });
+
+    const attempts = await Promise.all([
+      people.mergePeople(mergeInput),
+      people.mergePeople(mergeInput),
+    ]);
+    expect(attempts.map((result) => result.applied).sort()).toEqual([
+      false,
+      true,
+    ]);
+    expect(new Set(attempts.map((result) => result.auditId))).toHaveProperty(
+      'size',
+      1,
+    );
+    expect(attempts[0]).toMatchObject({
+      aliasesToMove: preview.aliasesToMove,
+      memoryRowsToMove: preview.memoryRowsToMove,
+      excludedMemoryScopes: preview.excludedMemoryScopes,
+      conflicts: preview.conflicts,
+    });
+    expect(attempts[1]).toMatchObject({
+      aliasesToMove: preview.aliasesToMove,
+      memoryRowsToMove: preview.memoryRowsToMove,
+      excludedMemoryScopes: preview.excludedMemoryScopes,
+      conflicts: preview.conflicts,
+    });
+
+    const memory = await service.pool.query<{
+      id: string;
+      subject_type: string;
+      subject_id: string;
+      user_id: string;
+      status: string;
+      source_ref_json: {
+        subject?: { subjectType?: string; subjectId?: string; userId?: string };
+      };
+    }>(
+      `SELECT id, subject_type, subject_id, user_id, status, source_ref_json
+       FROM memory_items
+       WHERE id = ANY($1::text[])
+       ORDER BY id`,
+      [
+        [
+          'memory:merge:source-conflict',
+          'memory:merge:source-unique',
+          'memory:merge:source-group',
+        ],
+      ],
+    );
+    const byId = new Map(memory.rows.map((row) => [row.id, row]));
+    expect(byId.get('memory:merge:source-conflict')).toMatchObject({
+      subject_id: subjectHash(target.personId!),
+      user_id: target.personId,
+      status: 'superseded',
+      source_ref_json: {
+        subject: {
+          subjectType: 'user',
+          subjectId: target.personId,
+          userId: target.personId,
+        },
+      },
+    });
+    expect(byId.get('memory:merge:source-unique')).toMatchObject({
+      subject_id: subjectHash(target.personId!),
+      user_id: target.personId,
+      status: 'active',
+    });
+    expect(byId.get('memory:merge:source-group')).toMatchObject({
+      subject_type: 'group',
+      subject_id: conversationId,
+      user_id: source.personId,
+      status: 'active',
+    });
+    await expect(
+      people.getPerson(appId, source.personId!),
+    ).resolves.toMatchObject({ status: 'archived', aliases: [] });
+    await expect(
+      people.mergePeople({
+        ...mergeInput,
+        idempotencyKey: 'merge-already-completed',
+      }),
+    ).rejects.toThrow(/active and unmerged/);
+  });
+
+  it('locks reverse merges in one person-id order without deadlocking', async () => {
+    const [first, second] = await Promise.all([
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-lock-first',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+      people.resolveIdentity({
+        appId,
+        provider: 'app',
+        externalUserId: 'merge-lock-second',
+        evidenceType: 'web_user',
+        createIfMissing: true,
+      }),
+    ]);
+    const attempts = await Promise.allSettled([
+      people.mergePeople({
+        appId,
+        sourcePersonId: first.personId!,
+        targetPersonId: second.personId!,
+        idempotencyKey: 'merge-lock-forward',
+        actor: 'test',
+      }),
+      people.mergePeople({
+        appId,
+        sourcePersonId: second.personId!,
+        targetPersonId: first.personId!,
+        idempotencyKey: 'merge-lock-reverse',
+        actor: 'test',
+      }),
+    ]);
+
+    expect(attempts.map((attempt) => attempt.status).sort()).toEqual([
+      'fulfilled',
+      'rejected',
+    ]);
+    const rejected = attempts.find((attempt) => attempt.status === 'rejected');
+    expect(String(rejected?.reason)).toContain('active and unmerged');
   });
 
   it('stores capability secrets encrypted and resolves metadata separately', async () => {

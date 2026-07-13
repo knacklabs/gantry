@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   AddPersonAliasRequestSchema,
   IdentityResolveRequestSchema,
+  PeopleListQuerySchema,
   PersonMergeRequestSchema,
 } from '@gantry/contracts';
 
@@ -20,6 +21,7 @@ import {
   type IdentityResolveResult,
   PersonIdentityService,
 } from '../../../application/identity/person-identity-service.js';
+import { normalizeProviderId } from '../../../channels/provider-registry.js';
 import { canAccessApp } from '../app-identity.js';
 import {
   authorizeControlRequest,
@@ -36,6 +38,8 @@ import { isValidControlId, type ApiKeyRecord, type Scope } from '../auth.js';
 function service(): PersonIdentityService {
   return new PersonIdentityService(
     new PostgresPersonIdentityRepository(getRuntimeStorage().service.db),
+    (provider) =>
+      normalizeProviderId(provider) || provider.trim().toLowerCase(),
   );
 }
 
@@ -144,7 +148,9 @@ export async function handlePeopleRoutes(
         {
           appId,
           source: 'control_api',
-          provider: parsed.data.provider,
+          provider:
+            normalizeProviderId(parsed.data.provider) ||
+            parsed.data.provider.trim().toLowerCase(),
           providerAccountId: parsed.data.providerAccountId,
           evidenceType: parsed.data.evidenceType,
           status: result.status,
@@ -167,10 +173,40 @@ export async function handlePeopleRoutes(
   if (pathname === '/v1/people' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['people:read']);
     if (!auth) return true;
-    const appId = url.searchParams.get('appId') || auth.appId;
+    const parsed = PeopleListQuerySchema.safeParse({
+      appId: url.searchParams.get('appId') || undefined,
+      limit: url.searchParams.get('limit') || undefined,
+      cursor: url.searchParams.get('cursor') || undefined,
+    });
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid people list request');
+      return true;
+    }
+    const appId = parsed.data.appId || auth.appId;
     if (!assertPeopleAppAccess(res, appId, auth)) return true;
-    sendJson(res, 200, { people: await service().listPeople(appId) });
+    try {
+      sendJson(
+        res,
+        200,
+        await service().listPeople(appId, {
+          limit: parsed.data.limit,
+          cursor: parsed.data.cursor,
+        }),
+      );
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
     return true;
+  }
+
+  if (pathname.startsWith('/v1/people/')) {
+    try {
+      decodeURIComponent(pathname);
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error;
+      sendError(res, 400, 'INVALID_REQUEST', 'People path is invalid');
+      return true;
+    }
   }
 
   const personId = personIdFromPath(pathname);

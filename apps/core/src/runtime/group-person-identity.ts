@@ -9,10 +9,10 @@ import type { GroupProcessingDeps } from './group-processing-types.js';
 
 export function createCanonicalMemoryPersonResolver(input: {
   resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
+  normalizeProviderId?: GroupProcessingDeps['normalizeProviderId'];
   publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
   appId: string;
   rawUserId?: string;
-  defaultScope: 'user' | 'group';
   conversationKind: 'dm' | 'channel';
   messages: NewMessage[];
   chatJid: string;
@@ -31,11 +31,10 @@ export function createCanonicalMemoryPersonResolver(input: {
 export function createGroupProcessingPersonResolver(input: {
   deps: Pick<
     GroupProcessingDeps,
-    'resolvePersonIdentity' | 'publishRuntimeEvent'
+    'normalizeProviderId' | 'resolvePersonIdentity' | 'publishRuntimeEvent'
   >;
   appId: string;
   rawUserId?: string;
-  defaultScope: 'user' | 'group';
   group: Pick<
     ConversationRoute,
     | 'conversationKind'
@@ -49,10 +48,10 @@ export function createGroupProcessingPersonResolver(input: {
 }): () => Promise<string | undefined> {
   return createCanonicalMemoryPersonResolver({
     resolvePersonIdentity: input.deps.resolvePersonIdentity,
+    normalizeProviderId: input.deps.normalizeProviderId,
     publishRuntimeEvent: input.deps.publishRuntimeEvent,
     appId: input.appId,
     rawUserId: input.rawUserId,
-    defaultScope: input.defaultScope,
     conversationKind: input.group.conversationKind ?? 'channel',
     messages: input.messages,
     chatJid: input.chatJid,
@@ -65,10 +64,10 @@ export function createGroupProcessingPersonResolver(input: {
 
 export async function resolveCanonicalMemoryPersonId(input: {
   resolvePersonIdentity?: GroupProcessingDeps['resolvePersonIdentity'];
+  normalizeProviderId?: GroupProcessingDeps['normalizeProviderId'];
   publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
   appId: string;
   rawUserId?: string;
-  defaultScope: 'user' | 'group';
   conversationKind: 'dm' | 'channel';
   messages: NewMessage[];
   chatJid: string;
@@ -83,7 +82,10 @@ export async function resolveCanonicalMemoryPersonId(input: {
         .reverse()
         .find((item) => item.sender === externalUserId)
     : undefined;
-  const provider = (message?.provider || providerFromJid(input.chatJid)).trim();
+  const providerCandidate = message?.provider || providerFromJid(input.chatJid);
+  const provider =
+    input.normalizeProviderId?.(providerCandidate) ||
+    providerCandidate.trim().toLowerCase();
   const evidenceType = input.identityEvidenceType ?? 'provider_user';
   const systemSenderIds = new Set(input.systemSenderIds ?? []);
   if (!externalUserId) {
@@ -152,7 +154,7 @@ export async function resolveCanonicalMemoryPersonId(input: {
       threadId: input.threadId,
     });
     const canHydratePersonalMemory =
-      input.defaultScope === 'user' && resolved.memoryHydrationEligible;
+      input.conversationKind === 'dm' && resolved.memoryHydrationEligible;
     const personId =
       canHydratePersonalMemory && resolved.personId
         ? resolved.personId

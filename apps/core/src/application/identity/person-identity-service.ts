@@ -26,6 +26,31 @@ export interface PersonRecord {
   };
 }
 
+export interface PersonListCursor {
+  updatedAt: string;
+  personId: string;
+}
+
+export interface PersonListRepositoryPage {
+  people: PersonRecord[];
+  nextCursor: PersonListCursor | null;
+}
+
+export interface PersonListPage {
+  people: PersonRecord[];
+  nextCursor: string | null;
+}
+
+export interface PersonListInput {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface PersonListRepositoryInput {
+  limit: number;
+  cursor?: PersonListCursor;
+}
+
 export interface PersonAliasRecord {
   id: string;
   appId: string;
@@ -128,7 +153,10 @@ export interface PersonMergeInput {
 
 export interface PersonIdentityRepository {
   resolveIdentity(input: IdentityResolveInput): Promise<IdentityResolveResult>;
-  listPeople(appId: string): Promise<PersonRecord[]>;
+  listPeople(
+    appId: string,
+    input: PersonListRepositoryInput,
+  ): Promise<PersonListRepositoryPage>;
   getPerson(appId: string, personId: string): Promise<PersonRecord | null>;
   addAlias(input: AddPersonAliasInput): Promise<PersonAliasRecord>;
   retireAlias(input: RetirePersonAliasInput): Promise<PersonAliasRecord | null>;
@@ -137,18 +165,47 @@ export interface PersonIdentityRepository {
 }
 
 export class PersonIdentityService {
-  constructor(private readonly repository: PersonIdentityRepository) {}
+  constructor(
+    private readonly repository: PersonIdentityRepository,
+    private readonly normalizeProvider: (provider: string) => string = (
+      provider,
+    ) => provider.trim().toLowerCase(),
+  ) {}
 
   async resolve(input: IdentityResolveInput): Promise<IdentityResolveResult> {
-    this.validateAliasInput(input);
+    const normalized = this.normalizeAliasInput(input);
     return this.repository.resolveIdentity({
-      ...input,
+      ...normalized,
       createIfMissing: input.createIfMissing !== false,
     });
   }
 
-  listPeople(appId: string): Promise<PersonRecord[]> {
-    return this.repository.listPeople(appId);
+  async listPeople(
+    appId: string,
+    input: PersonListInput = {},
+  ): Promise<PersonListPage> {
+    const limit = input.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'limit must be an integer between 1 and 200',
+      );
+    }
+    const page = await this.repository.listPeople(appId, {
+      limit,
+      cursor: input.cursor ? this.decodeListCursor(input.cursor) : undefined,
+    });
+    return {
+      people: page.people,
+      nextCursor: page.nextCursor
+        ? Buffer.from(
+            JSON.stringify([
+              page.nextCursor.updatedAt,
+              page.nextCursor.personId,
+            ]),
+          ).toString('base64url')
+        : null,
+    };
   }
 
   async getPerson(appId: string, personId: string): Promise<PersonRecord> {
@@ -163,8 +220,7 @@ export class PersonIdentityService {
   }
 
   async addAlias(input: AddPersonAliasInput): Promise<PersonAliasRecord> {
-    this.validateAliasInput(input);
-    return this.repository.addAlias(input);
+    return this.repository.addAlias(this.normalizeAliasInput(input));
   }
 
   async retireAlias(input: RetirePersonAliasInput): Promise<PersonAliasRecord> {
@@ -189,11 +245,11 @@ export class PersonIdentityService {
     });
   }
 
-  private validateAliasInput(input: {
-    provider: string;
-    externalUserId: string;
-  }): void {
-    if (!input.provider.trim()) {
+  private normalizeAliasInput<
+    T extends { provider: string; externalUserId: string },
+  >(input: T): T {
+    const provider = this.normalizeProvider(input.provider);
+    if (!provider) {
       throw new ApplicationError('INVALID_REQUEST', 'provider is required');
     }
     if (!input.externalUserId.trim()) {
@@ -201,6 +257,27 @@ export class PersonIdentityService {
         'INVALID_REQUEST',
         'externalUserId is required',
       );
+    }
+    return { ...input, provider };
+  }
+
+  private decodeListCursor(cursor: string): PersonListCursor {
+    try {
+      if (!/^[A-Za-z0-9_-]{1,1024}$/.test(cursor)) throw new Error();
+      const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+      if (
+        !Array.isArray(decoded) ||
+        decoded.length !== 2 ||
+        typeof decoded[0] !== 'string' ||
+        Number.isNaN(Date.parse(decoded[0])) ||
+        typeof decoded[1] !== 'string' ||
+        !decoded[1]
+      ) {
+        throw new Error();
+      }
+      return { updatedAt: decoded[0], personId: decoded[1] };
+    } catch {
+      throw new ApplicationError('INVALID_REQUEST', 'cursor is invalid');
     }
   }
 }

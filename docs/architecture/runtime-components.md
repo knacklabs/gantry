@@ -172,8 +172,10 @@ The default SDK tool list is intentionally narrow: read/search/web/task/skill
 tools plus exact baseline Gantry MCP tools, including `send_message`,
 `ask_user_question`, `file`, capability request/manage tools, and the
 third-party MCP proxy tools. Host-owned hydration provides baseline memory
-context; memory MCP tools such as memory save/search, `continuity_summary`, and
-`procedure_save` require selected/reviewed capabilities. Browser gateway tools
+context. Baseline memory MCP tools include memory save/search,
+`continuity_summary`, and `procedure_save`; authority-changing memory review,
+patch, consolidation, dreaming, and procedure-patch tools require selected or
+reviewed capabilities. Browser gateway tools
 (`browser_status`, `browser_open`, `browser_inspect`, `browser_act`,
 `browser_close`), reviewed memory tools, and admin tools such as
 `admin_permission_list` and `admin_permission_revoke` require selected

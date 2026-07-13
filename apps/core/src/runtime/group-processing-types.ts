@@ -212,6 +212,7 @@ export interface GroupProcessingDeps {
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   collectSessionMemory?: SessionMemoryCollector;
+  normalizeProviderId?: (providerId: string) => string;
   resolvePersonIdentity?: (
     input: IdentityResolveInput,
   ) => Promise<IdentityResolveResult>;

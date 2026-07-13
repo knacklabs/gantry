@@ -11,6 +11,7 @@ import { PartialMessageDeliveryError } from '@core/domain/messages/partial-deliv
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
+import { normalizeProviderId } from '@core/channels/provider-registry.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -270,6 +271,7 @@ function makeDeps(
     setGroupThinkingOverride: vi.fn(),
     setGroupPermissionModeOverride: vi.fn(),
     collectSessionMemory: vi.fn().mockResolvedValue({ saved: 0 }),
+    normalizeProviderId,
     resolvePersonIdentity: vi.fn(async (input) => ({
       status: 'resolved',
       personId: `person:${input.externalUserId}`,
@@ -1537,11 +1539,13 @@ describe('createGroupProcessor', () => {
           appId: 'app-one',
           agentId: 'agent-one',
           runId: 'run-one',
-          conversationId: 'group1@g.us',
           eventType: 'sandbox.blocked',
           actor: 'runner',
           responseMode: 'none',
-          payload: { phase: 'startup' },
+          payload: {
+            phase: 'startup',
+            conversationJid: 'group1@g.us',
+          },
         }),
       );
     });
@@ -2574,7 +2578,7 @@ describe('createGroupProcessor', () => {
       expect(deps.resolvePersonIdentity).toHaveBeenCalledWith(
         expect.objectContaining({
           appId: 'default',
-          provider: 'sl',
+          provider: 'slack',
           providerAccountId: 'channel-providerAccount:test:slack',
           externalUserId: 'sl:U123',
           evidenceType: 'provider_user',
