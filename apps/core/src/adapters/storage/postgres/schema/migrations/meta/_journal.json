@@ -827,6 +827,27 @@
       "when": 1784000005000,
       "tag": "0107_identity_app_scoped_person_foreign_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1777338600000,
+      "tag": "0098_drop_legacy_user_alias_unique_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1777342200000,
+      "tag": "0099_people_identity_query_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1777345800000,
+      "tag": "0100_person_merge_audit_result",
+      "breakpoints": true
     }
   ]
 }

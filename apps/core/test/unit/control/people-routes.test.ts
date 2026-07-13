@@ -333,6 +333,35 @@ describe('people control routes', () => {
     );
   });
 
+  it('normalizes provider aliases before identity persistence', async () => {
+    fakeRepository.resolveIdentity.mockResolvedValue({
+      status: 'unresolved',
+      personId: null,
+      memoryHydrationEligible: false,
+    });
+
+    const { res } = await call({
+      method: 'POST',
+      pathname: '/v1/identity/resolve',
+      body: {
+        provider: 'TG',
+        externalUserId: '123',
+        evidenceType: 'provider_user',
+      },
+      scopes: ['identity:resolve'],
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(fakeRepository.resolveIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'telegram' }),
+    );
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ provider: 'telegram' }),
+      }),
+    );
+  });
+
   it('accepts phone and web_user identity evidence without changing the wire shape', async () => {
     fakeRepository.resolveIdentity.mockResolvedValue({
       status: 'resolved',

@@ -1288,7 +1288,6 @@ describe('agent-spawn timeout behavior', () => {
         testGroup.folder,
       ),
     ).toMatchObject({
-    ).toMatchObject({
       requestId: 'mem-spawn-chat-scope',
       context: {
         chatJid: 'tg:trusted-chat',
