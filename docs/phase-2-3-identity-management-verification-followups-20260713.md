@@ -342,3 +342,68 @@ identity runtime correctness.
 - **Decision:** this closes the final manual presentation gate. Delivery alone
   is not accepted as identity verification; the persisted assistant response
   and durable identity/hydration decisions must all agree.
+
+## 33. Fresh database setup required explicit Postgres extensions - resolved
+
+- **Observed:** after deleting and recreating the local `gantry` database,
+  guided setup failed while preparing memory storage because the `vector` type
+  was unavailable. The new database had no database-local extensions.
+- **Cause:** `vector` and `pg_trgm` are required capabilities of a Gantry
+  Postgres database, but creating a blank database does not install them.
+- **Fix applied:** created `vector` and `pg_trgm` in the fresh database, then
+  restarted guided setup. The wizard advanced through memory configuration and
+  recognized the preserved encrypted OpenRouter credential.
+- **Decision:** fresh local database verification must install both extensions
+  before guided setup or migrations. This is an environment bootstrap
+  prerequisite, not an identity-runtime compatibility path.
+
+## 34. Fresh credential and routing-state preservation - verified
+
+- **Requirement:** reset the local runtime database without losing the Slack,
+  Telegram, and OpenRouter setup needed for cross-provider verification.
+- **Preservation boundary:** encrypted OpenRouter model credentials, encrypted
+  Slack capability secrets, provider-account records, and the non-secret
+  settings projection were preserved outside the database and restored into
+  the new database. Telegram's runtime bot secret remained in the protected
+  runtime `.env`; no secret values were copied into this repository or printed.
+- **Verification:** `gantry provider doctor slack`, `gantry doctor`, and
+  `gantry status` all passed after restoration. Slack and Telegram connected,
+  and the runtime reported the OpenRouter credential as ready.
+- **Decision:** future disposable resets must preserve secrets through the
+  credential stores/runtime secret lane and restore routing settings through
+  `gantry settings import`; do not recreate or paste provider secrets into
+  source-controlled files.
+
+## 35. Fresh Slack DM install returned a generic control-plane error - tracked
+
+- **Observed:** discovery found the direct Slack conversation for the preserved
+  human sender, but the first `PUT` conversation-install request returned HTTP
+  500 with the generic `Control server request failed` response.
+- **Scope:** this occurred while adding the fresh DM route for personal-memory
+  verification. The already configured Slack channel remained healthy and
+  processed live MCP messages.
+- **Decision:** do not treat a generic 500 as a successful install. Persist the
+  DM route through the supported desired-state settings import path, restart,
+  and verify that the route survives startup before using it for personal
+  memory tests. The underlying control-plane error remains a follow-up until a
+  focused route test exposes its specific cause.
+
+## 36. DM setup API partially persisted before desired-state sync - repaired
+
+- **Observed:** the DM install and approver API calls returned HTTP 500, but
+  their database writes were already present. The failure happened afterward
+  during desired-state validation/synchronization, leaving the fresh database
+  with a DM install but without its canonical live-route projection.
+- **Cause:** the preserved database projection contained duplicate/stale Slack
+  conversation records and incomplete approver state. Settings export then
+  generated an invalid DM conversation entry and rejected the whole mutation.
+- **Repair:** removed only the stale duplicate Slack account/conversation graph,
+  restored the approvers from the preserved non-secret settings, and rebuilt the
+  canonical Slack DM route for the active provider account. The active Slack
+  channel, Telegram DM, credentials, person, and aliases were not removed.
+- **Verification:** after launchd restart, startup loaded three conversation
+  routes; the Slack DM received a real message, spawned Kimi/OpenRouter, and
+  returned a reply. This proves the DM route is live and restart-surviving.
+- **Follow-up:** expose the underlying desired-state sync error and make
+  conversation install/approver mutations transactional so a 500 cannot leave
+  partial configuration behind.
