@@ -5,7 +5,10 @@ import {
   summarizeBashCommandPrograms,
 } from '../shared/bash-command-parser.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
-import { stripRuntimeEnvPrefix } from '../shared/runtime-env-command.js';
+import {
+  stripHostInjectedEnvPrefix,
+  stripRuntimeEnvPrefix,
+} from '../shared/runtime-env-command.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 
 const PERMISSION_JSON_MAX_KEYS = 12;
@@ -275,7 +278,12 @@ export function runtimeDisplayCommand(command: string): {
   command: string;
   runtimeEnvAssignments: string[];
 } {
-  const parsed = stripRuntimeEnvPrefix(command);
+  // Host-injected proxy/CA plumbing carries no decision value for the
+  // approver and leaks internal topology — drop it from the prompt entirely.
+  // Agent-supplied env assignments (e.g. a non-loopback proxy) still display.
+  const parsed = stripRuntimeEnvPrefix(
+    stripHostInjectedEnvPrefix(command).command,
+  );
   return {
     command: parsed.command,
     runtimeEnvAssignments: parsed.envAssignments,
