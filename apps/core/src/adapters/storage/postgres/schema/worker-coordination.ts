@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -131,6 +132,29 @@ export const runSlotsPostgres = pgTable(
     expiresIdx: index('idx_run_slots_expires').on(table.expiresAt),
   }),
 );
+
+export const runPermissionOriginPostgres = pgTable('run_permission_origin', {
+  runId: text('run_id').primaryKey(),
+  appId: text('app_id').notNull(),
+  agentFolder: text('agent_folder').notNull(),
+  targetJid: text('target_jid'),
+  providerAccountId: text('provider_account_id'),
+  threadId: text('thread_id'),
+  triggeringSenderId: text('triggering_sender_id'),
+  senderIsApprover: boolean('sender_is_approver').notNull().default(false),
+  triggeringMessageTimestamp: timestamp('triggering_message_timestamp', {
+    withTimezone: true,
+    mode: 'string',
+  }),
+  triggeringMessageId: text('triggering_message_id'),
+  isScheduled: boolean('is_scheduled').notNull().default(false),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+    mode: 'string',
+  })
+    .notNull()
+    .defaultNow(),
+});
 
 export const pendingInteractionsPostgres = pgTable(
   'pending_interactions',

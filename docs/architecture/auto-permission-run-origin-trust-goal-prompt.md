@@ -61,7 +61,7 @@ New store keyed by `run_id` with the Locked-decision-2 fields: Drizzle schema ta
 repository/port/schema patterns (see `worker-coordination` repo/port/schema for shape).
 
 ### Stage B — record origin at spawn
-In `apps/core/src/runtime/group-agent-runner.ts`, after `runState.runId` is assigned and
+In `group-agent-runner.ts`, after `runState.runId` is assigned and
 `memoryReviewerUserId` / `memoryReviewerIsControlApprover` are computed, upsert the run
 origin (triggering sender, approver flag, target jid, provider account, thread, triggering
 message cursor from `options.turnMessages`, `is_scheduled` from the run kind). Also record
@@ -69,18 +69,18 @@ origin for the scheduled/job spawn path with `is_scheduled: true`. Best-effort w
 a try/catch that never blocks the run.
 
 ### Stage C — bind responseKeyId → runId and recover trusted runId
-`apps/core/src/runtime/ipc-auth.ts`: when creating the per-run response signing key
+`ipc-auth.ts`: when creating the per-run response signing key
 (`createIpcAuthEnvelope`, ~:197), record the association `responseKeyId → runId` (in the
 same `responseSigningKeys` registry entry or an adjacent host-side binding). Expose a
 host-only lookup `trustedRunIdForResponseKey(responseKeyId)`.
-`apps/core/src/runtime/ipc.ts` (permission receipt, ~:550-598): after the request
+`ipc.ts` (permission receipt, ~:550-598): after the request
 authenticates, resolve the trusted runId from the authenticated `responseKeyId` binding and
 pass it into `processPermissionInteractionIpc` → `resolvePermissionIpcDecision` as a
 host-derived field distinct from `request.runId`. Never fall back to `request.runId` for the
 trust decision.
 
 ### Stage D — decision reads run origin
-`apps/core/src/runtime/ipc-permission-classifier-decision.ts`: add `getRunOrigin` to deps;
+`ipc-permission-classifier-decision.ts`: add `getRunOrigin` to deps;
 `resolvePermissionAuthority` uses the trusted runId to load the origin and derive
 `trustedRequester` + `intent` per Locked decision 4. Remove the message-history scan added
 in the prior fix. Keep the unattended scheduled branch.
@@ -92,10 +92,10 @@ in the prior fix. Keep the unattended scheduled branch.
 | storage/postgres schema + migration | new `run_permission_origin` table |
 | domain/ports | new `RunPermissionOriginRepository` |
 | storage/postgres/repositories | new Postgres repo impl |
-| `runtime/group-agent-runner.ts` | write origin at spawn (interactive + scheduled) |
-| `runtime/ipc-auth.ts` | bind responseKeyId → runId; trusted-runId lookup |
-| `runtime/ipc.ts` | recover trusted runId at permission receipt, thread it |
-| `runtime/ipc-permission-classifier-decision.ts` | read origin, drop history scan |
+| `apps/core/src/runtime/group-agent-runner.ts` | write origin at spawn (interactive + scheduled) |
+| `apps/core/src/runtime/ipc-auth.ts` | bind responseKeyId → runId; trusted-runId lookup |
+| `apps/core/src/runtime/ipc.ts` | recover trusted runId at permission receipt, thread it |
+| `apps/core/src/runtime/ipc-permission-classifier-decision.ts` | read origin, drop history scan |
 | wiring/bootstrap | inject `getRunOrigin` dep into the permission path |
 
 ## Acceptance criteria
