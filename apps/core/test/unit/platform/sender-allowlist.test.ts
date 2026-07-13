@@ -44,6 +44,7 @@ function renderSettingsYaml(overrides: {
     string,
     { allow: '*' | string[]; mode: 'trigger' | 'drop' }
   >;
+  slackExternalId?: string;
   slackLogDenied?: boolean;
   telegramControlAgents?: Record<string, string[]>;
   slackControlAgents?: Record<string, string[]>;
@@ -101,7 +102,7 @@ function renderSettingsYaml(overrides: {
   for (const [folder, entry] of Object.entries(overrides.slackAgents || {})) {
     lines.push(`  ${folder}_conversation:`);
     lines.push(`    provider_account: ${folder}_account`);
-    lines.push('    external_id: "C1"');
+    lines.push(`    external_id: "${overrides.slackExternalId ?? 'C1'}"`);
     lines.push('    kind: channel');
     lines.push(`    display_name: ${folder}`);
     lines.push('    sender_policy:');
@@ -292,6 +293,23 @@ describe('loadSenderAllowlist', () => {
     ]);
   });
 
+  it('normalizes readable Slack external ids for sender policy lookup', () => {
+    const p = writeSettings({
+      telegramDefaultAllow: '*',
+      telegramDefaultMode: 'trigger',
+      slackExternalId: 'slack:C123',
+      slackAgents: { slack_ops: { allow: ['U999'], mode: 'drop' } },
+    });
+
+    const cfg = loadSenderAllowlist(p);
+
+    expect(cfg.slack.conversations).toHaveProperty('sl:C123');
+    expect(cfg.slack.conversations).not.toHaveProperty('sl:slack:C123');
+    expect(isSenderAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(true);
+    expect(isSenderAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(false);
+    expect(shouldDropMessage('sl:C123', cfg, 'slack_ops')).toBe(true);
+  });
+
   it('keeps settings-derived sender policies scoped by conversation', () => {
     const cfg = loadSenderAllowlist(writeSameAgentMultiConversationSettings());
 
@@ -432,6 +450,27 @@ describe('sender control allowlist', () => {
     expect(
       isSenderControlAllowed('tg:1', 'bob', controlCfg, 'telegram_kai'),
     ).toBe(false);
+  });
+
+  it('normalizes readable Slack external ids for control approver lookup', () => {
+    const p = writeSettings({
+      telegramDefaultAllow: '*',
+      telegramDefaultMode: 'trigger',
+      slackExternalId: 'slack:C123',
+      slackAgents: { slack_ops: { allow: '*', mode: 'trigger' } },
+      slackControlAgents: { slack_ops: ['U999'] },
+    });
+
+    const cfg = loadSenderControlAllowlist(p);
+
+    expect(cfg.slack.conversations).toHaveProperty('sl:C123');
+    expect(cfg.slack.conversations).not.toHaveProperty('sl:slack:C123');
+    expect(isSenderControlAllowed('sl:C123', 'U999', cfg, 'slack_ops')).toBe(
+      true,
+    );
+    expect(isSenderControlAllowed('sl:C123', 'U111', cfg, 'slack_ops')).toBe(
+      false,
+    );
   });
 
   it('keeps settings-derived control approvers scoped by conversation', () => {

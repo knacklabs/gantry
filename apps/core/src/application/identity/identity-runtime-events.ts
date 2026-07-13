@@ -41,7 +41,6 @@ export async function publishIdentityResolvedEvent(
     appId: input.appId as never,
     eventType: RUNTIME_EVENT_TYPES.IDENTITY_RESOLVED,
     actor: input.source,
-    threadId: input.threadId ? (input.threadId as never) : undefined,
     payload: {
       source: input.source,
       provider: input.provider,
@@ -143,7 +142,6 @@ export async function publishMemoryHydrationDecisionEvent(
     appId: input.appId as never,
     eventType: RUNTIME_EVENT_TYPES.MEMORY_HYDRATION_DECISION,
     actor: input.source,
-    threadId: input.threadId ? (input.threadId as never) : undefined,
     payload: {
       source: input.source,
       conversationKind: input.conversationKind,

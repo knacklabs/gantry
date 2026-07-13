@@ -1084,14 +1084,14 @@ describe('agent-spawn timeout behavior', () => {
         appId: 'app-one',
         agentId: 'agent-one',
         runId: 'run-one',
-        conversationId: 'conversation:test@g.us',
-        threadId: 'thread:test@g.us:reply-one',
         eventType: 'run.startup_diagnostic',
         actor: 'runtime',
         responseMode: 'none',
         payload: expect.objectContaining({
           provider: 'host',
           diagnostic: 'host_startup_projection',
+          conversationJid: 'test@g.us',
+          threadId: 'reply-one',
           executionProviderId: 'anthropic:claude-agent-sdk',
           toolPolicyRuleCount: 1,
           gantryMcpToolCount: 2,
@@ -1109,6 +1109,12 @@ describe('agent-spawn timeout behavior', () => {
           },
         }),
       }),
+    );
+    expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+      'conversationId',
+    );
+    expect(publishRuntimeEvent.mock.calls[0]?.[0]).not.toHaveProperty(
+      'threadId',
     );
     expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
       '/tmp/secret-path',

@@ -149,6 +149,56 @@ describe('resolveCanonicalMemoryPersonId', () => {
     );
   });
 
+  it('keeps provider thread ids in identity payloads without using them as runtime-event foreign keys', async () => {
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await expect(
+      resolveCanonicalMemoryPersonId({
+        resolvePersonIdentity: vi.fn(async () => ({
+          status: 'resolved' as const,
+          personId: 'person:one',
+          memoryHydrationEligible: true,
+          verificationStatus: 'verified' as const,
+        })),
+        publishRuntimeEvent,
+        appId: 'app-one',
+        rawUserId: 'external-user-1',
+        defaultScope: 'group',
+        conversationKind: 'channel',
+        messages: [baseMessage],
+        chatJid: 'sl:C123',
+        threadId: '1783348894.205129',
+        providerAccountId: 'slack_default',
+      }),
+    ).resolves.toBeUndefined();
+
+    const identityEvent = publishRuntimeEvent.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find(
+        (event) => event.eventType === RUNTIME_EVENT_TYPES.IDENTITY_RESOLVED,
+      );
+    const hydrationEvent = publishRuntimeEvent.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find(
+        (event) =>
+          event.eventType === RUNTIME_EVENT_TYPES.MEMORY_HYDRATION_DECISION,
+      );
+    expect(identityEvent).not.toHaveProperty('threadId');
+    expect(identityEvent?.payload).toEqual(
+      expect.objectContaining({
+        conversationJid: 'sl:C123',
+        threadId: '1783348894.205129',
+      }),
+    );
+    expect(hydrationEvent).not.toHaveProperty('threadId');
+    expect(hydrationEvent?.payload).toEqual(
+      expect.objectContaining({
+        conversationJid: 'sl:C123',
+        threadId: '1783348894.205129',
+      }),
+    );
+  });
+
   it('skips dm personal memory when resolution infrastructure errors', async () => {
     const publishRuntimeEvent = vi.fn(async () => undefined);
 

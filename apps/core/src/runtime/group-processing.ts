@@ -1,14 +1,8 @@
 import * as config from '../config/index.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../shared/message-cursor.js';
+import { encodeGroupMessageCursor, toGroupMessageCursor } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { MessageSendOptions } from '../domain/types.js';
-import {
-  createSerializedAgentOutputCallbacks,
-  isAgentTurnCompleteMarker,
-} from './agent-output-callbacks.js';
+import { createSerializedAgentOutputCallbacks, isAgentTurnCompleteMarker } from './agent-output-callbacks.js';
 import * as progress from './progress-updates.js';
 import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization.js';
 import type { AgentOutput } from './agent-spawn.js';

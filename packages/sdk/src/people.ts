@@ -1,5 +1,12 @@
 import type { RequestOptions } from './types.js';
 import { querySuffix } from './query-string.js';
+import type {
+  IdentityResolveResponse,
+  PersonAliasResponse,
+  PersonMergeApplyResponse,
+  PersonMergePreviewResponse,
+  PersonResponse,
+} from '@gantry/contracts';
 
 export type IdentityEvidenceType =
   | 'provider_user'
@@ -44,7 +51,7 @@ type Requester = <T>(options: RequestOptions) => Promise<T>;
 export function createIdentityClient(request: Requester) {
   return {
     resolve: (input: IdentityResolveInput) =>
-      request<Record<string, unknown>>({
+      request<IdentityResolveResponse>({
         method: 'POST',
         path: '/v1/identity/resolve',
         body: input,
@@ -55,18 +62,18 @@ export function createIdentityClient(request: Requester) {
 export function createPeopleClient(request: Requester) {
   return {
     list: (input: { appId?: string } = {}) =>
-      request<{ people: unknown[] }>({
+      request<{ people: PersonResponse[] }>({
         method: 'GET',
         path: `/v1/people${querySuffix(input)}`,
       }),
     get: (personId: string, input: { appId?: string } = {}) =>
-      request<{ person: unknown }>({
+      request<{ person: PersonResponse }>({
         method: 'GET',
         path: `/v1/people/${encodeURIComponent(personId)}${querySuffix(input)}`,
       }),
     aliases: {
       add: (personId: string, input: PersonAliasInput) =>
-        request<{ alias: unknown }>({
+        request<{ alias: PersonAliasResponse }>({
           method: 'POST',
           path: `/v1/people/${encodeURIComponent(personId)}/aliases`,
           body: input,
@@ -76,20 +83,20 @@ export function createPeopleClient(request: Requester) {
         aliasId: string,
         input: { appId?: string } = {},
       ) =>
-        request<{ alias: unknown }>({
+        request<{ alias: PersonAliasResponse }>({
           method: 'DELETE',
           path: `/v1/people/${encodeURIComponent(personId)}/aliases/${encodeURIComponent(aliasId)}${querySuffix(input)}`,
         }),
     },
     merge: {
       preview: (personId: string, input: PersonMergeInput) =>
-        request<Record<string, unknown>>({
+        request<PersonMergePreviewResponse>({
           method: 'POST',
           path: `/v1/people/${encodeURIComponent(personId)}/merge:preview`,
           body: input,
         }),
       apply: (personId: string, input: PersonMergeInput) =>
-        request<Record<string, unknown>>({
+        request<PersonMergeApplyResponse>({
           method: 'POST',
           path: `/v1/people/${encodeURIComponent(personId)}/merge`,
           body: input,

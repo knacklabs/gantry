@@ -55,11 +55,7 @@ export async function findAliasMergeConflicts(
       sourceAliasId: source.id,
       targetAliasId: target.id,
       kind: 'alias',
-      key: [
-        source.provider,
-        source.providerAccountId ?? '',
-        source.externalUserId,
-      ].join(':'),
+      key: `alias-conflict:${source.id}:${target.id}`,
     });
   }
   return conflicts;
