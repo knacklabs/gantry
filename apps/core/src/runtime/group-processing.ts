@@ -1,8 +1,5 @@
 import * as config from '../config/index.js';
-import {
-  encodeGroupMessageCursor,
-  toGroupMessageCursor,
-} from '../shared/message-cursor.js';
+import { encodeGroupMessageCursor, toGroupMessageCursor } from '../shared/message-cursor.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { MessageSendOptions } from '../domain/types.js';
 import * as agentOutputCallbacks from './agent-output-callbacks.js';
