@@ -6,6 +6,7 @@ import {
   findDurablePermissionInteractionByPromptMessage,
   findDurablePermissionInteractionByRequestId,
   isActiveRunLeaseForInteraction,
+  resolveDurablePermissionInteractionByRequestId,
   resolveDurableQuestionInteractionByRequestId,
   resolvePendingInteractionRecord,
   recordRunScopedTransientGrant,
@@ -16,6 +17,28 @@ describe('pending interaction durability', () => {
   afterEach(() => {
     configurePendingInteractionDurability(null);
   });
+
+  it.each([undefined, '', 'runtime', 'system', 'auto_classifier'])(
+    'rejects durable approval without a concrete approver identity (%s)',
+    async (approverRef) => {
+      const repository = {
+        listPendingInteractions: vi.fn(async () => []),
+      };
+      configurePendingInteractionDurability({
+        repository: repository as never,
+      });
+
+      await expect(
+        resolveDurablePermissionInteractionByRequestId({
+          requestId: 'permission-unauthorized',
+          mode: 'allow_once',
+          approverRef,
+        }),
+      ).resolves.toBe(false);
+
+      expect(repository.listPendingInteractions).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not rebind a transient grant to a recovered lease', async () => {
     const repository = {

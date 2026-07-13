@@ -424,24 +424,6 @@ export async function runJob(
                   cause: 'job',
                 })
               : undefined;
-            try {
-              await deps.getRunPermissionOriginRepository?.()?.upsertRunOrigin({
-                runId,
-                appId: executionAppId,
-                agentFolder: execution.group.folder,
-                targetJid: execution.executionJid,
-                providerAccountId: execution.group.providerAccountId,
-                threadId: execution.threadId || undefined,
-                senderIsApprover: false,
-                isScheduled: true,
-                createdAt: nowIso(),
-              });
-            } catch (err) {
-              logger.warn(
-                { err, jobId: currentJob.id, runId },
-                'Failed to record scheduled permission run origin',
-              );
-            }
             const output = await runJobAgentWithFailover({
               group: execution.group,
               candidates: jobFailoverCandidates,

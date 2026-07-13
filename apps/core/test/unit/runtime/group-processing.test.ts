@@ -2553,13 +2553,8 @@ describe('createGroupProcessor', () => {
         }),
       ];
       const isControlApproverAllowed = vi.fn(async () => true);
-      const upsertRunOrigin = vi.fn(async () => undefined);
       const { deps } = setupHappyPath({ group, messages });
       deps.channelRuntime.isControlApproverAllowed = isControlApproverAllowed;
-      deps.getRunPermissionOriginRepository = () => ({
-        upsertRunOrigin,
-        getRunOrigin: vi.fn(async () => null),
-      });
       (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
         .mockResolvedValue({
@@ -2596,19 +2591,6 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         memoryReviewerIsControlApprover: true,
       });
-      expect(upsertRunOrigin).toHaveBeenCalledWith(
-        expect.objectContaining({
-          runId: 'agent-run:review',
-          appId: 'app:test',
-          agentFolder: group.folder,
-          targetJid: 'sl:D123',
-          triggeringSenderId: 'sl:UADMIN',
-          senderIsApprover: true,
-          triggeringMessageTimestamp: '1700000002',
-          triggeringMessageId: 'msg-trigger',
-          isScheduled: false,
-        }),
-      );
       expect(deps.queue.registerProcess).toHaveBeenCalledWith(
         'sl:D123',
         expect.anything(),

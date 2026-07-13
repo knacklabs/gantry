@@ -32,6 +32,43 @@ export interface AgentToolRuntimeRuleResolutionInput {
 export interface AgentToolRuntimePolicy {
   rules: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
+  reviewedMcpReadBindings: ReviewedMcpReadBinding[];
+}
+
+export interface ReviewedMcpReadBinding {
+  capabilityId: string;
+  toolPattern: string;
+}
+
+export function reviewedMcpReadBindingsForRuntimeAccess(input: {
+  runtimeAccess?: readonly CapabilityRuntimeAccess[];
+  semanticCapabilities?: readonly SemanticCapabilityDefinition[];
+}): ReviewedMcpReadBinding[] {
+  const readCapabilities = new Map(
+    (input.semanticCapabilities ?? [])
+      .filter((capability) => capability.risk === 'read')
+      .map((capability) => [capability.capabilityId, capability]),
+  );
+  const bindings = new Map<string, ReviewedMcpReadBinding>();
+  for (const access of input.runtimeAccess ?? []) {
+    if (access.sourceType !== 'mcp_server') continue;
+    const capability = readCapabilities.get(access.selectedCapabilityId);
+    if (!capability) continue;
+    const reviewedPatterns = new Set(
+      capability.implementationBindings
+        .filter((binding) => binding.kind === 'mcp_tool')
+        .map((binding) => binding.mcpTool?.trim())
+        .filter((pattern): pattern is string => Boolean(pattern)),
+    );
+    for (const toolPattern of access.allowedTools) {
+      if (!reviewedPatterns.has(toolPattern)) continue;
+      bindings.set(`${capability.capabilityId}\0${toolPattern}`, {
+        capabilityId: capability.capabilityId,
+        toolPattern,
+      });
+    }
+  }
+  return [...bindings.values()];
 }
 
 export async function resolveAgentToolRuntimeRules(
@@ -55,6 +92,7 @@ export async function resolveAgentToolRuntimePolicy(
   );
   const activeSkillActionKeys = await activeSkillActionProjectionKeys(input);
   const runtimeAccess: CapabilityRuntimeAccess[] = [];
+  const semanticCapabilities: SemanticCapabilityDefinition[] = [];
   const rules = tools.flatMap((tool) => {
     if (tool?.appId && tool.appId !== input.appId) return [];
     const name = tool?.name?.trim();
@@ -87,6 +125,7 @@ export async function resolveAgentToolRuntimePolicy(
       return [];
     }
     if (capability) {
+      semanticCapabilities.push(capability);
       runtimeAccess.push(...projectCapabilityRuntimeAccess(capability));
     }
     return name
@@ -105,6 +144,10 @@ export async function resolveAgentToolRuntimePolicy(
   return {
     rules,
     runtimeAccess,
+    reviewedMcpReadBindings: reviewedMcpReadBindingsForRuntimeAccess({
+      runtimeAccess,
+      semanticCapabilities,
+    }),
   };
 }
 

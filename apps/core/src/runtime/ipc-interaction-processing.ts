@@ -163,7 +163,6 @@ export function writeUserQuestionInteractionFailure(input: {
 
 export async function processPermissionInteractionIpc(input: {
   request: PermissionApprovalRequest;
-  trustedRunId?: string;
   sourceAgentFolder: string;
   deps: IpcDeps;
   ipcBaseDir: string;
@@ -234,7 +233,6 @@ export async function processPermissionInteractionIpc(input: {
     await assertActiveScheduledPermissionLease(input);
     const decision = await resolvePermissionIpcDecision({
       request: input.request,
-      trustedRunId: input.trustedRunId,
       sourceAgentFolder: input.sourceAgentFolder,
       deps: input.deps,
     });
@@ -572,25 +570,6 @@ function formatPersistentPermissionOutcome(input: {
     lines.push('No paused setup jobs needed retry.');
   }
   return lines.join('\n');
-}
-
-export type PermissionInteractionIpcBatchItem = Parameters<
-  typeof processPermissionInteractionIpc
->[0];
-
-export async function processPermissionInteractionIpcBatchWithDecision(input: {
-  items: PermissionInteractionIpcBatchItem[];
-  decision: PermissionApprovalDecision;
-}): Promise<void> {
-  for (const item of input.items) {
-    await processPermissionInteractionIpc({
-      ...item,
-      deps: {
-        ...item.deps,
-        requestPermissionApproval: async () => input.decision,
-      },
-    });
-  }
 }
 
 async function sendPermissionOutcomeMessage(

@@ -33,6 +33,11 @@ import {
 } from './pending-interaction-question-selections.js';
 const DEFAULT_INTERACTION_TTL_MS = 24 * 60 * 60_000;
 const DEFAULT_APP_ID = 'default';
+const RESERVED_PERMISSION_DECIDERS = new Set([
+  'runtime',
+  'system',
+  'auto_classifier',
+]);
 type InteractionDurabilityRepository = PendingInteractionRepository &
   RunLeaseRepository &
   TransientGrantRepository;
@@ -302,6 +307,12 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
 }): Promise<boolean> {
   const active = backend;
   if (!active) return false;
+  if (
+    input.mode !== 'cancel' &&
+    !isConcretePermissionApproverIdentity(input.approverRef)
+  ) {
+    return false;
+  }
   const appId = input.appId || DEFAULT_APP_ID;
   try {
     const pending = (
@@ -381,6 +392,13 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
     );
     return false;
   }
+}
+
+function isConcretePermissionApproverIdentity(
+  approverRef: string | null | undefined,
+): boolean {
+  const normalized = approverRef?.trim().toLowerCase();
+  return Boolean(normalized && !RESERVED_PERMISSION_DECIDERS.has(normalized));
 }
 
 export function applyPermissionInteractionDecision(

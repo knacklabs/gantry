@@ -75,6 +75,31 @@ function laneInput() {
       appId: 'default',
       agentId: 'agent-1',
       runId: 'run-1',
+      runtimeAccess: [
+        {
+          selectedCapabilityId: 'mcp.crm.access',
+          sourceType: 'mcp_server',
+          auditLabel: 'CRM read',
+          reviewedServerId: 'crm',
+          allowedTools: ['mcp__crm__read'],
+          credentialRefs: [],
+          networkHosts: [],
+        },
+      ],
+      semanticCapabilities: [
+        {
+          capabilityId: 'mcp.crm.access',
+          displayName: 'CRM read',
+          category: 'CRM',
+          risk: 'read',
+          can: 'Read CRM records.',
+          cannot: 'Mutate CRM records.',
+          credentialSource: 'none',
+          implementationBindings: [
+            { kind: 'mcp_tool', mcpTool: 'mcp__crm__read' },
+          ],
+        },
+      ],
     },
     signal: new AbortController().signal,
     controlPort: { subscribe: vi.fn(() => () => undefined) },
@@ -454,7 +479,7 @@ describe('inline core tool bootstrap', () => {
       getPermissionRuntimeSettings: () => ({
         agents: {
           main_agent: {
-            capabilities: [{ id: 'google.drive.files.list', version: '1' }],
+            capabilities: [{ id: 'mcp.crm.access', version: '1' }],
           },
         },
         permissions: {
@@ -482,10 +507,9 @@ describe('inline core tool bootstrap', () => {
     ).resolves.toEqual({ allowed: true });
     expect(classifierConsult).toHaveBeenCalledWith(
       expect.objectContaining({
-        attended: true,
         turnIntentSummary: 'hello',
         canonicalToolName: 'mcp__crm__read',
-        approvedCapabilityIds: ['google.drive.files.list'],
+        approvedCapabilityIds: ['mcp.crm.access'],
       }),
     );
     expect(requestPermissionApproval).not.toHaveBeenCalled();
@@ -509,7 +533,21 @@ describe('inline core tool bootstrap', () => {
       latencyMs: 5,
       failureCode: 'parse_failure' as const,
     }));
-    wire({ classifierConsult });
+    wire({
+      classifierConsult,
+      getPermissionRuntimeSettings: () => ({
+        agents: {
+          main_agent: {
+            capabilities: [{ id: 'mcp.crm.access', version: '1' }],
+          },
+        },
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
     const input = laneInput();
     input.input.permissionMode = 'auto';
     input.group.conversationKind = 'dm';
@@ -527,7 +565,9 @@ describe('inline core tool bootstrap', () => {
       tools.authorizeThirdPartyMcpTool('mcp__crm__read', { id: 'crm-1' }),
     ).resolves.toEqual({ allowed: true });
     expect(classifierConsult).toHaveBeenCalledWith(
-      expect.objectContaining({ approvedCapabilityIds: [] }),
+      expect.objectContaining({
+        approvedCapabilityIds: ['mcp.crm.access'],
+      }),
     );
     expect(requestPermissionApproval).toHaveBeenCalledOnce();
     expect(
@@ -543,7 +583,21 @@ describe('inline core tool bootstrap', () => {
 
   it('marks sanitized inline input before classifier consult and approval', async () => {
     const classifierConsult = vi.fn();
-    wire({ classifierConsult });
+    wire({
+      classifierConsult,
+      getPermissionRuntimeSettings: () => ({
+        agents: {
+          main_agent: {
+            capabilities: [{ id: 'mcp.crm.access', version: '1' }],
+          },
+        },
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
     const input = laneInput();
     input.input.permissionMode = 'auto';
     input.input.memoryUserId = 'approver-1';
@@ -584,7 +638,21 @@ describe('inline core tool bootstrap', () => {
       reason: 'The requested scope needs human approval.',
       latencyMs: 2,
     }));
-    wire({ classifierConsult });
+    wire({
+      classifierConsult,
+      getPermissionRuntimeSettings: () => ({
+        agents: {
+          main_agent: {
+            capabilities: [{ id: 'mcp.crm.access', version: '1' }],
+          },
+        },
+        permissions: {
+          autoMode: {},
+          yoloMode: { enabled: false },
+        },
+        memory: { llm: { models: { extractor: 'sonnet' } } },
+      }),
+    });
     const input = laneInput();
     input.input.permissionMode = 'auto';
     input.input.isScheduledJob = true;
@@ -609,28 +677,35 @@ describe('inline core tool bootstrap', () => {
   });
 
   it.each([
-    ['DM approver', 'dm', 'approver-1', true, false, true],
-    ['DM non-approver', 'dm', 'member-1', false, false, false],
-    ['DM missing approver config', 'dm', 'member-1', undefined, false, false],
-    ['group approver', 'channel', 'approver-1', true, false, true],
-    ['group non-approver', 'channel', 'member-1', false, false, false],
-    ['scheduled DM job', 'dm', 'conversation:dm', false, true, true],
+    ['DM approver', 'dm', 'approver-1', true, false],
+    ['DM non-approver', 'dm', 'member-1', false, false],
+    ['DM missing approver config', 'dm', 'member-1', undefined, false],
+    ['group approver', 'channel', 'approver-1', true, false],
+    ['group non-approver', 'channel', 'member-1', false, false],
+    ['scheduled DM job', 'dm', 'conversation:dm', false, true],
   ] as const)(
-    'applies the inline consult trust gate for %s requesters',
-    async (
-      _label,
-      conversationKind,
-      senderId,
-      isApprover,
-      isScheduledJob,
-      shouldConsult,
-    ) => {
+    'consults for %s without requester gating',
+    async (_label, conversationKind, senderId, isApprover, isScheduledJob) => {
       const classifierConsult = vi.fn(async () => ({
         decision: 'allow' as const,
         reason: 'Read-only lookup.',
         latencyMs: 1,
       }));
-      wire({ classifierConsult });
+      wire({
+        classifierConsult,
+        getPermissionRuntimeSettings: () => ({
+          agents: {
+            main_agent: {
+              capabilities: [{ id: 'mcp.crm.access', version: '1' }],
+            },
+          },
+          permissions: {
+            autoMode: {},
+            yoloMode: { enabled: false },
+          },
+          memory: { llm: { models: { extractor: 'sonnet' } } },
+        }),
+      });
       const input = laneInput();
       input.group.conversationKind = conversationKind;
       input.input.permissionMode = 'auto';
@@ -650,20 +725,13 @@ describe('inline core tool bootstrap', () => {
         id: 'crm-1',
       });
 
-      expect(classifierConsult).toHaveBeenCalledTimes(shouldConsult ? 1 : 0);
-      if (shouldConsult) {
-        expect(classifierConsult).toHaveBeenCalledWith(
-          expect.objectContaining({ attended: !isScheduledJob }),
-        );
-      }
+      expect(classifierConsult).toHaveBeenCalledOnce();
       expect(
         publishRuntimeEvent.mock.calls.filter(
           ([event]) => event.eventType === 'permission.classifier_decision',
         ),
-      ).toHaveLength(shouldConsult ? 1 : 0);
-      expect(requestPermissionApproval).toHaveBeenCalledTimes(
-        shouldConsult ? 0 : 1,
-      );
+      ).toHaveLength(1);
+      expect(requestPermissionApproval).not.toHaveBeenCalled();
     },
   );
 

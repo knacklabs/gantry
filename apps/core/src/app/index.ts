@@ -276,8 +276,6 @@ export async function startGantryRuntime(
         getToolRepository: () => storage.repositories.tools,
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,
-        getRunPermissionOriginRepository: () =>
-          storage.repositories.runPermissionOrigins,
         getFileArtifactStore: () => storage.fileArtifacts,
         getMcpServerRepository: () => storage.repositories.mcpServers,
         getCapabilitySecretRepository: () =>

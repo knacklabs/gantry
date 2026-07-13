@@ -67,7 +67,6 @@ const responseSigningKeys = new Map<
   {
     workspaceKey: string;
     threadId: string;
-    runId?: string;
     publicKeyPem: string;
     privateKeyPem: string;
   }
@@ -192,7 +191,6 @@ export function createIpcAuthEnvelope(
   scope?: {
     appId?: string | null;
     agentId?: string | null;
-    runId?: string | null;
   },
 ): {
   authToken: string;
@@ -204,7 +202,6 @@ export function createIpcAuthEnvelope(
   responseSigningKeys.set(responseKeyId, {
     workspaceKey,
     threadId: normalizedThreadId(threadId),
-    ...(scope?.runId?.trim() ? { runId: scope.runId.trim() } : {}),
     ...keys,
   });
   return {
@@ -212,20 +209,6 @@ export function createIpcAuthEnvelope(
     responseVerifyKey: keys.publicKeyPem,
     responseKeyId,
   };
-}
-
-export function trustedRunIdForResponseKey(
-  responseKeyId: string,
-  workspaceKey: string,
-  threadId?: string,
-): string | undefined {
-  const keyId = responseKeyId.trim();
-  if (!keyId) return undefined;
-  const keys = responseSigningKeys.get(keyId);
-  if (!keys) return undefined;
-  if (keys.workspaceKey !== workspaceKey) return undefined;
-  if (keys.threadId !== normalizedThreadId(threadId)) return undefined;
-  return keys.runId;
 }
 
 export function getIpcResponseSigningPrivateKey(

@@ -1,6 +1,5 @@
 import { decisionForMode } from '../domain/permission-decision.js';
 import type {
-  ConversationRoute,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../domain/types.js';
@@ -17,15 +16,11 @@ import {
   recordHumanPermissionPromotionSignal,
 } from './permission-classifier.js';
 import { runDurablePermissionInteraction } from '../application/interactions/durable-interaction-handler.js';
-
-const FUTURE_MESSAGE_CURSOR = {
-  timestamp: '9999-12-31T23:59:59.999Z',
-  id: '\uffff',
-};
+import { resolveAgentToolRuntimePolicy } from '../application/agents/agent-tool-runtime-rules.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 
 export async function resolvePermissionIpcDecision(input: {
   request: PermissionApprovalRequest;
-  trustedRunId?: string;
   sourceAgentFolder: string;
   deps: IpcDeps;
 }): Promise<PermissionApprovalDecision> {
@@ -84,45 +79,63 @@ export async function resolvePermissionIpcDecision(input: {
         },
       }
     : undefined;
-  const authority = await resolvePermissionAuthority(input, route);
   const shouldConsultClassifier =
     input.deps.publishRuntimeEvent &&
     classifierConfig &&
-    permissionMode === 'auto' &&
-    authority.trustedRequester;
-  const intent = shouldConsultClassifier ? authority.intent : undefined;
-  const classifierDecision =
-    shouldConsultClassifier && intent
-      ? await consultPermissionClassifierBeforePrompt({
-          permissionMode,
-          attended: input.request.unattended !== true,
-          trustedRequester: authority.trustedRequester,
-          requestFamily: input.request.requestFamily ?? 'tool',
-          appId: input.request.appId,
-          agentId: input.request.agentId,
-          agentFolder: input.sourceAgentFolder,
-          runId: input.trustedRunId,
-          jobId: input.request.jobId,
-          conversationId: input.request.targetJid,
-          threadId: input.request.threadId,
-          correlationId: input.request.requestId,
-          actor: 'permission',
-          intentSource: intent.source,
-          turnIntentSummary: intent.summary,
-          canonicalToolName: input.request.toolName,
-          toolInput: input.request.toolInput,
-          toolInputSanitized: input.request.toolInputSanitized,
-          toolInputSanitizedPaths: input.request.toolInputSanitizedPaths,
-          policyDecisionReason:
-            input.request.decisionReason ?? 'Human approval is required.',
-          approvedCapabilityIds,
-          suggestions: input.request.suggestions,
-          ...(promotion ? { promotion } : {}),
-          classifierConfig: classifierConfig!,
-          publishRuntimeEvent: input.deps.publishRuntimeEvent!,
-          classifierConsult: input.deps.classifierConsult,
-        })
-      : undefined;
+    permissionMode === 'auto';
+  const toolRepository = input.deps.getToolRepository?.();
+  const reviewedMcpReadBindings =
+    shouldConsultClassifier &&
+    toolRepository &&
+    /^mcp__(?!gantry__)/.test(input.request.toolName)
+      ? ((
+          await resolveAgentToolRuntimePolicy({
+            repository: toolRepository,
+            appId: input.request.appId ?? 'default',
+            agentId:
+              input.request.agentId ??
+              agentIdForFolder(input.sourceAgentFolder),
+            errorSubject: 'Configured agent tool',
+            skillRepository: input.deps.getSkillRepository?.(),
+          }).catch(() => undefined)
+        )?.reviewedMcpReadBindings ?? [])
+      : [];
+  const classifierDecision = shouldConsultClassifier
+    ? await consultPermissionClassifierBeforePrompt({
+        permissionMode,
+        requestFamily: input.request.requestFamily ?? 'tool',
+        appId: input.request.appId,
+        agentId: input.request.agentId,
+        agentFolder: input.sourceAgentFolder,
+        // Non-authoritative event metadata only — never a trust input.
+        runId: input.request.runId,
+        jobId: input.request.jobId,
+        conversationId: input.request.targetJid,
+        threadId: input.request.threadId,
+        correlationId: input.request.requestId,
+        actor: 'permission',
+        // Host-injected at spawn; best-effort context for the classifier to
+        // narrow with — never a trust input.
+        intentSource: input.request.turnIntentSummary
+          ? 'runner_summary'
+          : 'none',
+        turnIntentSummary: input.request.turnIntentSummary ?? '',
+        canonicalToolName: input.request.toolName,
+        toolInput: input.request.toolInput,
+        toolInputSanitized: input.request.toolInputSanitized,
+        toolInputSanitizedPaths: input.request.toolInputSanitizedPaths,
+        policyDecisionReason:
+          input.request.decisionReason ?? 'Human approval is required.',
+        approvedCapabilityIds,
+        workspaceRoot: resolveWorkspaceFolderPath(input.sourceAgentFolder),
+        reviewedMcpReadBindings,
+        suggestions: input.request.suggestions,
+        ...(promotion ? { promotion } : {}),
+        classifierConfig: classifierConfig!,
+        publishRuntimeEvent: input.deps.publishRuntimeEvent!,
+        classifierConsult: input.deps.classifierConsult,
+      })
+    : undefined;
 
   if (classifierDecision?.decision === 'allow') {
     return decisionForMode(input.request, 'allow_once', 'auto_classifier');
@@ -146,99 +159,4 @@ export async function resolvePermissionIpcDecision(input: {
       suggestions: input.request.suggestions,
     }));
   return input.deps.requestPermissionApproval(input.request);
-}
-
-async function resolvePermissionAuthority(
-  input: Parameters<typeof resolvePermissionIpcDecision>[0],
-  route: ConversationRoute | undefined,
-): Promise<{
-  trustedRequester: boolean;
-  intent: {
-    summary: string;
-    source: 'operator_message' | 'none';
-  };
-}> {
-  if (
-    input.request.unattended &&
-    input.request.jobId &&
-    !input.request.senderId
-  ) {
-    return {
-      trustedRequester: true,
-      intent: { summary: '', source: 'none' },
-    };
-  }
-  if (
-    (route?.conversationKind !== 'dm' &&
-      route?.conversationKind !== 'channel') ||
-    !input.request.targetJid ||
-    !input.deps.getPermissionMessageRepository ||
-    !input.deps.isControlApproverAllowed
-  ) {
-    return untrustedPermissionAuthority();
-  }
-  try {
-    const repository = input.deps.getPermissionMessageRepository();
-    const messages = input.request.threadId
-      ? await repository.getLatestThreadMessages(
-          input.request.targetJid,
-          input.request.threadId,
-          FUTURE_MESSAGE_CURSOR,
-          50,
-          { providerAccountId: input.request.providerAccountId },
-        )
-      : await repository.getRecentTopLevelMessagesBefore(
-          input.request.targetJid,
-          FUTURE_MESSAGE_CURSOR,
-          30,
-          { providerAccountId: input.request.providerAccountId },
-        );
-    const checkedSenders = new Set<string>();
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (
-        !message ||
-        message.is_from_me === true ||
-        message.is_bot_message === true ||
-        !message.content.trim() ||
-        typeof message.sender !== 'string' ||
-        !message.sender.trim() ||
-        checkedSenders.has(message.sender)
-      ) {
-        continue;
-      }
-      if (checkedSenders.size >= 5) break;
-      checkedSenders.add(message.sender);
-      if (
-        await input.deps.isControlApproverAllowed({
-          conversationJid: input.request.targetJid,
-          providerAccountId: input.request.providerAccountId,
-          userId: message.sender,
-          sourceAgentFolder: input.sourceAgentFolder,
-          decisionPolicy: 'same_channel',
-        })
-      ) {
-        return {
-          trustedRequester: true,
-          intent: {
-            summary: message.content.trim().slice(0, 1_500),
-            source: 'operator_message',
-          },
-        };
-      }
-    }
-  } catch {
-    return untrustedPermissionAuthority();
-  }
-  return untrustedPermissionAuthority();
-}
-
-function untrustedPermissionAuthority(): {
-  trustedRequester: false;
-  intent: { summary: ''; source: 'none' };
-} {
-  return {
-    trustedRequester: false,
-    intent: { summary: '', source: 'none' },
-  };
 }

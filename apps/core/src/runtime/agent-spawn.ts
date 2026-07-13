@@ -297,7 +297,6 @@ export async function spawnAgent(
   const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
     appId: input.appId || 'default',
     agentId: input.agentId,
-    runId: input.runId,
   });
   try {
     const command = process.execPath;

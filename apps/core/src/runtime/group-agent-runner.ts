@@ -58,7 +58,6 @@ import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-r
 import { hasAsyncTaskRepository } from './group-agent-runner-async-task-repository.js';
 import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
-import { nowIso } from '../shared/time/datetime.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
@@ -474,37 +473,6 @@ export function createGroupAgentRunner(input: {
                 : 'message',
           })
         : undefined;
-    if (runState.runId) {
-      // prettier-ignore
-      const triggeringMessage = [...(options?.turnMessages ?? [])]
-        .reverse()
-        .find(
-          (message) =>
-            !message.is_from_me &&
-            Boolean(memoryReviewerUserId) && message.sender?.trim() === memoryReviewerUserId,
-        );
-      try {
-        await deps.getRunPermissionOriginRepository?.()?.upsertRunOrigin({
-          runId: runState.runId,
-          appId: runtimeAppId,
-          agentFolder: group.folder,
-          targetJid: chatJid,
-          providerAccountId: group.providerAccountId,
-          threadId: sessionThreadId ?? undefined,
-          triggeringSenderId: memoryReviewerUserId,
-          senderIsApprover: memoryReviewerIsControlApprover === true,
-          triggeringMessageTimestamp: triggeringMessage?.timestamp,
-          triggeringMessageId: triggeringMessage?.id,
-          isScheduled: false,
-          createdAt: nowIso(),
-        });
-      } catch (err) {
-        logger.warn(
-          { err, group: group.name, runId: runState.runId },
-          'Failed to record permission run origin',
-        );
-      }
-    }
     try {
       const credentialBroker = await deps.getCredentialBroker?.();
       const runOptions = buildRuntimeRunOptions({

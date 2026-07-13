@@ -312,7 +312,6 @@ describe('jobs/execution', () => {
     const job = makeJob();
     const opsRepository = makeOpsRepository(job);
     const sendMessage = vi.fn(async () => undefined);
-    const upsertRunOrigin = vi.fn(async () => undefined);
     const rawResult =
       'done provider-session:raw-result claude-session-result sessionId=result-inline {"newSessionId":"json-result"}';
 
@@ -324,27 +323,12 @@ describe('jobs/execution', () => {
         onProcess: () => {},
         sendMessage: sendMessage as never,
         opsRepository: opsRepository as never,
-        getRunPermissionOriginRepository: () => ({
-          upsertRunOrigin,
-          getRunOrigin: vi.fn(async () => null),
-        }),
         runAgent: vi.fn(async () => ({
           status: 'success',
           result: rawResult,
         })) as never,
       },
       'tg:scheduler',
-    );
-
-    expect(upsertRunOrigin).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'default',
-        agentFolder: 'scheduler_agent',
-        targetJid: 'tg:scheduler',
-        threadId: 'thread-scheduled',
-        senderIsApprover: false,
-        isScheduled: true,
-      }),
     );
 
     const completionSummary = vi.mocked(opsRepository.completeJobRun).mock

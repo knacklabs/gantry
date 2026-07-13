@@ -48,7 +48,6 @@ import type {
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
 import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
-import type { RunPermissionOriginRepository } from '../../domain/ports/run-permission-origin.js';
 import type { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 import { collectRuntimeSessionMemory } from './runtime-app.js';
@@ -127,9 +126,6 @@ interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
-  getRunPermissionOriginRepository?: () =>
-    | RunPermissionOriginRepository
-    | undefined;
   runApprovedCommand?: IpcDeps['runApprovedCommand'];
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
@@ -415,8 +411,6 @@ export async function startRuntimeServices(
       getSkillArtifactStore: resolved.getSkillArtifactStore,
       getToolRepository: resolved.getToolRepository,
       getAsyncTaskRepository: resolved.getAsyncTaskRepository,
-      getRunPermissionOriginRepository:
-        resolved.getRunPermissionOriginRepository,
       getBrowserStatus,
       openBrowserSession: (profileName) => ensureBrowserReady({ profileName }),
       executionAdapter: resolved.executionAdapter ?? app.executionAdapter,

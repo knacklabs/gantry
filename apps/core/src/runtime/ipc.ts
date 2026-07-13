@@ -6,7 +6,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 // prettier-ignore
 import { processMemoryRequest, writeMemoryResponse } from '../memory/memory-ipc.js';
 // prettier-ignore
-import { getIpcResponseSigningPrivateKey, trustedRunIdForResponseKey } from './ipc-auth.js';
+import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 // prettier-ignore
 import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
@@ -568,13 +568,6 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 requestId = request.requestId;
                 requestThreadId = request.threadId;
                 responseKeyId = request.responseKeyId;
-                const trustedRunId = responseKeyId
-                  ? trustedRunIdForResponseKey(
-                      responseKeyId,
-                      sourceAgentFolder,
-                      request.threadId,
-                    )
-                  : undefined;
                 if (
                   runnerControlPort.responseExists(
                     sourceAgentFolder,
@@ -604,7 +597,6 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 inFlightInteractionIpc.add(inFlightKey);
                 void processPermissionInteractionIpc({
                   request,
-                  trustedRunId,
                   sourceAgentFolder,
                   deps,
                   ipcBaseDir,

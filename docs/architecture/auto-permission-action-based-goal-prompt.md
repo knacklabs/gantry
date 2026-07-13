@@ -103,7 +103,7 @@ Complete removal set (codex-verified — the earlier list was incomplete):
   `resolvePermissionAuthority` logic in
   `apps/core/src/runtime/ipc-permission-classifier-decision.ts`. **Keep `responseKeyId`
   and its signing/routing path.**
-- Tests: `apps/core/test/integration/run-permission-origin.postgres.integration.test.ts`,
+- Tests: the run-permission-origin postgres integration test (deleted in Stage A),
   and the origin assertions in `apps/core/test/unit/runtime/group-processing.test.ts`,
   `apps/core/test/unit/jobs/execution.test.ts`.
 - Drop the stashed WIP (`git stash drop`).

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { CoreSendMessageDeps } from '../../application/core-tools/send-message.js';
 import type { CoreTaskLifecycleBackend } from '../../application/core-tools/task-lifecycle.js';
 import { runDurablePermissionInteraction } from '../../application/interactions/durable-interaction-handler.js';
+import { reviewedMcpReadBindingsForRuntimeAccess } from '../../application/agents/agent-tool-runtime-rules.js';
 import { synthesizeHostPermissionSuggestions } from '../../application/permissions/permission-suggestion-synthesis.js';
 import {
   classifyMcpToolAuditError,
@@ -27,6 +28,7 @@ import type {
 } from '../../domain/types.js';
 import type { InlineAgentLoopLaneInput } from '../../runtime/agent-inline.js';
 import type { RunAgentOptions } from '../../runtime/agent-spawn-types.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import {
   consultPermissionClassifierBeforePrompt,
   permissionPromotionHintCount,
@@ -145,6 +147,10 @@ export function createInlineCoreTools(
     permissionSettings.agents?.[laneInput.group.folder]?.capabilities?.map(
       ({ id }) => id,
     ) ?? [];
+  const reviewedMcpReadBindings = reviewedMcpReadBindingsForRuntimeAccess({
+    runtimeAccess: run.runtimeAccess,
+    semanticCapabilities: run.semanticCapabilities,
+  });
   const yoloMode = run.yoloMode ?? permissionSettings.permissions.yoloMode;
   const toolSuccessLedger = run.toolRules?.length
     ? createToolSuccessLedger()
@@ -359,13 +365,6 @@ export function createInlineCoreTools(
       if (deps.publishRuntimeEvent) {
         classifierDecision = await consultPermissionClassifierBeforePrompt({
           permissionMode: run.permissionMode,
-          attended: run.isScheduledJob !== true,
-          // Keep equivalent to the scheduled-job and control-approver branches in
-          // isTrustedRequester() in ipc-permission-classifier-decision.ts.
-          trustedRequester:
-            (run.isScheduledJob === true && Boolean(run.jobId)) ||
-            (Boolean(run.memoryUserId) &&
-              run.memoryReviewerIsControlApprover === true),
           requestFamily: 'tool',
           appId: run.appId,
           agentId: run.agentId,
@@ -384,6 +383,8 @@ export function createInlineCoreTools(
           toolInputSanitizedPaths: classifierToolInput.alteredPaths,
           policyDecisionReason: decision.reason,
           approvedCapabilityIds,
+          workspaceRoot: resolveWorkspaceFolderPath(laneInput.group.folder),
+          reviewedMcpReadBindings,
           suggestions,
           ...(promotion ? { promotion } : {}),
           classifierConfig: permissionRuntimeConfig,

@@ -9,7 +9,6 @@ import {
   createIpcAuthEnvelope,
   getIpcResponseSigningPrivateKey,
   revokeIpcResponseSigningKey,
-  trustedRunIdForResponseKey,
 } from '@core/runtime/ipc-auth.js';
 import {
   signIpcResponsePayload,
@@ -940,23 +939,12 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
-  it('revokes response signing keys only for the matching run scope', () => {
-    const run = createIpcAuthEnvelope('team', 'thread-1', {
-      runId: 'run:trusted',
-    });
+  it('revokes response signing keys only for the matching scope', () => {
+    const run = createIpcAuthEnvelope('team', 'thread-1');
 
     expect(
       getIpcResponseSigningPrivateKey('team', 'thread-1', run.responseKeyId),
     ).toBeTruthy();
-    expect(
-      trustedRunIdForResponseKey(run.responseKeyId, 'team', 'thread-1'),
-    ).toBe('run:trusted');
-    expect(
-      trustedRunIdForResponseKey(run.responseKeyId, 'other-team', 'thread-1'),
-    ).toBeUndefined();
-    expect(
-      trustedRunIdForResponseKey(run.responseKeyId, 'team', 'other-thread'),
-    ).toBeUndefined();
     expect(
       revokeIpcResponseSigningKey(run.responseKeyId, 'team', 'other-thread'),
     ).toBe(false);
@@ -965,15 +953,6 @@ describe('validateIpcAuthRequest', () => {
     ).toBe(true);
     expect(
       getIpcResponseSigningPrivateKey('team', 'thread-1', run.responseKeyId),
-    ).toBeUndefined();
-    expect(
-      trustedRunIdForResponseKey(run.responseKeyId, 'team', 'thread-1'),
-    ).toBeUndefined();
-  });
-
-  it('returns no trusted run id for an unknown response key', () => {
-    expect(
-      trustedRunIdForResponseKey('unknown-response-key', 'team', 'thread-1'),
     ).toBeUndefined();
   });
 
@@ -1136,44 +1115,6 @@ describe('validateIpcAuthRequest', () => {
         },
       }),
     );
-  });
-
-  it('recovers permission run identity from signed context.responseKeyId instead of request.runId', () => {
-    const envelope = createIpcAuthEnvelope('team', undefined, {
-      appId: 'app:one',
-      agentId: 'agent:team',
-      runId: 'run:host',
-    });
-    const payload = {
-      requestId: 'perm-trusted-run',
-      responseNonce: randomUUID(),
-      nonce: randomUUID(),
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      sourceAgentFolder: 'team',
-      runId: 'run:runner-supplied',
-      toolName: 'Bash',
-      context: {
-        responseKeyId: envelope.responseKeyId,
-        appId: 'app:one',
-        agentId: 'agent:team',
-      },
-    };
-    const parsed = parsePermissionIpcRequest(
-      {
-        ...payload,
-        signature: signIpcRequestPayload(envelope.authToken, payload),
-      },
-      'team',
-    );
-
-    expect(parsed.runId).toBe('run:runner-supplied');
-    expect(
-      trustedRunIdForResponseKey(
-        parsed.responseKeyId!,
-        'team',
-        parsed.threadId,
-      ),
-    ).toBe('run:host');
   });
 
   it('caps wide signed permission tool input during parsing', () => {

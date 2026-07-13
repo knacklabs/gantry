@@ -621,8 +621,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getCredentialBroker,
     getToolRepository: () => getRuntimeStorage().repositories.tools,
     getAsyncTaskRepository: () => getRuntimeStorage().repositories.asyncTasks,
-    getRunPermissionOriginRepository: () =>
-      getRuntimeStorage().repositories.runPermissionOrigins,
     getPatternCandidateRepository: () =>
       getRuntimeStorage().repositories.patternCandidates,
     getProactiveSurfacingRepository: () =>
