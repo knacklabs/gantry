@@ -666,7 +666,13 @@ function formatPermissionReceiptActionSummary(
       const envSummary = env ? `; env: ${sanitizeReceiptDetail(env)}` : '';
       return `Selected skill action (${generatedSkillPath}${envSummary})`;
     }
-    const safeCommand = sanitizeReceiptDetail(command);
+    // Same treatment as the prompt: host-injected env plumbing is dropped;
+    // agent-supplied env stays part of what was allowed.
+    const safeCommand = sanitizeReceiptDetail(
+      [...displayCommand.runtimeEnvAssignments, displayCommand.command].join(
+        ' ',
+      ),
+    );
     return safeCommand ? `Command (${safeCommand})` : 'Command';
   }
   const filePath = input.file_path;

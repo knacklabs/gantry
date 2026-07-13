@@ -798,9 +798,8 @@ describe('permission interaction', () => {
     const text = formatPermissionPromptText(request, 60_000);
 
     expect(text).toContain('Command:\n```\ngantry credentials --help');
-    expect(text).toContain('Runtime environment: GODEBUG=netdns=go');
-    expect(text).toContain("HTTP_PROXY='http://127.0.0.1:18790/'");
-    expect(text).toContain("NODE_USE_ENV_PROXY='1'");
+    expect(text).not.toContain('Runtime environment:');
+    expect(text).not.toContain('127.0.0.1:18790');
     expect(text).toContain('Redirect: > /tmp/gantry-help.txt');
 
     const receipt = formatPermissionReceiptText('permission_123', request, {
@@ -809,7 +808,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      "Allowed once: Command (GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18790/' HTTPS_PROXY='http://127.0.0.1:18790/' NODE_USE_ENV_PROXY='1' NO_PROXY='127.0.0.1,localhost,::1' gantry credentials --help > /tmp/gantry-help.txt). The agent will continue this request.",
+      'Allowed once: Command (gantry credentials --help > /tmp/gantry-help.txt). The agent will continue this request.',
     );
   });
 
@@ -914,13 +913,13 @@ describe('permission interaction', () => {
     expect(text).not.toContain('Runtime environment:');
   });
 
-  it('keeps runtime environment assignments visible for generated skill action commands', () => {
+  it('keeps agent-supplied env visible for generated skill action commands', () => {
     const request = {
       ...requestWithSuggestions([]),
       toolName: 'RunCommand',
       toolInput: {
         command:
-          "HTTP_PROXY='http://127.0.0.1:8888/' /tmp/.llm-runtime/claude/skills/demo/action.sh",
+          "HTTP_PROXY='http://127.0.0.1:8888/' https_proxy='http://proxy.example:8888/' /tmp/.llm-runtime/claude/skills/demo/action.sh",
       },
     } satisfies PermissionApprovalRequest;
 
@@ -930,9 +929,11 @@ describe('permission interaction', () => {
       'Command: generated skill action command; runtime path hidden.',
     );
     expect(text).toContain('Action: skills/demo/action.sh');
+    // Host-injected loopback proxy is hidden; the agent-supplied proxy stays.
     expect(text).toContain(
-      "Runtime environment: HTTP_PROXY='http://127.0.0.1:8888/'",
+      "Runtime environment: https_proxy='http://proxy.example:8888/'",
     );
+    expect(text).not.toContain('127.0.0.1:8888');
     expect(
       formatPermissionReceiptText('permission_123', request, {
         approved: true,
@@ -940,7 +941,7 @@ describe('permission interaction', () => {
         decidedBy: 'ravi',
       }),
     ).toContain(
-      "Selected skill action (skills/demo/action.sh; env: HTTP_PROXY='http://127.0.0.1:8888/')",
+      "Selected skill action (skills/demo/action.sh; env: https_proxy='http://proxy.example:8888/')",
     );
   });
 
