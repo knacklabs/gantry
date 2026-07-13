@@ -1,5 +1,9 @@
 # Goal: Host-Recorded Run-Origin Trust for Auto-Permission
 
+**Status: SUPERSEDED (2026-07-13).** The run-origin machinery was removed in
+Stage A of `docs/architecture/auto-permission-action-based-goal-prompt.md`;
+auto mode now judges the action, not the requester. Historical record below.
+
 Closes the r13 P1: interactive auto-allow must be authorized by the actual,
 channel-authenticated human who triggered *this* run, established from host state
 and bound to a host-trusted run id — never from runner-supplied IPC fields, and

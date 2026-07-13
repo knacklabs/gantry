@@ -1,5 +1,11 @@
 # Goal: Auto-Permission Mode (LLM classifier for gray-zone tool calls)
 
+**Status: SUPERSEDED (2026-07-13).** The attended/requester-trust verdict model
+described here was replaced by the action-based model with a deterministic
+read-only gate — see `docs/architecture/auto-permission-action-based-goal-prompt.md`
+and the "Auto-permission mode" section of
+`docs/architecture/capability-management.md`. Historical record below.
+
 ## Objective
 
 Add a per-agent `permission_mode: ask | auto` that consults an in-process LLM

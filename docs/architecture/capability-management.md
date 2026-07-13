@@ -387,32 +387,49 @@ permissions:
     model: haiku # optional; defaults to the memory extractor slot model
 ```
 
-How a gray-zone call resolves:
+How a gray-zone call resolves — the mode judges the **action, never the
+requester** (requester identity at this layer is runner-supplied and
+forgeable; the only identity trust left in the flow is who taps an approval
+button, which the channel authenticates):
 
 1. Deterministic checks run unchanged. Only calls that would interrupt a
    human continue.
 2. Eligibility is deterministic and narrow: third-party MCP tools
    (`mcp__<server>__<op>`, excluding the Gantry server) and shell
-   (`Bash`/`RunCommand`). The requester must also be trusted: an unattended
-   scheduled run, or an interactive sender who is a configured control
-   approver for the conversation — DM and channel alike, a DM sender is not
-   blanket-trusted. Everything else keeps today's behavior.
-3. One short LLM call judges the actual invocation against the turn intent
-   (agent identity, triggering-message summary, canonical tool name,
-   secret-redacted input, and policy reason), and the verdict rules depend on
-   whether a human is present. Attended (a live operator instruction drove
-   the turn): the instruction itself is the authorization — read-only
-   actions plainly within its scope may be allowed, and the approved
-   capability list is deliberately withheld from the prompt so it cannot be
-   misread as an allowlist. Unattended (scheduled, no human): strict rule —
-   only read-only actions whose credential plainly belongs to an approved
-   capability selection may be allowed. In both modes writes, mutations,
-   outward sends, spend, secret material, intent mismatch, and ambiguity
-   still ask. `allow` resolves the request as an
-   `allow_once` decision recorded with `decidedBy: auto_classifier`; `ask`
-   falls through to the normal prompt. Timeouts, parse failures, or an
-   unconfigured model all collapse to `ask` — the worst case is exactly
-   today's behavior.
+   (`Bash`/`RunCommand`). Everything else keeps today's behavior.
+3. A deterministic read-only gate runs BEFORE any model call. Silent allow
+   requires all of:
+   - **Provably read-only.** Shell: a parser-proven single `ls`/`cat`
+     invocation with reviewed flags only (no hidden-entry or
+     symlink-following flags), every target realpath-resolved against the
+     agent's workspace root — symlink escapes, hidden segments (`.npmrc`,
+     `.aws/…`), protected paths, and secret-looking names all block. Git is
+     excluded from the silent set entirely: even `git status` executes
+     repo-configured commands (`core.fsmonitor`), and `.git/config` is
+     agent-writable. MCP: a reviewed read binding — a semantic capability
+     with read risk whose reviewed implementation binding covers this exact
+     tool; annotations and name shapes alone are untrusted hints and ask.
+   - **Non-secret.** Secret-shaped input keys (`apiKey`, `secretId`,
+     `tokenRef`, …), paths, and values (bearer/JWT/PEM patterns) block.
+   - **Inside an approved capability boundary** (the agent's admin-selected
+     capabilities).
+   Anything not provable asks without consulting the model.
+4. For calls that pass the floor, one short LLM call judges the invocation
+   against best-effort task context (never a trust input). The verdict can
+   only narrow `allow` to `ask` — it can never widen the deterministic
+   floor. `allow` resolves the request as an `allow_once` decision recorded
+   with `decidedBy: auto_classifier`; `ask` falls through to the normal
+   prompt when interactive (approvable only by control approvers) and denies
+   with the classifier's reason when unattended. Timeouts, parse failures,
+   or an unconfigured model all collapse to `ask` — the worst case is
+   exactly today's behavior.
+
+Conversation-level data exposure is governed by Agent Access and the
+channel's approver configuration, not by this gate: whoever may converse
+with an agent may receive what its granted capabilities can already read.
+The admin's capability selection is the authorization for provable
+in-boundary reads; everything unprovable or mutating reaches a control
+approver.
 
 Every verdict (including failure-coded asks) is published as a
 `permission.classifier_decision` runtime event, so the audit trail is

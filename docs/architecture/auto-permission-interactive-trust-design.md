@@ -1,6 +1,12 @@
 # Design Pass Needed: Interactive Auto-Permission Trust Anchor
 
-**Status: PAUSED for deliberate design (2026-07-13).** Group-interactive auto-allow
+**Status: SUPERSEDED (2026-07-13).** The trust-anchor approach was abandoned;
+auto mode now judges the action, not the requester. See
+`docs/architecture/auto-permission-action-based-goal-prompt.md` and the
+"Auto-permission mode" section of `docs/architecture/capability-management.md`.
+Historical record below.
+
+**Original status: PAUSED for deliberate design (2026-07-13).** Group-interactive auto-allow
 is NOT safe to ship as built. This doc records the problem, why the reactive
 implementation did not converge, the requirements for a sound design, and where the
 work-in-progress lives. Nothing here blocks merging the *rest* of the branch if the
