@@ -407,3 +407,20 @@ identity runtime correctness.
 - **Follow-up:** expose the underlying desired-state sync error and make
   conversation install/approver mutations transactional so a 500 cannot leave
   partial configuration behind.
+
+## 37. Dreaming skipped live DM evidence without candidate metadata - open
+
+- **Observed:** the first user-scoped dreaming run completed successfully, but
+  promoted zero memories and skipped all five personal evidence records.
+- **Cause:** the live DM evidence rows contain the preference text and the
+  canonical person subject, but no structured candidate metadata. The dreaming
+  pipeline intentionally skips evidence that has not been converted into a
+  validated memory candidate.
+- **Impact:** Slack DM replies confirm the preferences in the active session,
+  but this is not yet proof of durable personal memory. Telegram verification
+  must not be treated as passed until personal `memory_items` exist and are
+  recalled after a separate-channel turn.
+- **Decision:** keep the zero-promotion result as a failed verification gate.
+  Investigate the live evidence-to-candidate path or use an explicit reviewed
+  memory-write path before rerunning dreaming. Do not seed memory rows silently
+  and call that a dreaming result.
