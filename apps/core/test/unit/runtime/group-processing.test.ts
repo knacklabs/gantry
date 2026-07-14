@@ -1640,13 +1640,11 @@ describe('createGroupProcessor', () => {
     });
 
     it('delivers output when normalized model usage publication fails', async () => {
-      const publishRuntimeEvent = vi
-        .fn()
-        .mockImplementation(async (event) => {
-          if (event.eventType === RUNTIME_EVENT_TYPES.MODEL_USAGE) {
-            throw new Error('usage event insert failed');
-          }
-        });
+      const publishRuntimeEvent = vi.fn().mockImplementation(async (event) => {
+        if (event.eventType === RUNTIME_EVENT_TYPES.MODEL_USAGE) {
+          throw new Error('usage event insert failed');
+        }
+      });
       const { deps, channel } = setupHappyPath({
         agentOutput: {
           status: 'success',
