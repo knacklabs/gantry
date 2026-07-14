@@ -424,3 +424,23 @@ identity runtime correctness.
   Investigate the live evidence-to-candidate path or use an explicit reviewed
   memory-write path before rerunning dreaming. Do not seed memory rows silently
   and call that a dreaming result.
+
+## 38. Manual DM memory was active; dreaming skip was misinterpreted - corrected
+
+- **Observed:** a follow-up database query appeared to show zero personal
+  memory items after dreaming. A direct inspection of all active rows showed
+  five personal preference items for the same canonical person, while the
+  five evidence rows were the provenance records for those writes.
+- **Cause:** memory items use `subjectIdFor(...)`, a deterministic hashed
+  storage key (`msu_*`), while evidence and resolver inputs retain the
+  canonical person subject. The verification query compared the raw person
+  subject with the hashed item key and returned a false zero.
+- **Correct behavior:** `memory_save` is an explicit durable write. It creates
+  the active personal item immediately and records manual evidence for
+  provenance. Light dreaming requires structured candidate metadata and must
+  skip that manual evidence rather than re-promote the same preference.
+- **Decision:** no change is made to the dreaming guardrail and no raw-text
+  parser is added. The previous “evidence-to-candidate bug” is closed as a
+  verification/query error. Cross-provider testing must verify retrieval via
+  the trusted canonical person subject and inspect the hashed storage key only
+  as an implementation detail.
