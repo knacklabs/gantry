@@ -67,6 +67,10 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 | E.7 | Operators must be told observability edits need a restart | Branch autoreview r4 (P2): `classifySettingsChanges()` didn't compare the new block | `observability` diff → `restartRequired`; focused test added | Silent stale-tracer confusion after live settings edits | fixed |
 | E.8 | C.8 (continuation rotation behind the output chain) and E.3's ≤3-byte pathological degradation re-raised | Reviewer re-flags real but accepted limits | Held as documented decisions — both carry explicit revisit paths | — | ok |
 
+| E.9 | One giant structured frame must not bypass the 16k content bound | Branch autoreview r5 (P2): the bound gated before append, not per frame | Frames slice to remaining capacity | Tens of MiB retained per traced run | fixed |
+| E.10 | Output callbacks can outlive the runner's resolution | Branch autoreview r5 (P2): a late `continuedByFollowup` after `finish()` opened an orphan span | Tracker `closed` flag: post-finish frames still forward but neither accumulate nor rotate | Orphaned registry entries + never-exported spans | fixed |
+| E.11 | Overflow raw-fallback re-raised with a new caveat | Branch autoreview r5 (P3-class): decoder-held bytes + the injected usage-only frame can reach the client once the tap degrades | Held with E.3/E.8 — the path requires a single >1 MiB unterminated SSE frame (broken/hostile provider); full fix = raw-byte shadow buffering, named revisit | Pathological streams only: one mangled codepoint and/or one unexpected usage frame | ok — documented |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |

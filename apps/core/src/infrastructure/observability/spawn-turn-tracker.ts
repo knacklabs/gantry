@@ -64,16 +64,24 @@ export function createSpawnTurnTracker<F extends TurnFrameLike>(
   turnSpan.setInput(input.prompt);
   const captureTurnContent = contentCaptureEnabled();
   let streamedTurnOutput = '';
+  // Set by finish(): late queued callbacks (runner resolved while its output
+  // chain was still draining) must not accumulate into or rotate a span
+  // that already ended — a late rotation would orphan a registry entry.
+  let closed = false;
   const tracedOnOutput =
     onOutput && tracingEnabled()
       ? async (frame: F) => {
+          const remaining = TRACE_CONTENT_MAX_CHARS - streamedTurnOutput.length;
           if (
+            !closed &&
             captureTurnContent &&
             frame.status !== 'error' &&
             frame.result &&
-            streamedTurnOutput.length < TRACE_CONTENT_MAX_CHARS
+            remaining > 0
           ) {
-            streamedTurnOutput += String(frame.result);
+            // Slice per frame: one giant structured frame must not bypass
+            // the content bound.
+            streamedTurnOutput += String(frame.result).slice(0, remaining);
           }
           // Rotate BEFORE awaiting delivery: the runner starts the buffered
           // follow-up immediately after emitting this frame, so a late
@@ -84,7 +92,7 @@ export function createSpawnTurnTracker<F extends TurnFrameLike>(
           // the rotated span has no input — both marked via
           // gantry.continuation; fixing them needs a synchronous frame hook
           // in agent-spawn-process plus follow-up prompt plumbing.
-          if (frame.continuedByFollowup) {
+          if (frame.continuedByFollowup && !closed) {
             if (streamedTurnOutput) turnSpan.setOutput(streamedTurnOutput);
             turnSpan.end('success');
             streamedTurnOutput = '';
@@ -97,6 +105,7 @@ export function createSpawnTurnTracker<F extends TurnFrameLike>(
     correlationId,
     onOutput: tracedOnOutput,
     finish: (output) => {
+      closed = true;
       const turnOutput =
         output?.status === 'success'
           ? streamedTurnOutput || output.result || ''
