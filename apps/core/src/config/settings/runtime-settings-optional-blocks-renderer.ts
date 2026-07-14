@@ -1,9 +1,10 @@
 import type { RuntimeSettings } from './runtime-settings-types.js';
+import { quoteYamlString } from './yaml.js';
 
-// Renderers for the optional tail blocks of settings.yaml (`limits`,
-// `model_families`). Each is omitted entirely when empty so an absent block
-// stays absent across round-trips. Extracted from runtime-settings-renderer.ts
-// to keep that file under its line budget.
+// Renderers for the optional tail blocks of settings.yaml. Each is omitted
+// entirely when default so an absent block stays absent across round-trips.
+// Extracted from runtime-settings-renderer.ts to keep that file under its line
+// budget.
 
 function quoteYamlKey(key: string): string {
   if (/^[A-Za-z0-9_-]+$/.test(key)) return key;
@@ -26,6 +27,34 @@ export function renderLimitsSettingsYaml(
       `  ${quoteYamlKey(providerId)}:`,
       `    requests_per_minute: ${limit.requestsPerMinute}`,
     );
+  }
+  lines.push('');
+}
+
+export function renderObservabilitySettingsYaml(
+  lines: string[],
+  observability: RuntimeSettings['observability'],
+): void {
+  const { tracing } = observability;
+  if (
+    !tracing.enabled &&
+    tracing.endpoint === '' &&
+    tracing.captureContent &&
+    tracing.sampleRate === 1 &&
+    tracing.environment === undefined
+  ) {
+    return;
+  }
+  lines.push(
+    'observability:',
+    '  tracing:',
+    `    enabled: ${tracing.enabled ? 'true' : 'false'}`,
+    `    endpoint: ${quoteYamlString(tracing.endpoint)}`,
+    `    capture_content: ${tracing.captureContent ? 'true' : 'false'}`,
+    `    sample_rate: ${tracing.sampleRate}`,
+  );
+  if (tracing.environment !== undefined) {
+    lines.push(`    environment: ${quoteYamlString(tracing.environment)}`);
   }
   lines.push('');
 }

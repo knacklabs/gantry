@@ -649,7 +649,7 @@ describe('importFleetSettingsRevision', () => {
   });
 
   it('appends a revision stamped with the current reader version', async () => {
-    expect(CURRENT_SETTINGS_READER_VERSION).toBe(12);
+    expect(CURRENT_SETTINGS_READER_VERSION).toBe(13);
     capabilityErrors = [];
     const repo = new FakeRevisionRepo();
     const outcome = await importFleetSettingsRevision(
@@ -732,6 +732,13 @@ describe('importFleetSettingsRevision', () => {
     settings.agent.agentHarness = 'deepagents';
     settings.memory.llm.extractorMinConfidence = 0.73;
     settings.permissions.autoMode.model = 'sonnet';
+    settings.observability.tracing = {
+      enabled: true,
+      endpoint: 'https://otel.example.test/v1/traces',
+      captureContent: false,
+      sampleRate: 0.25,
+      environment: 'test',
+    };
     settings.modelAliases['fast-job'] = {
       provider: 'groq',
       providerModelId: 'llama-3.1-8b-instant',
@@ -876,6 +883,15 @@ describe('importFleetSettingsRevision', () => {
         >
       ).model,
     ).toBe('sonnet');
+    expect(document.observability).toEqual({
+      tracing: {
+        enabled: true,
+        endpoint: 'https://otel.example.test/v1/traces',
+        capture_content: false,
+        sample_rate: 0.25,
+        environment: 'test',
+      },
+    });
     expect(
       (
         (document.agents as Record<string, Record<string, unknown>>).researcher
@@ -922,6 +938,7 @@ describe('importFleetSettingsRevision', () => {
     expect(restored.agents.researcher.agentHarness).toBe('anthropic_sdk');
     expect(restored.agents.researcher.permissionMode).toBe('auto');
     expect(restored.permissions.autoMode).toEqual({ model: 'sonnet' });
+    expect(restored.observability).toEqual(settings.observability);
     expect(restored.agents.researcher).toMatchObject({
       maxTurns: 14,
       maxRunTokens: 32_000,

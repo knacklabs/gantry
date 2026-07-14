@@ -33,7 +33,10 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 
 ## Stage B — Settings schema + env secret
 
-_(Codex fills this in.)_
+| # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |
+| --- | --- | --- | --- | --- | --- |
+| B.1 | Approved global decimal scalar typing makes lexical integral decimals such as `1.0` become numeric `1`, so existing integer validators accept them | No field-by-field lexeme compatibility contract | Preserve existing validators under the approved scalar parser change | Previously rejected `1.0` spellings become accepted | fixed — global change reverted |
+| B.2 | Unquoted two-part decimal-looking strings now type as numbers; strict string ids reject them and numeric agent source/capability versions such as `1.0` normalize to `"1"`, while quoting preserves string spelling | No per-field escape/compat rule | Preserve global YAML scalar semantics and require quoting for string intent | Existing unquoted decimal-looking ids or versions may reject or normalize | fixed — impact confirmed real (Slack `thread_id: 171.222` export test broke). Orchestrator reverted the global yaml.ts change (parse AND quote); `sample_rate` now coerces numeric strings locally in its strict parser instead |
 
 ## Stage C — Bootstrap wiring + turn span in spawnAgent
 

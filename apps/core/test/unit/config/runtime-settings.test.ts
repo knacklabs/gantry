@@ -23,6 +23,10 @@ import {
   flattenConversationInstalls,
 } from '@core/config/settings/runtime-settings-binding-derivation.js';
 import type { RuntimeConfiguredConversation } from '@core/config/settings/runtime-settings-types.js';
+import {
+  parseSimpleYamlObject,
+  quoteYamlString,
+} from '@core/config/settings/yaml.js';
 
 function emptySources() {
   return { skills: [], mcpServers: [], tools: [] };
@@ -701,6 +705,145 @@ provider_accounts:
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.runtime.queue).toEqual(settings.runtime.queue);
+  });
+
+  it('keeps decimal-looking scalars as strings (thread timestamps, versions)', () => {
+    expect(
+      parseSimpleYamlObject(`decimal: 0.5
+integer: 1
+thread_ts: 171.222
+version: 1.2.3
+quoted_decimal: "0.5"
+`),
+    ).toEqual({
+      decimal: '0.5',
+      integer: 1,
+      thread_ts: '171.222',
+      version: '1.2.3',
+      quoted_decimal: '0.5',
+    });
+    expect(quoteYamlString('171.222')).toBe('171.222');
+    expect(quoteYamlString('1.2.3')).toBe('1.2.3');
+  });
+
+  it('defaults observability tracing and omits the default block', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.observability).toEqual({
+      tracing: {
+        enabled: false,
+        endpoint: '',
+        captureContent: true,
+        sampleRate: 1,
+      },
+    });
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).not.toContain('observability:');
+    expect(parseRuntimeSettings(yaml).observability).toEqual(
+      settings.observability,
+    );
+  });
+
+  it('accepts the complete observability tracing block', () => {
+    const parsed = parseRuntimeSettings(`observability:
+  tracing:
+    enabled: true
+    endpoint: https://telemetry.example.test/v1/traces
+    capture_content: false
+    sample_rate: 0.25
+    environment: staging
+`);
+
+    expect(parsed.observability).toEqual({
+      tracing: {
+        enabled: true,
+        endpoint: 'https://telemetry.example.test/v1/traces',
+        captureContent: false,
+        sampleRate: 0.25,
+        environment: 'staging',
+      },
+    });
+  });
+
+  it('accepts observability sample rate boundaries', () => {
+    for (const sampleRate of [0, 1]) {
+      const parsed = parseRuntimeSettings(`observability:
+  tracing:
+    sample_rate: ${sampleRate}
+`);
+      expect(parsed.observability.tracing.sampleRate).toBe(sampleRate);
+    }
+  });
+
+  it('rejects unknown observability keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`observability:
+  metrics: {}
+`),
+    ).toThrow(/observability\.metrics is not supported/);
+    expect(() =>
+      parseRuntimeSettings(`observability:
+  tracing:
+    exporter: custom
+`),
+    ).toThrow(/observability\.tracing\.exporter is not supported/);
+  });
+
+  it('rejects observability mapping and leaf type errors', () => {
+    for (const [yaml, error] of [
+      ['observability: true\n', /observability must be a mapping/],
+      [
+        'observability:\n  tracing: true\n',
+        /observability\.tracing must be a mapping/,
+      ],
+      [
+        'observability:\n  tracing:\n    enabled: "true"\n',
+        /observability\.tracing\.enabled must be true\/false/,
+      ],
+      [
+        'observability:\n  tracing:\n    endpoint: 123\n',
+        /observability\.tracing\.endpoint must be a string/,
+      ],
+      [
+        'observability:\n  tracing:\n    capture_content: "false"\n',
+        /observability\.tracing\.capture_content must be true\/false/,
+      ],
+      [
+        'observability:\n  tracing:\n    environment: 123\n',
+        /observability\.tracing\.environment must be a string/,
+      ],
+    ] as const) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(error);
+    }
+  });
+
+  it('rejects invalid observability sample rates', () => {
+    for (const sampleRate of ['fast', '[]', '-0.1', '1.1']) {
+      expect(() =>
+        parseRuntimeSettings(`observability:
+  tracing:
+    sample_rate: ${sampleRate}
+`),
+      ).toThrow(
+        /observability\.tracing\.sample_rate must be a number between 0 and 1/,
+      );
+    }
+  });
+
+  it('round-trips non-default observability with empty optional strings', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.observability.tracing.captureContent = false;
+    settings.observability.tracing.sampleRate = 0.25;
+    settings.observability.tracing.environment = '';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('observability:');
+    expect(yaml).toContain('endpoint: ""');
+    expect(yaml).toContain('sample_rate: 0.25');
+    expect(yaml).toContain('environment: ""');
+    expect(parseRuntimeSettings(yaml).observability).toEqual(
+      settings.observability,
+    );
   });
 
   it('defaults model_families to empty and omits the block when empty', () => {

@@ -46,9 +46,9 @@ import {
   renderLimitsSettingsYaml,
   renderModelAliasesYaml,
   renderModelFamiliesYaml,
+  renderObservabilitySettingsYaml,
 } from './runtime-settings-optional-blocks-renderer.js';
 import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
-
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
 
 function quoteYamlKey(key: string): string {
@@ -714,8 +714,8 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     renderPermissionSettingsYaml(lines, settings.permissions);
   }
   renderLimitsSettingsYaml(lines, settings.limits);
+  renderObservabilitySettingsYaml(lines, settings.observability);
   renderModelFamiliesYaml(lines, settings.modelFamilies);
   renderModelAliasesYaml(lines, settings.modelAliases);
-
   return lines.join('\n');
 }

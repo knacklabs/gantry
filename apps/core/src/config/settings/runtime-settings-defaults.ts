@@ -224,6 +224,14 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     browser,
     permissions,
     limits: { providers: {} },
+    observability: {
+      tracing: {
+        enabled: false,
+        endpoint: '',
+        captureContent: true,
+        sampleRate: 1,
+      },
+    },
     modelFamilies: {},
     modelAliases: {},
   };

@@ -32,7 +32,7 @@ import { migrateLegacyAgentBindings } from './settings-revision-legacy-bindings.
  * applied) by an older worker until it is upgraded (ADR-3 skew safety contract).
  * Bump this whenever a settings-schema change would break older readers.
  */
-export const CURRENT_SETTINGS_READER_VERSION = 12;
+export const CURRENT_SETTINGS_READER_VERSION = 13;
 
 export interface SettingsImportValidationResult {
   ok: boolean;
@@ -504,6 +504,7 @@ export function settingsToRevisionDocument(
       },
     },
     permissions: snakeRecord(settings.permissions),
+    observability: snakeRecord(settings.observability),
     model_aliases: mapRecord(settings.modelAliases, snakeRecord),
     limits: mapRecord(settings.limits.providers, snakeRecord),
     model_families: settings.modelFamilies,

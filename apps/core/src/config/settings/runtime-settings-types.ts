@@ -321,6 +321,16 @@ export interface RuntimeLimitSettings {
   providers: Record<string, RuntimeProviderLimit>;
 }
 
+export interface RuntimeObservabilitySettings {
+  tracing: {
+    enabled: boolean;
+    endpoint: string;
+    captureContent: boolean;
+    sampleRate: number;
+    environment?: string;
+  };
+}
+
 export interface RuntimeCustomModelAliasSource {
   label: string;
   url: string;
@@ -368,6 +378,7 @@ export interface RuntimeSettings {
   // Optional in-memory per-provider request rate caps (settings.yaml `limits`).
   // Absent/empty -> no caps. Restart-owned; no DB projection.
   limits: RuntimeLimitSettings;
+  observability: RuntimeObservabilitySettings;
   // Optional per-family member-order override for model families. Maps a family
   // alias to a list of member aliases OR provider ids in preference order;
   // absent/empty -> the hardcoded MODEL_FAMILIES order. Unknown tokens are
