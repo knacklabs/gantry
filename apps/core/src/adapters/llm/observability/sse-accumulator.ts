@@ -43,7 +43,8 @@ export function createSseFrameSplitter(): SseFrameSplitter {
       if (overflowed) return [];
       pending += decoder.write(chunk);
       const frames: string[] = [];
-      const delimiter = /\r?\n\r?\n/g;
+      // SSE line terminators: CRLF, LF, or CR (spec-legal, CR-only rare).
+      const delimiter = /(?:\r\n|\r(?!\n)|\n)(?:\r\n|\r|\n)/g;
       delimiter.lastIndex = scanFrom;
       let consumed = 0;
       let match: RegExpExecArray | null;
@@ -80,7 +81,7 @@ export function createSseFrameSplitter(): SseFrameSplitter {
 
 export function sseFrameData(frame: string): string | undefined {
   const dataLines = frame
-    .split(/\r?\n/)
+    .split(/\r\n|\r|\n/)
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice('data:'.length).trim());
   if (dataLines.length === 0) return undefined;

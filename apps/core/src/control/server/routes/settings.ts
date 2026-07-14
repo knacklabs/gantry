@@ -174,8 +174,13 @@ async function handleDesiredState(
           ? { observability: preservedObservability }
           : {}),
       };
-      // 0 = "expect no head" (null would be an unconditional append).
-      const effectiveExpectedRevision = callerGuard ?? head?.revision ?? 0;
+      // 0 = "expect no head" (null would be an unconditional append). The
+      // FINAL retry for an unguarded caller falls back to unconditional so
+      // pathological contention can never surface a 409 the API contract
+      // does not promise; that attempt still merges from the freshest head.
+      const lastAttempt = attempt >= 2;
+      const effectiveExpectedRevision =
+        callerGuard ?? (lastAttempt ? null : (head?.revision ?? 0));
       // Decode the inbound typed document through the shared settings parser
       // so a structurally invalid document surfaces the same
       // document-path-level error the file/CLI surface produces (one
@@ -228,7 +233,7 @@ async function handleDesiredState(
             0;
         } catch (err) {
           if (err instanceof SettingsRevisionConflictError) {
-            if (callerGuard === null && attempt < 2) continue;
+            if (callerGuard === null && !lastAttempt) continue;
             sendError(
               res,
               409,
@@ -281,7 +286,7 @@ async function handleDesiredState(
         return true;
       }
       if (outcome.status === 'conflict') {
-        if (callerGuard === null && attempt < 2) continue;
+        if (callerGuard === null && !lastAttempt) continue;
         sendError(
           res,
           409,

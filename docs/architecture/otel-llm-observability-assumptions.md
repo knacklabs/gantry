@@ -106,6 +106,10 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 
 | E.34 | Unguarded API writes must keep unconditional semantics | Branch autoreview r17 (P2): my r15/r16 fence made optional optimistic concurrency mandatory — blind writers got contract-breaking 409s | Read-merge-append retried server-side (≤3 attempts) for callers who omitted `expectedRevision`; supplied guards keep the documented 409 | Public API contract regression under concurrent writers | fixed |
 
+| E.35 | Bounded retries must not surface contract-breaking 409s under contention | Branch autoreview r18 (P2) | Unguarded writers' FINAL attempt appends unconditionally (still merging from the freshest head); residual = an observability change landing between that last read and append (needs 3 consecutive races) | Accepted micro-residual, strictly better than pre-branch behavior (which was always unconditional) | fixed (residual documented) |
+| E.36 | SSE line terminators include CR-only | Branch autoreview r18 (P2): spec-legal, provider-rare | Delimiter + data-line regexes cover CRLF/LF/CR | CR-only streams unparsed (spans lose usage) | fixed |
+| E.37 | `chat` spans measure the upstream LLM call, not client delivery | Branch autoreview r18 (P2) suggested finalize-after-delivery | Held: a delivery failure to the internal caller doesn't retroactively make the model call unsuccessful; delivery errors remain visible via pipe-failure error spans on streaming and gateway logs | Non-streaming span shows success when the caller disconnected mid-body — semantically intended | ok — documented decision |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |
