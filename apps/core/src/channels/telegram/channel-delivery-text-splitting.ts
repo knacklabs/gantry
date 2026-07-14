@@ -24,19 +24,18 @@ export function splitTelegramTextByCodeUnits(
   if (text.length <= maxCodeUnits) return [text];
 
   const chunks: string[] = [];
-  let chunkStart = 0;
-  let chunkLength = 0;
-  for (const codePoint of text) {
-    const codePointLength = codePoint.length;
-    if (chunkLength > 0 && chunkLength + codePointLength > maxCodeUnits) {
-      chunks.push(text.slice(chunkStart, chunkStart + chunkLength));
-      chunkStart += chunkLength;
-      chunkLength = 0;
+  for (let start = 0; start < text.length; ) {
+    const candidateEnd = nextCodePointEnd(text, start, maxCodeUnits);
+    if (candidateEnd <= start) {
+      chunks.push(text.slice(start));
+      break;
     }
-    chunkLength += codePointLength;
-  }
-  if (chunkStart < text.length) {
-    chunks.push(text.slice(chunkStart));
+    const end =
+      candidateEnd < text.length
+        ? choosePreferredSplitEnd(text, start, candidateEnd)
+        : candidateEnd;
+    chunks.push(text.slice(start, end));
+    start = end;
   }
   return chunks;
 }
@@ -70,6 +69,43 @@ function nextCodePointEnd(
   return endExclusive;
 }
 
+function choosePreferredSplitEnd(
+  text: string,
+  start: number,
+  candidateEnd: number,
+): number {
+  const minimumPreferredEnd =
+    start + Math.max(1, Math.floor((candidateEnd - start) * 0.6));
+  let whitespaceEnd = -1;
+  let punctuationEnd = -1;
+  for (let cursor = candidateEnd; cursor > start; ) {
+    const previousStart = previousCodePointStart(text, cursor);
+    const codePoint = text.slice(previousStart, cursor);
+    if (previousStart < minimumPreferredEnd) break;
+    if (isPreferredWhitespaceBoundary(codePoint)) {
+      whitespaceEnd = cursor;
+      break;
+    }
+    if (punctuationEnd === -1 && isPreferredPunctuationBoundary(codePoint)) {
+      punctuationEnd = cursor;
+    }
+    cursor = previousStart;
+  }
+  return whitespaceEnd > start
+    ? whitespaceEnd
+    : punctuationEnd > start
+      ? punctuationEnd
+      : candidateEnd;
+}
+
+function isPreferredWhitespaceBoundary(codePoint: string): boolean {
+  return /\s/u.test(codePoint);
+}
+
+function isPreferredPunctuationBoundary(codePoint: string): boolean {
+  return /[,.!?;:)]/u.test(codePoint);
+}
+
 function hasOddTrailingBackslashes(text: string): boolean {
   let trailingBackslashes = 0;
   for (let i = text.length - 1; i >= 0 && text[i] === '\\'; i -= 1) {
@@ -95,6 +131,7 @@ function splitTelegramTextByCodeUnitsEscapeAware(
     }
     let end = candidateEnd;
     if (candidateEnd < text.length) {
+      end = choosePreferredSplitEnd(text, start, candidateEnd);
       while (end > start && hasOddTrailingBackslashes(text.slice(start, end))) {
         end = previousCodePointStart(text, end);
       }
@@ -251,21 +288,55 @@ function splitTelegramPlainSegment(
 ): string[] {
   if (text.length <= maxCodeUnits) return [text];
   const out: string[] = [];
+  let current = '';
   const tokens = tokenizeTelegramStyledPlainText(text);
+
+  const flushCurrent = () => {
+    if (!current) return;
+    out.push(current);
+    current = '';
+  };
+
+  const appendFittedText = (
+    value: string,
+    splitter: (input: string, budget: number) => string[],
+  ) => {
+    let remaining = value;
+    while (remaining) {
+      let budget = maxCodeUnits - current.length;
+      if (budget <= 0) {
+        flushCurrent();
+        budget = maxCodeUnits;
+      }
+      if (remaining.length <= budget) {
+        current += remaining;
+        break;
+      }
+      const piece = splitter(remaining, budget)[0];
+      if (!piece) {
+        flushCurrent();
+        continue;
+      }
+      current += piece;
+      remaining = remaining.slice(piece.length);
+      flushCurrent();
+    }
+  };
+
   for (const token of tokens) {
     if (token.kind === 'plain') {
-      out.push(...splitTelegramTextByCodeUnits(token.text, maxCodeUnits));
+      appendFittedText(token.text, splitTelegramTextByCodeUnits);
       continue;
     }
 
     const wrapped = `${token.marker}${token.content}${token.marker}`;
     if (wrapped.length <= maxCodeUnits) {
-      out.push(wrapped);
+      appendFittedText(wrapped, splitTelegramTextByCodeUnits);
       continue;
     }
     const contentBudget = maxCodeUnits - 2;
     if (contentBudget <= 0) {
-      out.push(...splitTelegramTextByCodeUnits(wrapped, maxCodeUnits));
+      appendFittedText(wrapped, splitTelegramTextByCodeUnits);
       continue;
     }
     const contentParts = splitTelegramTextByCodeUnitsEscapeAware(
@@ -273,13 +344,17 @@ function splitTelegramPlainSegment(
       contentBudget,
     );
     if (contentParts.length === 0) {
-      out.push(wrapped);
+      appendFittedText(wrapped, splitTelegramTextByCodeUnits);
       continue;
     }
-    out.push(
-      ...contentParts.map((part) => `${token.marker}${part}${token.marker}`),
-    );
+    for (const part of contentParts) {
+      appendFittedText(
+        `${token.marker}${part}${token.marker}`,
+        splitTelegramTextByCodeUnits,
+      );
+    }
   }
+  flushCurrent();
   return out;
 }
 

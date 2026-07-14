@@ -40,7 +40,9 @@ export function createGroupOutputBuffer(input: {
   log: RuntimeLogger;
 }) {
   const userVisibleTranscript = createRuntimeResultSummaryAccumulator();
-  let pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
+  const fullUserVisibleTranscriptParts: string[] = [];
+  let pendingOutputSummary = createRuntimeUserVisibleResultAccumulator();
+  let pendingFullVisibleParts: string[] = [];
   let streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
   let pendingOutputRawChars = 0;
   let pendingOutputHasParts = false;
@@ -52,14 +54,17 @@ export function createGroupOutputBuffer(input: {
     if (!pendingOutputHasParts) return false;
     const done = options.done ?? true;
     const terminal = options.terminal ?? true;
-    const visibleOutput = pendingOutputVisible.snapshot();
+    const visibleSummary = pendingOutputSummary.snapshot();
     const finalStreamDelta = streamSanitizer.finish();
+    if (finalStreamDelta) pendingFullVisibleParts.push(finalStreamDelta);
+    const fullVisibleOutput = pendingFullVisibleParts.join('');
     const rawChars = pendingOutputRawChars;
-    pendingOutputVisible = createRuntimeUserVisibleResultAccumulator();
+    pendingOutputSummary = createRuntimeUserVisibleResultAccumulator();
+    pendingFullVisibleParts = [];
     streamSanitizer = createRuntimeUserVisibleStreamSanitizer();
     pendingOutputRawChars = 0;
     pendingOutputHasParts = false;
-    const text = visibleOutput ? formatOutboundForChannel(visibleOutput) : '';
+    const text = fullVisibleOutput ? formatOutboundForChannel(fullVisibleOutput) : '';
     input.log.info(
       { group: input.groupName },
       `Agent output: ${rawChars} chars`,
@@ -90,7 +95,8 @@ export function createGroupOutputBuffer(input: {
       );
       input.applyDeliverySettlement(settlement, { streamed: false, terminal });
     }
-    userVisibleTranscript.append(`${text}\n`);
+    if (visibleSummary) userVisibleTranscript.append(`${text}\n`);
+    if (text) fullUserVisibleTranscriptParts.push(text);
     return true;
   };
 
@@ -98,10 +104,10 @@ export function createGroupOutputBuffer(input: {
     appendRawOutput: async (raw: string) => {
       pendingOutputHasParts = true;
       pendingOutputRawChars += raw.length;
-      pendingOutputVisible.append(raw);
-      if (!input.supportsStreamingChunks) return;
+      pendingOutputSummary.append(raw);
       const safeDelta = streamSanitizer.append(raw);
-      if (!safeDelta) return;
+      if (safeDelta) pendingFullVisibleParts.push(safeDelta);
+      if (!input.supportsStreamingChunks || !safeDelta) return;
       const settlement = await settleDeliveryAttempt(
         () =>
           input.channelRuntime.sendStreamingChunk(
@@ -117,6 +123,10 @@ export function createGroupOutputBuffer(input: {
       });
     },
     flushBufferedOutput,
-    transcriptSnapshot: () => userVisibleTranscript.snapshot(),
+    boundedTranscriptSnapshot: () => userVisibleTranscript.snapshot(),
+    fullTranscriptSnapshot: () => {
+      if (fullUserVisibleTranscriptParts.length === 0) return null;
+      return fullUserVisibleTranscriptParts.join('\n').trim() || null;
+    },
   };
 }

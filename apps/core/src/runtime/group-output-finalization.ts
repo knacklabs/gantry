@@ -10,6 +10,7 @@ const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
 export async function finalizeGroupAgentUserVisibleOutput(input: {
   streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent';
   boundedTranscript: string | null;
+  fullTranscript: string | null;
   chatJid: string;
   activeThreadId?: string;
   outputSentToUser: boolean;
@@ -67,7 +68,7 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
     return { outputSentToUser, terminalSettlement };
   }
 
-  const fallbackText = transcriptText;
+  const fallbackText = input.fullTranscript?.trim() ?? transcriptText;
   if (fallbackText) {
     try {
       const messageOptions = await input.buildMessageOptions();

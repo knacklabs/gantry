@@ -2355,7 +2355,7 @@ describe('TelegramChannel', () => {
         chunkedWithLiteralMarkers,
       );
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(5);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(4);
       expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
         1,
         '100200300',
@@ -2387,29 +2387,17 @@ describe('TelegramChannel', () => {
         {},
       );
       expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
-        3,
-        '100200300',
-        expect.stringContaining('~literal~'),
-        {},
-      );
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
         4,
-        '100200300',
-        expect.any(String),
-        {},
-      );
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
-        5,
         '100200300',
         expect.any(String),
         {},
       );
       expect(result).toEqual(
         expect.objectContaining({
-          deliveredParts: 4,
-          totalParts: 4,
-          externalMessageIds: ['201', '202', '203', '204'],
-          warnings: ['telegram.message.chunked:4:3500'],
+          deliveredParts: 3,
+          totalParts: 3,
+          externalMessageIds: ['201', '202', '203'],
+          warnings: ['telegram.message.chunked:3:3500'],
         }),
       );
     });

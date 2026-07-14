@@ -776,7 +776,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     } else {
       const finalization = await finalizeGroupAgentUserVisibleOutput({
         streamedTranscriptDeliveryStatus,
-        boundedTranscript: outputBuffer.transcriptSnapshot(),
+        boundedTranscript: outputBuffer.boundedTranscriptSnapshot(),
+        fullTranscript: outputBuffer.fullTranscriptSnapshot(),
         chatJid,
         activeThreadId,
         outputSentToUser,

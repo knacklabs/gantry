@@ -4471,11 +4471,10 @@ describe('createGroupProcessor', () => {
       const fallbackText = (
         streamingChannel.sendMessage as ReturnType<typeof vi.fn>
       ).mock.calls[0][1] as string;
-      expect(fallbackText.length).toBeLessThanOrEqual(
+      expect(fallbackText.length).toBeGreaterThan(
         RUNTIME_RESULT_SUMMARY_MAX_CHARS,
       );
-      expect(fallbackText).toMatch(/^\[output truncated; showing tail\]\n/);
-      expect(fallbackText).not.toContain('HEAD-START');
+      expect(fallbackText).toContain('HEAD-START');
       expect(fallbackText.endsWith(tailChunk)).toBe(true);
     });
 

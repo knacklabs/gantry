@@ -35,7 +35,8 @@ type EscapeTelegramMarkdownV2Options = {
 
 /**
  * Escape text for Telegram MarkdownV2 while preserving markdown formatting
- * markers produced by parseTextStyles (bold/italic/strikethrough/links/code).
+ * markers produced by parseTextStyles (bold/italic/links/code) and model
+ * responses that use similarly well-delimited emphasis markers.
  */
 export function escapeTelegramMarkdownV2(
   text: string,
@@ -71,14 +72,9 @@ export function escapeTelegramMarkdownV2(
   return out;
 }
 
-type TelegramStyleMarker = '_' | '*' | '~' | '|';
+type TelegramStyleMarker = '_' | '*';
 
-const TELEGRAM_STYLE_MARKERS = new Set<TelegramStyleMarker>([
-  '_',
-  '*',
-  '~',
-  '|',
-]);
+const TELEGRAM_STYLE_MARKERS = new Set<TelegramStyleMarker>(['_', '*']);
 
 function isEscapedAt(text: string, index: number): boolean {
   let slashCount = 0;
@@ -86,6 +82,48 @@ function isEscapedAt(text: string, index: number): boolean {
     slashCount += 1;
   }
   return slashCount % 2 === 1;
+}
+
+function isWhitespace(value: string | undefined): boolean {
+  return value !== undefined && /\s/u.test(value);
+}
+
+function isWordChar(value: string | undefined): boolean {
+  return value !== undefined && /[\p{L}\p{N}]/u.test(value);
+}
+
+function isOpeningBoundary(value: string | undefined): boolean {
+  return value === undefined || isWhitespace(value) || /[([{\-]/u.test(value);
+}
+
+function isClosingBoundary(value: string | undefined): boolean {
+  return value === undefined || isWhitespace(value) || /[)\]}.,!?;:-]/u.test(value);
+}
+
+function isValidOpeningMarker(
+  text: string,
+  index: number,
+  marker: TelegramStyleMarker,
+): boolean {
+  const previous = text[index - 1];
+  const next = text[index + 1];
+  if (next === undefined || isWhitespace(next)) return false;
+  if (!isOpeningBoundary(previous)) return false;
+  if (marker === '_' && isWordChar(previous) && isWordChar(next)) return false;
+  return true;
+}
+
+function isValidClosingMarker(
+  text: string,
+  index: number,
+  marker: TelegramStyleMarker,
+): boolean {
+  const previous = text[index - 1];
+  const next = text[index + 1];
+  if (previous === undefined || isWhitespace(previous)) return false;
+  if (!isClosingBoundary(next)) return false;
+  if (marker === '_' && isWordChar(previous) && isWordChar(next)) return false;
+  return true;
 }
 
 function escapeTelegramMarkdownV2PlainSegment(
@@ -102,7 +140,11 @@ function escapeTelegramMarkdownV2PlainSegment(
   let index = 0;
   while (index < text.length) {
     const marker = text[index] as TelegramStyleMarker;
-    if (!TELEGRAM_STYLE_MARKERS.has(marker) || isEscapedAt(text, index)) {
+    if (
+      !TELEGRAM_STYLE_MARKERS.has(marker) ||
+      isEscapedAt(text, index) ||
+      !isValidOpeningMarker(text, index, marker)
+    ) {
       index += 1;
       continue;
     }
@@ -110,6 +152,7 @@ function escapeTelegramMarkdownV2PlainSegment(
     let closing = -1;
     for (let i = index + 1; i < text.length; i += 1) {
       if (text[i] !== marker || isEscapedAt(text, i)) continue;
+      if (!isValidClosingMarker(text, i, marker)) continue;
       closing = i;
       break;
     }

@@ -209,4 +209,53 @@ describe('Telegram MarkdownV2 chunk planner', () => {
     }
     expect(chunks.join('')).toBe(escaped);
   });
+
+  it('prefers splitting prose at whitespace boundaries when available', () => {
+    const raw = `${'alpha '.repeat(800)}omega`;
+    const escaped = escapeTelegramMarkdownV2(raw);
+    const chunks = splitTelegramDeliveryText(
+      escaped,
+      TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+      TELEGRAM_MESSAGE_MAX_LENGTH,
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks.slice(0, -1)) {
+      expect(chunk.length).toBeLessThanOrEqual(
+        TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+      );
+      expect(chunk.endsWith(' ')).toBe(true);
+    }
+    expect(chunks.join('')).toBe(escaped);
+  });
+
+  it('keeps a short heading attached to following prose when room remains', () => {
+    const raw = `*India Story*
+
+${'word '.repeat(1200)}`;
+    const chunks = splitTelegramDeliveryText(
+      raw,
+      TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+      TELEGRAM_MESSAGE_MAX_LENGTH,
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks[0]).toContain('*India Story*');
+    expect(chunks[0]).toContain('word');
+    expect(chunks[0].length).toBeGreaterThan(100);
+    expect(chunks.join('')).toBe(raw);
+  });
+
+  it('still splits long text without whitespace when no better boundary exists', () => {
+    const raw = 'x'.repeat(8000);
+    const escaped = escapeTelegramMarkdownV2(raw);
+    const chunks = splitTelegramDeliveryText(
+      escaped,
+      TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+      TELEGRAM_MESSAGE_MAX_LENGTH,
+    );
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join('')).toBe(escaped);
+  });
 });
