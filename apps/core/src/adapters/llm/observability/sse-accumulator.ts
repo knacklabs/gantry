@@ -67,7 +67,10 @@ export function createSseFrameSplitter(): SseFrameSplitter {
     },
     overflowed: () => overflowed,
     takePending: () => {
-      const rest = pending;
+      // Include the decoder flush so carry bytes of a split codepoint are
+      // emitted (as U+FFFD) rather than silently dropped; the byte-exact
+      // raw-buffer fallback remains the named revisit for this edge.
+      const rest = pending + decoder.end();
       pending = '';
       scanFrom = 0;
       return rest;

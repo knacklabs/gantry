@@ -167,10 +167,12 @@ async function handleDesiredState(
     // exists — an unconditional append could otherwise silently revert a
     // concurrent observability change, including the FIRST enable (head had
     // no block to preserve yet). Callers get the documented 409 + retry.
+    // 0 = "expect no head" (null would be an unconditional append and
+    // could erase a concurrent FIRST revision).
     const effectiveExpectedRevision =
       typeof body.expectedRevision === 'number'
         ? body.expectedRevision
-        : (latestForPreserve?.revision ?? null);
+        : (latestForPreserve?.revision ?? 0);
     // Decode the inbound typed document through the shared settings parser so a
     // structurally invalid document surfaces the same document-path-level error
     // the file/CLI surface produces (one validation path). YAML never reaches

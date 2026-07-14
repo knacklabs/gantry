@@ -101,6 +101,9 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 
 | E.31 | The CAS must also cover the first-enable window | Branch autoreview r15 (P2): a head WITHOUT the block left the append unconditional, so a concurrent first enable could be erased | API appends bind to whatever head they read (409 + retry is the documented flow) | First tracing enable silently reverted by a racing API write | fixed |
 
+| E.32 | An empty revision history needs `expectedRevision: 0`, not null | Branch autoreview r16 (P2): the repository treats null as unconditional — a racing FIRST revision could still be erased | Fence uses `latestForPreserve?.revision ?? 0` ("expect no head") | First-enable race via empty-history window | fixed |
+| E.33 | Decoder carry bytes must be emitted on overflow fallback | Branch autoreview r16 (P2, sharpening E.11): carry bytes were dropped, not just mangled | `takePending()` includes the decoder flush (split codepoint → U+FFFD, nothing dropped); byte-exact raw-buffer fallback stays the named revisit | ≤1 mangled codepoint on a >1 MiB single-frame stream in inject mode | fixed (residual documented) |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |
