@@ -6,7 +6,6 @@ import type {
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
   'scheduler_pause_job',
-  'scheduler_open',
 ]);
 
 type SlackAppLike = {

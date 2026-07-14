@@ -148,7 +148,7 @@ export class PermissionManagementService {
     );
     if (allowedRules.length === 0) return [];
     for (const allowedRule of allowedRules) {
-      this.validatePersistentRule(allowedRule, {
+      validatePersistentRule(allowedRule, {
         semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
       });
     }
@@ -463,28 +463,27 @@ export class PermissionManagementService {
     };
     await input.permissionRepository.saveDecision(decision);
   }
+}
 
-  private validatePersistentRule(
-    allowedRule: string,
-    options: {
-      semanticCapabilityDefinitions?: Record<
-        string,
-        SemanticCapabilityDefinition
-      >;
-    },
-  ): void {
-    const validation = validateDurableAccessRule(allowedRule, {
-      ...options,
-      allowUnknownSemanticCapability: false,
-    });
-    if (!validation.ok) throw new Error(validation.reason);
-    const gantryMcpTool =
-      durableExactGantryMcpToolFullNameFromRule(allowedRule);
-    if (gantryMcpTool && gantryMcpTool !== allowedRule) {
-      throw new Error(
-        'Persistent Gantry MCP tool grants must request the exact tool name without a scoped rule.',
-      );
-    }
+export function validatePersistentRule(
+  allowedRule: string,
+  options: {
+    semanticCapabilityDefinitions?: Record<
+      string,
+      SemanticCapabilityDefinition
+    >;
+  } = {},
+): void {
+  const validation = validateDurableAccessRule(allowedRule, {
+    ...options,
+    allowUnknownSemanticCapability: false,
+  });
+  if (!validation.ok) throw new Error(validation.reason);
+  const gantryMcpTool = durableExactGantryMcpToolFullNameFromRule(allowedRule);
+  if (gantryMcpTool && gantryMcpTool !== allowedRule) {
+    throw new Error(
+      'Persistent Gantry MCP tool grants must request the exact tool name without a scoped rule.',
+    );
   }
 }
 

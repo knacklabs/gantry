@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { createHmac } from 'node:crypto';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   conversationMessageTarget,
@@ -193,6 +193,37 @@ describe('@gantry/sdk transport', () => {
         conversationId: 'conv-one',
       }),
     ).resolves.toEqual({ sessionId: 'session-1' });
+  });
+
+  it('builds the usage query from every typed filter', async () => {
+    const client = new GantryClient({
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:3939',
+    });
+    const request = vi
+      .spyOn(
+        (client as unknown as { transport: { request: () => unknown } })
+          .transport,
+        'request',
+      )
+      .mockResolvedValue({ usage: [] });
+
+    await expect(
+      client.usage.query({
+        from: '2026-07-01T00:00:00.000Z',
+        to: '2026-07-02T00:00:00.000Z',
+        agentId: 'agent/1',
+        apiKeyId: 'key/1',
+        runId: 'run/1',
+        jobId: 'job/1',
+        model: 'opus/4',
+        group_by: 'api_key',
+      }),
+    ).resolves.toEqual({ usage: [] });
+    expect(request).toHaveBeenCalledWith({
+      method: 'GET',
+      path: '/v1/usage?from=2026-07-01T00%3A00%3A00.000Z&to=2026-07-02T00%3A00%3A00.000Z&agentId=agent%2F1&apiKeyId=key%2F1&runId=run%2F1&jobId=job%2F1&model=opus%2F4&group_by=api_key',
+    });
   });
 
   it('builds ingress management requests', async () => {

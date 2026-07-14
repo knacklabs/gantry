@@ -5,6 +5,10 @@ import {
   summarizeBashCommandPrograms,
 } from '../shared/bash-command-parser.js';
 import { generatedRuntimeSkillPathDisplay } from '../shared/generated-runtime-paths.js';
+import {
+  stripHostInjectedEnvPrefix,
+  stripRuntimeEnvPrefix,
+} from '../shared/runtime-env-command.js';
 import { escapeMarkdownFenceDelimiters } from './permission-fenced-content.js';
 
 const PERMISSION_JSON_MAX_KEYS = 12;
@@ -35,30 +39,6 @@ function isInternalPlumbingKey(key: string): boolean {
 }
 const REDACTION_MARKER_PATTERN =
   /\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/;
-const RUNTIME_ENV_ASSIGNMENT_KEYS = new Set([
-  'GODEBUG',
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'http_proxy',
-  'https_proxy',
-  'ALL_PROXY',
-  'all_proxy',
-  'FTP_PROXY',
-  'ftp_proxy',
-  'RSYNC_PROXY',
-  'DOCKER_HTTP_PROXY',
-  'DOCKER_HTTPS_PROXY',
-  'CLOUDSDK_PROXY_TYPE',
-  'CLOUDSDK_PROXY_ADDRESS',
-  'CLOUDSDK_PROXY_PORT',
-  'GRPC_PROXY',
-  'grpc_proxy',
-  'GIT_SSH_COMMAND',
-  'NODE_USE_ENV_PROXY',
-  'NO_PROXY',
-  'no_proxy',
-]);
-
 type PermissionTextSanitizer = (
   input: string,
   head: number,
@@ -298,83 +278,16 @@ export function runtimeDisplayCommand(command: string): {
   command: string;
   runtimeEnvAssignments: string[];
 } {
-  const parsed = splitRuntimeEnvAssignments(command);
-  if (!parsed || !parsed.command.trim()) {
-    return { command, runtimeEnvAssignments: [] };
-  }
+  // Host-injected proxy/CA plumbing carries no decision value for the
+  // approver and leaks internal topology — drop it from the prompt entirely.
+  // Agent-supplied env assignments (e.g. a non-loopback proxy) still display.
+  const parsed = stripRuntimeEnvPrefix(
+    stripHostInjectedEnvPrefix(command).command,
+  );
   return {
-    command: parsed.command.trim(),
-    runtimeEnvAssignments: parsed.assignments,
+    command: parsed.command,
+    runtimeEnvAssignments: parsed.envAssignments,
   };
-}
-
-function splitRuntimeEnvAssignments(
-  command: string,
-): { command: string; assignments: string[] } | null {
-  let offset = 0;
-  const assignments: string[] = [];
-  while (offset < command.length) {
-    const next = parseRuntimeEnvAssignment(command, offset);
-    if (!next) break;
-    assignments.push(
-      command.slice(skipSpaces(command, offset), next.nextOffset).trim(),
-    );
-    offset = next.nextOffset;
-  }
-  if (assignments.length === 0) return null;
-  return { command: command.slice(offset), assignments };
-}
-
-function parseRuntimeEnvAssignment(
-  command: string,
-  offset: number,
-): { nextOffset: number } | null {
-  let cursor = skipSpaces(command, offset);
-  const keyMatch = command.slice(cursor).match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
-  if (!keyMatch?.[1] || !RUNTIME_ENV_ASSIGNMENT_KEYS.has(keyMatch[1])) {
-    return null;
-  }
-  cursor += keyMatch[0].length;
-  const parsedValue = parseShellAssignmentValue(command, cursor);
-  if (!parsedValue || parsedValue.nextOffset === cursor) return null;
-  return { nextOffset: skipSpaces(command, parsedValue.nextOffset) };
-}
-
-function parseShellAssignmentValue(
-  command: string,
-  offset: number,
-): { nextOffset: number } | null {
-  const quote = command[offset];
-  if (quote === "'" || quote === '"') {
-    let cursor = offset + 1;
-    while (cursor < command.length) {
-      if (command[cursor] === '\\') {
-        cursor += 2;
-        continue;
-      }
-      if (command[cursor] === quote) {
-        return { nextOffset: cursor + 1 };
-      }
-      cursor += 1;
-    }
-    return null;
-  }
-  let cursor = offset;
-  while (
-    cursor < command.length &&
-    !/[\s;|&<>()]/.test(command[cursor] ?? '')
-  ) {
-    cursor += 1;
-  }
-  return { nextOffset: cursor };
-}
-
-function skipSpaces(command: string, offset: number): number {
-  let cursor = offset;
-  while (cursor < command.length && /\s/.test(command[cursor] ?? '')) {
-    cursor += 1;
-  }
-  return cursor;
 }
 
 function formatApproxBytes(bytes: number): string {

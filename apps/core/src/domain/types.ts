@@ -1,4 +1,5 @@
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 
 export type {
   Job,
@@ -64,6 +65,7 @@ export interface AgentConfig {
   relationshipMode?: import('../shared/agent-relationship-mode.js').AgentRelationshipMode;
   model?: string; // Optional model alias/full name for this group
   thinking?: ThinkingOverride; // Optional thinking override for this group
+  permissionMode?: PermissionMode;
   timeout?: number; // Default: 300000 (5 minutes)
 }
 
@@ -125,6 +127,7 @@ export interface PermissionApprovalRequest {
   providerAccountId?: string;
   responseNonce?: string;
   sourceAgentFolder: string;
+  requestFamily?: 'tool' | 'admin' | 'review' | 'promotion';
   runHandle?: string;
   jobId?: string;
   jobName?: string;
@@ -136,6 +139,9 @@ export interface PermissionApprovalRequest {
   threadId?: string;
   responseKeyId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
+  unattended?: boolean;
+  senderId?: string;
+  turnIntentSummary?: string;
   toolName: string;
   toolUseID?: string;
   agentID?: string;
@@ -150,16 +156,18 @@ export interface PermissionApprovalRequest {
   };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  toolInputSanitized?: boolean;
+  toolInputSanitizedPaths?: string[];
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];
+  promotionHintCount?: number;
   interaction?: InteractionDescriptor;
 }
 
 export type PermissionApprovalDecisionMode =
   | 'allow_once'
   | 'allow_persistent_rule'
-  | 'allow_timed_grant'
   | 'cancel';
 
 export interface PermissionApprovalRuleValue {
@@ -194,7 +202,6 @@ export interface PermissionApprovalDecision {
   reason?: string;
   updatedPermissions?: PermissionApprovalUpdate[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
-  timedGrantExpiresAtMs?: number;
 }
 
 export interface UserQuestionOption {
@@ -380,12 +387,11 @@ export interface ProgressUpdateOptions {
 export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
   | 'scheduler_pause_job'
-  | 'scheduler_open'
   | 'live_turn_stop';
 
 export type MessageActionAffordance =
   | {
-      kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_open';
+      kind: 'scheduler_run_now' | 'scheduler_pause_job';
       label: string;
       jobId: string;
       runId?: string | null;

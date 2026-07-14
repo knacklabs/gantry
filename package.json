@@ -38,13 +38,16 @@
   ],
   "workspaces": [
     "packages/contracts",
-    "packages/sdk"
+    "packages/sdk",
+    "examples/nextjs-workflows"
   ],
   "scripts": {
     "build:contracts": "npm run build --workspace @gantry/contracts",
     "build:sdk": "npm run build --workspace @gantry/sdk",
+    "build:examples": "npm run typecheck --workspace @gantry/example-nextjs-workflows && npm run build --workspace @gantry/example-nextjs-workflows",
     "clean": "rm -rf dist packages/contracts/dist packages/sdk/dist",
-    "build": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations && chmod +x dist/cli/index.js",
+    "build:runtime": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations && chmod +x dist/cli/index.js",
+    "build": "npm run build:runtime && npm run build:examples",
     "copy:migrations": "mkdir -p dist/adapters/storage/postgres/schema && cp -R apps/core/src/adapters/storage/postgres/schema/migrations dist/adapters/storage/postgres/schema/",
     "db:migrate": "node dist/postgres-migrate.js",
     "start": "npm run db:migrate && node dist/index.js",
@@ -66,7 +69,7 @@
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",
     "test:unit": "npm run build:contracts && vitest run -c vitest.unit.config.ts",
     "test:integration": "npm run build:contracts && vitest run -c vitest.integration.config.ts",
-    "test:integration:postgres": "node .codex/scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.integration.config.ts --no-file-parallelism apps/core/test/integration/session-continuity-postgres.integration.test.ts apps/core/test/integration/application-services-postgres.integration.test.ts apps/core/test/integration/durable-message-delivery.integration.test.ts apps/core/test/integration/outbound-delivery.postgres.integration.test.ts apps/core/test/integration/jobs-runs-memory-flow.integration.test.ts apps/core/test/integration/mcp-server-postgres.integration.test.ts apps/core/test/integration/control-plane-repository.postgres.integration.test.ts apps/core/test/integration/runtime-event-outbox.postgres.integration.test.ts apps/core/test/integration/file-artifacts-postgres.integration.test.ts apps/core/test/integration/pending-access-requests.postgres.integration.test.ts apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts apps/core/test/integration/deepagents-postgres-checkpoint.integration.test.ts apps/core/test/integration/deepagents-langchain-boundary.integration.test.ts apps/core/test/integration/pattern-subject-keying.integration.test.ts apps/core/test/integration/brain-core.postgres.integration.test.ts apps/core/test/integration/brain-harvest-dreaming.postgres.integration.test.ts apps/core/test/integration/memory-review-dedupe.postgres.integration.test.ts",
+    "test:integration:postgres": "node .codex/scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.integration.config.ts --no-file-parallelism apps/core/test/integration/session-continuity-postgres.integration.test.ts apps/core/test/integration/application-services-postgres.integration.test.ts apps/core/test/integration/durable-message-delivery.integration.test.ts apps/core/test/integration/outbound-delivery.postgres.integration.test.ts apps/core/test/integration/jobs-runs-memory-flow.integration.test.ts apps/core/test/integration/mcp-server-postgres.integration.test.ts apps/core/test/integration/control-plane-repository.postgres.integration.test.ts apps/core/test/integration/runtime-event-outbox.postgres.integration.test.ts apps/core/test/integration/file-artifacts-postgres.integration.test.ts apps/core/test/integration/pending-access-requests.postgres.integration.test.ts apps/core/test/integration/live-admission-work-items.postgres.integration.test.ts apps/core/test/integration/deepagents-postgres-checkpoint.integration.test.ts apps/core/test/integration/deepagents-langchain-boundary.integration.test.ts apps/core/test/integration/pattern-subject-keying.integration.test.ts apps/core/test/integration/brain-core.postgres.integration.test.ts apps/core/test/integration/brain-harvest-dreaming.postgres.integration.test.ts apps/core/test/integration/memory-review-dedupe.postgres.integration.test.ts apps/core/test/integration/usage-postgres.integration.test.ts apps/core/test/integration/permission-promotion-postgres.integration.test.ts",
     "test:integration:postgres:hot-path": "node .codex/scripts/require-postgres-integration-env.mjs && npm run build:contracts && GANTRY_POSTGRES_HOT_PATH=1 vitest run -c vitest.integration.config.ts --no-file-parallelism apps/core/test/integration/mcp-inventory-audit-explain.postgres.integration.test.ts apps/core/test/integration/live-turn-recoverable-explain.postgres.integration.test.ts apps/core/test/integration/postgres-hot-path-explain.postgres.integration.test.ts apps/core/test/integration/memory-recall-explain.postgres.integration.test.ts",
     "test:e2e": "npm run build:contracts && vitest run -c vitest.e2e.config.ts",
     "test:e2e:postgres": "node .codex/scripts/require-postgres-integration-env.mjs && npm run build:contracts && vitest run -c vitest.e2e.config.ts --no-file-parallelism apps/core/test/e2e/claim-protocol-two-process.e2e.test.ts",
@@ -97,6 +100,7 @@
     "cron-parser": "5.5.0",
     "dayjs": "^1.11.20",
     "deepagents": "1.10.2",
+    "langchain": "1.4.4",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",
     "google-auth-library": "^10.7.0",

@@ -50,6 +50,7 @@ describe('shared core tool handlers', () => {
       context: {
         sourceAgentFolder: 'main_agent',
         conversationId: 'conversation:test',
+        permissionMode: 'ask',
       },
       sendMessage,
       requestUserAnswer: vi.fn(),
@@ -74,6 +75,7 @@ describe('shared core tool handlers', () => {
       context: {
         sourceAgentFolder: 'main_agent',
         conversationId: 'conversation:test',
+        permissionMode: 'ask',
       },
       sendMessage: vi.fn(),
       requestUserAnswer: vi.fn(),
@@ -143,6 +145,7 @@ describe('shared core tool handlers', () => {
       context: {
         sourceAgentFolder: 'main_agent',
         conversationId: 'conversation:test',
+        permissionMode: 'ask',
       },
       sendMessage: vi.fn(),
       requestUserAnswer: vi.fn(),

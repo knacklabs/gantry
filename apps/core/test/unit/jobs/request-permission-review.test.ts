@@ -12,7 +12,6 @@ import {
   requestPermissionReviewSuggestions,
   requestPermissionTransientLiveRules,
   requestPermissionSetupDecisionOptions,
-  semanticCapabilityDefinitionsForToolInput,
 } from '@core/jobs/request-permission-review.js';
 import type { SemanticCapabilityDefinition } from '@core/shared/semantic-capabilities.js';
 
@@ -147,7 +146,7 @@ describe('request permission review helpers', () => {
     ).toEqual([]);
   });
 
-  it('omits timed grants from setup request permission choices', () => {
+  it('returns setup request permission choices by tool kind', () => {
     expect(
       requestPermissionSetupDecisionOptions({
         permissionKind: 'tool',
@@ -182,16 +181,7 @@ describe('request permission review helpers', () => {
     ]);
   });
 
-  it('does not trust agent-authored semantic capability definitions', () => {
-    expect(
-      semanticCapabilityDefinitionsForToolInput({
-        permissionKind: 'tool',
-        capabilityRequestSource: 'request_access',
-        capabilityId: 'acme.records.get',
-        semanticCapabilityDefinition: acmeAdapterCapability,
-      }),
-    ).toBeUndefined();
-
+  it('ignores agent-authored semantic capability definitions', () => {
     expect(
       requestPermissionReviewSuggestions({
         permissionKind: 'tool',

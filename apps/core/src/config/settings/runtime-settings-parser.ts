@@ -294,10 +294,11 @@ function parseConversationInstalledAgents(
         key !== 'memory_scope' &&
         key !== 'trigger' &&
         key !== 'requires_trigger' &&
-        key !== 'model'
+        key !== 'model' &&
+        key !== 'permission_mode'
       ) {
         throw new Error(
-          `${installPath}.${key} is not supported. Configure provider_account, agent, thread_id, status, added_at, memory_scope, trigger, requires_trigger, or model.`,
+          `${installPath}.${key} is not supported. Configure provider_account, agent, thread_id, status, added_at, memory_scope, trigger, requires_trigger, model, or permission_mode.`,
         );
       }
     }
@@ -356,6 +357,14 @@ function parseConversationInstalledAgents(
         throw new Error(`${installPath}.model is invalid: ${resolved.message}`);
       }
     }
+    const permissionMode = map.permission_mode;
+    if (
+      permissionMode !== undefined &&
+      permissionMode !== 'ask' &&
+      permissionMode !== 'auto'
+    ) {
+      throw new Error(`${installPath}.permission_mode must be ask or auto`);
+    }
     installs[installId] = {
       agentId,
       providerAccountId,
@@ -377,6 +386,7 @@ function parseConversationInstalledAgents(
         defaultRequiresTrigger,
       ),
       model,
+      permissionMode,
     };
   }
   return installs;

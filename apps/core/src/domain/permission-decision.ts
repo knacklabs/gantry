@@ -6,11 +6,9 @@ import type {
   PermissionApprovalUpdate,
 } from './types.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
-import { nowMs } from '../shared/time/datetime.js';
 import { validateDurableAccessRule } from '../shared/durable-access-policy.js';
 import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
 
-export const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 export const PERSISTENT_RULE_APPROVAL_MAX_RULES = 5;
 
 export function persistentPermissionUpdates(
@@ -87,7 +85,7 @@ function isPermissionDecisionModeAllowed(
   if (mode === 'allow_persistent_rule') {
     return Boolean(firstPersistentRule(request));
   }
-  return mode === 'allow_once' || mode === 'allow_timed_grant';
+  return mode === 'allow_once';
 }
 
 export function decisionForMode(
@@ -111,16 +109,6 @@ export function decisionForMode(
       decidedBy,
       reason: 'approval option unavailable',
       decisionClassification: 'user_reject',
-    };
-  }
-  if (mode === 'allow_timed_grant') {
-    return {
-      approved: true,
-      mode,
-      decidedBy,
-      reason: `timed grant for eligible tools and SDK API prompts (${Math.round(TIMED_GRANT_DURATION_MS / 60000)} min)`,
-      decisionClassification: 'user_temporary',
-      timedGrantExpiresAtMs: nowMs() + TIMED_GRANT_DURATION_MS,
     };
   }
   if (mode === 'allow_persistent_rule') {

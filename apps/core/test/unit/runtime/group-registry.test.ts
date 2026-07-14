@@ -48,6 +48,7 @@ import { PromptProfileService } from '@core/application/agents/prompt-profile-se
 import {
   registerGroup,
   setGroupModelOverride,
+  setGroupPermissionModeOverride,
   setGroupThinkingOverride,
   listAvailableGroups,
 } from '@core/runtime/group-registry.js';
@@ -365,6 +366,38 @@ describe('setGroupThinkingOverride', () => {
     expect(groups['g1@g.us'].agentConfig?.thinking).toEqual({
       mode: 'disabled',
     });
+  });
+});
+
+describe('setGroupPermissionModeOverride', () => {
+  it('sets and clears the override while preserving other agent config', () => {
+    const groups = {
+      'g1@g.us': makeGroup({ agentConfig: { model: 'haiku' } }),
+    };
+    const persist = vi.fn<PersistGroupFn>();
+
+    setGroupPermissionModeOverride(groups, 'g1@g.us', 'auto', persist);
+    expect(groups['g1@g.us'].agentConfig).toEqual({
+      model: 'haiku',
+      permissionMode: 'auto',
+    });
+    setGroupPermissionModeOverride(groups, 'g1@g.us', undefined, persist);
+    expect(groups['g1@g.us'].agentConfig).toEqual({ model: 'haiku' });
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not mutate before successful persistence', async () => {
+    const groups = {
+      'g1@g.us': makeGroup({ agentConfig: { permissionMode: 'ask' } }),
+    };
+    const persist = vi
+      .fn<PersistGroupFn>()
+      .mockRejectedValue(new Error('db down'));
+
+    await expect(
+      setGroupPermissionModeOverride(groups, 'g1@g.us', 'auto', persist),
+    ).rejects.toThrow('db down');
+    expect(groups['g1@g.us'].agentConfig?.permissionMode).toBe('ask');
   });
 });
 

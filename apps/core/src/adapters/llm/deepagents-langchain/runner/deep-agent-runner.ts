@@ -29,12 +29,17 @@ import {
   createDeepAgentStartupTiming,
 } from './startup-diagnostic.js';
 import type { DeepAgentRunnerInput } from './types.js';
+import {
+  RunScopedToolSuccessLedger,
+  type DeclarativeToolRuleDenial,
+} from '../../../../runner/tool-gate-core.js';
 import type {
   DeepAgentCheckpointSaver,
   DeepAgentCheckpointTiming,
 } from './session-store.js';
 import type { RunnerOutputFrame } from '../../../../runner/runner-frame.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 
 // Raw DeepAgents authority is fully disabled in v1: the default StateBackend has
 // no `execute` tool, and filesystem permissions deny reads/writes unless the
@@ -94,6 +99,7 @@ export async function runDeepAgentTurn(input: {
   checkpointer?: DeepAgentCheckpointSaver;
   checkpointTiming?: DeepAgentCheckpointTiming;
   includeMemoryContext: boolean;
+  toolSuccessLedger?: RunScopedToolSuccessLedger;
   emit: (frame: RunnerOutputFrame) => void;
   log?: (message: string) => void;
   // Marks tool activity (by name) on each tool-call start; the scheduled-job
@@ -147,10 +153,54 @@ export async function runDeepAgentTurn(input: {
   const permissionEnv = startupTiming.measure('permissionEnvMs', () =>
     buildPermissionIpcRuntimeEnv(),
   );
+  const toolSuccessLedger = input.agentInput.toolRules?.length
+    ? (input.toolSuccessLedger ?? new RunScopedToolSuccessLedger())
+    : undefined;
   logElapsed('Permission env prepared');
   const connected = await startupTiming.measureAsync('mcpConnectMs', () =>
     connectGantryAndThirdPartyMcpTools({
       configuredAllowedTools,
+      ...(toolSuccessLedger
+        ? {
+            toolRules: input.agentInput.toolRules,
+            toolSuccessLedger,
+            onToolRuleDenial: (
+              toolName: string,
+              denial: DeclarativeToolRuleDenial,
+            ) => {
+              if (!input.agentInput.isScheduledJob || !input.agentInput.jobId) {
+                return;
+              }
+              input.emit({
+                status: 'success',
+                result: null,
+                newSessionId: input.newSessionId,
+                runtimeEvents: [
+                  {
+                    appId: input.agentInput.appId,
+                    agentId: input.agentInput.agentId,
+                    runId: input.agentInput.runId,
+                    jobId: input.agentInput.jobId,
+                    conversationId: input.agentInput.chatJid,
+                    threadId: input.agentInput.threadId,
+                    eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+                    actor: 'runner',
+                    responseMode: 'none',
+                    payload: {
+                      phase: 'deny',
+                      tool: toolName,
+                      sdk_tool: toolName,
+                      ok: false,
+                      reason: denial.error.message,
+                      decision: denial.decision,
+                      error: denial.error,
+                    },
+                  },
+                ],
+              });
+            },
+          }
+        : {}),
       toolNetworkEnv: input.agentInput.toolNetworkEnv,
       hideAuthorityTools: input.agentInput.hideAuthorityTools === true,
       // The gated shell tool (when projected) runs commands as a child of this

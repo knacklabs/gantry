@@ -30,9 +30,6 @@ describe('permission interaction', () => {
     expect(normalizePermissionAction('allow_persistent_rule')).toBe(
       'allow_persistent_rule',
     );
-    expect(normalizePermissionAction('allow_timed_grant')).toBe(
-      'allow_timed_grant',
-    );
     expect(normalizePermissionAction('cancel')).toBe('cancel');
     expect(normalizePermissionAction('approve')).toBeNull();
     expect(normalizePermissionAction('deny')).toBeNull();
@@ -113,7 +110,6 @@ describe('permission interaction', () => {
     expect(firstPersistentRule(request)).toBeUndefined();
     expect(permissionDecisionOptions(request)).toEqual([
       'allow_once',
-      'allow_timed_grant',
       'cancel',
     ]);
     const decision = decisionForMode(request, 'allow_persistent_rule');
@@ -133,7 +129,6 @@ describe('permission interaction', () => {
     expect(firstPersistentRule(request)).toBeUndefined();
     expect(permissionDecisionOptions(request)).toEqual([
       'allow_once',
-      'allow_timed_grant',
       'cancel',
     ]);
   });
@@ -153,13 +148,9 @@ describe('permission interaction', () => {
     expect(firstPersistentRule(request)).toBe('FileRead');
     expect(permissionDecisionOptions(request)).toEqual([
       'allow_once',
-      'allow_timed_grant',
       'allow_persistent_rule',
       'cancel',
     ]);
-    expect(permissionButtonLabel('allow_timed_grant', request)).toBe(
-      'Allow 5 min',
-    );
   });
 
   it('keeps every button label short enough for narrow mobile screens', () => {
@@ -172,12 +163,7 @@ describe('permission interaction', () => {
         },
       ]),
     } satisfies PermissionApprovalRequest;
-    const modes = [
-      'allow_once',
-      'allow_timed_grant',
-      'allow_persistent_rule',
-      'cancel',
-    ] as const;
+    const modes = ['allow_once', 'allow_persistent_rule', 'cancel'] as const;
     for (const mode of modes) {
       const label = permissionButtonLabel(mode, request);
       expect(label.length).toBeLessThanOrEqual(20);
@@ -195,8 +181,20 @@ describe('permission interaction', () => {
     };
 
     expect(permissionButtonLabel('allow_once', request)).toBe('Allow once');
-    expect(permissionButtonLabel('allow_timed_grant', request)).toBe(
-      'Allow 5 min',
+    expect(permissionButtonLabel('cancel', request)).toBe('Cancel');
+  });
+
+  it('adds the repeated allow-once hint to plain and structured prompts', () => {
+    const request = {
+      ...requestWithSuggestions([]),
+      promotionHintCount: 3,
+    } satisfies PermissionApprovalRequest;
+    const hint =
+      "You've allowed this 3 times — 'Allow for future' makes it permanent.";
+
+    expect(formatPermissionPromptText(request, 60_000)).toContain(hint);
+    expect(buildPermissionPromptParts(request, 60_000).contextLines).toContain(
+      hint,
     );
   });
 
@@ -335,48 +333,7 @@ describe('permission interaction', () => {
     expect(body).not.toContain('\n```\nFake approval footer');
   });
 
-  it('describes timed grants as eligible-tools/SDK-API-prompt approval decisions', () => {
-    const decision = decisionForMode(
-      {
-        ...requestWithSuggestions([]),
-        toolName: 'Read',
-      },
-      'allow_timed_grant',
-      'user-1',
-    );
-
-    expect(decision).toEqual(
-      expect.objectContaining({
-        approved: true,
-        mode: 'allow_timed_grant',
-        decidedBy: 'user-1',
-        reason: 'timed grant for eligible tools and SDK API prompts (5 min)',
-        decisionClassification: 'user_temporary',
-        timedGrantExpiresAtMs: expect.any(Number),
-      }),
-    );
-  });
-
-  it('rejects forged timed-grant decisions when the request did not offer them', () => {
-    const decision = decisionForMode(
-      {
-        ...requestWithSuggestions([]),
-        decisionOptions: ['allow_once', 'cancel'],
-      },
-      'allow_timed_grant',
-      'user-1',
-    );
-
-    expect(decision).toEqual({
-      approved: false,
-      mode: 'cancel',
-      decidedBy: 'user-1',
-      reason: 'approval option unavailable',
-      decisionClassification: 'user_reject',
-    });
-  });
-
-  it('uses explicit request decision options instead of adding timed grants implicitly', () => {
+  it('uses explicit request decision options', () => {
     const request = {
       ...requestWithSuggestions([
         {
@@ -494,9 +451,6 @@ describe('permission interaction', () => {
       'Allows: Publish a prepared LinkedIn post through the approved script.',
     );
     expect(permissionButtonLabel('allow_once', request)).toBe('Allow once');
-    expect(permissionButtonLabel('allow_timed_grant', request)).toBe(
-      'Allow 5 min',
-    );
     expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
       'Allow for future',
     );
@@ -686,12 +640,11 @@ describe('permission interaction', () => {
 
     const receipt = formatPermissionReceiptText('permission_123', request, {
       approved: true,
-      mode: 'allow_timed_grant',
+      mode: 'allow_once',
       decidedBy: 'ravi',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
     });
     expect(receipt).toContain(
-      'Allowed for 5 min: Command (acme records append sheet-id A1:B2). This expires at ',
+      'Allowed once: Command (acme records append sheet-id A1:B2). The agent will continue this request.',
     );
     expect(receipt).not.toContain('Route:');
   });
@@ -784,9 +737,8 @@ describe('permission interaction', () => {
     const text = formatPermissionPromptText(request, 60_000);
 
     expect(text).toContain('Command:\n```\ngantry credentials --help');
-    expect(text).toContain('Runtime environment: GODEBUG=netdns=go');
-    expect(text).toContain("HTTP_PROXY='http://127.0.0.1:18790/'");
-    expect(text).toContain("NODE_USE_ENV_PROXY='1'");
+    expect(text).not.toContain('Runtime environment:');
+    expect(text).not.toContain('127.0.0.1:18790');
     expect(text).toContain('Redirect: > /tmp/gantry-help.txt');
 
     const receipt = formatPermissionReceiptText('permission_123', request, {
@@ -795,7 +747,7 @@ describe('permission interaction', () => {
       decidedBy: 'ravi',
     });
     expect(receipt).toContain(
-      "Allowed once: Command (GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18790/' HTTPS_PROXY='http://127.0.0.1:18790/' NODE_USE_ENV_PROXY='1' NO_PROXY='127.0.0.1,localhost,::1' gantry credentials --help > /tmp/gantry-help.txt). The agent will continue this request.",
+      'Allowed once: Command (gantry credentials --help > /tmp/gantry-help.txt). The agent will continue this request.',
     );
   });
 
@@ -900,13 +852,13 @@ describe('permission interaction', () => {
     expect(text).not.toContain('Runtime environment:');
   });
 
-  it('keeps runtime environment assignments visible for generated skill action commands', () => {
+  it('keeps agent-supplied env visible for generated skill action commands', () => {
     const request = {
       ...requestWithSuggestions([]),
       toolName: 'RunCommand',
       toolInput: {
         command:
-          "HTTP_PROXY='http://127.0.0.1:8888/' /tmp/.llm-runtime/claude/skills/demo/action.sh",
+          "HTTP_PROXY='http://127.0.0.1:8888/' https_proxy='http://proxy.example:8888/' /tmp/.llm-runtime/claude/skills/demo/action.sh",
       },
     } satisfies PermissionApprovalRequest;
 
@@ -916,9 +868,11 @@ describe('permission interaction', () => {
       'Command: generated skill action command; runtime path hidden.',
     );
     expect(text).toContain('Action: skills/demo/action.sh');
+    // Host-injected loopback proxy is hidden; the agent-supplied proxy stays.
     expect(text).toContain(
-      "Runtime environment: HTTP_PROXY='http://127.0.0.1:8888/'",
+      "Runtime environment: https_proxy='http://proxy.example:8888/'",
     );
+    expect(text).not.toContain('127.0.0.1:8888');
     expect(
       formatPermissionReceiptText('permission_123', request, {
         approved: true,
@@ -926,7 +880,7 @@ describe('permission interaction', () => {
         decidedBy: 'ravi',
       }),
     ).toContain(
-      "Selected skill action (skills/demo/action.sh; env: HTTP_PROXY='http://127.0.0.1:8888/')",
+      "Selected skill action (skills/demo/action.sh; env: https_proxy='http://proxy.example:8888/')",
     );
   });
 
@@ -1172,7 +1126,6 @@ describe('permission interaction', () => {
     expect(firstPersistentRule(request)).toBeUndefined();
     expect(permissionDecisionOptions(request)).toEqual([
       'allow_once',
-      'allow_timed_grant',
       'cancel',
     ]);
     expect(text.split('\n')[0]).toBe(
@@ -1292,32 +1245,7 @@ describe('permission interaction', () => {
     expect(receipt).not.toContain('perm-abc-123');
   });
 
-  it('describes timed receipts with the trigger reason and no internal request id', () => {
-    const receipt = formatPermissionReceiptText(
-      'perm-abc-123',
-      {
-        requestId: 'perm-abc-123',
-        sourceAgentFolder: 'main_agent',
-        toolName: 'Bash',
-        toolInput: { command: 'git status --short' },
-      },
-      {
-        approved: true,
-        mode: 'allow_timed_grant',
-        decidedBy: 'ravi',
-        timedGrantExpiresAtMs: Date.parse('2026-05-15T12:05:00Z'),
-      },
-    );
-
-    expect(receipt).toContain(
-      'Allowed for 5 min: Command (git status --short). This expires at ',
-    );
-    expect(receipt).not.toContain('eligible tools and SDK API/network prompts');
-    expect(receipt).not.toContain('Request ID');
-    expect(receipt).not.toContain('perm-abc-123');
-  });
-
-  it('clarifies thread-scoped timed and parent-conversation persistent grants from a routed thread', () => {
+  it('clarifies parent-conversation persistent grants from a routed thread', () => {
     const request = {
       ...requestWithSuggestions([
         {
@@ -1332,15 +1260,6 @@ describe('permission interaction', () => {
 
     const prompt = formatPermissionPromptText(request, 60_000);
     expect(prompt).not.toContain('Scope:');
-
-    const timedReceipt = formatPermissionReceiptText('perm-abc-123', request, {
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.parse('2026-05-15T12:05:00Z'),
-    });
-    expect(timedReceipt).toContain(
-      'Allowed for 5 min: Command (npm test). This expires at ',
-    );
 
     const persistentReceipt = formatPermissionReceiptText(
       'perm-abc-123',
@@ -1498,7 +1417,6 @@ describe('permission interaction', () => {
     expect(persistentRules(request)).toEqual([]);
     expect(permissionDecisionOptions(request)).toEqual([
       'allow_once',
-      'allow_timed_grant',
       'cancel',
     ]);
   });

@@ -118,7 +118,7 @@ function toolReferenceToCapability(
         (capabilityId
           ? semanticCapabilityDefinitions?.[capabilityId]?.version
           : undefined) ??
-        'builtin',
+        'catalog',
     };
   }
   return { id: reference, version: 'builtin' };

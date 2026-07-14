@@ -90,9 +90,6 @@ export function writePermissionIpcResponse(
     ...(decision.decisionClassification
       ? { decisionClassification: decision.decisionClassification }
       : {}),
-    ...(typeof decision.timedGrantExpiresAtMs === 'number'
-      ? { timedGrantExpiresAtMs: decision.timedGrantExpiresAtMs }
-      : {}),
   });
   if (!payload) return;
   writePrivateFileSync(tmpPath, JSON.stringify(payload, null, 2));

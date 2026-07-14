@@ -165,15 +165,6 @@ describe('Teams Adaptive Card payloads', () => {
       }),
       expect.objectContaining({
         type: 'Action.Execute',
-        title: 'Allow 5 min',
-        verb: 'gantry.permission.allow',
-        data: expect.objectContaining({
-          requestId: 'perm-1',
-          decision: 'allow_timed_grant',
-        }),
-      }),
-      expect.objectContaining({
-        type: 'Action.Execute',
         title: 'Cancel',
         verb: 'gantry.permission.cancel',
         data: expect.objectContaining({
@@ -1001,11 +992,6 @@ describe('TeamsChannel adapter scaffold', () => {
         actionAffordances: [
           { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
           { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
-          {
-            kind: 'scheduler_open',
-            label: 'Open in scheduler',
-            jobId: 'job-1',
-          },
         ],
       },
     );

@@ -8,6 +8,10 @@ import {
   requestPermissionApprovalViaIpc,
   type PermissionIpcRuntimeEnv,
 } from '@core/runner/permission-ipc-client.js';
+import {
+  createIpcResponseSigningKeyPair,
+  signIpcResponsePayload,
+} from '@core/infrastructure/ipc/response-signing.js';
 
 let tempDir: string;
 
@@ -26,6 +30,8 @@ function runtimeEnv(
     ipcAuthToken: 'ipc-auth',
     ipcResponseVerifyKey: 'verify-key',
     ipcResponseKeyId: 'key-id',
+    senderId: 'operator-1',
+    senderIsControlApprover: true,
     permissionRequestTimeoutMs: 1_000,
     resolveWorkspaceIpcDir: (folder) => path.join(tempDir, 'ipc', folder),
     ...overrides,
@@ -74,6 +80,7 @@ describe('requestPermissionApprovalViaIpc', () => {
       requestId: string;
       toolName: string;
       sourceAgentFolder: string;
+      senderId?: string;
       signature?: string;
       context?: { responseKeyId?: string };
       toolInput?: { query?: string };
@@ -82,6 +89,7 @@ describe('requestPermissionApprovalViaIpc', () => {
     expect(request.requestId).toMatch(/^perm-/);
     expect(request.toolName).toBe('mcp__notion__search');
     expect(request.sourceAgentFolder).toBe('main_agent');
+    expect(request.senderId).toBe('operator-1');
     expect(request.toolInput?.query).toBe('roadmap');
     expect(request.context?.responseKeyId).toBe('key-id');
     // Signed so the host can verify it came from the trusted runner.
@@ -115,6 +123,7 @@ describe('requestPermissionApprovalViaIpc', () => {
         jobId: 'job-1',
         jobRunId: 'run-1',
         permissionRequestTimeoutMs: 0,
+        permissionMode: 'ask',
       }),
       {
         agentFolder: 'main_agent',
@@ -138,5 +147,72 @@ describe('requestPermissionApprovalViaIpc', () => {
     ) as { jobId?: string; runId?: string };
     expect(request.jobId).toBe('job-1');
     expect(request.runId).toBe('run-1');
+  });
+
+  it('waits for and honors a late host allow response for zero-timeout auto mode', async () => {
+    const keys = createIpcResponseSigningKeyPair();
+    const decision = requestPermissionApprovalViaIpc(
+      runtimeEnv({
+        jobId: 'job-auto',
+        jobRunId: 'run-auto',
+        permissionRequestTimeoutMs: 0,
+        permissionMode: 'auto',
+        turnIntentSummary: 'Read the CRM record.',
+        ipcResponseVerifyKey: keys.publicKeyPem,
+      }),
+      {
+        agentFolder: 'main_agent',
+        toolName: 'mcp__crm__read',
+      },
+    );
+    const requestDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-requests',
+    );
+    const [requestFile] = await waitForFiles(requestDir, 1);
+    const request = JSON.parse(
+      fs.readFileSync(path.join(requestDir, requestFile), 'utf-8'),
+    ) as {
+      requestId: string;
+      responseNonce: string;
+      unattended?: boolean;
+      turnIntentSummary?: string;
+    };
+    expect(request).toMatchObject({
+      unattended: true,
+      turnIntentSummary: 'Read the CRM record.',
+    });
+    const responsePayload = {
+      requestId: request.requestId,
+      responseNonce: request.responseNonce,
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'auto_classifier',
+      reason: 'allowed once',
+      decisionClassification: 'user_temporary',
+    };
+    const responseDir = path.join(
+      tempDir,
+      'ipc',
+      'main_agent',
+      'permission-responses',
+    );
+    fs.mkdirSync(responseDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(responseDir, `${request.requestId}.json`),
+      JSON.stringify({
+        ...responsePayload,
+        signature: signIpcResponsePayload(keys.privateKeyPem, responsePayload),
+      }),
+    );
+
+    await expect(decision).resolves.toMatchObject({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'auto_classifier',
+      decisionClassification: 'user_temporary',
+    });
   });
 });

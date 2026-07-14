@@ -34,6 +34,9 @@ export interface RouteAwareMemoryLlmClientDeps {
   anthropic: MemoryLlmClient;
   // OpenAI direct chat-completions client (secondary/openai family).
   openai: MemoryLlmClient;
+  // Optional direct Messages client for callers that explicitly request one
+  // lightweight single-shot transport instead of the Agent SDK lane.
+  anthropicSingleRequest?: MemoryLlmClient;
 }
 
 export function createRouteAwareMemoryLlmClient(
@@ -62,10 +65,19 @@ function clientForQuery(
     return deps.openai;
   }
   if (responseFamily === DEFAULT_MEMORY_RESPONSE_FAMILY) {
-    return deps.anthropic;
+    return singleRequestRequested(opts) && deps.anthropicSingleRequest
+      ? deps.anthropicSingleRequest
+      : deps.anthropic;
   }
   throw new Error(
     `Memory model "${opts.modelProfile?.alias ?? opts.model}" has unsupported response family "${responseFamily}". Memory supports the Anthropic and OpenAI families only.`,
+  );
+}
+
+function singleRequestRequested(opts: MemoryLlmQueryOpts): boolean {
+  return (
+    (opts as MemoryLlmQueryOpts & { singleRequest?: boolean }).singleRequest ===
+    true
   );
 }
 

@@ -284,6 +284,8 @@ export async function startGantryRuntime(
           (await loadApprovedCommandModule()).runApprovedSandboxCommand(input),
         getSkillArtifactStore: getRuntimeSkillArtifactStore,
         getPermissionRepository: () => storage.repositories.permissions,
+        getPermissionPromotionRepository: () =>
+          storage.repositories.permissionPromotions,
         settingsRepositories: storage.repositories,
         getOutboundDeliveryRepository: () =>
           storage.repositories.outboundDeliveries,

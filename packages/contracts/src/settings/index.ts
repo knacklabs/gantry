@@ -32,6 +32,7 @@ export const RuntimeSettingsConfiguredAgentBindingSchema = z
     addedAt: z.string().trim().min(1),
     requiresTrigger: z.boolean(),
     model: z.string().optional(),
+    permissionMode: z.enum(['ask', 'auto']).optional(),
   })
   .strict();
 
@@ -65,6 +66,54 @@ export const RuntimeSettingsConfiguredAgentAccessSchema = z
   })
   .strict();
 
+const RuntimeSettingsConfiguredToolRuleWhenSchema = z
+  .object({
+    arg: z
+      .string()
+      .trim()
+      .min(1)
+      .regex(/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/, 'Must be a dot path'),
+    matches: z
+      .string()
+      .trim()
+      .min(1)
+      .refine((value) => {
+        try {
+          new RegExp(value);
+          return true;
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+          return false;
+        }
+      }, 'Must be a valid regular expression'),
+  })
+  .strict();
+
+export const RuntimeSettingsConfiguredToolRuleSchema = z.discriminatedUnion(
+  'action',
+  [
+    z
+      .object({
+        tool: z.string().trim().min(1),
+        when: RuntimeSettingsConfiguredToolRuleWhenSchema.optional(),
+        action: z.literal('block'),
+        reason: z.string().trim().min(1),
+      })
+      .strict(),
+    z
+      .object({
+        tool: z.string().trim().min(1),
+        action: z.literal('require_prior'),
+        prior: z.string().trim().min(1),
+        reason: z.string().trim().min(1),
+      })
+      .strict(),
+  ],
+);
+export type RuntimeSettingsConfiguredToolRule = z.infer<
+  typeof RuntimeSettingsConfiguredToolRuleSchema
+>;
+
 export const RuntimeSettingsConfiguredAgentSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -73,6 +122,7 @@ export const RuntimeSettingsConfiguredAgentSchema = z
     relationshipMode: AgentRelationshipModeSchema.optional(),
     model: z.string().optional(),
     agentHarness: AgentHarnessSchema.optional(),
+    permissionMode: z.enum(['ask', 'auto']).optional(),
     runtime: z.enum(['worker', 'inline']).optional(),
     maxTurns: z.number().int().positive().optional(),
     maxRunTokens: z.number().int().positive().optional(),
@@ -91,6 +141,7 @@ export const RuntimeSettingsConfiguredAgentSchema = z
     maxOutputTokens: z.number().int().positive().optional(),
     oneTimeJobDefaultModel: z.string().optional(),
     recurringJobDefaultModel: z.string().optional(),
+    toolRules: z.array(RuntimeSettingsConfiguredToolRuleSchema).optional(),
     bindings: z.record(z.string(), RuntimeSettingsConfiguredAgentBindingSchema),
     sources: RuntimeSettingsConfiguredAgentSourcesSchema,
     capabilities: z.array(RuntimeSettingsConfiguredAgentCapabilitySchema),
@@ -151,6 +202,7 @@ export const RuntimeSettingsConversationSchema = z
           trigger: z.string().optional(),
           requiresTrigger: z.boolean().optional(),
           model: z.string().optional(),
+          permissionMode: z.enum(['ask', 'auto']).optional(),
         })
         .strict(),
     ),
@@ -169,6 +221,7 @@ export const RuntimeSettingsBindingSchema = z
     requiresTrigger: z.boolean(),
     memoryScope: z.enum(['conversation', 'user', 'agent', 'app']),
     model: z.string().optional(),
+    permissionMode: z.enum(['ask', 'auto']).optional(),
   })
   .strict();
 
@@ -210,6 +263,7 @@ export const RuntimeSettingsPublicSchema = z
           trigger: z.string().optional(),
           requiresTrigger: z.boolean().optional(),
           model: z.string().optional(),
+          permissionMode: z.enum(['ask', 'auto']).optional(),
         })
         .strict(),
     ),
@@ -289,6 +343,11 @@ export const RuntimeSettingsPublicSchema = z
         egress: z
           .object({
             denylist: z.array(EgressDenylistPatternSchema),
+          })
+          .strict(),
+        autoMode: z
+          .object({
+            model: z.string().trim().min(1).optional(),
           })
           .strict(),
       })

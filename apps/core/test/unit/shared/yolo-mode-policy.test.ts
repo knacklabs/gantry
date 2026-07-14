@@ -26,6 +26,44 @@ describe('YOLO-mode denylist policy', () => {
     ).toMatchObject({ kind: 'command', pattern: 'npm run nuke' });
   });
 
+  it('matches RunCommand with either the command or cmd input field', () => {
+    expect(
+      evaluateYoloModeDenylist({
+        settings,
+        toolName: 'RunCommand',
+        toolInput: { command: 'rm -rf /' },
+      }),
+    ).toMatchObject({ kind: 'command', pattern: 'rm -rf /' });
+    expect(
+      evaluateYoloModeDenylist({
+        settings,
+        toolName: 'RunCommand',
+        toolInput: { cmd: 'rm -rf /' },
+      }),
+    ).toMatchObject({ kind: 'command', pattern: 'rm -rf /' });
+    // A malformed non-string command must not mask the cmd alias.
+    expect(
+      evaluateYoloModeDenylist({
+        settings,
+        toolName: 'RunCommand',
+        toolInput: { command: 0, cmd: 'rm -rf /' },
+      }),
+    ).toMatchObject({ kind: 'command', pattern: 'rm -rf /' });
+  });
+
+  it('matches through host-injected runtime env prefixes', () => {
+    expect(
+      evaluateYoloModeDenylist({
+        settings,
+        toolName: 'Bash',
+        toolInput: {
+          command:
+            "GODEBUG=netdns=go HTTP_PROXY='http://127.0.0.1:18790/' HTTPS_PROXY='http://127.0.0.1:18790/' npm run nuke",
+        },
+      }),
+    ).toMatchObject({ kind: 'command', pattern: 'npm run nuke' });
+  });
+
   it('matches force-push defaults only for main and master', () => {
     expect(
       evaluateYoloModeDenylist({

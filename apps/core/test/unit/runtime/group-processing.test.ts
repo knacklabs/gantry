@@ -8,6 +8,7 @@ import {
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
 import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import { createAgentExecutionAdapterRegistry } from '@core/application/agent-execution/agent-execution-adapter-registry.js';
 
@@ -37,6 +38,9 @@ vi.mock('@core/config/index.js', () => ({
   getRuntimeSettingsForConfig: mockGetRuntimeSettingsForConfig,
   getDefaultModelConfig: () => ({ model: undefined }),
   getSelectedAgentHarness: () => 'auto',
+  getSelectedAgentPermissionMode: (folder?: string) =>
+    mockGetRuntimeSettingsForConfig().agents?.[folder ?? '']?.permissionMode ??
+    'ask',
   getTriggerPattern: (trigger?: string) =>
     trigger ? new RegExp(`^@${trigger}\\b`, 'i') : /^@Andy\b/i,
 }));
@@ -261,6 +265,7 @@ function makeDeps(
     saveState: vi.fn(),
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
+    setGroupPermissionModeOverride: vi.fn(),
     collectSessionMemory: vi.fn().mockResolvedValue({ saved: 0 }),
     executionAdapter: {
       id: 'anthropic:claude-agent-sdk',
@@ -1375,6 +1380,121 @@ describe('createGroupProcessor', () => {
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
     });
 
+    it('delivers the last response_schema candidate from structured failure metadata', async () => {
+      const candidate = '{"wrong":"last"}';
+      const { deps, channel } = setupHappyPath({
+        agentOutput: {
+          status: 'error',
+          result: candidate,
+          error: 'Inline response failed response_schema validation',
+          failure: {
+            type: 'execution',
+            attemptedAction: 'Validate inline response against response_schema',
+            partialResult: candidate,
+          },
+        },
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        candidate,
+      );
+    });
+
+    it('publishes normalized model usage with the resolved model fields', async () => {
+      const usage = {
+        ...makeUsage(12, 4),
+        model: 'sonnet',
+        provider: 'test-provider',
+      };
+      const publishRuntimeEvent = vi.fn().mockResolvedValue(undefined);
+      const { deps } = setupHappyPath({
+        agentOutput: {
+          status: 'success',
+          result: 'done',
+          usage,
+          usageEventId: 'usage-event-1',
+        },
+      });
+      deps.publishRuntimeEvent = publishRuntimeEvent;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: RUNTIME_EVENT_TYPES.MODEL_USAGE,
+          payload: {
+            usage,
+            usageEventId: 'usage-event-1',
+            modelAlias: 'sonnet',
+            providerId: 'test-provider',
+          },
+        }),
+      );
+    });
+
+    it('delivers output when normalized model usage preparation fails', async () => {
+      const usage = makeUsage(12, 4);
+      Object.defineProperty(usage, 'model', {
+        get: () => {
+          throw new Error('usage model unavailable');
+        },
+      });
+      const { deps, channel } = setupHappyPath({
+        agentOutput: {
+          status: 'success',
+          result: 'done',
+          usage,
+        },
+      });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith('group1@g.us', 'done');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          group: 'TestGroup',
+        }),
+        'Failed to prepare normalized model usage runtime event',
+      );
+    });
+
+    it('delivers output when normalized model usage publication fails', async () => {
+      const publishRuntimeEvent = vi
+        .fn()
+        .mockRejectedValue(new Error('usage event insert failed'));
+      const { deps, channel } = setupHappyPath({
+        agentOutput: {
+          status: 'success',
+          result: 'done',
+          usage: {
+            ...makeUsage(12, 4),
+            model: 'sonnet',
+            provider: 'test-provider',
+          },
+        },
+      });
+      deps.publishRuntimeEvent = publishRuntimeEvent;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+
+      await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith('group1@g.us', 'done');
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          group: 'TestGroup',
+        }),
+        'Failed to publish normalized model usage runtime event',
+      );
+    });
+
     it('publishes terminal runner runtime events on error', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
@@ -2418,10 +2538,32 @@ describe('createGroupProcessor', () => {
         requiresTrigger: false,
         conversationKind: 'dm',
       });
-      const messages = [makeMessage({ sender: 'sl:UADMIN', content: 'hello' })];
+      const messages = [
+        makeMessage({
+          id: 'msg-old',
+          sender: 'sl:UADMIN',
+          content: 'hello',
+          timestamp: '1700000001',
+        }),
+        makeMessage({
+          id: 'msg-trigger',
+          sender: 'sl:UADMIN',
+          content: 'list files',
+          timestamp: '1700000002',
+        }),
+      ];
       const isControlApproverAllowed = vi.fn(async () => true);
       const { deps } = setupHappyPath({ group, messages });
       deps.channelRuntime.isControlApproverAllowed = isControlApproverAllowed;
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentSessionId: 'agent-session:review',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('agent-run:review');
       mockSpawnAgent.mockImplementation(
         async (
           _group: ConversationRoute,
@@ -5909,7 +6051,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('model and thinking overrides use the selected agent route key', async () => {
+    it('model, thinking, and permission overrides use the selected agent route key', async () => {
       const routeKey = 'group1@g.us::agent:agent%3Atriage';
       const { capturedDeps, deps } = await captureSessionDeps({
         queueJid: routeKey,
@@ -5919,9 +6061,14 @@ describe('createGroupProcessor', () => {
       ) => Promise<void>;
       const setGroupThinkingOverride =
         capturedDeps.setGroupThinkingOverride as (v: unknown) => Promise<void>;
+      const setGroupPermissionModeOverride =
+        capturedDeps.setGroupPermissionModeOverride as (
+          v: 'ask' | 'auto' | undefined,
+        ) => Promise<void>;
 
       await setGroupModelOverride('sonnet');
       await setGroupThinkingOverride({ mode: 'disabled' });
+      await setGroupPermissionModeOverride('auto');
 
       expect(deps.setGroupModelOverride).toHaveBeenCalledWith(
         routeKey,
@@ -5930,6 +6077,10 @@ describe('createGroupProcessor', () => {
       expect(deps.setGroupThinkingOverride).toHaveBeenCalledWith(routeKey, {
         mode: 'disabled',
       });
+      expect(deps.setGroupPermissionModeOverride).toHaveBeenCalledWith(
+        routeKey,
+        'auto',
+      );
     });
 
     it('threaded override commands stay scoped to the selected route', async () => {
@@ -5956,7 +6107,7 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('threaded /model and /thinking overrides update the whole-conversation agent route when matched by fallback', async () => {
+    it('threaded overrides update the whole-conversation agent route when matched by fallback', async () => {
       const wholeRouteKey = 'sl:C123::agent:agent%3Atriage';
       const threadedQueueKey = 'sl:C123::thread:1700.1::agent:agent%3Atriage';
       const { capturedDeps, deps } = await captureSessionDeps({
@@ -5975,9 +6126,14 @@ describe('createGroupProcessor', () => {
       ) => Promise<void>;
       const setGroupThinkingOverride =
         capturedDeps.setGroupThinkingOverride as (v: unknown) => Promise<void>;
+      const setGroupPermissionModeOverride =
+        capturedDeps.setGroupPermissionModeOverride as (
+          v: 'ask' | 'auto' | undefined,
+        ) => Promise<void>;
 
       await setGroupModelOverride('sonnet');
       await setGroupThinkingOverride({ mode: 'disabled' });
+      await setGroupPermissionModeOverride('ask');
 
       expect(deps.setGroupModelOverride).toHaveBeenCalledWith(
         wholeRouteKey,
@@ -5986,6 +6142,10 @@ describe('createGroupProcessor', () => {
       expect(deps.setGroupThinkingOverride).toHaveBeenCalledWith(
         wholeRouteKey,
         { mode: 'disabled' },
+      );
+      expect(deps.setGroupPermissionModeOverride).toHaveBeenCalledWith(
+        wholeRouteKey,
+        'ask',
       );
     });
 
@@ -6032,6 +6192,22 @@ describe('createGroupProcessor', () => {
         capturedDeps.getGroupThinkingOverride as () => unknown;
 
       expect(getGroupThinkingOverride()).toEqual({ mode: 'enabled' });
+    });
+
+    it('provides conversation and resolved default permission modes', async () => {
+      mockGetRuntimeSettingsForConfig.mockReturnValue({
+        memory: { enabled: true },
+        agents: { 'test-group': { permissionMode: 'auto' } },
+      });
+      const group = makeGroup({ agentConfig: { permissionMode: 'ask' } });
+      const { capturedDeps } = await captureSessionDeps({ group });
+
+      expect(
+        (capturedDeps.getGroupPermissionModeOverride as () => unknown)(),
+      ).toBe('ask');
+      expect((capturedDeps.getDefaultPermissionMode as () => unknown)()).toBe(
+        'auto',
+      );
     });
 
     it('setGroupThinkingOverride delegates to deps', async () => {

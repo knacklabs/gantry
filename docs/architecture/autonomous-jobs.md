@@ -62,10 +62,8 @@ browser_login_may_be_required
 mcp_missing_credential
 ```
 
-`Allow once` can resume the current blocked tool call in live interactive
-permission prompts. `Allow 5 min` is also live-only; setup and scheduler
-readiness prompts do not show it because timed grants are not durable readiness
-for future recurring runs. Recurring activation requires a persistent
+`Allow once` can resume the current blocked tool call in permission prompts.
+Recurring activation requires a persistent
 target-agent capability binding such as `Browser`, `capability:<id>`, an exact
 Gantry file/web facade, an approved Gantry admin tool, a scoped
 `RunCommand(...)` rule, or a connected MCP server binding. Browser auth remains
@@ -81,7 +79,7 @@ before autonomous allowance. If a tool is outside the effective job allowlist,
 the runner uses the same permission IPC path as interactive agent runs: it sends
 the approval prompt to the job's source conversation/thread or topic and waits
 at the tool boundary. `Allow once` resumes that tool call in the current job
-run. `Always allow` stores a semantic
+run. `Allow for future`, when offered, stores a semantic
 `capability:<id>` grant when the request names one; otherwise it may apply
 canonical `Browser`, an exact Gantry file/web facade, an exact Gantry admin
 tool, or a scoped `RunCommand(...)` rule to the target agent. Broad exact
@@ -156,8 +154,10 @@ Pre-spawn readiness blockers emit `job.setup_required` and pause before a
 `JobRun` is claimed. After a run is claimed, the scheduler emits
 `job.tool_activity` for tool-access-requirement preflight, SDK tool requests, allow/deny
 decisions, permission waits, browser IPC actions, and tool-access readiness
-results. Notification routes receive one terminal outcome message; they
-do not receive streamed assistant output or full-output fallback messages.
+results. Notification routes are quiet until terminal by default: they receive
+exactly one terminal outcome message, no normal start message, and no plan/todo
+mirror for scheduled runs. They do not receive streamed assistant output or
+full-output fallback messages.
 Successful scheduled runs must end with a concise user-facing
 `Final Job Report` that states the outcome, notable counts, and the next
 action, and the terminal outcome message may summarize that report.

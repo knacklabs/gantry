@@ -35,25 +35,31 @@ type RunCommandFallbackValidator = (input: {
   argvPattern: string;
 }) => ToolResponse | null;
 
-const AccessTargetSchema = z.object({
-  kind: z
-    .enum(['capability', 'tool', 'run_command'])
-    .describe('Access target kind: capability, tool, or run_command'),
+const CapabilityTargetSchema = z.object({
+  kind: z.literal('capability'),
   id: z
     .string()
-    .optional()
-    .describe('Reviewed semantic capability id, such as acme.invoices.read'),
-  name: z
-    .string()
-    .optional()
-    .describe(
-      'Exact Gantry tool rule, such as AgentDelegation or mcp__gantry__request_settings_update. For connected third-party MCP tools, use an exact mcp__server__tool name only for one-off temporary access when reviewed capability bindings are stale. Use run_command for scoped commands.',
-    ),
+    .min(1)
+    .describe('Reviewed semantic capability id, such as app.resource.action'),
+});
+
+const RunCommandTargetSchema = z.object({
+  kind: z.literal('run_command'),
   argvPattern: z
     .string()
-    .optional()
+    .min(1)
     .describe(
       'Scoped command pattern for a persistent RunCommand fallback, such as "npm test *" or "git status". Never broad "cli *".',
+    ),
+});
+
+const ExactToolTargetSchema = z.object({
+  kind: z.literal('tool'),
+  name: z
+    .string()
+    .min(1)
+    .describe(
+      'Exact Gantry tool rule, such as AgentDelegation or mcp__gantry__request_settings_update. For connected third-party MCP tools, use an exact mcp__server__tool name only for one-off temporary access when reviewed capability bindings are stale. Use run_command for scoped commands.',
     ),
 });
 
@@ -78,7 +84,11 @@ export function registerAccessRequestTool(
       'Source setup and raw skill, MCP, CLI, browser, or network details are review metadata, not durable authority.',
     ].join(' '),
     {
-      target: AccessTargetSchema,
+      target: z.discriminatedUnion('kind', [
+        CapabilityTargetSchema,
+        ExactToolTargetSchema,
+        RunCommandTargetSchema,
+      ]),
       reason: z.string().describe('Why this access is needed'),
       temporaryOnly: z
         .boolean()

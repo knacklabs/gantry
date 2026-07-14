@@ -109,8 +109,10 @@ type LiveTurnCommandWakeupSourceFactory = () =>
 type RuntimeDependencyRepositoryFactory = () =>
   | RuntimeDependencyRepository
   | undefined;
-type WaitingStatusMonitor = { oldestWaitingSeconds: () => number };
-type RuntimeStorageDep = 'getAsyncTaskRepository' | 'getFileArtifactStore';
+type RuntimeStorageDep =
+  | 'getAsyncTaskRepository'
+  | 'getFileArtifactStore'
+  | 'getPermissionPromotionRepository';
 interface Deps extends Pick<IpcDeps, RuntimeStorageDep> {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
@@ -225,7 +227,9 @@ function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
 let activeLiveTurnRecoveryLoop: LiveTurnRecoveryLoop | undefined;
 let activeLiveTurnAuthority: LiveTurnAuthority | undefined;
 let activeLiveAdmissionLoop: LiveExecutionServicesHandle['admissionLoop'];
-let activeWaitingStatusMonitor: WaitingStatusMonitor | undefined;
+let activeWaitingStatusMonitor:
+  | { oldestWaitingSeconds: () => number }
+  | undefined;
 let activeLiveExecutionServices: LiveExecutionServicesHandle | undefined;
 export function getOldestWaitingLiveAdmissionSeconds(): number {
   return activeWaitingStatusMonitor?.oldestWaitingSeconds() ?? 0;
@@ -336,7 +340,7 @@ export async function startRuntimeServices(
       getRuntimeSettingsForConfig().agents?.[folder]?.accessPreset === 'locked'
         ? 'locked'
         : 'full',
-    getYoloMode: () => getRuntimeSettingsForConfig().permissions.yoloMode,
+    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
     getMcpServerRepository: resolved.getMcpServerRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
     warn: (context, message) => resolved.logger.warn(context, message),
@@ -461,7 +465,10 @@ export async function startRuntimeServices(
     runnerSandboxProvider: resolved.runnerSandboxProvider,
     runApprovedCommand: resolved.runApprovedCommand,
     getPermissionRepository: resolved.getPermissionRepository,
+    getPermissionPromotionRepository: resolved.getPermissionPromotionRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
+    getPermissionRuntimeSettings: getRuntimeSettingsForConfig,
+    getPermissionMessageRepository: () => resolved.opsRepository,
     subscribeRuntimeEvents: resolved.subscribeRuntimeEvents,
     getEgressSettings: () => getRuntimeSettingsForConfig().permissions.egress,
     mirrorAgentToolRulesToSettings,
@@ -474,6 +481,7 @@ export async function startRuntimeServices(
     closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
     requestPermissionApproval: inlineInteractions.requestPermissionApproval,
+    isControlApproverAllowed: channelWiring.isControlApproverAllowed,
     requestUserAnswer: inlineInteractions.requestUserAnswer,
     renderAgentTodo: (jid, render, options) =>
       liveTurnsEnabled && liveExecution
@@ -995,7 +1003,6 @@ export async function startRuntimeServices(
     );
     return;
   }
-
   const messageLoopDeps: MessageLoopDeps = {
     getConversationRoutes: () => app.getConversationRoutes(),
     getOrRecoverCursor: app.getOrRecoverCursor,

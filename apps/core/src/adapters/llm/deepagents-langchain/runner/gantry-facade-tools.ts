@@ -32,14 +32,17 @@ import {
   workspaceRoot,
   writeFileNoFollow,
 } from './gantry-facade-file-safety.js';
-import type { ThirdPartyMcpGateConfig } from './third-party-mcp-gate.js';
+import {
+  gatedToolErrorResult,
+  type ThirdPartyMcpGateConfig,
+} from './third-party-mcp-gate.js';
 import { evaluateAgentDelegationAsyncBridge } from './agent-delegation-async-bridge.js';
 import { DEEPAGENTS_ASYNC_DELEGATION_UNAVAILABLE_MESSAGE } from './async-subagent-sentinel.js';
 
 export const DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES =
   GANTRY_FACADE_EXACT_TOOL_NAMES;
 
-type DeepAgentsFacadeToolName =
+export type DeepAgentsFacadeToolName =
   (typeof DEEPAGENTS_GANTRY_FACADE_TOOL_NAMES)[number];
 const DEEPAGENTS_FILESYSTEM_FACADE_TOOL_NAMES =
   new Set<DeepAgentsFacadeToolName>([
@@ -92,18 +95,20 @@ function createOneFacadeTool(
   policy: ToolExecutionPolicyService,
 ): StructuredToolInterface {
   return tool(
-    async (input: unknown): Promise<string> => {
+    async (input: unknown): Promise<unknown> => {
       const validation = validateGantryFacadeToolInput(toolName, input);
-      if (!validation.ok) return validation.reason;
+      if (!validation.ok) {
+        return gatedToolErrorResult(validation.reason, 'validation');
+      }
 
-      const policyRequest = policyToolRequest(toolName, input);
+      const policyRequest = gantryFacadePolicyToolRequest(toolName, input);
       const preChecks = evaluateNeutralToolPreChecks({
         toolName: policyRequest.toolName,
         toolInput: policyRequest.toolInput,
         memoryBlock: config.memoryBlock,
         yoloMode: config.gateContext.yoloMode,
       });
-      if (preChecks) return preChecks.reason;
+      if (preChecks) return gatedToolErrorResult(preChecks.reason);
 
       const decision = evaluateNeutralToolPolicy({
         classifier,
@@ -117,7 +122,9 @@ function createOneFacadeTool(
         return executeFacadeTool(toolName, input, config);
       }
 
-      if (config.lockedAccessPreset) return LOCKED_ACCESS_PRESET_DENY_REASON;
+      if (config.lockedAccessPreset) {
+        return gatedToolErrorResult(LOCKED_ACCESS_PRESET_DENY_REASON);
+      }
 
       const approval = await requestPermissionApprovalViaIpc(
         config.permissionEnv,
@@ -134,7 +141,9 @@ function createOneFacadeTool(
         },
       );
       if (!approval.approved) {
-        return `Permission denied: ${approval.reason || 'Denied by operator'}`;
+        return gatedToolErrorResult(
+          `Permission denied: ${approval.reason || 'Denied by operator'}`,
+        );
       }
       return executeFacadeTool(toolName, input, config);
     },
@@ -146,7 +155,7 @@ function createOneFacadeTool(
   ) as unknown as StructuredToolInterface;
 }
 
-function policyToolRequest(
+export function gantryFacadePolicyToolRequest(
   toolName: DeepAgentsFacadeToolName,
   input: unknown,
 ): { toolName: string; toolInput: unknown } {

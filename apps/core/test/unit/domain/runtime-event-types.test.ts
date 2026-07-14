@@ -12,6 +12,15 @@ describe('runtime event types', () => {
     expect(RUNTIME_EVENT_TYPES.JOB_HEARTBEAT).toBe('job.heartbeat');
   });
 
+  it('accepts the permission classifier decision event type', () => {
+    const eventType = 'permission.classifier_decision';
+
+    expect(RUNTIME_EVENT_TYPES.PERMISSION_CLASSIFIER_DECISION).toBe(eventType);
+    expect(isRuntimeEventType(eventType)).toBe(true);
+    expect(parseRuntimeEventType(eventType)).toBe(eventType);
+    expect(requireRuntimeEventType(eventType)).toBe(eventType);
+  });
+
   it('accepts every canonical runtime event type', () => {
     for (const eventType of Object.values(RUNTIME_EVENT_TYPES)) {
       expect(isRuntimeEventType(eventType)).toBe(true);

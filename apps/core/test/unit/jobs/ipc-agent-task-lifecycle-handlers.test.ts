@@ -318,6 +318,40 @@ describe('agent task lifecycle IPC handlers', () => {
     });
   });
 
+  it('accepts scheduled todo state without rendering it to the channel', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-task-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { agentTaskLifecycleHandlers, taskData } =
+      await loadTaskLifecycleHandlers(runtimeHome);
+    const renderAgentTodo = vi.fn(async () => undefined);
+
+    await agentTaskLifecycleHandlers.todo_update(
+      contextFor({
+        data: {
+          ...taskData('todo-scheduled', 'todo_update', {
+            items: [
+              {
+                id: 'step-1',
+                title: 'Run scheduled work',
+                status: 'inProgress',
+              },
+            ],
+          }),
+          jobId: 'job-1',
+        },
+        renderAgentTodo,
+      }),
+    );
+
+    expect(renderAgentTodo).not.toHaveBeenCalled();
+    expect(readResponse(runtimeHome, 'todo-scheduled')).toMatchObject({
+      ok: true,
+      message: 'Plan updated.',
+    });
+  });
+
   it('rejects invalid todo_update before channel render', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-task-ipc-'),

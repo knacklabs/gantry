@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { MemoryLlmUsage } from '@core/domain/ports/memory-llm-client.js';
+import type {
+  MemoryLlmQueryOpts,
+  MemoryLlmUsage,
+} from '@core/domain/ports/memory-llm-client.js';
 
 const resolveGatewayMemoryInjectionMock = vi.hoisted(() => vi.fn());
 const hasGatewayMemoryAccessMock = vi.hoisted(() => vi.fn());
@@ -106,6 +109,17 @@ describe('OpenAI memory LLM client', () => {
     expect(init.headers.authorization).toBe('Bearer gtw_memory_openai');
     expect(init.headers['content-type']).toBe('application/json');
 
+    expect(init.body).toBe(
+      JSON.stringify({
+        model: 'gpt-test',
+        messages: [
+          { role: 'system', content: 'system instructions' },
+          { role: 'user', content: 'static block' },
+          { role: 'user', content: 'dynamic block' },
+        ],
+      }),
+    );
+
     const body = JSON.parse(init.body as string);
     expect(body.model).toBe('gpt-test');
     expect(body.messages).toEqual([
@@ -130,6 +144,44 @@ describe('OpenAI memory LLM client', () => {
 
     // Run-scoped gateway token is always revoked.
     expect(revokeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires the permission verdict schema for single-request classifier queries', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(chatCompletionBody()), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createOpenAiMemoryLlmClient } =
+      await import('@core/adapters/llm/openai-memory/openai-memory-llm-client.js');
+    const query = {
+      appId: 'default' as never,
+      model: 'gpt-test',
+      modelProfile: OPENAI_PROFILE,
+      prompt: 'classify this permission request',
+      singleRequest: true,
+    } satisfies MemoryLlmQueryOpts & { singleRequest: true };
+
+    await createOpenAiMemoryLlmClient().query(query);
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: {
+        name: 'permission_verdict',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: {
+            decision: { type: 'string', enum: ['allow', 'ask'] },
+            reason: { type: 'string' },
+          },
+          required: ['decision', 'reason'],
+          additionalProperties: false,
+        },
+      },
+    });
   });
 
   it('falls back to the plain prompt when no user blocks are provided', async () => {

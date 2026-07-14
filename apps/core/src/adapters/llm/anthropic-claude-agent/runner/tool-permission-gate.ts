@@ -33,7 +33,6 @@ import { applyBashTrustEnv } from './bash-trust-env.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
-import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 import {
   emitJobToolActivity,
   emitYoloDenylistHit,
@@ -43,11 +42,9 @@ import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { publicCapabilityAllowedToolRules } from '../../../../shared/agent-tool-references.js';
-import { stableTimedGrantKey } from './stable-timed-grant-key.js';
+import { evaluateYoloModeDenylist } from '../../../../shared/yolo-mode-policy.js';
 type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
-const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
-const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
 const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
 const REMOVED_NATIVE_SUBAGENT_TOOL =
   /^Task(Create|Get|List|Output|Stop|Update)?$/;
@@ -71,57 +68,8 @@ export function createCanUseToolCallback(
   const toolExecutionClassifier = new ToolExecutionClassifier();
   const toolExecutionPolicy = new ToolExecutionPolicyService();
   const liveApprovedRules = new Set<string>();
-  const timedToolGrants = new Map<string, { expiresAt: number }>();
   const sdkSandboxNetworkGate = createSdkSandboxNetworkGate(input.agentInput);
-  const timedGrantConversationJid = input.agentInput.chatJid;
   const skillActionCapabilities = readRunnerSkillActionCapabilities();
-  const timedGrantKey = (principal: string): string =>
-    stableTimedGrantKey({
-      principal,
-      conversationJid: timedGrantConversationJid,
-    });
-  const isTimedGrantActive = (toolName: string, principal: string): boolean => {
-    const key = timedGrantKey(principal);
-    const grant = timedToolGrants.get(key);
-    if (!grant) return false;
-    if (grant.expiresAt <= Date.now()) {
-      timedToolGrants.delete(key);
-      return false;
-    }
-    log(
-      `Timed grant honored for tool ${toolName}: scope=all_tools principal=${principal} conversationJid=${timedGrantConversationJid} ttlMs=${grant.expiresAt - Date.now()}`,
-    );
-    return true;
-  };
-  const rememberTimedGrant = (
-    toolName: string,
-    principal: string,
-    requestedExpiresAtMs: number,
-  ): void => {
-    const now = Date.now();
-    const maxExpiresAt =
-      now + TIMED_GRANT_DURATION_MS + TIMED_GRANT_CLOCK_SKEW_MS;
-    if (
-      !Number.isFinite(requestedExpiresAtMs) ||
-      requestedExpiresAtMs <= now ||
-      requestedExpiresAtMs > maxExpiresAt
-    ) {
-      log(
-        `Ignored invalid timed grant for tool ${toolName}: principal=${principal} requestedExpiresAt=${requestedExpiresAtMs}`,
-      );
-      return;
-    }
-    timedToolGrants.set(timedGrantKey(principal), {
-      expiresAt: requestedExpiresAtMs,
-    });
-    sdkSandboxNetworkGate.rememberGlobalApproval(
-      principal,
-      requestedExpiresAtMs,
-    );
-    log(
-      `Timed grant activated for tool ${toolName}: scope=all_tools principal=${principal} conversationJid=${timedGrantConversationJid} expiresAt=${new Date(requestedExpiresAtMs).toISOString()}`,
-    );
-  };
   const currentAllowedToolRules = (): string[] => [
     ...(input.agentInput.allowedTools ?? []),
     ...publicCapabilityAllowedToolRules(input.capabilities.allowedTools),
@@ -263,10 +211,10 @@ export function createCanUseToolCallback(
         toolInput,
         input.agentInput.toolNetworkEnv ?? {},
       );
-    const timedGrantPrincipal =
-      input.agentInput.agentId || input.workspaceFolder;
     const sdkApprovalPrincipal =
-      permissionOpts.agentID?.trim() || timedGrantPrincipal;
+      permissionOpts.agentID?.trim() ||
+      input.agentInput.agentId ||
+      input.workspaceFolder;
     const rememberAllowedTool = () =>
       sdkSandboxNetworkGate.rememberAllowedTool(
         toolName,
@@ -379,28 +327,22 @@ export function createCanUseToolCallback(
     );
     if (sandboxNetworkAccessDecision) return sandboxNetworkAccessDecision;
 
-    let timedGrantDenylistReason: string | undefined;
-    if (isTimedGrantActive(toolName, timedGrantPrincipal)) {
-      const yoloDenylistHit = evaluateYoloModeDenylist({
-        settings: input.agentInput.yoloMode,
-        toolName,
-        toolInput,
+    const yoloDenylistMatch = evaluateYoloModeDenylist({
+      settings: input.agentInput.yoloMode,
+      toolName,
+      toolInput,
+    });
+    const yoloDenylistReason = yoloDenylistMatch
+      ? yoloDenylistPromptReason(yoloDenylistMatch)
+      : undefined;
+    if (yoloDenylistMatch && yoloDenylistReason) {
+      emitYoloDenylistHit({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        match: yoloDenylistMatch,
+        principal: sdkApprovalPrincipal,
+        reason: yoloDenylistReason,
       });
-      if (yoloDenylistHit) {
-        timedGrantDenylistReason = yoloDenylistPromptReason(yoloDenylistHit);
-        log(
-          `Timed grant bypass skipped for tool ${toolName}: ${timedGrantDenylistReason}`,
-        );
-        emitYoloDenylistHit({
-          agentInput: input.agentInput,
-          getNewSessionId: input.getNewSessionId,
-          match: yoloDenylistHit,
-          principal: timedGrantPrincipal,
-        });
-      } else {
-        log(`Timed grant auto-allow for tool ${toolName}`);
-        return allowToolUse('timed_grant');
-      }
     }
 
     const toolExecutionRequest = buildAgentToolExecutionRequest(
@@ -420,7 +362,7 @@ export function createCanUseToolCallback(
         request: toolExecutionRequest,
         autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
       });
-      if (!timedGrantDenylistReason && toolDecision.status === 'allow') {
+      if (toolDecision.status === 'allow' && !yoloDenylistReason) {
         log(`Autonomous run allowed tool ${toolName}: ${toolDecision.reason}`);
         return allowToolUse(toolDecision.reason);
       }
@@ -434,26 +376,21 @@ export function createCanUseToolCallback(
           interrupt: true,
         };
       }
+      const recoveryAction = yoloDenylistReason
+        ? undefined
+        : toolDecision.recoveryAction;
       const recoveryMessage =
-        timedGrantDenylistReason ??
-        (toolDecision.status === 'allow'
-          ? toolDecision.reason
-          : `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`);
-      const recoveryAction =
-        toolDecision.status === 'allow'
-          ? undefined
-          : toolDecision.recoveryAction;
-      if (!timedGrantDenylistReason) {
-        const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
-          agentInput: input.agentInput,
-          getNewSessionId: input.getNewSessionId,
-          recoveryAction,
-          recoveryMessage,
-          toolName,
-          toolPolicyReason: toolDecision.reason,
-        });
-        if (nonPromptableDenial) return nonPromptableDenial;
-      }
+        yoloDenylistReason ??
+        `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`;
+      const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
+        agentInput: input.agentInput,
+        getNewSessionId: input.getNewSessionId,
+        recoveryAction,
+        recoveryMessage,
+        toolName,
+        toolPolicyReason: yoloDenylistReason ?? toolDecision.reason,
+      });
+      if (nonPromptableDenial) return nonPromptableDenial;
       const publicToolName = permissionRequestToolName(toolName);
       log(
         `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
@@ -466,7 +403,7 @@ export function createCanUseToolCallback(
         toolName,
         {
           ok: false,
-          reason: toolDecision.reason,
+          reason: yoloDenylistReason ?? toolDecision.reason,
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
@@ -479,7 +416,11 @@ export function createCanUseToolCallback(
           semanticCapabilityDefinitions: skillActionCapabilities,
         },
       );
-      const suggestions = permissionPlan.suggestions;
+      // Same as the interactive branch: a denylist-triggered prompt must not
+      // offer a future grant the denylist would never honor.
+      const suggestions = yoloDenylistReason
+        ? undefined
+        : permissionPlan.suggestions;
       const decision = await requestPermissionApproval({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
@@ -492,13 +433,10 @@ export function createCanUseToolCallback(
             : publicToolName,
         description: permissionOpts.description,
         decisionReason:
-          timedGrantDenylistReason ??
+          yoloDenylistReason ??
           permissionOpts.decisionReason ??
           toolDecision.reason,
-        closestRule:
-          timedGrantDenylistReason || toolDecision.status === 'allow'
-            ? undefined
-            : toolDecision.closestRule,
+        closestRule: yoloDenylistReason ? undefined : toolDecision.closestRule,
         blockedPath: permissionOpts.blockedPath,
         toolInput,
         toolUseID: permissionOpts.toolUseID,
@@ -519,16 +457,6 @@ export function createCanUseToolCallback(
           permissionPlan,
         )) {
           liveApprovedRules.add(rule);
-        }
-        if (
-          decision.mode === 'allow_timed_grant' &&
-          typeof decision.timedGrantExpiresAtMs === 'number'
-        ) {
-          rememberTimedGrant(
-            toolName,
-            timedGrantPrincipal,
-            decision.timedGrantExpiresAtMs,
-          );
         }
         rememberAllowedTool();
         emitJobToolActivity(
@@ -584,7 +512,7 @@ export function createCanUseToolCallback(
     }
 
     if (
-      !timedGrantDenylistReason &&
+      !yoloDenylistReason &&
       input.capabilities.alwaysAllowedTools.includes(toolName)
     ) {
       return allowToolUse('always_allowed');
@@ -593,7 +521,7 @@ export function createCanUseToolCallback(
       request: toolExecutionRequest,
       allowedToolRules: currentAllowedToolRules(),
     });
-    if (!timedGrantDenylistReason && currentToolDecision.status === 'allow') {
+    if (currentToolDecision.status === 'allow' && !yoloDenylistReason) {
       log(
         `Permission allowed for tool ${toolName}: ${currentToolDecision.reason}`,
       );
@@ -617,7 +545,7 @@ export function createCanUseToolCallback(
       toolName,
       {
         ok: false,
-        reason: timedGrantDenylistReason ?? currentToolDecision.reason,
+        reason: yoloDenylistReason ?? currentToolDecision.reason,
       },
     );
     const permissionPlan = scheduledPermissionSuggestionPlan(
@@ -629,7 +557,12 @@ export function createCanUseToolCallback(
         semanticCapabilityDefinitions: skillActionCapabilities,
       },
     );
-    const suggestions = permissionPlan.suggestions;
+    // A denylist-triggered prompt must not offer "Allow for future": the
+    // denylist keeps blocking rule-based auto-allows, so a persisted rule
+    // would silently never be honored. Allow once / Cancel only.
+    const suggestions = yoloDenylistReason
+      ? undefined
+      : permissionPlan.suggestions;
     const decision = await requestPermissionApproval({
       appId: input.agentInput.appId,
       agentId: input.agentInput.agentId,
@@ -641,8 +574,8 @@ export function createCanUseToolCallback(
           ? permissionOpts.displayName
           : publicToolName,
       description: permissionOpts.description,
-      decisionReason: timedGrantDenylistReason ?? permissionOpts.decisionReason,
-      closestRule: timedGrantDenylistReason
+      decisionReason: yoloDenylistReason ?? permissionOpts.decisionReason,
+      closestRule: yoloDenylistReason
         ? undefined
         : currentToolDecision.closestRule,
       blockedPath: permissionOpts.blockedPath,
@@ -662,16 +595,6 @@ export function createCanUseToolCallback(
         permissionPlan,
       )) {
         liveApprovedRules.add(rule);
-      }
-      if (
-        decision.mode === 'allow_timed_grant' &&
-        typeof decision.timedGrantExpiresAtMs === 'number'
-      ) {
-        rememberTimedGrant(
-          toolName,
-          timedGrantPrincipal,
-          decision.timedGrantExpiresAtMs,
-        );
       }
       rememberAllowedTool();
       emitJobToolActivity(

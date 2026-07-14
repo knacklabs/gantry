@@ -28,6 +28,7 @@ import type {
   RuntimeConfiguredConversation,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+import type { AgentConfig } from '../../domain/types.js';
 export {
   agentIdForFolder,
   folderForAgentId,
@@ -43,6 +44,19 @@ export function configuredRoutingBindingsByAgent(
     result.set(binding.agentFolder, entries);
   }
   return result;
+}
+
+export function configuredAgentConfig(
+  binding: Pick<ConfiguredRoutingBinding, 'model' | 'permissionMode'>,
+  agent?: Pick<RuntimeConfiguredAgent, 'persona' | 'relationshipMode'>,
+): AgentConfig | undefined {
+  const config: AgentConfig = {
+    model: binding.model,
+    permissionMode: binding.permissionMode,
+    persona: agent?.persona,
+    relationshipMode: agent?.relationshipMode,
+  };
+  return Object.values(config).some(Boolean) ? config : undefined;
 }
 
 export function configuredRoutingBindings(
@@ -64,6 +78,7 @@ export function configuredRoutingBindings(
           addedAt: binding.addedAt,
           requiresTrigger: binding.requiresTrigger,
           model: binding.model,
+          permissionMode: binding.permissionMode,
           conversation: Object.values(settings.conversations).find(
             (candidate) =>
               jidForConfiguredConversation(
@@ -103,6 +118,7 @@ export function configuredRoutingBindings(
         addedAt: binding.addedAt,
         requiresTrigger: binding.requiresTrigger,
         model: binding.model,
+        permissionMode: binding.permissionMode,
         conversation,
       },
     );

@@ -20,7 +20,7 @@ LaunchAgent.
 Control API settings are read from process env and from `~/gantry/.env`:
 
 ```env
-GANTRY_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"replace-with-a-generated-token","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin"]}]
+GANTRY_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"replace-with-a-generated-token","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin","llm:invoke"]}]
 GANTRY_CONTROL_PORT=8787
 GANTRY_CONTROL_HOST=127.0.0.1
 ```
@@ -265,10 +265,8 @@ tools.
 Agent capability updates are bidirectional: settings-side changes reconcile
 Postgres immediately, and API/admin-side capability writes export the readable
 projection back into `settings.yaml` before returning.
-Live interactive permission prompts use `Allow once`, `Allow 5 min`,
-`Always allow`, or `Cancel`. Setup, scheduler, admin, and capability flows omit
-`Allow 5 min` because timed grants are transient and do not establish durable
-readiness.
+Permission prompts use `Allow once`, `Allow for future` when a persistent
+suggestion exists, or `Cancel`.
 Same-conversation review binds the request to the originating chat or thread;
 it does not bypass the configured conversation approvers. Raw request ids,
 command hashes, scoped `RunCommand(...)` rules, executable paths, and sandbox details are
@@ -278,11 +276,11 @@ Inventory response:
 
 ```json
 {
-  "tools": [{ "id": "browser", "kind": "builtin", "displayName": "Browser" }],
-  "skills": [],
-  "mcpServers": [],
-  "adapters": [],
-  "localClis": []
+  "inventory": {
+    "tools": [{ "id": "browser", "kind": "builtin", "displayName": "Browser" }],
+    "skills": [],
+    "mcpServers": []
+  }
 }
 ```
 
@@ -303,10 +301,10 @@ Capability catalog response:
 }
 ```
 
-Agent sources replacement:
+Agent access replacement (sources and selections in one document):
 
 ```http
-PUT /v1/agents/agent:main_agent/sources
+PUT /v1/agents/agent:main_agent/access
 Content-Type: application/json
 
 {
@@ -319,25 +317,15 @@ Content-Type: application/json
     ],
     "mcpServers": [{ "id": "linkedin" }],
     "tools": [{ "id": "browser", "kind": "builtin" }]
-  }
-}
-```
-
-Agent capability replacement:
-
-```http
-PUT /v1/agents/agent:main_agent/capabilities
-Content-Type: application/json
-
-{
-  "capabilities": [
+  },
+  "selections": [
     { "id": "acme.records.append", "version": "1" },
     { "id": "browser.use", "version": "builtin" }
   ]
 }
 ```
 
-Agent capability responses include the visible sources, selected capabilities,
+Agent access responses include the visible sources, selected capabilities,
 and projected runtime access:
 
 ```json
@@ -353,7 +341,7 @@ and projected runtime access:
     "mcpServers": [{ "id": "linkedin" }],
     "tools": [{ "id": "browser", "kind": "builtin" }]
   },
-  "capabilities": [
+  "selections": [
     { "id": "acme.records.append", "version": "1" },
     { "id": "browser.use", "version": "builtin" }
   ],
@@ -374,8 +362,8 @@ and projected runtime access:
 }
 ```
 
-The routes validate catalog ownership, mirror readable entries into
-`settings.yaml`, reconcile the Postgres projection, and return `toolAccess`.
+The route validates catalog ownership, mirrors readable entries into
+`settings.yaml`, reconciles the Postgres projection, and returns `toolAccess`.
 
 ## Skills
 
@@ -390,9 +378,6 @@ client.skills.install({
   zip, // Uint8Array containing application/zip bytes
 })
 client.skills.list({ agentId? })
-
-client.skills.files.list(skillId)
-client.skills.files.get(skillId, path)
 
 client.agents.skills.list(agentId)
 client.agents.skills.enable(agentId, skillId)
@@ -509,9 +494,9 @@ model progress through `client.sessions.stream`, `client.sessions.wait`,
 
 Sessions bound to an inline-runtime agent accept an optional JSON Schema on the
 message-send payload. The selected inline lane enforces the schema and the turn
-result carries the validated JSON. The field is available on the HTTP payload
-(`POST /v1/sessions/:sessionId/messages`); the typed SDK helper does not expose
-it yet.
+result carries the validated JSON. The field is typed on
+`client.sessions.sendMessage` via the generated OpenAPI types and available on
+the raw HTTP payload (`POST /v1/sessions/:sessionId/messages`).
 
 ```http
 POST /v1/sessions/:sessionId/messages
@@ -521,9 +506,14 @@ POST /v1/sessions/:sessionId/messages
 }
 ```
 
-`response_schema` must be a JSON Schema object; worker-runtime agents reject
-it. Direct LLM API callers use provider-native structured output in the
-provider-shaped payload instead (see Direct LLM API below).
+`response_schema` must be a compilable JSON Schema — it is compiled at
+admission and an invalid schema returns a shaped `400` before any model call.
+The lane output is validated against it; a structurally invalid response
+triggers one corrective retry with the validation error fed back to the model,
+and retry exhaustion returns a structured failure carrying the last candidate
+text. Worker-runtime agents reject the field. Direct LLM API callers use
+provider-native structured output in the provider-shaped payload instead (see
+Direct LLM API below).
 
 ### Per-request model controls
 
@@ -547,8 +537,9 @@ POST /v1/sessions/:sessionId/messages
   (Claude-engine agents reject it; use `effort` there)
 
 Overrides are validated against the target agent's model capabilities; an
-unsupported combination is rejected with a `400` naming the field. These
-fields are HTTP-level today, like `response_schema`.
+unsupported combination is rejected with a `400` naming the field. All of
+these fields are typed on `client.sessions.sendMessage` via the generated
+OpenAPI types.
 
 Read-only history endpoints are available over the control API. SDK helpers are
 not exposed for these endpoints yet.
@@ -724,14 +715,11 @@ catalog aliases.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
 job, and memory LLM defaults. Use `client.models.defaults.update()` or
-`PATCH /v1/models/defaults` to select a model preset, set chat/job
-aliases, or reset an area back to inheritance/preset-managed defaults:
+`PATCH /v1/models/defaults` to set chat/job aliases (including the `oneTime`
+and `recurring` job slots) or reset an area back to inherited or
+provider-managed defaults:
 
 ```ts
-await client.models.defaults.update({
-  preset: 'openrouter',
-});
-
 await client.models.defaults.update({
   chat: 'opus-4.8',
   jobs: 'inherit',
@@ -749,7 +737,7 @@ inherited defaults. `target: "agent"` with `agentId` resolves a `modelAlias`
 against the selected `agentHarness` and returns `credentialProfile` plus
 diagnostic `executionProviderId`. Explicit harness/model incompatibility fails
 before runner spawn with
-`Model <alias> cannot run on <harness>. Choose Auto or a compatible model.`
+`Model <alias> cannot run with agent harness <harness>.`
 DeepAgents with Claude OAuth/subscription credentials fails with `DeepAgents cannot use Claude OAuth/subscription credentials. Choose Anthropic SDK or configure Claude API-key Model Access.`
 
 ```ts
@@ -886,14 +874,12 @@ client.conversations.list({ providerAccountId? })
 client.conversations.get(conversationId)
 client.conversations.getApprovers(conversationId)
 client.conversations.setApprovers(conversationId, userIds)
-client.conversationInstalls.create({
-  agentId,
-  providerAccountId,
-  conversationId,
+client.agents.conversationInstalls.enable(agentId, conversationId, {
+  providerAccountId?,
   threadId?,
 })
-client.conversationInstalls.list({ agentId? })
-client.conversationInstalls.disable({ agentId, conversationId, threadId? })
+client.agents.conversationInstalls.list(agentId)
+client.agents.conversationInstalls.disable(agentId, conversationId, { threadId? })
 client.conversations.messages(conversationId, {
   threadId?,
   after?,
@@ -941,9 +927,9 @@ GET    /v1/conversations/:id/threads               conversations:read
 GET    /v1/conversations/:id/messages              messages:read
 
 GET    /v1/agents/:agentId/conversation-installs                 conversations:read
-PUT    /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
-PATCH  /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
-DELETE /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
+PUT    /v1/agents/:agentId/conversation-installs/:conversationId agents:admin + conversations:admin
+PATCH  /v1/agents/:agentId/conversation-installs/:conversationId agents:admin + conversations:admin
+DELETE /v1/agents/:agentId/conversation-installs/:conversationId agents:admin + conversations:admin
 ```
 
 `GET /v1/agents/:id/admin` returns Agent admin state, including
@@ -981,11 +967,9 @@ implemented.
 ## Conversation Installs
 
 ```ts
-client.conversationInstalls.list({ agentId? })
-client.conversationInstalls.create({
-  agentId,
-  conversationId,
-  providerAccountId,
+client.agents.conversationInstalls.list(agentId)
+client.agents.conversationInstalls.enable(agentId, conversationId, {
+  providerAccountId?,
   threadId?,
   displayName?,
   memoryScope?, // user | conversation | agent | app
@@ -993,12 +977,12 @@ client.conversationInstalls.create({
   workspaceSnapshotId?,
   permissionPolicyIds?,
 })
-client.conversationInstalls.update(installId, patch)
-client.conversationInstalls.disable(installId)
+client.agents.conversationInstalls.update(agentId, conversationId, patch)
+client.agents.conversationInstalls.disable(agentId, conversationId, { threadId? })
 ```
 
-Install writes require `agents:admin`. `disable()` marks the install disabled;
-it does not delete the row.
+Install writes require `agents:admin` plus `conversations:admin`. `disable()`
+marks the install disabled; it does not delete the row.
 
 ## Agent Skill Bindings
 
@@ -1136,6 +1120,24 @@ const openai = new OpenAI({
   UNSUPPORTED_FIELD` naming the field.
 - Usage is attributed to the API key in the request log; the gateway credential
   is request-scoped and revoked when delivery ends.
+
+## Usage
+
+Aggregated token usage across live agent turns, scheduled jobs, and Direct LLM
+API calls, from one normalized event stream (recorded from deployment forward;
+streaming passthrough responses are not measured in v1):
+
+```ts
+client.usage.query({
+  from, // ISO timestamp, required
+  to,   // ISO timestamp, required
+  agentId?, apiKeyId?, runId?, jobId?, model?,
+  group_by?, // 'agent' | 'api_key' | 'model' | 'day'
+})
+```
+
+Requires the `usage:read` scope; results are scoped to the API key's app
+access. Missing/invalid time range → `400`; missing scope → `403`.
 
 ## Webhooks
 

@@ -37,6 +37,8 @@ import type {
   RuntimeEvent,
   RuntimeEventFilter,
   RuntimeEventPublishInput,
+  UsageAggregate,
+  UsageQuery,
 } from '../events/events.js';
 import type { Message, MessageId } from '../messages/messages.js';
 import type {
@@ -312,6 +314,7 @@ export interface AgentRunRepository {
 export interface RuntimeEventRepository {
   appendRuntimeEvent(input: RuntimeEventPublishInput): Promise<RuntimeEvent>;
   listRuntimeEvents(filter: RuntimeEventFilter): Promise<RuntimeEvent[]>;
+  queryUsage(input: UsageQuery): Promise<UsageAggregate[]>;
 }
 
 export interface OutboundDeliveryRepository {

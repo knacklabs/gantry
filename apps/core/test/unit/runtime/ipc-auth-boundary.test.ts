@@ -30,6 +30,7 @@ import {
 } from '@core/runtime/ipc-parsing.js';
 import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 import { clearConsumedIpcRequestIds } from '@core/runtime/ipc-auth-validation.js';
+import { sanitizeIpcToolInput } from '@core/runtime/ipc-tool-input-sanitization.js';
 import {
   appendOwnedFileArtifactDegradeText,
   resolveOwnedFileArtifactMessage,
@@ -938,7 +939,7 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
-  it('revokes response signing keys only for the matching run scope', () => {
+  it('revokes response signing keys only for the matching scope', () => {
     const run = createIpcAuthEnvelope('team', 'thread-1');
 
     expect(
@@ -1061,11 +1062,13 @@ describe('validateIpcAuthRequest', () => {
       runLeaseToken: 'lease-token-1',
       runLeaseFencingVersion: 1,
       toolName: 'Bash',
+      unattended: true,
+      turnIntentSummary: 'Inspect the current repository state.',
+      senderId: 'operator-1',
       decisionOptions: [
         'allow_once',
         'allow_persistent_rule',
         'cancel',
-        'allow_timed_grant',
         'not_real',
         'allow_once',
       ],
@@ -1078,6 +1081,9 @@ describe('validateIpcAuthRequest', () => {
         appId: 'app:one',
         agentId: 'agent:team',
         providerAccountId: 'provider-account:slack:a',
+        senderId: 'operator-1',
+        unattended: true,
+        turnIntentSummary: 'Inspect the current repository state.',
         chatJid: 'tg:team',
         jobId: 'job-1',
         runId: 'run-1',
@@ -1096,12 +1102,7 @@ describe('validateIpcAuthRequest', () => {
         appId: 'app:one',
         agentId: 'agent:team',
         providerAccountId: 'provider-account:slack:a',
-        decisionOptions: [
-          'allow_once',
-          'allow_persistent_rule',
-          'cancel',
-          'allow_timed_grant',
-        ],
+        decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
         closestRule: {
           rule: 'RunCommand(npm run build)',
           reason: 'Bash leaf npm test did not match any scoped rule.',
@@ -1112,7 +1113,7 @@ describe('validateIpcAuthRequest', () => {
 
   it('caps wide signed permission tool input during parsing', () => {
     const toolInput: Record<string, unknown> = {
-      command: 'npm test',
+      command: 'x'.repeat(600),
       apiToken: 'secret-token-value',
     };
     for (let index = 0; index < 100; index += 1) {
@@ -1136,11 +1137,66 @@ describe('validateIpcAuthRequest', () => {
     const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
 
     expect(parsed.toolInput).toMatchObject({
-      command: 'npm test',
+      command: `${'x'.repeat(500)}...[truncated]`,
       apiToken: '[REDACTED]',
       __omitted_keys: 'more',
     });
     expect(parsed.toolInput).not.toHaveProperty('extra_99');
+    expect(parsed.toolInputSanitized).toBe(true);
+    expect(parsed.toolInputSanitizedPaths).toEqual([
+      'command',
+      'apiToken',
+      ...Array.from({ length: 62 }, (_, index) => `extra_${index + 38}`),
+    ]);
+  });
+
+  it('records every altered tool input dot-path', () => {
+    const wide = Object.fromEntries(
+      Array.from({ length: 42 }, (_, index) => [`item_${index}`, index]),
+    );
+    const unsupported = () => undefined;
+
+    const result = sanitizeIpcToolInput({
+      apiToken: 'secret-token-value',
+      authText: 'Bearer abcdefgh123456',
+      long: 'x'.repeat(501),
+      nested: { child: { tooDeep: { value: 'hidden' } } },
+      wide,
+      entries: Array.from({ length: 22 }, (_, index) => index),
+      unsupported,
+    });
+
+    expect(result.altered).toBe(true);
+    expect(result.alteredPaths).toEqual([
+      'apiToken',
+      'authText',
+      'long',
+      'nested.child.tooDeep',
+      'wide.item_40',
+      'wide.item_41',
+      'entries.20',
+      'entries.21',
+      'unsupported',
+    ]);
+    expect(result.toolInput).toMatchObject({
+      apiToken: '[REDACTED]',
+      authText: '[REDACTED]',
+      nested: { child: { tooDeep: '[TRUNCATED_DEPTH]' } },
+      wide: { __omitted_keys: 'more' },
+      entries: Array.from({ length: 20 }, (_, index) => index),
+      unsupported: String(unsupported),
+    });
+  });
+
+  it('records a root alteration for non-object tool input', () => {
+    expect(sanitizeIpcToolInput('not-an-object')).toEqual({
+      altered: true,
+      alteredPaths: ['$'],
+    });
+    expect(sanitizeIpcToolInput(undefined)).toEqual({
+      altered: false,
+      alteredPaths: [],
+    });
   });
 
   it('rejects permission IPC approval target mismatches', () => {

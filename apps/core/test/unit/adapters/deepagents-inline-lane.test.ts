@@ -685,8 +685,39 @@ Always mention the migration impact.
       status: 'error',
       result: null,
       error: expect.stringMatching(/structured output.*schema validation/i),
+      structuredOutputValidationFailure: true,
     });
     expect(input.emitOutput).toHaveBeenLastCalledWith(result);
+  });
+
+  it('does not project tools during response_schema repair', async () => {
+    deep.streamEvents.mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield {
+          event: 'on_chain_end',
+          data: { output: { structuredResponse: { answer: 'repaired' } } },
+        };
+      },
+    }));
+    const base = laneInput();
+    const input = laneInput({
+      input: {
+        ...base.input,
+        responseSchema: { type: 'object' },
+        disableTools: true,
+      },
+    });
+    const lane = createDeepAgentsInlineAgentLoopLane({
+      databaseUrl: 'postgres://gantry:test@localhost:5432/gantry',
+      schema: 'gantry_deepagents',
+    });
+
+    await lane(input);
+
+    expect(deep.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: [] }),
+    );
+    expect(remote.Client.instances).toHaveLength(0);
   });
 
   it('uses PostgresSaver, LangChain core tools, remote MCP, and continuations', async () => {
@@ -829,6 +860,7 @@ Always mention the migration impact.
         serverName: 'crm',
         toolName: 'read',
         outcome: 'success',
+        result: 'remote result',
       }),
     );
     expect(saver?.end).toHaveBeenCalledOnce();

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildLocalCliSemanticCapability,
+  capabilityDisplayNameForRule,
   projectToolCatalogItemToRuntimeRules,
   semanticCapabilityRuntimeRules,
   validateSemanticCapabilityDefinition,
@@ -18,7 +19,7 @@ function localCliCapability(
   } = {},
 ) {
   return buildLocalCliSemanticCapability({
-    capabilityId: 'acme.invoices.read',
+    capabilityId: 'example.records.read',
     displayName: 'Acme invoices read',
     category: 'Acme',
     risk: 'read',
@@ -86,7 +87,7 @@ describe('semantic capability catalog validation', () => {
       validateSemanticCapabilityDefinition({
         ...localCliCapability(),
         implementationBindings: [
-          { kind: 'adapter', adapterRef: 'configured.acme.invoices.read' },
+          { kind: 'adapter', adapterRef: 'configured.example.records.read' },
         ],
       }),
     ).toEqual({
@@ -96,10 +97,35 @@ describe('semantic capability catalog validation', () => {
     });
   });
 
+  it('rejects implementation bindings without their kind-specific field', () => {
+    for (const [binding, reason] of [
+      [{ kind: 'tool_rule' as const }, 'tool_rule bindings require a rule.'],
+      [{ kind: 'mcp_tool' as const }, 'mcp_tool bindings require an mcpTool.'],
+      [{ kind: 'adapter' as const }, 'adapter bindings require an adapterRef.'],
+    ] as const) {
+      expect(
+        validateSemanticCapabilityDefinition({
+          ...localCliCapability(),
+          credentialSource: 'configured_access',
+          implementationBindings: [binding],
+          protectedPaths: undefined,
+        }),
+      ).toEqual({ ok: false, reason });
+    }
+  });
+
+  it('uses generic labelization for skill action display names', () => {
+    expect(
+      capabilityDisplayNameForRule(
+        'capability:skill.social-network-posting.publish',
+      ),
+    ).toBe('Social network posting');
+  });
+
   it('rejects local CLI-only credential and network fields on other capability types', () => {
     expect(
       validateSemanticCapabilityDefinition({
-        capabilityId: 'acme.invoices.read',
+        capabilityId: 'example.records.read',
         displayName: 'Acme invoices read',
         category: 'Acme',
         risk: 'read',
@@ -107,7 +133,7 @@ describe('semantic capability catalog validation', () => {
         cannot: 'Write invoices or export tokens.',
         credentialSource: 'configured_access',
         implementationBindings: [
-          { kind: 'adapter', adapterRef: 'configured.acme.invoices.read' },
+          { kind: 'adapter', adapterRef: 'configured.example.records.read' },
         ],
         networkHosts: ['api.acme.test'],
       }),
@@ -119,7 +145,7 @@ describe('semantic capability catalog validation', () => {
 
     expect(
       validateSemanticCapabilityDefinition({
-        capabilityId: 'acme.invoices.read',
+        capabilityId: 'example.records.read',
         displayName: 'Acme invoices read',
         category: 'Acme',
         risk: 'read',
@@ -127,7 +153,7 @@ describe('semantic capability catalog validation', () => {
         cannot: 'Write invoices or export tokens.',
         credentialSource: 'configured_access',
         implementationBindings: [
-          { kind: 'adapter', adapterRef: 'configured.acme.invoices.read' },
+          { kind: 'adapter', adapterRef: 'configured.example.records.read' },
         ],
         protectedPaths: ['~/.config/acme'],
       }),
@@ -161,11 +187,11 @@ describe('semantic capability catalog validation', () => {
 
   it('validates skill action network hosts with the shared host parser', () => {
     const capability = {
-      capabilityId: 'skill.linkedin.publish',
-      displayName: 'LinkedIn publish',
-      category: 'linkedin-posting',
+      capabilityId: 'skill.social-network.publish',
+      displayName: 'Social network publish',
+      category: 'social-network-posting',
       risk: 'write' as const,
-      can: 'Publish a LinkedIn post.',
+      can: 'Publish a social network post.',
       cannot: 'Call unrelated endpoints.',
       credentialSource: 'skill_secret' as const,
       implementationBindings: [
@@ -173,8 +199,8 @@ describe('semantic capability catalog validation', () => {
       ],
       source: {
         kind: 'skill_action',
-        skillId: 'skill:linkedin-posting',
-        skillName: 'linkedin-posting',
+        skillId: 'skill:social-network-posting',
+        skillName: 'social-network-posting',
         actionId: 'publish',
       },
     };
@@ -182,13 +208,13 @@ describe('semantic capability catalog validation', () => {
     expect(
       validateSemanticCapabilityDefinition({
         ...capability,
-        networkHosts: ['api.linkedin.com:443'],
+        networkHosts: ['api.social-network.test:443'],
       }),
     ).toEqual({ ok: true });
     expect(
       validateSemanticCapabilityDefinition({
         ...capability,
-        networkHosts: ['https://api.linkedin.com/v2'],
+        networkHosts: ['https://api.social-network.test/v2'],
       }),
     ).toEqual({
       ok: false,
@@ -304,14 +330,14 @@ describe('semantic capability catalog validation', () => {
 
     expect(
       projectToolCatalogItemToRuntimeRules({
-        name: 'capability:acme.invoices.read',
+        name: 'capability:example.records.read',
         inputSchema: {
           format: 'gantry.semantic-capability.v1',
           schema: capability,
         },
       }),
     ).toEqual([
-      'capability:acme.invoices.read',
+      'capability:example.records.read',
       'RunCommand(/usr/local/bin/acme invoices read *)',
     ]);
   });

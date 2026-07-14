@@ -26,6 +26,7 @@ import { resolveConfiguredAgentRuntime } from './settings/runtime-settings-agent
 import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
+import { resolveEffectivePermissionMode } from '../shared/permission-mode.js';
 import {
   buildTriggerPattern,
   defaultTriggerForAgentName,
@@ -131,6 +132,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         runtime: resolveConfiguredAgentRuntime(agent),
         model: agent.model,
         agentHarness: agent.agentHarness,
+        permissionMode: agent.permissionMode,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
         recurringJobDefaultModel: agent.recurringJobDefaultModel,
         bindings: agent.bindings,
@@ -199,6 +201,7 @@ export function getPublicRuntimeSettings() {
     permissions: {
       yoloMode: effectiveYoloModeSettings(settings.permissions.yoloMode),
       egress: settings.permissions.egress,
+      autoMode: settings.permissions.autoMode,
     },
   };
 }
@@ -445,6 +448,13 @@ export function getSelectedAgentHarness(agentFolder?: string): AgentHarness {
 
 export function getSelectedAgentRuntime(agentFolder?: string): AgentRuntime {
   return getConfiguredAgentRuntime(agentFolder) ?? 'worker';
+}
+
+export function getSelectedAgentPermissionMode(agentFolder?: string) {
+  const agent = agentFolder
+    ? getRuntimeSettingsForConfig().agents[agentFolder]
+    : undefined;
+  return resolveEffectivePermissionMode(undefined, agent?.permissionMode);
 }
 
 export function getConfiguredAgentRuntime(

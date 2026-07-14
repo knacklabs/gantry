@@ -4,6 +4,7 @@ import path from 'path';
 import { ASSISTANT_NAME as DEFAULT_ASSISTANT_NAME } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute, ThinkingOverride } from '../domain/types.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 import {
   resolveModelAlias,
   resolveModelSelectionForWorkload,
@@ -209,6 +210,41 @@ export function setGroupThinkingOverride(
       thinkingOverride: thinking ?? null,
     },
     'Updated group thinking override',
+  );
+}
+
+export function setGroupPermissionModeOverride(
+  conversationRoutes: Record<string, ConversationRoute>,
+  chatJid: string,
+  permissionMode: PermissionMode | undefined,
+  persist: (jid: string, group: ConversationRoute) => void | Promise<void>,
+): Promise<void> | void {
+  const existingGroup = conversationRoutes[chatJid];
+  if (
+    !existingGroup ||
+    existingGroup.agentConfig?.permissionMode === permissionMode
+  )
+    return;
+
+  const nextAgentConfig = { ...(existingGroup.agentConfig || {}) };
+  if (permissionMode) nextAgentConfig.permissionMode = permissionMode;
+  else delete nextAgentConfig.permissionMode;
+
+  const updatedGroup: ConversationRoute = {
+    ...existingGroup,
+    agentConfig:
+      Object.keys(nextAgentConfig).length > 0 ? nextAgentConfig : undefined,
+  };
+  return commitGroupOverride(
+    conversationRoutes,
+    chatJid,
+    updatedGroup,
+    persist(chatJid, updatedGroup),
+    {
+      group: updatedGroup.name,
+      permissionModeOverride: permissionMode ?? null,
+    },
+    'Updated group permission mode override',
   );
 }
 

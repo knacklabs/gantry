@@ -40,6 +40,12 @@ export function buildPermissionIpcRuntimeEnv(): PermissionIpcRuntimeEnv {
     permissionRequestTimeoutMs: getPermissionTimeoutMs(
       jobId ? 'autonomous' : 'interactive',
     ),
+    permissionMode:
+      readEnv('GANTRY_PERMISSION_MODE') === 'auto' ? 'auto' : 'ask',
+    senderId: jobId ? undefined : readEnv('GANTRY_MEMORY_USER_ID') || undefined,
+    senderIsControlApprover:
+      readEnv('GANTRY_MEMORY_REVIEWER_IS_CONTROL_APPROVER') === '1',
+    turnIntentSummary: readEnv('GANTRY_TURN_INTENT_SUMMARY') || undefined,
     resolveWorkspaceIpcDir,
   };
 }

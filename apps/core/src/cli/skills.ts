@@ -144,9 +144,9 @@ async function installSkill(
         selections: uniqueCapabilities([
           ...existing.map((capability) => ({
             id: String(capability.id ?? ''),
-            version: String(capability.version ?? 'builtin'),
+            version: String(capability.version ?? 'catalog'),
           })),
-          ...capabilityIds.map((id) => ({ id, version: 'builtin' })),
+          ...capabilityIds.map((id) => ({ id, version: 'catalog' })),
         ]),
       },
     });

@@ -33,6 +33,7 @@ import type { AgentExecutionAdapterRegistry } from '../application/agent-executi
 import type { RunnerSandboxProvider } from '../shared/runner-sandbox-provider.js';
 import type { FamilyOrderOverrides } from '../shared/model-families.js';
 import type { AgentHarness } from '../shared/agent-engine.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 import type { AsyncTaskRepository } from '../domain/ports/async-tasks.js';
 import type { PatternCandidateRepository } from '../domain/ports/pattern-candidates.js';
 import type { AgentTodoRender } from '../domain/ports/task-lifecycle.js';
@@ -164,6 +165,10 @@ export interface GroupProcessingDeps {
   setGroupThinkingOverride: (
     chatJid: string,
     thinking: ThinkingOverride | undefined,
+  ) => Promise<void> | void;
+  setGroupPermissionModeOverride: (
+    chatJid: string,
+    permissionMode: PermissionMode | undefined,
   ) => Promise<void> | void;
   getAvailableGroups: () => Promise<AvailableGroup[]> | AvailableGroup[];
   getRegisteredJids: () => Set<string>;

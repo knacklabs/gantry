@@ -89,6 +89,11 @@ export const runtimeEventsPostgres = pgTable(
       table.eventType,
       table.eventId,
     ),
+    usageQueryIdx: index('idx_runtime_events_usage_query').on(
+      table.appId,
+      table.eventType,
+      table.createdAt,
+    ),
     webhookProjectionIdx: index('idx_runtime_events_webhook_projection').on(
       table.appId,
       table.webhookId,

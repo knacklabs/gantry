@@ -13,6 +13,7 @@ export function emitYoloDenylistHit(input: {
   getNewSessionId: () => string | undefined;
   match: YoloModeMatch;
   principal: string;
+  reason: string;
 }): void {
   writeOutput({
     status: 'success',
@@ -35,6 +36,7 @@ export function emitYoloDenylistHit(input: {
           matchKind: input.match.kind,
           tool: input.match.toolName,
           principal: input.principal,
+          reason: input.reason,
           conversationId: input.agentInput.chatJid,
         },
       },

@@ -176,12 +176,7 @@ export function updateDiagnosticsFromRuntimeEvent(
         stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction,
     };
   }
-  if (
-    phase === 'permission_allowed' &&
-    tool &&
-    mode &&
-    (mode === 'allow_once' || mode === 'allow_timed_grant')
-  ) {
+  if (phase === 'permission_allowed' && tool && mode === 'allow_once') {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool
         ? diagnostics.lastPermissionWait

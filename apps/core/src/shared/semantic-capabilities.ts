@@ -336,28 +336,6 @@ export function capabilityDisplayNameForRule(rule: string): string | undefined {
   return skillActionCapabilityDisplayName(capabilityId);
 }
 
-export function semanticCapabilityDefinitionFromToolInput(
-  toolInput: unknown,
-  expectedCapabilityId?: string,
-): SemanticCapabilityDefinition | undefined {
-  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) {
-    return undefined;
-  }
-  const record = toolInput as Record<string, unknown>;
-  const raw =
-    record.semanticCapabilityDefinition ?? record.capabilityDefinition;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const capability = raw as SemanticCapabilityDefinition;
-  if (
-    expectedCapabilityId &&
-    capability.capabilityId !== expectedCapabilityId
-  ) {
-    return undefined;
-  }
-  const validation = validateSemanticCapabilityDefinition(capability);
-  return validation.ok ? cloneCapabilityDefinition(capability) : undefined;
-}
-
 export function skillActionCapabilityDisplayName(
   capabilityId: string,
 ): string | undefined {
@@ -378,6 +356,15 @@ export function skillActionCapabilityDisplayName(
 function validateSemanticCapabilityBinding(
   binding: SemanticCapabilityImplementationBinding,
 ): { ok: true } | { ok: false; reason: string } {
+  if (binding.kind === 'tool_rule' && !binding.rule?.trim()) {
+    return { ok: false, reason: 'tool_rule bindings require a rule.' };
+  }
+  if (binding.kind === 'mcp_tool' && !binding.mcpTool?.trim()) {
+    return { ok: false, reason: 'mcp_tool bindings require an mcpTool.' };
+  }
+  if (binding.kind === 'adapter' && !binding.adapterRef?.trim()) {
+    return { ok: false, reason: 'adapter bindings require an adapterRef.' };
+  }
   if (binding.rule) {
     const validation = validateReadableAgentToolRule(binding.rule);
     if (!validation.ok) return validation;
@@ -554,7 +541,6 @@ function parseSemanticCapabilitySchema(
 }
 
 function humanizeCapabilityWord(word: string, index: number): string {
-  if (word === 'linkedin') return 'LinkedIn';
   if (index > 0) return word;
   return word.charAt(0).toUpperCase() + word.slice(1);
 }

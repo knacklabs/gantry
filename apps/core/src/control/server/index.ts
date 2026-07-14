@@ -67,6 +67,7 @@ import { handleSessionRoutes } from './routes/sessions.js';
 import { handleSettingsRoutes } from './routes/settings.js';
 import { handleSkillRoutes } from './routes/skills.js';
 import { handleSystemRoutes } from './routes/system.js';
+import { handleUsageRoutes } from './routes/usage.js';
 import { handleWebhookRoutes } from './routes/webhooks.js';
 import {
   deliverWebhookDelivery,
@@ -172,6 +173,7 @@ function createControlRequestHandler(
       if (await handleJobRoutes(req, res, ctx, url, pathname)) return;
       if (await handleExternalIngressRoutes(req, res, ctx, pathname)) return;
       if (await handleRunRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleUsageRoutes(req, res, ctx, url, pathname)) return;
       if (await handleSettingsRoutes(req, res, ctx, pathname)) return;
       if (await handleSkillRoutes(req, res, ctx, url, pathname)) return;
       if (await handleMcpServerRoutes(req, res, ctx, url, pathname)) return;

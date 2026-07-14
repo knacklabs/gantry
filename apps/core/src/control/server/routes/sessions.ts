@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { CreateSessionRequestSchema } from '@gantry/contracts';
+import { Ajv, type AnySchema } from 'ajv';
 import type { ZodIssue } from 'zod';
 
 import type { RuntimeEvent } from '../../../domain/events/events.js';
@@ -47,6 +48,26 @@ function formatSessionRequestIssue(issue: ZodIssue): string {
 
 function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const responseSchemaCompiler = new Ajv({
+  addUsedSchema: false,
+  strict: false,
+});
+
+function responseSchemaCompileFailure(
+  schema: Record<string, unknown>,
+): string | undefined {
+  try {
+    const validate = responseSchemaCompiler.compile(schema as AnySchema);
+    if ('$async' in validate && validate.$async === true) {
+      return 'response_schema async schemas are unsupported';
+    }
+    return undefined;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'unknown error';
+    return `response_schema failed to compile: ${detail}`;
+  }
 }
 
 const SESSION_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
@@ -239,6 +260,15 @@ export async function handleSessionRoutes(
         'response_schema must be a JSON Schema object',
       );
       return true;
+    }
+    if (body.response_schema !== undefined) {
+      const compileFailure = responseSchemaCompileFailure(
+        body.response_schema as Record<string, unknown>,
+      );
+      if (compileFailure) {
+        sendError(res, 400, 'INVALID_REQUEST', compileFailure);
+        return true;
+      }
     }
     const agentControls = parseSessionAgentControls(body);
     if (typeof agentControls === 'string') {

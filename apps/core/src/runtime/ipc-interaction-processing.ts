@@ -41,11 +41,13 @@ import {
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import type { IpcDeps } from './ipc-domain-types.js';
 import {
-  processPermissionIpcRequest,
   processUserQuestionIpcRequest,
   writePermissionIpcResponse,
   writeUserQuestionIpcResponse,
 } from './ipc-interaction-handler.js';
+import { resolvePermissionIpcDecision } from './ipc-permission-classifier-decision.js';
+import { recordHumanPermissionPromotionSignal } from './permission-classifier.js';
+import { synthesizeHostPermissionSuggestions } from '../application/permissions/permission-suggestion-synthesis.js';
 import {
   permissionDecisionEventType,
   permissionDecisionName,
@@ -179,6 +181,10 @@ export async function processPermissionInteractionIpc(input: {
     await denyLockedPermissionInteraction(input, lockStatus);
     return;
   }
+  input.request.suggestions ??= synthesizeHostPermissionSuggestions(
+    input.request.toolName,
+    input.request.toolInput,
+  );
   try {
     const requestedContext = permissionTelemetryContext(input.request, {
       sourceAgentFolder: input.sourceAgentFolder,
@@ -225,8 +231,10 @@ export async function processPermissionInteractionIpc(input: {
       payload: requestedContext,
     });
     await assertActiveScheduledPermissionLease(input);
-    const decision = await processPermissionIpcRequest(input.request, {
-      requestPermissionApproval: input.deps.requestPermissionApproval,
+    const decision = await resolvePermissionIpcDecision({
+      request: input.request,
+      sourceAgentFolder: input.sourceAgentFolder,
+      deps: input.deps,
     });
     await assertActiveScheduledPermissionLease(input);
     const decisionContext = permissionTelemetryContext(input.request, {
@@ -308,6 +316,13 @@ export async function processPermissionInteractionIpc(input: {
       );
       return;
     }
+    recordHumanPermissionPromotionSignal({
+      repository: input.deps.getPermissionPromotionRepository?.(),
+      appId: input.request.appId,
+      agentFolder: input.sourceAgentFolder,
+      request: input.request,
+      decision,
+    });
     const permissionService = new PermissionManagementService();
     if (
       decision.mode !== 'allow_persistent_rule' ||
@@ -383,7 +398,6 @@ export async function processPermissionInteractionIpc(input: {
         reason: decision.reason,
         updatedPermissions: responsePermissionUpdates,
         decisionClassification: decision.decisionClassification,
-        timedGrantExpiresAtMs: decision.timedGrantExpiresAtMs,
       },
       getIpcResponseSigningPrivateKey(
         input.sourceAgentFolder,
@@ -555,25 +569,6 @@ function formatPersistentPermissionOutcome(input: {
     lines.push('No paused setup jobs needed retry.');
   }
   return lines.join('\n');
-}
-
-export type PermissionInteractionIpcBatchItem = Parameters<
-  typeof processPermissionInteractionIpc
->[0];
-
-export async function processPermissionInteractionIpcBatchWithDecision(input: {
-  items: PermissionInteractionIpcBatchItem[];
-  decision: PermissionApprovalDecision;
-}): Promise<void> {
-  for (const item of input.items) {
-    await processPermissionInteractionIpc({
-      ...item,
-      deps: {
-        ...item.deps,
-        requestPermissionApproval: async () => input.decision,
-      },
-    });
-  }
 }
 
 async function sendPermissionOutcomeMessage(

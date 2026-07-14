@@ -65,12 +65,20 @@ export function escapeTelegramMarkdownV2(
   if (lastIndex < text.length) {
     out += escapeTelegramMarkdownV2PlainSegment(text.slice(lastIndex), options);
   }
+  if (options.preserveStyleMarkers) {
+    out = out.replace(/(^|\n)([ \t]*)\\>/g, '$1$2>');
+  }
   return out;
 }
 
-type TelegramStyleMarker = '_' | '*' | '~';
+type TelegramStyleMarker = '_' | '*' | '~' | '|';
 
-const TELEGRAM_STYLE_MARKERS = new Set<TelegramStyleMarker>(['_', '*', '~']);
+const TELEGRAM_STYLE_MARKERS = new Set<TelegramStyleMarker>([
+  '_',
+  '*',
+  '~',
+  '|',
+]);
 
 function isEscapedAt(text: string, index: number): boolean {
   let slashCount = 0;
@@ -116,7 +124,7 @@ function escapeTelegramMarkdownV2PlainSegment(
     }
 
     const content = text.slice(index + 1, closing);
-    out += `${marker}${escapeTelegramMarkdownV2Plain(content)}${marker}`;
+    out += `${marker}${escapeTelegramMarkdownV2PlainSegment(content, options)}${marker}`;
     cursor = closing + 1;
     index = cursor;
   }

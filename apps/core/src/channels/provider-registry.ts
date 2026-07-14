@@ -22,7 +22,8 @@ export type ChannelFormattingDialect =
   | 'none'
   | 'markdown-native'
   | 'mrkdwn'
-  | 'telegram-html';
+  | 'telegram-html'
+  | 'telegram-markdown-v2';
 
 export interface Provider {
   id: string;

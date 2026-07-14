@@ -4,7 +4,6 @@ const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
 const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
   'scheduler_run_now',
   'scheduler_pause_job',
-  'scheduler_open',
 ]);
 
 function truncateSlackButtonLabel(label: string): string {

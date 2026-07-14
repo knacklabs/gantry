@@ -307,7 +307,7 @@ const todoUpdateHandler: TaskHandler = async (context) => {
   const summary = toTrimmedString(payload.summary, { maxLen: 500 }) || null;
   const updatedAt = nowIso();
   const threadId = context.data.authThreadId || context.data.threadId || null;
-  if (context.deps.renderAgentTodo) {
+  if (context.deps.renderAgentTodo && !context.data.jobId) {
     await context.deps
       .renderAgentTodo(
         conversationId,

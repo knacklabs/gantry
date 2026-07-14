@@ -64,8 +64,8 @@ Fields:
 Permission descriptors keep semantic scope primary. Primary text shows the
 capability display name, requester, account/context, what it allows, what it
 does not allow, health/preflight status when available, and the valid choices
-for the flow. Live interactive prompts may include `Allow 5 min`; setup,
-scheduler, admin, and capability flows do not. Details hold raw
+for the flow. Prompts offer `Allow once`, `Allow for future` when a persistent
+suggestion exists, and `Cancel`. Details hold raw
 request ids, low-level tool/rule, redacted command preview, command hash,
 executable path/version, sandbox/network behavior, and settings/storage
 effects.

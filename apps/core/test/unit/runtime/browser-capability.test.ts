@@ -195,6 +195,7 @@ describe('browser-capability', () => {
   let existsSyncSpy: ReturnType<typeof vi.spyOn>;
   let rmSyncSpy: ReturnType<typeof vi.spyOn>;
   let statSyncSpy: ReturnType<typeof vi.spyOn>;
+  let readFileSyncSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.useRealTimers();
@@ -227,6 +228,15 @@ describe('browser-capability', () => {
       return true;
     });
     existsSyncSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+    const originalReadFileSync = fs.readFileSync;
+    readFileSyncSpy = vi
+      .spyOn(fs, 'readFileSync')
+      .mockImplementation((filePath, ...args: any[]) => {
+        if (String(filePath).startsWith('/proc/')) {
+          throw new Error('mock proc error');
+        }
+        return originalReadFileSync(filePath, ...(args as [any]));
+      });
     statSyncSpy = vi.spyOn(fs, 'statSync').mockImplementation((filePath) => {
       const value = String(filePath);
       if (value.endsWith('/Default/Cookies')) {
@@ -245,6 +255,7 @@ describe('browser-capability', () => {
     await manager.closeAllBrowsers();
     killSpy.mockRestore();
     existsSyncSpy.mockRestore();
+    readFileSyncSpy.mockRestore();
     rmSyncSpy.mockRestore();
     statSyncSpy.mockRestore();
     fs.rmSync('/tmp/gantry-browser-capability-test', {

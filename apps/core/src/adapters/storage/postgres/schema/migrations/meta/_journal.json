@@ -659,6 +659,41 @@
       "when": 1777331400000,
       "tag": "0096_lifecycle_webhook_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1777335000000,
+      "tag": "0097_runtime_usage_query_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1777338600000,
+      "tag": "0098_permission_promotion_counters",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1783864800000,
+      "tag": "0099_permission_promotion_denied_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1783909802426,
+      "tag": "0100_run_permission_origin",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1783924932751,
+      "tag": "0101_drop_run_permission_origin",
+      "breakpoints": true
     }
   ]
 }

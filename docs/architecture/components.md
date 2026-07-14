@@ -22,7 +22,7 @@ Three abstractions make the runtime composable: **stateless agents** as versione
 
 ## 2. Stateless Agents
 
-An agent in Gantry is **a versioned configuration, not a permanently running bot**. When work needs to happen, the runtime spawns a fresh runner from the pinned configuration, executes the task, and tears the process down. The runner can still read explicit runtime state such as memory, jobs, and session context, but there is no hidden process memory quietly drifting between runs.
+An agent in Gantry is **a versioned configuration, not a permanently running bot**. When work needs to happen, the runtime starts a fresh run from the pinned configuration — a worker subprocess for full-capability agents, or a lightweight inline loop inside the host process — executes the task, and tears it down. The runner can still read explicit runtime state such as memory, jobs, and session context, but there is no hidden process memory quietly drifting between runs.
 
 Four things attach to every agent:
 
@@ -71,7 +71,7 @@ Four concepts, in order:
 
 - **Runtime approval flow.** When the agent attempts a tool call that policy flags as risky, execution pauses. An approval request is posted into the conversation for the adminlist, and the approver picks one of three outcomes:
   - **Allow once** - single-use grant for this exact call.
-  - **Always allow this rule** - adds a new rule to the conversation's policy so future calls of this shape pass automatically.
+  - **Allow for future** - adds a durable rule to the agent's policy so future calls of this shape pass automatically.
   - **Cancel** - deny.
 
   The decision is audit-logged and bound to the original tool call. The agent cannot grant itself approval.
@@ -89,7 +89,7 @@ In Gantry, **memory is scoped, not global**. A memory item is tied to the custom
 The memory system has four important properties:
 
 - **Boundaries.** Every memory record is keyed by the combination of the customer's app, the agent, the subject (user, conversation, or thread), and optionally the thread itself. The runtime physically cannot return a memory record across these boundaries; the boundary is enforced at the data layer, not asked nicely of the prompt.
-- **Scopes.** When an agent is bound to a conversation, the binding chooses how wide the memory should be: a user, a thread, a whole conversation, an agent's footprint inside the app, or app-wide common knowledge.
+- **Scopes.** When an agent is bound to a conversation, the binding chooses how wide the memory should be: a user, a whole conversation, an agent's footprint inside the app, or app-wide common knowledge.
 - **Kinds.** Memory is typed: preferences, decisions, facts, corrections, constraints, references, procedures. Each kind has its own lifecycle rules: a preference might decay slowly, a correction supersedes the fact it corrects, and a constraint is sticky until explicitly revoked.
 - **Evidence.** Every durable memory record points back to the raw evidence: the original message, tool output, or human input that created it. Memory is auditable. A customer can ask "why does the agent think I prefer X?" and get a real answer.
 
@@ -122,7 +122,7 @@ Each job has:
 - A **target conversation or thread**, which determines whose memory it reads, whose context it inherits, and where its output naturally lands.
 - An **agent and a prompt**, which define what work to do.
 - A **schedule**: manual, one-shot at a future time, recurring on a cron, or fixed-interval.
-- An **execution mode**: parallel runs allowed, or strictly serialized so a long-running job never overlaps itself.
+- **Overlap protection**: runs in the same conversation workspace are serialized, so a long-running job never overlaps itself.
 - **Notification routes**, which let the result fan out to chat, webhook delivery, or other configured destinations.
 
 Jobs can be triggered by the SDK, by a schedule, by a conversation request, or by an external system pushing a signed event into the ingress API.
@@ -192,7 +192,7 @@ A single story that touches every component:
 3. The runtime validates the signature and checks that the ingress is allowed to trigger that work. A **job** is enqueued, scoped to the deal team's Slack channel.
 4. A fresh runner spawns. It reads the conversation's **scoped memory**: past discussion about this account, standing constraints, and the team's stated preferences for outreach style.
 5. The agent uses its **approved tools** to gather public context, including the same persistent browser profile if this workflow needs a logged-in web session. It then attempts to write a note back into the CRM. That tool call is policy-flagged as risky, so execution **pauses** and an approval request is posted into the Slack channel for the **adminlist**.
-6. The sales lead, who is on the adminlist, chooses **Always allow this rule**. The agent finishes the CRM write and posts a tailored research brief into the Slack channel. At the same time, an **outbound webhook** can notify the customer's analytics pipeline, and a dashboard can render progress live over **SSE**.
+6. The sales lead, who is on the adminlist, chooses **Allow for future**. The agent finishes the CRM write and posts a tailored research brief into the Slack channel. At the same time, an **outbound webhook** can notify the customer's analytics pipeline, and a dashboard can render progress live over **SSE**.
 7. Later, a **dreaming** cycle can promote useful evidence into durable memory. The next time the agent works this account, it starts from a smarter baseline. The whole flow is visible in the audit trail.
 
 That is the core value: one runtime for embedded AI work that is connected, controlled, observable, and reusable. None of the components require the customer to know how the others work.

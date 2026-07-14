@@ -13,7 +13,6 @@ import type { CommandBoundNetworkBinding } from '../../../../shared/capability-r
 import { declaredNetworkAuthority } from '../../../../shared/network-host-declaration.js';
 
 export interface SdkSandboxNetworkGate {
-  rememberGlobalApproval(principal: string, expiresAtMs: number): void;
   rememberAllowedTool(
     toolName: string,
     input: Record<string, unknown>,
@@ -29,11 +28,6 @@ export interface SdkSandboxNetworkGate {
     | { behavior: 'allow'; updatedInput: Record<string, unknown> }
     | { behavior: 'deny'; message: string; interrupt: false }
     | null;
-}
-
-interface SdkSandboxNetworkGlobalApproval {
-  createdAtMs: number;
-  expiresAtMs: number;
 }
 
 interface SdkSandboxNetworkApprovalToken {
@@ -82,8 +76,6 @@ export function createSdkSandboxNetworkGate(
     string,
     SdkSandboxNetworkApprovalToken
   >();
-  const globalApprovals = new Map<string, SdkSandboxNetworkGlobalApproval>();
-
   function writeEvent(input: {
     decision: string;
     reason: string;
@@ -153,23 +145,6 @@ export function createSdkSandboxNetworkGate(
   }
 
   return {
-    rememberGlobalApproval(principal, expiresAtMs) {
-      const now = nowMs();
-      const normalizedPrincipal = principal.trim();
-      if (!normalizedPrincipal || expiresAtMs <= now) return;
-      globalApprovals.set(normalizedPrincipal, {
-        createdAtMs: now,
-        expiresAtMs,
-      });
-      writeEvent({
-        decision: 'sdk_network_gate_global_approval_activated',
-        reason:
-          'Gantry activated a short-lived eligible-tools/SDK-API-prompt approval; SDK sandbox network prompts will be suppressed until it expires.',
-        tokenCreatedAtMs: now,
-        tokenExpiresAtMs: expiresAtMs,
-        tokenTtlMs: expiresAtMs - now,
-      });
-    },
     rememberAllowedTool(
       toolName,
       input,
@@ -238,24 +213,6 @@ export function createSdkSandboxNetworkGate(
       const hostHash = sandboxNetworkHostHash(input);
       const now = nowMs();
       const expiredTokenCount = pruneExpiredTokens(now);
-      const globalApproval = globalApprovals.get(principal);
-      if (globalApproval) {
-        if (globalApproval.expiresAtMs > now) {
-          writeEvent({
-            decision: 'sdk_network_gate_global_approval_suppressed',
-            reason:
-              'SDK requested network approval during an active eligible-tools/SDK-API-prompt approval; suppressing duplicate user approval.',
-            networkToolUseID: permissionOpts.toolUseID,
-            hostHash,
-            tokenCreatedAtMs: globalApproval.createdAtMs,
-            tokenExpiresAtMs: globalApproval.expiresAtMs,
-            tokenTtlMs: globalApproval.expiresAtMs - globalApproval.createdAtMs,
-            expiredTokenCount,
-          });
-          return { behavior: 'allow', updatedInput: input };
-        }
-        globalApprovals.delete(principal);
-      }
       const parentToolUseID =
         permissionOpts.parentToolUseID?.trim() ??
         sandboxNetworkParentToolUseID(input);

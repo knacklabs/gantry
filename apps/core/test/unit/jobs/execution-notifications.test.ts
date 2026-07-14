@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Job, JobSetupState } from '@core/domain/types.js';
 import {
+  notifySchedulerRunRecovered,
   notifySchedulerSetupRequired,
-  notifySchedulerRunStart,
   notifySchedulerTerminalRunState,
 } from '@core/jobs/execution-notifications.js';
 
@@ -63,9 +63,9 @@ function makeMemoryDreamingJob(overrides: Partial<Job> = {}): Job {
 }
 
 describe('jobs/execution-notifications', () => {
-  it('sends start lifecycle notification for non-silent jobs', async () => {
+  it('sends recovery notifications for non-silent jobs', async () => {
     const sendMessage = vi.fn(async () => undefined);
-    const delivered = await notifySchedulerRunStart({
+    const delivered = await notifySchedulerRunRecovered({
       job: makeJob(),
       runId: 'run-123456789',
       sendMessage,
@@ -74,52 +74,9 @@ describe('jobs/execution-notifications', () => {
     expect(delivered).toBe(true);
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining('**▶️ Running** · Daily summary'),
+      expect.stringContaining('Run recovered: previous worker lost its lease'),
       { threadId: 'thread-1' },
     );
-  });
-
-  it('skips start notifications for silent jobs', async () => {
-    const sendMessage = vi.fn(async () => undefined);
-    const delivered = await notifySchedulerRunStart({
-      job: makeJob({ silent: true }),
-      runId: 'run-1',
-      sendMessage,
-    });
-
-    expect(delivered).toBe(false);
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
-  it('skips start notifications for memory dreaming jobs', async () => {
-    const sendMessage = vi.fn(async () => undefined);
-    const delivered = await notifySchedulerRunStart({
-      job: makeMemoryDreamingJob(),
-      runId: 'run-1',
-      sendMessage,
-    });
-
-    expect(delivered).toBe(false);
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
-  it('does not block a run when start notification delivery hangs', async () => {
-    vi.useFakeTimers();
-    try {
-      const sendMessage = vi.fn(() => new Promise<void>(() => undefined));
-      const delivered = notifySchedulerRunStart({
-        job: makeJob(),
-        runId: 'run-1',
-        sendMessage,
-      });
-
-      await vi.advanceTimersByTimeAsync(5_000);
-
-      await expect(delivered).resolves.toBe(false);
-      expect(sendMessage).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('prefers lifecycle update over summary fallback when update succeeds', async () => {
@@ -143,7 +100,7 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('falls back once to summary notification when lifecycle update is unavailable', async () => {
+  it('sends one terminal outcome and no normal start notification', async () => {
     const sendMessage = vi.fn(async () => undefined);
 
     const notified = await notifySchedulerTerminalRunState({
@@ -164,6 +121,7 @@ describe('jobs/execution-notifications', () => {
       expect.stringContaining('**❌ Failed** · Daily summary'),
       expect.objectContaining({ threadId: 'thread-1' }),
     );
+    expect(String(sendMessage.mock.calls[0]?.[1])).not.toContain('Running');
   });
 
   it('cleans markdown job reports into readable terminal outcomes', async () => {
@@ -383,9 +341,7 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain(
-      'Next: Runs again after the schedule is repaired.',
-    );
+    expect(message).toContain('Next: Stopped until the job is fixed or rerun.');
     expect(message).not.toContain('not-a-date');
   });
 
@@ -420,12 +376,6 @@ describe('jobs/execution-notifications', () => {
         {
           kind: 'scheduler_pause_job',
           label: 'Pause job',
-          jobId: 'job-1',
-          runId: 'run-1',
-        },
-        {
-          kind: 'scheduler_open',
-          label: 'Open in scheduler',
           jobId: 'job-1',
           runId: 'run-1',
         },
@@ -518,12 +468,6 @@ describe('jobs/execution-notifications', () => {
         {
           kind: 'scheduler_pause_job',
           label: 'Pause job',
-          jobId: 'job-1',
-          runId: 'run-1',
-        },
-        {
-          kind: 'scheduler_open',
-          label: 'Open in scheduler',
           jobId: 'job-1',
           runId: 'run-1',
         },

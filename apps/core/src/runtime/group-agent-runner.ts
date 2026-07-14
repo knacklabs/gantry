@@ -1,7 +1,5 @@
-import type {
-  AgentControlOverrides,
-  ConversationRoute,
-} from '../domain/types.js';
+// prettier-ignore
+import type { AgentControlOverrides, ConversationRoute } from '../domain/types.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
 import { defaultModelStatusSelection } from '../session/session-model-status.js';
 import type { AgentOutput } from './agent-spawn.js';
@@ -59,9 +57,8 @@ import { prepareCompactionDeltaReplay } from './group-agent-runner-compaction-de
 import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
 import { hasAsyncTaskRepository } from './group-agent-runner-async-task-repository.js';
 import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
-const DEFAULT_MODEL_ALIAS = 'opus';
-const DEFAULT_TURN_APP_ID = 'default';
 const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
 function redactRuntimeError(error: string | undefined): string | undefined {
@@ -73,7 +70,6 @@ function isStoppedByRequest(output: AgentOutput): boolean {
     /\bstopped by request\b/i.test(output.error ?? '')
   );
 }
-
 export function createGroupAgentRunner(input: {
   deps: GroupProcessingDeps;
   ops: () => GroupProcessingRepository;
@@ -96,8 +92,10 @@ export function createGroupAgentRunner(input: {
         recallQuery?: string;
       };
       turnMessages?: readonly {
+        id?: string;
         content?: string | null;
         sender?: string | null;
+        timestamp?: string;
         is_from_me?: boolean | null;
       }[];
       existingRunId?: string;
@@ -115,9 +113,9 @@ export function createGroupAgentRunner(input: {
     },
   ): Promise<GroupAgentRunResult> {
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
-    const turnAppId = appIdFromConversationJid(chatJid) ?? DEFAULT_TURN_APP_ID;
+    const turnAppId = appIdFromConversationJid(chatJid) ?? 'default';
     const defaultInteractiveModel =
-      deps.getDefaultInteractiveModel?.(group.folder) ?? DEFAULT_MODEL_ALIAS;
+      deps.getDefaultInteractiveModel?.(group.folder) ?? 'opus';
     const initialProvider = await resolveInitialGroupExecutionProviderId({
       group,
       appId: turnAppId,
@@ -172,7 +170,8 @@ export function createGroupAgentRunner(input: {
     });
     const turnContext = compactionDeltaReplay.turnContext;
     const runtimeAppId = turnContext?.appId ?? turnAppId;
-    let defaultRuntimeModel: string | undefined;
+    const defaultRuntimeModel =
+      group.agentConfig?.model ?? defaultInteractiveModel;
     const forwardedRuntimeEventKeys = new Set<string>();
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
@@ -268,26 +267,37 @@ export function createGroupAgentRunner(input: {
     };
     const wrappedOnOutput = async (output: AgentOutput) => {
       await persistProviderSessionFromOutput(output);
+      let normalizedUsageRuntimeEvent:
+        | NonNullable<AgentOutput['runtimeEvents']>[number]
+        | undefined;
       if (output.usage) {
-        recordRuntimeModelUsage({
-          group,
-          threadId: sessionThreadId,
-          usage: output.usage,
-          usageEventId: output.usageEventId,
-          getDefaultModel: () => {
-            defaultRuntimeModel ??=
-              group.agentConfig?.model ?? defaultInteractiveModel;
-            return defaultRuntimeModel;
-          },
-        });
+        try {
+          recordRuntimeModelUsage({
+            group,
+            threadId: sessionThreadId,
+            usage: output.usage,
+            usageEventId: output.usageEventId,
+            getDefaultModel: () => defaultRuntimeModel,
+          });
+          normalizedUsageRuntimeEvent = {
+            eventType: RUNTIME_EVENT_TYPES.MODEL_USAGE,
+            payload: {
+              usage: output.usage,
+              usageEventId: output.usageEventId,
+              modelAlias: output.usage.model ?? defaultRuntimeModel,
+              providerId: output.usage.provider,
+            } satisfies import('../domain/events/events.js').NormalizedUsageEventPayload,
+          };
+        } catch (err) {
+          logger.warn(
+            { err, group: group.name },
+            'Failed to prepare normalized model usage runtime event',
+          );
+        }
       }
       if (output.contextUsage) {
         modelStatus.updateSelection({
-          ...defaultModelStatusSelection(
-            group.agentConfig?.model ??
-              (defaultRuntimeModel ??=
-                group.agentConfig?.model ?? defaultInteractiveModel),
-          ),
+          ...defaultModelStatusSelection(defaultRuntimeModel),
           selectionSource: group.agentConfig?.model
             ? 'session override'
             : 'chat default',
@@ -309,6 +319,28 @@ export function createGroupAgentRunner(input: {
         sessionThreadId,
         forwardedKeys: forwardedRuntimeEventKeys,
       });
+      if (normalizedUsageRuntimeEvent) {
+        try {
+          await forwardRuntimeEvents({
+            output: {
+              ...output,
+              runtimeEvents: [normalizedUsageRuntimeEvent],
+            },
+            publishRuntimeEvent: deps.publishRuntimeEvent,
+            runtimeAppId,
+            turnAgentId: turnContext?.agentId,
+            runId: runState.runId,
+            chatJid,
+            sessionThreadId,
+            forwardedKeys: forwardedRuntimeEventKeys,
+          });
+        } catch (err) {
+          logger.warn(
+            { err, group: group.name },
+            'Failed to publish normalized model usage runtime event',
+          );
+        }
+      }
       if (
         output.compactBoundary &&
         turnContext?.agentSessionId &&

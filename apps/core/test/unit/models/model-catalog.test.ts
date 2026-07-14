@@ -48,6 +48,11 @@ describe('model catalog resolution', () => {
       ok: true,
       alias: 'opus-4.8',
     });
+    expect(resolveModelSelection('fable')).toMatchObject({
+      ok: true,
+      alias: 'fable',
+      runnerModel: 'claude-fable-5',
+    });
   });
 
   it('finds catalog entries by runner or provider model IDs for runtime accounting', () => {
@@ -103,6 +108,7 @@ describe('model catalog resolution', () => {
   });
 
   it('surfaces model reasoning and thinking capabilities', () => {
+    const fable = resolveModelSelection('fable');
     const opus = resolveModelSelection('opus');
     const opus47 = resolveModelSelection('opus-4.7');
     const opus46 = resolveModelSelection('opus-4.6');
@@ -111,6 +117,7 @@ describe('model catalog resolution', () => {
     const gpt = resolveModelSelection('gpt');
     const kimi = resolveModelSelection('kimi');
     if (
+      !fable.ok ||
       !opus.ok ||
       !opus47.ok ||
       !opus46.ok ||
@@ -122,6 +129,19 @@ describe('model catalog resolution', () => {
       throw new Error('expected built-in model aliases to resolve');
     }
 
+    expect(fable.entry).toMatchObject({
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 128_000,
+      inputUsdPerMillionTokens: 10,
+      outputUsdPerMillionTokens: 50,
+      cachedInputUsdPerMillionTokens: 1,
+      cacheWriteUsdPerMillionTokens: 12.5,
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+      supportsReasoningEffort: false,
+      supportsThinkingBudget: false,
+    });
     expect(opus.entry).toMatchObject({
       supportsEffort: true,
       supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],

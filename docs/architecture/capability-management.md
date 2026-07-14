@@ -36,24 +36,25 @@ representation is readable:
 ```yaml
 agents:
   main_agent:
-    sources:
-      skills:
-        - name: linkedin-posting
-          id: 'skill:266c421f-a072-44f7-9cb0-43c52eba8ad9'
-      mcp_servers:
-        - id: linkedin
-          tools: [read_*]
-      tools:
-        - id: browser
-          kind: builtin
+    access:
+      sources:
+        skills:
+          - name: linkedin-posting
+            id: 'skill:266c421f-a072-44f7-9cb0-43c52eba8ad9'
+        mcp_servers:
+          - id: linkedin
+            tools: [read_*]
+        tools:
+          - id: browser
+            kind: builtin
 
-    capabilities:
-      - id: acme.records.append
-        version: 1
-      - id: browser.use
-        version: builtin
-      - id: repo.tests.run
-        version: 1
+      selections:
+        - id: acme.records.append
+          version: 1
+        - id: browser.use
+          version: builtin
+        - id: repo.tests.run
+          version: 1
 ```
 
 Each semantic capability record includes:
@@ -151,9 +152,9 @@ is selected for the agent.
 
 Permission prompts use the trusted manifest display name, for example
 `Allow Publisher publish?`, while buttons remain short: `Allow once`,
-`Allow 5 min`, `Always allow`, and `Cancel`. Raw free-form request text cannot
-create a trusted action label; raw command fallback remains visible as exact
-command access.
+`Allow for future` when a persistent suggestion exists, and `Cancel`. Raw
+free-form request text cannot create a trusted action label; raw command fallback
+remains visible as exact command access.
 
 ## Local CLI Capabilities
 
@@ -183,13 +184,14 @@ Example user-defined capability:
 ```yaml
 agents:
   main_agent:
-    sources:
-      tools:
-        - id: acme
-          kind: local_cli
-    capabilities:
-      - id: acme.invoices.read
-        version: 1
+    access:
+      sources:
+        tools:
+          - id: acme
+            kind: local_cli
+      selections:
+        - id: acme.invoices.read
+          version: 1
 ```
 
 The reviewed definition pins `/usr/local/bin/acme`, allows only
@@ -280,10 +282,13 @@ bound to the current conversation, and runs under the target agent's selected
 capabilities.
 
 Settings parse/apply and pre-spawn admission hard-reject `runtime: inline` when
-the agent has an attached skill, a `local_cli` source or runtime access, a
+the agent has a `local_cli` source or runtime access, a
 `stdio_template` MCP source, a skill-action runtime access, or a selected tool
-rule that projects filesystem access (`FileSearch`, `FileRead`, `FileEdit`, or
-`FileWrite`) or `RunCommand(...)`. The configuration error lists every detected
+rule that projects canonical `Browser`, filesystem access (`FileSearch`,
+`FileRead`, `FileEdit`, or `FileWrite`), or `RunCommand(...)`. Attached skills
+are inline-compatible only when the agent resolves to the DeepAgents engine;
+any other resolved engine is a configuration error naming the incompatible
+skills. The configuration error lists every detected
 worker-only source, capability, or rule. The same validation applies when an
 existing worker agent is changed to inline; changing an inline agent to worker
 does not have this inline-only restriction.
@@ -325,6 +330,36 @@ message record, survives replay, and wins over the agent's configured default
 for that turn. On the Claude worker path the conversation-level `/thinking`
 command override continues to win over both.
 
+### Declarative tool rules
+
+Per-agent `tool_rules` add programmatic enforcement on top of capability
+selection — deterministic guarantees where prompt instructions alone have a
+non-zero failure rate:
+
+```yaml
+agents:
+  support:
+    tool_rules:
+      - tool: Bash
+        action: block
+        when:
+          arg: command
+          matches: '^rm\s'
+        reason: destructive command
+      - tool: process_refund
+        action: require_prior
+        prior: get_customer
+        reason: verify the customer before refunds
+```
+
+`block` denies matching calls (tool name or glob, optional argument dot-path
+regex). `require_prior` denies until the named prior tool has completed
+successfully earlier in the same run. Rules are evaluated in the shared
+provider-neutral gate on both runtime tiers; denials return the structured
+error envelope (category, `isRetryable: false`, the rule reason) so the agent
+can adapt, and appear in tool-activity audit events. Agents without rules are
+unaffected. Result transforms are not supported.
+
 Two spend guards complement the knobs. A per-agent `max_run_tokens` setting
 bounds cumulative normalized usage across a run: the budget is checked at turn
 boundaries and exceeding it terminates the run with an error naming the budget
@@ -333,16 +368,102 @@ per-API-key `maxTokens` ceiling rejects requests whose `max_tokens` /
 `max_completion_tokens` exceed the key's limit with a shaped `400`
 `MAX_TOKENS_EXCEEDED` — requests are never silently clamped.
 
+### Auto-permission mode
+
+Per-agent `permission_mode: auto` adds an LLM classifier between "policy says
+ask a human" and the prompt actually rendering. The classifier is a policy
+relief valve, not an authority: its verdict space is `allow | ask` only — it
+can never deny, and it is never consulted for anything the deterministic
+tiers already decide (pre-checks, `tool_rules`, locked access presets, and
+the hard always-ask families: spend, credentials, settings mutations,
+outward-facing sends, delegation, admin/review prompts).
+
+```yaml
+agents:
+  support:
+    permission_mode: auto # default: ask
+permissions:
+  auto_mode:
+    model: haiku # optional; defaults to the memory extractor slot model
+```
+
+How a gray-zone call resolves — the mode judges the **action, never the
+requester** (requester identity at this layer is runner-supplied and
+forgeable; the only identity trust left in the flow is who taps an approval
+button, which the channel authenticates):
+
+1. Deterministic checks run unchanged. Only calls that would interrupt a
+   human continue.
+2. Eligibility is deterministic and narrow: third-party MCP tools
+   (`mcp__<server>__<op>`, excluding the Gantry server) and shell
+   (`Bash`/`RunCommand`). Everything else keeps today's behavior.
+3. A deterministic read-only gate runs BEFORE any model call. Silent allow
+   requires all of:
+   - **Provably read-only.** Shell: a parser-proven single `ls`/`cat`
+     invocation with reviewed flags only (no hidden-entry or
+     symlink-following flags), every target realpath-resolved against the
+     agent's workspace root — symlink escapes, hidden segments (`.npmrc`,
+     `.aws/…`), protected paths, and secret-looking names all block. Git is
+     excluded from the silent set entirely: even `git status` executes
+     repo-configured commands (`core.fsmonitor`), and `.git/config` is
+     agent-writable. MCP: a reviewed read binding — a semantic capability
+     with read risk whose reviewed implementation binding covers this exact
+     tool; annotations and name shapes alone are untrusted hints and ask.
+   - **Non-secret.** Secret-shaped input keys (`apiKey`, `secretId`,
+     `tokenRef`, …), paths, and values (bearer/JWT/PEM patterns) block.
+   - **Inside an approved capability boundary** (the agent's admin-selected
+     capabilities).
+   Anything not provable asks without consulting the model.
+4. For calls that pass the floor, one short LLM call judges the invocation
+   against best-effort task context (never a trust input). The verdict can
+   only narrow `allow` to `ask` — it can never widen the deterministic
+   floor. `allow` resolves the request as an `allow_once` decision recorded
+   with `decidedBy: auto_classifier`; `ask` falls through to the normal
+   prompt when interactive (approvable only by control approvers) and denies
+   with the classifier's reason when unattended. Timeouts, parse failures,
+   or an unconfigured model all collapse to `ask` — the worst case is
+   exactly today's behavior.
+
+Conversation-level data exposure is governed by Agent Access and the
+channel's approver configuration, not by this gate: whoever may converse
+with an agent may receive what its granted capabilities can already read.
+The admin's capability selection is the authorization for provable
+in-boundary reads; everything unprovable or mutating reaches a control
+approver.
+
+Every verdict (including failure-coded asks) is published as a
+`permission.classifier_decision` runtime event, so the audit trail is
+complete and queryable.
+
+Unattended runs (scheduled jobs) get the same treatment: where a zero-timeout
+permission request used to deny immediately, an auto-mode runner waits a
+bounded classifier window; the host answers eligible requests allow-or-deny
+within it and denies ineligible ones immediately.
+
+Decisions compound instead of repeating: each auto-allow carrying a
+synthesizable durable-rule suggestion increments a per-agent counter, and at
+three allows for the same rule shape the operator gets a one-tap prompt —
+"make this permanent?" with `Allow for future` — that lands in the existing
+audited persistent-grant path. The offer is made at most once per rule shape,
+and the ruleset stays inspectable configuration, never model memory.
+Promotion only synthesizes rule shapes the durable-access policy already
+accepts (scoped `RunCommand(...)` rules); third-party MCP calls are
+auto-allowed per call but produce no durable offer — their lasting grants
+remain reviewed semantic capabilities via `request_access`.
+
+The conversation-level `/permissions ask|auto|default` command overrides the
+agent setting for the current conversation, mirroring `/thinking`.
+
 ## Administration Model
 
 The deterministic ownership rule is:
 
-- Desired-state revisions expose two separate agent views in the canonical YAML
-  copy: `sources` and `capabilities`.
+- Desired-state revisions expose two separate agent views under `access` in
+  the canonical YAML copy: `sources` and `selections`.
 - `sources` lists attached, reviewed resources such as skills, MCP servers,
   built-in tools, adapters, and local CLIs. A source is visible inventory for
   the agent, not execution authority.
-- `capabilities` is the only durable grant list. Runtime projects selected
+- `selections` is the only durable grant list. Runtime projects selected
   approved capability versions into typed execution access.
 - Manual settings edits may attach approved sources or select approved
   capabilities only. They must not include raw secrets, MCP configs, command
@@ -477,8 +598,8 @@ become durable authority by themselves.
 ## Durable Model
 
 `settings_revisions` owns the durable local list of user-manageable agent
-sources and capabilities rendered under `agents.<agent>.sources` and
-`agents.<agent>.capabilities` in `settings.yaml`. Settings-side changes are
+sources and capabilities rendered under `agents.<agent>.access.sources` and
+`agents.<agent>.access.selections` in `settings.yaml`. Settings-side changes are
 validated, revisioned, synced to YAML, reconciled into Postgres by replacement,
 and reloaded immediately where safe; they do not rely only on the file watcher.
 
@@ -517,7 +638,7 @@ only and must not be synthesized as durable `RunCommand(...)` rules.
 
 Control API capability replacement and other DB/admin-side capability writes
 must append a desired-state revision, export the readable projection back into
-`settings.yaml`, then validate, reconcile, and reload. Persistent `Always allow`
+`settings.yaml`, then validate, reconcile, and reload. Persistent `Allow for future`
 permission approvals must fail closed if settings cannot be updated; any new
 active binding is rolled back so DB-only persistent grants do not survive as
 hidden authority. Empty non-authoritative settings may continue to observe preexisting DB-only
@@ -546,7 +667,7 @@ attached sources in a settings revision and export the readable access
 projection to `settings.yaml`.
 Tool permission approval can resume the blocked active tool call immediately:
 `Allow once` is current-run only and does not create durable semantic
-authority, while `Always allow` stores either the approved semantic capability,
+authority, while `Allow for future` stores either the approved semantic capability,
 canonical `Browser`, exact Gantry file/web facade, exact Gantry admin tool, or
 scoped `RunCommand(...)` rule for the active run and future runs. After a
 persistent tool approval, Gantry rechecks matching `Setup required` paused jobs
@@ -559,9 +680,9 @@ tools are not job-local authority.
 
 Conversation threads and provider topics are routing details, not separate
 permission boundaries. Permission prompts may be delivered in a Slack thread,
-Teams reply chain, or Telegram topic, but `Allow 5 min` and `Always allow`
-scope to the parent conversation and selected agent capability set. Thread or
-topic ids may appear in audit/routing metadata only.
+Teams reply chain, or Telegram topic, but decisions scope to the parent
+conversation and selected agent capability set. Thread or topic ids may appear
+in audit/routing metadata only.
 
 Direct writes to `settings.json`, `settings.local.json`, `.mcp.json`,
 generated provider MCP directories, and skill capability files are protected
@@ -599,7 +720,7 @@ not durable Gantry truth.
    Gantry Credential refs, sandbox profile, tool patterns, and provider metadata.
 3. Review: same-channel review renders the request, but authority still comes
    from configured admin/control policy.
-4. Decide: setup, scheduler, admin, and capability flows show `Allow once`, `Always allow`, or `Cancel`; live interactive SDK prompts may also show `Allow 5 min`. Details and audit records carry the durable authority shape, such as a semantic capability, canonical `Browser`, exact Gantry file/web facade, exact `mcp__gantry__<admin_tool>`, or scoped `RunCommand(<pattern>)`.
+4. Decide: permission prompts show `Allow once`, `Allow for future` when a persistent suggestion exists, or `Cancel`. Details and audit records carry the durable authority shape, such as a semantic capability, canonical `Browser`, exact Gantry file/web facade, exact `mcp__gantry__<admin_tool>`, or scoped `RunCommand(<pattern>)`.
 5. Bind: approval creates or updates the agent binding and a new config version.
 6. Same-session handoff: installed skill packages are returned to the running
    agent as reviewed skill files; connected MCP servers are reachable through the

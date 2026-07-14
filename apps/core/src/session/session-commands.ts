@@ -4,6 +4,7 @@ import type {
   ThinkingOverride,
 } from '../domain/types.js';
 import type { AsyncTaskRecord } from '../domain/ports/async-tasks.js';
+import type { PermissionMode } from '../shared/permission-mode.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   extractSessionCommand,
@@ -126,6 +127,11 @@ export interface SessionCommandDeps {
   getGroupThinkingOverride: () => ThinkingOverride | undefined;
   setGroupThinkingOverride: (
     value: ThinkingOverride | undefined,
+  ) => Promise<void> | void;
+  getGroupPermissionModeOverride: () => PermissionMode | undefined;
+  getDefaultPermissionMode: () => PermissionMode;
+  setGroupPermissionModeOverride: (
+    value: PermissionMode | undefined,
   ) => Promise<void> | void;
   archiveCurrentSession: (
     cause?: 'new-session' | 'manual-compact',
@@ -496,6 +502,7 @@ export async function handleSessionCommand(opts: {
   const defaultModel = deps.getDefaultModel();
   const groupOverrideModel = deps.getGroupModelOverride();
   const groupThinkingOverride = deps.getGroupThinkingOverride();
+  const groupPermissionModeOverride = deps.getGroupPermissionModeOverride();
 
   if (command.kind === 'model_show') {
     deps.advanceCursor(cmdMsg);
@@ -570,6 +577,13 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
 
+  if (command.kind === 'permissions_show') {
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage(
+      `Current permission mode: ${groupPermissionModeOverride ?? deps.getDefaultPermissionMode()} (${groupPermissionModeOverride ? 'conversation override' : 'agent/default'}).`,
+    );
+    return { handled: true, success: true };
+  }
   if (command.kind === 'model_set') {
     // Family aliases (e.g. gpt-oss) are accepted and stored verbatim; the
     // concrete provider is picked at spawn from the configured credential.
@@ -683,6 +697,34 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
 
+  if (
+    command.kind === 'permissions_set' ||
+    command.kind === 'permissions_default'
+  ) {
+    const value =
+      command.kind === 'permissions_set' ? command.value : undefined;
+    try {
+      await deps.setGroupPermissionModeOverride(value);
+    } catch (err) {
+      logger.error(
+        { group: groupName, err, permissionMode: value ?? null },
+        'Failed to persist /permissions override',
+      );
+      await deps.sendMessage(
+        value
+          ? 'Failed to set permission mode. Override unchanged.'
+          : 'Failed to clear permission mode override. Override unchanged.',
+      );
+      return { handled: true, success: false };
+    }
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage(
+      value
+        ? `Permission mode set to ${value} for this conversation.`
+        : `Permission mode override cleared. Using agent default: ${deps.getDefaultPermissionMode()}.`,
+    );
+    return { handled: true, success: true };
+  }
   const _exhaustive: never = command;
   return _exhaustive;
 }

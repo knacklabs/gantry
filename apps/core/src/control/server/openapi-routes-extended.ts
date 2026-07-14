@@ -2,6 +2,36 @@ import { doc, ids, query, type RouteDoc } from './openapi-route-helpers.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(
+    'get',
+    '/v1/usage',
+    'queryUsage',
+    'Usage',
+    'Query token usage',
+    'Returns app-scoped token and request counts recorded from deployment forward; historical usage is not backfilled.',
+    ['usage:read'],
+    {
+      parameters: [
+        {
+          ...query('from', 'Inclusive range start as an ISO 8601 date-time.'),
+          required: true,
+        },
+        {
+          ...query('to', 'Exclusive range end as an ISO 8601 date-time.'),
+          required: true,
+        },
+        query('agentId', 'Agent id filter.'),
+        query('apiKeyId', 'Control API key id filter.'),
+        query('runId', 'Run id filter.'),
+        query('jobId', 'Job id filter.'),
+        query('model', 'Model alias filter.'),
+        query('group_by', 'Aggregation dimension.', {
+          type: 'string',
+          enum: ['agent', 'api_key', 'model', 'day'],
+        }),
+      ],
+    },
+  ),
+  doc(
     'post',
     '/llm/v1/messages',
     'invokeLlmMessages',

@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 
-import { GantryModelGatewayBroker } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
+import {
+  extractGatewayResponseUsage,
+  GantryModelGatewayBroker,
+} from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
 import { clearAwsDefaultCredentialProviderCacheForTest } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-auth-aws-default.js';
 import { signAwsSigV4Request } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway-auth-sigv4.js';
 import {
@@ -766,6 +769,44 @@ describe('GantryModelGatewayBroker', () => {
     } finally {
       await broker.close();
     }
+  });
+
+  it.each([
+    [
+      'Anthropic',
+      {
+        model: 'claude-sonnet-4-6',
+        usage: { input_tokens: 12, output_tokens: 4 },
+      },
+      { inputTokens: 12, outputTokens: 4, model: 'sonnet' },
+    ],
+    [
+      'OpenAI-compatible',
+      { model: 'gpt-5.5', usage: { prompt_tokens: 9, completion_tokens: 3 } },
+      { inputTokens: 9, outputTokens: 3, model: 'gpt' },
+    ],
+  ])(
+    'extracts normalized %s non-streaming usage',
+    async (_name, payload, expected) => {
+      const usage = await extractGatewayResponseUsage(
+        new Response(JSON.stringify(payload), {
+          headers: { 'content-type': 'application/json' },
+        }),
+        Buffer.from(JSON.stringify({ model: payload.model })),
+      );
+      expect(usage).toMatchObject(expected);
+    },
+  );
+
+  it('skips streamed usage without parsing SSE frames', async () => {
+    await expect(
+      extractGatewayResponseUsage(
+        new Response('data: {"usage":{"input_tokens":12}}\n\n', {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+        Buffer.from(JSON.stringify({ stream: true })),
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it('does not publish ephemeral credential revocation scopes as runtime run ids', async () => {

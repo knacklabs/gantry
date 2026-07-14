@@ -29,6 +29,11 @@ describe('run event projection', () => {
       ).type,
     ).toBe('permission_decision');
     expect(
+      projectRuntimeEventToRunEvent(
+        event(RUNTIME_EVENT_TYPES.PERMISSION_CLASSIFIER_DECISION),
+      ).type,
+    ).toBe('permission_decision');
+    expect(
       projectRuntimeEventToRunEvent(event(RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED))
         .type,
     ).toBe('failed');

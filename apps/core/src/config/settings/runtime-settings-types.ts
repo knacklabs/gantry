@@ -9,6 +9,7 @@ import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 import type { EgressSettings } from '../../shared/egress-policy.js';
 import type { AgentHarness } from '../../shared/agent-engine.js';
 import type { AgentRuntime } from '../../shared/agent-runtime.js';
+import type { PermissionMode } from '../../shared/permission-mode.js';
 import type { ModelWorkload } from '../../shared/model-catalog.js';
 import type { ModelEffortLevel } from '../../shared/model-catalog.js';
 
@@ -57,6 +58,7 @@ export interface RuntimeConfiguredConversationInstall {
   trigger?: string;
   requiresTrigger?: boolean;
   model?: string;
+  permissionMode?: PermissionMode;
 }
 
 export type EmbeddingProviderName = string;
@@ -137,6 +139,7 @@ export interface RuntimeConfiguredAgentBinding {
   addedAt: string;
   requiresTrigger: boolean;
   model?: string;
+  permissionMode?: PermissionMode;
 }
 
 export interface RuntimeConfiguredBinding {
@@ -149,6 +152,7 @@ export interface RuntimeConfiguredBinding {
   requiresTrigger: boolean;
   memoryScope: 'conversation' | 'user' | 'agent' | 'app';
   model?: string;
+  permissionMode?: PermissionMode;
 }
 
 export interface RuntimeConfiguredAgentSourceRef {
@@ -178,6 +182,19 @@ export type AgentEffort = ModelEffortLevel;
 export type RuntimeAgentThinking =
   | { mode: 'off'; budgetTokens?: never }
   | { mode: 'on'; budgetTokens?: number };
+export type RuntimeConfiguredToolRule =
+  | {
+      tool: string;
+      when?: { arg: string; matches: string };
+      action: 'block';
+      reason: string;
+    }
+  | {
+      tool: string;
+      action: 'require_prior';
+      prior: string;
+      reason: string;
+    };
 export type { AgentRuntime };
 
 export interface RuntimeConfiguredAgent {
@@ -193,8 +210,10 @@ export interface RuntimeConfiguredAgent {
   relationshipMode?: AgentRelationshipMode;
   model?: string;
   agentHarness?: AgentHarness;
+  permissionMode?: PermissionMode;
   oneTimeJobDefaultModel?: string;
   recurringJobDefaultModel?: string;
+  toolRules?: RuntimeConfiguredToolRule[];
   bindings: Record<string, RuntimeConfiguredAgentBinding>;
   sources: RuntimeConfiguredAgentSources;
   capabilities: RuntimeConfiguredAgentCapability[];
@@ -284,6 +303,9 @@ export interface RuntimeBrowserSettings {
 export interface RuntimePermissionSettings {
   yoloMode: YoloModeSettings;
   egress: EgressSettings;
+  autoMode: {
+    model?: string;
+  };
 }
 
 // Optional in-memory per-provider request rate caps enforced at the model

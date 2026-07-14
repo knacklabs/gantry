@@ -649,7 +649,7 @@ describe('importFleetSettingsRevision', () => {
   });
 
   it('appends a revision stamped with the current reader version', async () => {
-    expect(CURRENT_SETTINGS_READER_VERSION).toBe(9);
+    expect(CURRENT_SETTINGS_READER_VERSION).toBe(12);
     capabilityErrors = [];
     const repo = new FakeRevisionRepo();
     const outcome = await importFleetSettingsRevision(
@@ -731,6 +731,7 @@ describe('importFleetSettingsRevision', () => {
     settings.agent.name = 'Agent "quoted" \\ path';
     settings.agent.agentHarness = 'deepagents';
     settings.memory.llm.extractorMinConfidence = 0.73;
+    settings.permissions.autoMode.model = 'sonnet';
     settings.modelAliases['fast-job'] = {
       provider: 'groq',
       providerModelId: 'llama-3.1-8b-instant',
@@ -749,6 +750,7 @@ describe('importFleetSettingsRevision', () => {
       name: 'Researcher',
       folder: 'researcher',
       agentHarness: 'anthropic_sdk',
+      permissionMode: 'auto',
       maxTurns: 14,
       maxRunTokens: 32_000,
       effort: 'medium',
@@ -764,6 +766,14 @@ describe('importFleetSettingsRevision', () => {
       },
       capabilities: [{ id: 'browser.use', version: '1' }],
       accessPreset: 'locked',
+      toolRules: [
+        {
+          tool: 'Deploy',
+          action: 'require_prior',
+          prior: 'Test',
+          reason: 'tests must pass first',
+        },
+      ],
     };
     settings.agents.analyst = {
       name: 'Analyst',
@@ -806,6 +816,7 @@ describe('importFleetSettingsRevision', () => {
           status: 'active',
           addedAt: new Date(0).toISOString(),
           memoryScope: 'conversation',
+          permissionMode: 'auto',
         },
       },
     };
@@ -827,12 +838,24 @@ describe('importFleetSettingsRevision', () => {
         .agent_harness,
     ).toBe('anthropic_sdk');
     expect(
+      (document.agents as Record<string, Record<string, unknown>>).researcher
+        .permission_mode,
+    ).toBe('auto');
+    expect(
       (document.agents as Record<string, Record<string, unknown>>).researcher,
     ).toMatchObject({
       max_turns: 14,
       max_run_tokens: 32_000,
       effort: 'medium',
       thinking: { mode: 'on', budget_tokens: 8192 },
+      tool_rules: [
+        {
+          tool: 'Deploy',
+          action: 'require_prior',
+          prior: 'Test',
+          reason: 'tests must pass first',
+        },
+      ],
     });
     expect(
       (document.agents as Record<string, Record<string, unknown>>).analyst,
@@ -845,6 +868,14 @@ describe('importFleetSettingsRevision', () => {
         >
       ).extractor_min_confidence,
     ).toBe(0.73);
+    expect(
+      (
+        (document.permissions as Record<string, unknown>).auto_mode as Record<
+          string,
+          unknown
+        >
+      ).model,
+    ).toBe('sonnet');
     expect(
       (
         (document.agents as Record<string, Record<string, unknown>>).researcher
@@ -873,6 +904,15 @@ describe('importFleetSettingsRevision', () => {
         >
       )['researcher_171.1'].agent,
     ).toBe('researcher');
+    expect(
+      (
+        (document.conversations as Record<string, Record<string, unknown>>)
+          .shared_channel.installed_agents as Record<
+          string,
+          Record<string, unknown>
+        >
+      )['researcher_171.1'].permission_mode,
+    ).toBe('auto');
     const restored = settingsFromRevisionDocument(document);
     expect(restored.agent.name).toBe(settings.agent.name);
     expect(restored.agent.agentHarness).toBe('deepagents');
@@ -880,11 +920,21 @@ describe('importFleetSettingsRevision', () => {
     expect(restored.runtime.deploymentMode).toBe('fleet');
     expect(restored.agents.researcher.accessPreset).toBe('locked');
     expect(restored.agents.researcher.agentHarness).toBe('anthropic_sdk');
+    expect(restored.agents.researcher.permissionMode).toBe('auto');
+    expect(restored.permissions.autoMode).toEqual({ model: 'sonnet' });
     expect(restored.agents.researcher).toMatchObject({
       maxTurns: 14,
       maxRunTokens: 32_000,
       effort: 'medium',
       thinking: { mode: 'on', budgetTokens: 8192 },
+      toolRules: [
+        {
+          tool: 'Deploy',
+          action: 'require_prior',
+          prior: 'Test',
+          reason: 'tests must pass first',
+        },
+      ],
     });
     expect(restored.agents.analyst.maxOutputTokens).toBe(4096);
     expect(restored.agents.researcher.capabilities).toEqual([
@@ -904,6 +954,10 @@ describe('importFleetSettingsRevision', () => {
       restored.conversations.shared_channel.installedAgents['researcher_171.1']
         ?.agentId,
     ).toBe('researcher');
+    expect(
+      restored.conversations.shared_channel.installedAgents['researcher_171.1']
+        ?.permissionMode,
+    ).toBe('auto');
   });
 
   it('migrates legacy per-agent bindings when reading settings revisions', () => {

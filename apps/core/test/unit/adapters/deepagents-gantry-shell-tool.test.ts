@@ -146,14 +146,24 @@ describe('Gantry DeepAgents shell tool', () => {
     expect(result).not.toContain('exited with code');
   });
 
-  it('captures stderr and a non-zero exit code (operator-approved command)', async () => {
+  it('returns a structured error with unchanged output for a non-zero exit', async () => {
     // A multi-statement command needs operator approval (it is not coverable by a
     // single scoped rule); the approved path still captures stderr + exit code.
     requestPermissionApprovalViaIpc.mockResolvedValue({ approved: true });
     const tool = makeTool({ rules: [] });
-    const result = await invoke(tool, 'echo oops 1>&2; exit 3');
-    expect(result).toContain('oops');
-    expect(result).toContain('exited with code 3');
+    const result = await tool.invoke({
+      command: 'echo oops 1>&2; exit 3',
+    } as never);
+    const output = 'Command exited with code 3.\n--- stderr ---\noops\n';
+    expect(result).toEqual({
+      content: [{ type: 'text', text: output }],
+      isError: true,
+      error: {
+        category: 'business',
+        isRetryable: false,
+        message: output,
+      },
+    });
   });
 
   it('aborts a long command when the run signal fires', async () => {

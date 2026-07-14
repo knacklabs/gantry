@@ -37,6 +37,26 @@ The preset is an operator setting, not an SDK call; the SDK contract is unchange
 whether an agent is `full` or `locked`. See
 [Locked Preset](../decisions/2026-06-11-locked-preset.md).
 
+## Auto-permission mode
+
+`agents.<id>.permission_mode: auto` (default `ask`) lets an LLM classifier
+auto-approve gray-zone tool calls — third-party MCP operations and shell —
+that would otherwise interrupt a human, with `allow | ask` as the only
+verdict space (deny stays deterministic). The classifier is consulted only
+for trusted requesters: an unattended job turn with no human sender, or a
+sender who is a configured conversation approver — DMs and channels alike are
+approver-gated, and a conversation without approver configuration fails
+closed to a normal ask. A failed, timed-out, or unavailable classifier also
+falls back to ask, never allow. Every verdict is audited as a
+`permission.classifier_decision` runtime event (visible via `/v1/runs/:id/events`
+and webhooks), and auto-allow decisions carry `decidedBy: auto_classifier`.
+Repeated auto-allows of the same rule shape trigger a one-tap durable
+"make it permanent?" offer to the operator. Like the access preset this is
+a settings-level knob, not an SDK call; a per-request API override is
+deliberately out of scope for v1. See
+[capability management](../architecture/capability-management.md) for the
+full decision ladder.
+
 ## Message Flow
 
 ```mermaid
@@ -108,8 +128,8 @@ sequenceDiagram
   SDK->>Control: POST /v1/provider-accounts/:id/discover-conversations
   Control->>Provider: discover conversations with runtime-owned secret
   Control->>Store: upsert normalized conversations
-  App->>SDK: conversationInstalls.create()
-  SDK->>Control: POST /v1/conversation-installs
+  App->>SDK: agents.conversationInstalls.enable()
+  SDK->>Control: PUT /v1/agents/:agentId/conversation-installs/:conversationId
   Control->>Store: upsert active ConversationInstall
 ```
 

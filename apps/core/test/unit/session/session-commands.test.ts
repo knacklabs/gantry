@@ -59,6 +59,11 @@ describe('extractSessionCommand', () => {
       raw: '/thinking high',
       value: { mode: 'adaptive', effort: 'high' },
     });
+    expect(extractSessionCommand('/gantry permissions auto', trigger)).toEqual({
+      kind: 'permissions_set',
+      raw: '/permissions auto',
+      value: 'auto',
+    });
   });
 
   it('detects /commands with trigger prefix', () => {
@@ -176,6 +181,28 @@ describe('extractSessionCommand', () => {
       kind: 'thinking_default',
       raw: '/thinking default',
     });
+  });
+
+  it('detects /permissions show, set, and default', () => {
+    expect(extractSessionCommand('/permissions', trigger)).toEqual({
+      kind: 'permissions_show',
+      raw: '/permissions',
+    });
+    expect(extractSessionCommand('/permissions ask', trigger)).toEqual({
+      kind: 'permissions_set',
+      raw: '/permissions ask',
+      value: 'ask',
+    });
+    expect(extractSessionCommand('/permissions auto', trigger)).toEqual({
+      kind: 'permissions_set',
+      raw: '/permissions auto',
+      value: 'auto',
+    });
+    expect(extractSessionCommand('/permissions default', trigger)).toEqual({
+      kind: 'permissions_default',
+      raw: '/permissions default',
+    });
+    expect(extractSessionCommand('/permissions always', trigger)).toBeNull();
   });
 
   it('rejects /compact with extra text', () => {
@@ -325,6 +352,11 @@ describe('extractSessionCommand', () => {
       raw: '/thinking high',
       value: { mode: 'adaptive', effort: 'high' },
     });
+    expect(extractSessionCommand('@Andy !permissions auto', trigger)).toEqual({
+      kind: 'permissions_set',
+      raw: '/permissions auto',
+      value: 'auto',
+    });
   });
 
   it('detects /save-procedure with quoted title and body', () => {
@@ -420,6 +452,9 @@ function makeDeps(
     setGroupModelOverride: vi.fn(),
     getGroupThinkingOverride: vi.fn().mockReturnValue(undefined),
     setGroupThinkingOverride: vi.fn(),
+    getGroupPermissionModeOverride: vi.fn().mockReturnValue(undefined),
+    getDefaultPermissionMode: vi.fn().mockReturnValue('ask'),
+    setGroupPermissionModeOverride: vi.fn(),
     archiveCurrentSession: vi.fn().mockResolvedValue(undefined),
     onSessionArchived: vi.fn().mockResolvedValue(undefined),
     beginSessionCompaction: vi.fn().mockResolvedValue({
@@ -492,6 +527,11 @@ describe('handleSessionCommand', () => {
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining(
         '/gantry commands, /commands, or !commands - List available chat commands.',
+      ),
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '/gantry permissions <ask|auto>, /permissions <ask|auto>, or !permissions <ask|auto>',
       ),
     );
     expect(deps.sendMessage).toHaveBeenCalledWith(
@@ -1472,6 +1512,106 @@ describe('handleSessionCommand', () => {
     );
   });
 
+  it('shows the conversation permission override or resolved agent default', async () => {
+    for (const [override, defaultMode, expected] of [
+      ['auto', 'ask', 'Current permission mode: auto (conversation override).'],
+      [undefined, 'auto', 'Current permission mode: auto (agent/default).'],
+    ] as const) {
+      const deps = makeDeps({
+        getGroupPermissionModeOverride: vi.fn().mockReturnValue(override),
+        getDefaultPermissionMode: vi.fn().mockReturnValue(defaultMode),
+      });
+      const result = await handleSessionCommand({
+        missedMessages: [makeMsg('/permissions')],
+        groupName: 'test',
+        triggerPattern: trigger,
+        timezone: 'UTC',
+        deps,
+      });
+      expect(result).toEqual({ handled: true, success: true });
+      expect(deps.sendMessage).toHaveBeenCalledWith(expected);
+    }
+  });
+
+  it.each(['ask', 'auto'] as const)(
+    'sets authorized /permissions %s overrides',
+    async (permissionMode) => {
+      const deps = makeDeps();
+      const result = await handleSessionCommand({
+        missedMessages: [makeMsg(`/permissions ${permissionMode}`)],
+        groupName: 'test',
+        triggerPattern: trigger,
+        timezone: 'UTC',
+        deps,
+      });
+      expect(result).toEqual({ handled: true, success: true });
+      expect(deps.setGroupPermissionModeOverride).toHaveBeenCalledWith(
+        permissionMode,
+      );
+      expect(deps.sendMessage).toHaveBeenCalledWith(
+        `Permission mode set to ${permissionMode} for this conversation.`,
+      );
+    },
+  );
+
+  it('clears /permissions override and reports the resolved agent default', async () => {
+    const deps = makeDeps({
+      getDefaultPermissionMode: vi.fn().mockReturnValue('auto'),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/permissions default')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.setGroupPermissionModeOverride).toHaveBeenCalledWith(undefined);
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Permission mode override cleared. Using agent default: auto.',
+    );
+  });
+
+  it('does not advance /permissions cursor when persistence fails', async () => {
+    const deps = makeDeps({
+      setGroupPermissionModeOverride: vi
+        .fn()
+        .mockRejectedValue(new Error('persist failed')),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/permissions auto')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: false });
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Failed to set permission mode. Override unchanged.',
+    );
+  });
+
+  it('does not clear /permissions override when persistence fails', async () => {
+    const deps = makeDeps({
+      setGroupPermissionModeOverride: vi
+        .fn()
+        .mockRejectedValue(new Error('persist failed')),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/permissions default')],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: false });
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Failed to clear permission mode override. Override unchanged.',
+    );
+  });
+
   it('handles authorized /model and persists override', async () => {
     const deps = makeDeps({ updateModelStatusSelection: vi.fn() });
     const result = await handleSessionCommand({
@@ -1750,6 +1890,22 @@ describe('handleSessionCommand', () => {
 
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.setGroupThinkingOverride).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Session commands require admin access.',
+    );
+  });
+
+  it('denies unauthorized /permissions in conversation-scoped group', async () => {
+    const deps = makeDeps();
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/permissions auto', { is_from_me: false })],
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.setGroupPermissionModeOverride).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Session commands require admin access.',
     );

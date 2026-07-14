@@ -47,6 +47,7 @@ export function deriveAgentBindingsFromDesiredState(input: {
       addedAt: binding.addedAt,
       requiresTrigger: binding.requiresTrigger,
       model: binding.model ?? agent.model,
+      permissionMode: binding.permissionMode,
     };
   }
 
@@ -73,6 +74,7 @@ export function deriveBindingsFromConversationInstalls(
         requiresTrigger: install.requiresTrigger ?? false,
         memoryScope: install.memoryScope,
         model: install.model,
+        permissionMode: install.permissionMode,
       };
     }
   }

@@ -103,14 +103,7 @@ export function parsePermissionCustomId(
   const separator = raw.lastIndexOf(':');
   if (separator <= 0) return null;
   const mode = raw.slice(separator + 1) as PermissionApprovalDecisionMode;
-  if (
-    ![
-      'allow_once',
-      'allow_persistent_rule',
-      'allow_timed_grant',
-      'cancel',
-    ].includes(mode)
-  ) {
+  if (!['allow_once', 'allow_persistent_rule', 'cancel'].includes(mode)) {
     return null;
   }
   return {

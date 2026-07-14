@@ -46,6 +46,23 @@ interface ChatCompletionResponse {
   usage?: Record<string, unknown>;
 }
 
+const PERMISSION_VERDICT_RESPONSE_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'permission_verdict',
+    strict: true,
+    schema: {
+      type: 'object',
+      properties: {
+        decision: { type: 'string', enum: ['allow', 'ask'] },
+        reason: { type: 'string' },
+      },
+      required: ['decision', 'reason'],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
 async function runOpenAiMemoryQuery(opts: MemoryLlmQueryOpts): Promise<string> {
   if (!hasGatewayMemoryAccess()) {
     throw new Error(
@@ -87,6 +104,10 @@ async function runWithGantryGateway(opts: MemoryLlmQueryOpts): Promise<string> {
     const body = JSON.stringify({
       model: opts.model,
       messages: buildMessages(opts),
+      ...((opts as MemoryLlmQueryOpts & { singleRequest?: boolean })
+        .singleRequest === true
+        ? { response_format: PERMISSION_VERDICT_RESPONSE_FORMAT }
+        : {}),
     });
     const response = await fetch(`${baseUrl}${chatCompletionsTail(provider)}`, {
       method: 'POST',

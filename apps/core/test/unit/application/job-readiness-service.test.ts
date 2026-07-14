@@ -62,7 +62,9 @@ const sheetsAppendDefinition: SemanticCapabilityDefinition = {
   can: 'Append values through a reviewed implementation.',
   cannot: 'Expose raw credentials or manage unrelated Google resources.',
   credentialSource: 'configured_access',
-  implementationBindings: [{ kind: 'tool_rule', rule: 'google_sheets_append' }],
+  implementationBindings: [
+    { kind: 'tool_rule', rule: 'example.records.append' },
+  ],
   preflight: { kind: 'none' },
 };
 

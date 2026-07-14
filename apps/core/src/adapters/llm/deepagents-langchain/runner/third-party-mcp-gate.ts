@@ -24,8 +24,8 @@ import {
 //   3. interactive-required -> requestPermissionApprovalViaIpc, which writes the
 //      signed permission-request file the host turns into a durable
 //      pending_interactions row BEFORE the prompt renders,
-//   4. denial returns a tool-error string to the model (imitating the anthropic
-//      lane deny copy) instead of invoking the underlying tool.
+//   4. denial returns the structured tool-error result to the model instead of
+//      invoking the underlying tool.
 // Tool name/description/schema are preserved so DeepAgents tool events and the
 // model-visible tool surface are unchanged; only execution is gated.
 
@@ -40,31 +40,35 @@ export interface ThirdPartyMcpGateConfig {
 
 export function wrapThirdPartyMcpToolsWithGate(
   tools: StructuredToolInterface[],
+  serverName: string,
   config: ThirdPartyMcpGateConfig,
 ): StructuredToolInterface[] {
   const classifier = new ToolExecutionClassifier();
   const policy = new ToolExecutionPolicyService();
   return tools.map((underlying) =>
-    wrapOne(underlying, config, classifier, policy),
+    wrapOne(underlying, serverName, config, classifier, policy),
   );
 }
 
 function wrapOne(
   underlying: StructuredToolInterface,
+  serverName: string,
   config: ThirdPartyMcpGateConfig,
   classifier: ToolExecutionClassifier,
   policy: ToolExecutionPolicyService,
 ): StructuredToolInterface {
-  const gatedFunc = async (input: unknown): Promise<string> => {
-    const toolName = underlying.name;
+  const gatedFunc = async (input: unknown): Promise<unknown> => {
+    const toolName = canonicalThirdPartyMcpToolName(
+      serverName,
+      underlying.name,
+    );
 
     const preChecks = evaluateNeutralToolPreChecks({
       toolName,
       toolInput: input,
       memoryBlock: config.memoryBlock,
-      // Third-party MCP tools arrive with bare names; flag so the memory-boundary
-      // guard scans them as mcp-equivalent (parity with the anthropic lane's
-      // mcp__-prefixed names).
+      // The model sees the raw MCP name, while the gate uses the canonical
+      // mcp__server__tool name. Keep the explicit MCP signal as defense in depth.
       isThirdPartyMcpTool: true,
       yoloMode: config.gateContext.yoloMode,
     });
@@ -120,13 +124,36 @@ function wrapOne(
 async function invokeUnderlying(
   underlying: StructuredToolInterface,
   input: unknown,
-): Promise<string> {
-  const result = await underlying.invoke(input as never);
-  return typeof result === 'string' ? result : JSON.stringify(result);
+): Promise<unknown> {
+  return underlying.invoke(input as never);
 }
 
-function denyMessage(reason: string): string {
-  // Returned as the tool result string so the model sees the denial as a tool
-  // error and can recover, matching the anthropic lane's deny-to-model copy.
-  return reason;
+export function canonicalThirdPartyMcpToolName(
+  serverName: string,
+  toolName: string,
+): string {
+  return `mcp__${serverName}__${toolName}`;
+}
+
+export function gatedToolErrorResult(
+  message: string,
+  category: 'business' | 'permission' | 'validation' = 'permission',
+): {
+  content: Array<{ type: 'text'; text: string }>;
+  isError: true;
+  error: {
+    category: 'business' | 'permission' | 'validation';
+    isRetryable: false;
+    message: string;
+  };
+} {
+  return {
+    content: [{ type: 'text', text: message }],
+    isError: true,
+    error: { category, isRetryable: false, message },
+  };
+}
+
+function denyMessage(reason: string) {
+  return gatedToolErrorResult(reason);
 }

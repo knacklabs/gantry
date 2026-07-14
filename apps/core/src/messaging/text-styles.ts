@@ -9,7 +9,8 @@ export type FormattingDialect =
   | 'none'
   | 'markdown-native'
   | 'mrkdwn'
-  | 'telegram-html';
+  | 'telegram-html'
+  | 'telegram-markdown-v2';
 
 /** Transform Markdown text for the target channel's native format. */
 export function parseTextStyles(
@@ -60,16 +61,22 @@ function splitProtectedRegions(text: string): Segment[] {
 function transformSegment(text: string, channel: FormattingDialect): string {
   let t = text;
 
-  t = t.replace(/(?<!\*)\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?!\*)/g, '_$1_');
+  if (channel === 'telegram-markdown-v2') {
+    t = t.replace(/___(?=[^\s_])([^_]+?)(?<=[^\s_])___/g, '*_$1_*');
+    t = t.replace(/\*\*\*(?=[^\s*])([^*]+?)(?<=[^\s*])\*\*\*/g, '*_$1_*');
+  }
+
+  t = t.replace(/(?<!\*)\*(?=[^\s*_])([^*\n]+?)(?<=[^\s*_])\*(?!\*)/g, '_$1_');
   t = t.replace(/\*\*(?=[^\s*])([^*]+?)(?<=[^\s*])\*\*/g, '*$1*');
   t = t.replace(/^#{1,6}\s+(.+)$/gm, '*$1*');
 
   if (channel === 'mrkdwn') {
     t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>');
+  } else if (channel === 'telegram-markdown-v2') {
+    t = t.replace(/<u>(.*?)<\/u>/g, '__$1__');
   } else {
     t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)');
   }
-
   t = t.replace(/^(-{3,}|\*{3,}|_{3,})$/gm, '');
 
   return t;

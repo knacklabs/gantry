@@ -6,16 +6,38 @@ import {
   findDurablePermissionInteractionByPromptMessage,
   findDurablePermissionInteractionByRequestId,
   isActiveRunLeaseForInteraction,
+  resolveDurablePermissionInteractionByRequestId,
   resolveDurableQuestionInteractionByRequestId,
   resolvePendingInteractionRecord,
   recordRunScopedTransientGrant,
 } from '@core/application/interactions/pending-interaction-durability.js';
-import { finishDurablePermissionInteraction } from '@core/application/interactions/durable-interaction-handler.js';
 
 describe('pending interaction durability', () => {
   afterEach(() => {
     configurePendingInteractionDurability(null);
   });
+
+  it.each([undefined, '', 'runtime', 'system', 'auto_classifier'])(
+    'rejects durable approval without a concrete approver identity (%s)',
+    async (approverRef) => {
+      const repository = {
+        listPendingInteractions: vi.fn(async () => []),
+      };
+      configurePendingInteractionDurability({
+        repository: repository as never,
+      });
+
+      await expect(
+        resolveDurablePermissionInteractionByRequestId({
+          requestId: 'permission-unauthorized',
+          mode: 'allow_once',
+          approverRef,
+        }),
+      ).resolves.toBe(false);
+
+      expect(repository.listPendingInteractions).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not rebind a transient grant to a recovered lease', async () => {
     const repository = {
@@ -366,66 +388,6 @@ describe('pending interaction durability', () => {
         runId: 'run-1',
         leaseToken: 'lease-token',
         grant: { toolName: 'Bash', mode: 'allow_once' },
-      }),
-    );
-  });
-
-  it('records timed grants resolved synchronously by an inline prompt', async () => {
-    const timedGrantExpiresAtMs = Date.parse('2099-01-01T00:05:00.000Z');
-    const repository = {
-      getActiveRunLease: vi.fn(async () => ({
-        runId: 'run-inline',
-        jobId: null,
-        workerInstanceId: 'worker-inline',
-        leaseToken: 'lease-inline',
-        fencingVersion: 1,
-        status: 'active',
-        claimedAt: '2099-01-01T00:00:00.000Z',
-        expiresAt: '2099-01-01T00:10:00.000Z',
-        heartbeatAt: '2099-01-01T00:00:00.000Z',
-      })),
-      createTransientGrant: vi.fn(async () => true),
-      resolvePendingInteraction: vi.fn(async () => true),
-    };
-    configurePendingInteractionDurability({ repository: repository as never });
-
-    await expect(
-      finishDurablePermissionInteraction({
-        request: {
-          requestId: 'permission-inline',
-          sourceAgentFolder: 'main_agent',
-          appId: 'default',
-          runId: 'run-inline',
-          runLeaseToken: 'lease-inline',
-          runLeaseFencingVersion: 1,
-          targetJid: 'conversation:inline',
-          toolName: 'AgentDelegation',
-          displayName: 'AgentDelegation',
-          description: 'Delegate work.',
-          decisionOptions: ['allow_timed_grant', 'cancel'],
-        },
-        sourceAgentFolder: 'main_agent',
-        decision: {
-          approved: true,
-          mode: 'allow_timed_grant',
-          decisionClassification: 'user_temporary',
-          timedGrantExpiresAtMs,
-          decidedBy: 'owner',
-        },
-      }),
-    ).resolves.toBe(true);
-
-    expect(repository.createTransientGrant).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appId: 'default',
-        runId: 'run-inline',
-        leaseToken: 'lease-inline',
-        grant: {
-          toolName: 'AgentDelegation',
-          mode: 'allow_timed_grant',
-          requestId: 'permission-inline',
-        },
-        expiresAt: '2099-01-01T00:05:00.000Z',
       }),
     );
   });

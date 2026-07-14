@@ -34,6 +34,7 @@ import {
 } from './session-store.js';
 import type { DeepAgentRunnerInput } from './types.js';
 import { nowMs } from '../../../../shared/time/datetime.js';
+import { RunScopedToolSuccessLedger } from '../../../../runner/tool-gate-core.js';
 
 function log(message: string): void {
   if (process.env.GANTRY_RUNNER_LOG === '1') {
@@ -156,6 +157,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
 
   const sessionId =
     agentInput.sessionId ?? DeepAgentSessionStore.newSessionId();
+  const toolSuccessLedger = new RunScopedToolSuccessLedger();
   let checkpointer: DeepAgentCheckpointSaver | undefined;
   const checkpointTiming = createDeepAgentCheckpointTiming({ nowMs });
   // Live-turn control parity: the shared signal pump watches the neutral
@@ -241,6 +243,7 @@ async function runInteractive(agentInput: DeepAgentRunnerInput): Promise<void> {
           checkpointer,
           checkpointTiming,
           includeMemoryContext,
+          toolSuccessLedger,
           emit: writeRunnerFrame,
           log,
           signal: liveControl.signal,

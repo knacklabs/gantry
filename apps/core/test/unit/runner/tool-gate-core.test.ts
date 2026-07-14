@@ -6,12 +6,205 @@ import {
 } from '@core/shared/tool-execution-policy-service.js';
 import {
   denyProtectedCapabilityToolUse,
+  evaluateDeclarativeToolRules,
   evaluateNeutralToolPreChecks,
   evaluateNeutralToolPolicy,
   LOCKED_ACCESS_PRESET_DENY_REASON,
+  RunScopedToolSuccessLedger,
 } from '@core/runner/tool-gate-core.js';
 
 describe('tool-gate-core (neutral runner gate)', () => {
+  it('blocks a declarative rule by exact tool name or glob', () => {
+    const rules = [
+      { tool: 'mcp__github__*', action: 'block', reason: 'Read-only agent.' },
+    ] as const;
+
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'mcp__github__create_issue',
+        toolInput: {},
+        rules,
+      }),
+    ).toMatchObject({
+      error: {
+        category: 'permission',
+        isRetryable: false,
+        message: expect.stringContaining('Read-only agent.'),
+      },
+    });
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'mcp__linear__create_issue',
+        toolInput: {},
+        rules,
+      }),
+    ).toBeNull();
+  });
+
+  it('blocks only when a nested argument matches the configured regex', () => {
+    const rules = [
+      {
+        tool: 'Bash',
+        action: 'block',
+        when: { arg: 'request.command', matches: '^git push(?:\\s|$)' },
+        reason: 'Publishing requires review.',
+      },
+    ] as const;
+
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'Bash',
+        toolInput: { request: { command: 'git push origin feature' } },
+        rules,
+      })?.error,
+    ).toMatchObject({
+      category: 'permission',
+      isRetryable: false,
+      message: expect.stringContaining('Publishing requires review.'),
+    });
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'Bash',
+        toolInput: { request: { command: 'git status' } },
+        rules,
+      }),
+    ).toBeNull();
+  });
+
+  it('matches nested scalar arguments by their string value', () => {
+    for (const [value, matches] of [
+      [42, '^42$'],
+      [false, '^false$'],
+    ] as const) {
+      expect(
+        evaluateDeclarativeToolRules({
+          toolName: 'publish',
+          toolInput: { request: { value } },
+          rules: [
+            {
+              tool: 'publish',
+              action: 'block',
+              when: { arg: 'request.value', matches },
+              reason: 'Scalar value blocked.',
+            },
+          ],
+        })?.error.category,
+      ).toBe('permission');
+    }
+  });
+
+  it('denies require_prior until the prior tool succeeds in this run', () => {
+    const successLedger = new RunScopedToolSuccessLedger();
+    const rules = [
+      {
+        tool: 'deploy',
+        action: 'require_prior',
+        prior: 'test',
+        reason: 'Tests must pass before deployment.',
+      },
+    ] as const;
+
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'deploy',
+        toolInput: {},
+        rules,
+        successLedger,
+      }),
+    ).toMatchObject({
+      error: {
+        category: 'permission',
+        isRetryable: false,
+        message: expect.stringContaining('Tests must pass before deployment.'),
+      },
+    });
+
+    successLedger.recordSuccess('test');
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'deploy',
+        toolInput: {},
+        rules,
+        successLedger,
+      }),
+    ).toBeNull();
+  });
+
+  it('returns a non-retryable validation envelope for malformed conditions', () => {
+    for (const when of [
+      { arg: 'request..command', matches: 'push' },
+      { arg: 'request.command', matches: '[' },
+    ]) {
+      expect(
+        evaluateDeclarativeToolRules({
+          toolName: 'Bash',
+          toolInput: { request: { command: 'git push' } },
+          rules: [
+            {
+              tool: 'Bash',
+              action: 'block',
+              when,
+              reason: 'Malformed publishing guard.',
+            },
+          ],
+        }),
+      ).toMatchObject({
+        error: {
+          category: 'validation',
+          isRetryable: false,
+          message: expect.stringContaining('Malformed publishing guard.'),
+        },
+      });
+    }
+  });
+
+  it('fails closed when a conditional argument is missing or non-scalar', () => {
+    for (const toolInput of [
+      { request: {} },
+      { request: { command: { executable: 'git' } } },
+      { request: { command: ['git', 'push'] } },
+    ]) {
+      expect(
+        evaluateDeclarativeToolRules({
+          toolName: 'Bash',
+          toolInput,
+          rules: [
+            {
+              tool: 'Bash',
+              action: 'block',
+              when: { arg: 'request.command', matches: 'push' },
+              reason: 'Publishing arguments must be inspectable.',
+            },
+          ],
+        }),
+      ).toMatchObject({
+        error: {
+          category: 'validation',
+          isRetryable: false,
+          message: expect.stringContaining(
+            'Publishing arguments must be inspectable.',
+          ),
+        },
+      });
+    }
+  });
+
+  it('preserves the no-rules path as a null no-op', () => {
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'Bash',
+        toolInput: { command: 'git push' },
+      }),
+    ).toBeNull();
+    expect(
+      evaluateDeclarativeToolRules({
+        toolName: 'Bash',
+        toolInput: { command: 'git push' },
+        rules: [],
+      }),
+    ).toBeNull();
+  });
+
   it('denies protected-capability mutations with the shared deny copy', () => {
     const reason = denyProtectedCapabilityToolUse('Write', {
       file_path: '/home/user/.gantry/settings.yaml',
@@ -43,6 +236,32 @@ describe('tool-gate-core (neutral runner gate)', () => {
         memoryBlock: '',
       }),
     ).toBeNull();
+  });
+
+  it('evaluates declarative rules at the shared pre-check seam', () => {
+    expect(
+      evaluateNeutralToolPreChecks({
+        toolName: 'deploy',
+        toolInput: {},
+        memoryBlock: '',
+        toolRules: [
+          {
+            tool: 'deploy',
+            action: 'require_prior',
+            prior: 'test',
+            reason: 'Tests must pass before deployment.',
+          },
+        ],
+        successLedger: { hasSuccess: () => false },
+      }),
+    ).toMatchObject({
+      decision: 'declarative_tool_rule',
+      error: {
+        category: 'permission',
+        isRetryable: false,
+        message: expect.stringContaining('Tests must pass before deployment.'),
+      },
+    });
   });
 
   it('memory-boundary scans a bare-named third-party MCP tool identically to the mcp__ lane', () => {
@@ -110,6 +329,22 @@ describe('tool-gate-core (neutral runner gate)', () => {
       memoryBlock: '',
       yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
     });
+    expect(result?.decision).toBe('protected_capability');
+  });
+
+  it('runs fixed safety checks before declarative rules', () => {
+    const result = evaluateNeutralToolPreChecks({
+      toolName: 'Write',
+      toolInput: {
+        file_path: '/home/user/.gantry/settings.yaml',
+        content: 'x',
+      },
+      memoryBlock: '',
+      toolRules: [
+        { tool: 'Write', action: 'block', reason: 'Agent write block.' },
+      ],
+    });
+
     expect(result?.decision).toBe('protected_capability');
   });
 

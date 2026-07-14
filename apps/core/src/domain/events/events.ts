@@ -81,6 +81,43 @@ export interface RuntimeEventFilter {
   limit?: number;
 }
 
+export type UsageGroupBy = 'agent' | 'api_key' | 'model' | 'day';
+
+export interface NormalizedUsageEventPayload {
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    model?: string;
+    provider?: string;
+  };
+  modelAlias?: string;
+  providerId?: string | null;
+  apiKeyId?: string;
+  usageEventId?: string;
+}
+
+export interface UsageQuery {
+  appId: AppId;
+  from: IsoTimestamp;
+  to: IsoTimestamp;
+  agentId?: AgentId;
+  apiKeyId?: string;
+  runId?: AgentRunId;
+  jobId?: JobId;
+  model?: string;
+  groupBy?: UsageGroupBy;
+}
+
+export interface UsageAggregate {
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  agentId?: string;
+  apiKeyId?: string;
+  model?: string;
+  day?: string;
+}
+
 export interface AgentRun {
   id: AgentRunId;
   appId: AppId;

@@ -6,7 +6,6 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
 > = {
   scheduler_run_now: 'retry',
   scheduler_pause_job: 'pause',
-  scheduler_open: 'open',
   live_turn_stop: '',
 };
 const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
@@ -14,7 +13,7 @@ const TELEGRAM_CALLBACK_DATA_MAX_BYTES = 64;
 function telegramSchedulerActionCallback(
   action: Extract<
     MessageActionAffordance,
-    { kind: 'scheduler_run_now' | 'scheduler_pause_job' | 'scheduler_open' }
+    { kind: 'scheduler_run_now' | 'scheduler_pause_job' }
   >,
 ): string | undefined {
   if (action.kind !== 'scheduler_run_now') {

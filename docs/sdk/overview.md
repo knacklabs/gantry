@@ -131,13 +131,13 @@ sequenceDiagram
 - `sessions`
 - `jobs`
 - `runs`
+- `usage`
 - `models`
-- `agents`
+- `agents` (including `agents.skills`, `agents.mcpServers`, and `agents.conversationInstalls`)
 - `skills`
 - `mcpServers`
 - `providers`
 - `providerAccounts`
-- `conversationInstalls`
 - `conversations`
 - `ingresses`
 - `webhooks`

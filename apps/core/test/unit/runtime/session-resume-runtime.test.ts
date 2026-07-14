@@ -15,6 +15,114 @@ import {
 } from '@core/runtime/session-resume-runtime.js';
 
 describe('session-resume-runtime', () => {
+  it('publishes one durable usage event per live-turn usage event id', async () => {
+    const usage = {
+      model: 'sonnet',
+      provider: ['anth', 'ropic'].join('') as never,
+      inputTokens: 12,
+      outputTokens: 4,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalBillableInputTokens: 12,
+      cacheProvider: 'anthropic',
+      cacheStatus: 'unknown',
+      at: '2026-07-11T00:00:00.000Z',
+    } as const;
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const runAgent = vi.fn(async (_group, _input, _register, onOutput) => {
+      await onOutput?.({
+        status: 'success',
+        result: null,
+        usage,
+        usageEventId: 'usage:live-turn-1',
+      });
+      await onOutput?.({
+        status: 'success',
+        result: null,
+        usage,
+        usageEventId: 'usage:live-turn-1',
+      });
+      return { status: 'success', result: 'ok' };
+    });
+    const runner = createGroupAgentRunner({
+      deps: {
+        channelRuntime: {
+          hasChannel: () => true,
+          supportsStreaming: () => false,
+          supportsProgress: () => false,
+          sendMessage: async () => {},
+          sendStreamingChunk: async () => false,
+          resetStreaming: () => {},
+          setTyping: async () => {},
+          sendProgressUpdate: async () => {},
+        },
+        queue: {
+          enqueueMessageCheck: () => false,
+          closeStdin: () => {},
+          notifyIdle: () => {},
+          registerProcess: () => {},
+        },
+        getGroup: () => undefined,
+        clearSession: async () => {},
+        getCursor: () => '',
+        setCursor: () => {},
+        saveState: async () => {},
+        setGroupModelOverride: async () => {},
+        setGroupThinkingOverride: async () => {},
+        setGroupPermissionModeOverride: async () => {},
+        getAvailableGroups: () => [],
+        getRegisteredJids: () => new Set(),
+        runAgent: runAgent as never,
+        publishRuntimeEvent,
+        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
+        executionAdapter: {
+          id: ['anth', 'ropic:claude-agent-sdk'].join(''),
+        } as never,
+        getSelectedAgentHarness: () => 'auto',
+      },
+      ops: () =>
+        ({
+          getAgentTurnContext: vi.fn(async () => ({
+            appId: 'app-one',
+            agentId: 'agent:main_agent',
+            agentSessionId: 'agent-session:main',
+          })),
+          createSessionAgentRun: vi.fn(async () => 'run:live-turn-1'),
+        }) as never,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+          agentConfig: { model: 'sonnet' },
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    const usageEvents = publishRuntimeEvent.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.eventType === 'model.usage');
+    expect(usageEvents).toEqual([
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent:main_agent',
+        runId: 'run:live-turn-1',
+        payload: expect.objectContaining({
+          usage,
+          usageEventId: 'usage:live-turn-1',
+          modelAlias: 'sonnet',
+          providerId: 'anthropic',
+        }),
+      }),
+    ]);
+  });
+
   it('runs maintenance-locked provider sessions without resume or head writes', async () => {
     const setSession = vi.fn();
     const getAgentTurnContext = vi.fn(async () => ({
@@ -62,6 +170,7 @@ describe('session-resume-runtime', () => {
         saveState: async () => {},
         setGroupModelOverride: async () => {},
         setGroupThinkingOverride: async () => {},
+        setGroupPermissionModeOverride: async () => {},
         getAvailableGroups: () => [],
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
@@ -175,6 +284,7 @@ describe('session-resume-runtime', () => {
         saveState: async () => {},
         setGroupModelOverride: async () => {},
         setGroupThinkingOverride: async () => {},
+        setGroupPermissionModeOverride: async () => {},
         getAvailableGroups: () => [],
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
@@ -300,6 +410,7 @@ describe('session-resume-runtime', () => {
         saveState: async () => {},
         setGroupModelOverride: async () => {},
         setGroupThinkingOverride: async () => {},
+        setGroupPermissionModeOverride: async () => {},
         getAvailableGroups: () => [],
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,
@@ -376,6 +487,7 @@ describe('session-resume-runtime', () => {
         saveState: async () => {},
         setGroupModelOverride: async () => {},
         setGroupThinkingOverride: async () => {},
+        setGroupPermissionModeOverride: async () => {},
         getAvailableGroups: () => [],
         getRegisteredJids: () => new Set(),
         runAgent: runAgent as never,

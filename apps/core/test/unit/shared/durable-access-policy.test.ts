@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DURABLE_ACCESS_RULE_REJECTION_REASON,
   formatDurableAccessRulesForUser,
   isDurableAccessRuleAllowed,
   validateDurableAccessRule,
@@ -74,7 +75,14 @@ describe('durable access policy', () => {
     ).toEqual({ ok: true });
   });
 
-  it('rejects baseline non-durable Gantry MCP tools as durable access rules', () => {
+  it('rejects exact third-party MCP tools', () => {
+    expect(validateDurableAccessRule('mcp__github__get_issue')).toEqual({
+      ok: false,
+      reason: DURABLE_ACCESS_RULE_REJECTION_REASON,
+    });
+  });
+
+  it('rejects non-admin Gantry MCP tools as durable access rules', () => {
     expect(
       validateDurableAccessRule('mcp__gantry__send_message'),
     ).toMatchObject({ ok: false });

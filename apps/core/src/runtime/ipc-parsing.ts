@@ -21,6 +21,7 @@ import {
   validateMemoryIpcAuthRequest,
 } from './ipc-auth-validation.js';
 import { parseInteractionDescriptor } from './ipc-interaction-descriptor-parsing.js';
+import { sanitizeIpcToolInput } from './ipc-tool-input-sanitization.js';
 
 const IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 export interface ParsedIpcMessage {
@@ -65,11 +66,6 @@ export interface ParsedBrowserIpcRequest {
   timeoutMs?: number;
   deadlineAtMs?: number;
 }
-const TOOL_INPUT_MAX_DEPTH = 2;
-const TOOL_INPUT_MAX_KEYS = 40;
-const TOOL_INPUT_MAX_STRING_LENGTH = 500;
-const SECRET_KEY_PATTERN =
-  /(secret|token|password|credential|api[_-]?key|key)/i;
 const PERMISSION_UPDATE_TYPES = new Set<PermissionApprovalUpdate['type']>([
   'addRules',
   'replaceRules',
@@ -87,49 +83,8 @@ const PERMISSION_DESTINATIONS = new Set<
 const PERMISSION_DECISION_MODES = new Set<PermissionApprovalDecisionMode>([
   'allow_once',
   'allow_persistent_rule',
-  'allow_timed_grant',
   'cancel',
 ]);
-function sanitizeToolInputValue(value: unknown, depth: number): unknown {
-  if (depth > TOOL_INPUT_MAX_DEPTH) return '[TRUNCATED_DEPTH]';
-  if (typeof value === 'string') {
-    if (value.length <= TOOL_INPUT_MAX_STRING_LENGTH) return value;
-    return `${value.slice(0, TOOL_INPUT_MAX_STRING_LENGTH)}...[truncated]`;
-  }
-  if (
-    typeof value === 'number' ||
-    typeof value === 'boolean' ||
-    value === null
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value
-      .slice(0, 20)
-      .map((entry) => sanitizeToolInputValue(entry, depth + 1));
-  }
-  if (isPlainObject(value)) {
-    const out: Record<string, unknown> = {};
-    let seen = 0;
-    for (const key in value) {
-      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
-      if (seen >= TOOL_INPUT_MAX_KEYS) {
-        out.__omitted_keys = 'more';
-        break;
-      }
-      seen += 1;
-      const entry = (value as Record<string, unknown>)[key];
-      if (SECRET_KEY_PATTERN.test(key)) {
-        out[key] = '[REDACTED]';
-        continue;
-      }
-      out[key] = sanitizeToolInputValue(entry, depth + 1);
-    }
-    return out;
-  }
-  return String(value);
-}
-
 function toPositiveInteger(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
     return value;
@@ -139,13 +94,6 @@ function toPositiveInteger(value: unknown): number | undefined {
   }
   const parsed = Number(value.trim());
   return Number.isSafeInteger(parsed) ? parsed : undefined;
-}
-
-function sanitizeToolInput(
-  value: unknown,
-): Record<string, unknown> | undefined {
-  if (!isPlainObject(value)) return undefined;
-  return sanitizeToolInputValue(value, 0) as Record<string, unknown>;
 }
 
 function parsePermissionRuleValues(
@@ -350,7 +298,6 @@ export function parseMemoryIpcRequest(
       : {}),
   };
 }
-
 export function parsePermissionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,
@@ -379,6 +326,8 @@ export function parsePermissionIpcRequest(
   const displayName = toTrimmedString(raw.displayName, { maxLen: 200 });
   const description = toTrimmedString(raw.description, { maxLen: 4000 });
   const decisionReason = toTrimmedString(raw.decisionReason, { maxLen: 2000 });
+  const intent = toTrimmedString(raw.turnIntentSummary, { maxLen: 1_500 });
+  const senderId = toTrimmedString(raw.senderId, { maxLen: 255 });
   const blockedPath = toTrimmedString(raw.blockedPath, { maxLen: 2048 });
   const toolUseID = toTrimmedString(raw.toolUseID, { maxLen: 200 });
   const agentID = toTrimmedString(raw.agentID, { maxLen: 200 });
@@ -445,14 +394,17 @@ export function parsePermissionIpcRequest(
   }
   const targetJid = payloadTargetJid ?? contextTargetJid;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
-  const toolInput = sanitizeToolInput(raw.toolInput);
+  const {
+    toolInput,
+    altered: toolInputSanitized,
+    alteredPaths: toolInputSanitizedPaths,
+  } = sanitizeIpcToolInput(raw.toolInput);
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
   const semanticCapabilityDefinitions =
     parseSemanticCapabilityDefinitionsRecord(raw.semanticCapabilityDefinitions);
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
-
   return {
     requestId,
     appId,
@@ -468,6 +420,9 @@ export function parsePermissionIpcRequest(
     ...(targetJid ? { targetJid } : {}),
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
+    ...(raw.unattended === true ? { unattended: true } : {}),
+    ...(senderId ? { senderId } : {}),
+    ...(intent ? { turnIntentSummary: intent } : {}),
     toolName,
     ...(toolUseID ? { toolUseID } : {}),
     ...(agentID ? { agentID } : {}),
@@ -479,13 +434,14 @@ export function parsePermissionIpcRequest(
     ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
+    ...(toolInputSanitized ? { toolInputSanitized: true } : {}),
+    ...(toolInputSanitizedPaths.length > 0 ? { toolInputSanitizedPaths } : {}),
     ...(semanticCapabilityDefinitions ? { semanticCapabilityDefinitions } : {}),
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),
     ...(interaction ? { interaction } : {}),
   };
 }
-
 export function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceAgentFolder: string,

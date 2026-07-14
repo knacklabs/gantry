@@ -99,6 +99,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   testWebhook: ref('WebhookTestResponse'),
   triggerJob: ref('JobTriggerResponse'),
   triggerMemoryDreaming: ref('MemoryDreamingResponse'),
+  queryUsage: ref('UsageQueryResponse'),
   unbindMcpServerFromAgent: ref('AgentMcpServerBindingResponse'),
   unbindSkillFromAgent: ref('AgentSkillBindingResponse'),
   updateAgent: ref('Agent'),

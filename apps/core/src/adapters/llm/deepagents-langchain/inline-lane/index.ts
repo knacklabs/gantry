@@ -89,6 +89,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
     }
     if (laneInput.signal.aborted) return abortedOutput();
     const maxTurns = laneInput.maxTurns ?? DEFAULT_INLINE_AGENT_MAX_TURNS;
+    const toolsDisabled = laneInput.input.disableTools === true;
     const skillProjection = await resolveDeepAgentSkillProjection({
       selectedSkillIds: laneInput.input.attachedSkillSourceIds,
       skillRepository: laneInput.skillRepository,
@@ -141,16 +142,18 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
       }
 
       const model = await buildInlineModel(laneInput, sessionId);
-      remoteMcp = await connectRemoteMcpTools(laneInput.mcpServers, {
-        authorizeThirdPartyMcpTool:
-          laneInput.coreTools.authorizeThirdPartyMcpTool,
-        recordThirdPartyMcpToolActivity:
-          laneInput.coreTools.recordThirdPartyMcpToolActivity,
-        egressDenylist: laneInput.egressDenylist,
-        lookupHostname: laneInput.mcpHostnameLookup,
-        signal,
-        toolActivity,
-      });
+      remoteMcp = toolsDisabled
+        ? { tools: [], close: () => Promise.resolve() }
+        : await connectRemoteMcpTools(laneInput.mcpServers, {
+            authorizeThirdPartyMcpTool:
+              laneInput.coreTools.authorizeThirdPartyMcpTool,
+            recordThirdPartyMcpToolActivity:
+              laneInput.coreTools.recordThirdPartyMcpToolActivity,
+            egressDenylist: laneInput.egressDenylist,
+            lookupHostname: laneInput.mcpHostnameLookup,
+            signal,
+            toolActivity,
+          });
       const tools = [
         ...buildCoreLangChainTools(laneInput, toolActivity),
         ...remoteMcp.tools,
@@ -180,7 +183,9 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
           ? READONLY_SKILLS_FILESYSTEM
           : DENY_ALL_FILESYSTEM,
         subagents: [],
-        tools: tools as StructuredToolInterface[] as never,
+        tools: toolsDisabled
+          ? []
+          : (tools as StructuredToolInterface[] as never),
         middleware: [
           memoryMiddleware,
           ...(skillProjection
@@ -192,7 +197,7 @@ export function createDeepAgentsInlineAgentLoopLane(input: {
               ]
             : []),
           createBuiltinToolExclusionMiddleware({
-            exposeSkillReadTools: hasProjectedSkills,
+            exposeSkillReadTools: hasProjectedSkills && !toolsDisabled,
           }),
         ] as never,
         systemPrompt: inlineSystemPrompt(laneInput),
@@ -527,13 +532,15 @@ async function connectRemoteMcpTools(
                     args,
                     config?.signal ? { signal: config.signal } : undefined,
                   );
-                  await input.recordThirdPartyMcpToolActivity({
+                  const activity = {
                     serverName: server.name,
                     toolName: remoteTool.name,
                     toolInput: args,
                     outcome: 'success',
                     latencyMs: Date.now() - startedAt,
-                  });
+                    result,
+                  } as const;
+                  await input.recordThirdPartyMcpToolActivity(activity);
                   return typeof result === 'string'
                     ? result
                     : JSON.stringify(result);
@@ -680,12 +687,13 @@ function responseFormatForSchema(
 function structuredOutputError(
   error: unknown,
   newSessionId: string,
-): RunnerOutputFrame {
+): RunnerOutputFrame & { structuredOutputValidationFailure: true } {
   const detail = error instanceof Error ? ` ${error.message}` : '';
   return {
     status: 'error',
     result: null,
     error: `Inline structured output failed schema validation.${detail}`,
+    structuredOutputValidationFailure: true,
     newSessionId,
   };
 }

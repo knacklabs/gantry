@@ -13,6 +13,7 @@ const inlineAgentSettings = vi.hoisted(() => ({
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
     configuredThinking?: { mode: 'off' | 'on'; budgetTokens?: number };
     maxOutputTokens?: number;
+    permissionMode?: 'ask' | 'auto';
   },
 }));
 
@@ -314,6 +315,28 @@ describe('runInlineAgent', () => {
         effort: 'high',
         configuredThinking: { mode: 'on', budgetTokens: 2048 },
         maxOutputTokens: 4096,
+      }),
+    );
+  });
+
+  it('passes the host-resolved permission mode to the inline lane', async () => {
+    inlineAgentSettings.current = { permissionMode: 'auto' };
+    const lane = vi.fn<InlineAgentLoopLane>(async () => ({
+      status: 'success',
+      result: null,
+    }));
+
+    await runInlineAgent(
+      group,
+      { ...agentInput, permissionMode: 'ask' },
+      vi.fn(),
+      undefined,
+      options(lane),
+    );
+
+    expect(lane).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ permissionMode: 'auto' }),
       }),
     );
   });

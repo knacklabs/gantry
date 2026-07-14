@@ -84,368 +84,6 @@ describe('createCanUseToolCallback', () => {
     vi.restoreAllMocks();
   });
 
-  it('scopes timed grants to all tools and keeps protected guards non-bypassable', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    const first = await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const second = await canUseTool(
-      'Read',
-      { file_path: 'package.json' },
-      makePermissionOptions() as never,
-    );
-    const network = await canUseTool(
-      'SandboxNetworkAccess',
-      { host: 'api.linkedin.com' },
-      makePermissionOptions() as never,
-    );
-    const protectedPath = await canUseTool(
-      'Bash',
-      { command: 'cat > .mcp.json' },
-      makePermissionOptions() as never,
-    );
-
-    expect(first.behavior).toBe('allow');
-    expect(second.behavior).toBe('allow');
-    expect(network.behavior).toBe('allow');
-    expect(protectedPath).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        message: expect.stringContaining('protected capability target'),
-      }),
-    );
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-prompts after a timed tool grant expires', async () => {
-    vi.useFakeTimers();
-    permissionMock.requestPermissionApproval
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_timed_grant',
-        timedGrantExpiresAtMs: Date.now() + 300_000,
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      })
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_once',
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      });
-
-    const canUseTool = makeCallback();
-    const first = await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    vi.setSystemTime(Date.now() + 301_000);
-    const second = await canUseTool(
-      'Bash',
-      { command: 'npm run build' },
-      makePermissionOptions() as never,
-    );
-
-    expect(first.behavior).toBe('allow');
-    expect(second.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
-  });
-
-  it('re-prompts denylisted Bash commands during an active timed grant and audits the hit', async () => {
-    permissionMock.requestPermissionApproval
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_timed_grant',
-        timedGrantExpiresAtMs: Date.now() + 60_000,
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      })
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_once',
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      });
-
-    const canUseTool = makeCallback();
-    const first = await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const second = await canUseTool(
-      'Bash',
-      { command: 'rm -rf /' },
-      makePermissionOptions() as never,
-    );
-
-    expect(first.behavior).toBe('allow');
-    expect(second.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(2);
-    expect(permissionMock.requestPermissionApproval).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        decisionReason: expect.stringContaining(
-          'YOLO-mode denylist rule matched "rm -rf /"',
-        ),
-      }),
-    );
-    const output = combinedConsoleOutput();
-    expect(output).toContain('permission.yolo_denylist_hit');
-    expect(output).toContain('"matchedPattern":"rm -rf /"');
-    expect(output).toContain('"principal":"agent:test"');
-    expect(output).toContain('"conversationId":"tg:test"');
-  });
-
-  it('auto-approves non-denylisted Bash commands during an active timed grant', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    const first = await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const second = await canUseTool(
-      'Bash',
-      { command: 'ls' },
-      makePermissionOptions() as never,
-    );
-
-    expect(first.behavior).toBe('allow');
-    expect(second.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('routes timed-grant prompts to the active thread while scoping grants to the conversation', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback({
-      agentInput: {
-        runMode: 'normal',
-        isScheduledJob: false,
-        appId: 'default',
-        agentId: 'agent:test',
-        runId: 'run-1',
-        jobId: undefined,
-        chatJid: 'tg:test',
-        threadId: 'topic-7',
-        allowedTools: [],
-        yoloMode: {
-          enabled: true,
-          denylist: [],
-          denylistPaths: [],
-        },
-      } as never,
-    });
-    await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    await canUseTool(
-      'Read',
-      { file_path: 'package.json' },
-      makePermissionOptions() as never,
-    );
-
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: 'topic-7' }),
-    );
-    const output = combinedConsoleOutput();
-    expect(output).toContain('conversationJid=tg:test');
-    expect(output).not.toContain('threadId=topic-7');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-prompts denylisted file paths during an active timed grant', async () => {
-    permissionMock.requestPermissionApproval
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_timed_grant',
-        timedGrantExpiresAtMs: Date.now() + 60_000,
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      })
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_once',
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      });
-
-    const canUseTool = makeCallback();
-    await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const write = await canUseTool(
-      'Write',
-      { file_path: '/etc', content: 'x' },
-      makePermissionOptions({ displayName: 'Write' }) as never,
-    );
-
-    expect(write.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(2);
-    expect(permissionMock.requestPermissionApproval).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        decisionReason: expect.stringContaining(
-          'YOLO-mode denylist rule matched "/etc/*"',
-        ),
-      }),
-    );
-  });
-
-  it('auto-approves non-denylisted file paths during an active timed grant', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const write = await canUseTool(
-      'Write',
-      { file_path: '~/x', content: 'x' },
-      makePermissionOptions({ displayName: 'Write' }) as never,
-    );
-
-    expect(write.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not apply the YOLO denylist when disabled', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback({
-      agentInput: {
-        runMode: 'normal',
-        isScheduledJob: false,
-        appId: 'default',
-        agentId: 'agent:test',
-        runId: 'run-1',
-        jobId: undefined,
-        chatJid: 'tg:test',
-        threadId: undefined,
-        allowedTools: [],
-        yoloMode: {
-          enabled: false,
-          denylist: [],
-          denylistPaths: [],
-        },
-      } as never,
-    });
-    await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const deniedByDefault = await canUseTool(
-      'Bash',
-      { command: 'rm -rf /' },
-      makePermissionOptions() as never,
-    );
-
-    expect(deniedByDefault.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('scopes timed grants to the Gantry agent even when SDK agent ids differ', async () => {
-    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
-      approved: true,
-      mode: 'allow_timed_grant',
-      timedGrantExpiresAtMs: Date.now() + 60_000,
-      updatedPermissions: undefined,
-      decidedBy: 'user',
-    });
-
-    const canUseTool = makeCallback();
-    const first = await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions({ agentID: 'subagent-a' }) as never,
-    );
-    const second = await canUseTool(
-      'Read',
-      { file_path: 'package.json' },
-      makePermissionOptions({ agentID: 'subagent-b' }) as never,
-    );
-
-    expect(first.behavior).toBe('allow');
-    expect(second.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(1);
-  });
-
-  it('ignores overlong timed grant expiries from permission responses', async () => {
-    permissionMock.requestPermissionApproval
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_timed_grant',
-        timedGrantExpiresAtMs: Date.now() + 3_600_000,
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      })
-      .mockResolvedValueOnce({
-        approved: true,
-        mode: 'allow_once',
-        updatedPermissions: undefined,
-        decidedBy: 'user',
-      });
-
-    const canUseTool = makeCallback();
-    const first = await canUseTool(
-      'Bash',
-      { command: 'npm test' },
-      makePermissionOptions() as never,
-    );
-    const second = await canUseTool(
-      'Read',
-      { file_path: 'package.json' },
-      makePermissionOptions() as never,
-    );
-
-    expect(first.behavior).toBe('allow');
-    expect(second.behavior).toBe('allow');
-    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledTimes(2);
-  });
-
   it('denies parentless SandboxNetworkAccess after an allow-once approved Bash tool call', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
@@ -662,6 +300,99 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
+  it('prompts when a yolo denylist command matches an existing allow rule', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: false,
+      reason: 'operator denied',
+      decidedBy: 'user',
+    });
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: undefined,
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: ['RunCommand(npm test *)'],
+        yoloMode: {
+          enabled: true,
+          denylist: ['npm test --danger *'],
+          denylistPaths: [],
+        },
+      } as never,
+    });
+
+    const result = await canUseTool(
+      'Bash',
+      { command: 'npm test --danger now' },
+      makePermissionOptions() as never,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        behavior: 'deny',
+        message: expect.stringContaining('operator denied'),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisionReason: expect.stringContaining('YOLO-mode denylist'),
+        // No "Allow for future": a persisted rule would never be honored
+        // while the denylist keeps blocking rule-based auto-allows.
+        suggestions: undefined,
+      }),
+    );
+    expect(combinedConsoleOutput()).toContain(
+      '"eventType":"permission.yolo_denylist_hit"',
+    );
+    expect(combinedConsoleOutput()).toContain(
+      '"matchedPattern":"npm test --danger *"',
+    );
+  });
+
+  it('auto-allows a non-denylisted command matching the same allow rule', async () => {
+    const canUseTool = makeCallback({
+      agentInput: {
+        runMode: 'normal',
+        isScheduledJob: false,
+        appId: 'default',
+        agentId: 'agent:test',
+        runId: 'run-1',
+        jobId: undefined,
+        chatJid: 'tg:test',
+        threadId: undefined,
+        allowedTools: ['RunCommand(npm test *)'],
+        yoloMode: {
+          enabled: true,
+          denylist: ['npm test --danger *'],
+          denylistPaths: [],
+        },
+      } as never,
+    });
+
+    const result = await canUseTool(
+      'Bash',
+      { command: 'npm test --safe now' },
+      makePermissionOptions() as never,
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        behavior: 'allow',
+        updatedInput: expect.objectContaining({
+          command: expect.stringContaining('npm test --safe now'),
+        }),
+      }),
+    );
+    expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
+    expect(combinedConsoleOutput()).not.toContain(
+      'permission.yolo_denylist_hit',
+    );
+  });
+
   it('denies wait-only Bash monitoring instead of asking for permission', async () => {
     const canUseTool = makeCallback();
     const result = await canUseTool(
@@ -783,7 +514,7 @@ describe('createCanUseToolCallback', () => {
     expect(permissionMock.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
-  it('omits timed access from autonomous job prompts with persistent suggestions', async () => {
+  it('offers persistent access in autonomous job prompts with suggestions', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
       mode: 'allow_once',

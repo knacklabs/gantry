@@ -97,7 +97,7 @@ describe('protected capability SDK hook', () => {
       cwd: '/tmp/work',
       tool_name: 'Bash',
       tool_input: {
-        command: '/opt/homebrew/bin/gog sheets get sheet-id A1',
+        command: '/opt/tools/fake-cli records get record-id',
       },
       tool_use_id: 'toolu_1',
     });

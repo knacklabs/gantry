@@ -1,0 +1,7 @@
+# Temporary ignores for OS CVEs whose Debian fix (python3.11 3.11.2-6+deb12u8)
+# is published in the security tracker but not yet installable from the
+# bookworm mirrors at image build time (apt still serves deb12u7).
+# Added 2026-07-12 (PR #210). REMOVE both entries once a rebuild picks up
+# deb12u8 — verify with: docker run --rm gantry-runtime:scan dpkg -l python3.11
+CVE-2026-4224
+CVE-2026-6100

@@ -35,6 +35,7 @@ import {
 } from './desired-state-provider-conversations.js';
 import {
   agentIdForFolder,
+  configuredAgentConfig,
   configuredRoutingBindings,
   configuredRoutingBindingsByAgent,
   errorMessage,
@@ -252,14 +253,7 @@ export class SettingsDesiredStateService {
             conversation?.kind === 'dm' || conversation?.kind === 'direct'
               ? 'dm'
               : 'channel',
-          agentConfig:
-            binding.model || agent.persona || agent.relationshipMode
-              ? {
-                  model: binding.model,
-                  persona: agent.persona,
-                  relationshipMode: agent.relationshipMode,
-                }
-              : undefined,
+          agentConfig: configuredAgentConfig(binding, agent),
         });
         applied.push(`binding:${binding.jid}:${folder}`);
       }
@@ -557,7 +551,7 @@ export class SettingsDesiredStateService {
           route: {
             trigger: binding.trigger,
             requiresTrigger: binding.requiresTrigger,
-            agentConfig: binding.model ? { model: binding.model } : undefined,
+            agentConfig: configuredAgentConfig(binding),
           },
         },
         permissionPolicyIds: [],

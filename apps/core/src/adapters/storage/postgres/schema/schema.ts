@@ -34,6 +34,38 @@ export const routerStatePostgres = pgTable('router_state', {
   value: text('value').notNull(),
 });
 
+export const permissionPromotionCountersPostgres = pgTable(
+  'permission_promotion_counters',
+  {
+    appId: text('app_id').notNull(),
+    agentFolder: text('agent_folder').notNull(),
+    suggestionKey: text('suggestion_key').notNull(),
+    allowCount: integer('allow_count').notNull().default(0),
+    lastOfferedAt: timestamp('last_offered_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    deniedAt: timestamp('denied_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.appId, table.agentFolder, table.suggestionKey],
+      name: 'permission_promotion_counters_pk',
+    }),
+  }),
+);
+
 export const memoryEvidencePostgres = pgTable(
   'memory_evidence',
   {

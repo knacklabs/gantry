@@ -8,12 +8,14 @@ import {
 } from '../../shared/agent-engine.js';
 import { parseAgentPersona } from '../../shared/agent-persona.js';
 import { parseAgentRelationshipMode } from '../../shared/agent-relationship-mode.js';
+import type { PermissionMode } from '../../shared/permission-mode.js';
 import type {
   AgentAccessPreset,
   RuntimeConfiguredAgent,
   RuntimeConfiguredAgentCapability,
   RuntimeConfiguredAgentSourceRef,
   RuntimeConfiguredAgentSources,
+  RuntimeConfiguredToolRule,
   RuntimeDesiredStateSettings,
 } from './runtime-settings-types.js';
 import {
@@ -42,6 +44,17 @@ function parseOptionalAgentHarnessValue(
     throw new Error(
       `${pathPrefix} must be one of auto, anthropic_sdk, or deepagents`,
     );
+  }
+  return raw;
+}
+
+function parseOptionalPermissionModeValue(
+  raw: unknown,
+  pathPrefix: string,
+): PermissionMode | undefined {
+  if (raw === undefined) return undefined;
+  if (raw !== 'ask' && raw !== 'auto') {
+    throw new Error(`${pathPrefix} must be one of ask or auto`);
   }
   return raw;
 }
@@ -266,6 +279,75 @@ function parseConfiguredAgentSelections(
   });
 }
 
+function parseConfiguredAgentToolRules(
+  raw: unknown,
+  pathPrefix: string,
+): RuntimeConfiguredToolRule[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be an array`);
+  }
+  return raw.map((item, index) => {
+    const itemPath = `${pathPrefix}[${index}]`;
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new Error(`${itemPath} must be a mapping`);
+    }
+    const map = item as Record<string, unknown>;
+    const action = parseStringValue(map.action, `${itemPath}.action`);
+    if (action !== 'block' && action !== 'require_prior') {
+      throw new Error(`${itemPath}.action must be block or require_prior`);
+    }
+    const allowedKeys =
+      action === 'block'
+        ? new Set(['tool', 'when', 'action', 'reason'])
+        : new Set(['tool', 'action', 'prior', 'reason']);
+    for (const key of Object.keys(map)) {
+      if (!allowedKeys.has(key)) {
+        throw new Error(`${itemPath}.${key} is not supported`);
+      }
+    }
+    const tool = parseStringValue(map.tool, `${itemPath}.tool`);
+    const reason = parseStringValue(map.reason, `${itemPath}.reason`);
+    if (action === 'require_prior') {
+      return {
+        tool,
+        action,
+        prior: parseStringValue(map.prior, `${itemPath}.prior`),
+        reason,
+      };
+    }
+    if (map.when === undefined) return { tool, action, reason };
+    if (
+      typeof map.when !== 'object' ||
+      map.when === null ||
+      Array.isArray(map.when)
+    ) {
+      throw new Error(`${itemPath}.when must be a mapping`);
+    }
+    const when = map.when as Record<string, unknown>;
+    for (const key of Object.keys(when)) {
+      if (key !== 'arg' && key !== 'matches') {
+        throw new Error(`${itemPath}.when.${key} is not supported`);
+      }
+    }
+    const arg = parseStringValue(when.arg, `${itemPath}.when.arg`);
+    if (!/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/.test(arg)) {
+      throw new Error(`${itemPath}.when.arg must be a dot path`);
+    }
+    const matches = parseStringValue(when.matches, `${itemPath}.when.matches`);
+    try {
+      new RegExp(matches);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      throw new Error(
+        `${itemPath}.when.matches must be a valid regular expression`,
+        { cause: error },
+      );
+    }
+    return { tool, when: { arg, matches }, action, reason };
+  });
+}
+
 export function parseConfiguredAgents(
   raw: unknown,
   defaults: {
@@ -309,12 +391,14 @@ export function parseConfiguredAgents(
         key !== 'max_output_tokens' &&
         key !== 'model' &&
         key !== 'agent_harness' &&
+        key !== 'permission_mode' &&
         key !== 'one_time_job_default_model' &&
         key !== 'recurring_job_default_model' &&
+        key !== 'tool_rules' &&
         key !== 'access'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, runtime, max_turns, max_run_tokens, effort, thinking, max_output_tokens, model, agent_harness, job model defaults, or access. Install agents under conversations.*.installed_agents.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, relationship_mode, runtime, max_turns, max_run_tokens, effort, thinking, max_output_tokens, model, agent_harness, permission_mode, job model defaults, tool_rules, or access. Install agents under conversations.*.installed_agents.`,
         );
       }
     }
@@ -401,8 +485,16 @@ export function parseConfiguredAgents(
         map.agent_harness,
         `${pathPrefix}.agent_harness`,
       ),
+      permissionMode: parseOptionalPermissionModeValue(
+        map.permission_mode,
+        `${pathPrefix}.permission_mode`,
+      ),
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,
+      toolRules: parseConfiguredAgentToolRules(
+        map.tool_rules,
+        `${pathPrefix}.tool_rules`,
+      ),
       bindings: {},
       ...parseConfiguredAgentAccess(map.access, `${pathPrefix}.access`),
     };

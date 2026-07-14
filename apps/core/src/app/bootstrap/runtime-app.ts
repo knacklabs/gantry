@@ -30,6 +30,7 @@ import {
   listAvailableGroups,
   registerGroup as registerGroupEntry,
   setGroupModelOverride as setGroupModelOverrideEntry,
+  setGroupPermissionModeOverride as setGroupPermissionModeOverrideEntry,
   setGroupThinkingOverride as setGroupThinkingOverrideEntry,
 } from '../../runtime/group-registry.js';
 import { GroupQueue } from '../../runtime/group-queue.js';
@@ -96,6 +97,7 @@ export interface RuntimeApp {
     chatJid: string,
     thinking: ThinkingOverride | undefined,
   ) => Promise<void>;
+  setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'];
   getAvailableGroups: () => Promise<
     import('../../runtime/agent-spawn.js').AvailableGroup[]
   >;
@@ -493,6 +495,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     );
   }
 
+  const setGroupPermissionModeOverride: GroupProcessingDeps['setGroupPermissionModeOverride'] =
+    async (chatJid, permissionMode) =>
+      setGroupPermissionModeOverrideEntry(
+        conversationRoutes,
+        chatJid,
+        permissionMode,
+        (jid, group) => ops().setConversationRoute(jid, group),
+      );
   async function getAvailableGroups(): Promise<
     import('../../runtime/agent-spawn.js').AvailableGroup[]
   > {
@@ -577,6 +587,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     saveState,
     setGroupModelOverride,
     setGroupThinkingOverride,
+    setGroupPermissionModeOverride,
     getAvailableGroups,
     getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
     opsRepository: options.opsRepository,
@@ -649,6 +660,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     unregisterConversationRoute,
     setGroupModelOverride,
     setGroupThinkingOverride,
+    setGroupPermissionModeOverride,
     getAvailableGroups,
     setConversationRoutesForTest,
     ensureCredentialBindingsForConversationRoutes,

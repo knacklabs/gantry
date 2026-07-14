@@ -29,10 +29,12 @@ size is bounded by packet separability (see §1), not serial run length —
 Codex fans packets out to its subagents. For each stage, spawn an Agent with
 `subagent_type: codex:codex-rescue` whose prompt contains:
 
-- `--model gpt-5.6-sol --effort xhigh --fresh` on the first line (`--resume`
-  instead of `--fresh` to continue an unfinished stage). `gpt-5.6-sol` is the
-  current implementation model; it needs codex CLI >= 0.144.0 (npm
-  `@openai/codex`, not homebrew). If a newer model ships, update this line.
+- `--model gpt-5.6-sol --effort high --fresh` on the first line (`--resume`
+  instead of `--fresh` to continue an unfinished stage). **Effort policy: `high`
+  for all code implementation AND code exploration; reserve `xhigh` for the
+  autoreview pass only (§4).** `gpt-5.6-sol` is the current implementation model;
+  it needs codex CLI >= 0.144.0 (npm `@openai/codex`, not homebrew). If a newer
+  model ships, update this line.
 - The stage scope, referencing the goal prompt file as the contract.
 - The exact bounded write scope ("Nothing else").
 - Repo gate notes: import from source modules in tests, no provider-name
@@ -70,7 +72,15 @@ until node "$COMPANION" status <task-id> | grep -qE '\| (completed|failed|error|
    (or a `--resume` handoff) to trim rather than fixing by hand.
 2. Run the smallest relevant checks: focused vitest files, `npm run build`,
    `python3 .codex/scripts/check_task_completion.py`.
-3. Commit the stage. The pre-commit hook runs prettier and can leave
+3. **Autoreview the stage's LOCAL diff BEFORE committing** (not the whole branch
+   after). Run `autoreview --mode local --thinking xhigh` (reviews the uncommitted
+   working tree) via a codex plain-command handoff (§4 closeout handoff shape,
+   `--mode local`, no `--base`).
+   Fix accepted findings while still uncommitted — via a `--resume`/follow-up handoff, or
+   directly if trivial — then re-review until clean. This is faster (just this stage's
+   diff, not the growing branch), keeps defects out of history, and avoids re-reviewing
+   already-reviewed committed code every round.
+4. Commit the clean stage. The pre-commit hook runs prettier and can leave
    reformatted files dirty AFTER the commit — check `git status`, amend.
 
 ## 4. Closeout
@@ -81,8 +91,38 @@ python3 .codex/scripts/check_architecture.py
 python3 .codex/scripts/check_task_completion.py
 python3 .codex/scripts/validate_artifacts.py --allow-missing-run
 python3 .codex/scripts/verify.py
-python3 ~/.claude/skills/autoreview/scripts/autoreview --mode branch --base origin/main
+python3 ~/.claude/skills/autoreview/scripts/autoreview --mode branch --base origin/main --thinking xhigh
 ```
+
+Effort: autoreview runs at `--thinking xhigh` (the review pass is the one place xhigh
+is used; implementation/exploration handoffs use `high`, §2).
+
+The `--mode branch` autoreview here is the FINAL integration pass — it catches
+cross-stage issues that per-stage local reviews (§3.3) cannot see (e.g. a trust or
+type boundary that only assembles once several stages land). It is not a substitute
+for the per-stage local reviews: by closeout, each stage should already be
+individually clean from its `--mode local` pass. Expect this final pass to surface
+integration-level findings, not stage-local ones.
+
+Review rounds run the autoreview skill THROUGH a codex rescue handoff (user
+decision 2026-07-11, confirmed working end-to-end). Prerequisites: the
+OPERATOR's `~/.codex/config.toml` has `[sandbox_workspace_write]
+network_access = true` (the helper's inner `codex exec` engine needs it;
+kept user-level on purpose — the repo config must NOT relax egress, per
+autoreview r10 2026-07-12) and repo `.codex/rules/default.rules` has an
+allow prefix_rule for `python3 <autoreview script path>`. The handoff prompt must demand ONE plain
+command — no shell wrapper (forbidden rule), no `env` prefix (prompt rule that
+dies under headless approval), no `&&` chaining:
+
+```
+Run the autoreview skill in <repo>. Execute this exact command directly — a
+single plain command, no shell wrapper, no env prefix, no chaining:
+python3 ~/.claude/skills/autoreview/scripts/autoreview --mode branch --base <base-ref> --thinking xhigh
+Return its complete output verbatim. Make no edits, no commits. No commentary.
+```
+
+Poll the returned companion task and read findings from `result`. The plugin's
+native `review` command is NOT used (user decision).
 
 Autoreview contract: accept only concrete findings grounded in current code;
 fix accepted findings with the smallest diff (via a Codex handoff or directly

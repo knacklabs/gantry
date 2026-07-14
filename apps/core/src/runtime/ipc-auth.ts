@@ -188,7 +188,10 @@ export function validateIpcAuthToken(
 export function createIpcAuthEnvelope(
   workspaceKey: string,
   threadId?: string | null,
-  scope?: { appId?: string | null; agentId?: string | null },
+  scope?: {
+    appId?: string | null;
+    agentId?: string | null;
+  },
 ): {
   authToken: string;
   responseVerifyKey: string;

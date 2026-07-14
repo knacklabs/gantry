@@ -116,7 +116,7 @@ function capabilityFromToolReference(
       : undefined;
     return {
       id: reference.slice('capability:'.length),
-      version: semanticCapability?.version ?? 'builtin',
+      version: semanticCapability?.version ?? 'catalog',
     };
   }
   return { id: reference, version: 'builtin' };

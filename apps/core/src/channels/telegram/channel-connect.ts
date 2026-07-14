@@ -377,7 +377,15 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       }
 
       const permissionMatch = TELEGRAM_PERMISSION_CALLBACK_PATTERN.exec(data);
-      if (!permissionMatch) return;
+      if (!permissionMatch) {
+        if (data.startsWith('perm:')) {
+          await ctx.answerCallbackQuery({
+            text: 'Permission request is no longer active.',
+            show_alert: true,
+          });
+        }
+        return;
+      }
       const mode = normalizePermissionAction(permissionMatch[1]);
       if (!mode) return;
       const callbackId = permissionMatch[2];
@@ -523,9 +531,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             ? 'allowed once via Telegram'
             : mode === 'allow_persistent_rule'
               ? 'persistent rule allowed via Telegram'
-              : mode === 'allow_timed_grant'
-                ? `eligible tools/SDK API prompt grant (5 min) via Telegram`
-                : 'canceled via Telegram',
+              : 'canceled via Telegram',
       });
       await ctx.answerCallbackQuery({
         text:
@@ -533,9 +539,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             ? 'Allowed once. Details posted in chat.'
             : mode === 'allow_persistent_rule'
               ? 'Allowed for future. Details posted in chat.'
-              : mode === 'allow_timed_grant'
-                ? 'Allowed for 5 min. Details posted in chat.'
-                : 'Canceled.',
+              : 'Canceled.',
       });
     });
 

@@ -24,6 +24,7 @@ export type Scope =
   | 'webhooks:write'
   | 'ingresses:read'
   | 'ingresses:write'
+  | 'usage:read'
   | 'llm:invoke'
   | 'memory:read'
   | 'memory:admin';
@@ -57,6 +58,7 @@ export const CONTROL_API_SCOPES: readonly Scope[] = [
   'webhooks:write',
   'ingresses:read',
   'ingresses:write',
+  'usage:read',
   'llm:invoke',
   'memory:read',
   'memory:admin',

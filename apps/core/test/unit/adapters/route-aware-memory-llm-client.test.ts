@@ -32,9 +32,14 @@ function profile(
 
 function buildRouter() {
   const anthropic = fakeClient('anthropic-sdk');
+  const anthropicSingleRequest = fakeClient('anthropic-direct');
   const openai = fakeClient('openai-direct');
-  const router = createRouteAwareMemoryLlmClient({ anthropic, openai });
-  return { router, anthropic, openai };
+  const router = createRouteAwareMemoryLlmClient({
+    anthropic,
+    anthropicSingleRequest,
+    openai,
+  });
+  return { router, anthropic, anthropicSingleRequest, openai };
 }
 
 describe('route-aware memory LLM client (family-derived)', () => {
@@ -62,6 +67,35 @@ describe('route-aware memory LLM client (family-derived)', () => {
     expect(result).toBe('openai-direct');
     expect(openai.query).toHaveBeenCalledTimes(1);
     expect(anthropic.query).not.toHaveBeenCalled();
+  });
+
+  it('uses the single-request client only for opted-in anthropic-family calls', async () => {
+    const { router, anthropic, anthropicSingleRequest, openai } = buildRouter();
+    const result = await router.query({
+      appId: 'default' as never,
+      model: 'claude-runner',
+      modelProfile: profile({ responseFamily: DEFAULT_FAMILY }),
+      prompt: 'hi',
+      singleRequest: true,
+    });
+    expect(result).toBe('anthropic-direct');
+    expect(anthropicSingleRequest.query).toHaveBeenCalledTimes(1);
+    expect(anthropic.query).not.toHaveBeenCalled();
+    expect(openai.query).not.toHaveBeenCalled();
+  });
+
+  it('keeps opted-in openai-family calls on the existing OpenAI client', async () => {
+    const { router, anthropicSingleRequest, openai } = buildRouter();
+    const result = await router.query({
+      appId: 'default' as never,
+      model: 'gpt-runner',
+      modelProfile: profile({ responseFamily: OPENAI_FAMILY }),
+      prompt: 'hi',
+      singleRequest: true,
+    });
+    expect(result).toBe('openai-direct');
+    expect(openai.query).toHaveBeenCalledTimes(1);
+    expect(anthropicSingleRequest.query).not.toHaveBeenCalled();
   });
 
   it('OpenRouter provider -> OpenAI-compatible client despite anthropic family', async () => {
