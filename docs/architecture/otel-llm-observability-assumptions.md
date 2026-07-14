@@ -104,6 +104,8 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 | E.32 | An empty revision history needs `expectedRevision: 0`, not null | Branch autoreview r16 (P2): the repository treats null as unconditional — a racing FIRST revision could still be erased | Fence uses `latestForPreserve?.revision ?? 0` ("expect no head") | First-enable race via empty-history window | fixed |
 | E.33 | Decoder carry bytes must be emitted on overflow fallback | Branch autoreview r16 (P2, sharpening E.11): carry bytes were dropped, not just mangled | `takePending()` includes the decoder flush (split codepoint → U+FFFD, nothing dropped); byte-exact raw-buffer fallback stays the named revisit | ≤1 mangled codepoint on a >1 MiB single-frame stream in inject mode | fixed (residual documented) |
 
+| E.34 | Unguarded API writes must keep unconditional semantics | Branch autoreview r17 (P2): my r15/r16 fence made optional optimistic concurrency mandatory — blind writers got contract-breaking 409s | Read-merge-append retried server-side (≤3 attempts) for callers who omitted `expectedRevision`; supplied guards keep the documented 409 | Public API contract regression under concurrent writers | fixed |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |

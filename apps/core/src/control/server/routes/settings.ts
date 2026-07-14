@@ -148,149 +148,155 @@ async function handleDesiredState(
       );
       return true;
     }
+    const callerGuard =
+      typeof body.expectedRevision === 'number' ? body.expectedRevision : null;
+    const note = typeof body.note === 'string' ? body.note : null;
+    const storage = getRuntimeStorage();
+    const isWorkstation = currentDeploymentMode(ctx) === 'workstation';
     // Preserve the server-side observability block across writes: this
     // surface can neither read nor set it (see omitObservability above).
-    const latestForPreserve =
-      await getRuntimeStorage().repositories.settingsRevisions.getLatestSettingsRevision(
-        appId,
-      );
-    const preservedObservability = (
-      latestForPreserve?.settingsDocument as Record<string, unknown> | undefined
-    )?.observability;
-    const inboundDocument = {
-      ...omitObservability(body.settings as Record<string, unknown>),
-      ...(preservedObservability !== undefined
-        ? { observability: preservedObservability }
-        : {}),
-    };
-    // Bind the append to the head this request merged from whenever a head
-    // exists — an unconditional append could otherwise silently revert a
-    // concurrent observability change, including the FIRST enable (head had
-    // no block to preserve yet). Callers get the documented 409 + retry.
-    // 0 = "expect no head" (null would be an unconditional append and
-    // could erase a concurrent FIRST revision).
-    const effectiveExpectedRevision =
-      typeof body.expectedRevision === 'number'
-        ? body.expectedRevision
-        : (latestForPreserve?.revision ?? 0);
-    // Decode the inbound typed document through the shared settings parser so a
-    // structurally invalid document surfaces the same document-path-level error
-    // the file/CLI surface produces (one validation path). YAML never reaches
-    // this surface — it is the CLI `--file` edge only.
-    let parsed;
-    try {
-      parsed = parseRuntimeSettingsObject(inboundDocument);
-    } catch (err) {
-      sendError(
-        res,
-        400,
-        'INVALID_SETTINGS',
-        err instanceof Error
-          ? err.message
-          : 'settings document failed to parse.',
-      );
-      return true;
-    }
-    const storage = getRuntimeStorage();
-    if (currentDeploymentMode(ctx) === 'workstation') {
-      let revision = 0;
-      try {
-        const outcome = await importWorkstationSettings(
-          {
-            runtimeHome: ctx.runtimeHome,
-            ops: storage.ops,
-            repositories: storage.repositories,
-            appId,
-            previousSettings: ctx.getInternalRuntimeSettings() as never,
-            reloadRuntimeState: () => ctx.app.loadState(),
-            revisionMirror: {
-              settingsRevisions: storage.repositories.settingsRevisions,
-              pool: storage.service.pool,
-              createdBy: `control-api:${key.kid}`,
-              note: typeof body.note === 'string' ? body.note : null,
-              logWarn: (context, message) => logger.warn(context, message),
-            },
-            revisionMirrorRequired: true,
-            expectedRevision: effectiveExpectedRevision,
-          },
-          parsed,
+    // Preservation requires a read-merge-append bound to the head we merged
+    // from (an unconditional append could silently revert a concurrent
+    // observability change, including the FIRST enable). Callers who supplied
+    // expectedRevision keep the documented 409; callers who omitted it keep
+    // their unconditional semantics via a bounded server-side retry.
+    for (let attempt = 0; ; attempt += 1) {
+      const head =
+        await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+          appId,
         );
-        revision =
-          outcome.revision ??
-          (
-            await storage.repositories.settingsRevisions.getLatestSettingsRevision(
-              appId,
-            )
-          )?.revision ??
-          0;
+      const preservedObservability = (
+        head?.settingsDocument as Record<string, unknown> | undefined
+      )?.observability;
+      const inboundDocument = {
+        ...omitObservability(body.settings as Record<string, unknown>),
+        ...(preservedObservability !== undefined
+          ? { observability: preservedObservability }
+          : {}),
+      };
+      // 0 = "expect no head" (null would be an unconditional append).
+      const effectiveExpectedRevision = callerGuard ?? head?.revision ?? 0;
+      // Decode the inbound typed document through the shared settings parser
+      // so a structurally invalid document surfaces the same
+      // document-path-level error the file/CLI surface produces (one
+      // validation path). YAML never reaches this surface — it is the CLI
+      // `--file` edge only.
+      let parsed;
+      try {
+        parsed = parseRuntimeSettingsObject(inboundDocument);
       } catch (err) {
-        if (err instanceof SettingsRevisionConflictError) {
-          sendError(
-            res,
-            409,
-            'REVISION_CONFLICT',
-            `expectedRevision ${err.expectedRevision} does not match the current revision ${err.actualRevision}.`,
-            {
-              expectedRevision: err.expectedRevision,
-              actualRevision: err.actualRevision,
-            },
-          );
-          return true;
-        }
         sendError(
           res,
           400,
           'INVALID_SETTINGS',
           err instanceof Error
             ? err.message
-            : 'Settings document failed validation.',
+            : 'settings document failed to parse.',
         );
         return true;
       }
-      sendJson(res, 200, { revision });
-      return true;
-    }
-    const outcome = await importFleetSettingsRevision(
-      {
-        runtimeHome: ctx.runtimeHome,
-        ops: getRuntimeStorage().ops,
-        repositories: storage.repositories,
-        appId,
-        settingsRevisions: storage.repositories.settingsRevisions,
-        pool: storage.service.pool,
-        createdBy: `control-api:${key.kid}`,
-      },
-      parsed,
-      {
-        expectedRevision: effectiveExpectedRevision,
-        note: typeof body.note === 'string' ? body.note : null,
-      },
-    );
-    if (outcome.status === 'invalid') {
-      sendError(
-        res,
-        400,
-        'INVALID_SETTINGS',
-        'Settings document failed validation.',
-        { errors: outcome.errors },
-      );
-      return true;
-    }
-    if (outcome.status === 'conflict') {
-      sendError(
-        res,
-        409,
-        'REVISION_CONFLICT',
-        `expectedRevision ${outcome.expectedRevision} does not match the current revision ${outcome.actualRevision}.`,
+      if (isWorkstation) {
+        let revision = 0;
+        try {
+          const outcome = await importWorkstationSettings(
+            {
+              runtimeHome: ctx.runtimeHome,
+              ops: storage.ops,
+              repositories: storage.repositories,
+              appId,
+              previousSettings: ctx.getInternalRuntimeSettings() as never,
+              reloadRuntimeState: () => ctx.app.loadState(),
+              revisionMirror: {
+                settingsRevisions: storage.repositories.settingsRevisions,
+                pool: storage.service.pool,
+                createdBy: `control-api:${key.kid}`,
+                note,
+                logWarn: (context, message) => logger.warn(context, message),
+              },
+              revisionMirrorRequired: true,
+              expectedRevision: effectiveExpectedRevision,
+            },
+            parsed,
+          );
+          revision =
+            outcome.revision ??
+            (
+              await storage.repositories.settingsRevisions.getLatestSettingsRevision(
+                appId,
+              )
+            )?.revision ??
+            0;
+        } catch (err) {
+          if (err instanceof SettingsRevisionConflictError) {
+            if (callerGuard === null && attempt < 2) continue;
+            sendError(
+              res,
+              409,
+              'REVISION_CONFLICT',
+              `expectedRevision ${err.expectedRevision} does not match the current revision ${err.actualRevision}.`,
+              {
+                expectedRevision: err.expectedRevision,
+                actualRevision: err.actualRevision,
+              },
+            );
+            return true;
+          }
+          sendError(
+            res,
+            400,
+            'INVALID_SETTINGS',
+            err instanceof Error
+              ? err.message
+              : 'Settings document failed validation.',
+          );
+          return true;
+        }
+        sendJson(res, 200, { revision });
+        return true;
+      }
+      const outcome = await importFleetSettingsRevision(
         {
-          expectedRevision: outcome.expectedRevision,
-          actualRevision: outcome.actualRevision,
+          runtimeHome: ctx.runtimeHome,
+          ops: getRuntimeStorage().ops,
+          repositories: storage.repositories,
+          appId,
+          settingsRevisions: storage.repositories.settingsRevisions,
+          pool: storage.service.pool,
+          createdBy: `control-api:${key.kid}`,
+        },
+        parsed,
+        {
+          expectedRevision: effectiveExpectedRevision,
+          note,
         },
       );
+      if (outcome.status === 'invalid') {
+        sendError(
+          res,
+          400,
+          'INVALID_SETTINGS',
+          'Settings document failed validation.',
+          { errors: outcome.errors },
+        );
+        return true;
+      }
+      if (outcome.status === 'conflict') {
+        if (callerGuard === null && attempt < 2) continue;
+        sendError(
+          res,
+          409,
+          'REVISION_CONFLICT',
+          `expectedRevision ${outcome.expectedRevision} does not match the current revision ${outcome.actualRevision}.`,
+          {
+            expectedRevision: outcome.expectedRevision,
+            actualRevision: outcome.actualRevision,
+          },
+        );
+        return true;
+      }
+      sendJson(res, 200, { revision: outcome.revision });
       return true;
     }
-    sendJson(res, 200, { revision: outcome.revision });
-    return true;
   }
 
   res.setHeader('Allow', 'GET, PUT, POST');
