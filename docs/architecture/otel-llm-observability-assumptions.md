@@ -71,6 +71,8 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 | E.10 | Output callbacks can outlive the runner's resolution | Branch autoreview r5 (P2): a late `continuedByFollowup` after `finish()` opened an orphan span | Tracker `closed` flag: post-finish frames still forward but neither accumulate nor rotate | Orphaned registry entries + never-exported spans | fixed |
 | E.11 | Overflow raw-fallback re-raised with a new caveat | Branch autoreview r5 (P3-class): decoder-held bytes + the injected usage-only frame can reach the client once the tap degrades | Held with E.3/E.8 — the path requires a single >1 MiB unterminated SSE frame (broken/hostile provider); full fix = raw-byte shadow buffering, named revisit | Pathological streams only: one mangled codepoint and/or one unexpected usage frame | ok — documented |
 
+| E.12 | Bounded serialization must be valid JSON UNDER the OTel limit and ~linear | Branch autoreview r6 (P1+P2): per-entry re-serialization was quadratic; JSON escaping could push serialized content past 32k where the SDK cuts mid-string | Shared `boundedJsonArray` in tracing.ts (geometric halving, always-valid JSON ≤32k) used by gateway prompt/completion AND turn-span input/output | Unparseable content attributes in backends; CPU burn on huge prompts | fixed |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |

@@ -146,6 +146,37 @@ export function boundedContent(value: string): string {
     : value;
 }
 
+export const MAX_ATTRIBUTE_CHARS = 32_768;
+const TRUNCATION_SUFFIX = '…[truncated]';
+const MIN_ENTRY_CONTENT = 256;
+
+// Serialize message arrays to VALID JSON that fits the OTel attribute value
+// limit — the SDK's own limit cuts mid-string, producing unparseable
+// content, and JSON escaping (control chars → \uXXXX) can inflate bounded
+// raw text past the limit. Geometric halving keeps this ~linear in the
+// input size, unlike per-entry re-serialization.
+export function boundedJsonArray(
+  entries: { role: string; content: string }[],
+): string {
+  let serialized = JSON.stringify(entries);
+  while (serialized.length > MAX_ATTRIBUTE_CHARS && entries.length > 0) {
+    let shrunk = false;
+    for (const entry of entries) {
+      if (entry.content.length > MIN_ENTRY_CONTENT) {
+        const base = entry.content.endsWith(TRUNCATION_SUFFIX)
+          ? entry.content.slice(0, -TRUNCATION_SUFFIX.length)
+          : entry.content;
+        entry.content =
+          base.slice(0, Math.floor(base.length / 2)) + TRUNCATION_SUFFIX;
+        shrunk = true;
+      }
+    }
+    if (!shrunk) entries.pop();
+    serialized = JSON.stringify(entries);
+  }
+  return serialized;
+}
+
 export interface TurnSpanHandle {
   setInput: (content: string) => void;
   setOutput: (content: string) => void;
@@ -193,7 +224,7 @@ export function startTurnSpan(input: {
         if (!ended && current.captureContent) {
           span.setAttribute(
             ATTR_PROMPT,
-            JSON.stringify([
+            boundedJsonArray([
               { role: 'user', content: boundedContent(content) },
             ]),
           );
@@ -203,7 +234,7 @@ export function startTurnSpan(input: {
         if (!ended && current.captureContent) {
           span.setAttribute(
             ATTR_COMPLETION,
-            JSON.stringify([
+            boundedJsonArray([
               { role: 'assistant', content: boundedContent(content) },
             ]),
           );

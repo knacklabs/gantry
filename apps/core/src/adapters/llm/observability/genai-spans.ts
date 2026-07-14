@@ -7,6 +7,7 @@ import {
   ATTR_COMPLETION,
   ATTR_PROMPT,
   boundedContent,
+  boundedJsonArray,
   childContextFor,
   contentCaptureEnabled,
   getTurnSpan,
@@ -48,34 +49,6 @@ export interface GatewayCallObservation {
     normalizedUsage?: NormalizedModelUsage;
     errorMessage?: string;
   }) => void;
-}
-
-const MAX_ATTRIBUTE_CHARS = 32_768;
-const TRUNCATION_SUFFIX = '…[truncated]';
-
-function boundedPromptJson(
-  entries: { role: string; content: string }[],
-): string {
-  let serialized = JSON.stringify(entries);
-  for (
-    let index = entries.length - 1;
-    serialized.length > MAX_ATTRIBUTE_CHARS && index >= 0;
-    index -= 1
-  ) {
-    const entry = entries[index]!;
-    const excess = serialized.length - MAX_ATTRIBUTE_CHARS;
-    const keep = Math.max(
-      0,
-      entry.content.length - excess - TRUNCATION_SUFFIX.length,
-    );
-    entry.content = `${entry.content.slice(0, keep)}${TRUNCATION_SUFFIX}`;
-    serialized = JSON.stringify(entries);
-  }
-  while (serialized.length > MAX_ATTRIBUTE_CHARS) {
-    entries.pop();
-    serialized = JSON.stringify(entries);
-  }
-  return serialized;
 }
 
 function componentFor(token: GatewayCallTokenContext): string {
@@ -142,11 +115,11 @@ function promptJson(request: Record<string, unknown>): string | undefined {
         : JSON.stringify(message.content ?? '');
     entries.push({ role, content: boundedContent(content) });
   }
-  return entries.length > 0 ? boundedPromptJson(entries) : undefined;
+  return entries.length > 0 ? boundedJsonArray(entries) : undefined;
 }
 
 function completionJson(content: string): string {
-  return JSON.stringify([
+  return boundedJsonArray([
     { role: 'assistant', content: boundedContent(content) },
   ]);
 }
