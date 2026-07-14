@@ -159,9 +159,13 @@ export function readOptionalNumberOrString(
 }
 
 export function parseJsonRecord(value: string): Record<string, unknown> {
+  const openedFence = stripOpeningJsonFence(value);
   const candidates = [
     stripOuterJsonFence(value),
     ...extractFencedJsonCandidates(value),
+    ...(openedFence === value
+      ? []
+      : [openedFence, ...extractBalancedJsonObjectCandidates(openedFence)]),
   ];
   let lastError: unknown = null;
   for (const candidate of candidates) {
@@ -193,6 +197,13 @@ function stripOuterJsonFence(value: string): string {
   return inner;
 }
 
+function stripOpeningJsonFence(value: string): string {
+  return value
+    .trim()
+    .replace(/^```(?:json|JSON)?\s*\r?\n?/u, '')
+    .trim();
+}
+
 function extractFencedJsonCandidates(value: string): string[] {
   const candidates: string[] = [];
   const fencedBlocks = value.matchAll(
@@ -201,6 +212,39 @@ function extractFencedJsonCandidates(value: string): string[] {
   for (const block of fencedBlocks) {
     const inner = block[1]?.trim() ?? '';
     if (isJsonShaped(inner)) candidates.push(inner);
+  }
+  return candidates;
+}
+
+function extractBalancedJsonObjectCandidates(value: string): string[] {
+  const candidates: string[] = [];
+  const text = value.trim();
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== '{') continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === '{') depth += 1;
+      if (char === '}') depth -= 1;
+      if (depth === 0) {
+        candidates.push(text.slice(start, index + 1));
+        start = index;
+        break;
+      }
+      if (depth < 0) break;
+    }
   }
   return candidates;
 }

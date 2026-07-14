@@ -34,6 +34,8 @@ import {
 import { unwrapStructuredJsonModelProviderResult } from './model-provider.js';
 import { observeGantryWorkflowSpan } from './model-observability.js';
 
+const SUPPORTED_AGENT_ACTIONS = new Set(['call_tool', 'final', 'needs_input']);
+
 export async function runGenericAgentTask(
   config: Omit<StructuredModelTaskRunnerConfig, 'model'> & {
     readonly model: StructuredJsonModelProvider;
@@ -505,7 +507,48 @@ export async function runGenericAgentTask(
       );
     }
 
-    const parsed = parseGenericAgentAction(action);
+    let parsed = parseGenericAgentAction(action);
+    let actionNormalization: Record<string, unknown> | null = null;
+    if (
+      !SUPPORTED_AGENT_ACTIONS.has(parsed.action) &&
+      input.normalizeUnsupportedModelAction
+    ) {
+      const unsupportedAction = parsed.action || 'empty_action';
+      try {
+        const normalized = asRecord(
+          await input.normalizeUnsupportedModelAction({
+            taskType: input.taskType,
+            correlationId: input.correlationId,
+            step,
+            state,
+            rawAction: action,
+            parsedAction: {
+              action: parsed.action,
+              toolName: parsed.toolName ?? null,
+              input: parsed.input,
+              output: parsed.output,
+              reason: parsed.reason ?? null,
+            },
+            unsupportedAction,
+          }),
+        );
+        if (normalized) {
+          const normalizedParsed = parseGenericAgentAction(normalized);
+          if (SUPPORTED_AGENT_ACTIONS.has(normalizedParsed.action)) {
+            action = normalized;
+            parsed = normalizedParsed;
+            actionNormalization = {
+              source: 'normalizeUnsupportedModelAction',
+              originalAction: unsupportedAction,
+              normalizedAction: parsed.action,
+            };
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`normalize_unsupported_model_action_failed:${message}`);
+      }
+    }
     mergeModelProgressIntoAgentMemory(state, step, parsed);
     const progressTrace = {
       previousGoalEvaluation: parsed.previousGoalEvaluation ?? null,
@@ -562,7 +605,10 @@ export async function runGenericAgentTask(
         startedAt: stepStartedIso,
         completedAt: new Date().toISOString(),
         durationMs: Date.now() - stepStartedAt,
-        observation: summarizeAgentObservation(output),
+        observation: {
+          ...summarizeAgentObservation(output),
+          ...(actionNormalization ? { actionNormalization } : {}),
+        },
         promptMetrics,
         auditNote: parsed.auditNote,
         whyThisStep: parsed.whyThisStep,
