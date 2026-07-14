@@ -154,6 +154,11 @@ export function createSseAccumulator(
     'total_tokens',
     'cache_read_input_tokens',
     'cache_creation_input_tokens',
+    // Flat cache fields declared by providers in the model registry
+    // (e.g. DeepSeek prompt_cache_hit/miss, Together cached_tokens).
+    'prompt_cache_hit_tokens',
+    'prompt_cache_miss_tokens',
+    'cached_tokens',
     'prompt_tokens_details',
     'completion_tokens_details',
   ]);

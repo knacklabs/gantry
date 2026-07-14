@@ -261,9 +261,14 @@ export function startTurnSpan(input: {
         try {
           span.setAttribute('gantry.turn_outcome', outcome);
           if (outcome === 'error') {
+            // Runner errors can echo prompt/result text; honor capture_content.
             span.setStatus({
               code: SpanStatusCode.ERROR,
-              message: error ? boundedContent(error) : undefined,
+              message: error
+                ? current.captureContent
+                  ? boundedContent(error)
+                  : 'agent turn failed'
+                : undefined,
             });
           }
           span.end();

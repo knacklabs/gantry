@@ -85,6 +85,9 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 | E.20 | Media types are case-insensitive | Branch autoreview r9 (P2): `Text/Event-Stream` skipped the tap after injection, leaking the synthetic usage frame | Both tap and payload checks lowercase before testing | Mixed-case SSE responses change downstream bytes | fixed |
 | E.21 | Upstream `statusText` is provider-controlled text | Branch autoreview r9 (P2): exported into span status even with capture off | Gated behind `contentCaptureEnabled()` (256-char slice when on, stable label when off) | Privacy control bypass on error spans | fixed |
 
+| E.22 | Turn-failure errors must honor `capture_content` | Branch autoreview r10 (P1): `AgentOutput.error` can echo prompt/result text into span status | Gated: bounded raw error when capture on, `agent turn failed` when off | Privacy control bypass on failed turns | fixed |
+| E.23 | The usage whitelist must include registry-declared flat cache fields | Branch autoreview r10 (P2): DeepSeek `prompt_cache_hit_tokens` / Together `cached_tokens` dropped → inflated cost estimates | Whitelist extended with the registry's flat cache fields | Missing cache attribution + wrong streamed cost for those providers | fixed |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |
