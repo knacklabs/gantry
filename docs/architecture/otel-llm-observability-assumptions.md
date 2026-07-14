@@ -73,6 +73,10 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 
 | E.12 | Bounded serialization must be valid JSON UNDER the OTel limit and ~linear | Branch autoreview r6 (P1+P2): per-entry re-serialization was quadratic; JSON escaping could push serialized content past 32k where the SDK cuts mid-string | Shared `boundedJsonArray` in tracing.ts (geometric halving, always-valid JSON ≤32k) used by gateway prompt/completion AND turn-span input/output | Unparseable content attributes in backends; CPU burn on huge prompts | fixed |
 
+| E.13 | Entry-count overflow must be linear too | Branch autoreview r7 (P1): the entry-pop path re-serialized the whole array per pop — quadratic for tens of thousands of short messages | Pass 2 of `boundedJsonArray` keeps the largest fitting suffix in one O(n) walk | Event-loop stall on the request hot path for giant message arrays | fixed |
+| E.14 | `capture_content: false` must cover provider error text | Branch autoreview r7 (P1): SSE `error.message` is provider-sourced and can echo request content into span status/error.type | Provider-stream errors record a stable label when capture is off; host/gateway errors (timeouts, statusText) stay, all bounded | Privacy control bypassed on error paths | fixed |
+| E.15 | Streamed usage merging must not retain arbitrary objects | Branch autoreview r7 (P2): `mergeUsage` kept every provider key/nested value for the stream's lifetime | Whitelist of recognized usage fields; nested details capped at 8 numeric sub-keys | Unbounded host memory growth on adversarial streams | fixed |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |

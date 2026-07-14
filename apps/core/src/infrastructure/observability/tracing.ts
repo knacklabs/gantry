@@ -158,8 +158,9 @@ const MIN_ENTRY_CONTENT = 256;
 export function boundedJsonArray(
   entries: { role: string; content: string }[],
 ): string {
+  // Pass 1: geometric halving of oversized content (~linear overall).
   let serialized = JSON.stringify(entries);
-  while (serialized.length > MAX_ATTRIBUTE_CHARS && entries.length > 0) {
+  while (serialized.length > MAX_ATTRIBUTE_CHARS) {
     let shrunk = false;
     for (const entry of entries) {
       if (entry.content.length > MIN_ENTRY_CONTENT) {
@@ -171,10 +172,23 @@ export function boundedJsonArray(
         shrunk = true;
       }
     }
-    if (!shrunk) entries.pop();
+    if (!shrunk) break;
     serialized = JSON.stringify(entries);
   }
-  return serialized;
+  if (serialized.length <= MAX_ATTRIBUTE_CHARS) return serialized;
+  // Pass 2: too many short entries — keep the largest suffix (most recent
+  // messages) that fits, in one O(n) walk; popping one entry per full
+  // re-serialization would be quadratic on the request hot path.
+  let budget = MAX_ATTRIBUTE_CHARS - 2;
+  const kept: { role: string; content: string }[] = [];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const cost = JSON.stringify(entries[index]).length + 1;
+    if (cost > budget) break;
+    budget -= cost;
+    kept.push(entries[index]!);
+  }
+  kept.reverse();
+  return JSON.stringify(kept);
 }
 
 export interface TurnSpanHandle {
@@ -247,7 +261,10 @@ export function startTurnSpan(input: {
         try {
           span.setAttribute('gantry.turn_outcome', outcome);
           if (outcome === 'error') {
-            span.setStatus({ code: SpanStatusCode.ERROR, message: error });
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: error ? boundedContent(error) : undefined,
+            });
           }
           span.end();
         } catch (err) {

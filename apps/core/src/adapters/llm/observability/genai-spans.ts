@@ -466,7 +466,17 @@ export function observeGatewayCall(input: {
         if (captureContent && completionText) {
           span.setAttribute(ATTR_COMPLETION, completionJson(completionText));
         }
-        const errorMessage = result.errorMessage ?? streamErrorMessage;
+        // streamErrorMessage is provider-sourced and may echo request
+        // content; with content capture off, record a stable label instead.
+        // result.errorMessage is host/gateway-sourced (timeouts, statusText).
+        const providerError = streamErrorMessage
+          ? captureContent
+            ? boundedContent(streamErrorMessage)
+            : 'provider stream error'
+          : undefined;
+        const errorMessage = result.errorMessage
+          ? boundedContent(result.errorMessage)
+          : providerError;
         if (result.status >= 400 || errorMessage) {
           span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage });
           if (errorMessage) {

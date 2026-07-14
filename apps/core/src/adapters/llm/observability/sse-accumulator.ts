@@ -133,14 +133,41 @@ export function createSseAccumulator(
     }
   };
 
+  // Only recognized usage fields are retained — merging arbitrary provider
+  // objects would let a long stream grow host memory without bound.
+  const USAGE_KEYS = new Set([
+    'input_tokens',
+    'output_tokens',
+    'prompt_tokens',
+    'completion_tokens',
+    'total_tokens',
+    'cache_read_input_tokens',
+    'cache_creation_input_tokens',
+    'prompt_tokens_details',
+    'completion_tokens_details',
+  ]);
   const mergeUsage = (value: unknown) => {
     if (value === null || typeof value !== 'object') return;
     for (const [key, entry] of Object.entries(
       value as Record<string, unknown>,
     )) {
-      if (entry !== undefined && entry !== null) {
+      if (!USAGE_KEYS.has(key) || entry === undefined || entry === null) {
+        continue;
+      }
+      if (typeof entry === 'number') {
         usage[key] = entry;
         sawUsage = true;
+      } else if (typeof entry === 'object' && !Array.isArray(entry)) {
+        const numeric: Record<string, number> = {};
+        for (const [sub, subValue] of Object.entries(
+          entry as Record<string, unknown>,
+        ).slice(0, 8)) {
+          if (typeof subValue === 'number') numeric[sub] = subValue;
+        }
+        if (Object.keys(numeric).length > 0) {
+          usage[key] = numeric;
+          sawUsage = true;
+        }
       }
     }
   };
