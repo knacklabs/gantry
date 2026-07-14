@@ -67,9 +67,9 @@ Storage and policy are implemented in:
 - [person-identity-service.ts](../apps/core/src/application/identity/person-identity-service.ts)
 - [person-identity-repository.postgres.ts](../apps/core/src/adapters/storage/postgres/repositories/person-identity-repository.postgres.ts)
 - [person-identity-mappers.postgres.ts](../apps/core/src/adapters/storage/postgres/repositories/person-identity-mappers.postgres.ts)
-- [0097_person_identity_management.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0097_person_identity_management.sql)
-- [0098_drop_legacy_user_alias_unique_index.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0098_drop_legacy_user_alias_unique_index.sql)
-- [0099_people_identity_query_indexes.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0099_people_identity_query_indexes.sql)
+- [0102_person_identity_management.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0102_person_identity_management.sql)
+- [0103_drop_legacy_user_alias_unique_index.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0103_drop_legacy_user_alias_unique_index.sql)
+- [0104_people_identity_query_indexes.sql](../apps/core/src/adapters/storage/postgres/schema/migrations/0104_people_identity_query_indexes.sql)
 
 ### 2. Runtime sender identity resolution
 
@@ -520,7 +520,7 @@ back to the API key's default app.
 
 Live merge verification then found migration drift: merge audit reads and
 writes include `result_json`, but the original identity migration omitted that
-column. Additive migration `0100_person_merge_audit_result.sql` repairs both
+column. Additive migration `0105_person_merge_audit_result.sql` repairs both
 fresh and already-applied migration chains. A migration-contract test now
 guards the schema/repository requirement before runtime verification.
 

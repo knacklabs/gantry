@@ -703,24 +703,24 @@
       "breakpoints": true
     },
     {
-      "idx": 98,
+      "idx": 103,
       "version": "7",
-      "when": 1777338600000,
-      "tag": "0098_drop_legacy_user_alias_unique_index",
+      "when": 1784000001000,
+      "tag": "0103_drop_legacy_user_alias_unique_index",
       "breakpoints": true
     },
     {
-      "idx": 99,
+      "idx": 104,
       "version": "7",
-      "when": 1777342200000,
-      "tag": "0099_people_identity_query_indexes",
+      "when": 1784000002000,
+      "tag": "0104_people_identity_query_indexes",
       "breakpoints": true
     },
     {
-      "idx": 100,
+      "idx": 105,
       "version": "7",
-      "when": 1777345800000,
-      "tag": "0100_person_merge_audit_result",
+      "when": 1784000003000,
+      "tag": "0105_person_merge_audit_result",
       "breakpoints": true
     }
   ]

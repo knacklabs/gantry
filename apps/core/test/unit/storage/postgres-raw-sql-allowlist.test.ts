@@ -66,7 +66,7 @@ describe('person identity migration contract', () => {
     const migration = fs.readFileSync(
       path.join(
         ROOT,
-        'apps/core/src/adapters/storage/postgres/schema/migrations/0100_person_merge_audit_result.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0105_person_merge_audit_result.sql',
       ),
       'utf8',
     );
