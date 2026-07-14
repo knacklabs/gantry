@@ -304,11 +304,12 @@ maybeDescribe('Postgres domain repositories', () => {
       }),
     ).rejects.toThrow(/retired/);
 
-    const replacementPersonId = await graph.ensureParticipant({
-      ...participantInput,
-      timestamp: '2026-04-27T00:00:01.000Z',
-    });
-    expect(replacementPersonId).not.toBe(created.personId);
+    await expect(
+      graph.ensureParticipant({
+        ...participantInput,
+        timestamp: '2026-04-27T00:00:01.000Z',
+      }),
+    ).resolves.toBeNull();
     await expect(
       people.resolveIdentity({
         appId,
@@ -318,10 +319,7 @@ maybeDescribe('Postgres domain repositories', () => {
         evidenceType: 'provider_user',
         createIfMissing: false,
       }),
-    ).resolves.toMatchObject({
-      status: 'resolved',
-      personId: replacementPersonId,
-    });
+    ).rejects.toThrow(/retired/);
 
     const aliases = await service.pool.query<{
       user_id: string;
@@ -336,13 +334,9 @@ maybeDescribe('Postgres domain repositories', () => {
        ORDER BY retired_at NULLS FIRST`,
       [appId, 'slack', providerAccountId, 'U-participant-alias'],
     );
-    expect(aliases.rows).toHaveLength(2);
-    expect(aliases.rows).toEqual(
-      expect.arrayContaining([
-        { user_id: replacementPersonId, retired_at: null },
-        expect.objectContaining({ user_id: created.personId }),
-      ]),
-    );
+    expect(aliases.rows).toEqual([
+      { user_id: created.personId, retired_at: expect.any(String) },
+    ]);
     const index = await service.pool.query<{ indexdef: string }>(
       `SELECT indexdef
        FROM pg_indexes

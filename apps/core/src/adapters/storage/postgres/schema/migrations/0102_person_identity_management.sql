@@ -10,6 +10,45 @@ UPDATE user_aliases
 SET verification_status = 'unverified'
 WHERE verification_status IS NULL OR verification_status = '';
 
+DROP INDEX IF EXISTS idx_user_aliases_provider_external;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM user_aliases
+    WHERE retired_at IS NULL
+    GROUP BY app_id, provider, COALESCE(provider_account_id, ''), external_user_id
+    HAVING COUNT(DISTINCT user_id) > 1
+  ) THEN
+    RAISE EXCEPTION
+      'Cannot create active user alias uniqueness index: duplicate aliases belong to multiple users';
+  END IF;
+END $$;
+
+WITH ranked_active_aliases AS (
+  SELECT
+    id,
+    row_number() OVER (
+      PARTITION BY app_id, provider, COALESCE(provider_account_id, ''), external_user_id
+      ORDER BY (verification_status = 'verified') DESC, updated_at DESC, id ASC
+    ) AS duplicate_rank
+  FROM user_aliases
+  WHERE retired_at IS NULL
+)
+UPDATE user_aliases AS alias
+SET
+  verification_status = 'retired',
+  retired_at = now(),
+  retired_by = 'migration:0102_duplicate_alias_retirement',
+  evidence_json = COALESCE(alias.evidence_json, '{}'::jsonb) || jsonb_build_object(
+    'migration', '0102_duplicate_alias_retirement',
+    'reason', 'duplicate_active_alias'
+  )
+FROM ranked_active_aliases
+WHERE alias.id = ranked_active_aliases.id
+  AND ranked_active_aliases.duplicate_rank > 1;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_aliases_active_provider_external
   ON user_aliases(app_id, provider, COALESCE(provider_account_id, ''), external_user_id)
   WHERE retired_at IS NULL;

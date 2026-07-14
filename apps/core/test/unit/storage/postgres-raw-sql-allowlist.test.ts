@@ -63,6 +63,29 @@ describe('Postgres raw SQL allowlist', () => {
 });
 
 describe('person identity migration contract', () => {
+  it('retires duplicate active aliases before adding coalesced uniqueness', () => {
+    const migration = fs.readFileSync(
+      path.join(
+        ROOT,
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0102_person_identity_management.sql',
+      ),
+      'utf8',
+    );
+    const retirement = migration.indexOf(
+      'migration:0102_duplicate_alias_retirement',
+    );
+    const uniqueIndex = migration.indexOf(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_user_aliases_active_provider_external',
+    );
+
+    expect(retirement).toBeGreaterThanOrEqual(0);
+    expect(uniqueIndex).toBeGreaterThan(retirement);
+    expect(migration).toContain('row_number() OVER');
+    expect(migration).toContain("COALESCE(provider_account_id, '')");
+    expect(migration).toContain('COUNT(DISTINCT user_id) > 1');
+    expect(migration).toContain('RAISE EXCEPTION');
+  });
+
   it('adds the merge result payload required by the active schema', () => {
     const migration = fs.readFileSync(
       path.join(

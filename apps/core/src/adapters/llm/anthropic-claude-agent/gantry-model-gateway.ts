@@ -3,10 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type { RuntimeEventPublishInput } from '../../../domain/events/events.js';
-import {
-  isRuntimeEventConversationFkId,
-  isRuntimeEventThreadFkId,
-} from '../../../domain/events/runtime-event-conversation.js';
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import { publishAuditEventWithRunIdFallback } from './gantry-model-gateway-audit.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
@@ -37,7 +33,6 @@ import {
   resolveModelCredentialMode,
   type ModelProviderDefinition,
 } from '../../../shared/model-provider-registry.js';
-import { logger } from '../../../infrastructure/logging/logger.js';
 import { normalizeModelUsage } from '../../../shared/model-usage.js';
 import {
   beginGatewayObservation,
@@ -581,19 +576,7 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
   }
   private async publishGatewayUseAudit(
     tokenRecord: GatewayTokenRecord,
-    input: {
-      outcome:
-        | 'forwarded'
-        | 'upstream_error'
-        | 'credential_missing'
-        | 'rate_limited';
-      method: string;
-      status: number;
-      upstreamHost?: string;
-      upstreamPath?: string;
-      credentialFingerprint?: string;
-      usage?: ReturnType<typeof normalizeModelUsage>;
-    },
+    input: GatewayUseAuditInput,
   ): Promise<void> {
     if (!this.audit) return;
     await this.publishAuditEvent(
