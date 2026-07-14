@@ -353,7 +353,8 @@ API and SDK:
 
 Docs:
 
-- [identity-management.md](architecture/identity-management.md)
+- This file is the canonical identity architecture, implementation, decision,
+  and verification record.
 - [MEMORY.md](MEMORY.md)
 - [SPEC.md](SPEC.md)
 
@@ -543,6 +544,115 @@ no longer select `user`, `group`, or `global` on `memory_save` or
 `procedure_save`: a DM writes its trusted person scope and a group/channel
 writes its trusted conversation scope. The host independently rejects a forged
 cross-scope IPC request, so this rule is not prompt-only enforcement.
+
+## Decision And Follow-up Ledger
+
+This ledger records the implementation decisions and issues encountered while
+rebasing, testing, and verifying the feature. “Resolved” means the code or
+verification process was corrected. “Documented” means the behavior is known
+and intentionally outside this feature's source scope.
+
+1. **Migration timestamp collision:** rebasing exposed a local migration
+   timestamp collision; identity migrations use unique sequence numbers.
+2. **People OpenAPI schemas:** startup requires route schemas; People schemas
+   were added and tested.
+3. **Escaped local API-key JSON:** verification helpers parse the runtime's
+   escaped JSON representation instead of assuming a raw array.
+4. **People response id shapes:** verification accepts the supported response
+   envelope instead of assuming one legacy identifier shape.
+5. **Slack DM testing:** provider MCP limitations were separated from runtime
+   behavior; direct live-turn verification used the configured DM route.
+6. **Control API scope updates:** local credential/config updates preserve the
+   escaped JSON format and do not print secrets.
+7. **Conversation install atomicity:** failed desired-state synchronization must
+   not leave a live route registered; the underlying error remains a control
+   plane follow-up.
+8. **Runtime event foreign keys:** provider route ids are payload context, not
+   canonical conversation foreign keys.
+9. **Telegram persistence metadata:** Telegram canonical messages carry the
+   active provider-account id like other channel adapters.
+10. **Provider id normalization:** routing prefixes such as `sl` and `tg` are
+    normalized to registry ids `slack` and `telegram` for identity keys.
+11. **Development dependency audit:** vulnerable build-tool pins were updated;
+    final dependency verification reported no vulnerabilities.
+12. **People list scaling:** listing is cursor-paginated and uses batch hydration,
+    not an unbounded N+1 query pattern.
+13. **Admin provider ids:** alias administration canonicalizes provider ids at
+    the API boundary.
+14. **Alias re-linking:** re-adding an alias for the same person verifies it and
+    replaces evidence; it does not silently move aliases between people.
+15. **People path safety:** malformed encoded paths return controlled `400`
+    errors.
+16. **Live-turn latency:** first progress acknowledgement is sent before
+    non-critical identity event persistence.
+17. **DM reset scope:** direct-message `/new` resolves the canonical person;
+    group/channel reset remains conversation-scoped.
+18. **Retired aliases:** retired aliases do not hydrate memory and require
+    intentional administrative re-linking.
+19. **Merge safety:** merge preview/apply detects alias collisions and performs
+    participant changes transactionally.
+20. **Merge detail bounds:** merge response and audit materialization are bounded
+    even when the underlying set-based operation handles more records.
+21. **Display names:** display names are not identities and are not unique.
+22. **Non-disclosing People errors:** inaccessible people and aliases retain the
+    controlled non-disclosing error response.
+23. **SDK sender authority:** an explicit SDK `senderId` is `web_user` evidence;
+    omitted sender ids remain the `sdk` system sentinel.
+24. **SDK channel memory:** SDK app-channel turns do not hydrate sender personal
+    memory; they remain conversation-scoped.
+25. **Memory IPC authority:** baseline visible memory actions are authorized by
+    host-signed IPC tokens, while authority-changing actions stay gated.
+26. **Group sender identity:** group/channel senders may resolve for evidence and
+    audit, but their personal memory is never appended to group memory.
+27. **DM personal boundary:** direct/private turns use current conversation
+    memory plus resolved personal memory only.
+28. **Provider-account alias key:** exact alias identity is scoped by app,
+    provider, optional provider account, and external user id.
+29. **No fuzzy matching:** display names, raw phone/email similarity, and fuzzy
+    provider matching are not used for identity resolution.
+30. **Runtime events:** identity and hydration evidence use runtime events rather
+    than a separate identity audit table; raw alias values and memory contents
+    are excluded.
+31. **Migration `0100`:** merge-audit result persistence is covered by an
+    additive migration and migration-contract tests.
+32. **Legacy person ids:** legacy alias-derived identifiers are not exposed in
+    identity/hydration event payloads; current opaque person ids remain valid
+    internal identifiers.
+33. **Fresh database extensions:** disposable or fresh Postgres databases must
+    install `vector` and `pg_trgm` before setup and migrations.
+34. **Credential preservation:** runtime secrets remain in Credential Center or
+    the protected runtime secret lane; no secret is stored in this document or
+    source control.
+35. **Slack DM install error:** a generic control-plane `500` is not treated as
+    success; route persistence must be verified after restart.
+36. **Partial setup repair:** stale duplicate route projection was removed during
+    local verification and the canonical DM route was rebuilt; this was runtime
+    data repair, not a feature-policy change.
+37. **Manual memory versus dreaming:** explicit `memory_save` writes active
+    memory immediately and records provenance evidence. Dreaming skips that
+    evidence unless it contains validated structured candidate metadata.
+38. **Storage-key verification:** memory items use deterministic hashed storage
+    subject ids, while resolver/evidence records use canonical person subjects.
+    Verification must compare through the trusted person boundary, not by
+    treating the hashed storage key as the person id.
+
+## Operational Notes
+
+- The feature does not change guided setup, provider model selection, or CLI
+  setup UX. Setup and local database bootstrap issues observed during testing
+  are recorded above but remain separate from identity behavior.
+- A person can be created through `POST /v1/identity/resolve` with
+  `createIfMissing: true` and administrative authority. An alias for an existing
+  person is added through `POST /v1/people/{personId}/aliases`.
+- Dreaming is triggered through `POST /v1/memory/dreaming/trigger` with a
+  trusted user subject. A zero-promotion run is expected when explicit
+  `memory_save` writes already created active items.
+- For runtime verification, build this checkout before restarting Gantry, run
+  `gantry status` and `gantry doctor`, and use a disposable Postgres database
+  for integration checks.
+- The final cross-provider test requires: create personal preferences in a
+  Slack DM, resolve the Telegram alias to the same person, send a Telegram DM,
+  and verify both the response and durable identity/hydration runtime events.
 
 ## Surface Impact Matrix
 
