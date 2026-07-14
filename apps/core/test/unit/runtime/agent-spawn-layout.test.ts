@@ -41,6 +41,8 @@ describe('ensureWorkspaceIpcLayout', () => {
     expect(fs.readdirSync(ipcDir).sort()).toEqual([
       'browser-requests',
       'browser-responses',
+      'conversation-history-requests',
+      'conversation-history-responses',
       'input',
       'interaction-boundaries',
       'memory-requests',
@@ -70,6 +72,17 @@ describe('ensureWorkspaceIpcLayout', () => {
     ensureWorkspaceIpcLayout(ipcDir);
 
     expect(fs.statSync(path.join(ipcDir, 'messages')).isDirectory()).toBe(true);
+  });
+
+  it('skips the workspace IPC layout for inline runtime', async () => {
+    const root = makeTmpRoot(roots);
+    const ipcDir = path.join(root, 'inline-ipc');
+
+    const { ensureWorkspaceIpcLayout } =
+      await import('@core/runtime/agent-spawn-layout.js');
+    ensureWorkspaceIpcLayout(ipcDir, 'inline');
+
+    expect(fs.existsSync(ipcDir)).toBe(false);
   });
 });
 

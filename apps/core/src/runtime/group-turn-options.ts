@@ -8,6 +8,7 @@ import type {
 
 export function createGroupTurnOptionBuilders(input: {
   activeThreadId?: string;
+  providerAccountId?: string;
   streamGeneration: () => number;
   progressGeneration: () => number;
 }): {
@@ -29,12 +30,21 @@ export function createGroupTurnOptionBuilders(input: {
   return {
     buildMessageOptions: (threadId?: string) => {
       const resolved = resolveThreadId(threadId);
-      return resolved ? { threadId: resolved } : undefined;
+      if (!resolved && !input.providerAccountId) return undefined;
+      return {
+        ...(resolved ? { threadId: resolved } : {}),
+        ...(input.providerAccountId
+          ? { providerAccountId: input.providerAccountId }
+          : {}),
+      };
     },
     buildStreamingOptions: (args: { threadId?: string; done?: boolean }) => ({
       generation: input.streamGeneration(),
       ...(resolveThreadId(args.threadId)
         ? { threadId: resolveThreadId(args.threadId) }
+        : {}),
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
         : {}),
       ...(args.done !== undefined ? { done: args.done } : {}),
     }),
@@ -44,6 +54,9 @@ export function createGroupTurnOptionBuilders(input: {
     ) => ({
       ...(resolveThreadId(args.threadId)
         ? { threadId: resolveThreadId(args.threadId) }
+        : {}),
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
         : {}),
       generation: input.progressGeneration(),
       ...(args.done !== undefined ? { done: args.done } : {}),

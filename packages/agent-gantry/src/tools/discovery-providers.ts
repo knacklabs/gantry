@@ -5,7 +5,6 @@ import type {
   FirecrawlMapProviderConfig,
   FirecrawlSearchProviderConfig,
   GantryCrawlToolInput,
-  GantryFetchToolResult,
   GantryFetchToolInput,
   GantryMapToolInput,
   GantrySearchToolInput,

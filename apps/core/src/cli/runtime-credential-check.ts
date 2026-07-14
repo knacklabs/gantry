@@ -12,10 +12,14 @@ export function resolveRuntimeEnvValue(
 }
 
 interface RuntimeCredentialSettings {
-  providers: Record<string, { defaultConnection?: string } | undefined>;
-  providerConnections: Record<
+  providerAccounts: Record<
     string,
-    { runtimeSecretRefs: Record<string, string | undefined> } | undefined
+    | {
+        provider: string;
+        status?: 'active' | 'disabled';
+        runtimeSecretRefs: Record<string, string | undefined>;
+      }
+    | undefined
   >;
 }
 
@@ -59,21 +63,24 @@ export function hasRuntimeCredentialConfigured(input: {
   envKey: string;
   unresolvedRuntimeSecretProviderIds?: Set<string>;
 }): boolean {
-  const connectionId =
-    input.settings?.providers[input.providerId]?.defaultConnection;
-  const refs = connectionId
-    ? input.settings?.providerConnections[connectionId]?.runtimeSecretRefs
-    : undefined;
   const refKey = runtimeSecretKeyForEnv(input.providerId, input.envKey);
-  const rawRef = refs?.[refKey];
-  if (
-    input.unresolvedRuntimeSecretProviderIds?.has(input.providerId) &&
-    runtimeSecretRefSource(rawRef) === 'stored'
-  ) {
-    return false;
+  let hasConfiguredAccountRef = false;
+  let hasProviderAccount = false;
+  for (const account of Object.values(input.settings?.providerAccounts ?? {})) {
+    if (!account || account.provider !== input.providerId) continue;
+    if (account.status === 'disabled') continue;
+    hasProviderAccount = true;
+    const rawRef = account.runtimeSecretRefs[refKey];
+    if (
+      input.unresolvedRuntimeSecretProviderIds?.has(input.providerId) &&
+      runtimeSecretRefSource(rawRef) === 'stored'
+    ) {
+      continue;
+    }
+    if (hasRuntimeSecretRefConfigured(rawRef, input.env)) {
+      hasConfiguredAccountRef = true;
+      break;
+    }
   }
-  return (
-    hasRuntimeSecretRefConfigured(rawRef, input.env) ||
-    Boolean(resolveRuntimeEnvValue(input.env, input.envKey))
-  );
+  return hasProviderAccount && hasConfiguredAccountRef;
 }

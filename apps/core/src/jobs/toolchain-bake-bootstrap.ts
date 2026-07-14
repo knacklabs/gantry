@@ -11,6 +11,7 @@ import { LocalToolchainArtifactStore } from '../adapters/artifacts/toolchains/lo
 import { S3ToolchainArtifactStore } from '../adapters/artifacts/toolchains/s3-toolchain-artifact-store.js';
 import type { ToolchainArtifactStore } from '../domain/ports/toolchain-artifact-store.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { runtimePgBossSchema } from '../infrastructure/pgboss/pgboss-schema.js';
 import {
   enqueueToolchainBake,
   type EnqueueToolchainBakeResult,
@@ -72,7 +73,7 @@ export async function startToolchainBakeSubsystem(
   };
   const options: ToolchainBakeQueueOptions = {
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'pgboss',
+    schema: runtimePgBossSchema(),
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-toolchain-bake`,
     logError: (context, message) => logger.error(context, message),
     logInfo: (context, message) => logger.info(context, message),

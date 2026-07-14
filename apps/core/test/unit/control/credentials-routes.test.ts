@@ -387,7 +387,7 @@ function mockContext(
     getModelDefaults: () =>
       ({ defaults: {} }) as ReturnType<ControlRouteContext['getModelDefaults']>,
     patchModelDefaults: () => ({ ok: true }),
-    preflightModelPreset: async () => ({
+    preflightModelProvider: async () => ({
       ok: true,
       status: 'pass',
       message: 'ok',

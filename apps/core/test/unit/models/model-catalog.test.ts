@@ -6,7 +6,7 @@ import {
   executableModelEntry,
   findModelByRunnerModel,
   listModelCatalogEntries,
-  MEMORY_MODEL_DEFAULT_ALIASES,
+  memoryModelDefaultsForProvider,
   providerRoute,
   resolveModelSelection,
   resolveModelSelectionForWorkload,
@@ -69,11 +69,8 @@ describe('model catalog resolution', () => {
       maxOutputTokens: 32_768,
       inputUsdPerMillionTokens: 0.95,
       outputUsdPerMillionTokens: 3,
-      cacheMode: 'openrouter-provider-prompt',
-      cacheTokenFields: [
-        'prompt_tokens_details.cached_tokens',
-        'prompt_tokens_details.cache_write_tokens',
-      ],
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: [
         'chat',
         'one_time_job',
@@ -103,6 +100,68 @@ describe('model catalog resolution', () => {
       runnerModel: 'gpt-5.4-mini',
     });
     expect(findModelByRunnerModel('gpt-5.5')?.responseFamily).toBe('openai');
+  });
+
+  it('surfaces model reasoning and thinking capabilities', () => {
+    const opus = resolveModelSelection('opus');
+    const opus47 = resolveModelSelection('opus-4.7');
+    const opus46 = resolveModelSelection('opus-4.6');
+    const sonnet = resolveModelSelection('sonnet');
+    const haiku = resolveModelSelection('haiku');
+    const gpt = resolveModelSelection('gpt');
+    const kimi = resolveModelSelection('kimi');
+    if (
+      !opus.ok ||
+      !opus47.ok ||
+      !opus46.ok ||
+      !sonnet.ok ||
+      !haiku.ok ||
+      !gpt.ok ||
+      !kimi.ok
+    ) {
+      throw new Error('expected built-in model aliases to resolve');
+    }
+
+    expect(opus.entry).toMatchObject({
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+      supportsReasoningEffort: false,
+      supportsThinkingBudget: false,
+    });
+    expect(opus47.entry).toMatchObject({
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+      supportsThinkingBudget: false,
+    });
+    for (const entry of [opus46.entry, sonnet.entry]) {
+      expect(entry).toMatchObject({
+        supportsEffort: true,
+        supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+        supportsAdaptiveThinking: true,
+        supportsReasoningEffort: false,
+        supportsThinkingBudget: true,
+      });
+    }
+    expect(haiku.entry).toMatchObject({
+      supportsEffort: false,
+      supportedEffortLevels: [],
+      supportsAdaptiveThinking: false,
+      supportsReasoningEffort: false,
+      supportsThinkingBudget: false,
+    });
+    expect(gpt.entry).toMatchObject({
+      supportsEffort: false,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+      supportsAdaptiveThinking: false,
+      supportsReasoningEffort: true,
+      supportsThinkingBudget: false,
+    });
+    expect(kimi.entry).toMatchObject({
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+      supportsReasoningEffort: true,
+      supportsThinkingBudget: false,
+    });
   });
 
   it('resolves Bedrock and Vertex aliases through the DeepAgents lane', () => {
@@ -219,9 +278,30 @@ describe('model catalog resolution', () => {
     });
   });
 
-  it('uses catalog aliases for setup and memory LLM defaults', () => {
+  it('uses catalog aliases for setup and curated memory LLM defaults', () => {
     expect(DEFAULT_SETUP_MODEL_ALIAS).toBe('opus');
-    expect(MEMORY_MODEL_DEFAULT_ALIASES).toEqual({
+    expect(memoryModelDefaultsForProvider('anthropic')).toEqual({
+      extractor: 'haiku',
+      dreaming: 'sonnet',
+      consolidation: 'sonnet',
+    });
+    expect(memoryModelDefaultsForProvider('openrouter')).toEqual({
+      extractor: 'kimi',
+      dreaming: 'kimi',
+      consolidation: 'kimi',
+    });
+  });
+
+  it('derives provider memory defaults from the cheapest eligible model', () => {
+    expect(memoryModelDefaultsForProvider('groq')).toEqual({
+      extractor: 'groq-fast',
+      dreaming: 'groq-fast',
+      consolidation: 'groq-fast',
+    });
+  });
+
+  it('falls back to anthropic memory defaults when the provider is not memory-capable', () => {
+    expect(memoryModelDefaultsForProvider('perplexity')).toEqual({
       extractor: 'haiku',
       dreaming: 'sonnet',
       consolidation: 'sonnet',
@@ -644,6 +724,46 @@ describe('model catalog resolution', () => {
         available: true,
       },
     });
+  });
+
+  it('keeps undocumented prompt-cache catalog entries unsupported', () => {
+    for (const alias of [
+      'groq',
+      'groq-fast',
+      'together',
+      'together-qwen',
+      'cerebras-glm',
+      'glm-5.2',
+    ]) {
+      const resolved = resolveModelSelection(alias);
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) continue;
+      expect(resolveModelCacheSupport(resolved.entry)).toMatchObject({
+        cacheProvider: 'none',
+        prompt: {
+          supported: false,
+          accounted: false,
+        },
+      });
+      expect(
+        normalizeModelUsage({
+          message: { usage: { prompt_tokens: 100, completion_tokens: 10 } },
+          fallbackModel: resolved.entry.runnerModel,
+        }),
+      ).toMatchObject({
+        cacheProvider: 'none',
+        cacheStatus: 'unsupported',
+      });
+    }
+    for (const alias of ['groq-oss', 'cerebras']) {
+      const resolved = resolveModelSelection(alias);
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) continue;
+      expect(resolveModelCacheSupport(resolved.entry)).toMatchObject({
+        cacheProvider: 'openai',
+        statusLabel: 'automatic provider cache',
+      });
+    }
   });
 });
 

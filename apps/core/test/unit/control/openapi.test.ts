@@ -9,11 +9,13 @@ import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-sett
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
 import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
+import { handleBrainRoutes } from '@core/control/server/routes/brain.js';
 import { handleCapabilityCatalogRoutes } from '@core/control/server/routes/capability-catalog.js';
 import { handleCredentialRoutes } from '@core/control/server/routes/credentials.js';
 import { handleExternalIngressRoutes } from '@core/control/server/routes/external-ingress.js';
 import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-actions.js';
 import { handleJobRoutes } from '@core/control/server/routes/jobs.js';
+import { handleLlmRoutes } from '@core/control/server/routes/llm.js';
 import { handleMemoryRoutes } from '@core/control/server/routes/memory.js';
 import { handleMcpServerRoutes } from '@core/control/server/routes/mcp-servers.js';
 import { handleModelRoutes } from '@core/control/server/routes/models.js';
@@ -27,6 +29,9 @@ import { handleSystemRoutes } from '@core/control/server/routes/system.js';
 import { handleWebhookRoutes } from '@core/control/server/routes/webhooks.js';
 
 const expectedControlRoutes = [
+  'POST /llm/v1/chat/completions',
+  'POST /llm/v1/messages',
+  'POST /llm/v1/messages/count_tokens',
   'GET /v1/agents',
   'POST /v1/agents',
   'GET /v1/agents/{agentId}',
@@ -34,10 +39,10 @@ const expectedControlRoutes = [
   'GET /v1/agents/{agentId}/access',
   'PUT /v1/agents/{agentId}/access',
   'GET /v1/agents/{agentId}/admin',
-  'GET /v1/agents/{agentId}/conversation-bindings',
-  'DELETE /v1/agents/{agentId}/conversation-bindings/{conversationId}',
-  'PATCH /v1/agents/{agentId}/conversation-bindings/{conversationId}',
-  'PUT /v1/agents/{agentId}/conversation-bindings/{conversationId}',
+  'GET /v1/agents/{agentId}/conversation-installs',
+  'DELETE /v1/agents/{agentId}/conversation-installs/{conversationId}',
+  'PATCH /v1/agents/{agentId}/conversation-installs/{conversationId}',
+  'PUT /v1/agents/{agentId}/conversation-installs/{conversationId}',
   'GET /v1/agents/{agentId}/profile-files',
   'GET /v1/agents/{agentId}/profile-files/{kind}',
   'PUT /v1/agents/{agentId}/profile-files/{kind}',
@@ -48,6 +53,8 @@ const expectedControlRoutes = [
   'GET /v1/agents/{agentId}/skills',
   'DELETE /v1/agents/{agentId}/skills/{skillId}',
   'PUT /v1/agents/{agentId}/skills/{skillId}',
+  'POST /v1/brain/import',
+  'GET /v1/brain/status',
   'GET /v1/capabilities',
   'GET /v1/capabilities/{capabilityId}',
   'GET /v1/conversations',
@@ -99,12 +106,12 @@ const expectedControlRoutes = [
   'GET /v1/models/defaults',
   'PATCH /v1/models/defaults',
   'POST /v1/models/preview',
-  'GET /v1/provider-connections',
-  'POST /v1/provider-connections',
-  'DELETE /v1/provider-connections/{providerConnectionId}',
-  'GET /v1/provider-connections/{providerConnectionId}',
-  'PATCH /v1/provider-connections/{providerConnectionId}',
-  'POST /v1/provider-connections/{providerConnectionId}/discover-conversations',
+  'GET /v1/provider-accounts',
+  'POST /v1/provider-accounts',
+  'DELETE /v1/provider-accounts/{providerAccountId}',
+  'GET /v1/provider-accounts/{providerAccountId}',
+  'PATCH /v1/provider-accounts/{providerAccountId}',
+  'POST /v1/provider-accounts/{providerAccountId}/discover-conversations',
   'GET /v1/providers',
   'GET /v1/runs',
   'GET /v1/runs/{runId}',
@@ -268,8 +275,10 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
     () => handleSessionRoutes(req, res, ctx, url, pathname),
     () => handleProviderConversationRoutes(req, res, ctx, url, pathname),
     () => handleMemoryRoutes(req, res, ctx, url, pathname),
+    () => handleBrainRoutes(req, res, ctx, url, pathname),
     () => handleModelRoutes(req, res, ctx, pathname),
     () => handleCredentialRoutes(req, res, ctx, pathname),
+    () => handleLlmRoutes(req, res, ctx, pathname),
     () => handleJobRoutes(req, res, ctx, url, pathname),
     () => handleExternalIngressRoutes(req, res, ctx, pathname),
     () => handleRunRoutes(req, res, ctx, url, pathname),
@@ -305,7 +314,8 @@ describe('control OpenAPI documentation', () => {
   it('serves the unified status read model from the system route', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = { enabled: true };
-    settings.providerConnections.telegram_default = {
+    settings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
       provider: 'telegram',
       label: 'Telegram',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -319,7 +329,7 @@ describe('control OpenAPI documentation', () => {
       capabilities: [{ id: 'browser.use', version: 'builtin' }],
     };
     settings.conversations.main_dm = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '123',
       kind: 'dm',
       displayName: 'Main DM',
@@ -373,13 +383,14 @@ describe('control OpenAPI documentation', () => {
   it('computes status model readiness from internal settings, not redacted settings', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = { enabled: true };
-    settings.providerConnections.telegram_default = {
+    settings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
       provider: 'telegram',
       label: 'Telegram',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
     };
     settings.conversations.main_dm = {
-      providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '123',
       kind: 'dm',
       displayName: 'Main DM',
@@ -475,11 +486,264 @@ describe('control OpenAPI documentation', () => {
         'x-gantry-required-scopes': ['sessions:write'],
       },
     );
+    expect(spec.paths['/llm/v1/messages']?.post).toMatchObject({
+      operationId: 'invokeLlmMessages',
+      'x-gantry-required-scopes': ['llm:invoke'],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/LlmMessagesRequest' },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/LlmMessagesResponse' },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.paths['/llm/v1/messages']?.post.description).toContain(
+      'Rejects provider-side server tools',
+    );
+    expect(spec.paths['/llm/v1/messages/count_tokens']?.post).toMatchObject({
+      operationId: 'invokeLlmMessagesCountTokens',
+      'x-gantry-required-scopes': ['llm:invoke'],
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/LlmMessagesCountTokensRequest',
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/LlmMessagesCountTokensResponse',
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.components.schemas.LlmMessagesCountTokensRequest).toMatchObject(
+      {
+        required: ['model', 'messages'],
+        properties: { model: { type: 'string' }, messages: { type: 'array' } },
+      },
+    );
+    expect(
+      spec.components.schemas.LlmMessagesCountTokensResponse,
+    ).toMatchObject({
+      required: ['input_tokens'],
+      properties: { input_tokens: { type: 'integer', minimum: 0 } },
+    });
+    expect(spec.paths['/llm/v1/chat/completions']?.post.description).toContain(
+      'Rejects hosted provider tools',
+    );
+    expect(spec.paths['/llm/v1/chat/completions']?.post).toMatchObject({
+      requestBody: {
+        content: {
+          'application/json': {
+            schema: {
+              $ref: '#/components/schemas/LlmChatCompletionsRequest',
+            },
+          },
+        },
+      },
+      responses: {
+        '200': {
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/LlmChatCompletionsResponse',
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(spec.components.schemas.LlmMessagesRequest).toMatchObject({
+      required: ['model', 'messages', 'max_tokens'],
+      additionalProperties: false,
+      properties: {
+        max_tokens: { type: 'integer', minimum: 1 },
+        stream: { type: 'boolean' },
+      },
+    });
+    expect(spec.components.schemas.LlmChatCompletionsRequest).toMatchObject({
+      required: ['model', 'messages'],
+      additionalProperties: false,
+      properties: {
+        max_tokens: { type: 'integer', minimum: 1 },
+        max_completion_tokens: { type: 'integer', minimum: 1 },
+        stream: { type: 'boolean' },
+      },
+    });
     expect(
       spec.paths['/v1/sessions/{sessionId}/messages']?.post.requestBody.content[
         'application/json'
       ].schema,
     ).toEqual({ $ref: '#/components/schemas/SendSessionMessageRequest' });
+    expect(spec.components.schemas.SessionDetails).toMatchObject({
+      required: ['session', 'providerSession'],
+      additionalProperties: false,
+      properties: {
+        session: {
+          required: ['id', 'appId', 'agentId', 'status', 'createdAt', 'updatedAt'], // prettier-ignore
+          additionalProperties: false,
+        },
+        providerSession: { oneOf: expect.any(Array) },
+      },
+    });
+    const responseModes = ['sse', 'webhook', 'both', 'none'];
+    expect(
+      spec.components.schemas.SessionEnsureRequest.properties.responseMode,
+    ).toEqual({ type: 'string', enum: responseModes });
+    expect(
+      spec.components.schemas.SendSessionMessageRequest.properties.responseMode,
+    ).toEqual({ type: 'string', enum: responseModes });
+    expect(spec.paths['/v1/webhooks']?.post.requestBody).toMatchObject({
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/WebhookCreateRequest' },
+        },
+      },
+    });
+    expect(
+      spec.paths['/v1/webhooks/{webhookId}']?.patch.requestBody,
+    ).toMatchObject({
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/WebhookUpdateRequest' },
+        },
+      },
+    });
+    expect(spec.components.schemas.Webhook).toMatchObject({
+      required: expect.arrayContaining([
+        'eventTypes',
+        'agentId',
+        'sessionId',
+        'jobId',
+      ]),
+      properties: {
+        eventTypes: {
+          type: ['array', 'null'],
+          minItems: 1,
+          uniqueItems: true,
+        },
+        agentId: { type: ['string', 'null'] },
+        sessionId: { type: ['string', 'null'] },
+        jobId: { type: ['string', 'null'] },
+      },
+    });
+    expect(spec.components.schemas.SessionMessage).toMatchObject({
+      required: [
+        'id',
+        'appId',
+        'conversationId',
+        'direction',
+        'trust',
+        'createdAt',
+        'parts',
+        'attachments',
+      ],
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string' },
+        direction: {
+          enum: ['inbound', 'outbound', 'system', 'tool'],
+        },
+        parts: { type: 'array' },
+        attachments: { type: 'array' },
+      },
+    });
+    expect(
+      spec.components.schemas.SessionMessage.properties,
+    ).not.toHaveProperty('messageId');
+    expect(
+      spec.paths['/v1/sessions/{sessionId}/events']?.get.responses['200']
+        .content['application/json'].schema,
+    ).toEqual({
+      $ref: '#/components/schemas/SessionRuntimeEventListResponse',
+    });
+    expect(spec.components.schemas.SessionRuntimeEvent).toMatchObject({
+      required: expect.arrayContaining([
+        'eventId',
+        'eventType',
+        'sessionId',
+        'threadId',
+        'correlationId',
+        'createdAt',
+        'payload',
+      ]),
+      properties: {
+        sessionId: { type: ['string', 'null'] },
+        threadId: { type: ['string', 'null'] },
+        correlationId: { type: ['string', 'null'] },
+      },
+    });
+    expect(
+      spec.paths['/v1/sessions/{sessionId}/wait']?.get.responses['200'].content[
+        'application/json'
+      ].schema,
+    ).toEqual({ $ref: '#/components/schemas/SessionWaitEventResponse' });
+    expect(
+      spec.components.schemas.SendSessionMessageRequest.properties
+        .response_schema,
+    ).toMatchObject({
+      type: 'object',
+      description: expect.stringContaining('structured output'),
+    });
+    expect(
+      spec.components.schemas.SendSessionMessageRequest.properties,
+    ).toMatchObject({
+      effort: { enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      thinking: { oneOf: expect.any(Array) },
+      max_output_tokens: { type: 'integer', minimum: 1 },
+    });
+    expect(
+      spec.paths['/v1/sessions/{sessionId}/wait']?.get.parameters,
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'timeoutMs',
+        schema: { type: 'integer', minimum: 1000, maximum: 300000 },
+      }),
+    );
+    expect(spec.components.schemas.HealthResponse).toMatchObject({
+      required: ['status', 'processRole', 'transport', 'features'],
+      properties: {
+        processRole: {
+          type: 'string',
+          enum: ['all', 'control', 'live-worker', 'job-worker'],
+        },
+      },
+    });
+    expect(spec.components.schemas.MemoryDreamingTriggerRequest).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        subjectType: {
+          enum: ['user', 'group', 'channel', 'common'],
+        },
+        phase: { enum: ['light', 'rem', 'deep', 'all'] },
+        dryRun: { type: 'boolean' },
+        timeoutMs: { type: 'number', minimum: 0 },
+        deadlineAtMs: { type: 'number', minimum: 0 },
+      },
+    });
+    expect(spec.paths['/v1/memory']?.get.parameters).toContainEqual(
+      expect.objectContaining({
+        name: 'includeCommon',
+        schema: { type: 'boolean', default: true },
+      }),
+    );
     expect(
       spec.paths['/v1/jobs']?.post.responses['201'].content['application/json']
         .schema,
@@ -580,7 +844,7 @@ describe('control OpenAPI documentation', () => {
       spec.components.schemas.ModelDefaultsPatchRequest.properties.memory,
     ).toMatchObject({
       oneOf: [
-        { type: 'string', enum: ['reset', 'preset-managed'] },
+        { type: 'string', enum: ['reset', 'provider-managed'] },
         { type: 'null' },
       ],
     });
@@ -679,10 +943,36 @@ describe('control OpenAPI documentation', () => {
     expect(createAgentRequest.properties).not.toHaveProperty('agentEngine');
     expect(updateAgentRequest.properties).not.toHaveProperty('agentEngine');
     expect(
-      spec.paths['/v1/provider-connections']?.post.requestBody.content[
+      spec.paths['/v1/provider-accounts']?.post.requestBody.content[
         'application/json'
       ].schema,
-    ).toEqual({ $ref: '#/components/schemas/ProviderConnectionRequest' });
+    ).toEqual({ $ref: '#/components/schemas/ProviderAccountRequest' });
+    expect(
+      spec.paths['/v1/provider-accounts/{providerAccountId}']?.patch.requestBody
+        .content['application/json'].schema,
+    ).toEqual({ $ref: '#/components/schemas/ProviderAccountUpdateRequest' });
+    expect(
+      spec.components.schemas.ProviderAccountUpdateRequest,
+    ).not.toHaveProperty('required');
+    expect(
+      Object.keys(
+        spec.components.schemas.ProviderAccountUpdateRequest.properties,
+      ).sort(),
+    ).toEqual([
+      'config',
+      'enabled',
+      'externalRef',
+      'label',
+      'metadata',
+      'runtimeSecretRefs',
+      'status',
+    ]);
+    expect(spec.components.schemas.ProviderAccount.required).not.toContain(
+      'enabled',
+    );
+    expect(
+      spec.components.schemas.ProviderAccount.properties,
+    ).not.toHaveProperty('enabled');
     expect(spec.paths['/v1/ingresses/{ingressId}/invoke']?.post.security).toBe(
       undefined,
     );
@@ -694,6 +984,9 @@ describe('control OpenAPI documentation', () => {
     expect(spec.components.schemas.GuidedActionType.enum).toContain(
       'resume_job',
     );
+    expect(spec.components.schemas.GuidedActionType.enum).toContain(
+      'add_conversation_install',
+    );
     expect(spec.components.schemas.GuidedActionType.enum).not.toContain(
       'fix_blocked_job',
     );
@@ -704,7 +997,7 @@ describe('control OpenAPI documentation', () => {
     const operationIds = Object.values(spec.paths).flatMap((pathItem) =>
       Object.values(pathItem).map((operation) => operation.operationId),
     );
-    expect(operationIds).toContain('listProviderConnections');
+    expect(operationIds).toContain('listProviderAccounts');
     expect(operationIds).toContain('connectMcpServer');
     expect(new Set(operationIds).size).toBe(operationIds.length);
   });

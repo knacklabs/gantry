@@ -60,6 +60,33 @@ export async function resolveDeepAgentSkillProjection(input: {
   };
 }
 
+export function reconcileDeepAgentSkillFiles(input: {
+  currentFiles?: DeepAgentSkillProjection['files'];
+  checkpointTuple?: unknown;
+}):
+  | Record<string, DeepAgentSkillProjection['files'][string] | null>
+  | undefined {
+  const update: Record<
+    string,
+    DeepAgentSkillProjection['files'][string] | null
+  > = { ...(input.currentFiles ?? {}) };
+  const tuple = objectRecord(input.checkpointTuple);
+  const checkpoint = objectRecord(tuple?.checkpoint);
+  const channelValues =
+    objectRecord(checkpoint?.channel_values) ??
+    objectRecord(checkpoint?.channelValues);
+  const files = objectRecord(channelValues?.files);
+  for (const filePath of Object.keys(files ?? {})) {
+    if (
+      filePath.startsWith(DEEPAGENTS_SKILLS_SOURCE) &&
+      !(filePath in update)
+    ) {
+      update[filePath] = null;
+    }
+  }
+  return Object.keys(update).length > 0 ? update : undefined;
+}
+
 async function projectSkillFiles(input: {
   skill: SelectedSkillProjectionItem;
   now: string;
@@ -190,4 +217,10 @@ function isTextMimeType(mimeType: string): boolean {
 
 function uniqueStrings(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }

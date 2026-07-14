@@ -1,6 +1,10 @@
 import { ChildProcess } from 'child_process';
 
 import { logger } from '../infrastructure/logging/logger.js';
+import {
+  RUNNER_CONTROL_PORT,
+  type ContinuationRunnerControlPort,
+} from './group-queue-types.js';
 
 export const ACTIVE_RUN_STOP_REQUESTED = Symbol.for(
   'gantry.activeRunStopRequested',
@@ -11,6 +15,14 @@ interface StopActiveGroupRunOptions {
   targetQueueJid: string;
   proc: ChildProcess;
   closeStdin: () => void;
+}
+
+export function runPort(
+  process: unknown,
+): ContinuationRunnerControlPort | undefined {
+  return (process as { [RUNNER_CONTROL_PORT]?: ContinuationRunnerControlPort })[
+    RUNNER_CONTROL_PORT
+  ];
 }
 
 export function stopActiveGroupRun({

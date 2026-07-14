@@ -15,7 +15,7 @@ export const conversationsPostgres = pgTable(
     appId: text('app_id')
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
-    providerConnectionId: text('provider_connection_id').notNull(),
+    providerAccountId: text('provider_account_id').notNull(),
     externalRefJson: text('external_ref_json'),
     kind: text('kind').notNull(),
     title: text('title'),
@@ -28,8 +28,8 @@ export const conversationsPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    providerConnectionIdx: index('idx_conversations_provider_connection').on(
-      table.providerConnectionId,
+    providerAccountIdx: index('idx_conversations_provider_account').on(
+      table.providerAccountId,
     ),
   }),
 );

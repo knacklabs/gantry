@@ -13,15 +13,15 @@ export async function createSlackChannel(
   const settings = opts.runtimeSettings?.();
   const botToken = await getProviderRuntimeSecret({
     providerId: 'slack',
+    providerAccountId: opts.providerAccountId ?? '',
     key: 'bot_token',
-    defaultEnvName: 'SLACK_BOT_TOKEN',
     settings,
     secrets: opts.runtimeSecrets,
   });
   const appToken = await getProviderRuntimeSecret({
     providerId: 'slack',
+    providerAccountId: opts.providerAccountId ?? '',
     key: 'app_token',
-    defaultEnvName: 'SLACK_APP_TOKEN',
     settings,
     secrets: opts.runtimeSecrets,
   });

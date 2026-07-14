@@ -12,6 +12,7 @@ import type {
   AgentSession,
   ExecutionProviderId,
 } from '../../../../domain/sessions/sessions.js';
+import { providerIdForJid } from '../../../../channels/provider-registry.js';
 import { CanonicalJobOpsService } from './canonical-job-ops-service.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import type { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
@@ -44,6 +45,7 @@ type HydratedContinuityJob = {
 export class CanonicalSessionOpsService {
   private readonly hydrateService?: HydrateAgentContextService;
   private readonly continuityJobOps?: CanonicalJobOpsService;
+  private readonly conversations?: ConversationRepository;
 
   constructor(
     private readonly repository: PostgresCanonicalSessionRepository,
@@ -65,6 +67,7 @@ export class CanonicalSessionOpsService {
     } = {},
   ) {
     this.continuityJobOps = createContinuityJobOps(repository);
+    this.conversations = repositories?.conversations;
     if (repositories) {
       this.hydrateService = new HydrateAgentContextService(
         repositories.agentSessions,
@@ -121,6 +124,7 @@ export class CanonicalSessionOpsService {
       appId?: string;
       executionProviderId: ExecutionProviderId;
       chatJid?: string;
+      providerAccountId?: string | null;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
       jobId?: string;
@@ -136,11 +140,13 @@ export class CanonicalSessionOpsService {
       sessionId,
       scopeKey: makeSessionScopeKey(workspaceFolder, threadId, {
         conversationJid: metadata.chatJid,
+        providerAccountId: metadata.providerAccountId,
         conversationKind: metadata.conversationKind,
         userId: metadata.memoryUserId,
         jobId: metadata.jobId,
       }),
       chatJid: metadata.chatJid,
+      providerAccountId: metadata.providerAccountId,
       threadId,
       conversationKind: metadata.conversationKind,
       memoryUserId: metadata.memoryUserId,
@@ -156,6 +162,7 @@ export class CanonicalSessionOpsService {
     workspaceFolder: string;
     executionProviderId: ExecutionProviderId;
     chatJid: string;
+    providerAccountId?: string | null;
     threadId?: string | null;
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
@@ -163,13 +170,24 @@ export class CanonicalSessionOpsService {
     query?: string;
     hydrateMemory?: boolean;
     hydrationMode?: HydrationMode;
+    promoteReadyProviderSession?: boolean;
   }): Promise<{
     appId: string;
     agentId: string;
     agentSessionId: string;
     providerSessionId?: string;
     externalSessionId?: string;
+    latestProviderSessionLocked?: boolean;
+    lockedProviderSessionId?: string;
+    latestProviderSessionReady?: boolean;
+    readyProviderSessionId?: string;
+    readyExternalSessionId?: string;
     providerSessionAccessFingerprint?: string;
+    compactionDeltaReplay?: {
+      status: 'pending' | 'applied' | 'degraded';
+      baseCursor?: string;
+      lockedAt?: string;
+    };
     agentSessionResetAt?: string | null;
     memoryContextBlock?: string;
   }> {
@@ -178,9 +196,11 @@ export class CanonicalSessionOpsService {
       workspaceFolder: input.workspaceFolder,
       executionProviderId: input.executionProviderId,
       chatJid: input.chatJid,
+      providerAccountId: input.providerAccountId,
       threadId: input.threadId,
       scopeKey: makeSessionScopeKey(input.workspaceFolder, input.threadId, {
         conversationJid: input.chatJid,
+        providerAccountId: input.providerAccountId,
         conversationKind: input.conversationKind,
         userId: input.memoryUserId,
         jobId: input.jobId,
@@ -188,6 +208,7 @@ export class CanonicalSessionOpsService {
       conversationKind: input.conversationKind,
       memoryUserId: input.memoryUserId,
       jobId: input.jobId,
+      promoteReadyProviderSession: input.promoteReadyProviderSession,
     });
     const hydrated =
       input.hydrateMemory === false
@@ -213,12 +234,44 @@ export class CanonicalSessionOpsService {
     await this.repository.expireProviderSession(input);
   }
 
+  async markProviderSessionMaintenance(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: string;
+    externalSessionId: string;
+    compactionBaseCursor?: string | null;
+  }): Promise<boolean> {
+    return this.repository.markProviderSessionMaintenance(input);
+  }
+
+  async markProviderSessionDeltaReplay(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: string;
+    externalSessionId: string;
+    status: 'applied' | 'degraded';
+    reason?: string;
+  }): Promise<void> {
+    await this.repository.markProviderSessionDeltaReplay(input);
+  }
+
+  async finishProviderSessionMaintenance(input: {
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: string;
+    externalSessionId: string;
+    status: 'active' | 'expired' | 'ready';
+  }): Promise<void> {
+    await this.repository.finishProviderSessionMaintenance(input);
+  }
+
   async deleteSession(
     workspaceFolder: string,
     threadId?: string | null,
     metadata: {
       appId?: string;
       chatJid?: string;
+      providerAccountId?: string | null;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
       agentId?: string;
@@ -228,6 +281,7 @@ export class CanonicalSessionOpsService {
       appId: metadata.appId,
       scopeKey: makeSessionScopeKey(workspaceFolder, threadId, {
         conversationJid: metadata.chatJid,
+        providerAccountId: metadata.providerAccountId,
         conversationKind: metadata.conversationKind,
         userId: metadata.memoryUserId,
       }),
@@ -248,9 +302,7 @@ export class CanonicalSessionOpsService {
     limit: number;
   }): Promise<HydratedContinuityJob[]> {
     if (!this.continuityJobOps) return [];
-    const conversationJid = conversationJidFromCanonicalId(
-      input.session.conversationId,
-    );
+    const conversationJid = await this.conversationJidForSession(input.session);
     if (!conversationJid) return [];
     const threadId = threadIdFromCanonicalId(
       input.session.threadId,
@@ -286,6 +338,18 @@ export class CanonicalSessionOpsService {
         },
       }));
   }
+
+  private async conversationJidForSession(
+    session: AgentSession,
+  ): Promise<string | undefined> {
+    const conversation =
+      session.conversationId &&
+      (await this.conversations?.getConversation(session.conversationId));
+    return (
+      conversation?.externalRef?.value ??
+      conversationJidFromCanonicalId(session.conversationId)
+    );
+  }
 }
 
 function createContinuityJobOps(
@@ -301,9 +365,9 @@ function conversationJidFromCanonicalId(
   conversationId: string | undefined,
 ): string | undefined {
   if (!conversationId) return undefined;
-  return conversationId.startsWith('conversation:')
-    ? conversationId.slice('conversation:'.length)
-    : conversationId;
+  if (!conversationId.startsWith('conversation:')) return conversationId;
+  const value = conversationId.slice('conversation:'.length);
+  return stripProviderAccountPrefix(value);
 }
 
 function threadIdFromCanonicalId(
@@ -312,5 +376,24 @@ function threadIdFromCanonicalId(
 ): string | null {
   if (!threadId) return null;
   const prefix = `thread:${conversationJid}:`;
-  return threadId.startsWith(prefix) ? threadId.slice(prefix.length) : threadId;
+  if (threadId.startsWith(prefix)) return threadId.slice(prefix.length);
+  const scopedPrefix = `:${conversationJid}:`;
+  if (threadId.startsWith('thread:')) {
+    const idx = threadId.indexOf(scopedPrefix, 'thread:'.length);
+    if (idx >= 0) return threadId.slice(idx + scopedPrefix.length);
+  }
+  return threadId;
+}
+
+function stripProviderAccountPrefix(value: string): string {
+  if (providerIdForJid(value, '')) return value;
+  for (
+    let idx = value.indexOf(':');
+    idx >= 0;
+    idx = value.indexOf(':', idx + 1)
+  ) {
+    const candidate = value.slice(idx + 1);
+    if (providerIdForJid(candidate, '')) return candidate;
+  }
+  return value;
 }

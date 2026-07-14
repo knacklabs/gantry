@@ -7,15 +7,13 @@ import {
 } from '../contract-primitives.js';
 import { MemorySubjectRefSchema } from '../memory/index.js';
 
-export const ProviderConnectionStatusSchema = z.enum([
+export const ProviderAccountStatusSchema = z.enum([
   'active',
   'inactive',
   'disabled',
   'archived',
 ]);
-export type ProviderConnectionStatus = z.infer<
-  typeof ProviderConnectionStatusSchema
->;
+export type ProviderAccountStatus = z.infer<typeof ProviderAccountStatusSchema>;
 
 export const ProviderResponseSchema = z.object({
   id: z.string(),
@@ -34,144 +32,141 @@ export const ProviderListResponseSchema = z.object({
 });
 export type ProviderListResponse = z.infer<typeof ProviderListResponseSchema>;
 
-export const ProviderConnectionConfigSchema = ContractMetadataSchema;
+export const ProviderAccountConfigSchema = ContractMetadataSchema;
 
-export const CreateProviderConnectionRequestSchema = z.object({
+export const CreateProviderAccountRequestSchema = z.object({
   appId: z.string(),
+  agentId: z.string(),
   providerId: z.string(),
   label: z.string().min(1),
-  config: ProviderConnectionConfigSchema.optional(),
+  config: ProviderAccountConfigSchema.optional(),
   externalRef: ExternalReferenceSchema.optional(),
   runtimeSecretRefs: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
   metadata: ContractMetadataSchema.optional(),
 });
-export type CreateProviderConnectionRequest = z.infer<
-  typeof CreateProviderConnectionRequestSchema
+export type CreateProviderAccountRequest = z.infer<
+  typeof CreateProviderAccountRequestSchema
 >;
 
-export const ProviderConnectionResponseSchema = z.object({
+export const ProviderAccountResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
+  agentId: z.string(),
   providerId: z.string(),
   label: z.string(),
-  status: ProviderConnectionStatusSchema,
-  config: ProviderConnectionConfigSchema.optional(),
+  status: ProviderAccountStatusSchema,
+  config: ProviderAccountConfigSchema.optional(),
   externalRef: ExternalReferenceSchema.optional(),
   runtimeSecretRefs: z.record(z.string(), z.string()).optional(),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),
 });
-export type ProviderConnectionResponse = z.infer<
-  typeof ProviderConnectionResponseSchema
+export type ProviderAccountResponse = z.infer<
+  typeof ProviderAccountResponseSchema
 >;
 
-export const ProviderConnectionListResponseSchema = z.object({
-  providerConnections: z.array(ProviderConnectionResponseSchema),
+export const ProviderAccountListResponseSchema = z.object({
+  providerAccounts: z.array(ProviderAccountResponseSchema),
 });
-export type ProviderConnectionListResponse = z.infer<
-  typeof ProviderConnectionListResponseSchema
+export type ProviderAccountListResponse = z.infer<
+  typeof ProviderAccountListResponseSchema
 >;
 
-export const UpdateProviderConnectionRequestSchema = z.object({
+export const UpdateProviderAccountRequestSchema = z.object({
   label: z.string().min(1).optional(),
-  status: ProviderConnectionStatusSchema.optional(),
-  config: ProviderConnectionConfigSchema.optional(),
+  status: ProviderAccountStatusSchema.optional(),
+  config: ProviderAccountConfigSchema.optional(),
   externalRef: ExternalReferenceSchema.nullable().optional(),
   runtimeSecretRefs: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
   metadata: ContractMetadataSchema.optional(),
 });
-export type UpdateProviderConnectionRequest = z.infer<
-  typeof UpdateProviderConnectionRequestSchema
+export type UpdateProviderAccountRequest = z.infer<
+  typeof UpdateProviderAccountRequestSchema
 >;
 
-export const DiscoverProviderConnectionRequestSchema = z.object({
+export const DiscoverProviderAccountRequestSchema = z.object({
   query: z.string().optional(),
   limit: z.number().int().positive().max(200).optional(),
   includeArchived: z.boolean().optional(),
   providerMetadata: ContractMetadataSchema.optional(),
 });
-export type DiscoverProviderConnectionRequest = z.infer<
-  typeof DiscoverProviderConnectionRequestSchema
+export type DiscoverProviderAccountRequest = z.infer<
+  typeof DiscoverProviderAccountRequestSchema
 >;
 
-export const TriggerModeSchema = z.enum([
-  'always',
-  'mention',
-  'keyword',
-  'manual',
-  'webhook',
-]);
-export type TriggerMode = z.infer<typeof TriggerModeSchema>;
-
-export const BindingMemoryScopeSchema = z.enum([
+export const ConversationInstallMemoryScopeSchema = z.enum([
   'user',
   'conversation',
   'agent',
   'app',
 ]);
-export type BindingMemoryScope = z.infer<typeof BindingMemoryScopeSchema>;
-
-export const AgentConversationBindingStatusSchema = z.enum([
-  'active',
-  'disabled',
-]);
-export type AgentConversationBindingStatus = z.infer<
-  typeof AgentConversationBindingStatusSchema
+export type ConversationInstallMemoryScope = z.infer<
+  typeof ConversationInstallMemoryScopeSchema
 >;
 
-export const AgentConversationBindingRequestSchema = z.object({
+export const ConversationInstallStatusSchema = z.enum(['active', 'disabled']);
+export type ConversationInstallStatus = z.infer<
+  typeof ConversationInstallStatusSchema
+>;
+
+export const ConversationInstallRouteConfigSchema = z.object({
+  trigger: z.string().optional(),
+  requiresTrigger: z.boolean().optional(),
+  agentConfig: ContractMetadataSchema.optional(),
+});
+export type ConversationInstallRouteConfig = z.infer<
+  typeof ConversationInstallRouteConfigSchema
+>;
+
+export const ConversationInstallRequestSchema = z.object({
   appId: z.string().optional(),
   agentId: z.string().optional(),
-  providerConnectionId: z.string().optional(),
+  providerAccountId: z.string().optional(),
   conversationId: z.string().optional(),
   threadId: z.string().optional(),
   displayName: z.string().optional(),
-  triggerMode: TriggerModeSchema.optional(),
-  triggerPattern: z.string().nullable().optional(),
-  requiresTrigger: z.boolean().optional(),
-  memoryScope: BindingMemoryScopeSchema.optional(),
+  memoryScope: ConversationInstallMemoryScopeSchema.optional(),
   memorySubject: MemorySubjectRefSchema.optional(),
+  routeConfig: ConversationInstallRouteConfigSchema.optional(),
   workspaceSnapshotId: z.string().nullable().optional(),
   permissionPolicyIds: z.array(z.string()).optional(),
-  status: AgentConversationBindingStatusSchema.optional(),
+  status: ConversationInstallStatusSchema.optional(),
   metadata: ContractMetadataSchema.optional(),
 });
-export type AgentConversationBindingRequest = z.infer<
-  typeof AgentConversationBindingRequestSchema
+export type ConversationInstallRequest = z.infer<
+  typeof ConversationInstallRequestSchema
 >;
 
-export const AgentConversationBindingResponseSchema = z.object({
+export const ConversationInstallResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
   agentId: z.string(),
-  providerConnectionId: z.string(),
+  providerAccountId: z.string(),
   conversationId: z.string(),
   threadId: z.string().nullable().optional(),
   displayName: z.string(),
-  status: AgentConversationBindingStatusSchema,
-  triggerMode: TriggerModeSchema,
-  triggerPattern: z.string().nullable().optional(),
-  requiresTrigger: z.boolean(),
-  memoryScope: BindingMemoryScopeSchema,
+  status: ConversationInstallStatusSchema,
+  memoryScope: ConversationInstallMemoryScopeSchema,
   memorySubject: MemorySubjectRefSchema.optional(),
+  routeConfig: ConversationInstallRouteConfigSchema.optional(),
   workspaceSnapshotId: z.string().nullable().optional(),
   permissionPolicyIds: z.array(z.string()),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),
 });
-export type AgentConversationBindingResponse = z.infer<
-  typeof AgentConversationBindingResponseSchema
+export type ConversationInstallResponse = z.infer<
+  typeof ConversationInstallResponseSchema
 >;
 
-export const AgentConversationBindingListResponseSchema = z.object({
-  bindings: z.array(AgentConversationBindingResponseSchema),
+export const ConversationInstallListResponseSchema = z.object({
+  conversationInstalls: z.array(ConversationInstallResponseSchema),
 });
-export type AgentConversationBindingListResponse = z.infer<
-  typeof AgentConversationBindingListResponseSchema
+export type ConversationInstallListResponse = z.infer<
+  typeof ConversationInstallListResponseSchema
 >;
 
 export const ConversationApproverListResponseSchema = z.object({

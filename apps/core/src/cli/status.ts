@@ -93,6 +93,8 @@ export async function collectRuntimeStatus(
   const service = getServiceStatus(runtimeHome);
   const doctor = await runDoctorWithNetwork(importMetaUrl, runtimeHome, {
     validateTelegramToken: false,
+    validateSlackToken: false,
+    validateModelCredentials: false,
   });
   const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
   const accessNeedsApprovalCount = storageUnavailable(doctor)
@@ -102,7 +104,7 @@ export async function collectRuntimeStatus(
     (check) => check.id === 'claude-broker',
   );
   const connectedProviderIds = new Set(
-    Object.values(settings.providerConnections).map(
+    Object.values(settings.providerAccounts).map(
       (connection) => connection.provider,
     ),
   );
@@ -117,21 +119,30 @@ export async function collectRuntimeStatus(
     )
     .map((provider) => {
       const missingCredentialKeys: string[] = [];
-      const connectionId = settings.providers[provider.id]?.defaultConnection;
-      const refs = connectionId
-        ? settings.providerConnections[connectionId]?.runtimeSecretRefs
-        : undefined;
+      const accounts = Object.values(settings.providerAccounts).filter(
+        (account) => account.provider === provider.id,
+      );
       for (const envKey of provider.setup.envKeys) {
         const refKey = runtimeSecretKeyForEnv(provider.id, envKey);
-        if (
-          isMissingRuntimeCredential({
-            providerId: provider.id,
-            envKey,
-            rawRef: refs?.[refKey],
-            env,
-            unresolvedRuntimeSecretProviderIds,
-          })
-        ) {
+        const credentialReady =
+          accounts.length > 0
+            ? accounts.some(
+                (account) =>
+                  !isMissingRuntimeCredential({
+                    providerId: provider.id,
+                    envKey,
+                    rawRef: account.runtimeSecretRefs[refKey],
+                    env,
+                    unresolvedRuntimeSecretProviderIds,
+                  }),
+              )
+            : !isMissingRuntimeCredential({
+                providerId: provider.id,
+                envKey,
+                env,
+                unresolvedRuntimeSecretProviderIds,
+              });
+        if (!credentialReady) {
           missingCredentialKeys.push(envKey);
         }
       }

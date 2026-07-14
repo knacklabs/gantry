@@ -71,11 +71,15 @@ describe('DiscordChannel', () => {
     const channel = await createDiscordChannel(
       opts({
         conversationRoutes: vi.fn(() => ({})),
+        providerAccountId: 'discord_default',
         runtimeSettings: () =>
           ({
-            providers: { discord: { defaultConnection: 'discord_default' } },
-            providerConnections: {
+            providers: { discord: { enabled: true } },
+            providerAccounts: {
               discord_default: {
+                agentId: 'default',
+                provider: 'discord',
+                label: 'Discord',
                 runtimeSecretRefs: {
                   bot_token: 'gantry-secret:DISCORD_BOT_TOKEN',
                   application_id: 'gantry-secret:DISCORD_APPLICATION_ID',

@@ -10,13 +10,15 @@ export async function prepareNewSessionArchive(input: {
   groupName: string;
   logger: { warn(payload: unknown, message: string): void };
   prepareSessionArchive?: PrepareSessionArchive;
-  archiveCurrentSession: (cause: 'new-session') => Promise<void>;
+  archiveCurrentSession: (cause: 'new-session') => Promise<unknown>;
 }): Promise<SessionArchiveFinalizer | undefined> {
   try {
     if (input.prepareSessionArchive) {
       return (await input.prepareSessionArchive('new-session')) ?? undefined;
     }
-    return () => input.archiveCurrentSession('new-session');
+    return async () => {
+      await input.archiveCurrentSession('new-session');
+    };
   } catch (err) {
     input.logger.warn(
       { group: input.groupName, err },

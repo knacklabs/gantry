@@ -123,8 +123,8 @@ describe('runtime preflight', () => {
       status: 'fail',
       message: 'Runtime secret preflight failed.',
       details: [
-        'providers.slack.bot_token runtime secret ref gantry-secret:SLACK_BOT_TOKEN did not resolve.',
-        'providers.slack.app_token runtime secret ref gantry-secret:SLACK_APP_TOKEN did not resolve.',
+        'provider_accounts.slack_default.provider slack runtime_secret_refs.bot_token runtime secret ref gantry-secret:SLACK_BOT_TOKEN did not resolve.',
+        'provider_accounts.slack_default.provider slack runtime_secret_refs.app_token runtime secret ref gantry-secret:SLACK_APP_TOKEN did not resolve.',
       ],
     });
     const runtimeHome = createRuntimeHome();
@@ -133,8 +133,16 @@ describe('runtime preflight', () => {
     process.env.SECRET_ENCRYPTION_KEY = strongEncryptionKey;
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: {
@@ -155,8 +163,8 @@ describe('runtime preflight', () => {
       failure: {
         summary: 'Runtime secret preflight failed.',
         details: [
-          'providers.slack.bot_token runtime secret ref gantry-secret:SLACK_BOT_TOKEN did not resolve.',
-          'providers.slack.app_token runtime secret ref gantry-secret:SLACK_APP_TOKEN did not resolve.',
+          'provider_accounts.slack_default.provider slack runtime_secret_refs.bot_token runtime secret ref gantry-secret:SLACK_BOT_TOKEN did not resolve.',
+          'provider_accounts.slack_default.provider slack runtime_secret_refs.app_token runtime secret ref gantry-secret:SLACK_APP_TOKEN did not resolve.',
         ],
       },
     });

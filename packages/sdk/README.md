@@ -61,17 +61,27 @@ endpoints on the running runtime:
 - `client.jobs` — `create`, `list`, `get`, `update`, `delete`, `pause`, `resume`, `trigger`, `wait`
 - `client.runs` — `list`, `get`
 - `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`
-- `client.agents` — admin CRUD plus `skills`, `mcpServers`, `conversationBindings`
+- `client.agents` — admin CRUD plus `skills`, `mcpServers`, `conversationInstalls`
 - `client.skills` — install, list, and inspect skills
 - `client.mcpServers` — catalog of MCP servers
 - `client.providers` — list channel providers
-- `client.providerConnections` — CRUD plus `discoverConversations`
+- `client.providerAccounts` — CRUD plus `discoverConversations`
 - `client.conversations` — `list`, `get`, `messages`, get/set `approvers`
 - `client.webhooks` — `register`, `list`, `update`, `delete`, `test`, `replayDeadLetter`, `purgeDeadLetter`
 - `client.memory` — `save`, `search`, `list`, `patch`, `delete`, plus `dreaming.trigger` / `dreaming.status`
 - `client.settings` — read runtime settings
 - `client.ingresses` — manage external ingress configurations
 - `conversationMessageTarget` — build a typed signed-ingress target for an existing Gantry conversation/thread.
+
+### Generated OpenAPI types
+
+Request/response types are generated from the runtime's OpenAPI document into
+`src/generated/openapi.ts` (re-exported through `src/openapi-types.ts`) and are
+the single source of truth for wire shapes; the transport stays handwritten.
+Contributors regenerate with `npm run generate --workspace @gantry/sdk`;
+`npm run check:generated --workspace @gantry/sdk` fails on drift between the
+control-server spec and the committed types. The generated file is excluded
+from prettier — the generator owns its formatting.
 
 ### Standalone signing helpers
 

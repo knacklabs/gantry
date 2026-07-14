@@ -6,6 +6,10 @@ import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js'
 import type { NewMessage } from '../../domain/types.js';
 import { formatOutboundForChannel } from '../../messaging/router.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import {
+  canonicalConversationIdForJid,
+  canonicalThreadIdFor,
+} from './runtime-services-destination-hints.js';
 
 type ConversationOutboundEventLogger = {
   warn(context: Record<string, unknown>, message: string): void;
@@ -17,6 +21,7 @@ export function createConversationOutboundProjection(input: {
   rawText: string;
   channelName: string;
   providerId: string;
+  providerAccountId?: string;
   conversationJid: string;
   threadId?: string;
   appId: AppId;
@@ -44,6 +49,7 @@ export function createConversationOutboundProjection(input: {
     id: messageId,
     chat_jid: input.conversationJid,
     provider: input.providerId,
+    providerAccountId: input.providerAccountId,
     sender: 'gantry',
     sender_name: 'Gantry',
     content: formatted,
@@ -70,10 +76,16 @@ export function createConversationOutboundProjection(input: {
           responseMode: 'none',
           payload: {
             messageId,
-            conversationId: `conversation:${input.conversationJid}`,
-            threadId: input.threadId
-              ? `thread:${input.conversationJid}:${input.threadId}`
-              : null,
+            conversationId: canonicalConversationIdForJid(
+              input.conversationJid,
+              input.providerAccountId,
+            ),
+            threadId:
+              canonicalThreadIdFor({
+                jid: input.conversationJid,
+                threadId: input.threadId,
+                providerAccountId: input.providerAccountId,
+              }) ?? null,
             direction: 'outbound',
             deliveryStatus: eventInput.deliveryStatus,
             sender: {

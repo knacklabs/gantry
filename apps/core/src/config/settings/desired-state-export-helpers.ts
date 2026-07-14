@@ -179,7 +179,8 @@ function rankedConversationMatches(input: {
   return Object.entries(input.conversations)
     .filter(
       ([, conversation]) =>
-        conversation.providerConnection === input.providerConnectionId &&
+        (conversation.providerAccount ?? conversation.providerConnection) ===
+          input.providerConnectionId &&
         conversation.externalId === input.externalId,
     )
     .sort(([leftId, left], [rightId, right]) => {

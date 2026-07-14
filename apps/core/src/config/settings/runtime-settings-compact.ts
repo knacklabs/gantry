@@ -1,5 +1,3 @@
-import { normalizeRuntimeSecretRefString } from '../../domain/ports/runtime-secret-provider.js';
-
 function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw);
 }
@@ -24,62 +22,6 @@ function assertSupportedKeys(
       throw new Error(`${pathPrefix}.${key} is not supported`);
     }
   }
-}
-
-function defaultConnectionIdForProvider(providerId: string): string {
-  return `${providerId}_default`;
-}
-
-function compactProviderToVerbose(
-  providerId: string,
-  raw: unknown,
-): {
-  provider: Record<string, unknown>;
-  connection?: [string, Record<string, unknown>];
-} {
-  if (!isRecord(raw)) return { provider: {} };
-  const map = raw;
-  assertSupportedKeys(
-    map,
-    `providers.${providerId}`,
-    new Set(['enabled', 'default_connection', 'label']),
-    (key) => key.endsWith('_ref'),
-  );
-  const provider: Record<string, unknown> = {
-    enabled: map.enabled,
-    default_connection: map.default_connection,
-  };
-  const secretRefs: Record<string, string> = {};
-  for (const [key, value] of Object.entries(map)) {
-    if (!key.endsWith('_ref')) continue;
-    if (typeof value === 'string' && value.trim()) {
-      secretRefs[key.slice(0, -'_ref'.length)] =
-        normalizeRuntimeSecretRefString(value);
-    }
-  }
-  if (map.label !== undefined || Object.keys(secretRefs).length > 0) {
-    const connectionId =
-      typeof map.default_connection === 'string' &&
-      map.default_connection.trim()
-        ? map.default_connection.trim()
-        : defaultConnectionIdForProvider(providerId);
-    provider.default_connection = connectionId;
-    return {
-      provider,
-      connection: [
-        connectionId,
-        {
-          provider: providerId,
-          label:
-            typeof map.label === 'string' && map.label.trim()
-              ? map.label.trim()
-              : `${providerId} Default`,
-          runtime_secret_refs: secretRefs,
-        },
-      ],
-    };
-  }
-  return { provider };
 }
 
 function normalizeCompactDefaults(
@@ -138,23 +80,19 @@ function normalizeCompactProviders(
 ): void {
   if (!isRecord(root.providers)) return;
   const providers: Record<string, unknown> = {};
-  const providerConnections: Record<string, unknown> = {
-    ...(isRecord(root.provider_connections)
-      ? (root.provider_connections as Record<string, unknown>)
-      : {}),
-  };
   for (const [providerId, providerRaw] of Object.entries(root.providers)) {
-    const compact = compactProviderToVerbose(providerId, providerRaw);
-    providers[providerId] = compact.provider;
-    if (
-      compact.connection &&
-      providerConnections[compact.connection[0]] === undefined
-    ) {
-      providerConnections[compact.connection[0]] = compact.connection[1];
+    if (!isRecord(providerRaw)) {
+      providers[providerId] = providerRaw;
+      continue;
     }
+    assertSupportedKeys(
+      providerRaw,
+      `providers.${providerId}`,
+      new Set(['enabled']),
+    );
+    providers[providerId] = { enabled: providerRaw.enabled };
   }
   normalized.providers = providers;
-  normalized.provider_connections = providerConnections;
 }
 
 function normalizeCompactAgents(
@@ -202,14 +140,6 @@ function normalizeCompactConversations(
 ): void {
   if (!isRecord(root.conversations)) return;
   const conversations: Record<string, unknown> = {};
-  const bindings: Record<string, unknown> = {
-    ...(isRecord(root.bindings)
-      ? (root.bindings as Record<string, unknown>)
-      : {}),
-  };
-  const providers = isRecord(normalized.providers)
-    ? (normalized.providers as Record<string, unknown>)
-    : {};
   for (const [conversationId, conversationRaw] of Object.entries(
     root.conversations,
   )) {
@@ -221,64 +151,42 @@ function normalizeCompactConversations(
       conversationRaw,
       `conversations.${conversationId}`,
       new Set([
-        'provider',
-        'provider_connection',
+        'provider_account',
         'id',
         'external_id',
         'type',
         'kind',
         'display_name',
+        'brain_harvest',
         'sender_policy',
-        'approvers',
         'control_approvers',
-        'agent',
-        'trigger',
-        'added_at',
-        'requires_trigger',
-        'memory_scope',
-        'model',
+        'installed_agents',
       ]),
     );
-    const providerId =
-      typeof conversationRaw.provider === 'string'
-        ? conversationRaw.provider.trim()
-        : undefined;
-    const provider =
-      providerId && isRecord(providers[providerId])
-        ? (providers[providerId] as Record<string, unknown>)
-        : undefined;
-    const providerConnection =
-      conversationRaw.provider_connection ??
-      provider?.default_connection ??
-      (providerId ? defaultConnectionIdForProvider(providerId) : undefined);
     conversations[conversationId] = {
-      provider_connection: providerConnection,
+      provider_account: conversationRaw.provider_account,
       external_id: conversationRaw.id ?? conversationRaw.external_id,
       kind: conversationRaw.type ?? conversationRaw.kind,
       display_name: conversationRaw.display_name,
+      brain_harvest: conversationRaw.brain_harvest,
       sender_policy: conversationRaw.sender_policy,
-      control_approvers:
-        conversationRaw.approvers ?? conversationRaw.control_approvers,
+      control_approvers: conversationRaw.control_approvers,
+      installed_agents: conversationRaw.installed_agents,
     };
-    if (conversationRaw.agent !== undefined) {
-      bindings[conversationId] = {
-        agent: conversationRaw.agent,
-        conversation: conversationId,
-        trigger: conversationRaw.trigger,
-        added_at: conversationRaw.added_at ?? new Date(0).toISOString(),
-        requires_trigger: conversationRaw.requires_trigger,
-        memory_scope: conversationRaw.memory_scope,
-        model: conversationRaw.model,
-      };
-    }
   }
   normalized.conversations = conversations;
-  normalized.bindings = bindings;
 }
 
 export function normalizeCompactRuntimeSettingsRoot(
   root: Record<string, unknown>,
 ): Record<string, unknown> {
+  for (const key of ['provider_connections', 'bindings']) {
+    if (root[key] !== undefined) {
+      throw new Error(
+        `${key} is no longer supported. Use provider_accounts and conversations.*.installed_agents.`,
+      );
+    }
+  }
   const normalized: Record<string, unknown> = { ...root };
   normalizeCompactDefaults(normalized, root);
   normalizeCompactProviders(normalized, root);

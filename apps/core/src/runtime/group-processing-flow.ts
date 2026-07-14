@@ -43,11 +43,20 @@ export async function handleFailure(input: {
 export function resetGroupStreamingForTurn(input: {
   chatJid: string;
   groupName: string;
-  channelRuntime: { resetStreaming(jid: string): void };
+  channelRuntime: {
+    resetStreaming(jid: string, options?: { providerAccountId?: string }): void;
+  };
+  providerAccountId?: string;
   logger: { debug(payload: Record<string, unknown>, message: string): void };
 }): void {
   try {
-    input.channelRuntime.resetStreaming(input.chatJid);
+    if (input.providerAccountId) {
+      input.channelRuntime.resetStreaming(input.chatJid, {
+        providerAccountId: input.providerAccountId,
+      });
+    } else {
+      input.channelRuntime.resetStreaming(input.chatJid);
+    }
   } catch (err) {
     input.logger.debug(
       { err, group: input.groupName },

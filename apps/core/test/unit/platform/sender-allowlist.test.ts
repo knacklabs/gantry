@@ -48,25 +48,31 @@ function renderSettingsYaml(overrides: {
   telegramControlAgents?: Record<string, string[]>;
   slackControlAgents?: Record<string, string[]>;
 }): string {
+  const telegramFolders = Object.keys(overrides.telegramAgents || {});
+  const slackFolders = Object.keys(overrides.slackAgents || {});
   const lines = [
     'defaults:',
     '  model: opus',
     'providers:',
     '  telegram:',
     '    enabled: true',
-    '    default_connection: telegram_default',
     '  slack:',
     '    enabled: true',
-    '    default_connection: slack_default',
-    'provider_connections:',
-    '  telegram_default:',
-    '    provider: telegram',
-    '    label: Telegram',
-    '    runtime_secret_refs: {}',
-    '  slack_default:',
-    '    provider: slack',
-    '    label: Slack',
-    '    runtime_secret_refs: {}',
+    'provider_accounts:',
+    ...telegramFolders.flatMap((folder) => [
+      `  ${folder}_account:`,
+      `    agent: ${folder}`,
+      '    provider: telegram',
+      '    label: Telegram',
+      '    runtime_secret_refs: {}',
+    ]),
+    ...slackFolders.flatMap((folder) => [
+      `  ${folder}_account:`,
+      `    agent: ${folder}`,
+      '    provider: slack',
+      '    label: Slack',
+      '    runtime_secret_refs: {}',
+    ]),
     'conversations:',
   ];
 
@@ -74,7 +80,7 @@ function renderSettingsYaml(overrides: {
     overrides.telegramAgents || {},
   )) {
     lines.push(`  ${folder}_conversation:`);
-    lines.push('    provider_connection: telegram_default');
+    lines.push(`    provider_account: ${folder}_account`);
     lines.push('    external_id: "1"');
     lines.push('    kind: group');
     lines.push(`    display_name: ${folder}`);
@@ -84,11 +90,17 @@ function renderSettingsYaml(overrides: {
     lines.push(
       `    control_approvers: ${JSON.stringify(overrides.telegramControlAgents?.[folder] || [])}`,
     );
+    lines.push('    installed_agents:');
+    lines.push(`      ${folder}:`);
+    lines.push(`        provider_account: ${folder}_account`);
+    lines.push('        added_at: "2026-01-01T00:00:00.000Z"');
+    lines.push('        trigger: "@agent"');
+    lines.push('        requires_trigger: true');
   }
 
   for (const [folder, entry] of Object.entries(overrides.slackAgents || {})) {
     lines.push(`  ${folder}_conversation:`);
-    lines.push('    provider_connection: slack_default');
+    lines.push(`    provider_account: ${folder}_account`);
     lines.push('    external_id: "C1"');
     lines.push('    kind: channel');
     lines.push(`    display_name: ${folder}`);
@@ -98,6 +110,12 @@ function renderSettingsYaml(overrides: {
     lines.push(
       `    control_approvers: ${JSON.stringify(overrides.slackControlAgents?.[folder] || [])}`,
     );
+    lines.push('    installed_agents:');
+    lines.push(`      ${folder}:`);
+    lines.push(`        provider_account: ${folder}_account`);
+    lines.push('        added_at: "2026-01-01T00:00:00.000Z"');
+    lines.push('        trigger: "@agent"');
+    lines.push('        requires_trigger: true');
   }
 
   lines.push(
@@ -108,32 +126,12 @@ function renderSettingsYaml(overrides: {
     ].flatMap((folder) => [
       `  ${folder}:`,
       `    name: ${folder}`,
-      '    bindings: {}',
       '    access:',
       '      sources:',
       '        skills: []',
       '        mcp_servers: []',
       '        tools: []',
       '      selections: []',
-    ]),
-    'bindings:',
-    ...Object.keys(overrides.telegramAgents || {}).flatMap((folder) => [
-      `  ${folder}_binding:`,
-      `    agent: ${folder}`,
-      `    conversation: ${folder}_conversation`,
-      '    trigger: "@agent"',
-      '    added_at: "2026-01-01T00:00:00.000Z"',
-      '    requires_trigger: true',
-      '    memory_scope: conversation',
-    ]),
-    ...Object.keys(overrides.slackAgents || {}).flatMap((folder) => [
-      `  ${folder}_binding:`,
-      `    agent: ${folder}`,
-      `    conversation: ${folder}_conversation`,
-      '    trigger: "@agent"',
-      '    added_at: "2026-01-01T00:00:00.000Z"',
-      '    requires_trigger: true',
-      '    memory_scope: conversation',
     ]),
     'storage:',
     '  postgres:',
@@ -172,15 +170,15 @@ function writeSameAgentMultiConversationSettings(): string {
       'providers:',
       '  telegram:',
       '    enabled: true',
-      '    default_connection: telegram_default',
-      'provider_connections:',
-      '  telegram_default:',
+      'provider_accounts:',
+      '  main_agent_telegram:',
+      '    agent: main_agent',
       '    provider: telegram',
       '    label: Telegram',
       '    runtime_secret_refs: {}',
       'conversations:',
       '  first_conversation:',
-      '    provider_connection: telegram_default',
+      '    provider_account: main_agent_telegram',
       '    external_id: "1"',
       '    kind: group',
       '    display_name: First',
@@ -188,8 +186,14 @@ function writeSameAgentMultiConversationSettings(): string {
       '      allow: ["alice"]',
       '      mode: trigger',
       '    control_approvers: ["admin-one"]',
+      '    installed_agents:',
+      '      main_agent:',
+      '        provider_account: main_agent_telegram',
+      '        added_at: "2026-01-01T00:00:00.000Z"',
+      '        trigger: "@agent"',
+      '        requires_trigger: true',
       '  second_conversation:',
-      '    provider_connection: telegram_default',
+      '    provider_account: main_agent_telegram',
       '    external_id: "2"',
       '    kind: group',
       '    display_name: Second',
@@ -197,31 +201,21 @@ function writeSameAgentMultiConversationSettings(): string {
       '      allow: ["bob"]',
       '      mode: trigger',
       '    control_approvers: ["admin-two"]',
+      '    installed_agents:',
+      '      main_agent:',
+      '        provider_account: main_agent_telegram',
+      '        added_at: "2026-01-01T00:00:00.000Z"',
+      '        trigger: "@agent"',
+      '        requires_trigger: true',
       'agents:',
       '  main_agent:',
       '    name: Default Agent',
-      '    bindings: {}',
       '    access:',
       '      sources:',
       '        skills: []',
       '        mcp_servers: []',
       '        tools: []',
       '      selections: []',
-      'bindings:',
-      '  first_binding:',
-      '    agent: main_agent',
-      '    conversation: first_conversation',
-      '    trigger: "@agent"',
-      '    added_at: "2026-01-01T00:00:00.000Z"',
-      '    requires_trigger: true',
-      '    memory_scope: conversation',
-      '  second_binding:',
-      '    agent: main_agent',
-      '    conversation: second_conversation',
-      '    trigger: "@agent"',
-      '    added_at: "2026-01-01T00:00:00.000Z"',
-      '    requires_trigger: true',
-      '    memory_scope: conversation',
       'storage:',
       '  postgres:',
       '    url_env: GANTRY_DATABASE_URL',

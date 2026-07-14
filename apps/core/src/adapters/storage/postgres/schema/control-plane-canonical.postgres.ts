@@ -22,6 +22,14 @@ export function text(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function stringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const values = value.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.length > 0,
+  );
+  return values.length > 0 ? values : null;
+}
+
 function parseJsonObject(value: unknown): CanonicalControlRow {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as CanonicalControlRow;
@@ -118,6 +126,10 @@ export function mapWebhook(
     name: String(column(row, 'name', 'name')),
     url: String(column(row, 'url', 'url')),
     enabled: Boolean(column(row, 'enabled', 'enabled')),
+    eventTypes: stringArray(column(row, 'event_types', 'eventTypes')),
+    agentId: text(column(row, 'agent_id', 'agentId')),
+    sessionId: text(column(row, 'session_id', 'sessionId')),
+    jobId: text(column(row, 'job_id', 'jobId')),
     createdAt: String(column(row, 'created_at', 'createdAt')),
     updatedAt: String(column(row, 'updated_at', 'updatedAt')),
   };

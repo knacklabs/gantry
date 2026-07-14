@@ -131,7 +131,9 @@ export async function buildAgentStepInstructions(
   ].join('\n');
 }
 
-export function buildGenericAgentActionSchema(): Record<string, unknown> {
+export function buildGenericAgentActionSchema(
+  finalSchema?: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     type: 'object',
     required: ['action', 'previousGoalEvaluation', 'memoryUpdate', 'nextGoal'],
@@ -139,7 +141,7 @@ export function buildGenericAgentActionSchema(): Record<string, unknown> {
       action: { type: 'string', enum: ['call_tool', 'final', 'needs_input'] },
       toolName: { type: 'string' },
       input: { type: 'object' },
-      output: { type: 'object' },
+      output: finalSchema ?? { type: 'object' },
       reason: { type: 'string' },
       auditNote: { type: 'string' },
       whyThisStep: { type: 'string' },

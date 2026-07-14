@@ -7,6 +7,7 @@ import {
   normalizeProviderId,
   providerIdForJid as resolveProviderIdForJid,
 } from '../../../../channels/provider-registry.js';
+import { agentIdForFolder as canonicalAgentIdForFolder } from '../../../../domain/agent/agent-folder-id.js';
 import * as pgSchema from '../schema/schema.js';
 
 export const CANONICAL_APP_ID = 'default';
@@ -37,12 +38,17 @@ export function externalConversationIdForJid(jid: string): string {
   return idx > 0 ? jid.slice(idx + 1) : jid;
 }
 
-export function conversationIdForJid(jid: string): string {
-  return `conversation:${jid}`;
+export function conversationIdForJid(
+  jid: string,
+  providerAccountId?: string | null,
+): string {
+  return providerAccountId
+    ? `conversation:${providerAccountId}:${jid}`
+    : `conversation:${jid}`;
 }
 
 export function agentIdForFolder(folder: string): string {
-  return `agent:${folder}`;
+  return canonicalAgentIdForFolder(folder);
 }
 
 export function configVersionIdForAgent(agentId: string): string {
@@ -52,9 +58,13 @@ export function configVersionIdForAgent(agentId: string): string {
 export function threadIdFor(
   chatJid: string,
   threadId?: string | null,
+  providerAccountId?: string | null,
 ): string | null {
   const normalized = threadId?.trim();
-  return normalized ? `thread:${chatJid}:${normalized}` : null;
+  if (!normalized) return null;
+  return providerAccountId
+    ? `thread:${providerAccountId}:${chatJid}:${normalized}`
+    : `thread:${chatJid}:${normalized}`;
 }
 
 export function json(value: unknown): string {
@@ -196,16 +206,20 @@ export class PostgresCanonicalGraphRepository {
     input: {
       name?: string | null;
       channel?: string | null;
+      agentFolder?: string | null;
       isGroup?: boolean | null;
       timestamp?: string | null;
+      providerAccountId?: string | null;
     } = {},
     executor: CanonicalExecutor = this.db,
   ): Promise<string> {
     await this.ensureApp(executor);
     const providerId =
       normalizeProviderId(input.channel || providerIdForJid(jid)) || 'app';
-    const providerConnectionId = `channel-providerConnection:${CANONICAL_APP_ID}:${providerId}`;
-    const conversationId = conversationIdForJid(jid);
+    const providerAccountId =
+      input.providerAccountId ??
+      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
+    const conversationId = conversationIdForJid(jid, input.providerAccountId);
     const title = input.name || jid;
     const now = input.timestamp || currentIso();
     const hasKnownKind = input.isGroup !== undefined && input.isGroup !== null;
@@ -216,18 +230,26 @@ export class PostgresCanonicalGraphRepository {
       jid,
       providerId,
       externalConversationId,
+      providerAccountId,
       ...(hasKnownKind ? { isGroup: Boolean(input.isGroup) } : {}),
     });
     await executor
       .insert(pgSchema.providersPostgres)
       .values({ id: providerId, displayName: providerId })
       .onConflictDoNothing();
+    const providerAccountAgentId = await this.ensureAgent(
+      input.agentFolder || providerId,
+      input.agentFolder || providerId,
+      executor,
+    );
     await executor
-      .insert(pgSchema.providerConnectionsPostgres)
+      .insert(pgSchema.providerAccountsPostgres)
       .values({
-        id: providerConnectionId,
+        id: providerAccountId,
         appId: CANONICAL_APP_ID,
+        agentId: providerAccountAgentId,
         providerId,
+        externalIdentityRefJson: json({ providerId }),
         label: providerId,
       })
       .onConflictDoNothing();
@@ -236,7 +258,7 @@ export class PostgresCanonicalGraphRepository {
       .values({
         id: conversationId,
         appId: CANONICAL_APP_ID,
-        providerConnectionId: providerConnectionId,
+        providerAccountId: providerAccountId,
         externalRefJson,
         kind: input.isGroup ? 'group' : 'direct',
         title,
@@ -259,13 +281,17 @@ export class PostgresCanonicalGraphRepository {
     chatJid: string,
     threadId?: string | null,
     executor: CanonicalExecutor = this.db,
-    input: { channel?: string | null } = {},
+    input: { channel?: string | null; providerAccountId?: string | null } = {},
   ): Promise<string | null> {
-    const canonicalThreadId = threadIdFor(chatJid, threadId);
+    const canonicalThreadId = threadIdFor(
+      chatJid,
+      threadId,
+      input.providerAccountId,
+    );
     if (!canonicalThreadId) return null;
     const conversationId = await this.ensureConversation(
       chatJid,
-      { channel: input.channel },
+      { channel: input.channel, providerAccountId: input.providerAccountId },
       executor,
     );
     await executor
@@ -290,7 +316,7 @@ export class PostgresCanonicalGraphRepository {
     input: {
       conversationId: string;
       providerId: string;
-      providerConnectionId: string;
+      providerAccountId: string;
       externalUserId: string;
       displayName?: string | null;
       timestamp?: string | null;
@@ -302,7 +328,7 @@ export class PostgresCanonicalGraphRepository {
     const safeProvider = input.providerId.replace(/[^a-zA-Z0-9._:-]/g, '_');
     const safeUser = externalUserId.replace(/[^a-zA-Z0-9._:-]/g, '_');
     const userId = `user:${CANONICAL_APP_ID}:${safeProvider}:${safeUser}`;
-    const aliasId = `user-alias:${CANONICAL_APP_ID}:${safeProvider}:${input.providerConnectionId}:${safeUser}`;
+    const aliasId = `user-alias:${CANONICAL_APP_ID}:${safeProvider}:${input.providerAccountId}:${safeUser}`;
     const participantId = `participant:${input.conversationId}:${safeUser}`;
     const now = input.timestamp || currentIso();
     const displayName = input.displayName
@@ -333,7 +359,7 @@ export class PostgresCanonicalGraphRepository {
         appId: CANONICAL_APP_ID,
         userId,
         provider: input.providerId,
-        providerConnectionId: input.providerConnectionId,
+        providerAccountId: input.providerAccountId,
         externalUserId,
         displayName: input.displayName ?? externalUserId,
         createdAt: now,
@@ -374,7 +400,7 @@ export class PostgresCanonicalGraphRepository {
 
   async listChats(): Promise<ChatInfo[]> {
     const c = pgSchema.conversationsPostgres;
-    const ci = pgSchema.providerConnectionsPostgres;
+    const ci = pgSchema.providerAccountsPostgres;
     const rows = await this.db
       .select({
         id: c.id,
@@ -386,7 +412,7 @@ export class PostgresCanonicalGraphRepository {
         providerId: ci.providerId,
       })
       .from(c)
-      .innerJoin(ci, eq(ci.id, c.providerConnectionId))
+      .innerJoin(ci, eq(ci.id, c.providerAccountId))
       .orderBy(sql`${c.updatedAt} DESC`);
     return rows.map((row) => {
       const ref = parseJson<{ jid?: string }>(row.externalRefJson, {});
@@ -406,13 +432,12 @@ export class PostgresCanonicalGraphRepository {
   ): Promise<string | undefined> {
     const rows = await executor
       .select({
-        providerConnectionId:
-          pgSchema.conversationsPostgres.providerConnectionId,
+        providerAccountId: pgSchema.conversationsPostgres.providerAccountId,
       })
       .from(pgSchema.conversationsPostgres)
       .where(eq(pgSchema.conversationsPostgres.id, conversationId))
       .limit(1);
-    return rows[0]?.providerConnectionId;
+    return rows[0]?.providerAccountId;
   }
 
   async listConversationIds(): Promise<string[]> {

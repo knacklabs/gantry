@@ -1,4 +1,3 @@
-import type { ExecutionProviderId } from './sessions/sessions.js';
 import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export type {
@@ -39,6 +38,17 @@ export interface ThinkingOverride {
   display?: 'summarized' | 'omitted';
 }
 
+export type AgentControlThinking =
+  | { mode: 'off'; budgetTokens?: never }
+  | { mode: 'on'; budgetTokens?: number };
+export type AgentControlEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface AgentControlOverrides {
+  effort?: AgentControlEffort;
+  thinking?: AgentControlThinking;
+  maxOutputTokens?: number;
+}
+
 export interface AllowedRoot {
   // Absolute path or ~ for home (e.g., "~/projects", "/var/repos")
   path: string;
@@ -62,6 +72,8 @@ export interface ConversationRoute {
   folder: string;
   trigger: string;
   added_at: string;
+  agentId?: string;
+  providerAccountId?: string;
   agentConfig?: AgentConfig;
   requiresTrigger?: boolean;
   conversationKind?: 'dm' | 'channel';
@@ -71,6 +83,8 @@ export interface NewMessage {
   id: string;
   chat_jid: string;
   provider?: string;
+  providerAccountId?: string;
+  agentId?: string;
   sender: string;
   sender_name: string;
   content: string;
@@ -89,6 +103,8 @@ export interface NewMessage {
     canonicalText: string;
     providerPayload?: unknown;
   };
+  responseSchema?: Record<string, unknown>;
+  agentControls?: AgentControlOverrides;
   attachments?: NewMessageAttachment[];
 }
 
@@ -106,6 +122,7 @@ export interface PermissionApprovalRequest {
   requestId: string;
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   responseNonce?: string;
   sourceAgentFolder: string;
   runHandle?: string;
@@ -198,6 +215,7 @@ export interface UserQuestionRequest {
   sourceAgentFolder: string;
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   jobId?: string;
   runId?: string;
   runLeaseToken?: string;
@@ -307,6 +325,7 @@ export interface RichInteractionRequest {
   sourceAgentFolder: string;
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   jobId?: string;
   runId?: string;
   targetJid?: string;
@@ -343,12 +362,14 @@ export interface InteractionDescriptor {
 
 export interface StreamingChunkOptions {
   threadId?: string;
+  providerAccountId?: string;
   done?: boolean;
   generation?: number;
 }
 
 export interface ProgressUpdateOptions {
   threadId?: string;
+  providerAccountId?: string;
   done?: boolean;
   replaceOnly?: boolean;
   generation?: number;
@@ -379,6 +400,7 @@ export type MessageActionCallbackInput =
   | {
       kind: 'live_turn_stop';
       conversationJid: string;
+      providerAccountId?: string;
       threadId?: string;
       userId?: string;
       actionToken?: string;
@@ -386,6 +408,7 @@ export type MessageActionCallbackInput =
   | {
       kind: 'scheduler_run_now';
       conversationJid: string;
+      providerAccountId?: string;
       threadId?: string;
       userId?: string;
       jobId: string;
@@ -398,6 +421,8 @@ export type OnMessageAction = (
 
 export interface MessageSendOptions {
   threadId?: string;
+  providerAccountId?: string;
+  agentId?: string;
   actionAffordances?: MessageActionAffordance[];
   files?: MessageFileAttachment[];
 }
@@ -439,6 +464,7 @@ export type OnChatMetadata = (
   name?: string,
   channel?: string,
   isGroup?: boolean,
+  options?: { providerAccountId?: string },
 ) => Promise<void>;
 
 export interface ChannelLifecyclePort {

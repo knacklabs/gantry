@@ -118,9 +118,14 @@ export function startGroupProgressHeartbeats(input: {
   getLastAgentProgressAt: () => number;
   getElapsedMs: () => number;
   chatJid: string;
+  providerAccountId?: string;
   groupName: string;
   channelRuntime: {
-    setTyping(jid: string, isTyping: boolean): Promise<void>;
+    setTyping(
+      jid: string,
+      isTyping: boolean,
+      options?: { providerAccountId?: string },
+    ): Promise<void>;
   };
   buildProgressOptions: () => ProgressUpdateOptions | undefined;
   sendProgressToChannel(
@@ -138,14 +143,17 @@ export function startGroupProgressHeartbeats(input: {
   let paused = false;
   const typingHeartbeatTimer = setInterval(() => {
     if (paused || !input.isTypingActive()) return;
-    void input.channelRuntime
-      .setTyping(input.chatJid, true)
-      .catch((err) =>
-        input.log.debug(
-          { err, group: input.groupName },
-          'Failed to refresh typing heartbeat',
-        ),
-      );
+    const typing = input.providerAccountId
+      ? input.channelRuntime.setTyping(input.chatJid, true, {
+          providerAccountId: input.providerAccountId,
+        })
+      : input.channelRuntime.setTyping(input.chatJid, true);
+    void typing.catch((err) =>
+      input.log.debug(
+        { err, group: input.groupName },
+        'Failed to refresh typing heartbeat',
+      ),
+    );
   }, TYPING_HEARTBEAT_INTERVAL_MS);
   return {
     typingHeartbeatTimer,

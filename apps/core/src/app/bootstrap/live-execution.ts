@@ -10,15 +10,18 @@ import type {
   AgentTodoRender,
 } from '../../domain/ports/task-lifecycle.js';
 import type { GroupMessageRunContext } from '../../runtime/group-queue-types.js';
+import type { GroupProcessOptions } from '../../runtime/group-processing-types.js';
 import type { RunLease } from '../../domain/ports/worker-coordination.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import type { ExecutionProviderId } from '../../domain/sessions/sessions.js';
-import type { NewMessage } from '../../domain/types.js';
+import type { ConversationRoute, NewMessage } from '../../domain/types.js';
 import type { ProcessRole } from './roles/process-role.js';
 import {
-  parseThreadQueueKey,
+  findConversationRouteForQueue,
+  parseAgentThreadQueueKey,
   makeThreadQueueKey,
 } from '../../shared/thread-queue-key.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type { LiveTurnAuthority } from '../../runtime/live-turn-authority.js';
 import type { LiveTurnLeaseDeps } from '../../application/live-turns/live-turn-lease-service.js';
@@ -37,14 +40,26 @@ import {
 } from '../../runtime/live-admission-work-loop.js';
 import { markPendingContinuationCommandsApplied } from './live-turn-continuation.js';
 import { routeScopeActiveLiveTurnAdmissionFromCursor } from './live-recovery-coordinator.js';
-import {
-  buildLiveTurnBrowserFinalizer,
-  type LiveTurnBrowserFinalizer,
-} from './live-turn-browser-finalizer.js';
+import { type LiveTurnBrowserFinalizer } from './live-turn-browser-finalizer.js';
 import { computeHostCapacityPlan } from '../../shared/host-capacity.js';
-
+import { type SessionCommand } from '../../session/session-commands.js';
+import { createActiveCompactRouteHandlers } from './runtime-services-active-compact.js';
 type WarnLog = (context: Record<string, unknown>, message: string) => void;
 type InfoLog = (obj: string | Record<string, unknown>, msg?: string) => void;
+export type ActiveControlRoute = {
+  folder: string;
+  trigger?: string;
+  conversationKind?: 'dm' | 'channel';
+  providerAccountId?: string;
+  agentConfig?: { model?: string };
+};
+export type ActiveControlCommandHandler = (args: {
+  chatJid: string;
+  queueJid: string;
+  group: ActiveControlRoute;
+  message: NewMessage;
+  command: SessionCommand;
+}) => Promise<boolean> | boolean;
 
 interface AdmissionOpsRepository {
   getAgentTurnContext?: (input: {
@@ -52,6 +67,7 @@ interface AdmissionOpsRepository {
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string | null;
     conversationKind?: 'channel' | 'dm';
     hydrateMemory: boolean;
   }) => Promise<
@@ -78,53 +94,25 @@ interface AdmissionOpsRepository {
     conversationJid: string,
     sinceCursor: string,
     limit?: number,
-    options?: { threadId?: string | null },
+    options?: { threadId?: string | null; providerAccountId?: string | null },
   ) => Promise<NewMessage[]>;
 }
 
 interface AdmissionApp {
-  getConversationRoutes(): Record<
-    string,
-    { folder: string; conversationKind?: 'channel' | 'dm' }
-  >;
+  getConversationRoutes(): Record<string, ConversationRoute>;
+  resolveExecutionProviderId?: (
+    route: ConversationRoute,
+    chatJid: string,
+  ) => Promise<ExecutionProviderId> | ExecutionProviderId;
   processGroupMessages: (
     queueJid: string,
-    options: {
-      queued: boolean;
-      existingRunId?: string;
-      existingRunLeaseToken?: string;
-      existingRunLeaseWorkerInstanceId?: string;
-      existingRunLeaseFencingVersion?: number;
-      finalRetry?: boolean;
-      onRunResult?: (result: 'success' | 'error' | 'stopped' | null) => void;
-      onFirstProgress?: (input: {
-        jid: string;
-        messageRef: string;
-      }) => Promise<void> | void;
-      onLiveStopActionToken?: (token: string) => Promise<void> | void;
-    },
+    options: GroupProcessOptions & { queued: boolean },
   ) => Promise<boolean>;
   getOrRecoverCursor: (queueJid: string) => Promise<string>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
 }
 
-/**
- * Build the GroupQueue message processor. With WP2 horizontal execution EVERY
- * live worker runs this — there is no live-host lease gate on admission. The
- * durable one-active-turn-per-scope claim (`uq_live_turns_active_scope`) is the
- * serialization point: when two pollers race the same scope, the loser sees
- * `scope_active` and routes its message to the durable owner inbox instead of
- * starting a second run.
- *
- * Orphan-run avoidance (WP2): N pollers racing the same scope must not each mint
- * a `running` agent_run row that loses the claim. We do a cheap
- * `getActiveLiveTurn(scope)` pre-check BEFORE creating the run; if a turn is
- * already active, the continuation routes WITHOUT creating a run row. The
- * residual race (claimed between pre-check and claim) is cleaned up by
- * terminal-marking the just-created run on a non-`claimed` admission outcome, so
- * no non-terminal orphan run rows survive a lost race.
- */
 export function buildLiveAdmissionProcessor(input: {
   liveTurnAuthority: LiveTurnAuthority | undefined;
   app: AdmissionApp;
@@ -138,6 +126,7 @@ export function buildLiveAdmissionProcessor(input: {
     jid: string,
     messageRef: string,
     emoji: string,
+    options?: { providerAccountId?: string },
   ) => Promise<void>;
   finalizeAgentTodo?: (
     jid: string,
@@ -146,8 +135,10 @@ export function buildLiveAdmissionProcessor(input: {
       cardKind?: AgentTodoRender['cardKind'];
       status: AgentTodoCardStatus;
     },
+    options?: { providerAccountId?: string },
   ) => Promise<boolean>;
   finalizeBrowserForLiveTurn?: LiveTurnBrowserFinalizer;
+  handleActiveControlCommand?: ActiveControlCommandHandler;
 }): (queueJid: string, context?: GroupMessageRunContext) => Promise<boolean> {
   const {
     liveTurnAuthority,
@@ -168,6 +159,7 @@ export function buildLiveAdmissionProcessor(input: {
     chatJid: string,
     threadId: string | null,
     replayCursor: string,
+    route: ActiveControlRoute,
   ): Promise<boolean> =>
     routeScopeActiveLiveTurnAdmissionFromCursor({
       scope,
@@ -182,6 +174,12 @@ export function buildLiveAdmissionProcessor(input: {
       setAgentCursor: app.setAgentCursor,
       saveState: app.saveState,
       enqueueMessageCheck: input.enqueueMessageCheck,
+      ...createActiveCompactRouteHandlers({
+        route,
+        chatJid,
+        queueJid,
+        handleActiveControlCommand: input.handleActiveControlCommand,
+      }),
       routeMessage: liveTurnAuthority!.routeMessage.bind(liveTurnAuthority),
       completeSessionAgentRun:
         opsRepository.completeSessionAgentRun?.bind(opsRepository),
@@ -197,19 +195,38 @@ export function buildLiveAdmissionProcessor(input: {
         finalRetry: context?.finalRetry === true,
       });
     }
-    const { chatJid, threadId } = parseThreadQueueKey(queueJid);
+    const { chatJid, threadId, providerAccountId } =
+      parseAgentThreadQueueKey(queueJid);
+    const account = providerAccountId ? { providerAccountId } : undefined;
+    const finalizeTodo = (
+      status: AgentTodoCardStatus,
+      message: string,
+    ): Promise<unknown> =>
+      finalizeAgentTodo
+        ? finalizeAgentTodo(
+            chatJid,
+            { threadId: threadId ?? null, status },
+            account,
+          ).catch((todoErr) => warn({ err: todoErr, queueJid }, message))
+        : Promise.resolve(false);
     let liveRunId = liveTurnAuthority.ownedRunId(queueJid) ?? undefined;
     let liveRunFence = liveTurnAuthority.ownedFence(queueJid);
     if (!liveTurnAuthority.ownsQueue(queueJid)) {
-      const route = app.getConversationRoutes()[chatJid];
+      const route = findConversationRouteForQueue(
+        app.getConversationRoutes(),
+        queueJid,
+        (candidate) => agentIdForFolder(candidate.folder),
+      );
       if (!route) return false;
       const executionProviderId =
+        (await app.resolveExecutionProviderId?.(route, chatJid)) ??
         resolveRuntimeExecutionProviderId(executionAdapter);
       const turnContext = await opsRepository.getAgentTurnContext?.({
         agentFolder: route.folder,
         executionProviderId,
         conversationJid: chatJid,
         threadId: threadId ?? null,
+        providerAccountId: providerAccountId ?? null,
         conversationKind: route.conversationKind,
         hydrateMemory: false,
       });
@@ -233,6 +250,7 @@ export function buildLiveAdmissionProcessor(input: {
           chatJid,
           threadId ?? null,
           replayCursor,
+          route,
         );
       }
       liveRunId = await opsRepository.createSessionAgentRun?.({
@@ -265,6 +283,7 @@ export function buildLiveAdmissionProcessor(input: {
             chatJid,
             threadId ?? null,
             replayCursor,
+            route,
           );
         }
         // no_capacity / lease_unavailable: terminal-mark the orphan run. The
@@ -297,7 +316,9 @@ export function buildLiveAdmissionProcessor(input: {
           liveRunResult = result;
         },
         onFirstProgress: ({ jid, messageRef }) =>
-          input.addReaction?.(jid, messageRef, 'seen').catch(() => undefined),
+          input
+            .addReaction?.(jid, messageRef, 'seen', account)
+            .catch(() => undefined),
         onLiveStopActionToken: async (token) => {
           await liveTurnAuthority.registerStopAliases(queueJid, [token]);
         },
@@ -306,6 +327,11 @@ export function buildLiveAdmissionProcessor(input: {
         success && (liveRunResult === 'success' || liveRunResult === null);
       const terminalHandled =
         terminalSuccess || (success && liveRunResult === 'stopped');
+      const todoStatus = terminalSuccess
+        ? 'done'
+        : liveRunResult === 'stopped'
+          ? 'stopped'
+          : 'failed';
       // Snapshot the browser profile (if used) BEFORE finalizing the live turn,
       // while this worker still owns the run lease fence.
       await finalizeBrowserForLiveTurn?.({
@@ -331,20 +357,11 @@ export function buildLiveAdmissionProcessor(input: {
                 }),
         },
       );
-      if (finalized && finalizeAgentTodo) {
-        await finalizeAgentTodo(chatJid, {
-          threadId: threadId ?? null,
-          status: terminalSuccess
-            ? 'done'
-            : liveRunResult === 'stopped'
-              ? 'stopped'
-              : 'failed',
-        }).catch((todoErr) => {
-          warn(
-            { err: todoErr, queueJid },
-            'Failed to finalize live-turn todo card',
-          );
-        });
+      if (finalized) {
+        await finalizeTodo(
+          todoStatus,
+          'Failed to finalize live-turn todo card',
+        );
       }
       return terminalHandled && finalized;
     } catch (err) {
@@ -373,16 +390,11 @@ export function buildLiveAdmissionProcessor(input: {
           return false;
         });
       void finalized;
-      if (finalized && finalizeAgentTodo) {
-        await finalizeAgentTodo(chatJid, {
-          threadId: threadId ?? null,
-          status: 'failed',
-        }).catch((todoErr) => {
-          warn(
-            { err: todoErr, queueJid },
-            'Failed to finalize live-turn todo card after message processing error',
-          );
-        });
+      if (finalized) {
+        await finalizeTodo(
+          'failed',
+          'Failed to finalize live-turn todo card after message processing error',
+        );
       }
       throw err;
     }
@@ -400,12 +412,6 @@ export interface LiveExecutionServicesHandle {
   recoveryLoop: LiveTurnRecoveryLoop | undefined;
 }
 
-/**
- * Hooks for the waiting-status monitor (a sibling of the recovery coordinator).
- * Started/stopped in lockstep with the coordinator so detection + sends happen
- * on exactly one worker. Absent ⇒ the monitor is not started (tests / processes
- * with no waiting-status delivery wired).
- */
 export interface WaitingStatusCoordination {
   /** Start the monitor; returns a handle with stop + oldest-age accessor. */
   start: () => { stop: () => void; oldestWaitingSeconds: () => number };
@@ -464,6 +470,7 @@ export function startLiveExecutionServices(input: {
     jid: string,
     messageRef: string,
     emoji: string,
+    options?: { providerAccountId?: string },
   ) => Promise<void>;
 }): LiveExecutionServicesHandle {
   const {
@@ -629,10 +636,16 @@ async function resumeRecoveredTurn(input: {
 }): Promise<void> {
   const { turn, lease, app, liveTurnAuthority, liveTurnLeaseDeps, warn } =
     input;
-  const queueJid = makeThreadQueueKey(
-    turn.conversationId,
-    turn.threadId ?? undefined,
-  );
+  const pendingMessage =
+    turn.pendingMessage &&
+    typeof turn.pendingMessage === 'object' &&
+    !Array.isArray(turn.pendingMessage)
+      ? turn.pendingMessage
+      : null;
+  const queueJid =
+    typeof pendingMessage?.queueJid === 'string'
+      ? pendingMessage.queueJid
+      : makeThreadQueueKey(turn.conversationId, turn.threadId ?? undefined);
   liveTurnAuthority.adoptRecoveredTurn({
     queueJid,
     turn,
@@ -642,12 +655,6 @@ async function resumeRecoveredTurn(input: {
       fencingVersion: lease.fencingVersion,
     },
   });
-  const pendingMessage =
-    turn.pendingMessage &&
-    typeof turn.pendingMessage === 'object' &&
-    !Array.isArray(turn.pendingMessage)
-      ? turn.pendingMessage
-      : null;
   const replayQueueJid =
     pendingMessage?.queueJid === queueJid ? queueJid : null;
   const cursorBefore =

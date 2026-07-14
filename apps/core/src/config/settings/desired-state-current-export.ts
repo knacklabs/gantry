@@ -1,9 +1,6 @@
 import type { AppId } from '../../domain/app/app.js';
 import type { Conversation } from '../../domain/conversation/conversation.js';
-import type {
-  AgentConversationBinding,
-  ProviderConnection,
-} from '../../domain/provider/provider.js';
+import type { ProviderAccount } from '../../domain/provider/provider.js';
 import {
   configuredBindingId,
   configuredConversationId,
@@ -30,7 +27,7 @@ import type {
   RuntimeConfiguredAgent,
   RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
-  RuntimeProviderConnectionSettings,
+  RuntimeProviderAccountSettings,
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
@@ -44,8 +41,7 @@ export async function exportCurrentDesiredState(input: {
   const groups = await deps.ops.getAllConversationRoutes();
   const agents: Record<string, RuntimeConfiguredAgent> = {};
   const providers: Record<string, RuntimeProviderSettings> = {};
-  const providerConnections: Record<string, RuntimeProviderConnectionSettings> =
-    {};
+  const providerAccounts: Record<string, RuntimeProviderAccountSettings> = {};
   const conversations: Record<string, RuntimeConfiguredConversation> = {};
   const bindings: Record<string, RuntimeConfiguredBinding> = {};
 
@@ -67,7 +63,7 @@ export async function exportCurrentDesiredState(input: {
     mcpBindingRows,
     toolCatalogRows,
     skillCatalogRows,
-    storedProviderConnections,
+    storedProviderAccounts,
     storedConversationBindings,
     storedConversations,
   ] = await Promise.all([
@@ -98,13 +94,11 @@ export async function exportCurrentDesiredState(input: {
       appId,
       statuses: ['installed'],
     }),
-    deps.repositories.providerConnections?.listProviderConnections
-      ? deps.repositories.providerConnections.listProviderConnections(appId)
+    deps.repositories.providerAccounts?.listProviderAccounts
+      ? deps.repositories.providerAccounts.listProviderAccounts(appId)
       : Promise.resolve([]),
-    deps.repositories.providerConnections?.listAgentConversationBindings
-      ? deps.repositories.providerConnections.listAgentConversationBindings(
-          appId,
-        )
+    deps.repositories.providerAccounts?.listConversationInstalls
+      ? deps.repositories.providerAccounts.listConversationInstalls(appId)
       : Promise.resolve([]),
     deps.repositories.conversations
       ? deps.repositories.conversations.listConversations({ appId })
@@ -125,9 +119,23 @@ export async function exportCurrentDesiredState(input: {
     const externalId = conversation.externalRef?.value?.trim();
     if (!externalId) continue;
     storedConversationsByExternal.set(
-      storedConversationKey(conversation.providerConnectionId, externalId),
+      storedConversationKey(conversation.providerAccountId, externalId),
       conversation,
     );
+  }
+  const publicThreadIdsByCanonicalId = new Map<string, string>();
+  if (typeof deps.repositories.conversations?.listThreads === 'function') {
+    const storedThreads = await Promise.all(
+      storedConversations.map((conversation) =>
+        deps.repositories.conversations!.listThreads(conversation.id),
+      ),
+    );
+    for (const thread of storedThreads.flat()) {
+      const publicThreadId = thread.externalRef?.value?.trim();
+      if (publicThreadId) {
+        publicThreadIdsByCanonicalId.set(thread.id, publicThreadId);
+      }
+    }
   }
   const storedApproversByConversation = groupByConversationId(
     deps.repositories.conversations
@@ -137,41 +145,45 @@ export async function exportCurrentDesiredState(input: {
       : [],
   );
 
-  for (const connection of storedProviderConnections.filter(
-    (connection) =>
-      connection.status === 'active' &&
-      !isInternalAppControlProviderConnection(connection),
+  for (const connection of storedProviderAccounts.filter(
+    (connection) => !isInternalAppControlProviderAccount(connection),
   )) {
     const providerId = connection.providerId as string;
+    const agentFolder =
+      folderForAgentId(connection.agentId) ?? String(connection.agentId);
     const connectionId = connection.id as string;
-    providerConnections[connectionId] = {
+    providerAccounts[connectionId] = {
+      agentId: agentFolder,
       provider: providerId,
       label: connection.label,
+      status: connection.status,
       runtimeSecretRefs: runtimeSecretRefsForConnection(connection),
+      externalIdentityRef: connection.externalIdentityRef,
+      config: Object.fromEntries(
+        Object.entries(connection.config).filter(
+          (entry): entry is [string, string] => typeof entry[1] === 'string',
+        ),
+      ),
     };
-    const existingProvider = settings.providers[providerId];
     providers[providerId] = {
-      enabled: true,
-      defaultConnection:
-        existingProvider?.defaultConnection &&
-        providerConnections[existingProvider.defaultConnection]
-          ? existingProvider.defaultConnection
-          : (providers[providerId]?.defaultConnection ?? connectionId),
+      enabled:
+        providers[providerId]?.enabled === true ||
+        connection.status === 'active',
     };
   }
 
   for (const conversation of storedConversations.filter(
     (conversation) => conversation.status === 'active',
   )) {
-    const providerConnectionId = conversation.providerConnectionId as string;
-    const connection = providerConnections[providerConnectionId];
+    const providerAccountId = conversation.providerAccountId as string;
+    const connection = providerAccounts[providerAccountId];
     if (!connection) continue;
     const externalId =
       conversation.externalRef?.value?.trim() ||
       String(conversation.id).replace(/^conversation:/, '');
     const conversationId =
       configuredConversationId({
-        providerConnectionId,
+        providerConnectionId: providerAccountId,
         externalId,
         conversations: settings.conversations,
       }) ??
@@ -184,7 +196,8 @@ export async function exportCurrentDesiredState(input: {
       storedApproversByConversation.get(conversation.id) ?? []
     ).map((approver) => approver.externalUserId);
     conversations[conversationId] = {
-      providerConnection: providerConnectionId,
+      providerConnection: providerAccountId,
+      providerAccount: providerAccountId,
       externalId,
       kind: conversation.kind,
       displayName:
@@ -192,6 +205,7 @@ export async function exportCurrentDesiredState(input: {
         conversation.title ??
         externalId ??
         String(conversation.id),
+      brainHarvest: existingConversation?.brainHarvest ?? false,
       senderPolicy: existingConversation?.senderPolicy ?? {
         allow: '*',
         mode: 'trigger',
@@ -199,6 +213,7 @@ export async function exportCurrentDesiredState(input: {
       controlApprovers: [...new Set(storedApprovers)].sort((a, b) =>
         a.localeCompare(b),
       ),
+      installedAgents: existingConversation?.installedAgents ?? {},
     };
   }
 
@@ -213,6 +228,12 @@ export async function exportCurrentDesiredState(input: {
       relationshipMode: existing?.relationshipMode ?? 'personal',
       model: existing?.model,
       agentHarness: existing?.agentHarness,
+      runtime: existing?.runtime === 'inline' ? 'inline' : undefined,
+      maxTurns: existing?.maxTurns,
+      maxRunTokens: existing?.maxRunTokens,
+      effort: existing?.effort,
+      thinking: existing?.thinking,
+      maxOutputTokens: existing?.maxOutputTokens,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: existing?.bindings ?? {},
@@ -238,7 +259,7 @@ export async function exportCurrentDesiredState(input: {
     storedConversations.map((conversation) => [conversation.id, conversation]),
   );
   for (const binding of storedConversationBindings.filter(
-    (binding) => binding.status === 'active' && !binding.threadId,
+    (binding) => binding.status === 'active',
   )) {
     const folder = folderForAgentId(binding.agentId);
     if (!folder) continue;
@@ -251,39 +272,86 @@ export async function exportCurrentDesiredState(input: {
       String(storedConversation.id).replace(/^conversation:/, '');
     const conversationId =
       configuredConversationId({
-        providerConnectionId: binding.providerConnectionId as string,
+        providerConnectionId: binding.providerAccountId as string,
         externalId,
         conversations,
       }) ??
       configuredConversationId({
-        providerConnectionId: binding.providerConnectionId as string,
+        providerConnectionId: binding.providerAccountId as string,
         externalId,
         conversations: settings.conversations,
       });
     if (!conversationId) continue;
-    const existingBindingId = configuredBindingId({
-      agent: folder,
-      conversationId,
-      bindings: settings.bindings,
-    });
+    const canonicalThreadId =
+      typeof binding.threadId === 'string' && binding.threadId.trim()
+        ? binding.threadId.trim()
+        : undefined;
+    const threadId = canonicalThreadId
+      ? (publicThreadIdsByCanonicalId.get(canonicalThreadId) ??
+        publicThreadIdFromCanonical({
+          canonicalThreadId,
+          providerAccountId: binding.providerAccountId as string,
+          externalId,
+        }))
+      : undefined;
+    const existingBindingId = threadId
+      ? Object.entries(settings.bindings).find(
+          ([, candidate]) =>
+            candidate.agent === folder &&
+            candidate.conversation === conversationId &&
+            candidate.threadId === threadId,
+        )?.[0]
+      : configuredBindingId({
+          agent: folder,
+          conversationId,
+          bindings: settings.bindings,
+        });
     const bindingId =
       existingBindingId ??
-      stableSettingsId(`${folder}_${conversationId}`, bindings);
+      stableSettingsId(
+        threadId
+          ? `${folder}_${conversationId}_${threadId}`
+          : `${folder}_${conversationId}`,
+        bindings,
+      );
     const existingBinding = existingBindingId
       ? settings.bindings[existingBindingId]
       : undefined;
+    const route = binding.memorySubject?.route;
+    const requiresTrigger =
+      route?.requiresTrigger ??
+      existingBinding?.requiresTrigger ??
+      defaultRequiresTriggerForConversationKind(storedConversation.kind);
+    const routeAgentConfig =
+      route?.agentConfig &&
+      typeof route.agentConfig === 'object' &&
+      !Array.isArray(route.agentConfig)
+        ? (route.agentConfig as { model?: unknown })
+        : undefined;
     bindings[bindingId] = {
       agent: folder,
       conversation: conversationId,
-      trigger: nonEmptyTrigger(
-        binding.triggerPattern,
-        existingBinding?.trigger,
-        defaultTriggerForExportedAgent(folder, agents[folder]),
-      ),
+      trigger: nonEmptyTrigger(route?.trigger ?? existingBinding?.trigger),
       addedAt: binding.createdAt,
-      requiresTrigger: binding.requiresTrigger,
-      memoryScope: runtimeMemoryScope(binding.memoryScope),
-      model: existingBinding?.model,
+      requiresTrigger,
+      memoryScope: binding.memoryScope,
+      model:
+        typeof routeAgentConfig?.model === 'string'
+          ? routeAgentConfig.model
+          : existingBinding?.model,
+    };
+    conversations[conversationId].installedAgents[
+      threadId ? `${folder}_${threadId}` : folder
+    ] = {
+      agentId: folder,
+      providerAccountId: binding.providerAccountId as string,
+      threadId,
+      status: binding.status,
+      addedAt: binding.createdAt,
+      memoryScope: binding.memoryScope,
+      trigger: bindings[bindingId].trigger,
+      requiresTrigger,
+      model: bindings[bindingId].model,
     };
   }
 
@@ -312,17 +380,29 @@ export async function exportCurrentDesiredState(input: {
     const existing = agents[folder] ?? settings.agents[folder];
     const provider = providerInfoForJid(jid);
     const providerId = provider?.id ?? 'app';
+    const groupProviderAccountId =
+      typeof group.providerAccountId === 'string' &&
+      group.providerAccountId.trim()
+        ? group.providerAccountId.trim()
+        : undefined;
     const connectionId =
-      providers[providerId]?.defaultConnection ??
-      settings.providers[providerId]?.defaultConnection ??
+      groupProviderAccountId ??
+      Object.entries(providerAccounts).find(
+        ([, account]) =>
+          account.provider === providerId && account.agentId === folder,
+      )?.[0] ??
+      Object.entries(settings.providerAccounts).find(
+        ([, account]) =>
+          account.provider === providerId && account.agentId === folder,
+      )?.[0] ??
       `${providerId}_default`;
     const externalId = stripProviderPrefix(jid);
     const kind = provider?.isGroupJid(jid) ? 'group' : 'dm';
     providers[providerId] = {
       enabled: true,
-      defaultConnection: connectionId,
     };
-    providerConnections[connectionId] ??= {
+    providerAccounts[connectionId] ??= {
+      agentId: folder,
       provider: providerId,
       label: provider?.label ?? providerId,
       runtimeSecretRefs: defaultRuntimeSecretRefs(providerId),
@@ -355,9 +435,11 @@ export async function exportCurrentDesiredState(input: {
       : storedApprovers;
     conversations[conversationId] = {
       providerConnection: connectionId,
+      providerAccount: connectionId,
       externalId,
       kind,
       displayName: existingConversation?.displayName ?? group.name,
+      brainHarvest: existingConversation?.brainHarvest ?? false,
       senderPolicy: existingConversation?.senderPolicy ?? {
         allow: '*',
         mode: 'trigger',
@@ -365,6 +447,7 @@ export async function exportCurrentDesiredState(input: {
       controlApprovers: [...new Set(controlApprovers)].sort((a, b) =>
         a.localeCompare(b),
       ),
+      installedAgents: existingConversation?.installedAgents ?? {},
     };
     dedupeConfiguredConversation({
       canonicalId: conversationId,
@@ -388,6 +471,16 @@ export async function exportCurrentDesiredState(input: {
       memoryScope: 'conversation',
       model: group.agentConfig?.model,
     };
+    conversations[conversationId].installedAgents[folder] = {
+      agentId: folder,
+      providerAccountId: connectionId,
+      status: 'active',
+      addedAt: group.added_at,
+      memoryScope: 'conversation',
+      trigger: group.trigger,
+      requiresTrigger: group.requiresTrigger !== false,
+      model: group.agentConfig?.model,
+    };
     const bindingId = stableBindingId(jid, existing?.bindings ?? {});
     agents[folder] = {
       name: existing?.name ?? group.name,
@@ -399,6 +492,12 @@ export async function exportCurrentDesiredState(input: {
         'personal',
       model: existing?.model ?? group.agentConfig?.model,
       agentHarness: existing?.agentHarness,
+      runtime: existing?.runtime === 'inline' ? 'inline' : undefined,
+      maxTurns: existing?.maxTurns,
+      maxRunTokens: existing?.maxRunTokens,
+      effort: existing?.effort,
+      thinking: existing?.thinking,
+      maxOutputTokens: existing?.maxOutputTokens,
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: {
@@ -429,22 +528,22 @@ export async function exportCurrentDesiredState(input: {
   return {
     ...settings,
     providers,
-    providerConnections,
+    providerAccounts,
     conversations,
     bindings,
     agents,
   };
 }
 
-function isInternalAppControlProviderConnection(
-  connection: ProviderConnection,
+function isInternalAppControlProviderAccount(
+  connection: ProviderAccount,
 ): boolean {
   const providerId = String(connection.providerId);
   return providerId === 'app' || providerId === 'control-http';
 }
 
 function runtimeSecretRefsForConnection(
-  connection: ProviderConnection,
+  connection: ProviderAccount,
 ): Record<string, string> {
   return Object.fromEntries(
     Object.entries(connection.runtimeSecretRefs).sort(([a], [b]) =>
@@ -453,23 +552,27 @@ function runtimeSecretRefsForConnection(
   );
 }
 
-function runtimeMemoryScope(
-  value: AgentConversationBinding['memoryScope'],
-): RuntimeConfiguredBinding['memoryScope'] {
-  return value === 'app' ? 'agent' : value;
-}
-
 function nonEmptyTrigger(...candidates: Array<string | undefined>): string {
   for (const candidate of candidates) {
     const trimmed = candidate?.trim();
     if (trimmed) return trimmed;
   }
-  return '@agent';
+  return '';
 }
 
-function defaultTriggerForExportedAgent(
-  folder: string,
-  agent?: RuntimeConfiguredAgent,
-): string {
-  return `@${(agent?.name || folder).trim() || 'agent'}`;
+function publicThreadIdFromCanonical(input: {
+  canonicalThreadId: string;
+  providerAccountId: string;
+  externalId: string;
+}): string {
+  const prefix = `thread:${input.providerAccountId}:${input.externalId}:`;
+  return input.canonicalThreadId.startsWith(prefix)
+    ? input.canonicalThreadId.slice(prefix.length)
+    : input.canonicalThreadId;
+}
+
+function defaultRequiresTriggerForConversationKind(
+  kind: Conversation['kind'],
+): boolean {
+  return kind !== 'direct';
 }

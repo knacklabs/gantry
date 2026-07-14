@@ -28,6 +28,7 @@ export async function startTestControlServer(input: {
   routeProfile?: 'full' | 'ops';
   processRole?: 'all' | 'control' | 'live-worker' | 'job-worker';
   liveExecution?: boolean;
+  liveTurnsEnabled?: boolean;
 }) {
   const port = await reserveControlPort();
   process.env.GANTRY_CONTROL_PORT = String(port);
@@ -47,6 +48,9 @@ export async function startTestControlServer(input: {
     ...(input.processRole ? { processRole: input.processRole } : {}),
     ...(input.liveExecution !== undefined
       ? { liveExecution: input.liveExecution }
+      : {}),
+    ...(input.liveTurnsEnabled !== undefined
+      ? { liveTurnsEnabled: input.liveTurnsEnabled }
       : {}),
   });
   await waitForControlPort(port);

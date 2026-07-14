@@ -6,10 +6,16 @@ export const LIVE_SEND_PROFILE_ID = 'runtime.live_send.v1';
 const PREFIX_SL = 'sl:';
 const PREFIX_TG = 'tg:';
 
-export function canonicalConversationIdForJid(jid: string): string {
+export function canonicalConversationIdForJid(
+  jid: string,
+  providerAccountId?: string,
+): string {
   const appSession = parseAppSessionJid(jid);
   if (appSession) {
     return `${CONTROL_CONVERSATION_PREFIX}${appSession.appId}:conversation:${appSession.externalConversationId}`;
+  }
+  if (providerAccountId) {
+    return `${CANONICAL_CONVERSATION_PREFIX}${providerAccountId}:${jid}`;
   }
   return `${CANONICAL_CONVERSATION_PREFIX}${jid}`;
 }
@@ -17,6 +23,7 @@ export function canonicalConversationIdForJid(jid: string): string {
 export function resolveDurableOutboundTarget(input: {
   defaultAppId: string;
   jid: string;
+  providerAccountId?: string;
 }): { appId: string; conversationId: string } {
   const appSession = parseAppSessionJid(input.jid);
   if (appSession) {
@@ -27,20 +34,28 @@ export function resolveDurableOutboundTarget(input: {
   }
   return {
     appId: input.defaultAppId,
-    conversationId: canonicalConversationIdForJid(input.jid),
+    conversationId: canonicalConversationIdForJid(
+      input.jid,
+      input.providerAccountId,
+    ),
   };
 }
 
 export function canonicalThreadIdFor(input: {
   jid: string;
   threadId?: string;
+  providerAccountId?: string;
 }): string | undefined {
   const normalized = input.threadId?.trim();
-  return normalized ? `thread:${input.jid}:${normalized}` : undefined;
+  if (!normalized) return undefined;
+  return input.providerAccountId && !parseAppSessionJid(input.jid)
+    ? `thread:${input.providerAccountId}:${input.jid}:${normalized}`
+    : `thread:${input.jid}:${normalized}`;
 }
 
 function providerJidFromCanonicalConversationId(
   rawConversationId: unknown,
+  canonicalConversationJid?: string,
 ): string | null {
   if (typeof rawConversationId !== 'string') return null;
   const conversationId = rawConversationId.trim();
@@ -48,10 +63,21 @@ function providerJidFromCanonicalConversationId(
   const providerJid = conversationId
     .slice(CANONICAL_CONVERSATION_PREFIX.length)
     .trim();
+  const expectedJid = canonicalConversationJid?.trim();
+  if (expectedJid) {
+    if (providerJid === expectedJid) return expectedJid;
+    const expectedStart = providerJid.lastIndexOf(`:${expectedJid}`);
+    if (expectedStart >= 0) {
+      return providerJid.slice(expectedStart + 1).trim() || null;
+    }
+  }
   return providerJid || null;
 }
 
-function providerJidFromDestinationHint(rawHint: unknown): {
+function providerJidFromDestinationHint(
+  rawHint: unknown,
+  canonicalConversationJid?: string,
+): {
   providerJid?: string;
   malformedCanonicalHint: boolean;
 } {
@@ -59,7 +85,10 @@ function providerJidFromDestinationHint(rawHint: unknown): {
   const hint = rawHint.trim();
   if (!hint) return { malformedCanonicalHint: false };
   if (hint.startsWith(CANONICAL_CONVERSATION_PREFIX)) {
-    const providerJid = providerJidFromCanonicalConversationId(hint);
+    const providerJid = providerJidFromCanonicalConversationId(
+      hint,
+      canonicalConversationJid,
+    );
     if (!providerJid) {
       return { malformedCanonicalHint: true };
     }
@@ -75,7 +104,10 @@ export function normalizeDestinationHintAgainstCanonical(
   providerJid?: string;
   malformedCanonicalHint: boolean;
 } {
-  const parsed = providerJidFromDestinationHint(rawHint);
+  const parsed = providerJidFromDestinationHint(
+    rawHint,
+    canonicalConversationJid,
+  );
   if (parsed.malformedCanonicalHint || !parsed.providerJid) {
     return parsed;
   }

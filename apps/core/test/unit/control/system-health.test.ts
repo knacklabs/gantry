@@ -228,7 +228,7 @@ function makeMetricsDeps(overrides: Partial<MetricsDeps> = {}): MetricsDeps {
           { status: 'draining', count: 1 },
         ] as never[];
       }
-      if (sql.includes('pgboss.job')) {
+      if (sql.includes('"pgboss".job')) {
         return [
           { state: 'created', count: 5 },
           { state: 'active', count: 1 },

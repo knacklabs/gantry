@@ -21,10 +21,13 @@ export async function renderSlackAgentTodo(input: {
   jid: string;
   channelId: string;
   render: AgentTodoRender;
+  providerAccountId?: string;
   todoKey: string;
   pendingTodos: Map<string, { channel: string; ts: string }>;
 }): Promise<boolean> {
-  const blocks = buildAgentTodoBlocks(input.render);
+  const blocks = buildAgentTodoBlocks(input.render, {
+    providerAccountId: input.providerAccountId,
+  });
   const title = formatAgentTodoHeader(input.render);
   const text = hasAgentTodoCardHeader(input.render) ? title : `📋 ${title}`;
   const threadTs = slackThreadTsFromThreadId(input.render.threadId);

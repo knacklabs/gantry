@@ -2,6 +2,7 @@ import type { NewMessage } from '../types.js';
 
 export interface ConversationContextHydrationRequest {
   conversationJid: string;
+  providerAccountId?: string | null;
   threadId?: string | null;
   latestMessage: Pick<
     NewMessage,

@@ -13,17 +13,19 @@ function truncateSlackButtonLabel(label: string): string {
   return `${trimmed.slice(0, 72)}...`;
 }
 
-function slackActionValue(action: MessageActionAffordance): string | undefined {
-  const value =
-    action.kind === 'live_turn_stop'
-      ? JSON.stringify({ kind: action.kind, actionToken: action.actionToken })
-      : SCHEDULER_ACTION_KINDS.has(action.kind)
-        ? JSON.stringify({
-            kind: action.kind,
-            jobId: action.jobId,
-            runId: action.runId ?? null,
-          })
-        : undefined;
+function slackActionValue(
+  action: MessageActionAffordance,
+  providerAccountId?: string,
+): string | undefined {
+  if (action.kind === 'live_turn_stop') return undefined;
+  const value = SCHEDULER_ACTION_KINDS.has(action.kind)
+    ? JSON.stringify({
+        kind: action.kind,
+        jobId: action.jobId,
+        runId: action.runId ?? null,
+        ...(providerAccountId ? { providerAccountId } : {}),
+      })
+    : undefined;
   if (!value) return undefined;
   return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
     ? value
@@ -33,11 +35,11 @@ function slackActionValue(action: MessageActionAffordance): string | undefined {
 export function slackMessageActionBlocks(
   text: string,
   actions?: MessageActionAffordance[],
-  options: { actionOnly?: boolean } = {},
+  options: { actionOnly?: boolean; providerAccountId?: string } = {},
 ): Array<Record<string, unknown>> | undefined {
   const elements = (actions ?? [])
     .map((action) => {
-      const value = slackActionValue(action);
+      const value = slackActionValue(action, options.providerAccountId);
       if (!value) return null;
       return {
         type: 'button',
@@ -46,8 +48,7 @@ export function slackMessageActionBlocks(
           type: 'plain_text',
           text: truncateSlackButtonLabel(action.label),
         },
-        ...(action.kind === 'scheduler_pause_job' ||
-        action.kind === 'live_turn_stop'
+        ...(action.kind === 'scheduler_pause_job'
           ? { style: 'danger' as const }
           : {}),
         value,

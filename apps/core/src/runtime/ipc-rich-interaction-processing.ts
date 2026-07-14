@@ -21,7 +21,13 @@ export async function processRichInteractionIpc(input: {
     const targetJid = input.request.targetJid;
     if (!targetJid) throw new Error('Rich interaction target is missing');
     const delivered = input.deps.renderRichInteraction
-      ? await input.deps.renderRichInteraction(targetJid, input.request)
+      ? await input.deps.renderRichInteraction(
+          targetJid,
+          input.request,
+          input.request.providerAccountId
+            ? { providerAccountId: input.request.providerAccountId }
+            : undefined,
+        )
       : false;
     if (!delivered) {
       await sendRichInteractionFallback(input.deps, input.request);
@@ -61,6 +67,9 @@ async function sendRichInteractionFallback(
     `${RICH_INTERACTION_NATIVE_FALLBACK_TEXT}\n\n${request.descriptor.rich?.fallbackText ?? request.descriptor.fallbackText ?? ''}`.trim(),
     {
       ...(request.threadId ? { threadId: request.threadId } : {}),
+      ...(request.providerAccountId
+        ? { providerAccountId: request.providerAccountId }
+        : {}),
     },
   );
 }

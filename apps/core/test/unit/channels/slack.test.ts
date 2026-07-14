@@ -135,6 +135,7 @@ import { createSlackChannel, SlackChannel } from '@core/channels/slack.js';
 import { configurePendingInteractionDurability } from '@core/application/interactions/pending-interaction-durability.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { slackRateLimitRetryDelayMs } from '@core/channels/slack/channel-retry-delay.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import {
   buildPermissionPromptContentBlocks,
   buildPermissionReceiptBlocks,
@@ -151,16 +152,21 @@ function createOpts(
   return {
     onMessage: vi.fn(),
     onChatMetadata: vi.fn(),
+    providerAccountId: 'slack_default',
     conversationRoutes: vi.fn(() => ({})),
     runtimeSettings: vi.fn(() => ({
       providers: {
         slack: { enabled: true },
       },
-      providerConnections: {
+      providerAccounts: {
         slack_default: {
+          agentId: 'default',
           provider: 'slack',
           label: 'Slack',
-          runtimeSecretRefs: {},
+          runtimeSecretRefs: {
+            bot_token: 'env:SLACK_BOT_TOKEN',
+            app_token: 'env:SLACK_APP_TOKEN',
+          },
         },
       },
       conversations: {
@@ -249,7 +255,7 @@ describe('Slack channel', () => {
     }
   });
 
-  it('createSlackChannel returns a channel when tokens are available', async () => {
+  it('createSlackChannel returns a channel when Provider Account refs point at env tokens', async () => {
     const savedBot = process.env.SLACK_BOT_TOKEN;
     const savedApp = process.env.SLACK_APP_TOKEN;
     process.env.SLACK_BOT_TOKEN = 'xoxb-file-token';
@@ -306,6 +312,7 @@ describe('Slack channel', () => {
       'ops',
       'slack',
       true,
+      { providerAccountId: 'slack_default' },
     );
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
@@ -331,6 +338,7 @@ describe('Slack channel', () => {
       'ops',
       'slack',
       false,
+      { providerAccountId: 'slack_default' },
     );
     expect(opts.onMessage).toHaveBeenCalledWith(
       'sl:D123',
@@ -346,7 +354,10 @@ describe('Slack channel', () => {
   it('delivers Slack messages for registered conversations', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+      },
     });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -373,10 +384,506 @@ describe('Slack channel', () => {
     );
   });
 
+  it('delivers Slack messages for agent-qualified conversations', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          trigger: '@Ops',
+        },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        content: '@Ops list projects',
+        thread_id: '1710000000.000100',
+      }),
+    );
+  });
+
+  it('matches Slack message routes only for the connected provider account', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          trigger: '@Ops',
+        },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:sales', null, 'slack_other')]:
+        {
+          folder: 'slack_sales',
+          name: 'Sales',
+          trigger: '@Sales',
+        },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ content: '@Ops list projects' }),
+    );
+  });
+
+  it('treats duplicate Slack route aliases for one agent as one route', async () => {
+    const opts = createOpts();
+    const route = {
+      folder: 'slack_ops',
+      name: 'Ops',
+      trigger: '@Ops',
+      providerAccountId: 'slack_default',
+    };
+    opts.conversationRoutes.mockReturnValue({
+      'sl:C123': route,
+      [makeAgentThreadQueueKey('sl:C123', 'agent:slack_ops')]: route,
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:slack_ops',
+        null,
+        'slack_default',
+      )]: route,
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        content: '@Ops list projects',
+        providerAccountId: 'slack_default',
+        thread_id: '1710000000.000100',
+      }),
+    );
+  });
+
+  it('matches shared Slack inbound routes under the target provider account', async () => {
+    const opts = {
+      ...createOpts(),
+      providerAccountId: 'slack_alpha',
+      inboundProviderAccountIds: ['slack_alpha', 'slack_beta'],
+    };
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:sales', null, 'slack_beta')]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+        trigger: '@Sales',
+        providerAccountId: 'slack_beta',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        content: '@Sales list projects',
+        providerAccountId: 'slack_beta',
+      }),
+    );
+  });
+
+  it('downloads shared Slack inbound attachments for a single non-primary route', async () => {
+    const opts = {
+      ...createOpts(),
+      providerAccountId: 'slack_alpha',
+      inboundProviderAccountIds: ['slack_alpha', 'slack_beta'],
+    };
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:sales', null, 'slack_beta')]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+        trigger: '@Sales',
+        providerAccountId: 'slack_beta',
+      },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    } as any);
+    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        providerAccountId: 'slack_beta',
+        attachments: [
+          expect.objectContaining({
+            externalId: 'F123',
+            storageRef: 'attachments/report.pdf',
+          }),
+        ],
+      }),
+    );
+    expect(mkdirSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_sales/attachments',
+      { recursive: true, mode: 0o700 },
+    );
+    expect(writeSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_sales/attachments/report.pdf',
+      expect.any(Buffer),
+      { mode: 0o600 },
+    );
+  });
+
+  it('leaves ambiguous shared Slack inbound messages unscoped for account fanout', async () => {
+    const opts = {
+      ...createOpts(),
+      providerAccountId: 'slack_alpha',
+      inboundProviderAccountIds: ['slack_alpha', 'slack_beta'],
+    };
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_alpha')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+        trigger: '@Ops',
+        providerAccountId: 'slack_alpha',
+      },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:sales', null, 'slack_beta')]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+        trigger: '@Sales',
+        providerAccountId: 'slack_beta',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.not.objectContaining({ providerAccountId: expect.any(String) }),
+    );
+  });
+
+  it('does not treat a Slack thread route as a whole channel route', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_thread',
+        name: 'Ops Thread',
+        trigger: '@Ops',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> list projects',
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
+  it('delivers Slack thread messages for exact agent-qualified thread routes', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_thread',
+        name: 'Ops Thread',
+        trigger: '@Ops',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000222',
+        thread_ts: '1710000000.000111',
+        user: 'U123',
+        text: 'thread reply',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        content: 'thread reply',
+        thread_id: '1710000000.000111',
+      }),
+    );
+  });
+
+  it('delivers Slack messages for multi-agent conversations', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:sales',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'hello',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        content: 'hello',
+        thread_id: undefined,
+      }),
+    );
+  });
+
+  it('starts a Slack thread for top-level multi-agent messages with one trigger', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:sales',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '@Ops status',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        content: '@Ops status',
+        thread_id: '1710000000.000100',
+      }),
+    );
+  });
+
+  it('keeps ambiguous multi-agent trigger messages root-scoped', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:triage',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_triage',
+        name: 'Triage',
+        trigger: '@Ops',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '@Ops status',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        content: '@Ops status',
+        thread_id: undefined,
+      }),
+    );
+  });
+
+  it('strips the Slack bot mention before multi-agent trigger matching', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:sales',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('app_mention') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '<@U_BOT> @Ops status',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        content: '@Ops status',
+        thread_id: '1710000000.000100',
+      }),
+    );
+  });
+
   it('delivers /gantry slash commands through the normal command parser path', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+      },
     });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -408,10 +915,184 @@ describe('Slack channel', () => {
     );
   });
 
+  it('delivers /gantry slash commands for a single agent-qualified route', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+        },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C123',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: 'status',
+        trigger_id: 'trigger-1',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ content: '/gantry status' }),
+    );
+  });
+
+  it('matches Slack slash command routes only for the connected provider account', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+        },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:sales', null, 'slack_other')]:
+        {
+          folder: 'slack_sales',
+          name: 'Sales',
+        },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C123',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: 'status',
+        trigger_id: 'trigger-1',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ content: '/gantry status' }),
+    );
+  });
+
+  it('ignores ambiguous Slack slash commands without an agent selector', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:sales',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C123',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: 'status',
+        trigger_id: 'trigger-1',
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
+  it('delivers /gantry slash commands with an agent selector in multi-agent conversations', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:sales',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_sales',
+        name: 'Sales',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C123',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: '@Ops status',
+        trigger_id: 'trigger-1',
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ content: '@Ops /gantry status' }),
+    );
+  });
+
+  it('does not route slash commands through thread-scoped routes', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_thread',
+        name: 'Ops Thread',
+      },
+    });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handler = appRef.current.commandHandlers.get('/gantry');
+    await handler!({
+      ack: vi.fn(),
+      command: {
+        channel_id: 'C123',
+        user_id: 'U123',
+        user_name: 'alice',
+        text: 'status',
+        trigger_id: 'trigger-1',
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+  });
+
   it('normalizes top-level Slack channel messages as their own thread root', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+      },
     });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -440,7 +1121,11 @@ describe('Slack channel', () => {
   it('normalizes only the authenticated Slack bot mention before command parsing', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': { folder: 'slack_ops', name: 'Ops', trigger: '@Gantry' },
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+        trigger: '@Gantry',
+      },
     });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -478,7 +1163,10 @@ describe('Slack channel', () => {
   it('keeps Slack thread replies in the root thread without requiring a new root', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+      },
     });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
@@ -1178,7 +1866,7 @@ describe('Slack channel', () => {
   it('does not synthesize root threads for unrelated top-level channel chatter', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': {
+      [makeAgentThreadQueueKey('sl:C123', null, null, 'slack_default')]: {
         folder: 'slack_ops',
         name: 'Ops',
         trigger: '@bot',
@@ -1231,10 +1919,15 @@ describe('Slack channel', () => {
     );
   });
 
-  it('stores Slack attachments without exposing local paths in message content', async () => {
+  it('stores Slack attachments for agent-qualified routes without exposing local paths', async () => {
     const opts = createOpts();
     opts.conversationRoutes.mockReturnValue({
-      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
     });
     const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
     vi.spyOn(fs, 'lstatSync').mockReturnValue({
@@ -1292,6 +1985,380 @@ describe('Slack channel', () => {
     );
     expect(writeSpy).toHaveBeenCalledWith(
       '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      expect.any(Buffer),
+      { mode: 0o600 },
+    );
+  });
+
+  it('does not download Slack attachments through a different provider account route', async () => {
+    const opts = createOpts();
+    opts.providerAccountId = 'slack_alpha';
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        undefined,
+        'slack_beta',
+      )]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+        providerAccountId: 'slack_beta',
+      },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mkdirSpy).not.toHaveBeenCalled();
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not download Slack attachments for multiple matching route folders', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:triage',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_triage',
+        name: 'Triage',
+        providerAccountId: 'slack_default',
+      },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => ({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      })),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    const message = opts.onMessage.mock.calls[0][1];
+    expect(message.attachments[0]).toEqual(
+      expect.objectContaining({ externalId: 'F123', kind: 'file' }),
+    );
+    expect(message.attachments[0]).not.toHaveProperty('storageRef');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mkdirSpy).not.toHaveBeenCalled();
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('stores Slack attachments for the selected multi-agent route', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:ops', null, 'slack_default')]:
+        {
+          folder: 'slack_ops',
+          name: 'Ops',
+          providerAccountId: 'slack_default',
+        },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:triage',
+        null,
+        'slack_default',
+      )]: {
+        folder: 'slack_triage',
+        name: 'Triage',
+        providerAccountId: 'slack_default',
+      },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    } as any);
+    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: '@Ops see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    const message = opts.onMessage.mock.calls[0][1];
+    expect(message.thread_id).toBe('1710000000.000100');
+    expect(message.attachments[0]).toEqual(
+      expect.objectContaining({ storageRef: 'attachments/report.pdf' }),
+    );
+    expect(mkdirSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments',
+      { recursive: true, mode: 0o700 },
+    );
+    expect(writeSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      expect.any(Buffer),
+      { mode: 0o600 },
+    );
+  });
+
+  it('does not download Slack attachments for multiple exact thread route folders', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_ops',
+        name: 'Ops',
+      },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:triage',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_triage',
+        name: 'Triage',
+      },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => ({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      })),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        thread_ts: '1710000000.000111',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    const message = opts.onMessage.mock.calls[0][1];
+    expect(message.thread_id).toBe('1710000000.000111');
+    expect(message.attachments[0]).toEqual(
+      expect.objectContaining({ externalId: 'F123', kind: 'file' }),
+    );
+    expect(message.attachments[0]).not.toHaveProperty('storageRef');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(mkdirSpy).not.toHaveBeenCalled();
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not download top-level Slack attachments through thread-scoped routes', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_thread',
+        name: 'Ops Thread',
+        providerAccountId: 'slack_default',
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('stores Slack attachments for exact thread-scoped agent routes', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:ops',
+        '1710000000.000111',
+        'slack_default',
+      )]: {
+        folder: 'slack_thread',
+        name: 'Ops Thread',
+        providerAccountId: 'slack_default',
+      },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    } as any);
+    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000222',
+        thread_ts: '1710000000.000111',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        thread_id: '1710000000.000111',
+        attachments: [
+          expect.objectContaining({ storageRef: 'attachments/report.pdf' }),
+        ],
+      }),
+    );
+    expect(mkdirSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_thread/attachments',
+      { recursive: true, mode: 0o700 },
+    );
+    expect(writeSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_thread/attachments/report.pdf',
       expect.any(Buffer),
       { mode: 0o600 },
     );
@@ -1452,7 +2519,7 @@ describe('Slack channel', () => {
     expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
       '⏳ Searching the web · 2m 14s',
     );
-    expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).toContain(
+    expect(JSON.stringify(postMessage.mock.calls[0]?.[0])).not.toContain(
       'stop-token-1',
     );
     expect(postMessage.mock.calls[1]?.[0]).toEqual(
@@ -1537,6 +2604,7 @@ describe('Slack channel', () => {
     expect(opts.onMessageAction).toHaveBeenCalledWith({
       kind: 'scheduler_run_now',
       conversationJid: 'sl:C1234567890',
+      providerAccountId: 'slack_default',
       threadId: '1710000000.000111',
       userId: 'U_APPROVER',
       jobId: 'job-1',
@@ -1545,36 +2613,46 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
-  it('routes Slack live stop action buttons through the message action callback', async () => {
+  it('does not render Slack live stop action buttons', async () => {
     const opts = {
       ...createOptsWithApproverHook(['U_APPROVER']),
+      providerAccountId: 'slack_alpha',
       onMessageAction: vi.fn(),
     };
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
     await channel.connect();
 
     await channel.sendMessage('sl:C1234567890', 'Working...', {
+      providerAccountId: 'slack_beta',
       actionAffordances: [
         { kind: 'live_turn_stop', label: 'Stop', actionToken: 'token-1' },
       ],
     });
     const payload = appRef.current.client.chat.postMessage.mock.calls[0]?.[0];
-    expect(payload.blocks[1].elements[0]).toEqual(
-      expect.objectContaining({
-        action_id: 'gantry_message_action',
-        style: 'danger',
-        value: '{"kind":"live_turn_stop","actionToken":"token-1"}',
-      }),
-    );
+    expect(payload.blocks).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain('live_turn_stop');
+    expect(JSON.stringify(payload)).not.toContain('Stop');
+  });
+
+  it('ignores stale Slack live stop action callbacks', async () => {
+    const opts = {
+      ...createOptsWithApproverHook(['U_APPROVER']),
+      providerAccountId: 'slack_alpha',
+      onMessageAction: vi.fn(),
+    };
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_message_action',
     );
+    expect(actionHandler).toBeDefined();
     const ack = vi.fn();
     await actionHandler({
       ack,
       action: {
-        value: '{"kind":"live_turn_stop","actionToken":"token-1"}',
+        value:
+          '{"kind":"live_turn_stop","actionToken":"token-1","providerAccountId":"slack_beta"}',
       },
       body: {
         channel: { id: 'C1234567890' },
@@ -1584,13 +2662,8 @@ describe('Slack channel', () => {
     });
 
     expect(ack).toHaveBeenCalled();
-    expect(opts.onMessageAction).toHaveBeenCalledWith({
-      kind: 'live_turn_stop',
-      conversationJid: 'sl:C1234567890',
-      threadId: '1710000000.000111',
-      userId: 'U_APPROVER',
-      actionToken: 'token-1',
-    });
+    expect(opts.onMessageAction).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postEphemeral).not.toHaveBeenCalled();
   });
 
   it('chunks outbound Slack messages to 4000-char parts and returns delivery metadata', async () => {
@@ -2709,6 +3782,58 @@ describe('Slack channel', () => {
     );
   });
 
+  it('sends Slack approval prompts only to approvers on this provider account', async () => {
+    const base = createOpts({ default: [], agents: {} });
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...base,
+      runtimeSettings: vi.fn(() => {
+        const settings = base.runtimeSettings();
+        return {
+          ...settings,
+          providerAccounts: {
+            ...settings.providerAccounts,
+            slack_other: {
+              ...settings.providerAccounts.slack_default,
+              label: 'Slack Other',
+            },
+          },
+          conversations: {
+            other_account_conversation: {
+              ...settings.conversations.slack_test_conversation,
+              providerConnection: 'slack_other',
+              controlApprovers: ['U_OTHER_ACCOUNT'],
+            },
+            this_account_conversation: {
+              ...settings.conversations.slack_test_conversation,
+              providerConnection: 'slack_default',
+              controlApprovers: ['U_THIS_ACCOUNT'],
+            },
+          },
+        };
+      }),
+    } as any);
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval('sl:C123', {
+      requestId: 'perm-provider-account-scope',
+      sourceAgentFolder: 'slack_main',
+      toolName: 'Bash',
+    });
+    await flushSlackPromptRegistration();
+
+    const privatePromptUsers =
+      appRef.current.client.chat.postEphemeral.mock.calls
+        .map((call) => call[0]?.user)
+        .filter(Boolean);
+    expect(privatePromptUsers).toEqual(['U_THIS_ACCOUNT']);
+    expect(privatePromptUsers).not.toContain('U_OTHER_ACCOUNT');
+
+    await channel.disconnect();
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({ approved: false }),
+    );
+  });
+
   it('sends unauthorized Slack permission feedback to the callback channel', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -2762,6 +3887,7 @@ describe('Slack channel', () => {
     const isControlApproverAllowed = vi.fn(async () => true);
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
       ...createOpts({ default: [], agents: {} }),
+      providerAccountId: 'slack_alpha',
       isControlApproverAllowed,
     } as any);
     await channel.connect();
@@ -2771,11 +3897,19 @@ describe('Slack channel', () => {
       {
         requestId: 'perm-channel-allowlist',
         sourceAgentFolder: 'slack_main',
+        providerAccountId: 'slack_beta',
         decisionPolicy: 'same_channel',
         toolName: 'Bash',
       },
     );
     await flushSlackPromptRegistration();
+    const actionsBlock =
+      appRef.current.client.chat.postMessage.mock.calls[0]?.[0].blocks.find(
+        (block: any) => block.type === 'actions',
+      );
+    expect(actionsBlock.elements[0].value).toContain(
+      '"providerAccountId":"slack_beta"',
+    );
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -2790,6 +3924,7 @@ describe('Slack channel', () => {
         value: JSON.stringify({
           requestId: 'perm-channel-allowlist',
           decision: 'allow_once',
+          providerAccountId: 'slack_beta',
         }),
       },
     });
@@ -2803,6 +3938,7 @@ describe('Slack channel', () => {
     expect(isControlApproverAllowed).toHaveBeenCalledWith(
       expect.objectContaining({
         providerId: 'slack',
+        providerAccountId: 'slack_beta',
         conversationJid: 'sl:C1234567890',
         userId: 'U_CHANNEL_ADMIN',
       }),

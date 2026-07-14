@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentCredentialBroker } from '@core/domain/ports/agent-credential-broker.js';
-import type { ModelPresetId } from '@core/shared/model-catalog.js';
 
-const anthropicProvider = (): ModelPresetId => 'anthropic' as ModelPresetId;
+const anthropicProvider = () => 'anthropic';
 const claudeCodeOAuthTokenKey = () =>
   ['CLAUDE', 'CODE', 'OAUTH', 'TOKEN'].join('_');
 
@@ -26,7 +25,7 @@ async function loadPreflight(broker: AgentCredentialBroker | undefined) {
       createAgentCredentialBroker: vi.fn(async () => broker),
     }),
   );
-  return import('@core/adapters/llm/model-preset-preflight.js');
+  return import('@core/adapters/llm/model-provider-preflight.js');
 }
 
 function gatewayBroker(env: Record<string, string>): AgentCredentialBroker {
@@ -57,12 +56,12 @@ function gatewayBroker(env: Record<string, string>): AgentCredentialBroker {
 
 describe('model provider preflight', () => {
   it('fails Anthropic preflight without Gantry Model Gateway', async () => {
-    const { preflightModelPreset } = await loadPreflight(undefined);
+    const { preflightModelProvider } = await loadPreflight(undefined);
 
     await expect(
-      preflightModelPreset({
+      preflightModelProvider({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        preset: anthropicProvider(),
+        providerId: anthropicProvider(),
         settings: {
           credentialBroker: {
             mode: 'none',
@@ -81,12 +80,12 @@ describe('model provider preflight', () => {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/anthropic',
       ANTHROPIC_API_KEY: 'gtw_test',
     });
-    const { preflightModelPreset } = await loadPreflight(broker);
+    const { preflightModelProvider } = await loadPreflight(broker);
 
     await expect(
-      preflightModelPreset({
+      preflightModelProvider({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        preset: anthropicProvider(),
+        providerId: anthropicProvider(),
         settings: {
           credentialBroker: {
             mode: 'gantry',
@@ -103,13 +102,16 @@ describe('model provider preflight', () => {
         purpose: 'model_runtime',
         modelRouteId: 'anthropic',
         runId: expect.stringMatching(/^model-preflight:/),
+        // CLI callers omit appId; the broker requires one, so the preflight
+        // must default to the single-app scope.
+        appId: 'default',
       }),
     });
     expect(broker.close).toHaveBeenCalledOnce();
   });
 
   it('fails if gateway projection contains a raw provider key', async () => {
-    const { preflightModelPreset } = await loadPreflight(
+    const { preflightModelProvider } = await loadPreflight(
       gatewayBroker({
         ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/anthropic',
         ANTHROPIC_API_KEY: 'sk-ant-raw',
@@ -117,9 +119,9 @@ describe('model provider preflight', () => {
     );
 
     await expect(
-      preflightModelPreset({
+      preflightModelProvider({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        preset: anthropicProvider(),
+        providerId: anthropicProvider(),
         settings: {
           credentialBroker: {
             mode: 'gantry',
@@ -136,12 +138,12 @@ describe('model provider preflight', () => {
     const broker = gatewayBroker({
       [claudeCodeOAuthTokenKey()]: 'sk-ant-oat-test',
     });
-    const { preflightModelPreset } = await loadPreflight(broker);
+    const { preflightModelProvider } = await loadPreflight(broker);
 
     await expect(
-      preflightModelPreset({
+      preflightModelProvider({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        preset: anthropicProvider(),
+        providerId: anthropicProvider(),
         settings: {
           credentialBroker: {
             mode: 'gantry',

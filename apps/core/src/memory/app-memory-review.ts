@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -27,7 +27,6 @@ import {
 import type {
   AppMemoryItem,
   DeleteAppMemoryInput,
-  DreamingRunStatus,
   MemoryLifecycleProposal,
   MemoryReviewDecisionInput,
   MemoryReviewEvidenceSnippet,
@@ -213,40 +212,6 @@ export async function listPendingMemoryReviewPage(input: {
     nextOffset: nextOffset < totalCount ? nextOffset : null,
   };
 }
-export async function createPendingMemoryReview(input: {
-  db: Db;
-  runId: string;
-  subject: NormalizedMemorySubject;
-  phase: DreamingRunStatus['phase'];
-  proposal: MemoryLifecycleProposal;
-}): Promise<string> {
-  const validation = await validateMemoryReviewProposal({
-    db: input.db,
-    subject: input.subject,
-    proposal: input.proposal,
-  });
-  if (!validation.ok) return '';
-  const now = nowIso();
-  const id = `mrv_${randomUUID().replace(/-/g, '')}`;
-  await input.db.insert(pgSchema.memoryReviewRequestsPostgres).values({
-    id,
-    runId: input.runId,
-    appId: input.subject.appId,
-    agentId: input.subject.agentId,
-    subjectType: input.subject.subjectType,
-    subjectId: input.subject.subjectId,
-    threadId: null,
-    phase: input.phase,
-    proposalJson: JSON.stringify(input.proposal),
-    itemVersionsJson: JSON.stringify(validation.itemVersions),
-    candidateVersionsJson: JSON.stringify(validation.candidateVersions),
-    status: 'pending_review',
-    validationSummary: validation.reason,
-    createdAt: now,
-    updatedAt: now,
-  });
-  return id;
-}
 export async function decideMemoryReview(input: {
   db: Db;
   subject: NormalizedMemorySubject;
@@ -370,7 +335,7 @@ export async function decideMemoryReview(input: {
   if (!updated) throw new Error('memory review decision claim was lost');
   return toMemoryReview(updated);
 }
-async function validateMemoryReviewProposal(input: {
+export async function validateMemoryReviewProposal(input: {
   db: Db;
   subject: NormalizedMemorySubject;
   proposal: MemoryLifecycleProposal;
@@ -381,6 +346,7 @@ async function validateMemoryReviewProposal(input: {
   reason: string;
   itemVersions: Record<string, number>;
   candidateVersions: Record<string, string>;
+  contentFingerprint?: string;
 }> {
   const proposal = input.proposal;
   if (!REVIEW_APPLYABLE_ACTIONS.has(proposal.action)) {
@@ -484,6 +450,7 @@ async function validateMemoryReviewProposal(input: {
     ...(proposal.itemIds || []),
   ].filter((id): id is string => Boolean(id));
   const itemVersions: Record<string, number> = {};
+  const fingerprintParts: string[] = [];
   if (itemIds.length) {
     const itemRows = await input.db
       .select()
@@ -495,7 +462,9 @@ async function validateMemoryReviewProposal(input: {
         itemVersions,
       };
     }
-    for (const item of itemRows) {
+    for (const item of itemRows
+      .slice()
+      .sort((a, b) => (a.id < b.id ? -1 : 1))) {
       if (!itemMatchesSubjectBoundary(item, input.subject)) {
         return {
           ...failure('proposal item is outside subject scope'),
@@ -513,6 +482,11 @@ async function validateMemoryReviewProposal(input: {
           itemVersions,
         };
       }
+      const payload = parseJsonObject(item.valueJson);
+      const itemValue = typeof payload.value === 'string' ? payload.value : '';
+      fingerprintParts.push(
+        `item:${item.id}:${item.kind}:${item.key}:${itemValue}`,
+      );
     }
   }
   const candidateVersions: Record<string, string> = {};
@@ -551,12 +525,28 @@ async function validateMemoryReviewProposal(input: {
         candidateVersions,
       };
     }
+    fingerprintParts.push(
+      `candidate:${candidate.id}:${candidate.kind}:${candidate.key}:${candidate.value}`,
+    );
   }
+  if (fingerprintParts.length === 0) {
+    fingerprintParts.push(
+      `proposal:${proposal.key ?? ''}:${proposal.value ?? ''}`,
+    );
+  }
+  // Fingerprint of the flagged content (not the proposal's suggested rewrite)
+  // plus the proposal action: identical content re-detected by any dreaming
+  // pass hashes to the same value, so review creation can dedupe against
+  // pending and already-decided reviews.
+  const contentFingerprint = createHash('sha256')
+    .update(`${proposal.action}\n${fingerprintParts.join('\n')}`)
+    .digest('hex');
   return {
     ok: true,
     reason: 'proposal passed host validation',
     itemVersions,
     candidateVersions,
+    contentFingerprint,
   };
 }
 async function applyMemoryReviewProposal(input: {

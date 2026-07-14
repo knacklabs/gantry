@@ -258,6 +258,7 @@ export const memoryReviewRequestsPostgres = pgTable(
       .default('{}'),
     status: text('status').notNull().default('pending_review'),
     validationSummary: text('validation_summary').notNull(),
+    flaggedContentHash: text('flagged_content_hash'),
     reviewerId: text('reviewer_id'),
     decision: text('decision'),
     editedValue: text('edited_value'),
@@ -286,6 +287,13 @@ export const memoryReviewRequestsPostgres = pgTable(
       table.createdAt,
     ),
     runIdx: index('idx_memory_review_requests_run').on(table.runId),
+    contentHashIdx: index('idx_memory_review_requests_content_hash').on(
+      table.appId,
+      table.agentId,
+      table.subjectType,
+      table.subjectId,
+      table.flaggedContentHash,
+    ),
   }),
 );
 

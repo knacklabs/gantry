@@ -12,8 +12,8 @@ export type WebhookRoute = {
   action: 'delete' | 'test' | 'replay-dead-letter' | 'purge-dead-letter';
 };
 
-export type ProviderConnectionRoute = {
-  providerConnectionId: string;
+export type ProviderAccountRoute = {
+  providerAccountId: string;
   action: 'get' | 'discover';
 };
 
@@ -22,10 +22,10 @@ export type ConversationRoute = {
   action: 'get' | 'threads' | 'messages';
 };
 
-export type AgentBindingRoute = {
+export type ConversationInstallRoute = {
   agentId: string;
   conversationId?: string;
-  action: 'list' | 'binding';
+  action: 'list' | 'install';
 };
 
 export function parseSessionRoute(pathname: string): SessionRoute | null {
@@ -112,23 +112,21 @@ export function parseWebhookRoute(pathname: string): WebhookRoute | null {
   };
 }
 
-export function parseProviderConnectionRoute(
+export function parseProviderAccountRoute(
   pathname: string,
-): ProviderConnectionRoute | null {
+): ProviderAccountRoute | null {
   const discoverMatch =
-    /^\/v1\/provider-connections\/([^/]+)\/discover-conversations$/.exec(
-      pathname,
-    );
+    /^\/v1\/provider-accounts\/([^/]+)\/discover-conversations$/.exec(pathname);
   if (discoverMatch) {
     return {
-      providerConnectionId: decodeURIComponent(discoverMatch[1]!),
+      providerAccountId: decodeURIComponent(discoverMatch[1]!),
       action: 'discover',
     };
   }
-  const baseMatch = /^\/v1\/provider-connections\/([^/]+)$/.exec(pathname);
+  const baseMatch = /^\/v1\/provider-accounts\/([^/]+)$/.exec(pathname);
   if (!baseMatch) return null;
   return {
-    providerConnectionId: decodeURIComponent(baseMatch[1]!),
+    providerAccountId: decodeURIComponent(baseMatch[1]!),
     action: 'get',
   };
 }
@@ -153,19 +151,19 @@ export function parseConversationRoute(
   };
 }
 
-export function parseAgentBindingRoute(
+export function parseConversationInstallRoute(
   pathname: string,
-): AgentBindingRoute | null {
-  const bindingMatch =
-    /^\/v1\/agents\/([^/]+)\/conversation-bindings\/([^/]+)$/.exec(pathname);
-  if (bindingMatch) {
+): ConversationInstallRoute | null {
+  const installMatch =
+    /^\/v1\/agents\/([^/]+)\/conversation-installs\/([^/]+)$/.exec(pathname);
+  if (installMatch) {
     return {
-      agentId: decodeURIComponent(bindingMatch[1]!),
-      conversationId: decodeURIComponent(bindingMatch[2]!),
-      action: 'binding',
+      agentId: decodeURIComponent(installMatch[1]!),
+      conversationId: decodeURIComponent(installMatch[2]!),
+      action: 'install',
     };
   }
-  const listMatch = /^\/v1\/agents\/([^/]+)\/conversation-bindings$/.exec(
+  const listMatch = /^\/v1\/agents\/([^/]+)\/conversation-installs$/.exec(
     pathname,
   );
   if (!listMatch) return null;

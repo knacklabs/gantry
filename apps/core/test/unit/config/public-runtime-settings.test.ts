@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, expect, it, vi } from 'vitest';
+import { RuntimeSettingsPublicSchema } from '@gantry/contracts';
 
 const runtimeHomes: string[] = [];
 
@@ -78,4 +79,59 @@ it('projects configured agent access using the public contract shape', async () 
   expect(publicAgent.agentHarness).toBe('anthropic_sdk');
   expect(publicAgent.access).toEqual({ preset: 'locked' });
   expect(publicAgent).not.toHaveProperty('accessPreset');
+});
+
+it('omits legacy providerConnection from public conversation settings', async () => {
+  const runtimeHome = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'gantry-settings-'),
+  );
+  runtimeHomes.push(runtimeHome);
+  vi.resetModules();
+  vi.stubEnv('GANTRY_HOME', runtimeHome);
+  const runtimeSettings =
+    await import('@core/config/settings/runtime-settings.js');
+  const defaults = runtimeSettings.ensureRuntimeSettings(runtimeHome);
+  defaults.agents.support = {
+    name: 'Support',
+    folder: 'support',
+    bindings: {},
+    sources: { skills: [], mcpServers: [], tools: [] },
+    capabilities: [],
+    accessPreset: 'standard',
+  };
+  defaults.providerAccounts.slack_default = {
+    agentId: 'support',
+    provider: 'slack',
+    label: 'Slack',
+    runtimeSecretRefs: {},
+  };
+  defaults.conversations.slack_c123 = {
+    providerConnection: 'slack_legacy',
+    providerAccount: 'slack_default',
+    externalId: 'C123',
+    kind: 'channel',
+    displayName: 'general',
+    brainHarvest: true,
+    senderPolicy: { allow: '*', mode: 'trigger' },
+    controlApprovers: ['U1'],
+    installedAgents: {},
+  };
+  runtimeSettings.saveRuntimeSettings(runtimeHome, defaults);
+  const config = await import('@core/config/index.js');
+
+  const publicSettings = config.getPublicRuntimeSettings();
+  expect(publicSettings.conversations.slack_c123).toEqual({
+    providerAccount: 'slack_default',
+    externalId: 'C123',
+    kind: 'channel',
+    displayName: 'general',
+    brainHarvest: true,
+    senderPolicy: { allow: '*', mode: 'trigger' },
+    controlApprovers: ['U1'],
+    installedAgents: {},
+  });
+  expect(publicSettings.conversations.slack_c123).not.toHaveProperty(
+    'providerConnection',
+  );
+  expect(() => RuntimeSettingsPublicSchema.parse(publicSettings)).not.toThrow();
 });

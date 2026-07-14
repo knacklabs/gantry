@@ -21,6 +21,7 @@ import {
   JOB_RUN_LEASE_TOKEN,
   IPC_RESPONSE_KEY_ID,
   PERMISSION_REQUEST_TIMEOUT_MS,
+  PROVIDER_ACCOUNT_ID,
   resolveWorkspaceIpcDir,
 } from './runtime-env.js';
 import type { PermissionDecision } from './types.js';
@@ -239,6 +240,9 @@ async function requestPermissionApprovalInner(options: {
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
+        ...(PROVIDER_ACCOUNT_ID
+          ? { providerAccountId: PROVIDER_ACCOUNT_ID }
+          : {}),
         ...(targetJid ? { chatJid: targetJid } : {}),
         ...(JOB_ID ? { jobId: JOB_ID } : {}),
         ...(JOB_NAME ? { jobName: JOB_NAME } : {}),

@@ -38,7 +38,7 @@ export interface ProviderSession {
   externalSessionId: string;
   providerRef: ExternalRef<'provider_session'>;
   metadata?: Record<string, unknown>;
-  status: 'active' | 'expired' | 'reset';
+  status: 'active' | 'expired' | 'reset' | 'maintenance_compact' | 'ready';
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

@@ -335,7 +335,7 @@ setRegisteredGroup('telegram:dev-team', {
 });
 ```
 
-Folder names follow the convention `{channel}_{group-name}` (e.g., `slack_engineering`, `telegram_dev-team`). Trigger behavior is stored on each conversation binding as `requiresTrigger`.
+Folder names follow the convention `{channel}_{group-name}` (e.g., `slack_engineering`, `telegram_dev-team`). Conversation install metadata owns the conversation-to-agent setup state.
 
 Additional mounts appear under `/workspace/extra/` in the runtime workspace.
 
@@ -603,6 +603,7 @@ continuation state.
 | `memory.llm.extractor_min_confidence` | `0.6`                    | Min confidence for extracted candidates                         |
 | `memory.dreaming.enabled`             | `false`                  | Enables scheduled dreaming maintenance                          |
 | `memory.dreaming.cron`                | `15 3 * * *`             | Dreaming maintenance schedule                                   |
+| `memory.dreaming.alerts`              | `false`                  | Send alerts for per-conversation memory dreaming jobs only      |
 | `memory.maintenance.max_pending`      | `5000`                   | Max pending memory maintenance items per pass                   |
 
 ---

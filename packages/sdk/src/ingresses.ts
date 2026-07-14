@@ -13,6 +13,7 @@ export type ExternalIngressTarget =
 export interface ConversationMessageIngressTarget {
   kind: 'conversation_message';
   conversationId: string;
+  agentId?: string;
   threadId?: string;
   message: string;
   senderId?: string;

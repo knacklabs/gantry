@@ -48,8 +48,9 @@ type ApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 const WORKSPACE_FOLDER_KEY = WORKSPACE_FOLDER_OPTION_KEY as keyof ApprovalInput;
 const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
-const RAW_REQ =
-  /^(Agent|AskUserQuestion|Task(Create|Get|List|Update)?|TodoWrite)$/;
+const RAW_REQ = /^(Agent|AskUserQuestion|TodoWrite)$/;
+const REMOVED_NATIVE_SUBAGENT_TOOL =
+  /^Task(Create|Get|List|Output|Stop|Update)?$/;
 
 interface CreateCanUseToolCallbackInput {
   agentInput: AgentRunnerInput;
@@ -79,7 +80,6 @@ export function createCanUseToolCallback(
       principal,
       conversationJid: timedGrantConversationJid,
     });
-
   const isTimedGrantActive = (toolName: string, principal: string): boolean => {
     const key = timedGrantKey(principal);
     const grant = timedToolGrants.get(key);
@@ -93,7 +93,6 @@ export function createCanUseToolCallback(
     );
     return true;
   };
-
   const rememberTimedGrant = (
     toolName: string,
     principal: string,
@@ -123,7 +122,6 @@ export function createCanUseToolCallback(
       `Timed grant activated for tool ${toolName}: scope=all_tools principal=${principal} conversationJid=${timedGrantConversationJid} expiresAt=${new Date(requestedExpiresAtMs).toISOString()}`,
     );
   };
-
   const currentAllowedToolRules = (): string[] => [
     ...(input.agentInput.allowedTools ?? []),
     ...publicCapabilityAllowedToolRules(input.capabilities.allowedTools),
@@ -133,7 +131,6 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
-
   const currentAutonomousAllowedToolRules = (): string[] => [
     ...(input.agentInput.allowedTools ?? []),
     ...(input.agentInput.isScheduledJob ? ['RunCommand(date *)'] : []),
@@ -144,7 +141,6 @@ export function createCanUseToolCallback(
     }),
     ...liveApprovedRules,
   ];
-
   const lockedAccessPreset = input.capabilities.permissionMode === 'deny';
   const denyLockedToolUse = (toolName: string) => {
     const message =
@@ -179,6 +175,11 @@ export function createCanUseToolCallback(
       },
     );
     const toolInput = forceBackgroundNativeAgentInput(toolName, rawToolInput);
+    if (REMOVED_NATIVE_SUBAGENT_TOOL.test(toolName)) {
+      const message =
+        'Native SDK Task subagent tools are not supported. Use the Agent tool for native subagents, or request the Gantry AgentDelegation facade.';
+      return { behavior: 'deny' as const, message, interrupt: false };
+    }
     const waitOnlyDenial = waitOnlyBashMonitoringDenial(toolName, toolInput);
     if (waitOnlyDenial) {
       log(`Permission denied by wait-only Bash guard: ${waitOnlyDenial}`);
@@ -288,7 +289,7 @@ export function createCanUseToolCallback(
       return { behavior: 'allow' as const, updatedInput: trustInput() };
     };
 
-    if (toolName === 'Agent' || toolName === 'Task') {
+    if (toolName === 'Agent') {
       const modelDenial = validateAgentToolInput(toolInput, currentModel);
       if (modelDenial) {
         log(`Permission denied by model catalog guard: ${modelDenial}`);

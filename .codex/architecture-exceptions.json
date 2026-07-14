@@ -1422,5 +1422,33 @@
     "reason": "public AgentEngine vocabulary per docs/architecture/deepagents-agent-engine-handoff-plan.md",
     "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
     "maxViolations": 4
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-review-create.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Memory review creation queries Postgres via drizzle exactly like its sibling memory query modules; capped so new external imports fail until the canonical storage-port refactor removes direct drizzle use from the memory layer.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-review-create.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Memory review creation reads the Postgres schema tables directly like its sibling memory query modules; capped so new adapter imports fail until the canonical storage-port refactor.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-dreaming-review-routing.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Dream review routing journals decisions and updates candidate status via drizzle exactly like its sibling memory dreaming modules; capped until the canonical storage-port refactor.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/memory/app-memory-dreaming-review-routing.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Dream review routing reads Postgres schema tables directly like its sibling memory dreaming modules; capped until the canonical storage-port refactor.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
   }
 ]

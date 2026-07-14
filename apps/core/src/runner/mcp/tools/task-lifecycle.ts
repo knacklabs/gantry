@@ -11,6 +11,7 @@ import {
   TASKS_DIR,
   agentId,
   appId,
+  providerAccountId,
   threadId,
 } from '../context.js';
 import { formatTaskFailureLines } from '../formatting.js';
@@ -38,6 +39,7 @@ async function submitTaskLifecycleRequest(input: {
     taskId,
     ...(appId ? { appId } : {}),
     ...(agentId ? { agentId } : {}),
+    ...(providerAccountId ? { providerAccountId } : {}),
     runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
     ...(jobId ? { jobId } : {}),
     ...(jobRunId ? { runId: jobRunId } : {}),
@@ -162,6 +164,7 @@ export function registerTaskLifecycleTools(server: McpServer): void {
       objective: z.string().min(1).max(10_000),
       context: z.string().max(20_000).optional(),
       expectedOutput: z.string().max(2_000).optional(),
+      targetAgentId: z.string().min(1).max(160).optional(),
       timeoutMs: z
         .number()
         .int()

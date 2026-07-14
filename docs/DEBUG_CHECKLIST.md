@@ -68,8 +68,8 @@ gantry status
 # Review runtime settings
 cat ~/gantry/settings.yaml
 
-# Inspect canonical conversation bindings
-psql "$GANTRY_DATABASE_URL" -c "SELECT display_name, conversation_id, trigger_pattern FROM gantry.agent_conversation_bindings;"
+# Inspect conversation installs
+psql "$GANTRY_DATABASE_URL" -c "SELECT display_name, conversation_id, provider_account_id, status FROM gantry.conversation_installs;"
 ```
 
 ## Channel Auth Issues

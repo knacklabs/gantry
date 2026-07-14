@@ -33,7 +33,7 @@ export async function ensureControlGraph(
   const appId = input.appId;
   const agentId = agentIdForFolder(input.agentFolder);
   const configId = `config:${agentId}:1`;
-  const providerConnectionId = controlInstallationId(appId);
+  const providerAccountId = controlInstallationId(appId);
   const conversationId = controlConversationId(
     appId,
     input.externalConversationId,
@@ -112,12 +112,13 @@ export async function ensureControlGraph(
     })
     .onConflictDoNothing();
   await db
-    .insert(pgSchema.providerConnectionsPostgres)
+    .insert(pgSchema.providerAccountsPostgres)
     .values({
-      id: providerConnectionId,
+      id: providerAccountId,
       appId,
+      agentId,
       providerId: CONTROL_PROVIDER_ID,
-      externalRefJson: JSON.stringify({ adapter: 'app', appId }),
+      externalIdentityRefJson: JSON.stringify({ adapter: 'app', appId }),
       label: 'App',
       status: 'active',
       runtimeSecretRefsJson: '{}',
@@ -125,10 +126,11 @@ export async function ensureControlGraph(
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: pgSchema.providerConnectionsPostgres.id,
+      target: pgSchema.providerAccountsPostgres.id,
       set: {
         providerId: CONTROL_PROVIDER_ID,
-        externalRefJson: JSON.stringify({ adapter: 'app', appId }),
+        agentId,
+        externalIdentityRefJson: JSON.stringify({ adapter: 'app', appId }),
         label: 'App',
         status: 'active',
         runtimeSecretRefsJson: '{}',
@@ -140,7 +142,7 @@ export async function ensureControlGraph(
     .values({
       id: conversationId,
       appId,
-      providerConnectionId: providerConnectionId,
+      providerAccountId: providerAccountId,
       externalRefJson: JSON.stringify({
         externalConversationId: input.externalConversationId,
         externalConversationRef: input.externalConversationRef,

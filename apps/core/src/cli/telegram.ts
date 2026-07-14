@@ -316,16 +316,31 @@ export async function registerTelegramMainGroup(options: {
   runtimeHome: string;
   chatJid: string;
   displayName: string;
+  agentId?: string;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
   try {
     const existing = await db.getAllConversationRoutes();
     const existingGroup = existing[options.chatJid];
+    // An already-registered conversation keeps its owning agent; agentId
+    // only binds conversations that are not routed yet.
     const folder =
       existingGroup?.folder ||
+      options.agentId?.trim() ||
       allocateDefaultAgentFolder(options.runtimeHome, existing);
-    const groupName = normalizeDefaultAgentName(options.displayName);
+    // A conversation owned by a DIFFERENT agent than the requested one is
+    // reused as-is: rewriting its display name would rename someone else's
+    // route with no rollback path in the route DB.
+    const requestedAgentId = options.agentId?.trim();
+    const keepExistingRoute = Boolean(
+      existingGroup &&
+      requestedAgentId &&
+      existingGroup.folder !== requestedAgentId,
+    );
+    const groupName = keepExistingRoute
+      ? existingGroup!.name
+      : normalizeDefaultAgentName(options.displayName);
 
     const route = {
       name: groupName,

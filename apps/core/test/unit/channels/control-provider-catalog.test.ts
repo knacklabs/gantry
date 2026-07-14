@@ -4,7 +4,7 @@ import {
   BuiltInControlChannelProviderCatalog,
   RuntimeSecretConversationDiscovery,
 } from '@core/channels/control-provider-catalog.js';
-import type { ProviderConnection } from '@core/domain/provider/provider.js';
+import type { ProviderAccount } from '@core/domain/provider/provider.js';
 import type { RuntimeSecretProvider } from '@core/domain/ports/runtime-secret-provider.js';
 
 const mocks = vi.hoisted(() => ({
@@ -62,12 +62,13 @@ vi.mock('@core/cli/slack-chat-discovery.js', () => ({
   listSlackRecentChats: mocks.listSlackRecentChats,
 }));
 
-function providerConnection(
+function providerAccount(
   runtimeSecretRefs: Record<string, string>,
-): ProviderConnection {
+): ProviderAccount {
   return {
-    id: 'providerConnection-1',
+    id: 'provider-account-1',
     appId: 'app-one',
+    agentId: 'agent-one',
     providerId: 'telegram',
     label: 'Telegram',
     status: 'active',
@@ -75,7 +76,7 @@ function providerConnection(
     runtimeSecretRefs,
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
-  } as ProviderConnection;
+  } as ProviderAccount;
 }
 
 function secrets(values: Record<string, string>): RuntimeSecretProvider {
@@ -125,7 +126,7 @@ describe('RuntimeSecretConversationDiscovery', () => {
 
     await expect(
       discovery.discover({
-        providerConnection: providerConnection({}),
+        providerAccount: providerAccount({}),
         limit: 10,
       }),
     ).rejects.toMatchObject({
@@ -141,7 +142,7 @@ describe('RuntimeSecretConversationDiscovery', () => {
 
     await expect(
       discovery.discover({
-        providerConnection: providerConnection({
+        providerAccount: providerAccount({
           bot_token: 'env:TELEGRAM_BOT_TOKEN',
         }),
         limit: 10,
@@ -168,18 +169,18 @@ describe('RuntimeSecretConversationDiscovery', () => {
       teamsDiscoveryClient(),
     );
     const teamsInstallation = {
-      ...providerConnection({
+      ...providerAccount({
         client_id: 'env:TEAMS_CLIENT_ID',
         client_secret: 'env:TEAMS_CLIENT_SECRET',
         tenant_id: 'env:TEAMS_TENANT_ID',
       }),
       providerId: 'teams' as never,
       label: 'Teams',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: teamsInstallation,
+        providerAccount: teamsInstallation,
         limit: 10,
       }),
     ).resolves.toEqual([
@@ -209,14 +210,14 @@ describe('RuntimeSecretConversationDiscovery', () => {
       secrets({ SLACK_BOT_TOKEN: 'xoxb-token' }),
     );
     const slackConnection = {
-      ...providerConnection({ bot_token: 'env:SLACK_BOT_TOKEN' }),
+      ...providerAccount({ bot_token: 'env:SLACK_BOT_TOKEN' }),
       providerId: 'slack' as never,
       label: 'Slack',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: slackConnection,
+        providerAccount: slackConnection,
         limit: 10,
       }),
     ).resolves.toEqual([
@@ -244,17 +245,17 @@ describe('RuntimeSecretConversationDiscovery', () => {
       discordDiscoveryClient(),
     );
     const discordConnection = {
-      ...providerConnection({
+      ...providerAccount({
         bot_token: 'env:DISCORD_BOT_TOKEN',
         application_id: 'env:DISCORD_APPLICATION_ID',
       }),
       providerId: 'discord' as never,
       label: 'Discord',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: discordConnection,
+        providerAccount: discordConnection,
         limit: 10,
       }),
     ).resolves.toEqual([
@@ -284,17 +285,17 @@ describe('RuntimeSecretConversationDiscovery', () => {
       teamsDiscoveryClient(),
     );
     const teamsInstallation = {
-      ...providerConnection({
+      ...providerAccount({
         client_id: 'env:TEAMS_CLIENT_ID',
         tenant_id: 'env:TEAMS_TENANT_ID',
       }),
       providerId: 'teams' as never,
       label: 'Teams',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: teamsInstallation,
+        providerAccount: teamsInstallation,
         limit: 10,
       }),
     ).rejects.toMatchObject({
@@ -316,14 +317,14 @@ describe('RuntimeSecretConversationDiscovery', () => {
       secrets({ SLACK_BOT_TOKEN: 'xoxb-token' }),
     );
     const slackConnection = {
-      ...providerConnection({ bot_token: 'env:SLACK_BOT_TOKEN' }),
+      ...providerAccount({ bot_token: 'env:SLACK_BOT_TOKEN' }),
       providerId: 'slack' as never,
       label: 'Slack',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: slackConnection,
+        providerAccount: slackConnection,
         query: 'eng',
         limit: 10,
       }),
@@ -352,14 +353,14 @@ describe('RuntimeSecretConversationDiscovery', () => {
       secrets({ SLACK_BOT_TOKEN: 'xoxb-token' }),
     );
     const slackConnection = {
-      ...providerConnection({ bot_token: 'env:SLACK_BOT_TOKEN' }),
+      ...providerAccount({ bot_token: 'env:SLACK_BOT_TOKEN' }),
       providerId: 'slack' as never,
       label: 'Slack',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: slackConnection,
+        providerAccount: slackConnection,
         includeArchived: false,
         limit: 10,
       }),
@@ -399,18 +400,18 @@ describe('RuntimeSecretConversationDiscovery', () => {
       teamsDiscoveryClient(),
     );
     const teamsInstallation = {
-      ...providerConnection({
+      ...providerAccount({
         client_id: 'env:TEAMS_CLIENT_ID',
         client_secret: 'env:TEAMS_CLIENT_SECRET',
         tenant_id: 'env:TEAMS_TENANT_ID',
       }),
       providerId: 'teams' as never,
       label: 'Teams',
-    } as ProviderConnection;
+    } as ProviderAccount;
 
     await expect(
       discovery.discover({
-        providerConnection: teamsInstallation,
+        providerAccount: teamsInstallation,
         includeArchived: true,
         limit: 10,
       }),

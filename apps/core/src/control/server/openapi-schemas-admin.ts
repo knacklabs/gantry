@@ -6,6 +6,14 @@ const runtimeSecretRefs = {
   type: 'object',
   additionalProperties: { type: 'string' },
 };
+const conversationInstallRouteConfig = {
+  type: 'object',
+  properties: {
+    trigger: { type: 'string' },
+    requiresTrigger: { type: 'boolean' },
+    agentConfig: metadata,
+  },
+};
 const stringArray = { type: 'array', items: { type: 'string' } };
 const envelope = (name: string, schema: JsonSchema): JsonSchema => ({
   type: 'object',
@@ -31,16 +39,16 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
     },
   },
   ProviderListResponse: arrayEnvelope('providers', 'Provider'),
-  ProviderConnection: {
+  ProviderAccount: {
     type: 'object',
-    required: ['id', 'appId', 'providerId', 'label', 'status', 'enabled'],
+    required: ['id', 'appId', 'agentId', 'providerId', 'label', 'status'],
     properties: {
       id: { type: 'string' },
       appId: { type: 'string' },
+      agentId: { type: 'string' },
       providerId: { type: 'string' },
       label: { type: 'string' },
       status: { type: 'string' },
-      enabled: { type: 'boolean' },
       config: metadata,
       runtimeSecretRefs,
       externalRef: metadata,
@@ -48,23 +56,24 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
       updatedAt: isoDateTime,
     },
   },
-  ProviderConnectionListResponse: arrayEnvelope(
-    'providerConnections',
-    'ProviderConnection',
+  ProviderAccountListResponse: arrayEnvelope(
+    'providerAccounts',
+    'ProviderAccount',
   ),
-  ProviderConnectionDeleteResponse: {
+  ProviderAccountDeleteResponse: {
     type: 'object',
-    required: ['deleted', 'providerConnection'],
+    required: ['deleted', 'providerAccount'],
     properties: {
       deleted: { type: 'boolean' },
-      providerConnection: { $ref: '#/components/schemas/ProviderConnection' },
+      providerAccount: { $ref: '#/components/schemas/ProviderAccount' },
     },
   },
-  ProviderConnectionRequest: {
+  ProviderAccountRequest: {
     type: 'object',
-    required: ['appId', 'providerId', 'label'],
+    required: ['appId', 'agentId', 'providerId', 'label'],
     properties: {
       appId: { type: 'string' },
+      agentId: { type: 'string' },
       providerId: { type: 'string' },
       label: { type: 'string' },
       config: metadata,
@@ -73,13 +82,28 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
       enabled: { type: 'boolean' },
     },
   },
+  ProviderAccountUpdateRequest: {
+    type: 'object',
+    properties: {
+      label: { type: 'string' },
+      status: {
+        type: 'string',
+        enum: ['active', 'inactive', 'disabled', 'archived'],
+      },
+      config: metadata,
+      runtimeSecretRefs,
+      externalRef: { anyOf: [metadata, { type: 'null' }] },
+      enabled: { type: 'boolean' },
+      metadata,
+    },
+  },
   Conversation: {
     type: 'object',
-    required: ['id', 'appId', 'providerConnectionId', 'kind'],
+    required: ['id', 'appId', 'providerAccountId', 'kind'],
     properties: {
       id: { type: 'string' },
       appId: { type: 'string' },
-      providerConnectionId: { type: 'string' },
+      providerAccountId: { type: 'string' },
       providerId: { type: 'string' },
       kind: { type: 'string' },
       displayName: { type: 'string' },
@@ -135,45 +159,60 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
     required: ['userIds'],
     properties: { userIds: stringArray },
   },
-  AgentConversationBinding: {
+  ConversationInstall: {
     type: 'object',
-    required: ['agentId', 'conversationId', 'status'],
+    required: ['agentId', 'providerAccountId', 'conversationId', 'status'],
     properties: {
+      id: { type: 'string' },
+      appId: { type: 'string' },
       agentId: { type: 'string' },
+      providerAccountId: { type: 'string' },
       conversationId: { type: 'string' },
       threadId: { type: 'string' },
+      displayName: { type: 'string' },
       status: { type: 'string' },
-      requiresTrigger: { type: 'boolean' },
-      senderPolicy: metadata,
-      triggerPolicy: metadata,
+      memoryScope: { type: 'string' },
+      memorySubject: metadata,
+      routeConfig: conversationInstallRouteConfig,
+      workspaceSnapshotId: { type: 'string' },
+      permissionPolicyIds: stringArray,
+      createdAt: isoDateTime,
+      updatedAt: isoDateTime,
     },
   },
-  AgentConversationBindingListResponse: arrayEnvelope(
-    'bindings',
-    'AgentConversationBinding',
+  ConversationInstallListResponse: arrayEnvelope(
+    'conversationInstalls',
+    'ConversationInstall',
   ),
-  AgentConversationBindingRequest: {
+  ConversationInstallRequest: {
     type: 'object',
     properties: {
+      providerAccountId: { type: 'string' },
       threadId: { type: 'string' },
-      requiresTrigger: { type: 'boolean' },
-      senderPolicy: metadata,
-      triggerPolicy: metadata,
+      displayName: { type: 'string' },
+      memoryScope: { type: 'string' },
+      memorySubject: metadata,
+      routeConfig: conversationInstallRouteConfig,
+      workspaceSnapshotId: { type: 'string' },
+      permissionPolicyIds: stringArray,
+      status: { type: 'string' },
     },
   },
-  AgentConversationBindingDeleteResponse: {
+  ConversationInstallDeleteResponse: {
     type: 'object',
-    required: ['disabled', 'binding'],
+    required: ['disabled', 'conversationInstall'],
     properties: {
       disabled: { type: 'boolean' },
-      binding: { $ref: '#/components/schemas/AgentConversationBinding' },
+      conversationInstall: {
+        $ref: '#/components/schemas/ConversationInstall',
+      },
     },
   },
   GuidedActionType: {
     type: 'string',
     enum: [
       'connect_provider',
-      'add_conversation_binding',
+      'add_conversation_install',
       'grant_access',
       'resume_job',
       'review_memory',

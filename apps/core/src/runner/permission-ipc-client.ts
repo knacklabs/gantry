@@ -27,6 +27,7 @@ export interface PermissionIpcRuntimeEnv {
   appId: string;
   agentId: string;
   chatJid: string;
+  providerAccountId?: string;
   jobId: string;
   jobName: string;
   jobRunId: string;
@@ -145,6 +146,9 @@ export async function requestPermissionApprovalViaIpc(
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
+        ...(env.providerAccountId
+          ? { providerAccountId: env.providerAccountId }
+          : {}),
         ...(targetJid ? { chatJid: targetJid } : {}),
         ...(env.jobId ? { jobId: env.jobId } : {}),
         ...(env.jobName ? { jobName: env.jobName } : {}),

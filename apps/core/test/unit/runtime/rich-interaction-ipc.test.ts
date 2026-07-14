@@ -196,13 +196,48 @@ describe('rich interaction IPC', () => {
       logger: { warn: vi.fn(), error: vi.fn() },
     });
 
-    expect(renderRichInteraction).toHaveBeenCalledWith('slack:C123', request);
+    expect(renderRichInteraction).toHaveBeenCalledWith(
+      'slack:C123',
+      request,
+      undefined,
+    );
     expect(sendMessage).toHaveBeenCalledWith(
       'slack:C123',
       'Rich view unavailable in this conversation. Showing text version.\n\nLead qualification form',
       { threadId: 'thread-1' },
     );
     expect(fs.existsSync(claimedPath)).toBe(false);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('uses the resolved provider account for rich fallback delivery', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rich-ipc-'));
+    const claimedPath = path.join(tempDir, 'claimed.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const sendMessage = vi.fn(async () => {});
+    const request = {
+      ...parseRichInteractionIpcRequest(
+        signedRichPayload(richPayload()),
+        'team',
+      ),
+      providerAccountId: 'acct:a',
+    };
+
+    await processRichInteractionIpc({
+      request,
+      sourceAgentFolder: 'team',
+      deps: deps({ sendMessage }),
+      ipcBaseDir: tempDir,
+      file: 'rich.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'slack:C123',
+      'Rich view unavailable in this conversation. Showing text version.\n\nLead qualification form',
+      { threadId: 'thread-1', providerAccountId: 'acct:a' },
+    );
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 });

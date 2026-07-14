@@ -1,8 +1,172 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { startLiveExecutionServices } from '@core/app/bootstrap/live-execution.js';
+import {
+  buildLiveAdmissionProcessor,
+  startLiveExecutionServices,
+} from '@core/app/bootstrap/live-execution.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 describe('startLiveExecutionServices', () => {
+  it('uses the exact thread route when admitting a live queue', async () => {
+    const queueJid = makeAgentThreadQueueKey('sl:C123', 'agent:alpha', 'T1');
+    const getAgentTurnContext = vi.fn(async () => ({
+      appId: 'default',
+      agentSessionId: 'session-thread',
+    }));
+    const resolveExecutionProviderId = vi.fn(() => 'deepagents:langchain');
+    const processor = buildLiveAdmissionProcessor({
+      liveTurnAuthority: {
+        ownedRunId: vi.fn(),
+        ownedFence: vi.fn(),
+        ownsQueue: vi.fn(() => false),
+        getActiveLiveTurn: vi.fn(async () => undefined),
+        admit: vi.fn(async () => ({
+          outcome: 'claimed',
+          fence: {
+            leaseToken: 'lease-1',
+            workerInstanceId: 'worker-1',
+            fencingVersion: 1,
+          },
+        })),
+        finalize: vi.fn(async () => true),
+        registerStopAliases: vi.fn(async () => undefined),
+        routeMessage: vi.fn(),
+      } as any,
+      app: {
+        getConversationRoutes: () => ({
+          [makeAgentThreadQueueKey('sl:C123', 'agent:alpha')]: {
+            folder: 'alpha',
+            conversationKind: 'channel',
+          },
+          [queueJid]: {
+            folder: 'alpha',
+            conversationKind: 'dm',
+            agentConfig: { model: 'gpt-5.5' },
+          },
+        }),
+        processGroupMessages: vi.fn(async () => true),
+        getOrRecoverCursor: vi.fn(async () => ''),
+        setAgentCursor: vi.fn(),
+        saveState: vi.fn(),
+        resolveExecutionProviderId,
+      },
+      opsRepository: {
+        getAgentTurnContext,
+        createSessionAgentRun: vi.fn(async () => 'run-1'),
+      },
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: vi.fn(),
+      warn: vi.fn(),
+    });
+
+    await expect(processor(queueJid)).resolves.toBe(true);
+    expect(getAgentTurnContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationKind: 'dm',
+        executionProviderId: 'deepagents:langchain',
+        threadId: 'T1',
+      }),
+    );
+    expect(resolveExecutionProviderId).toHaveBeenCalledWith(
+      expect.objectContaining({ agentConfig: { model: 'gpt-5.5' } }),
+      'sl:C123',
+    );
+  });
+
+  it('scopes live admission session lookup to the provider account', async () => {
+    const queueJid = makeAgentThreadQueueKey(
+      'sl:C123',
+      'agent:alpha',
+      null,
+      'slack-workspace-2',
+    );
+    const getAgentTurnContext = vi.fn(async () => ({
+      appId: 'default',
+      agentSessionId: 'session-workspace-2',
+    }));
+    const processor = buildLiveAdmissionProcessor({
+      liveTurnAuthority: {
+        ownedRunId: vi.fn(),
+        ownedFence: vi.fn(),
+        ownsQueue: vi.fn(() => false),
+        getActiveLiveTurn: vi.fn(async () => undefined),
+        admit: vi.fn(async () => ({
+          outcome: 'claimed',
+          fence: {
+            leaseToken: 'lease-1',
+            workerInstanceId: 'worker-1',
+            fencingVersion: 1,
+          },
+        })),
+        finalize: vi.fn(async () => true),
+        registerStopAliases: vi.fn(async () => undefined),
+        routeMessage: vi.fn(),
+      } as any,
+      app: {
+        getConversationRoutes: () => ({
+          [queueJid]: {
+            folder: 'alpha',
+            conversationKind: 'channel',
+          },
+        }),
+        processGroupMessages: vi.fn(async () => true),
+        getOrRecoverCursor: vi.fn(async () => ''),
+        setAgentCursor: vi.fn(),
+        saveState: vi.fn(),
+      },
+      opsRepository: {
+        getAgentTurnContext,
+        createSessionAgentRun: vi.fn(async () => 'run-1'),
+      },
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: vi.fn(),
+      warn: vi.fn(),
+    });
+
+    await expect(processor(queueJid)).resolves.toBe(true);
+    expect(getAgentTurnContext).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: 'slack-workspace-2' }),
+    );
+  });
+
+  it('does not admit a top-level live queue through a thread-only route', async () => {
+    const getAgentTurnContext = vi.fn();
+    const processor = buildLiveAdmissionProcessor({
+      liveTurnAuthority: {
+        ownedRunId: vi.fn(),
+        ownedFence: vi.fn(),
+        ownsQueue: vi.fn(() => false),
+      } as any,
+      app: {
+        getConversationRoutes: () => ({
+          [makeAgentThreadQueueKey('sl:C123', 'agent:alpha', 'T1')]: {
+            folder: 'alpha',
+            conversationKind: 'channel',
+          },
+        }),
+        processGroupMessages: vi.fn(async () => true),
+        getOrRecoverCursor: vi.fn(async () => ''),
+        setAgentCursor: vi.fn(),
+        saveState: vi.fn(),
+      },
+      opsRepository: { getAgentTurnContext },
+      executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+      messageFetchPageSize: 50,
+      timezone: 'UTC',
+      enqueueMessageCheck: vi.fn(),
+      warn: vi.fn(),
+    });
+
+    await expect(
+      processor(makeAgentThreadQueueKey('sl:C123', 'agent:alpha')),
+    ).resolves.toBe(false);
+    expect(getAgentTurnContext).not.toHaveBeenCalled();
+  });
+
   it('uses durable live admission claims instead of route-wide scans', () => {
     const admissionStop = vi.fn();
     const admissionTrigger = vi.fn();

@@ -4,23 +4,31 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('Postgres migration journal', () => {
-  it('has a SQL file for every journal entry', () => {
+  it('keeps numbered SQL files and journal entries in one-to-one order', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
     );
     const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
-      entries: Array<{ tag: string }>;
+      entries: Array<{ idx: number; tag: string }>;
     };
+    const migrationsPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations',
+    );
+    const sqlFiles = fs
+      .readdirSync(migrationsPath)
+      .filter((file) => /^\d{4}_.+\.sql$/.test(file))
+      .sort();
+    const journalFiles = journal.entries
+      .map((entry) => `${entry.tag}.sql`)
+      .sort();
 
-    for (const entry of journal.entries) {
-      expect(
-        fs.existsSync(
-          path.resolve(
-            `apps/core/src/adapters/storage/postgres/schema/migrations/${entry.tag}.sql`,
-          ),
-        ),
-      ).toBe(true);
-    }
+    expect(sqlFiles).toEqual(journalFiles);
+    expect(new Set(journal.entries.map((entry) => entry.idx)).size).toBe(
+      journal.entries.length,
+    );
+    expect(new Set(sqlFiles.map((file) => file.slice(0, 4))).size).toBe(
+      sqlFiles.length,
+    );
   });
 
   it('registers the semantic memory vectors migration and schema', () => {
@@ -834,6 +842,384 @@ describe('Postgres migration journal', () => {
       'REFERENCES agent_sessions(id)',
     );
     expect(sessionDeletePolicyMigration).toContain('ON DELETE SET NULL');
+  });
+
+  it('preserves provider account data during the provider account cutover', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0090_provider_accounts_conversation_installs.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration.indexOf('RENAME TO "provider_accounts"')).toBeLessThan(
+      migration.indexOf('DROP TABLE IF EXISTS "provider_connections"'),
+    );
+    expect(migration.indexOf('RENAME TO "conversation_installs"')).toBeLessThan(
+      migration.indexOf('DROP TABLE IF EXISTS "agent_conversation_bindings"'),
+    );
+    expect(migration).toContain(
+      'RENAME COLUMN "provider_connection_id" TO "provider_account_id"',
+    );
+    expect(migration).toContain(
+      'RENAME COLUMN "external_ref_json" TO "external_identity_ref_json"',
+    );
+    expect(migration).toContain('SET "agent_id" = coalesce(');
+    expect(migration).toContain(
+      "pa.\"id\" || ':agent:' || regexp_replace(acb.\"agent_id\", '^agent:', '')",
+    );
+    expect(migration).toContain(
+      "install_provider_account_id := provider_account_id || ':agent:' || binding_agent_id",
+    );
+    expect(migration).toContain("WHERE a.value ? 'bindings'");
+    expect(migration).toContain("agent_entry.value - 'bindings'");
+    expect(migration).toContain("agent_binding_entry.value ->> 'jid'");
+    expect(migration).not.toContain(
+      "(provider_accounts_doc -> provider_account_id - 'external_identity_ref')",
+    );
+    expect(migration).toContain(
+      "((provider_accounts_doc -> provider_account_id) - 'external_identity_ref')",
+    );
+    expect(migration).toContain('UPDATE "agent_conversation_bindings" acb');
+    expect(migration).toContain('FROM "settings_revisions"');
+    expect(migration).toContain("doc - 'provider_connections' - 'bindings'");
+    expect(migration).toContain("'provider_accounts'");
+    expect(migration).toContain("'installed_agents'");
+    expect(migration).toContain(
+      "provider_entry.value - 'default_connection' - 'defaultConnection'",
+    );
+    expect(migration).toContain(
+      "'conversation:' || targets.\"target_provider_account_id\" || ':' || substring(c.\"id\" from char_length('conversation:' || c.\"provider_account_id\" || ':') + 1)",
+    );
+    expect(migration).toContain('WITH conversation_account_targets AS');
+    expect(migration).toContain('FROM "conversations" c\n  UNION');
+    expect(migration).toContain(
+      'targets."target_provider_account_id" AS "new_provider_account_id"',
+    );
+    expect(migration).toContain(
+      'WHERE "old_conversation_id" <> "new_conversation_id"',
+    );
+    expect(migration).toContain(
+      'COALESCE("thread_id", \'\'), "external_message_id"',
+    );
+    expect(migration).toContain(
+      'CREATE TEMP TABLE "__conversation_account_clones"',
+    );
+    expect(migration).toContain('CREATE TEMP TABLE "__session_account_clones"');
+    expect(migration).toContain('UPDATE "provider_sessions" ps');
+    expect(migration).toContain('UPDATE "agent_session_summaries" summaries');
+    expect(migration).toContain('UPDATE "agent_session_digests" digests');
+    for (const table of [
+      '"jobs" j',
+      '"outbound_deliveries" od',
+      '"agent_runs" ar',
+      '"runtime_events" re',
+      '"live_turns" lt',
+      '"live_admission_work_items" lawi',
+    ]) {
+      expect(migration).toContain(`UPDATE ${table}`);
+    }
+    expect(migration).toContain('SELECT session_clones."new_session_id"');
+    expect(migration).toContain('SELECT message_clones."new_message_id"');
+    expect(migration).not.toContain(
+      'replace(lawi."queue_jid", clones."old_conversation_id", clones."new_conversation_id")',
+    );
+    expect(migration).toContain(
+      '::provider_account:\' || replace(replace(clones."new_provider_account_id"',
+    );
+    expect(migration).toContain(
+      "regexp_replace(lawi.\"queue_jid\", '::provider_account:[^:]*$', '')",
+    );
+    expect(migration).toContain(
+      "regexp_replace(lawi.\"idempotency_key\", '::provider_account:[^:]*$', '')",
+    );
+    expect(migration).toContain(
+      'JOIN "conversations" old_conversation ON old_conversation."id" = clones."old_conversation_id"',
+    );
+    expect(migration).toContain(
+      'WHEN clones."old_conversation_id" LIKE \'conversation:%\'',
+    );
+    expect(migration).toContain("NULLIF(old_ref.ref ->> 'jid', '')");
+    expect(migration).toContain(
+      "WHEN pa.\"provider_id\" = 'slack' THEN 'sl:' || (old_ref.ref ->> 'value')",
+    );
+    const liveAdmissionUpdate = migration.slice(
+      migration.indexOf('UPDATE "live_admission_work_items" lawi'),
+      migration.indexOf(
+        'FROM "__conversation_account_clones" clones',
+        migration.indexOf('UPDATE "live_admission_work_items" lawi'),
+      ),
+    );
+    expect(liveAdmissionUpdate).not.toContain(
+      '"conversation_id" = clones."new_conversation_id"',
+    );
+    expect(liveAdmissionUpdate).not.toContain('"thread_id" = CASE');
+    expect(liveAdmissionUpdate).not.toContain(
+      "'::thread:' || replace(replace(",
+    );
+    expect(migration).toContain(
+      "'conv:' || replace(replace(clones.\"new_conversation_id\", ':', '%3A'), '/', '%2F')",
+    );
+    for (const table of [
+      '"conversation_threads"',
+      '"conversation_participants"',
+      '"conversation_approvers"',
+      '"messages"',
+      '"message_parts"',
+      '"message_attachments"',
+    ]) {
+      expect(migration).toContain(`INSERT INTO ${table}`);
+    }
+    expect(
+      migration.indexOf('INSERT INTO "conversation_approvers"'),
+    ).toBeLessThan(
+      migration.indexOf('"conversation_id" = clones."new_conversation_id"'),
+    );
+    expect(migration).toContain(
+      '"conversation_id" = clones."new_conversation_id"',
+    );
+    expect(migration).toContain(
+      "regexp_replace(ci.\"thread_id\", '^thread:', 'thread:' || ci.\"provider_account_id\" || ':')",
+    );
+    expect(migration).toContain(
+      'AND ci."provider_account_id" = clones."new_provider_account_id"',
+    );
+    expect(migration).toContain('SET "status" = \'disabled\'');
+    expect(migration).toContain('AND NOT EXISTS (\n    SELECT 1');
+    expect(migration).toContain(
+      'AND ci."provider_account_id" = c."provider_account_id"',
+    );
+    expect(migration).toContain('AND ci."status" = \'active\'');
+    expect(
+      migration.indexOf('UPDATE "live_admission_work_items" lawi'),
+    ).toBeLessThan(migration.indexOf('SET "status" = \'disabled\''));
+    expect(migration.indexOf('SET "status" = \'disabled\'')).toBeGreaterThan(
+      migration.indexOf('UPDATE "live_admission_work_items" lawi'),
+    );
+    expect(migration).not.toContain(
+      'AND c."provider_account_id" <> ci."provider_account_id"',
+    );
+    expect(migration).toContain('CREATE TEMP TABLE "__message_account_clones"');
+    expect(migration).toContain(
+      'NULLIF(btrim(m."external_ref_json"::text), \'\') IS NULL THEN NULL::jsonb',
+    );
+    expect(migration).toContain(
+      'WHEN btrim(m."external_ref_json"::text) ~ \'^\\{\' THEN m."external_ref_json"::jsonb',
+    );
+    expect(migration).not.toContain('btrim(m."external_ref_json")');
+    expect(migration).toContain(
+      'ELSE COALESCE(NULLIF(m."external_message_id", \'\'), m."id")',
+    );
+    expect(migration).not.toContain(
+      'm."id" || \':account:\' || clones."new_provider_account_id" AS "new_message_id"',
+    );
+    expect(migration).toContain(
+      "regexp_replace(m.\"thread_id\", '^thread:', 'thread:' || clones.\"new_provider_account_id\" || ':')",
+    );
+    expect(migration.indexOf('WITH binding_trigger_routes AS')).toBeLessThan(
+      migration.indexOf('DROP COLUMN IF EXISTS "trigger_pattern"'),
+    );
+    expect(migration).toContain("'trigger', binding_trigger_routes.");
+    expect(migration).toContain("'requiresTrigger', binding_trigger_routes.");
+    expect(migration).toContain("'triggerMode', binding_trigger_routes.");
+    expect(migration).not.toContain(
+      'DROP TABLE IF EXISTS "provider_connections" CASCADE',
+    );
+    expect(migration).not.toContain(
+      'DROP TABLE IF EXISTS "agent_conversation_bindings" CASCADE',
+    );
+  });
+
+  it('registers idempotent provider account post-cutover repairs', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '0091_provider_accounts_post_cutover_repairs',
+      ),
+    ).toMatchObject({
+      idx: 91,
+      tag: '0091_provider_accounts_post_cutover_repairs',
+    });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0091_provider_accounts_post_cutover_repairs.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('FROM "settings_revisions"');
+    expect(migration).toContain("WHERE a.value ? 'bindings'");
+    expect(migration).toContain("agent_entry.value - 'bindings'");
+    expect(migration).toContain("doc - 'provider_connections' - 'bindings'");
+    expect(migration).toContain("'installed_agents'");
+    expect(migration).toContain('ON CONFLICT ("id") DO NOTHING');
+    expect(migration).toContain('UPDATE "conversation_installs" ci');
+    expect(migration).not.toContain('UPDATE "conversations" c');
+    expect(migration).not.toContain('SET "status" = \'disabled\'');
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('RENAME TO');
+    expect(migration).not.toContain('ALTER TABLE');
+  });
+
+  it('registers final idempotent provider account repairs after the 0091 hash', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    expect(journal.entries.find((entry) => entry.idx === 92)).toMatchObject({
+      idx: 92,
+      when: 1777317000000,
+      tag: '0092_provider_accounts_final_repairs',
+    });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0092_provider_accounts_final_repairs.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('FROM "settings_revisions"');
+    expect(migration).toContain('ON CONFLICT ("id") DO NOTHING');
+    expect(migration).toContain('UPDATE "conversation_installs" ci');
+    expect(migration).toContain('UPDATE "live_admission_work_items" lawi');
+    expect(migration).toContain(
+      "regexp_replace(lawi.\"queue_jid\", '::provider_account:[^:]*$', '')",
+    );
+    expect(migration).toContain(
+      "regexp_replace(lawi.\"idempotency_key\", '::provider_account:[^:]*$', '')",
+    );
+    expect(migration).toContain(
+      'AND existing."idempotency_key" = repairs."idempotency_key"',
+    );
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('RENAME TO');
+    expect(migration).not.toContain('ALTER TABLE');
+  });
+
+  it('registers company brain core tables after the 0092 repairs', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    const entry = journal.entries.find(
+      (item) => item.tag === '0093_company_brain_core',
+    );
+    expect(entry).toMatchObject({
+      idx: 93,
+      when: 1777320600000,
+      tag: '0093_company_brain_core',
+    });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0093_company_brain_core.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_pages');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_entities');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_edges');
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS brain_page_embeddings',
+    );
+    expect(migration).toContain('USING hnsw (embedding vector_cosine_ops)');
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('RENAME TO');
+    expect(migration).not.toContain('ALTER TABLE');
+  });
+
+  it('registers brain dreaming journal tables after the company brain core migration', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    expect(journal.entries.find((entry) => entry.idx === 94)).toMatchObject({
+      idx: 94,
+      when: 1777324200000,
+      tag: '0094_brain_dreaming',
+    });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0094_brain_dreaming.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS brain_dream_state');
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS brain_dream_decisions',
+    );
+    expect(migration).toContain('op_json jsonb NOT NULL');
+    expect(migration).toContain('idx_brain_dream_decisions_run');
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('RENAME TO');
+    expect(migration).not.toContain('ALTER TABLE');
+  });
+
+  it('registers the memory review content fingerprint after brain dreaming', () => {
+    const journal = JSON.parse(
+      fs.readFileSync(
+        path.resolve(
+          'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+        ),
+        'utf8',
+      ),
+    ) as {
+      entries: Array<{ idx: number; tag: string; when: number }>;
+    };
+    expect(journal.entries).toContainEqual(
+      expect.objectContaining({
+        idx: 95,
+        when: 1777327800000,
+        tag: '0095_memory_review_content_fingerprint',
+      }),
+    );
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0095_memory_review_content_fingerprint.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain(
+      'ADD COLUMN IF NOT EXISTS flagged_content_hash text',
+    );
+    expect(migration).toContain('idx_memory_review_requests_content_hash');
+    expect(migration).not.toContain('DROP TABLE');
+    expect(migration).not.toContain('DROP COLUMN');
+    expect(migration).not.toContain('RENAME TO');
   });
 
   it('keeps skill persistence indexes aligned with one binding per agent skill', () => {

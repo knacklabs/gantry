@@ -7,7 +7,6 @@ import {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
-import { logger } from '../infrastructure/logging/logger.js';
 import {
   bindPendingPermissionInteractionMessage,
   findDurablePermissionInteractionByRequestId,
@@ -56,23 +55,19 @@ import {
   discordChannelIdFromJid,
   discordHeaders,
 } from './discord-interaction-helpers.js';
-
 const DISCORD_INTERACTION_TIMEOUT_MS = 10 * 60 * 1000;
 const DISCORD_PERMISSION_FULL_VIEW_PREFIX = 'gantry:perm_full:';
 const DISCORD_RICH_FORM_SUBMIT_PREFIX = 'gantry:rich_form_submit:';
 const DISCORD_EPHEMERAL_MESSAGE_LIMIT = 1900;
-
 type DiscordConversationContext = {
   conversationJid: string;
   threadId?: string;
 };
-
 type PendingPermission = {
   request: PermissionApprovalRequest;
   resolve: (decision: PermissionApprovalDecision) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
-
 type PendingQuestion = {
   request: UserQuestionRequest;
   answers: Record<string, string | string[]>;
@@ -80,16 +75,13 @@ type PendingQuestion = {
   resolve: (response: UserQuestionResponse) => void;
   timeout: ReturnType<typeof setTimeout>;
 };
-
 function userName(user: DiscordUser | undefined, fallback = 'unknown'): string {
   return user?.username || user?.id || fallback;
 }
-
 function discordSlashOptionText(option: DiscordInteractionOption): string {
   if (option.value === undefined || option.value === null) return '';
   return String(option.value).trim();
 }
-
 function discordGantrySlashText(interaction: DiscordInteraction): string {
   const subcommand = interaction.data?.options?.[0];
   const name = subcommand?.name?.trim() || 'help';
@@ -98,7 +90,6 @@ function discordGantrySlashText(interaction: DiscordInteraction): string {
     .filter(Boolean);
   return ['/gantry', name, ...args].join(' ');
 }
-
 function discordPermissionFullViewCustomId(requestId: string): string {
   return `${DISCORD_PERMISSION_FULL_VIEW_PREFIX}${encodeURIComponent(requestId)}`;
 }
@@ -250,9 +241,8 @@ export class DiscordInteractionHandler {
   }
 
   async handleInteraction(interaction: DiscordInteraction): Promise<void> {
-    if (!interaction.id || !interaction.token || !interaction.channel_id) {
+    if (!interaction.id || !interaction.token || !interaction.channel_id)
       return;
-    }
     if (interaction.type === 3) {
       const customId = interaction.data?.custom_id || '';
       if (customId.startsWith(LIVE_STOP_CUSTOM_ID_PREFIX)) {
@@ -263,6 +253,7 @@ export class DiscordInteractionHandler {
         await this.input.opts.onMessageAction?.({
           kind: 'live_turn_stop',
           conversationJid: context.conversationJid,
+          providerAccountId: this.input.opts.providerAccountId,
           ...(context.threadId ? { threadId: context.threadId } : {}),
           userId: interaction.member?.user?.id || interaction.user?.id,
           actionToken: customId.slice(LIVE_STOP_CUSTOM_ID_PREFIX.length),
@@ -277,6 +268,7 @@ export class DiscordInteractionHandler {
         await this.input.opts.onMessageAction?.({
           kind: 'scheduler_run_now',
           conversationJid: context.conversationJid,
+          providerAccountId: this.input.opts.providerAccountId,
           ...(context.threadId ? { threadId: context.threadId } : {}),
           userId: interaction.member?.user?.id || interaction.user?.id,
           jobId: decodeURIComponent(
@@ -399,6 +391,7 @@ export class DiscordInteractionHandler {
           user?.id,
           durable.sourceAgentFolder,
           durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+          durable.threadId ?? undefined,
         ));
       if (allowed) {
         await resolveDurablePermissionInteractionByRequestId({
@@ -414,6 +407,8 @@ export class DiscordInteractionHandler {
       interaction,
       user?.id,
       pending.request.sourceAgentFolder,
+      pending.request.decisionPolicy,
+      pending.request.threadId,
     );
     if (!allowed) {
       return;
@@ -445,6 +440,7 @@ export class DiscordInteractionHandler {
         user?.id,
         pending.request.sourceAgentFolder,
         pending.request.decisionPolicy,
+        pending.request.threadId,
       );
       if (!allowed) {
         await this.ackInteraction(
@@ -476,6 +472,7 @@ export class DiscordInteractionHandler {
         user?.id,
         durable.sourceAgentFolder,
         durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
+        durable.threadId ?? undefined,
       );
       if (!allowed) {
         await this.ackInteraction(
@@ -613,17 +610,20 @@ export class DiscordInteractionHandler {
     userId: string | undefined,
     sourceAgentFolder: string,
     decisionPolicy: PermissionApprovalRequest['decisionPolicy'] = 'same_channel',
+    threadId?: string,
   ): Promise<boolean> {
     if (!userId || !this.input.opts.isControlApproverAllowed) return false;
     return this.input.opts.isControlApproverAllowed({
       providerId: 'discord',
+      providerAccountId: this.input.opts.providerAccountId,
+      agentId: this.input.opts.agentId,
       conversationJid: `${DISCORD_JID_PREFIX}${interaction.channel_id}`,
+      threadId,
       userId,
       sourceAgentFolder,
       decisionPolicy,
     });
   }
-
   private async ackInteraction(
     interaction: DiscordInteraction,
     content: string,

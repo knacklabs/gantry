@@ -15,7 +15,7 @@ export function printPolicyChannel(
       const conversation = settings.conversations[binding.conversation];
       if (!conversation) return null;
       const connection =
-        settings.providerConnections[conversation.providerConnection];
+        settings.providerAccounts[conversation.providerAccount];
       if (connection?.provider !== providerId) return null;
       return [binding.agent, conversation.senderPolicy] as const;
     })

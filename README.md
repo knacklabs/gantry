@@ -101,6 +101,27 @@ Bundled runtime surfaces:
 - `/commands` is host-managed command help, not an SDK skill folder.
 - `gantry-admin` is the maintainer skill for local runtime administration.
 
+## Execution Surfaces
+
+Gantry exposes three ways to run model work, all under the same permission,
+credential, and audit authority:
+
+- **Worker agents** (`runtime: worker`, the default) run in a sandboxed
+  subprocess with the full reviewed capability projection: filesystem, shell,
+  skills, browser automation, and stdio MCP servers.
+- **Inline agents** (`runtime: inline`) run the provider loop in the Gantry
+  host process for lightweight chat-style workloads: core tools, remote
+  `http`/`sse` MCP servers, subagent delegation, scheduled jobs, per-agent turn
+  caps, and per-message structured output (`response_schema`).
+- **Direct LLM API** (`POST /llm/v1/messages`, `POST /llm/v1/chat/completions`)
+  is a provider-shaped passthrough for raw model calls with Gantry-held
+  credentials — point an official Anthropic or OpenAI SDK at Gantry via its
+  `baseURL` option and authenticate with a Control API key holding
+  `llm:invoke`.
+
+See [docs/architecture/capability-management.md](docs/architecture/capability-management.md)
+for runtime tiers and the LLM API contract.
+
 ## SDK
 
 The Node SDK talks to the Control API over a Unix socket or HTTP endpoint.

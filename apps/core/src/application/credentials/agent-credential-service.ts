@@ -28,6 +28,8 @@ export type AgentCredentialInjectionInput =
       appId?: AppId;
       agentId?: AgentId;
       runId?: AgentRunId;
+      apiKeyId?: string;
+      apiRequestId?: string;
       jobId?: JobId;
       conversationId?: ConversationId;
       threadId?: ConversationThreadId;
@@ -48,6 +50,8 @@ function brokerBindingFor(input: {
   appId?: AppId;
   agentId?: AgentId;
   runId?: AgentRunId;
+  apiKeyId?: string;
+  apiRequestId?: string;
   jobId?: JobId;
   conversationId?: ConversationId;
   threadId?: ConversationThreadId;
@@ -62,6 +66,12 @@ function brokerBindingFor(input: {
     ...('appId' in input && input.appId ? { appId: input.appId } : {}),
     ...('agentId' in input && input.agentId ? { agentId: input.agentId } : {}),
     ...('runId' in input && input.runId ? { runId: input.runId } : {}),
+    ...('apiKeyId' in input && input.apiKeyId
+      ? { apiKeyId: input.apiKeyId }
+      : {}),
+    ...('apiRequestId' in input && input.apiRequestId
+      ? { apiRequestId: input.apiRequestId }
+      : {}),
     ...('jobId' in input && input.jobId ? { jobId: input.jobId } : {}),
     ...('conversationId' in input && input.conversationId
       ? { conversationId: input.conversationId }

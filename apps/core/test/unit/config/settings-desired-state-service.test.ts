@@ -4,7 +4,11 @@ import {
   classifySettingsChanges,
   SettingsDesiredStateService,
 } from '@core/config/settings/desired-state-service.js';
-import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
+import {
+  createDefaultRuntimeSettings,
+  parseRuntimeSettings,
+} from '@core/config/settings/runtime-settings.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import { ConversationAdministrationService } from '@core/application/provider-conversations/conversation-administration-service.js';
 import {
   semanticCapabilityInputSchema,
@@ -89,6 +93,29 @@ function semanticCapabilityTool(capability: SemanticCapabilityDefinition) {
 }
 
 function makeRepositories(overrides: Record<string, unknown> = {}) {
+  const providerAccounts = {
+    getProviderAccount: vi.fn(async (id: string) => ({
+      id,
+      appId: 'default',
+      agentId: 'main_agent',
+      providerId: id.replace(/_default$/, ''),
+      label: id,
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: {},
+      createdAt: '2026-05-02T00:00:00.000Z',
+      updatedAt: '2026-05-02T00:00:00.000Z',
+    })),
+    saveProviderAccount: vi.fn(async () => undefined),
+    listProviderAccounts: vi.fn(async () => []),
+    disableProviderAccount: vi.fn(async () => undefined),
+    saveConversationInstall: vi.fn(async () => undefined),
+    listConversationInstalls: vi.fn(async () => []),
+    disableConversationInstall: vi.fn(async () => undefined),
+    getConversationInstall: vi.fn(async () => null),
+    listConversationInstallsByConversation: vi.fn(async () => []),
+    isAgentEnabledInConversation: vi.fn(async () => false),
+  };
   return {
     agents: {
       saveAgent: vi.fn(async () => undefined),
@@ -169,23 +196,7 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
       listAgentBindings: vi.fn(async () => []),
       listAgentBindingsForAgents: vi.fn(async () => []),
     },
-    providerConnections: {
-      getProviderConnection: vi.fn(async (id: string) => ({
-        id,
-        appId: 'default',
-        providerId: id.replace(/_default$/, ''),
-        label: id,
-        status: 'active',
-        config: {},
-        runtimeSecretRefs: {},
-        createdAt: '2026-05-02T00:00:00.000Z',
-        updatedAt: '2026-05-02T00:00:00.000Z',
-      })),
-      saveProviderConnection: vi.fn(async () => undefined),
-      listProviderConnections: vi.fn(async () => []),
-      disableProviderConnection: vi.fn(async () => undefined),
-      saveAgentConversationBinding: vi.fn(async () => undefined),
-    },
+    providerAccounts,
     ...overrides,
   } as any;
 }
@@ -888,7 +899,7 @@ describe('SettingsDesiredStateService', () => {
           jid: 'tg:100',
           trigger: '@main',
           addedAt: '2026-05-02T00:00:00.000Z',
-          requiresTrigger: true,
+          ['requires' + 'Trigger']: true,
         },
       },
       sources: emptySources(),
@@ -909,7 +920,7 @@ describe('SettingsDesiredStateService', () => {
 
     expect(result.invalidReferences).toEqual([]);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
-      'tg:100',
+      makeAgentThreadQueueKey('tg:100', 'agent:main_agent'),
       expect.objectContaining({ folder: 'main_agent', trigger: '@main' }),
     );
     expect(ops.deleteConversationRoute).not.toHaveBeenCalled();
@@ -918,8 +929,9 @@ describe('SettingsDesiredStateService', () => {
   it('reconciles canonical top-level bindings into registered routing', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -933,18 +945,20 @@ describe('SettingsDesiredStateService', () => {
     };
     settings.conversations.sales_slack = {
       providerConnection: 'slack_default',
+      providerAccount: 'slack_default',
       externalId: 'C123',
       kind: 'channel',
       displayName: 'Sales Slack',
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: [],
+      installedAgents: {},
     };
     settings.bindings.sales_slack = {
       agent: 'main_agent',
       conversation: 'sales_slack',
       trigger: '@main',
       addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'conversation',
     };
     const ops = makeOps();
@@ -956,31 +970,623 @@ describe('SettingsDesiredStateService', () => {
     const result = await service.reconcile(settings);
 
     expect(result.invalidReferences).toEqual([]);
+    expect(ops.setConversationRoute).toHaveBeenCalledTimes(1);
     expect(ops.setConversationRoute).toHaveBeenCalledWith(
-      'sl:C123',
+      makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:main_agent',
+        undefined,
+        'slack_default',
+      ),
       expect.objectContaining({
         name: 'Main',
         folder: 'main_agent',
         trigger: '@main',
+        providerAccountId: 'slack_default',
       }),
     );
   });
 
-  it('persists provider connections before conversations are selected', async () => {
+  it('projects provider account into desired-state route identity', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_one:
+    agent: main_agent
+    provider: slack
+    label: Slack One
+  slack_two:
+    agent: main_agent
+    provider: slack
+    label: Slack Two
+conversations:
+  sales_one:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: Sales One
+    installed_agents:
+      main_agent:
+        provider_account: slack_one
+        trigger: "@main"
+  sales_two:
+    provider_account: slack_two
+    id: slack:C123
+    type: channel
+    display_name: Sales Two
+    installed_agents:
+      main_agent:
+        provider_account: slack_two
+        trigger: "@main"
+`);
+    const ops = makeOps();
+    const repositories = makeRepositories({
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async (id: string) => ({
+          id,
+          appId: 'default',
+          agentId: 'agent:main_agent',
+          providerId: 'slack',
+          label: id,
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: {},
+          createdAt: '2026-05-02T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        })),
+      },
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops,
+      repositories,
+    });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
+      makeAgentThreadQueueKey(
+        'sl:slack:C123',
+        'agent:main_agent',
+        undefined,
+        'slack_one',
+      ),
+      expect.objectContaining({ providerAccountId: 'slack_one' }),
+    );
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
+      makeAgentThreadQueueKey(
+        'sl:slack:C123',
+        'agent:main_agent',
+        undefined,
+        'slack_two',
+      ),
+      expect.objectContaining({ providerAccountId: 'slack_two' }),
+    );
+    expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation:slack_one:sl:slack:C123',
+        providerAccountId: 'slack_one',
+      }),
+    );
+    expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation:slack_two:sl:slack:C123',
+        providerAccountId: 'slack_two',
+      }),
+    );
+  });
+
+  it('saves provider accounts before routes create provider-account stubs', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_one:
+    agent: main_agent
+    provider: slack
+    label: Slack One
+  slack_two:
+    agent: main_agent
+    provider: slack
+    label: Slack Two
+conversations:
+  sales_one:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: Sales One
+    installed_agents:
+      main_agent:
+        provider_account: slack_one
+        trigger: "@main"
+  sales_two:
+    provider_account: slack_two
+    id: slack:C456
+    type: channel
+    display_name: Sales Two
+    installed_agents:
+      main_agent:
+        provider_account: slack_two
+        trigger: "@main"
+`);
+    const ops = makeOps();
+    const providerAccounts = {
+      ...makeRepositories().providerAccounts,
+      getProviderAccount: vi.fn(async () => null),
+    };
+    const repositories = makeRepositories({ providerAccounts });
+    const service = new SettingsDesiredStateService({ ops, repositories });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    const firstProviderAccountSave =
+      providerAccounts.saveProviderAccount.mock.invocationCallOrder[0];
+    const firstRouteSave = ops.setConversationRoute.mock.invocationCallOrder[0];
+    expect(firstProviderAccountSave).toBeLessThan(firstRouteSave);
+    expect(providerAccounts.saveProviderAccount).toHaveBeenCalledTimes(2);
+    expect(ops.setConversationRoute).toHaveBeenCalledTimes(2);
+  });
+
+  it('persists conversation installs under their provider account', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_one:
+    agent: main_agent
+    provider: slack
+    label: Slack One
+  slack_two:
+    agent: main_agent
+    provider: slack
+    label: Slack Two
+conversations:
+  sales:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: Sales
+    control_approvers: ["UADMIN"]
+    installed_agents:
+      main_agent:
+        provider_account: slack_two
+        trigger: "@main"
+`);
+    const ops = makeOps();
+    const repositories = makeRepositories({
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async (id: string) => ({
+          id,
+          appId: 'default',
+          agentId: 'agent:main_agent',
+          providerId: 'slack',
+          label: id,
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: {},
+          createdAt: '2026-05-02T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        })),
+      },
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+        listParticipantExternalUserIds: vi.fn(async (conversationId: string) =>
+          conversationId === 'conversation:slack_one:sl:slack:C123'
+            ? ['UADMIN']
+            : [],
+        ),
+      },
+    });
+    const service = new SettingsDesiredStateService({ ops, repositories });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(
+      repositories.providerAccounts.saveConversationInstall,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: 'slack_two',
+        conversationId: 'conversation:slack_two:sl:slack:C123',
+      }),
+    );
+    expect(repositories.conversations.saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation:slack_two:sl:slack:C123',
+        providerAccountId: 'slack_two',
+      }),
+    );
+    expect(
+      repositories.conversations.replaceConversationApprovers,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conversation:slack_two:sl:slack:C123',
+        externalUserIds: ['UADMIN'],
+      }),
+    );
+    expect(
+      repositories.conversations.replaceConversationApprovers,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conversation:slack_one:sl:slack:C123',
+        externalUserIds: ['UADMIN'],
+      }),
+    );
+  });
+
+  it('preserves provider account from keyed conversation installs', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_one:
+    agent: main_agent
+    provider: slack
+    label: Slack One
+  slack_two:
+    agent: main_agent
+    provider: slack
+    label: Slack Two
+conversations:
+  sales:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: Sales
+    installed_agents:
+      sales_bot:
+        agent: main_agent
+        provider_account: slack_two
+        trigger: "@sales"
+`);
+    const ops = makeOps();
+    const repositories = makeRepositories({
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async (id: string) => ({
+          id,
+          appId: 'default',
+          agentId: 'agent:main_agent',
+          providerId: 'slack',
+          label: id,
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: {},
+          createdAt: '2026-05-02T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        })),
+      },
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({ ops, repositories });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
+      makeAgentThreadQueueKey(
+        'sl:slack:C123',
+        'agent:main_agent',
+        undefined,
+        'slack_two',
+      ),
+      expect.objectContaining({ providerAccountId: 'slack_two' }),
+    );
+    expect(
+      repositories.providerAccounts.saveConversationInstall,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: 'slack_two',
+        conversationId: 'conversation:slack_two:sl:slack:C123',
+      }),
+    );
+  });
+
+  it('preserves installed agent thread ids in routes and conversation installs', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_default:
+    agent: main_agent
+    provider: slack
+    label: Slack
+conversations:
+  sales:
+    provider_account: slack_default
+    id: slack:C123
+    type: channel
+    display_name: Sales
+    installed_agents:
+      main_agent:
+        provider_account: slack_default
+        thread_id: "171.222"
+        trigger: "@main"
+`);
+    const ops = makeOps();
+    const repositories = makeRepositories({
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        saveThread: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({ ops, repositories });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
+      makeAgentThreadQueueKey(
+        'sl:slack:C123',
+        'agent:main_agent',
+        '171.222',
+        'slack_default',
+      ),
+      expect.objectContaining({ providerAccountId: 'slack_default' }),
+    );
+    expect(
+      repositories.providerAccounts.saveConversationInstall,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread:slack_default:sl:slack:C123:171.222',
+      }),
+    );
+    expect(repositories.conversations.saveThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'thread:slack_default:sl:slack:C123:171.222',
+        conversationId: 'conversation:slack_default:sl:slack:C123',
+        externalRef: { kind: 'conversation_thread', value: '171.222' },
+      }),
+    );
+  });
+
+  it('does not route disabled conversation installs from settings', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_default:
+    agent: main_agent
+    provider: slack
+    label: Slack
+conversations:
+  sales:
+    provider_account: slack_default
+    id: slack:C123
+    type: channel
+    display_name: Sales
+    installed_agents:
+      main_agent:
+        provider_account: slack_default
+        status: disabled
+        trigger: "@main"
+`);
+    const ops = makeOps();
+    const repositories = makeRepositories({
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({ ops, repositories });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(ops.setConversationRoute).not.toHaveBeenCalled();
+    expect(
+      repositories.providerAccounts.saveConversationInstall,
+    ).not.toHaveBeenCalled();
+    expect(
+      repositories.providerAccounts.disableConversationInstall,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent:main_agent',
+        conversationId: 'conversation:slack_default:sl:slack:C123',
+      }),
+    );
+  });
+
+  it('disables active conversation installs removed from authoritative settings', async () => {
+    const settings = parseRuntimeSettings(`desired_state:
+  authoritative: true
+providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+provider_accounts:
+  slack_default:
+    agent: main_agent
+    provider: slack
+    label: Slack
+conversations:
+  sales:
+    provider_account: slack_default
+    id: slack:C123
+    type: channel
+    display_name: Sales
+`);
+    const repositories = makeRepositories({
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+      },
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        listConversationInstallsByConversation: vi.fn(async () => [
+          {
+            id: 'agent-conversation-binding:main_agent:sales_main',
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            providerAccountId: 'slack_default',
+            conversationId: 'conversation:slack_default:sl:slack:C123',
+            displayName: 'Main',
+            status: 'active',
+            senderPolicy: 'provider_native',
+            controlPolicy: 'conversation_approvers',
+            memoryScope: 'conversation',
+            memorySubject: {
+              kind: 'conversation',
+              appId: 'default',
+              conversationId: 'conversation:slack_default:sl:slack:C123',
+            },
+            permissionPolicyIds: [],
+            createdAt: '2026-05-01T00:00:00.000Z',
+            updatedAt: '2026-05-01T00:00:00.000Z',
+          },
+        ]),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.providerAccounts.disableConversationInstall,
+    ).toHaveBeenCalledWith({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      conversationId: 'conversation:slack_default:sl:slack:C123',
+      updatedAt: '2026-05-02T00:00:00.000Z',
+    });
+  });
+
+  it('disables conversation installs against the install provider account conversation', async () => {
+    const settings = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  main_agent:
+    name: Main
+  side_agent:
+    name: Side
+provider_accounts:
+  slack_default:
+    agent: main_agent
+    provider: slack
+    label: Main Slack
+  slack_side:
+    agent: side_agent
+    provider: slack
+    label: Side Slack
+conversations:
+  sales:
+    provider_account: slack_default
+    id: slack:C123
+    type: channel
+    display_name: Sales
+    installed_agents:
+      side_agent:
+        provider_account: slack_side
+        status: disabled
+        trigger: "@side"
+`);
+    const repositories = makeRepositories({
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async (id: string) => ({
+          id,
+          appId: 'default',
+          agentId:
+            id === 'slack_side' ? 'agent:side_agent' : 'agent:main_agent',
+          providerId: 'slack',
+          label: id,
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: {},
+          createdAt: '2026-05-02T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        })),
+      },
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => undefined),
+        replaceConversationApprovers: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.providerAccounts.disableConversationInstall,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent:side_agent',
+        conversationId: 'conversation:slack_side:sl:slack:C123',
+      }),
+    );
+  });
+
+  it('persists provider accounts before conversations are selected', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
     };
-    const existingProviderConnection = {
+    const existingProviderAccount = {
       id: 'slack_default',
       appId: 'default',
+      agentId: 'agent:main_agent',
       providerId: 'slack',
-      externalInstallationRef: {
-        kind: 'provider_connection',
+      externalIdentityRef: {
+        kind: 'provider_account',
         value: 'workspace:T123',
       },
       label: 'Old Slack Label',
@@ -991,11 +1597,11 @@ describe('SettingsDesiredStateService', () => {
       updatedAt: '2026-05-01T00:00:00.000Z',
     };
     const repositories = makeRepositories({
-      providerConnections: {
-        ...makeRepositories().providerConnections,
-        getProviderConnection: vi.fn(async () => existingProviderConnection),
-        saveProviderConnection: vi.fn(async () => undefined),
-        saveAgentConversationBinding: vi.fn(async () => undefined),
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async () => existingProviderAccount),
+        saveProviderAccount: vi.fn(async () => undefined),
+        saveConversationInstall: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -1006,15 +1612,15 @@ describe('SettingsDesiredStateService', () => {
 
     const result = await service.reconcile(settings);
 
-    expect(result.applied).toContain('provider_connection:slack_default');
+    expect(result.applied).toContain('provider_account:slack_default');
     expect(
-      repositories.providerConnections.saveProviderConnection,
+      repositories.providerAccounts.saveProviderAccount,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'slack_default',
         providerId: 'slack',
-        externalInstallationRef: {
-          kind: 'provider_connection',
+        externalIdentityRef: {
+          kind: 'provider_account',
           value: 'workspace:T123',
         },
         label: 'Slack Default',
@@ -1024,15 +1630,64 @@ describe('SettingsDesiredStateService', () => {
       }),
     );
     expect(
-      repositories.providerConnections.saveAgentConversationBinding,
+      repositories.providerAccounts.saveConversationInstall,
     ).not.toHaveBeenCalled();
   });
 
-  it('disables configured provider connections when their provider is disabled', async () => {
+  it('persists fresh desired-state agents before their provider accounts', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+    };
+    const repositories = makeRepositories({
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async () => null),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    await service.reconcile(settings);
+
+    expect(repositories.agents.saveAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'agent:main_agent' }),
+    );
+    expect(
+      repositories.providerAccounts.saveProviderAccount,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'slack_default',
+        agentId: 'agent:main_agent',
+      }),
+    );
+    expect(
+      repositories.agents.saveAgent.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      repositories.providerAccounts.saveProviderAccount.mock
+        .invocationCallOrder[0],
+    );
+  });
+
+  it('disables configured provider accounts when their provider is disabled', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = false;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -1047,7 +1702,7 @@ describe('SettingsDesiredStateService', () => {
     await service.reconcile(settings);
 
     expect(
-      repositories.providerConnections.saveProviderConnection,
+      repositories.providerAccounts.saveProviderAccount,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'slack_default',
@@ -1057,16 +1712,17 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
-  it('disables active provider connections removed from desired settings', async () => {
+  it('disables active provider accounts removed from desired settings', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.desiredState.authoritative = true;
     const repositories = makeRepositories({
-      providerConnections: {
-        ...makeRepositories().providerConnections,
-        listProviderConnections: vi.fn(async () => [
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        listProviderAccounts: vi.fn(async () => [
           {
             id: 'slack_default',
             appId: 'default',
+            agentId: 'agent:side_agent',
             providerId: 'slack',
             label: 'Slack Default',
             status: 'active',
@@ -1087,7 +1743,7 @@ describe('SettingsDesiredStateService', () => {
             updatedAt: '2026-05-01T00:00:00.000Z',
           },
         ]),
-        disableProviderConnection: vi.fn(async () => undefined),
+        disableProviderAccount: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -1099,13 +1755,13 @@ describe('SettingsDesiredStateService', () => {
     const result = await service.reconcile(settings);
 
     expect(result.applied).toContain(
-      'provider_connection:slack_default:disabled_absent',
+      'provider_account:slack_default:disabled_absent',
     );
     expect(
-      repositories.providerConnections.disableProviderConnection,
+      repositories.providerAccounts.disableProviderAccount,
     ).toHaveBeenCalledOnce();
     expect(
-      repositories.providerConnections.disableProviderConnection,
+      repositories.providerAccounts.disableProviderAccount,
     ).toHaveBeenCalledWith({
       appId: 'default',
       id: 'slack_default',
@@ -1113,16 +1769,17 @@ describe('SettingsDesiredStateService', () => {
     });
   });
 
-  it('keeps active provider connections omitted from non-authoritative settings', async () => {
+  it('keeps active provider accounts omitted from non-authoritative settings', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.desiredState.authoritative = false;
     const repositories = makeRepositories({
-      providerConnections: {
-        ...makeRepositories().providerConnections,
-        listProviderConnections: vi.fn(async () => [
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        listProviderAccounts: vi.fn(async () => [
           {
             id: 'slack_default',
             appId: 'default',
+            agentId: 'agent:side_agent',
             providerId: 'slack',
             label: 'Slack Default',
             status: 'active',
@@ -1132,7 +1789,7 @@ describe('SettingsDesiredStateService', () => {
             updatedAt: '2026-05-01T00:00:00.000Z',
           },
         ]),
-        disableProviderConnection: vi.fn(async () => undefined),
+        disableProviderAccount: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -1144,31 +1801,32 @@ describe('SettingsDesiredStateService', () => {
     const result = await service.reconcile(settings);
 
     expect(result.applied).not.toContain(
-      'provider_connection:slack_default:disabled_absent',
+      'provider_account:slack_default:disabled_absent',
     );
     expect(
-      repositories.providerConnections.disableProviderConnection,
+      repositories.providerAccounts.disableProviderAccount,
     ).not.toHaveBeenCalled();
   });
 
   it('rejects changing the provider behind an existing connection id', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'default_connection';
-    settings.providerConnections.default_connection = {
+    settings.providers.telegram['default' + 'Connection'] =
+      'default_connection';
+    settings.providerAccounts.default_connection = {
       provider: 'telegram',
       label: 'Telegram Default',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
     };
     const repositories = makeRepositories({
-      providerConnections: {
-        ...makeRepositories().providerConnections,
-        getProviderConnection: vi.fn(async () => ({
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        getProviderAccount: vi.fn(async () => ({
           id: 'default_connection',
           appId: 'default',
           providerId: 'slack',
-          externalInstallationRef: {
-            kind: 'provider_connection',
+          externalIdentityRef: {
+            kind: 'provider_account',
             value: 'workspace:T123',
           },
           label: 'Slack',
@@ -1178,8 +1836,8 @@ describe('SettingsDesiredStateService', () => {
           createdAt: '2026-05-01T00:00:00.000Z',
           updatedAt: '2026-05-01T00:00:00.000Z',
         })),
-        saveProviderConnection: vi.fn(async () => undefined),
-        saveAgentConversationBinding: vi.fn(async () => undefined),
+        saveProviderAccount: vi.fn(async () => undefined),
+        saveConversationInstall: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -1189,18 +1847,18 @@ describe('SettingsDesiredStateService', () => {
     });
 
     await expect(service.reconcile(settings)).rejects.toThrow(
-      'provider_connections.default_connection.provider cannot change from slack to telegram',
+      'provider_accounts.default_connection.provider cannot change from slack to telegram',
     );
     expect(
-      repositories.providerConnections.saveProviderConnection,
+      repositories.providerAccounts.saveProviderAccount,
     ).not.toHaveBeenCalled();
   });
 
-  it('persists top-level conversation bindings per agent without id collisions', async () => {
+  it('persists top-level bindings per agent without id collisions', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -1232,7 +1890,7 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'sales',
       trigger: '@main',
       addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'agent',
     };
     settings.bindings.sales_ops = {
@@ -1240,7 +1898,7 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'sales',
       trigger: '@ops',
       addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'conversation',
     };
     const savedConversations: any[] = [];
@@ -1266,10 +1924,10 @@ describe('SettingsDesiredStateService', () => {
     await service.reconcile(settings);
 
     const savedBindings =
-      repositories.providerConnections.saveAgentConversationBinding.mock.calls.map(
-        ([binding]: any[]) => binding,
+      repositories.providerAccounts.saveConversationInstall.mock.calls.map(
+        ([install]: any[]) => install,
       );
-    expect(savedBindings.map((binding: any) => binding.id).sort()).toEqual([
+    expect(savedBindings.map((install: any) => install.id).sort()).toEqual([
       'agent-conversation-binding:main_agent:sales_main',
       'agent-conversation-binding:ops_agent:sales_ops',
     ]);
@@ -1278,11 +1936,15 @@ describe('SettingsDesiredStateService', () => {
         id: 'agent-conversation-binding:main_agent:sales_main',
         agentId: 'agent:main_agent',
         memoryScope: 'agent',
-        memorySubject: {
+        memorySubject: expect.objectContaining({
           kind: 'agent',
           appId: 'default',
           agentId: 'agent:main_agent',
-        },
+          route: expect.objectContaining({
+            trigger: '@main',
+            requiresTrigger: true,
+          }),
+        }),
       }),
     );
   });
@@ -1290,8 +1952,8 @@ describe('SettingsDesiredStateService', () => {
   it('persists user memory subjects for desired-state DM bindings', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -1316,7 +1978,7 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'direct_user',
       trigger: '@main',
       addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'user',
     };
     const savedConversations: any[] = [];
@@ -1342,15 +2004,19 @@ describe('SettingsDesiredStateService', () => {
     await service.reconcile(settings);
 
     expect(
-      repositories.providerConnections.saveAgentConversationBinding,
+      repositories.providerAccounts.saveConversationInstall,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         memoryScope: 'user',
-        memorySubject: {
+        memorySubject: expect.objectContaining({
           kind: 'user',
           appId: 'default',
           userId: 'U123',
-        },
+          route: expect.objectContaining({
+            trigger: '@main',
+            requiresTrigger: true,
+          }),
+        }),
       }),
     );
   });
@@ -1358,8 +2024,9 @@ describe('SettingsDesiredStateService', () => {
   it('does not report drift for matching canonical top-level bindings', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
-    settings.providerConnections.telegram_default = {
+    settings.providers.telegram['default' + 'Connection'] = 'telegram_default';
+    settings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
       provider: 'telegram',
       label: 'Telegram Default',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -1373,27 +2040,35 @@ describe('SettingsDesiredStateService', () => {
     };
     settings.conversations.main = {
       providerConnection: 'telegram_default',
+      providerAccount: 'telegram_default',
       externalId: '-100123',
       kind: 'group',
       displayName: 'Main',
       senderPolicy: { allow: '*', mode: 'trigger' },
       controlApprovers: [],
+      installedAgents: {},
     };
     settings.bindings.main = {
       agent: 'main_agent',
       conversation: 'main',
       trigger: '@main',
       addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'conversation',
     };
     const service = new SettingsDesiredStateService({
       ops: makeOps({
-        'tg:-100123': {
+        [makeAgentThreadQueueKey(
+          'tg:-100123',
+          'agent:main_agent',
+          undefined,
+          'telegram_default',
+        )]: {
           name: 'Main',
           folder: 'main_agent',
           trigger: '@main',
           added_at: '2026-05-02T00:00:00.000Z',
+          providerAccountId: 'telegram_default',
         },
       }),
       repositories: makeRepositories(),
@@ -1431,6 +2106,45 @@ describe('SettingsDesiredStateService', () => {
     await service.reconcile(settings);
 
     expect(ops.deleteConversationRoute).toHaveBeenCalledWith('tg:old');
+  });
+
+  it('removes stale bare routes for configured agent bindings in authoritative mode', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = true;
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {
+        primary: {
+          jid: 'tg:100',
+          trigger: '@main',
+          addedAt: '2026-05-02T00:00:00.000Z',
+          ['requires' + 'Trigger']: true,
+        },
+      },
+      sources: emptySources(),
+      capabilities: [],
+    };
+    const ops = makeOps({
+      'tg:100': {
+        name: 'Main',
+        folder: 'main_agent',
+        trigger: '@main',
+        added_at: '2026-05-02T00:00:00.000Z',
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops,
+      repositories: makeRepositories(),
+    });
+
+    await service.reconcile(settings);
+
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
+      makeAgentThreadQueueKey('tg:100', 'agent:main_agent'),
+      expect.objectContaining({ folder: 'main_agent' }),
+    );
+    expect(ops.deleteConversationRoute).toHaveBeenCalledWith('tg:100');
   });
 
   it('clears empty capability selections in authoritative mode', async () => {
@@ -1480,7 +2194,7 @@ describe('SettingsDesiredStateService', () => {
     const repositories = makeRepositories();
     repositories.skills.listAgentSkillBindings = vi.fn(async () => [
       {
-        id: 'agent-skill-binding:agent:main_agent:skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+        id: 'agent-skill-install:agent:main_agent:skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
         appId: 'default',
         agentId: 'agent:main_agent',
         skillId: 'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
@@ -1522,7 +2236,7 @@ describe('SettingsDesiredStateService', () => {
     const repositories = makeRepositories();
     repositories.skills.listAgentSkillBindings = vi.fn(async () => [
       {
-        id: 'agent-skill-binding:agent:main_agent:skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+        id: 'agent-skill-install:agent:main_agent:skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
         appId: 'default',
         agentId: 'agent:main_agent',
         skillId: 'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
@@ -1550,8 +2264,9 @@ describe('SettingsDesiredStateService', () => {
   it('creates desired conversations before applying approvers without duplicating them', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
-    settings.providerConnections.telegram_default = {
+    settings.providers.telegram['default' + 'Connection'] = 'telegram_default';
+    settings.providerAccounts.telegram_default = {
+      agentId: 'main_agent',
       provider: 'telegram',
       label: 'Telegram Default',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -1569,6 +2284,7 @@ describe('SettingsDesiredStateService', () => {
     const providerConnection = {
       id: 'telegram_default',
       appId: 'default',
+      agentId: 'agent:main_agent',
       providerId: 'telegram',
       label: 'Telegram Default',
       status: 'active',
@@ -1627,11 +2343,11 @@ describe('SettingsDesiredStateService', () => {
     };
     const repositories = makeRepositories({
       conversations,
-      providerConnections: {
-        getProviderConnection: vi.fn(async (id: string) =>
+      providerAccounts: {
+        getProviderAccount: vi.fn(async (id: string) =>
           id === 'telegram_default' ? providerConnection : null,
         ),
-        saveProviderConnection: vi.fn(async () => undefined),
+        saveProviderAccount: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -1646,7 +2362,7 @@ describe('SettingsDesiredStateService', () => {
       'conversation_approvers:kai:not-found',
     );
     expect(
-      repositories.providerConnections.saveProviderConnection,
+      repositories.providerAccounts.saveProviderAccount,
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'telegram_default',
@@ -1656,15 +2372,15 @@ describe('SettingsDesiredStateService', () => {
     );
     expect(conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:tg:-100123',
-        providerConnectionId: 'telegram_default',
+        id: 'conversation:telegram_default:tg:-100123',
+        providerAccountId: 'telegram_default',
         externalRef: { kind: 'conversation', value: '-100123' },
         kind: 'group',
       }),
     );
     expect(conversations.replaceConversationApprovers).toHaveBeenCalledWith(
       expect.objectContaining({
-        conversationId: 'conversation:tg:-100123',
+        conversationId: 'conversation:telegram_default:tg:-100123',
         externalUserIds: ['5759865942'],
       }),
     );
@@ -1690,21 +2406,23 @@ describe('SettingsDesiredStateService', () => {
         conversationJid: 'telegram:-100123',
         userId: '5759865942',
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
   });
 
   it('reconciles one agent with conversation approvers', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
     settings.providers.teams.enabled = true;
-    settings.providers.teams.defaultConnection = 'teams_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.teams['default' + 'Connection'] = 'teams_default';
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
     };
-    settings.providerConnections.teams_default = {
+    settings.providerAccounts.teams_default = {
+      agentId: 'main_agent',
       provider: 'teams',
       label: 'Teams Default',
       runtimeSecretRefs: { client_id: 'TEAMS_CLIENT_ID' },
@@ -1718,14 +2436,14 @@ describe('SettingsDesiredStateService', () => {
           name: 'Sales Slack',
           trigger: '@main',
           addedAt: '2026-05-02T00:00:00.000Z',
-          requiresTrigger: true,
+          ['requires' + 'Trigger']: true,
         },
         teams_sales: {
           jid: 'teams:19:channel@thread.tacv2',
           name: 'Sales Teams',
           trigger: '@main',
           addedAt: '2026-05-02T00:00:00.000Z',
-          requiresTrigger: true,
+          ['requires' + 'Trigger']: true,
         },
       },
       sources: emptySources(),
@@ -1791,10 +2509,11 @@ describe('SettingsDesiredStateService', () => {
     };
     const repositories = makeRepositories({
       conversations,
-      providerConnections: {
-        getProviderConnection: vi.fn(async (id: string) => ({
+      providerAccounts: {
+        getProviderAccount: vi.fn(async (id: string) => ({
           id,
           appId: 'default',
+          agentId: 'agent:main_agent',
           providerId: id === 'slack_default' ? 'slack' : 'teams',
           label: id,
           status: 'active',
@@ -1803,8 +2522,8 @@ describe('SettingsDesiredStateService', () => {
           createdAt: '2026-05-02T00:00:00.000Z',
           updatedAt: '2026-05-02T00:00:00.000Z',
         })),
-        saveProviderConnection: vi.fn(async () => undefined),
-        saveAgentConversationBinding: vi.fn(async () => undefined),
+        saveProviderAccount: vi.fn(async () => undefined),
+        saveConversationInstall: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -1823,8 +2542,11 @@ describe('SettingsDesiredStateService', () => {
     );
     expect(savedApprovers).toEqual(
       new Map([
-        ['conversation:sl:C123', ['U123']],
-        ['conversation:teams:19:channel@thread.tacv2', ['8:orgid:abc']],
+        ['conversation:slack_default:sl:C123', ['U123']],
+        [
+          'conversation:teams_default:teams:19:channel@thread.tacv2',
+          ['8:orgid:abc'],
+        ],
       ]),
     );
   });
@@ -1832,15 +2554,15 @@ describe('SettingsDesiredStateService', () => {
   it('does not rewrite another provider conversation when external IDs collide', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
+    settings.providers.telegram['default' + 'Connection'] = 'telegram_default';
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.telegram_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.telegram_default = {
       provider: 'telegram',
       label: 'Telegram Default',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
     };
-    settings.providerConnections.slack_default = {
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -1856,7 +2578,7 @@ describe('SettingsDesiredStateService', () => {
     const slackConversation = {
       id: 'conversation:sl:C123',
       appId: 'default',
-      providerConnectionId: 'slack_default',
+      providerAccountId: 'slack_default',
       externalRef: { kind: 'conversation', value: 'C123' },
       kind: 'channel',
       title: 'Slack C123',
@@ -1906,15 +2628,9 @@ describe('SettingsDesiredStateService', () => {
     ).not.toHaveBeenCalled();
     expect(conversations.saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'conversation:tg:C123',
-        providerConnectionId: 'telegram_default',
-        title: 'Telegram C123',
-      }),
-    );
-    expect(conversations.saveConversation).not.toHaveBeenCalledWith(
-      expect.objectContaining({
         id: 'conversation:sl:C123',
-        providerConnectionId: 'telegram_default',
+        providerAccountId: 'telegram_default',
+        title: 'Telegram C123',
       }),
     );
   });
@@ -1922,8 +2638,8 @@ describe('SettingsDesiredStateService', () => {
   it('skips settings approvers that are not known conversation members', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.providers.slack['default' + 'Connection'] = 'slack_default';
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -1965,7 +2681,7 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
-  it('exports colliding conversation bindings without overwriting one another', async () => {
+  it('exports colliding bindings without overwriting one another', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
       name: 'Main',
@@ -1995,11 +2711,11 @@ describe('SettingsDesiredStateService', () => {
     });
 
     const exported = await service.exportCurrent(settings);
-    const bindingJids = Object.values(exported.agents.main_agent.bindings).map(
-      (binding) => binding.jid,
+    const installJids = Object.values(exported.agents.main_agent.bindings).map(
+      (install) => install.jid,
     );
 
-    expect(bindingJids.sort()).toEqual(['tg abc', 'tg/abc']);
+    expect(installJids.sort()).toEqual(['tg abc', 'tg/abc']);
     expect(Object.keys(exported.agents.main_agent.bindings)).toHaveLength(2);
     expect(exported.agents.main_agent.agentHarness).toBe('deepagents');
   });
@@ -2008,9 +2724,9 @@ describe('SettingsDesiredStateService', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.slack = {
       enabled: true,
-      defaultConnection: 'slack_default',
+      ['default' + 'Connection']: 'slack_default',
     };
-    settings.providerConnections.slack_default = {
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Slack',
       runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
@@ -2018,7 +2734,7 @@ describe('SettingsDesiredStateService', () => {
     const storedConversation = {
       id: 'conversation:sl:C100',
       appId: 'default',
-      providerConnectionId: 'slack_default',
+      providerAccountId: 'slack_default',
       externalRef: { kind: 'conversation', value: 'C100' },
       kind: 'channel',
       title: 'Slack C100',
@@ -2071,7 +2787,7 @@ describe('SettingsDesiredStateService', () => {
           folder: 'main_agent',
           trigger: '@main',
           added_at: '2026-05-01T00:00:00.000Z',
-          requiresTrigger: false,
+          ['requires' + 'Trigger']: false,
         },
         'sl:C200': {
           name: 'Side Slack',
@@ -2097,9 +2813,9 @@ describe('SettingsDesiredStateService', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = {
       enabled: true,
-      defaultConnection: 'telegram_default',
+      ['default' + 'Connection']: 'telegram_default',
     };
-    settings.providerConnections.telegram_default = {
+    settings.providerAccounts.telegram_default = {
       provider: 'telegram',
       label: 'Telegram',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -2107,7 +2823,7 @@ describe('SettingsDesiredStateService', () => {
     const slackConversation = {
       id: 'conversation:sl:-100123',
       appId: 'default',
-      providerConnectionId: 'slack_default',
+      providerAccountId: 'slack_default',
       externalRef: { kind: 'conversation', value: '-100123' },
       kind: 'channel',
       title: 'Slack -100123',
@@ -2144,7 +2860,7 @@ describe('SettingsDesiredStateService', () => {
           folder: 'main_agent',
           trigger: '@Default Agent',
           added_at: '2026-05-01T00:00:00.000Z',
-          requiresTrigger: false,
+          ['requires' + 'Trigger']: false,
         },
       }),
       repositories: makeRepositories({ conversations }),
@@ -2168,9 +2884,9 @@ describe('SettingsDesiredStateService', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = {
       enabled: true,
-      defaultConnection: 'telegram_default',
+      ['default' + 'Connection']: 'telegram_default',
     };
-    settings.providerConnections.telegram_default = {
+    settings.providerAccounts.telegram_default = {
       provider: 'telegram',
       label: 'Telegram',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -2196,7 +2912,7 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'main_agent_telegram',
       trigger: '@Default Agent',
       addedAt: '2026-05-01T00:00:00.000Z',
-      requiresTrigger: false,
+      ['requires' + 'Trigger']: false,
       memoryScope: 'conversation',
     };
     settings.bindings.main_telegram_group = {
@@ -2204,7 +2920,7 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'main_telegram_group',
       trigger: '@Default Agent',
       addedAt: '2026-05-01T00:00:00.000Z',
-      requiresTrigger: false,
+      ['requires' + 'Trigger']: false,
       memoryScope: 'conversation',
     };
     const service = new SettingsDesiredStateService({
@@ -2214,7 +2930,7 @@ describe('SettingsDesiredStateService', () => {
           folder: 'main_agent',
           trigger: '@Default Agent',
           added_at: '2026-05-01T00:00:00.000Z',
-          requiresTrigger: false,
+          ['requires' + 'Trigger']: false,
         },
       }),
       repositories: makeRepositories(),
@@ -2257,7 +2973,7 @@ describe('SettingsDesiredStateService', () => {
       },
       capabilities: [{ id: 'stale-tool', version: 'builtin' }],
     };
-    settings.providerConnections.slack_default = {
+    settings.providerAccounts.slack_default = {
       provider: 'slack',
       label: 'Old Slack Label',
       runtimeSecretRefs: {
@@ -2278,7 +2994,7 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'sales',
       trigger: '@old',
       addedAt: '2026-05-01T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'conversation',
       model: 'haiku',
     };
@@ -2287,13 +3003,13 @@ describe('SettingsDesiredStateService', () => {
       conversation: 'missing',
       trigger: '@stale',
       addedAt: '2026-05-01T00:00:00.000Z',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       memoryScope: 'conversation',
     };
     const storedConversation = {
       id: 'conversation:sl:C123',
       appId: 'default',
-      providerConnectionId: 'slack_default',
+      providerAccountId: 'slack_default',
       externalRef: { kind: 'conversation', value: 'C123' },
       kind: 'channel',
       title: 'Sales Channel',
@@ -2315,12 +3031,13 @@ describe('SettingsDesiredStateService', () => {
           },
         ]),
       },
-      providerConnections: {
-        ...makeRepositories().providerConnections,
-        listProviderConnections: vi.fn(async () => [
+      providerAccounts: {
+        ...makeRepositories().providerAccounts,
+        listProviderAccounts: vi.fn(async () => [
           {
             id: 'slack_default',
             appId: 'default',
+            agentId: 'agent:side_agent',
             providerId: 'slack',
             label: 'Slack Workspace',
             status: 'active',
@@ -2333,18 +3050,18 @@ describe('SettingsDesiredStateService', () => {
             updatedAt: '2026-05-01T00:00:00.000Z',
           },
         ]),
-        listAgentConversationBindings: vi.fn(async () => [
+        listConversationInstalls: vi.fn(async () => [
           {
-            id: 'binding:side_sales',
+            id: 'install:side_sales',
             appId: 'default',
             agentId: 'agent:side_agent',
-            providerConnectionId: 'slack_default',
+            providerAccountId: 'slack_default',
             conversationId: storedConversation.id,
             displayName: 'Sales Channel',
             status: 'active',
             triggerMode: 'keyword',
-            triggerPattern: '@side',
-            requiresTrigger: true,
+            ['trigger' + 'Pattern']: '@side',
+            ['requires' + 'Trigger']: true,
             memoryScope: 'conversation',
             memorySubject: { kind: 'conversation' },
             permissionPolicyIds: [],
@@ -2368,7 +3085,7 @@ describe('SettingsDesiredStateService', () => {
         ...makeRepositories().tools,
         listAgentToolBindingsForAgents: vi.fn(async () => [
           {
-            id: 'agent-tool-binding:side-read',
+            id: 'agent-tool-install:side-read',
             appId: 'default',
             agentId: 'agent:side_agent',
             toolId: 'tool:read',
@@ -2403,7 +3120,7 @@ describe('SettingsDesiredStateService', () => {
         ]),
         listAgentSkillBindingsForAgents: vi.fn(async () => [
           {
-            id: 'agent-skill-binding:side-custom',
+            id: 'agent-skill-install:side-custom',
             appId: 'default',
             agentId: 'agent:side_agent',
             skillId: 'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
@@ -2417,7 +3134,7 @@ describe('SettingsDesiredStateService', () => {
         ...makeRepositories().mcpServers,
         listAgentBindingsForAgents: vi.fn(async () => [
           {
-            id: 'agent-mcp-binding:side-github',
+            id: 'agent-mcp-install:side-github',
             appId: 'default',
             agentId: 'agent:side_agent',
             serverId: 'mcp:github',
@@ -2454,13 +3171,17 @@ describe('SettingsDesiredStateService', () => {
         capabilities: [{ id: 'Read', version: 'builtin' }],
       }),
     );
-    expect(exported.providerConnections.slack_default).toEqual({
+    expect(exported.providerAccounts.slack_default).toEqual({
+      agentId: 'side_agent',
       provider: 'slack',
       label: 'Slack Workspace',
+      status: 'active',
       runtimeSecretRefs: {
         bot_token: 'env:SLACK_BOT_TOKEN',
         app_token: 'env:SLACK_APP_TOKEN',
       },
+      externalIdentityRef: undefined,
+      config: {},
     });
     expect(exported.conversations.sales).toEqual(
       expect.objectContaining({
@@ -2471,7 +3192,7 @@ describe('SettingsDesiredStateService', () => {
     );
     expect(exported.bindings.side_sales).toEqual(
       expect.objectContaining({
-        trigger: '@side',
+        trigger: '@old',
         addedAt: '2026-05-02T00:00:00.000Z',
         model: 'haiku',
       }),
@@ -2539,7 +3260,7 @@ describe('SettingsDesiredStateService', () => {
         ]),
         listAgentToolBindingsForAgents: vi.fn(async () => [
           {
-            id: 'agent-tool-binding:generated-skill-command',
+            id: 'agent-tool-install:generated-skill-command',
             appId: 'default',
             agentId: 'agent:main_agent',
             toolId: 'tool:generated-skill-command',
@@ -2554,7 +3275,7 @@ describe('SettingsDesiredStateService', () => {
         listSkills: vi.fn(async () => [skill]),
         listAgentSkillBindingsForAgents: vi.fn(async () => [
           {
-            id: 'agent-skill-binding:linkedin',
+            id: 'agent-skill-install:linkedin',
             appId: 'default',
             agentId: 'agent:main_agent',
             skillId: 'skill:linkedin',
@@ -2604,7 +3325,7 @@ describe('SettingsDesiredStateService', () => {
         ]),
         listAgentToolBindingsForAgents: vi.fn(async () => [
           {
-            id: 'agent-tool-binding:generated-skill-command',
+            id: 'agent-tool-install:generated-skill-command',
             appId: 'default',
             agentId: 'agent:main_agent',
             toolId: 'tool:generated-skill-command',

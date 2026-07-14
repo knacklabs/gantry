@@ -9,6 +9,7 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings-defaults.js';
 import {
   normalizeTelegramChatJid,
   registerTelegramMainGroup,
@@ -16,6 +17,8 @@ import {
   verifyTelegramChatAccess,
 } from '@core/cli/telegram.js';
 import { listTelegramRecentChats } from '@core/cli/telegram-chat-discovery.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
+import { resolveGroupSelector } from '@core/cli/group-helpers.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 const fileArtifacts = vi.hoisted(() => new Map<string, string>());
@@ -848,5 +851,130 @@ describe('cli telegram helpers', () => {
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Telegram');
     expect(soul).toContain('## Continuity Boundary');
+  });
+
+  it('allows agent add to bind a second agent to the same provider conversation', async () => {
+    const runtimeHome = makeRuntimeHome();
+    fs.appendFileSync(path.join(runtimeHome, '.env'), 'TELEGRAM_BOT_TOKEN=x\n');
+    const seedSettings = createDefaultRuntimeSettings();
+    seedSettings.providers.telegram.enabled = true;
+    seedSettings.agents.first_agent = {
+      name: 'First',
+      folder: 'first_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    seedSettings.providerAccounts.telegram_default = {
+      agentId: 'first_agent',
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+    };
+    saveRuntimeSettings(runtimeHome, seedSettings);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/getChat')) {
+          return new Response(
+            JSON.stringify({ ok: true, result: { id: 123, title: 'Team' } }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: true, result: { status: 'administrator' } }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }),
+    );
+    const errors: string[] = [];
+    vi.doMock('@clack/prompts', () => ({
+      log: {
+        error: (message: string) => errors.push(message),
+        info: vi.fn(),
+        success: vi.fn(),
+        warn: vi.fn(),
+      },
+      spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
+      note: vi.fn(),
+      isCancel: vi.fn(() => false),
+    }));
+    const { runAgentCommand } = await import('@core/cli/group.js');
+
+    const firstCode = await runAgentCommand(runtimeHome, [
+      'add',
+      'tg:123',
+      '--name',
+      'First',
+      '--folder',
+      'first_agent',
+    ]);
+    expect({ code: firstCode, errors }).toEqual({ code: 0, errors: [] });
+    expect(errors).toEqual([]);
+    await expect(
+      runAgentCommand(runtimeHome, [
+        'add',
+        'tg:123',
+        '--name',
+        'Second',
+        '--folder',
+        'second_agent',
+      ]),
+    ).resolves.toBe(0);
+
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(Object.values(settings.bindings)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ agent: 'first_agent' }),
+        expect.objectContaining({ agent: 'second_agent' }),
+      ]),
+    );
+    expect(Object.values(settings.agents.first_agent.bindings)).toContainEqual(
+      expect.objectContaining({ jid: 'tg:123' }),
+    );
+    expect(Object.values(settings.agents.second_agent.bindings)).toContainEqual(
+      expect.objectContaining({ jid: 'tg:123' }),
+    );
+    expect([...groupsStore.keys()]).toEqual(
+      expect.arrayContaining([
+        makeAgentThreadQueueKey('tg:123', 'agent:first_agent'),
+        makeAgentThreadQueueKey('tg:123', 'agent:second_agent'),
+      ]),
+    );
+    expect(groupsStore.has('tg:123')).toBe(false);
+  });
+
+  it('reports ambiguity for a bare Telegram selector with multiple agent routes', () => {
+    const firstRouteKey = makeAgentThreadQueueKey(
+      'tg:123',
+      'agent:first_agent',
+    );
+    const secondRouteKey = makeAgentThreadQueueKey(
+      'tg:123',
+      'agent:second_agent',
+    );
+
+    const result = resolveGroupSelector(
+      {
+        [firstRouteKey]: {
+          name: 'First',
+          folder: 'first_agent',
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+        },
+        [secondRouteKey]: {
+          name: 'Second',
+          folder: 'second_agent',
+          trigger: '',
+          added_at: '2026-04-24T00:00:00.000Z',
+        },
+      },
+      '123',
+    );
+
+    expect(result.found).toBeNull();
+    expect(result.error).toContain('ambiguous');
+    expect(result.error).toContain('folder/agent selector');
   });
 });

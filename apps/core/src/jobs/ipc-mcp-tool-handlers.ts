@@ -10,9 +10,10 @@ import {
 } from '../domain/ports/async-tasks.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { readAsyncCommandSandboxPolicy } from '../runtime/async-command-sandbox-policy.js';
+import type { McpCompatibleToolError } from '../runtime/core-tools/registry.js';
 import {
   createAsyncMcpTask,
-  executeAsyncMcpTask,
+  enqueueAsyncMcpTask,
 } from './async-mcp-tool-task.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { TaskHandler } from './ipc-types.js';
@@ -21,6 +22,7 @@ import {
   mcpDescribeToolProxyInput,
   mcpListToolsProxyInput,
 } from './ipc-mcp-list-tools-input.js';
+import { delegatedTaskAgentInScope } from './async-command-task-helpers.js';
 
 type CreateMcpProxyForSourceGroup = (input: {
   appId: import('../domain/app/app.js').AppId;
@@ -235,7 +237,10 @@ function mcpCallToolHandler(
         toolName,
         arguments: callInput.arguments ?? {},
       });
-      acceptData(`MCP tool ${serverName}.${toolName} completed.`, result);
+      acceptData(
+        `MCP tool ${serverName}.${toolName} completed.`,
+        preserveRemoteMcpError(result),
+      );
     } catch (err) {
       reject(
         err instanceof Error ? err.message : 'MCP tool call failed.',
@@ -243,6 +248,61 @@ function mcpCallToolHandler(
       );
     }
   };
+}
+
+function preserveRemoteMcpError(result: unknown): unknown {
+  if (!isRemoteMcpErrorResult(result)) return result;
+  return {
+    ...result,
+    error: remoteMcpError(result),
+  };
+}
+
+function remoteMcpError(
+  result: Record<string, unknown>,
+): McpCompatibleToolError {
+  const error = result.error;
+  if (
+    error &&
+    typeof error === 'object' &&
+    !Array.isArray(error) &&
+    ['transient', 'validation', 'business', 'permission'].includes(
+      String((error as Record<string, unknown>).category),
+    ) &&
+    typeof (error as Record<string, unknown>).isRetryable === 'boolean' &&
+    typeof (error as Record<string, unknown>).message === 'string'
+  ) {
+    return error as McpCompatibleToolError;
+  }
+  return {
+    category: 'business',
+    isRetryable: false,
+    message: remoteMcpErrorMessage(result),
+  };
+}
+
+function isRemoteMcpErrorResult(
+  result: unknown,
+): result is Record<string, unknown> {
+  return (
+    result !== null &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (result as Record<string, unknown>).isError === true
+  );
+}
+
+function remoteMcpErrorMessage(result: Record<string, unknown>): string {
+  const content = Array.isArray(result.content) ? result.content : [];
+  const text = content.find(
+    (item): item is { type: 'text'; text: string } =>
+      item !== null &&
+      typeof item === 'object' &&
+      !Array.isArray(item) &&
+      (item as Record<string, unknown>).type === 'text' &&
+      typeof (item as Record<string, unknown>).text === 'string',
+  )?.text;
+  return text?.trim().slice(0, 2_000) || 'Remote MCP tool returned an error.';
 }
 
 function asyncMcpCallToolHandler(
@@ -292,12 +352,36 @@ function asyncMcpCallToolHandler(
         reject('Async task runtime is unavailable.', 'unavailable');
         return;
       }
+      const agentId = agentIdForMcpTask(data, sourceAgentFolder);
+      const sandboxPolicy = readAsyncCommandSandboxPolicy({
+        sourceAgentFolder,
+        runHandle: data.runHandle,
+      });
+      if (
+        !sandboxPolicy ||
+        sandboxPolicy.appId !== data.appId ||
+        (sandboxPolicy.agentId && sandboxPolicy.agentId !== agentId) ||
+        sandboxPolicy.conversationId !== requestedTargetJid ||
+        (sandboxPolicy.providerAccountId &&
+          sandboxPolicy.providerAccountId !== data.providerAccountId) ||
+        (sandboxPolicy.threadId ?? null) !==
+          (data.authThreadId || data.threadId || null) ||
+        (sandboxPolicy.runId && sandboxPolicy.runId !== data.runId) ||
+        (sandboxPolicy.jobId && sandboxPolicy.jobId !== data.jobId)
+      ) {
+        reject(
+          'async_mcp_call must target a run where async task tools are mounted.',
+          'forbidden',
+        );
+        return;
+      }
       const parentTask = await validateAsyncMcpParentTask({
         repository,
         data,
         appId: data.appId,
-        agentId: agentIdForMcpTask(data, sourceAgentFolder),
+        agentId,
         conversationId: requestedTargetJid,
+        providerAccountId: sandboxPolicy.providerAccountId ?? null,
         threadId: data.authThreadId || data.threadId || null,
       });
       if (!parentTask.ok) {
@@ -317,27 +401,6 @@ function asyncMcpCallToolHandler(
         return;
       }
       const { serverName, toolName } = callInput;
-      const agentId = agentIdForMcpTask(data, sourceAgentFolder);
-      const sandboxPolicy = readAsyncCommandSandboxPolicy({
-        sourceAgentFolder,
-        runHandle: data.runHandle,
-      });
-      if (
-        !sandboxPolicy ||
-        sandboxPolicy.appId !== data.appId ||
-        (sandboxPolicy.agentId && sandboxPolicy.agentId !== agentId) ||
-        sandboxPolicy.conversationId !== requestedTargetJid ||
-        (sandboxPolicy.threadId ?? null) !==
-          (data.authThreadId || data.threadId || null) ||
-        (sandboxPolicy.runId && sandboxPolicy.runId !== data.runId) ||
-        (sandboxPolicy.jobId && sandboxPolicy.jobId !== data.jobId)
-      ) {
-        reject(
-          'async_mcp_call must target a run where async task tools are mounted.',
-          'forbidden',
-        );
-        return;
-      }
       const proxy = await createMcpProxyForSourceGroup({
         appId: data.appId as never,
         agentId,
@@ -360,18 +423,20 @@ function asyncMcpCallToolHandler(
         appId: data.appId,
         agentId,
         conversationId: requestedTargetJid,
+        providerAccountId: sandboxPolicy.providerAccountId ?? null,
         threadId: data.authThreadId || data.threadId || null,
         parentTaskId: parentTask.parentTaskId,
         jobId: data.jobId,
         runId: data.runId,
         serverName,
         toolName,
+        arguments: callInput.arguments ?? {},
       });
       if (!taskResult.ok) {
         reject(taskResult.message, 'capacity_full');
         return;
       }
-      void executeAsyncMcpTask({
+      await enqueueAsyncMcpTask({
         repository,
         task: taskResult.task,
         proxy,
@@ -381,7 +446,7 @@ function asyncMcpCallToolHandler(
         toolName,
         arguments: callInput.arguments ?? {},
       });
-      acceptData(`Started: ${serverName}.${toolName}`, {
+      acceptData(`Queued: ${serverName}.${toolName}`, {
         task: toPublicAsyncTaskDto(taskResult.task),
       });
     } catch (err) {
@@ -399,6 +464,7 @@ async function validateAsyncMcpParentTask(input: {
   appId: string;
   agentId: string;
   conversationId: string;
+  providerAccountId?: string | null;
   threadId?: string | null;
 }): Promise<
   { ok: true; parentTaskId: string | null } | { ok: false; message: string }
@@ -412,8 +478,10 @@ async function validateAsyncMcpParentTask(input: {
     parent &&
     parent.kind === 'delegated_agent' &&
     parent.appId === input.appId &&
-    parent.agentId === input.agentId &&
+    delegatedTaskAgentInScope(parent, input.agentId) &&
     parent.conversationId === input.conversationId &&
+    (parent.privateCorrelationJson.providerAccountId ?? null) ===
+      (input.providerAccountId ?? null) &&
     (parent.threadId ?? null) === (input.threadId ?? null) &&
     !isAsyncTaskTerminal(parent.status);
   return valid

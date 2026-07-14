@@ -12,10 +12,16 @@ import {
   MEMORY_EMBED_MODEL,
   MEMORY_EMBED_PROVIDER,
   OPENAI_DAILY_EMBED_LIMIT,
+  RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
   RUNTIME_MEMORY_DREAMING_ENABLED,
 } from '../config/index.js';
 import type { AppId } from '../domain/app/app.js';
 import type { Job } from '../domain/types.js';
+import {
+  createRuntimeBrainService,
+  runRuntimeBrainDreamBatch,
+} from '../brain/brain-runtime.js';
+import { runBrainEmbeddingBackfill } from '../brain/brain-embedding-backfill.js';
 import {
   getMemoryMaintenanceQueue,
   type MemoryMaintenanceQueueEnqueueResult,
@@ -49,6 +55,10 @@ import {
   MEMORY_DREAMING_JOB_ID_PREFIX,
   MEMORY_EMBEDDING_BACKFILL_JOB_ID,
   MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+  BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+  BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+  BRAIN_DREAMING_JOB_ID,
+  BRAIN_DREAM_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { buildCanonicalJobLifecycleTarget } from './job-notification-routes.js';
@@ -57,8 +67,11 @@ import type { SchedulerDependencies } from './types.js';
 export {
   MEMORY_DREAM_SYSTEM_PROMPT,
   MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+  BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+  BRAIN_DREAM_SYSTEM_PROMPT,
 } from '../shared/system-job-identity.js';
 const MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS = 10 * 60 * 1000;
+const BRAIN_DREAMING_TIMEOUT_MS = 10 * 60 * 1000;
 const MEMORY_REVIEW_NOTIFICATION_LOOKUP_TIMEOUT_MS = 2_000;
 
 function embeddingBackfillEnabled(): boolean {
@@ -144,12 +157,50 @@ export async function registerSystemJobs(
     jid,
     group,
   }));
+  const desiredDreamingJobIds = new Set(
+    RUNTIME_MEMORY_DREAMING_ENABLED
+      ? registrations.map(({ jid, group }) =>
+          systemDreamingJobId({ folder: group.folder, jid }),
+        )
+      : [],
+  );
+  await deleteObsoleteSystemDreamingJobs(
+    deps.opsRepository,
+    desiredDreamingJobIds,
+  );
+
+  // Brain singleton jobs must not stay scheduled after their enabling
+  // condition goes away. This runs before the registration-signature early
+  // return so a job kept alive by an unsettled lease is still removed on a
+  // later pass once the lease clears.
+  const brainSingletonPrimary = registrations[0];
+  const brainSingletons: Array<{ id: string; keep: boolean }> = [
+    {
+      id: BRAIN_DREAMING_JOB_ID,
+      keep: Boolean(RUNTIME_MEMORY_DREAMING_ENABLED && brainSingletonPrimary),
+    },
+    {
+      id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+      keep: Boolean(embeddingBackfillEnabled() && brainSingletonPrimary),
+    },
+  ];
+  for (const { id, keep } of brainSingletons) {
+    if (keep) continue;
+    const existing = await deps.opsRepository.getJobById(id);
+    if (existing && !hasUnsettledJobLease(existing)) {
+      await deps.opsRepository.deleteJob(id);
+    }
+  }
 
   const registrationSignature = JSON.stringify({
     dreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
     dreamingCron: MEMORY_DREAMING_CRON,
+    dreamingAlerts: RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
     dreamingTimeoutMs: MEMORY_DREAM_SYSTEM_JOB_TIMEOUT_MS,
+    brainDreamingEnabled: RUNTIME_MEMORY_DREAMING_ENABLED,
+    brainDreamingCron: MEMORY_DREAMING_CRON,
     backfillEnabled: embeddingBackfillEnabled(),
+    brainBackfillEnabled: embeddingBackfillEnabled(),
     backfillCron: MEMORY_BACKFILL_CRON,
     routes: registrations
       .map(({ jid, group }) => [
@@ -174,6 +225,13 @@ export async function registerSystemJobs(
       const jobId = systemDreamingJobId({ folder: group.folder, jid });
       const existing = await deps.opsRepository.getJobById(jobId);
       if (existing?.status === 'dead_lettered') {
+        // Dead-lettered jobs are not revived here, but silent must still track
+        // the current alerts setting so a later resume reactivates the job
+        // with the correct value (the resume path itself never re-stamps it).
+        const desiredSilent = !RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED;
+        if (existing.silent !== desiredSilent) {
+          await deps.opsRepository.updateJob(jobId, { silent: desiredSilent });
+        }
         continue;
       }
       const computedNextRun = computeNextJobRun(
@@ -203,7 +261,7 @@ export async function registerSystemJobs(
         created_by: 'agent',
         status: desiredStatus,
         next_run: nextRun,
-        silent: false,
+        silent: !RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
         timeout_ms: MEMORY_DREAM_SYSTEM_JOB_TIMEOUT_MS,
         max_retries: 1,
         retry_backoff_ms: 30_000,
@@ -219,9 +277,46 @@ export async function registerSystemJobs(
     }
   }
 
-  // One app-wide embedding backfill job (not per conversation). It routes
+  // One app-wide brain dreaming job (not per conversation). It routes
   // lifecycle/notifications through the primary conversation when available.
   const primary = registrations[0];
+  if (RUNTIME_MEMORY_DREAMING_ENABLED && primary) {
+    const existing = await deps.opsRepository.getJobById(BRAIN_DREAMING_JOB_ID);
+    if (existing?.status !== 'dead_lettered') {
+      const computedNextRun = computeNextJobRun(
+        { schedule_type: 'cron', schedule_value: MEMORY_DREAMING_CRON },
+        nowIso,
+      );
+      const target = buildCanonicalJobLifecycleTarget({
+        conversationJid: primary.jid,
+        workspaceKey: primary.group.folder,
+        threadId: null,
+        label: 'primary',
+      });
+      await deps.opsRepository.upsertJob({
+        id: BRAIN_DREAMING_JOB_ID,
+        name: 'Brain Dreaming',
+        prompt: BRAIN_DREAM_SYSTEM_PROMPT,
+        schedule_type: 'cron',
+        schedule_value: MEMORY_DREAMING_CRON,
+        session_id: null,
+        workspace_key: primary.group.folder,
+        created_by: 'agent',
+        status: existing?.status === 'paused' ? 'paused' : 'active',
+        next_run: existing?.next_run || computedNextRun,
+        silent: true,
+        timeout_ms: BRAIN_DREAMING_TIMEOUT_MS,
+        max_retries: 1,
+        retry_backoff_ms: 30_000,
+        max_consecutive_failures: 3,
+        execution_context: target.executionContext,
+        notification_routes: target.notificationRoutes,
+      } as unknown as Parameters<
+        SchedulerDependencies['opsRepository']['upsertJob']
+      >[0]);
+    }
+  }
+
   if (embeddingBackfillEnabled() && primary) {
     const existing = await deps.opsRepository.getJobById(
       MEMORY_EMBEDDING_BACKFILL_JOB_ID,
@@ -262,8 +357,69 @@ export async function registerSystemJobs(
         >[0],
       );
     }
+
+    const existingBrain = await deps.opsRepository.getJobById(
+      BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+    );
+    if (existingBrain?.status !== 'dead_lettered') {
+      const computedNextRun = computeNextJobRun(
+        { schedule_type: 'cron', schedule_value: MEMORY_BACKFILL_CRON },
+        nowIso,
+      );
+      const target = buildCanonicalJobLifecycleTarget({
+        conversationJid: primary.jid,
+        workspaceKey: primary.group.folder,
+        threadId: null,
+        label: 'primary',
+      });
+      const brainBackfillJob = {
+        id: BRAIN_EMBEDDING_BACKFILL_JOB_ID,
+        name: 'Brain Embedding Backfill',
+        prompt: BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT,
+        schedule_type: 'cron',
+        schedule_value: MEMORY_BACKFILL_CRON,
+        session_id: null,
+        workspace_key: primary.group.folder,
+        created_by: 'agent',
+        status: existingBrain?.status === 'paused' ? 'paused' : 'active',
+        next_run: existingBrain?.next_run || computedNextRun,
+        silent: true,
+        timeout_ms: MEMORY_EMBEDDING_BACKFILL_TIMEOUT_MS,
+        max_retries: 1,
+        retry_backoff_ms: 30_000,
+        max_consecutive_failures: 3,
+        execution_context: target.executionContext,
+        notification_routes: target.notificationRoutes,
+      };
+      await deps.opsRepository.upsertJob(
+        brainBackfillJob as unknown as Parameters<
+          SchedulerDependencies['opsRepository']['upsertJob']
+        >[0],
+      );
+    }
   }
+
   setSystemJobRegistrationSignature(deps.opsRepository, registrationSignature);
+}
+
+async function deleteObsoleteSystemDreamingJobs(
+  opsRepository: SchedulerDependencies['opsRepository'],
+  desiredJobIds: ReadonlySet<string>,
+): Promise<void> {
+  const jobs = await opsRepository.getAllJobs();
+  for (const job of jobs) {
+    if (
+      job.id.startsWith(MEMORY_DREAMING_JOB_ID_PREFIX) &&
+      !desiredJobIds.has(job.id) &&
+      !hasUnsettledJobLease(job)
+    ) {
+      await opsRepository.deleteJob(job.id);
+    }
+  }
+}
+
+function hasUnsettledJobLease(job: Job): boolean {
+  return Boolean(job.lease_run_id || job.lease_expires_at);
 }
 
 export async function handleSystemJob(
@@ -279,6 +435,12 @@ export async function handleSystemJob(
 ): Promise<string> {
   if (job.prompt === MEMORY_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
     return runScheduledEmbeddingBackfill(options.signal);
+  }
+  if (job.prompt === BRAIN_EMBEDDING_BACKFILL_SYSTEM_PROMPT) {
+    return runScheduledBrainEmbeddingBackfill(options.signal);
+  }
+  if (job.prompt === BRAIN_DREAM_SYSTEM_PROMPT) {
+    return runScheduledBrainDreaming(options.signal);
   }
   if (job.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
     options.signal?.throwIfAborted();
@@ -344,6 +506,35 @@ export async function handleSystemJob(
     }
   }
   throw new Error(`Unknown system job: ${job.prompt}`);
+}
+
+async function runScheduledBrainDreaming(
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
+  if (!RUNTIME_MEMORY_DREAMING_ENABLED) {
+    return 'Brain dreaming is disabled.';
+  }
+  const result = await runRuntimeBrainDreamBatch({
+    appId: DEFAULT_MEMORY_APP_ID,
+    signal,
+  });
+  return `Brain dreaming complete: ${result.pages} page(s), ${result.applied} applied, ${result.noop} no-op, ${result.rejected} rejected, ${result.proposed} proposed.`;
+}
+
+async function runScheduledBrainEmbeddingBackfill(
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
+  if (!embeddingBackfillEnabled()) {
+    return 'Brain embedding backfill is disabled.';
+  }
+  return runBrainEmbeddingBackfill({
+    brain: createRuntimeBrainService(DEFAULT_MEMORY_APP_ID),
+    appId: DEFAULT_MEMORY_APP_ID,
+    limit: MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
+    signal,
+  });
 }
 
 async function runScheduledEmbeddingBackfill(

@@ -326,6 +326,10 @@ export class PostgresControlPlaneRepository {
     url: string;
     secret: string;
     enabled?: boolean;
+    eventTypes?: readonly string[] | null;
+    agentId?: string | null;
+    sessionId?: string | null;
+    jobId?: string | null;
   }): Promise<WebhookRegistrationRecord> {
     await ensureControlGraph(this.db, {
       appId: input.appId,
@@ -343,6 +347,10 @@ export class PostgresControlPlaneRepository {
         url: input.url,
         secret: input.secret,
         enabled: input.enabled ?? true,
+        eventTypes: input.eventTypes ? [...input.eventTypes] : null,
+        agentId: input.agentId ?? null,
+        sessionId: input.sessionId ?? null,
+        jobId: input.jobId ?? null,
         createdAt: now,
         updatedAt: now,
       })
@@ -354,6 +362,10 @@ export class PostgresControlPlaneRepository {
           url: input.url,
           secret: input.secret,
           enabled: input.enabled ?? true,
+          eventTypes: input.eventTypes ? [...input.eventTypes] : null,
+          agentId: input.agentId ?? null,
+          sessionId: input.sessionId ?? null,
+          jobId: input.jobId ?? null,
           updatedAt: now,
         },
       })
@@ -405,6 +417,10 @@ export class PostgresControlPlaneRepository {
       url?: string;
       secret?: string;
       enabled?: boolean;
+      eventTypes?: readonly string[] | null;
+      agentId?: string | null;
+      sessionId?: string | null;
+      jobId?: string | null;
     },
   ): Promise<WebhookRegistrationRecord | undefined> {
     const existing = await this.getWebhookById(webhookId, appId);
@@ -416,6 +432,16 @@ export class PostgresControlPlaneRepository {
         url: patch.url ?? existing.url,
         secret: patch.secret ?? existing.secret,
         enabled: patch.enabled ?? existing.enabled,
+        eventTypes:
+          patch.eventTypes === undefined
+            ? existing.eventTypes
+            : patch.eventTypes
+              ? [...patch.eventTypes]
+              : null,
+        agentId: patch.agentId === undefined ? existing.agentId : patch.agentId,
+        sessionId:
+          patch.sessionId === undefined ? existing.sessionId : patch.sessionId,
+        jobId: patch.jobId === undefined ? existing.jobId : patch.jobId,
         updatedAt: currentIso(),
       })
       .where(

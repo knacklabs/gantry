@@ -13,6 +13,7 @@ import {
 import type { RuntimeEventRepository } from '../../domain/ports/repositories.js';
 import { runtimeEventMatchesFilter } from '../../domain/events/runtime-event-filter.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
+import { notifyWebhookDeliveryReady } from './webhook-delivery-wakeup.js';
 
 export interface RuntimeEventNotifier {
   notify(event: RuntimeEvent): Promise<void>;
@@ -58,6 +59,7 @@ export class RuntimeEventExchange {
     } catch {
       // Wakeups are best-effort; durable consumers recover by cursor polling.
     }
+    notifyWebhookDeliveryReady();
     return event;
   }
 
@@ -94,6 +96,7 @@ export class RuntimeEventExchange {
     } catch {
       // Wakeups are best-effort; durable consumers recover by cursor polling.
     }
+    notifyWebhookDeliveryReady();
     return result;
   }
 

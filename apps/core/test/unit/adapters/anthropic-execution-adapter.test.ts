@@ -112,7 +112,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     );
   });
 
-  it('uses disposable per-run Claude config projection', async () => {
+  it('delegates Claude config projection to the materializer', async () => {
     mockMaterializeClaudeRuntime.mockClear();
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
 
@@ -182,6 +182,23 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
     await expect(adapter.prepare(prepareInput())).rejects.toThrow(
       'Claude-native reserved names',
     );
+  });
+
+  it('rejects gateway-brokered spawns whose model is not in the catalog', async () => {
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          modelCredentialProjection: {
+            env: {},
+            credentialProviders: {},
+            brokerProfile: 'gantry',
+            brokerApplied: true,
+          },
+        }),
+      ),
+    ).rejects.toThrow('not in the model catalog');
   });
 
   it('passes only selected skill ids to Claude runtime materialization', async () => {

@@ -8,8 +8,23 @@ function makeModule(overrides?: {
   ops?: Record<string, unknown>;
   runtimeEvents?: Record<string, unknown>;
   messageReactions?: Record<string, unknown>;
-  routable?: boolean;
+  routable?:
+    | boolean
+    | ((
+        conversationJid: string,
+        threadId?: string | null,
+        providerAccountId?: string | null,
+      ) => boolean);
   liveAdmissionAppId?: string | null;
+  resolveRoute?: (input: {
+    conversationJid: string;
+    threadId: string | null;
+    agentId?: string | null;
+    providerAccountId?: string | null;
+  }) => { agentId?: string | null; queueKey: string } | null;
+  resolveProviderJidPrefix?: (
+    providerAccountId: string,
+  ) => Promise<string | null>;
   createId?: () => string;
 }) {
   const conversations = {
@@ -19,7 +34,7 @@ function makeModule(overrides?: {
         : {
             id: 'conversation:tg:-100',
             appId: 'app-one',
-            providerConnectionId: 'channel-providerConnection:app-one:telegram',
+            providerAccountId: 'channel-providerAccount:app-one:telegram',
             externalRef: { kind: 'conversation', value: '-100' },
             kind: 'group',
             title: 'Team',
@@ -60,11 +75,22 @@ function makeModule(overrides?: {
     runtimeEvents,
     messageReactions: overrides?.messageReactions as never,
     liveAdmissionAppId: overrides?.liveAdmissionAppId,
-    isConversationRoutable: vi.fn(() => overrides?.routable ?? true),
+    isConversationRoutable: vi.fn(
+      (conversationJid, threadId, providerAccountId) =>
+        typeof overrides?.routable === 'function'
+          ? overrides.routable(conversationJid, threadId, providerAccountId)
+          : (overrides?.routable ?? true),
+    ),
     providerForConversationJid: (jid) =>
-      jid.startsWith('tg:') ? 'telegram' : 'app',
+      jid.startsWith('tg:')
+        ? 'telegram'
+        : jid.startsWith('sl:')
+          ? 'slack'
+          : 'app',
+    resolveProviderJidPrefix: overrides?.resolveProviderJidPrefix,
     makeQueueKey: (jid, threadId) =>
       threadId ? `${jid}::thread:${threadId}` : jid,
+    resolveRoute: overrides?.resolveRoute,
     now: () => '2026-04-24T00:00:00.000Z',
     createId: overrides?.createId ?? (() => 'message-1'),
   });
@@ -93,6 +119,7 @@ describe('ConversationMessageIngressModule', () => {
       enqueue: {
         conversationJid: 'tg:-100',
         threadId: '42',
+        providerAccountId: 'channel-providerAccount:app-one:telegram',
         queueKey: 'tg:-100::thread:42',
         durableAdmissionCreated: false,
       },
@@ -125,6 +152,128 @@ describe('ConversationMessageIngressModule', () => {
     );
   });
 
+  it('returns not found and does not persist when no route resolves', async () => {
+    const { module, ops } = makeModule({
+      resolveRoute: () => null,
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        invocationId: 'invocation-1',
+        conversationId: 'conversation:tg:-100',
+        message: 'Run this',
+        senderId: 'external-system',
+      }),
+    ).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'Conversation is not configured for runtime routing',
+    });
+    expect(ops.storeChatMetadata).not.toHaveBeenCalled();
+    expect(ops.storeMessage).not.toHaveBeenCalled();
+  });
+
+  it('checks routability after resolving the provider thread id', async () => {
+    const { module, ops } = makeModule({
+      routable: (_conversationJid, threadId, providerAccountId) =>
+        threadId === '42' &&
+        providerAccountId === 'channel-providerAccount:app-one:telegram',
+      resolveRoute: (input) =>
+        input.threadId === '42'
+          ? { agentId: 'agent:main', queueKey: 'tg:-100::thread:42' }
+          : null,
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        invocationId: 'invocation-1',
+        conversationId: 'conversation:tg:-100',
+        threadId: 'thread:tg:-100:42',
+        message: 'Run this',
+      }),
+    ).resolves.toMatchObject({
+      enqueue: {
+        conversationJid: 'tg:-100',
+        threadId: '42',
+        queueKey: 'tg:-100::thread:42',
+      },
+    });
+    expect(ops.storeMessage).toHaveBeenCalled();
+  });
+
+  it('routes account-scoped canonical conversation ids by provider jid', async () => {
+    const { module, ops } = makeModule({
+      conversation: {
+        id: 'conversation:slack_default:sl:C123',
+        providerAccountId: 'slack_default',
+        externalRef: { kind: 'conversation', value: 'C123' },
+      },
+      thread: null,
+      routable: (conversationJid, threadId, providerAccountId) =>
+        conversationJid === 'sl:C123' &&
+        threadId === null &&
+        providerAccountId === 'slack_default',
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        invocationId: 'invocation-1',
+        conversationId: 'conversation:slack_default:sl:C123',
+        message: 'Run this',
+      }),
+    ).resolves.toMatchObject({
+      enqueue: {
+        conversationJid: 'sl:C123',
+        providerAccountId: 'slack_default',
+      },
+    });
+    expect(ops.storeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+      }),
+    );
+  });
+
+  it('rebuilds provider jid for discovered unprefixed external conversation ids', async () => {
+    const { module, ops } = makeModule({
+      conversation: {
+        id: 'conversation:slack_acct:C123',
+        providerAccountId: 'slack_acct',
+        externalRef: { kind: 'conversation', value: 'C123' },
+      },
+      thread: null,
+      resolveProviderJidPrefix: async (providerAccountId) =>
+        providerAccountId === 'slack_acct' ? 'sl:' : null,
+      routable: (conversationJid, threadId, providerAccountId) =>
+        conversationJid === 'sl:C123' &&
+        threadId === null &&
+        providerAccountId === 'slack_acct',
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        invocationId: 'invocation-1',
+        conversationId: 'conversation:slack_acct:C123',
+        message: 'Run this',
+      }),
+    ).resolves.toMatchObject({
+      enqueue: {
+        conversationJid: 'sl:C123',
+        providerAccountId: 'slack_acct',
+      },
+    });
+    expect(ops.storeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        provider: 'slack',
+      }),
+    );
+  });
+
   it('adds a seen reaction when ingress provides a native message ref', async () => {
     const addReaction = vi.fn(async () => undefined);
     const { module, ops } = makeModule({
@@ -139,7 +288,9 @@ describe('ConversationMessageIngressModule', () => {
       messageRef: '12345',
     });
 
-    expect(addReaction).toHaveBeenCalledWith('tg:-100', '12345', 'seen');
+    expect(addReaction).toHaveBeenCalledWith('tg:-100', '12345', 'seen', {
+      providerAccountId: 'channel-providerAccount:app-one:telegram',
+    });
     expect(ops.storeMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         id: expect.stringMatching(/^external-ingress:/),
@@ -245,6 +396,38 @@ describe('ConversationMessageIngressModule', () => {
     );
   });
 
+  it('accepts provider-scoped canonical thread ids before discovery', async () => {
+    const { module, ops } = makeModule({
+      conversation: {
+        id: 'conversation:telegram_default:tg:-100',
+        providerAccountId: 'telegram_default',
+        externalRef: { kind: 'conversation', value: 'tg:-100' },
+      },
+      thread: null,
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        invocationId: 'invocation-1',
+        conversationId: 'conversation:telegram_default:tg:-100',
+        threadId: 'thread:telegram_default:tg:-100:2771',
+        message: 'Run this',
+      }),
+    ).resolves.toMatchObject({
+      threadId: 'thread:telegram_default:tg:-100:2771',
+      enqueue: {
+        conversationJid: 'tg:-100',
+        threadId: '2771',
+      },
+    });
+    expect(ops.storeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        thread_id: '2771',
+      }),
+    );
+  });
+
   it('writes live-admission work under the runtime app id when configured', async () => {
     const order: string[] = [];
     const publish = vi.fn();
@@ -301,6 +484,63 @@ describe('ConversationMessageIngressModule', () => {
     ]);
     expect(publish).not.toHaveBeenCalled();
     expect(accepted.enqueue.durableAdmissionCreated).toBe(true);
+  });
+
+  it('uses the resolved agent route for live admission and enqueue', async () => {
+    const publishWithLiveAdmissionMessage = vi.fn(async (_event, admission) => {
+      expect(admission).toMatchObject({
+        message: {
+          providerAccountId: 'channel-providerAccount:app-one:telegram',
+        },
+        liveAdmission: {
+          appId: 'default',
+          agentId: 'agent:main_agent',
+          providerAccountId: 'channel-providerAccount:app-one:telegram',
+        },
+      });
+      return {
+        event: { eventId: 77 },
+        liveAdmissionResult: {
+          outcome: 'enqueued',
+          item: {
+            id: 'admission-conversation-1',
+            state: 'queued',
+          },
+        },
+      };
+    });
+    const resolveRoute = vi.fn(() => ({
+      agentId: 'agent:main_agent',
+      queueKey: 'tg:-100::thread:42::agent:agent%3Amain_agent',
+    }));
+    const { module } = makeModule({
+      liveAdmissionAppId: 'default',
+      resolveRoute,
+      runtimeEvents: {
+        publishWithLiveAdmissionMessage,
+      },
+    });
+
+    const accepted = await module.acceptMessage({
+      appId: 'app-one',
+      invocationId: 'invocation-1',
+      conversationId: 'conversation:tg:-100',
+      threadId: 'thread:tg:-100:42',
+      message: 'Run this',
+    });
+
+    expect(resolveRoute).toHaveBeenCalledWith({
+      conversationJid: 'tg:-100',
+      threadId: '42',
+      agentId: null,
+      providerAccountId: 'channel-providerAccount:app-one:telegram',
+    });
+    expect(accepted.enqueue.queueKey).toBe(
+      'tg:-100::thread:42::agent:agent%3Amain_agent',
+    );
+    expect(accepted.enqueue.providerAccountId).toBe(
+      'channel-providerAccount:app-one:telegram',
+    );
   });
 
   it('rejects conversations that are not active runtime routes', async () => {

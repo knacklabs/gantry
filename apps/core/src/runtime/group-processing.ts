@@ -14,18 +14,19 @@ import { finalizeGroupAgentUserVisibleOutput } from './group-output-finalization
 import { formatMessages } from '../messaging/router.js';
 import type { AgentOutput } from './agent-spawn.js';
 import { handleSessionCommand } from '../session/session-commands.js';
-import type { GroupProcessingDeps } from './group-processing-types.js';
+import type {
+  GroupProcessOptions,
+  GroupProcessingDeps,
+} from './group-processing-types.js';
 import { getGroupMemoryStatus } from './group-memory-commands.js';
 import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { settleDeliveryAttempt } from '../jobs/delivery.js';
 import { resolveMemoryUserId } from './session-resume-runtime.js';
-import {
-  firstThreadQueueId,
-  parseThreadQueueKey,
-} from '../shared/thread-queue-key.js';
+import { firstThreadQueueId } from '../shared/thread-queue-key.js';
 import { formatElapsed } from './time-format.js';
 import { createRuntimeModelStatusAccess } from './model-status-store.js';
 import { getConfiguredModelProvidersForApp } from '../adapters/storage/postgres/runtime-store.js';
+import { resolveGroupProcessingRouteContext } from './command-override-route-key.js';
 import { memoryScopeForConversationKind } from './group-run-context.js';
 import { getGroupBrowserStatus } from './group-browser-status.js';
 import {
@@ -39,7 +40,6 @@ import {
   createAdvanceCursorHandler,
   createSaveProcedureHandler,
   createSenderCommandPolicy,
-  createSessionArchiveHandlers,
 } from './group-session-command-state.js';
 import { groupTurnHasRequiredTrigger } from './group-trigger-policy.js';
 import {
@@ -52,8 +52,8 @@ import {
   createGroupAgentRunner,
   type GroupAgentRunResult,
 } from './group-agent-runner.js';
+import { createSessionCommandAgentRunners } from './group-session-command-runner.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
-import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import {
   isModelAccessAuthFailure,
   sendModelAccessAuthFailureNotice,
@@ -62,35 +62,11 @@ import { createGroupTurnOptionBuilders } from './group-turn-options.js';
 import { collectPendingMessagesSince } from './pending-message-replay.js';
 import { buildGroupProcessingConversationContext } from './group-processing-context.js';
 import { createGroupOutputBuffer } from './group-output-buffer.js';
+import { activeTurnUiCleanupByQueue } from './group-active-turn-cleanup.js';
+import { createGroupProcessingSessionCommandHandlers } from './group-processing-session-command-handlers.js';
 let streamingGenerationCounter = 0;
-const DEFAULT_TURN_APP_ID = 'default',
-  PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
-type ActiveTurnUiCleanup = {
-  token: symbol;
-  cancel: () => void | Promise<void>;
-};
-type GroupProcessOptions = {
-  queued?: boolean;
-  memoryContext?: {
-    userId?: string;
-    source?: 'message' | 'command';
-    threadId?: string | null;
-    recallQuery?: string;
-  };
-  existingRunId?: string;
-  existingRunLeaseToken?: string;
-  existingRunLeaseWorkerInstanceId?: string;
-  existingRunLeaseFencingVersion?: number;
-  finalRetry?: boolean;
-  onRunResult?: (result: GroupAgentRunResult) => void;
-  onFirstProgress?: (input: {
-    jid: string;
-    messageRef: string;
-  }) => Promise<void> | void;
-  onLiveStopActionToken?: (token: string) => Promise<void> | void;
-};
-const activeTurnUiCleanupByQueue = new Map<string, ActiveTurnUiCleanup>();
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -104,25 +80,33 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     queueJid: string,
     options: GroupProcessOptions = {},
   ): Promise<boolean> {
-    const { chatJid, threadId: queueThreadId } = parseThreadQueueKey(queueJid);
-    const turnAppId = appIdFromConversationJid(chatJid) ?? DEFAULT_TURN_APP_ID;
-    const group = deps.getGroup(chatJid);
-    if (!group) return true;
-    if (!deps.channelRuntime.hasChannel(chatJid)) {
+    const routeContext = resolveGroupProcessingRouteContext(deps, queueJid);
+    if (!routeContext) return true;
+    const { chatJid, threadId, turnAppId, group } = routeContext;
+    const { commandOverrideRouteKey } = routeContext;
+    const channelAccount = group.providerAccountId
+      ? { providerAccountId: group.providerAccountId }
+      : undefined;
+    if (!deps.channelRuntime.hasChannel(chatJid, channelAccount)) {
       logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
       return true;
     }
-    const scopedQueue = options.queued === true || queueThreadId !== undefined;
+    const scopedQueue = options.queued === true || threadId !== undefined;
     const opsRepository = ops();
-    const { messages: missedMessages, hasMore: missedMessagesRemain } =
-      await collectPendingMessagesSince({
-        getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
-        chatJid,
-        sinceCursor: await deps.getCursor(queueJid),
-        pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
-        maxMessages: config.MAX_MESSAGES_PER_PROMPT,
-        options: scopedQueue ? { threadId: queueThreadId ?? null } : undefined,
-      });
+    const replay = await collectPendingMessagesSince({
+      getMessagesSince: opsRepository.getMessagesSince.bind(opsRepository),
+      chatJid,
+      sinceCursor: await deps.getCursor(queueJid),
+      pageSize: config.MESSAGE_FETCH_PAGE_SIZE,
+      maxMessages: config.MAX_MESSAGES_PER_PROMPT,
+      options: {
+        ...(scopedQueue ? { threadId: threadId ?? null } : {}),
+        ...(group.providerAccountId
+          ? { providerAccountId: group.providerAccountId }
+          : {}),
+      },
+    });
+    const { messages: missedMessages } = replay;
     if (missedMessages.length === 0) return true;
     const latestMessage = missedMessages[missedMessages.length - 1];
     const latestMessageReactionRef =
@@ -131,7 +115,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         ? latestMessage.external_message_id
         : null;
     const activeThreadId = firstThreadQueueId(
-      queueThreadId,
+      threadId,
       latestMessage.thread_id,
     );
     let firstProgressNotified = false;
@@ -149,11 +133,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let progressGeneration = streamGeneration;
     const turnOptions = createGroupTurnOptionBuilders({
       activeThreadId,
+      providerAccountId: group.providerAccountId,
       streamGeneration: () => streamGeneration,
       progressGeneration: () => progressGeneration,
     });
     const { buildMessageOptions, buildStreamingOptions, buildProgressOptions } =
       turnOptions;
+    const setTurnTyping = (isTyping: boolean) =>
+      channelAccount
+        ? deps.channelRuntime.setTyping(chatJid, isTyping, channelAccount)
+        : deps.channelRuntime.setTyping(chatJid, isTyping);
     const sendMessageToChannel = async (
       text: string,
       options?: MessageSendOptions,
@@ -191,24 +180,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       deps: {
         sendMessage: (text, options) =>
           sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
-        setTyping: (typing) => deps.channelRuntime.setTyping(chatJid, typing),
-        runAgent: (prompt, onOutput, commandOptions) =>
-          runAgent(group, prompt, chatJid, queueJid, onOutput, {
-            ...commandOptions,
-            memoryContext: {
-              source: 'command',
-              userId: memoryUserId,
-              threadId: activeThreadId,
-            },
-            turnMessages: missedMessages,
-            existingRunId: options.existingRunId,
-            existingRunLeaseToken: options.existingRunLeaseToken,
-            existingRunLeaseWorkerInstanceId:
-              options.existingRunLeaseWorkerInstanceId,
-            existingRunLeaseFencingVersion:
-              options.existingRunLeaseFencingVersion,
-          }),
+        setTyping: setTurnTyping,
+        ...createSessionCommandAgentRunners({
+          runAgent,
+          group,
+          chatJid,
+          queueJid,
+          memoryUserId,
+          activeThreadId,
+          missedMessages,
+          existingRunId: options.existingRunId,
+          existingRunLeaseToken: options.existingRunLeaseToken,
+          existingRunLeaseWorkerInstanceId:
+            options.existingRunLeaseWorkerInstanceId,
+          existingRunLeaseFencingVersion:
+            options.existingRunLeaseFencingVersion,
+        }),
         closeStdin: () => deps.queue.closeStdin(queueJid),
+        compactionScopeKey: queueJid,
         advanceCursor: createAdvanceCursorHandler({
           queueJid,
           setCursor: deps.setCursor,
@@ -234,28 +223,33 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           config.getRuntimeSettingsForConfig().modelFamilies,
         getGroupModelOverride: () => group.agentConfig?.model,
         setGroupModelOverride: async (value) =>
-          deps.setGroupModelOverride(chatJid, value),
+          deps.setGroupModelOverride(commandOverrideRouteKey, value),
         getModelStatus: modelStatus.getStatus,
         getBrowserStatus: () => getGroupBrowserStatus({ group, chatJid }),
         updateModelStatusSelection: modelStatus.updateSelection,
         getGroupThinkingOverride: () => group.agentConfig?.thinking,
         setGroupThinkingOverride: async (value) =>
-          deps.setGroupThinkingOverride(chatJid, value),
-        ...createSessionArchiveHandlers({
+          deps.setGroupThinkingOverride(commandOverrideRouteKey, value),
+        ...createGroupProcessingSessionCommandHandlers({
           ops,
           appId: turnAppId,
+          defaultModel: config.getDefaultModelConfig(
+            'interactive',
+            group.folder,
+          ).model,
           group,
           chatJid,
           threadId: activeThreadId ?? null,
           defaultScope: defaultMemoryScope,
           memoryUserId,
           collectMemory: collectSessionMemory,
-          executionAdapter: deps.executionAdapter,
+          deps,
         }),
         clearCurrentSession: () =>
           deps.clearSession(group.folder, activeThreadId, {
             appId: turnAppId,
             conversationJid: chatJid,
+            providerAccountId: group.providerAccountId,
             conversationKind: group.conversationKind,
             memoryUserId,
           }),
@@ -301,7 +295,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       },
     });
     if (cmdResult.handled) {
-      if (missedMessagesRemain) deps.queue.enqueueMessageCheck(queueJid);
+      if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return cmdResult.success;
     }
     if (
@@ -317,7 +311,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         encodeGroupMessageCursor(toGroupMessageCursor(latestMessage)),
       );
       await deps.saveState();
-      if (missedMessagesRemain) deps.queue.enqueueMessageCheck(queueJid);
+      if (replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
       return true;
     }
     await notifyFirstProgress();
@@ -328,6 +322,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         groupName: group.name,
         agentFolder: group.folder,
         chatJid,
+        providerAccountId: group.providerAccountId,
         activeThreadId,
         latestMessage,
         currentMessages: missedMessages,
@@ -345,6 +340,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       chatJid,
       groupName: group.name,
       channelRuntime: deps.channelRuntime,
+      providerAccountId: group.providerAccountId,
       logger,
     });
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -362,7 +358,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let typingActive = false;
     const setTypingState = (isTyping: boolean) => (
       (typingActive = isTyping),
-      deps.channelRuntime.setTyping(chatJid, isTyping)
+      setTurnTyping(isTyping)
     );
     await setTypingState(true);
     let startedAt = currentTimeMs();
@@ -387,7 +383,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
     let backgroundDemoted = false;
     const turnUiToken = Symbol(queueJid);
-    const supportsProgress = deps.channelRuntime.supportsProgress(chatJid);
+    const supportsProgress = deps.channelRuntime.supportsProgress(
+      chatJid,
+      channelAccount,
+    );
     const sendControlOnlyProgress = async () => {
       if (!supportsProgress) return;
       await sendProgressToChannel('', {
@@ -438,11 +437,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       resetActiveElapsed();
       typingActive = true;
       progressHeartbeat?.resume();
-      void deps.channelRuntime
-        .setTyping(chatJid, true)
-        .catch((err) =>
-          logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-        );
+      void setTurnTyping(true).catch((err) =>
+        logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
+      );
       const progressReady = sendRunningProgress().finally(() => {
         if (userVisibleTurnProgressReady === progressReady) {
           userVisibleTurnProgressReady = null;
@@ -491,6 +488,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       getLastAgentProgressAt: () => lastAgentProgressAt,
       getElapsedMs: activeElapsedMs,
       chatJid,
+      providerAccountId: group.providerAccountId,
       groupName: group.name,
       channelRuntime: deps.channelRuntime,
       buildProgressOptions,
@@ -528,8 +526,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let sawTerminalDeliveryFailure = false;
     let awaitingResponseReceipt = false;
     let outputCallbackError: unknown;
-    const supportsStreamingChunks =
-      deps.channelRuntime.supportsStreaming(chatJid);
+    const supportsStreamingChunks = deps.channelRuntime.supportsStreaming(
+      chatJid,
+      channelAccount,
+    );
     const startNextStreamingMessage = () => {
       progressGeneration = streamGeneration = streamingGenerationCounter += 1;
       activeGenerationHasOutput = false;
@@ -678,6 +678,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         ) {
           await sendTrackedDoneProgress(markerProgressState);
         }
+        if (typingActive) {
+          await setTypingState(false);
+        }
         startNextStreamingMessage();
         resetIdleTimer();
       }
@@ -728,6 +731,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           existingRunLeaseFencingVersion:
             options.existingRunLeaseFencingVersion,
           liveStopActionToken: turnOptions.liveStopActionToken,
+          responseSchema: replay.responseSchema,
+          agentControls: replay.agentControls,
         },
       );
     } finally {
@@ -813,8 +818,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendTrackedDoneProgress(finalProgressState);
     }
     await setTypingState(false);
-    if (resultOk && missedMessagesRemain)
-      deps.queue.enqueueMessageCheck(queueJid);
+    if (resultOk && replay.hasMore) deps.queue.enqueueMessageCheck(queueJid);
     options?.onRunResult?.(output);
     return resultOk;
   }

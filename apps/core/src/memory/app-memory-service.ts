@@ -26,6 +26,7 @@ import type {
   AppMemoryItem,
   AppMemorySearchInput,
   AppMemorySearchResult,
+  BlockedDreamDecision,
   DemoteDreamingMemoryInput,
   DeleteAppMemoryInput,
   DreamingRunStatus,
@@ -62,6 +63,7 @@ import {
   findActiveMemoryByKey,
   getOwnedMemoryItem,
   listDreamingStatuses,
+  listRecentBlockedDreamDecisions,
 } from './app-memory-item-queries.js';
 import {
   buildAppMemoryContinuityStatus,
@@ -520,6 +522,21 @@ export class AppMemoryService {
     });
     options.signal?.throwIfAborted();
     return reviews;
+  }
+
+  async listRecentBlockedDreamDecisions(
+    input: Partial<MemoryBoundaryContext> & {
+      subjectType?: MemorySubjectType;
+      subjectId?: string;
+    } = {},
+    options: {
+      signal?: AbortSignal;
+      statementTimeoutMs?: number;
+      limit?: number;
+    } = {},
+  ): Promise<BlockedDreamDecision[]> {
+    if (!this.isEnabled()) return [];
+    return listRecentBlockedDreamDecisions(this.db, input, options);
   }
 
   async listPendingReviewPage(

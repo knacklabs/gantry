@@ -56,6 +56,8 @@ type ExecutableModelEntryFn = (input: {
   contextWindowTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCatalogEntry['cacheMode'];
   cacheTokenFields: readonly string[];
   supportedWorkloads: readonly ModelWorkload[];
@@ -129,6 +131,8 @@ const G_DISPLAY = ['Ge', 'mini'].join('');
 const G_PRO = `${G_MODEL}-2.5-pro`;
 const G_FLASH = `${G_MODEL}-2.5-flash`;
 const G_NEXT_FLASH = `${G_MODEL}-3.5-flash`;
+const G_PREVIEW_FLASH = `${G_MODEL}-3-flash-preview`;
+const G_PREVIEW_PRO = `${G_MODEL}-3.1-pro-preview`;
 const VERTEX_CHAT_SOURCE = {
   label: `Vertex ${G_DISPLAY} 3.5 Flash model card`,
   url: `https://docs.cloud.google.com/${G_MODEL}-enterprise-agent-platform/models/${G_MODEL}/3-5-flash`,
@@ -165,8 +169,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_128K,
       inputUsdPerMillionTokens: 0.59,
       outputUsdPerMillionTokens: 0.79,
-      cacheMode: OPENAI_PREFIX_CACHE_MODE,
-      cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -181,8 +185,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_128K,
       inputUsdPerMillionTokens: 0.05,
       outputUsdPerMillionTokens: 0.08,
-      cacheMode: OPENAI_PREFIX_CACHE_MODE,
-      cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -214,6 +218,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_DEEPSEEK_V4,
       inputUsdPerMillionTokens: 0.435,
       outputUsdPerMillionTokens: 0.87,
+      cachedInputUsdPerMillionTokens: 0.003625,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['prompt_cache_hit_tokens'],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -230,6 +235,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_DEEPSEEK_V4,
       inputUsdPerMillionTokens: 0.14,
       outputUsdPerMillionTokens: 0.28,
+      cachedInputUsdPerMillionTokens: 0.0028,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: ['prompt_cache_hit_tokens'],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -247,6 +253,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_GROK,
       inputUsdPerMillionTokens: 1.25,
       outputUsdPerMillionTokens: 2.5,
+      cachedInputUsdPerMillionTokens: 0.2,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -263,6 +270,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_GROK,
       inputUsdPerMillionTokens: 1.0,
       outputUsdPerMillionTokens: 2.0,
+      cachedInputUsdPerMillionTokens: 0.2,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -283,8 +291,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_128K,
       inputUsdPerMillionTokens: 1.04,
       outputUsdPerMillionTokens: 1.04,
-      cacheMode: OPENAI_PREFIX_CACHE_MODE,
-      cacheTokenFields: ['cached_tokens'],
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -299,8 +307,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_QWEN3_235B,
       inputUsdPerMillionTokens: 0.2,
       outputUsdPerMillionTokens: 0.6,
-      cacheMode: OPENAI_PREFIX_CACHE_MODE,
-      cacheTokenFields: ['cached_tokens'],
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -357,6 +365,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_128K,
       inputUsdPerMillionTokens: 0.35,
       outputUsdPerMillionTokens: 0.75,
+      cachedInputUsdPerMillionTokens: 0.35,
       cacheMode: OPENAI_PREFIX_CACHE_MODE,
       cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
@@ -372,8 +381,8 @@ export function buildOpenAiCompatibleCatalog(deps: {
       source: CEREBRAS_SOURCE,
       // Price omitted (same reason as the sibling cerebras id). Renders as `—`.
       contextWindowTokens: WINDOW_128K,
-      cacheMode: OPENAI_PREFIX_CACHE_MODE,
-      cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      cacheMode: 'none',
+      cacheTokenFields: [],
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
@@ -460,10 +469,38 @@ export function buildOpenAiCompatibleCatalog(deps: {
       supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       experimental: true,
     }),
+    executableModelEntry({
+      id: `${G_MODEL}:${G_PREVIEW_FLASH}`,
+      route: providerRoute(G_MODEL, G_PREVIEW_FLASH),
+      displayName: `${G_DISPLAY} 3 Flash Preview`,
+      runnerModel: G_PREVIEW_FLASH,
+      aliases: [`${G_MODEL}-preview-3-flash`],
+      recommendedAlias: `${G_MODEL}-preview-3-flash`,
+      source: GEMINI_SOURCE,
+      contextWindowTokens: WINDOW_1M,
+      cacheMode: OPENAI_PREFIX_CACHE_MODE,
+      cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
+      experimental: true,
+    }),
+    executableModelEntry({
+      id: `${G_MODEL}:${G_PREVIEW_PRO}`,
+      route: providerRoute(G_MODEL, G_PREVIEW_PRO),
+      displayName: `${G_DISPLAY} 3.1 Pro Preview`,
+      runnerModel: G_PREVIEW_PRO,
+      aliases: [`${G_MODEL}-preview-3.1-pro`],
+      recommendedAlias: `${G_MODEL}-preview-3.1-pro`,
+      source: GEMINI_SOURCE,
+      contextWindowTokens: WINDOW_1M,
+      cacheMode: OPENAI_PREFIX_CACHE_MODE,
+      cacheTokenFields: NESTED_OPENAI_CACHE_FIELDS,
+      supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
+      experimental: true,
+    }),
     ...buildBedrockCatalog({
       executableModelEntry,
       providerRoute,
-      supportedWorkloads: DEEPAGENTS_WORKLOADS,
+      supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
     }),
     executableModelEntry({
       id: 'vertex:flash-3.5',
@@ -476,7 +513,7 @@ export function buildOpenAiCompatibleCatalog(deps: {
       contextWindowTokens: WINDOW_1M,
       cacheMode: 'none',
       cacheTokenFields: [],
-      supportedWorkloads: DEEPAGENTS_WORKLOADS,
+      supportedWorkloads: DEEPAGENTS_MEMORY_WORKLOADS,
       providerAvailability: VERTEX_GLOBAL_AVAILABILITY,
       experimental: true,
     }),

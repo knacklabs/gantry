@@ -34,6 +34,10 @@ export interface WebhookRegistrationRecord {
   name: string;
   url: string;
   enabled: boolean;
+  eventTypes: string[] | null;
+  agentId: string | null;
+  sessionId: string | null;
+  jobId: string | null;
   createdAt: string;
   updatedAt: string;
 }

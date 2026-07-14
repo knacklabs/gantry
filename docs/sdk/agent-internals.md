@@ -101,20 +101,20 @@ sequenceDiagram
   participant Store as Postgres
   participant Provider as Provider Adapter
 
-  App->>SDK: providerConnections.create()
-  SDK->>Control: POST /v1/provider-connections
+  App->>SDK: providerAccounts.create()
+  SDK->>Control: POST /v1/provider-accounts
   Control->>Store: persist non-secret config + runtimeSecretRefs
-  App->>SDK: providerConnections.discoverConversations()
-  SDK->>Control: POST /v1/provider-connections/:id/discover-conversations
+  App->>SDK: providerAccounts.discoverConversations()
+  SDK->>Control: POST /v1/provider-accounts/:id/discover-conversations
   Control->>Provider: discover conversations with runtime-owned secret
   Control->>Store: upsert normalized conversations
-  App->>SDK: agents.conversationBindings.enable()
-  SDK->>Control: PUT /v1/agents/:agentId/conversation-bindings/:conversationId
-  Control->>Store: upsert active AgentConversationBinding
+  App->>SDK: conversationInstalls.create()
+  SDK->>Control: POST /v1/conversation-installs
+  Control->>Store: upsert active ConversationInstall
 ```
 
 The control API never accepts raw Slack, Telegram, Teams, or WhatsApp tokens in
-providerConnection payloads. Backend apps pass runtime secret references, and the host
+Provider Account payloads. Backend apps pass runtime secret references, and the host
 runtime resolves those references through `RuntimeSecretProvider`. Teams and
 WhatsApp are catalog placeholders until provider adapters exist.
 
@@ -147,6 +147,22 @@ Postgres is the runtime store:
 - `pgvector` and embedding cache tables support optional semantic memory recall when embeddings are enabled and backfilled.
 - Postgres full-text search remains the always-available retrieval path and the lexical fallback when query embedding is unavailable.
 - Control events, messages, jobs, runs, triggers, sessions, webhooks, deliveries, and memory records are first-party Gantry tables.
+
+## Tool Errors
+
+Gantry's built-in tools return a structured error envelope alongside the MCP
+`isError` flag: `category` (`transient | validation | business | permission`),
+`isRetryable`, and a human-readable message. Agents use it to decide between
+retry, alternative approaches, and escalation instead of guessing from prose.
+
+Remote MCP tools called through `mcp_call_tool` keep their nested `isError` and
+`structuredContent` — a failing remote tool is visible to the agent as a
+failure, so remote MCP servers should return accurate `isError` flags and
+structured error detail rather than encoding failures as plain success text.
+
+Delegated subagent tasks that fail carry typed failure metadata (failure type,
+what was attempted, partial results when available) through `task_get` and the
+parent agent's tool result, instead of a generic failure string.
 
 ## Event Contract
 

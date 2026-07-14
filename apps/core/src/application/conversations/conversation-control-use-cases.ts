@@ -1,5 +1,5 @@
 import type { AppId } from '../../domain/app/app.js';
-import type { ProviderConnectionId } from '../../domain/provider/provider.js';
+import type { ProviderAccountId } from '../../domain/provider/provider.js';
 import type {
   Conversation,
   ConversationId,
@@ -35,7 +35,7 @@ export class ConversationControlService {
 
   async list(input: {
     appId: AppId;
-    providerConnectionId?: ProviderConnectionId;
+    providerAccountId?: ProviderAccountId;
   }): Promise<Conversation[]> {
     return await this.deps.conversations.listConversations(input);
   }

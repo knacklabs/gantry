@@ -109,10 +109,12 @@ export async function enqueueLiveAdmissionWorkItem(
     db,
     input.idempotencyKey,
   );
-  if (!existing) {
+  const replayed =
+    existing ?? (await findLiveAdmissionWorkItemById(db, input.id));
+  if (!replayed) {
     throw new Error('Live admission work item conflict was not replayable.');
   }
-  return { outcome: 'replayed', item: existing };
+  return { outcome: 'replayed', item: replayed };
 }
 
 export async function claimLiveAdmissionWorkItems(
@@ -326,6 +328,16 @@ async function findLiveAdmissionWorkItemByIdempotencyKey(
     .from(items)
     .where(eq(items.idempotencyKey, idempotencyKey))
     .limit(1);
+  const row = rows[0];
+  return row ? toLiveAdmissionWorkItem(row) : null;
+}
+
+async function findLiveAdmissionWorkItemById(
+  db: CanonicalExecutor,
+  id: string,
+): Promise<LiveAdmissionWorkItem | null> {
+  const items = pgSchema.liveAdmissionWorkItemsPostgres;
+  const rows = await db.select().from(items).where(eq(items.id, id)).limit(1);
   const row = rows[0];
   return row ? toLiveAdmissionWorkItem(row) : null;
 }

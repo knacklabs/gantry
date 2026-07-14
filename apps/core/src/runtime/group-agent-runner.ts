@@ -1,4 +1,7 @@
-import type { ConversationRoute } from '../domain/types.js';
+import type {
+  AgentControlOverrides,
+  ConversationRoute,
+} from '../domain/types.js';
 import { collectCompactBoundaryMemory } from '../jobs/compact-memory.js';
 import { defaultModelStatusSelection } from '../session/session-model-status.js';
 import type { AgentOutput } from './agent-spawn.js';
@@ -24,30 +27,21 @@ import {
   createRuntimeResultSummaryAccumulator,
   summarizeRuntimeResultForPersistence,
 } from './session-resume-runtime.js';
-import { createRuntimeModelStatusAccess } from './model-status-store.js';
+import { createRuntimeModelStatusAccess as createModelStatus } from './model-status-store.js';
 import { recordRuntimeModelUsage } from './model-status-output.js';
 import {
   buildProviderSessionAccessFingerprint,
   providerSessionAccessFingerprintMatches,
 } from './provider-session-access-fingerprint.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
-import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
-import { resolveExecutionRoute } from '../shared/model-execution-route.js';
-import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import {
   loadPatternsContext,
   markPatternsContextSurfaced,
 } from '../shared/pattern-candidate-block.js';
-import {
-  patternSubjectForScope,
-  type PatternSubjectScope,
-} from '../shared/pattern-candidate-subject.js';
+import { patternSubjectForScope } from '../shared/pattern-candidate-subject.js';
 import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import {
-  executionProviderIdForCandidate,
-  resolveTurnFailoverCandidates,
   runFamilyFailoverLoop,
   publishRunFailoverEvent,
 } from './failover-candidate-loop.js';
@@ -56,23 +50,23 @@ import {
   proactiveSurfacingAllowed,
   publishProactiveSurfacingOutcomeEvent,
 } from './proactive-surfacing-gate.js';
-import {
-  forwardRuntimeEvents,
-  RUNTIME_EVENT_TYPES,
-} from './runtime-event-forwarding.js';
+import { forwardRuntimeEvents } from './runtime-event-forwarding.js';
 import { isMissingProviderSessionError } from './failover-eligibility.js';
+import { createConfiguredRunTokenBudget } from './agent-spawn-host.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
+import { memoryReviewerApproverAllowed } from './group-agent-runner-memory-review.js';
+import { prepareCompactionDeltaReplay } from './group-agent-runner-compaction-delta.js';
+import { maintenanceCompactionPromptForExecutionProvider } from './group-agent-runner-maintenance-compaction.js';
+import { hasAsyncTaskRepository } from './group-agent-runner-async-task-repository.js';
+import { resolveInitialGroupExecutionProviderId } from './group-initial-execution-provider.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const DEFAULT_TURN_APP_ID = 'default';
-const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
 const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
-const memoryReviewApproverCache = new Map<string, [boolean, number]>();
 export type GroupAgentRunResult = 'success' | 'error' | 'stopped';
 function redactRuntimeError(error: string | undefined): string | undefined {
   return error ? redactString(error) : undefined;
 }
-
 function isStoppedByRequest(output: AgentOutput): boolean {
   return (
     output.status === 'error' &&
@@ -80,40 +74,6 @@ function isStoppedByRequest(output: AgentOutput): boolean {
   );
 }
 
-function hasAsyncTaskRepository(deps: GroupProcessingDeps): boolean {
-  try {
-    return Boolean(deps.getAsyncTaskRepository?.());
-  } catch {
-    return false;
-  }
-}
-
-async function memoryReviewerApproverAllowed(
-  deps: GroupProcessingDeps,
-  conversationJid: string,
-  sourceAgentFolder: string,
-  userId?: string,
-): Promise<boolean> {
-  if (!userId) return false;
-  const hook = deps.channelRuntime.isControlApproverAllowed;
-  if (!hook) return false;
-  const key = `${conversationJid}\0${sourceAgentFolder}\0${userId}`;
-  const now = currentTimeMs();
-  const cached = memoryReviewApproverCache.get(key);
-  if (cached && cached[1] > now) return cached[0];
-  const allowed =
-    (await hook({
-      conversationJid,
-      userId,
-      sourceAgentFolder,
-      decisionPolicy: 'same_channel',
-    }).catch(() => false)) === true;
-  memoryReviewApproverCache.set(key, [
-    allowed,
-    now + MEMORY_REVIEW_APPROVER_CACHE_TTL_MS,
-  ]);
-  return allowed;
-}
 export function createGroupAgentRunner(input: {
   deps: GroupProcessingDeps;
   ops: () => GroupProcessingRepository;
@@ -145,55 +105,71 @@ export function createGroupAgentRunner(input: {
       existingRunLeaseWorkerInstanceId?: string;
       existingRunLeaseFencingVersion?: number;
       liveStopActionToken?: string;
+      maintenanceProviderSession?: {
+        providerSessionId: string;
+        externalSessionId: string;
+      };
+      maintenanceCompaction?: boolean;
+      responseSchema?: Record<string, unknown>;
+      agentControls?: AgentControlOverrides;
     },
   ): Promise<GroupAgentRunResult> {
-    const initialModelSelection = defaultModelStatusSelection(
-      group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS,
-    );
     const agentHarness = deps.getSelectedAgentHarness(group.folder);
     const turnAppId = appIdFromConversationJid(chatJid) ?? DEFAULT_TURN_APP_ID;
-    const failoverCandidates = await resolveTurnFailoverCandidates({
-      requestedModel: group.agentConfig?.model,
+    const defaultInteractiveModel =
+      deps.getDefaultInteractiveModel?.(group.folder) ?? DEFAULT_MODEL_ALIAS;
+    const initialProvider = await resolveInitialGroupExecutionProviderId({
+      group,
       appId: turnAppId,
+      defaultModel: defaultInteractiveModel,
       listConfiguredProviders: deps.getConfiguredModelProviders,
       familyOrder: deps.getModelFamilyOrder?.(),
+      executionAdapter: deps.executionAdapter,
+      agentHarness,
     });
-    const firstModel = failoverCandidates[0];
-    const fallbackExecutionProviderId = (): ExecutionProviderId =>
-      resolveRuntimeExecutionProviderId(
-        deps.executionAdapter,
-      ) as ExecutionProviderId;
-    const liveTurnRoute = initialModelSelection.model
-      ? resolveExecutionRoute({
-          entry: initialModelSelection.model,
-          agentHarness,
-        })
+    const failoverCandidates = initialProvider.failoverCandidates;
+    const firstModel = initialProvider.firstModel;
+    let executionProviderId = initialProvider.executionProviderId;
+    const maintenanceCompactionPrompt = options?.maintenanceCompaction
+      ? maintenanceCompactionPromptForExecutionProvider(
+          executionProviderId,
+          deps,
+        )
       : undefined;
-    let executionProviderId = firstModel
-      ? executionProviderIdForCandidate(firstModel, undefined, agentHarness)
-      : liveTurnRoute?.ok
-        ? (liveTurnRoute.value.executionProviderId as ExecutionProviderId)
-        : fallbackExecutionProviderId();
+    if (options?.maintenanceCompaction && !maintenanceCompactionPrompt)
+      return 'error';
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
-    const modelStatus = createRuntimeModelStatusAccess(
-      group.folder,
-      sessionThreadId,
-    );
+    const modelStatus = createModelStatus(group.folder, sessionThreadId);
+    const runTokenBudget = createConfiguredRunTokenBudget(group.folder);
     const streamedResult = createRuntimeResultSummaryAccumulator();
-    const turnContext = await ops().getAgentTurnContext?.({
-      appId: turnAppId,
-      agentFolder: group.folder,
+    const loadTurnContext = async (promoteReadyProviderSession: boolean) =>
+      ops().getAgentTurnContext?.({
+        appId: turnAppId,
+        agentFolder: group.folder,
+        executionProviderId,
+        conversationJid: chatJid,
+        providerAccountId: group.providerAccountId,
+        threadId: sessionThreadId,
+        conversationKind: group.conversationKind,
+        memoryUserId: options?.memoryContext?.userId,
+        hydrationMode: 'first_visible',
+        promoteReadyProviderSession,
+        query:
+          options?.memoryContext?.source === 'message'
+            ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
+            : undefined,
+      });
+    const compactionDeltaReplay = await prepareCompactionDeltaReplay({
+      turnContext: await loadTurnContext(false),
+      loadTurnContext,
+      repository: ops(),
       executionProviderId,
-      conversationJid: chatJid,
+      group,
+      chatJid,
       threadId: sessionThreadId,
-      conversationKind: group.conversationKind,
-      memoryUserId: options?.memoryContext?.userId,
-      hydrationMode: 'first_visible',
-      query:
-        options?.memoryContext?.source === 'message'
-          ? buildBoundedMemoryRecallQuery(options.memoryContext.recallQuery)
-          : undefined,
+      maintenanceProviderSession: options?.maintenanceProviderSession,
     });
+    const turnContext = compactionDeltaReplay.turnContext;
     const runtimeAppId = turnContext?.appId ?? turnAppId;
     let defaultRuntimeModel: string | undefined;
     const forwardedRuntimeEventKeys = new Set<string>();
@@ -213,8 +189,12 @@ export function createGroupAgentRunner(input: {
     const liveRunFenced = !!options?.existingRunLeaseToken;
     let latestProviderSessionId =
       turnContext?.externalSessionId?.trim() || undefined;
-    let resumeProviderSessionId = turnContext?.providerSessionId ?? undefined;
-    let resumeExternalSessionId = turnContext?.externalSessionId ?? undefined;
+    let resumeProviderSessionId =
+      options?.maintenanceProviderSession?.providerSessionId ??
+      turnContext?.providerSessionId;
+    let resumeExternalSessionId =
+      options?.maintenanceProviderSession?.externalSessionId ??
+      turnContext?.externalSessionId;
     const updateRunProviderMetadata = async (input: {
       providerRunId?: string | null;
       providerSessionId?: string | null;
@@ -243,6 +223,11 @@ export function createGroupAgentRunner(input: {
     };
     const persistProviderSessionFromOutput = async (output: AgentOutput) => {
       if (output.status === 'error') return;
+      if (
+        turnContext?.latestProviderSessionLocked ||
+        options?.maintenanceProviderSession
+      )
+        return;
       const nextSessionId = (
         output.providerSession?.externalSessionId ?? output.newSessionId
       )?.trim();
@@ -262,6 +247,7 @@ export function createGroupAgentRunner(input: {
           appId: runtimeAppId,
           executionProviderId,
           conversationJid: chatJid,
+          providerAccountId: group.providerAccountId,
           conversationKind: group.conversationKind,
           memoryUserId: options?.memoryContext?.userId,
           expectedAgentSessionId: turnContext.agentSessionId,
@@ -289,7 +275,7 @@ export function createGroupAgentRunner(input: {
           usageEventId: output.usageEventId,
           getDefaultModel: () => {
             defaultRuntimeModel ??=
-              group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS;
+              group.agentConfig?.model ?? defaultInteractiveModel;
             return defaultRuntimeModel;
           },
         });
@@ -299,7 +285,7 @@ export function createGroupAgentRunner(input: {
           ...defaultModelStatusSelection(
             group.agentConfig?.model ??
               (defaultRuntimeModel ??=
-                group.agentConfig?.model ?? DEFAULT_MODEL_ALIAS),
+                group.agentConfig?.model ?? defaultInteractiveModel),
           ),
           selectionSource: group.agentConfig?.model
             ? 'session override'
@@ -310,6 +296,8 @@ export function createGroupAgentRunner(input: {
       if (output.status !== 'error' && output.result) {
         streamedResult.append(String(output.result));
       }
+      output = runTokenBudget.enforce(output);
+      if (runTokenBudget.exceeded) deps.queue.stopGroup?.(queueJid);
       await forwardRuntimeEvents({
         output,
         publishRuntimeEvent: deps.publishRuntimeEvent,
@@ -432,6 +420,7 @@ export function createGroupAgentRunner(input: {
       });
     }
     const memoryContextBlock = [
+      compactionDeltaReplay.block,
       turnContext?.memoryContextBlock,
       patternsContext.block,
       approvedSkillContextBlock,
@@ -502,7 +491,7 @@ export function createGroupAgentRunner(input: {
         runAgentImpl(
           group,
           {
-            prompt,
+            prompt: maintenanceCompactionPrompt ?? prompt,
             appId: runtimeAppId,
             ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             ...(agentInput.model ? { model: agentInput.model } : {}),
@@ -521,6 +510,10 @@ export function createGroupAgentRunner(input: {
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: agentInput.memoryContextBlock,
+            responseSchema: options?.responseSchema,
+            effort: options?.agentControls?.effort,
+            configuredThinking: options?.agentControls?.thinking,
+            maxOutputTokens: options?.agentControls?.maxOutputTokens,
             ...(agentInput.resumeSessionId
               ? { sessionId: agentInput.resumeSessionId }
               : {}),
@@ -565,7 +558,7 @@ export function createGroupAgentRunner(input: {
           },
           wrappedOnOutput,
           runOptions,
-        );
+        ).then((output) => runTokenBudget.enforce(output));
       let output = await invokeAgent({
         memoryContextBlock,
         ...(firstModel ? { model: firstModel } : {}),
@@ -672,6 +665,7 @@ export function createGroupAgentRunner(input: {
               : summarizeRuntimeResultForPersistence(output.result),
         });
       }
+      await compactionDeltaReplay.markApplied?.(ops());
       await markPatternsContextSurfaced(
         patternCandidateRepo,
         patternsContext.surfacedCandidateIds,
@@ -702,7 +696,9 @@ export function createGroupAgentRunner(input: {
             });
           }
         }
-      } catch {}
+      } catch {
+        // Ignore proactive surfacing metric failures.
+      }
       return 'success';
     } catch (err) {
       logger.error({ group: group.name, err }, 'Agent error');

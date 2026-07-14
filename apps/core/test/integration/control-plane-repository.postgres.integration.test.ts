@@ -118,12 +118,16 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       name: 'control-repo',
       url: 'https://example.test/webhook',
       secret: 'secret',
+      eventTypes: [RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND],
+      sessionId: session.sessionId,
     });
     await expect(
       runtime.control.getWebhookById(webhook.webhookId, 'default'),
     ).resolves.toMatchObject({
       webhookId: webhook.webhookId,
       secret: 'secret',
+      eventTypes: [RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND],
+      sessionId: session.sessionId,
     });
     await expect(runtime.control.listWebhooks('default')).resolves.toEqual(
       expect.arrayContaining([
@@ -134,7 +138,11 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       runtime.control.updateWebhook(webhook.webhookId, 'default', {
         enabled: false,
       }),
-    ).resolves.toMatchObject({ enabled: false });
+    ).resolves.toMatchObject({
+      enabled: false,
+      eventTypes: [RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND],
+      sessionId: session.sessionId,
+    });
 
     const event = await runtime.repositories.runtimeEvents.appendRuntimeEvent({
       appId: 'default' as never,

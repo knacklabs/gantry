@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -10,11 +11,15 @@ import {
 } from 'drizzle-orm';
 
 import type {
+  AsyncTaskBacklogAdmissionInput,
+  AsyncTaskClaimInput,
   AsyncTaskCreateInput,
   AsyncTaskListFilter,
   AsyncTaskReceipt,
   AsyncTaskRecord,
   AsyncTaskRepository,
+  AsyncTaskScopedAdmissionInput,
+  AsyncTaskScopedAdmissionResult,
   AsyncTaskStatus,
   AsyncTaskStatusCount,
   AsyncTaskTransitionInput,
@@ -33,64 +38,159 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
     return mapRow(row);
   }
 
-  async createTaskWithAdmission(
-    input: AsyncTaskCreateInput,
-    admission: {
-      activeStatuses: AsyncTaskRecord['status'][];
-      kind?: AsyncTaskRecord['kind'];
-      maxActivePerApp: number;
-      maxActivePerAgent: number;
-    },
-  ): Promise<
-    | { ok: true; task: AsyncTaskRecord }
-    | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
-  > {
+  async createTaskWithBacklogAdmission(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null> {
     return this.db.transaction(async (tx) => {
+      const task = input.task;
       await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${`agent_async_tasks:${input.appId}`}))`,
+        sql`select pg_advisory_xact_lock(hashtext(${`agent_async_tasks_backlog:${task.appId}:${task.kind}`}))`,
       );
-      const [appActive] = await tx
+      const [appBacklog] = await tx
         .select({ count: count() })
         .from(pgSchema.agentAsyncTasksPostgres)
         .where(
           and(
-            eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
-            admission.kind
-              ? eq(pgSchema.agentAsyncTasksPostgres.kind, admission.kind)
-              : undefined,
-            inArray(
-              pgSchema.agentAsyncTasksPostgres.status,
-              admission.activeStatuses,
-            ),
+            eq(pgSchema.agentAsyncTasksPostgres.appId, task.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, task.kind),
+            inArray(pgSchema.agentAsyncTasksPostgres.status, input.statuses),
           ),
         );
-      if ((appActive?.count ?? 0) >= admission.maxActivePerApp) {
-        return { ok: false, reason: 'app_capacity' };
-      }
-      const [agentActive] = await tx
+      if ((appBacklog?.count ?? 0) >= input.maxBacklogPerApp) return null;
+      const [agentBacklog] = await tx
         .select({ count: count() })
         .from(pgSchema.agentAsyncTasksPostgres)
         .where(
           and(
-            eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
-            eq(pgSchema.agentAsyncTasksPostgres.agentId, input.agentId),
-            admission.kind
-              ? eq(pgSchema.agentAsyncTasksPostgres.kind, admission.kind)
-              : undefined,
-            inArray(
-              pgSchema.agentAsyncTasksPostgres.status,
-              admission.activeStatuses,
-            ),
+            eq(pgSchema.agentAsyncTasksPostgres.appId, task.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.agentId, task.agentId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, task.kind),
+            inArray(pgSchema.agentAsyncTasksPostgres.status, input.statuses),
           ),
         );
-      if ((agentActive?.count ?? 0) >= admission.maxActivePerAgent) {
-        return { ok: false, reason: 'agent_capacity' };
+      if ((agentBacklog?.count ?? 0) >= input.maxBacklogPerAgent) return null;
+      const [row] = await tx
+        .insert(pgSchema.agentAsyncTasksPostgres)
+        .values(taskInsertValues(task))
+        .returning();
+      return mapRow(row);
+    });
+  }
+
+  async createTaskWithScopedAdmission(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult> {
+    return this.db.transaction(async (tx) => {
+      const task = input.task;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${scopedAdmissionLockKey(task)}))`,
+      );
+      const scopeWhere = asyncTaskScopeWhere(task);
+      const staleTasks =
+        input.staleRunningBefore && input.staleRunningStatus
+          ? (
+              await tx
+                .update(pgSchema.agentAsyncTasksPostgres)
+                .set({
+                  status: input.staleRunningStatus,
+                  terminalAt: task.now,
+                  updatedAt: task.now,
+                  errorSummary: input.staleErrorSummary ?? null,
+                })
+                .where(
+                  and(
+                    scopeWhere,
+                    inArray(
+                      pgSchema.agentAsyncTasksPostgres.status,
+                      input.activeStatuses,
+                    ),
+                    sql`coalesce(${pgSchema.agentAsyncTasksPostgres.heartbeatAt}, ${pgSchema.agentAsyncTasksPostgres.updatedAt}) < ${input.staleRunningBefore}`,
+                  ),
+                )
+                .returning()
+            ).map(mapRow)
+          : [];
+      const [existing] = await tx
+        .select()
+        .from(pgSchema.agentAsyncTasksPostgres)
+        .where(
+          and(
+            scopeWhere,
+            input.activeStatuses.length
+              ? inArray(
+                  pgSchema.agentAsyncTasksPostgres.status,
+                  input.activeStatuses,
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(pgSchema.agentAsyncTasksPostgres.updatedAt))
+        .limit(1);
+      if (existing) {
+        return { task: mapRow(existing), admitted: false, staleTasks };
       }
       const [row] = await tx
         .insert(pgSchema.agentAsyncTasksPostgres)
-        .values(taskInsertValues(input))
+        .values(taskInsertValues(task))
         .returning();
-      return { ok: true, task: mapRow(row) };
+      return { task: mapRow(row), admitted: true, staleTasks };
+    });
+  }
+
+  async claimQueuedTask(
+    input: AsyncTaskClaimInput,
+  ): Promise<AsyncTaskRecord | null> {
+    return this.db.transaction(async (tx) => {
+      const [task] = await tx
+        .select()
+        .from(pgSchema.agentAsyncTasksPostgres)
+        .where(eq(pgSchema.agentAsyncTasksPostgres.id, input.taskId))
+        .limit(1);
+      if (!task || task.status !== 'queued') return null;
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`agent_async_tasks:${task.appId}:${task.kind}`}))`,
+      );
+      const [appRunning] = await tx
+        .select({ count: count() })
+        .from(pgSchema.agentAsyncTasksPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentAsyncTasksPostgres.appId, task.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, task.kind),
+            eq(pgSchema.agentAsyncTasksPostgres.status, 'running'),
+          ),
+        );
+      if ((appRunning?.count ?? 0) >= input.maxRunningPerApp) return null;
+      const [agentRunning] = await tx
+        .select({ count: count() })
+        .from(pgSchema.agentAsyncTasksPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentAsyncTasksPostgres.appId, task.appId),
+            eq(pgSchema.agentAsyncTasksPostgres.agentId, task.agentId),
+            eq(pgSchema.agentAsyncTasksPostgres.kind, task.kind),
+            eq(pgSchema.agentAsyncTasksPostgres.status, 'running'),
+          ),
+        );
+      if ((agentRunning?.count ?? 0) >= input.maxRunningPerAgent) return null;
+      const [row] = await tx
+        .update(pgSchema.agentAsyncTasksPostgres)
+        .set({
+          status: 'running',
+          leaseToken: input.leaseToken,
+          fencingVersion: task.fencingVersion + 1,
+          startedAt: input.now,
+          heartbeatAt: input.now,
+          updatedAt: input.now,
+        })
+        .where(
+          and(
+            eq(pgSchema.agentAsyncTasksPostgres.id, input.taskId),
+            eq(pgSchema.agentAsyncTasksPostgres.status, 'queued'),
+          ),
+        )
+        .returning();
+      return row ? mapRow(row) : null;
     });
   }
 
@@ -108,7 +208,11 @@ export class PostgresAsyncTaskRepository implements AsyncTaskRepository {
       .select()
       .from(pgSchema.agentAsyncTasksPostgres)
       .where(asyncTaskFilterWhere(filter))
-      .orderBy(desc(pgSchema.agentAsyncTasksPostgres.updatedAt))
+      .orderBy(
+        filter.order === 'oldest_first'
+          ? asc(pgSchema.agentAsyncTasksPostgres.updatedAt)
+          : desc(pgSchema.agentAsyncTasksPostgres.updatedAt),
+      )
       .limit(Math.min(Math.max(filter.limit ?? 50, 1), 100));
     return rows.map(mapRow);
   }
@@ -226,6 +330,33 @@ function taskInsertValues(input: AsyncTaskCreateInput) {
   };
 }
 
+function scopedAdmissionLockKey(input: AsyncTaskCreateInput): string {
+  return [
+    'agent_async_tasks_scope',
+    input.appId,
+    input.agentId,
+    input.kind,
+    input.conversationId ?? '',
+    input.threadId ?? '',
+  ].join(':');
+}
+
+function asyncTaskScopeWhere(input: AsyncTaskCreateInput) {
+  return and(
+    eq(pgSchema.agentAsyncTasksPostgres.appId, input.appId),
+    eq(pgSchema.agentAsyncTasksPostgres.agentId, input.agentId),
+    eq(pgSchema.agentAsyncTasksPostgres.kind, input.kind),
+    nullableEq(
+      pgSchema.agentAsyncTasksPostgres.conversationId,
+      input.conversationId ?? null,
+    ),
+    nullableEq(
+      pgSchema.agentAsyncTasksPostgres.threadId,
+      input.threadId ?? null,
+    ),
+  );
+}
+
 function asyncTaskFilterWhere(filter: Omit<AsyncTaskListFilter, 'limit'>) {
   return and(
     eq(pgSchema.agentAsyncTasksPostgres.appId, filter.appId),
@@ -240,6 +371,9 @@ function asyncTaskFilterWhere(filter: Omit<AsyncTaskListFilter, 'limit'>) {
           pgSchema.agentAsyncTasksPostgres.conversationId,
           filter.conversationId,
         )
+      : undefined,
+    filter.providerAccountId !== undefined
+      ? sql`coalesce(${pgSchema.agentAsyncTasksPostgres.privateCorrelationJson}->>'providerAccountId', '') = ${filter.providerAccountId ?? ''}`
       : undefined,
     filter.threadId !== undefined
       ? nullableEq(pgSchema.agentAsyncTasksPostgres.threadId, filter.threadId)

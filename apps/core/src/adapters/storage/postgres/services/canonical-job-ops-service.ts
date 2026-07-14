@@ -590,10 +590,17 @@ function parseNotificationRoutes(input: unknown): CanonicalNotificationRoute[] {
     const value = item as Record<string, unknown>;
     const conversationJid = normalizeString(value.conversationJid);
     const label = normalizeString(value.label);
+    const providerAccountId = Object.prototype.hasOwnProperty.call(
+      value,
+      'providerAccountId',
+    )
+      ? normalizeNullableString(value.providerAccountId)
+      : undefined;
     if (!conversationJid || !label) continue;
     routes.push({
       conversationJid,
       threadId: normalizeNullableString(value.threadId),
+      ...(providerAccountId !== undefined ? { providerAccountId } : {}),
       label,
     });
   }

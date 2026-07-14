@@ -26,11 +26,11 @@ export async function resolveTelegramTokenForDoctor(input: {
   env: Record<string, string>;
 }): Promise<{ token: string; unresolvedStoredRef: boolean }> {
   const defaultEnvName = 'TELEGRAM_BOT_TOKEN';
-  const connectionId =
-    input.settings.providers.telegram?.defaultConnection || '';
-  const ref =
-    input.settings.providerConnections[connectionId]?.runtimeSecretRefs
-      .bot_token;
+  const accountEntry = Object.entries(
+    input.settings.providerAccounts ?? {},
+  ).find(([, account]) => account?.provider === 'telegram');
+  const providerAccountId = accountEntry?.[0];
+  const ref = accountEntry?.[1]?.runtimeSecretRefs.bot_token;
   if (!ref?.trim()) {
     return {
       token: resolveRuntimeEnvValue(input.env, defaultEnvName),
@@ -58,6 +58,7 @@ export async function resolveTelegramTokenForDoctor(input: {
     storage = createStorageRuntime() as RuntimeSecretDoctorStorage;
     const token = await getProviderRuntimeSecret({
       providerId: 'telegram',
+      providerAccountId,
       key: 'bot_token',
       defaultEnvName,
       settings: input.settings,

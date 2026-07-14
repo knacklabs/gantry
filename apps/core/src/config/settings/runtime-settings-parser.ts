@@ -32,10 +32,10 @@ import type {
   RuntimeArtifactStoreSettings,
   RuntimeCredentialBrokerSettings,
   RuntimeAgentSettings,
-  RuntimeConfiguredBinding,
+  RuntimeConfiguredConversationInstall,
   RuntimeConfiguredConversation,
+  RuntimeProviderAccountSettings,
   RuntimeProcessSettings,
-  RuntimeProviderConnectionSettings,
   RuntimeProviderSettings,
   RuntimeSettings,
   RuntimeStorageSettings,
@@ -50,9 +50,13 @@ import {
   modelAliasesToCatalogEntries,
   parseModelAliases,
 } from './runtime-settings-model-aliases-parser.js';
-import { normalizeRuntimeSecretRefString } from '../../domain/ports/runtime-secret-provider.js';
+import { parseProviderAccounts } from './runtime-settings-provider-accounts-parser.js';
 import {
-  containsControlCharacter,
+  deriveAgentBindingsFromDesiredState,
+  deriveBindingsFromConversationInstalls,
+  flattenConversationInstalls,
+} from './runtime-settings-binding-derivation.js';
+import {
   parseBooleanValue,
   parseNonNegativeIntegerValue,
   parseOptionalStringValue,
@@ -79,10 +83,7 @@ function parseProviderSettings(
   raw: unknown,
 ): Record<string, RuntimeProviderSettings> {
   const providers = Object.fromEntries(
-    listChannelProviders().map((provider) => [
-      provider.id,
-      { enabled: false, defaultConnection: undefined },
-    ]),
+    listChannelProviders().map((provider) => [provider.id, { enabled: false }]),
   ) as Record<string, RuntimeProviderSettings>;
   if (raw === undefined) return providers;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -103,9 +104,9 @@ function parseProviderSettings(
     }
     const map = providerRaw as Record<string, unknown>;
     for (const key of Object.keys(map)) {
-      if (key !== 'enabled' && key !== 'default_connection') {
+      if (key !== 'enabled') {
         throw new Error(
-          `providers.${providerId}.${key} is not supported. Configure enabled or default_connection.`,
+          `providers.${providerId}.${key} is not supported. Configure enabled. Provider Accounts live under provider_accounts.`,
         );
       }
     }
@@ -114,108 +115,9 @@ function parseProviderSettings(
         map.enabled,
         `providers.${providerId}.enabled`,
       ),
-      defaultConnection: parseOptionalStringValue(
-        map.default_connection,
-        `providers.${providerId}.default_connection`,
-      ),
     };
   }
   return providers;
-}
-
-function parseProviderConnections(
-  raw: unknown,
-  providers: Record<string, RuntimeProviderSettings>,
-): Record<string, RuntimeProviderConnectionSettings> {
-  if (raw === undefined) return {};
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error('provider_connections must be a mapping');
-  }
-  const connections: Record<string, RuntimeProviderConnectionSettings> = {};
-  for (const [connectionId, connectionRaw] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
-    const pathPrefix = `provider_connections.${connectionId}`;
-    if (
-      connectionId.trim().length === 0 ||
-      containsControlCharacter(connectionId)
-    ) {
-      throw new Error(`${pathPrefix} must use a stable connection id`);
-    }
-    if (
-      typeof connectionRaw !== 'object' ||
-      connectionRaw === null ||
-      Array.isArray(connectionRaw)
-    ) {
-      throw new Error(`${pathPrefix} must be a mapping`);
-    }
-    const map = connectionRaw as Record<string, unknown>;
-    for (const key of Object.keys(map)) {
-      if (
-        key !== 'provider' &&
-        key !== 'label' &&
-        key !== 'runtime_secret_refs'
-      ) {
-        throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure provider, label, or runtime_secret_refs.`,
-        );
-      }
-    }
-    const provider = parseStringValue(map.provider, `${pathPrefix}.provider`);
-    if (!providers[provider]) {
-      throw new Error(
-        `${pathPrefix}.provider references unknown provider ${provider}`,
-      );
-    }
-    const refsRaw = map.runtime_secret_refs ?? {};
-    if (
-      typeof refsRaw !== 'object' ||
-      refsRaw === null ||
-      Array.isArray(refsRaw)
-    ) {
-      throw new Error(`${pathPrefix}.runtime_secret_refs must be a mapping`);
-    }
-    const runtimeSecretRefs: Record<string, string> = {};
-    for (const [key, value] of Object.entries(
-      refsRaw as Record<string, unknown>,
-    )) {
-      if (!/^[A-Za-z_][A-Za-z0-9_:-]{0,63}$/.test(key)) {
-        throw new Error(
-          `${pathPrefix}.runtime_secret_refs.${key} is not a valid key`,
-        );
-      }
-      runtimeSecretRefs[key] = parseStringValue(
-        value,
-        `${pathPrefix}.runtime_secret_refs.${key}`,
-      );
-      runtimeSecretRefs[key] = normalizeRuntimeSecretRefString(
-        runtimeSecretRefs[key],
-        `${pathPrefix}.runtime_secret_refs.${key}`,
-      );
-    }
-    connections[connectionId] = {
-      provider,
-      label: parseStringValue(map.label, `${pathPrefix}.label`, connectionId),
-      runtimeSecretRefs,
-    };
-  }
-
-  for (const [providerId, provider] of Object.entries(providers)) {
-    if (!provider.defaultConnection) continue;
-    const connection = connections[provider.defaultConnection];
-    if (!connection) {
-      throw new Error(
-        `providers.${providerId}.default_connection references unknown provider connection ${provider.defaultConnection}`,
-      );
-    }
-    if (connection.provider !== providerId) {
-      throw new Error(
-        `providers.${providerId}.default_connection must reference a ${providerId} connection`,
-      );
-    }
-  }
-
-  return connections;
 }
 
 function parseSenderPolicy(
@@ -253,7 +155,7 @@ function parseConversationKind(raw: unknown, pathPrefix: string) {
 
 function parseConversations(
   raw: unknown,
-  providerConnections: Record<string, RuntimeProviderConnectionSettings>,
+  providerAccounts: Record<string, RuntimeProviderAccountSettings>,
 ): Record<string, RuntimeConfiguredConversation> {
   if (raw === undefined) return {};
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -278,50 +180,71 @@ function parseConversations(
     const map = conversationRaw as Record<string, unknown>;
     for (const key of Object.keys(map)) {
       if (
-        key !== 'provider_connection' &&
+        key !== 'provider_account' &&
         key !== 'external_id' &&
+        key !== 'id' &&
         key !== 'kind' &&
+        key !== 'type' &&
         key !== 'display_name' &&
+        key !== 'brain_harvest' &&
         key !== 'sender_policy' &&
-        key !== 'control_approvers'
+        key !== 'control_approvers' &&
+        key !== 'installed_agents'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure provider_connection, external_id, kind, display_name, sender_policy, or control_approvers.`,
+          `${pathPrefix}.${key} is not supported. Configure provider_account, external_id, kind, display_name, brain_harvest, sender_policy, control_approvers, or installed_agents.`,
         );
       }
     }
-    const providerConnection = parseStringValue(
-      map.provider_connection,
-      `${pathPrefix}.provider_connection`,
+    const kind = parseConversationKind(
+      map.kind ?? map.type,
+      `${pathPrefix}.kind`,
     );
-    const connection = providerConnections[providerConnection];
-    if (!connection) {
+    const installedAgents = parseConversationInstalledAgents(
+      map.installed_agents,
+      `${pathPrefix}.installed_agents`,
+      providerAccounts,
+      kind !== 'direct' && kind !== 'dm',
+    );
+    const providerAccount = parseStringValue(
+      map.provider_account,
+      `${pathPrefix}.provider_account`,
+      Object.values(installedAgents)[0]?.providerAccountId,
+    );
+    const account = providerAccounts[providerAccount];
+    if (!account) {
       throw new Error(
-        `${pathPrefix}.provider_connection references unknown provider connection ${providerConnection}`,
+        `${pathPrefix}.provider_account references unknown provider account ${providerAccount}`,
       );
     }
     const externalId = parseStringValue(
-      map.external_id,
+      map.external_id ?? map.id,
       `${pathPrefix}.external_id`,
     );
     assertExternalIdProviderPrefixMatchesConnection({
       externalId,
-      providerId: connection.provider,
+      providerId: account.provider,
       pathPrefix: `${pathPrefix}.external_id`,
     });
-    const externalKey = `${connection.provider}:${externalId}`;
+    const externalKey = `${providerAccount}:${externalId}`;
     if (seenExternal.has(externalKey)) {
       throw new Error(`${pathPrefix}.external_id duplicates ${externalKey}`);
     }
     seenExternal.add(externalKey);
     conversations[conversationId] = {
-      providerConnection,
+      providerConnection: providerAccount,
+      providerAccount,
       externalId,
-      kind: parseConversationKind(map.kind, `${pathPrefix}.kind`),
+      kind,
       displayName: parseStringValue(
         map.display_name,
         `${pathPrefix}.display_name`,
         conversationId,
+      ),
+      brainHarvest: parseBooleanValue(
+        map.brain_harvest,
+        `${pathPrefix}.brain_harvest`,
+        false,
       ),
       senderPolicy: parseSenderPolicy(
         map.sender_policy,
@@ -331,9 +254,132 @@ function parseConversations(
         map.control_approvers ?? [],
         `${pathPrefix}.control_approvers`,
       ),
+      installedAgents,
     };
   }
   return conversations;
+}
+
+function parseConversationInstalledAgents(
+  raw: unknown,
+  pathPrefix: string,
+  providerAccounts: Record<string, RuntimeProviderAccountSettings>,
+  defaultRequiresTrigger: boolean,
+): Record<string, RuntimeConfiguredConversationInstall> {
+  if (raw === undefined) return {};
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+  const installs: Record<string, RuntimeConfiguredConversationInstall> = {};
+  for (const [installId, installRaw] of Object.entries(
+    raw as Record<string, unknown>,
+  )) {
+    const installPath = `${pathPrefix}.${installId}`;
+    if (
+      typeof installRaw !== 'object' ||
+      installRaw === null ||
+      Array.isArray(installRaw)
+    ) {
+      throw new Error(`${installPath} must be a mapping`);
+    }
+    const map = installRaw as Record<string, unknown>;
+    for (const key of Object.keys(map)) {
+      if (
+        key !== 'provider_account' &&
+        key !== 'agent' &&
+        key !== 'agent_id' &&
+        key !== 'thread_id' &&
+        key !== 'status' &&
+        key !== 'added_at' &&
+        key !== 'memory_scope' &&
+        key !== 'trigger' &&
+        key !== 'requires_trigger' &&
+        key !== 'model'
+      ) {
+        throw new Error(
+          `${installPath}.${key} is not supported. Configure provider_account, agent, thread_id, status, added_at, memory_scope, trigger, requires_trigger, or model.`,
+        );
+      }
+    }
+    const agentId = parseStringValue(
+      map.agent_id ?? map.agent,
+      `${installPath}.agent`,
+      installId,
+    );
+    const providerAccountId = parseStringValue(
+      map.provider_account,
+      `${installPath}.provider_account`,
+    );
+    const account = providerAccounts[providerAccountId];
+    if (!account) {
+      throw new Error(
+        `${installPath}.provider_account references unknown provider account ${providerAccountId}`,
+      );
+    }
+    if (account.agentId !== agentId) {
+      throw new Error(
+        `${installPath}.provider_account belongs to ${account.agentId}, not ${agentId}`,
+      );
+    }
+    const status = parseStringValue(
+      map.status,
+      `${installPath}.status`,
+      'active',
+    );
+    if (status !== 'active' && status !== 'disabled') {
+      throw new Error(`${installPath}.status must be active or disabled`);
+    }
+    const memoryScope = parseStringValue(
+      map.memory_scope,
+      `${installPath}.memory_scope`,
+      'conversation',
+    );
+    if (
+      memoryScope !== 'conversation' &&
+      memoryScope !== 'user' &&
+      memoryScope !== 'agent' &&
+      memoryScope !== 'app'
+    ) {
+      throw new Error(
+        `${installPath}.memory_scope must be conversation, user, agent, or app`,
+      );
+    }
+    const model =
+      map.model === undefined
+        ? undefined
+        : typeof map.model === 'string' && map.model.trim() === ''
+          ? undefined
+          : parseStringValue(map.model, `${installPath}.model`);
+    if (model) {
+      const resolved = resolveModelSelectionForWorkload(model, 'chat');
+      if (!resolved.ok) {
+        throw new Error(`${installPath}.model is invalid: ${resolved.message}`);
+      }
+    }
+    installs[installId] = {
+      agentId,
+      providerAccountId,
+      threadId:
+        map.thread_id === undefined
+          ? undefined
+          : parseStringValue(map.thread_id, `${installPath}.thread_id`),
+      status,
+      addedAt: parseStringValue(
+        map.added_at,
+        `${installPath}.added_at`,
+        new Date(0).toISOString(),
+      ),
+      memoryScope,
+      trigger: parseOptionalStringValue(map.trigger, `${installPath}.trigger`),
+      requiresTrigger: parseBooleanValue(
+        map.requires_trigger,
+        `${installPath}.requires_trigger`,
+        defaultRequiresTrigger,
+      ),
+      model,
+    };
+  }
+  return installs;
 }
 
 function assertExternalIdProviderPrefixMatchesConnection(input: {
@@ -358,109 +404,6 @@ function explicitProviderIdForExternalId(value: string): string | null {
   return explicitProviderId || null;
 }
 
-function parseConfiguredBindings(
-  raw: unknown,
-  agents: Record<string, { name: string }>,
-  conversations: Record<string, RuntimeConfiguredConversation>,
-): Record<string, RuntimeConfiguredBinding> {
-  if (raw === undefined) return {};
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error('bindings must be a mapping');
-  }
-  const bindings: Record<string, RuntimeConfiguredBinding> = {};
-  for (const [bindingId, bindingRaw] of Object.entries(
-    raw as Record<string, unknown>,
-  )) {
-    const pathPrefix = `bindings.${bindingId}`;
-    if (!/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,95}$/.test(bindingId)) {
-      throw new Error(`${pathPrefix} must use a stable binding id`);
-    }
-    if (
-      typeof bindingRaw !== 'object' ||
-      bindingRaw === null ||
-      Array.isArray(bindingRaw)
-    ) {
-      throw new Error(`${pathPrefix} must be a mapping`);
-    }
-    const map = bindingRaw as Record<string, unknown>;
-    for (const key of Object.keys(map)) {
-      if (
-        key !== 'agent' &&
-        key !== 'conversation' &&
-        key !== 'trigger' &&
-        key !== 'added_at' &&
-        key !== 'requires_trigger' &&
-        key !== 'memory_scope' &&
-        key !== 'model'
-      ) {
-        throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure agent, conversation, trigger, added_at, requires_trigger, memory_scope, or model.`,
-        );
-      }
-    }
-    const agent = parseStringValue(map.agent, `${pathPrefix}.agent`);
-    if (!agents[agent])
-      throw new Error(`${pathPrefix}.agent references unknown agent ${agent}`);
-    const conversation = parseStringValue(
-      map.conversation,
-      `${pathPrefix}.conversation`,
-    );
-    if (!conversations[conversation]) {
-      throw new Error(
-        `${pathPrefix}.conversation references unknown conversation ${conversation}`,
-      );
-    }
-    const memoryScope = parseStringValue(
-      map.memory_scope,
-      `${pathPrefix}.memory_scope`,
-      'conversation',
-    );
-    if (
-      memoryScope !== 'conversation' &&
-      memoryScope !== 'user' &&
-      memoryScope !== 'agent'
-    ) {
-      throw new Error(
-        `${pathPrefix}.memory_scope must be conversation, user, or agent`,
-      );
-    }
-    const model =
-      map.model === undefined
-        ? undefined
-        : typeof map.model === 'string' && map.model.trim() === ''
-          ? undefined
-          : parseStringValue(map.model, `${pathPrefix}.model`);
-    if (model) {
-      const resolved = resolveModelSelectionForWorkload(model, 'chat');
-      if (!resolved.ok) {
-        throw new Error(`${pathPrefix}.model is invalid: ${resolved.message}`);
-      }
-    }
-    bindings[bindingId] = {
-      agent,
-      conversation,
-      trigger: parseStringValue(
-        map.trigger,
-        `${pathPrefix}.trigger`,
-        '@Default Agent',
-      ),
-      addedAt: parseStringValue(
-        map.added_at,
-        `${pathPrefix}.added_at`,
-        new Date(0).toISOString(),
-      ),
-      requiresTrigger: parseBooleanValue(
-        map.requires_trigger,
-        `${pathPrefix}.requires_trigger`,
-        true,
-      ),
-      memoryScope,
-      model,
-    };
-  }
-  return bindings;
-}
-
 function parsePostgresSchema(
   raw: unknown,
   pathPrefix: string,
@@ -483,6 +426,12 @@ function parseModelAccessSettings(
     gateway: {
       bindHost: DEFAULT_MODEL_GATEWAY_BIND_HOST,
     },
+    promptCache: {
+      enabled: true,
+      anthropic: {
+        defaultTtl: '5m',
+      },
+    },
   };
   if (raw === undefined) return defaultSettings;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -490,9 +439,9 @@ function parseModelAccessSettings(
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'enabled' && key !== 'gateway') {
+    if (key !== 'enabled' && key !== 'gateway' && key !== 'prompt_cache') {
       throw new Error(
-        `model_access.${key} is not supported. Configure model_access.enabled or gateway.*.`,
+        `model_access.${key} is not supported. Configure model_access.enabled, gateway.*, or prompt_cache.*.`,
       );
     }
   }
@@ -517,11 +466,67 @@ function parseModelAccessSettings(
       );
     }
   }
+  const promptCacheRaw = map.prompt_cache;
+  if (
+    promptCacheRaw !== undefined &&
+    (typeof promptCacheRaw !== 'object' ||
+      promptCacheRaw === null ||
+      Array.isArray(promptCacheRaw))
+  ) {
+    throw new Error('model_access.prompt_cache must be a mapping');
+  }
+  const promptCache = (promptCacheRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(promptCache)) {
+    if (key !== 'enabled' && key !== 'anthropic') {
+      throw new Error(
+        `model_access.prompt_cache.${key} is not supported. Configure enabled or anthropic.*.`,
+      );
+    }
+  }
+  const anthropicRaw = promptCache.anthropic;
+  if (
+    anthropicRaw !== undefined &&
+    (typeof anthropicRaw !== 'object' ||
+      anthropicRaw === null ||
+      Array.isArray(anthropicRaw))
+  ) {
+    throw new Error('model_access.prompt_cache.anthropic must be a mapping');
+  }
+  const anthropic = (anthropicRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(anthropic)) {
+    if (key !== 'default_ttl') {
+      throw new Error(
+        `model_access.prompt_cache.anthropic.${key} is not supported. Configure default_ttl.`,
+      );
+    }
+  }
+  const defaultTtl = parseStringValue(
+    anthropic.default_ttl,
+    'model_access.prompt_cache.anthropic.default_ttl',
+    defaultSettings.promptCache.anthropic.defaultTtl,
+  ).toLowerCase();
+  if (defaultTtl !== '5m' && defaultTtl !== '1h') {
+    throw new Error(
+      'model_access.prompt_cache.anthropic.default_ttl must be 5m or 1h.',
+    );
+  }
 
   return {
     mode: enabled ? 'gantry' : 'none',
     gateway: {
       bindHost: parseGatewayBindHost(gateway.bind_host),
+    },
+    promptCache: {
+      enabled:
+        promptCache.enabled === undefined
+          ? defaultSettings.promptCache.enabled
+          : parseBooleanValue(
+              promptCache.enabled,
+              'model_access.prompt_cache.enabled',
+            ),
+      anthropic: {
+        defaultTtl,
+      },
     },
   };
 }
@@ -949,47 +954,14 @@ function parseStorageSettings(raw: unknown): RuntimeStorageSettings {
 
 function jidForConversation(
   conversation: RuntimeConfiguredConversation,
-  providerConnections: Record<string, RuntimeProviderConnectionSettings>,
+  providerAccounts: Record<string, RuntimeProviderAccountSettings>,
 ): string {
-  const connection = providerConnections[conversation.providerConnection];
+  const connection = providerAccounts[conversation.providerAccount];
   const provider = connection ? getProvider(connection.provider) : undefined;
   if (!provider) return conversation.externalId;
   return conversation.externalId.startsWith(provider.jidPrefix)
     ? conversation.externalId
     : `${provider.jidPrefix}${conversation.externalId}`;
-}
-
-function deriveAgentBindingsFromDesiredState(input: {
-  agents: ReturnType<typeof parseConfiguredAgents>;
-  providerConnections: Record<string, RuntimeProviderConnectionSettings>;
-  conversations: Record<string, RuntimeConfiguredConversation>;
-  bindings: Record<string, RuntimeConfiguredBinding>;
-}): ReturnType<typeof parseConfiguredAgents> {
-  const agents = Object.fromEntries(
-    Object.entries(input.agents).map(([agentId, agent]) => [
-      agentId,
-      { ...agent, bindings: { ...agent.bindings } },
-    ]),
-  );
-
-  for (const [bindingId, binding] of Object.entries(input.bindings)) {
-    const agent = agents[binding.agent];
-    const conversation = input.conversations[binding.conversation];
-    if (!agent || !conversation) continue;
-    const connection =
-      input.providerConnections[conversation.providerConnection];
-    agent.bindings[bindingId] = {
-      jid: jidForConversation(conversation, input.providerConnections),
-      provider: connection?.provider,
-      name: conversation.displayName,
-      trigger: binding.trigger,
-      addedAt: binding.addedAt,
-      requiresTrigger: binding.requiresTrigger,
-      model: binding.model ?? agent.model,
-    };
-  }
-
-  return agents;
 }
 
 export function parseRuntimeSettings(raw: string): RuntimeSettings {
@@ -1022,9 +994,8 @@ export function parseRuntimeSettingsObject(
       key !== 'defaults' &&
       key !== 'desired_state' &&
       key !== 'providers' &&
-      key !== 'provider_connections' &&
+      key !== 'provider_accounts' &&
       key !== 'conversations' &&
-      key !== 'bindings' &&
       key !== 'agents' &&
       key !== 'storage' &&
       key !== 'agent' &&
@@ -1038,7 +1009,7 @@ export function parseRuntimeSettingsObject(
       key !== 'model_aliases'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, model_families, and model_aliases.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_accounts, conversations, agents, storage, agent, model_access, memory, runtime, browser, permissions, limits, model_families, and model_aliases.`,
       );
     }
   }
@@ -1049,41 +1020,47 @@ export function parseRuntimeSettingsObject(
   return withCustomModelCatalogEntries(customModelEntries, () => {
     const desiredState = parseDesiredStateSettings(root.desired_state);
     const providers = parseProviderSettings(root.providers);
-    const providerConnections = parseProviderConnections(
-      root.provider_connections,
+    const agent = parseAgentSettings(root.agent);
+    const modelFamilies = parseModelFamilies(root.model_families);
+    const parsedAgents = parseConfiguredAgents(root.agents, {
+      model: agent.defaultModel,
+      oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
+      recurringJobDefaultModel: agent.recurringJobDefaultModel,
+      agentHarness: agent.agentHarness,
+      modelFamilyOrder: modelFamilies,
+    });
+    const providerAccounts = parseProviderAccounts(
+      root.provider_accounts,
       providers,
+      parsedAgents,
     );
     const conversations = parseConversations(
       root.conversations,
-      providerConnections,
+      providerAccounts,
     );
     const storage = parseStorageSettings(root.storage);
-    const parsedAgents = parseConfiguredAgents(root.agents);
-    const bindings = parseConfiguredBindings(
-      root.bindings,
-      parsedAgents,
-      conversations,
-    );
+    const bindings = deriveBindingsFromConversationInstalls(conversations);
     const agents = deriveAgentBindingsFromDesiredState({
       agents: parsedAgents,
-      providerConnections,
+      providerAccounts,
       conversations,
       bindings,
+      jidForConversation: (conversation) =>
+        jidForConversation(conversation, providerAccounts),
     });
-    const agent = parseAgentSettings(root.agent);
     const credentialBroker = parseModelAccessSettings(root.model_access);
     const memory = parseMemorySettings(root.memory);
     const runtime = parseRuntimeProcessSettings(root.runtime);
     const browser = parseBrowserSettings(root.browser);
     const permissions = parsePermissionSettings(root.permissions);
     const limits = parseLimitsSettings(root.limits);
-    const modelFamilies = parseModelFamilies(root.model_families);
 
     return {
       desiredState,
       providers,
-      providerConnections,
+      providerAccounts,
       conversations,
+      conversationInstalls: flattenConversationInstalls(conversations),
       bindings,
       agents,
       storage,

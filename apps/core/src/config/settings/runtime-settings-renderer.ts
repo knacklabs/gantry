@@ -16,6 +16,7 @@ import {
   DEFAULT_MEMORY_BACKFILL_MAX_ITEMS_PER_RUN,
   DEFAULT_MEMORY_BACKFILL_MODE,
   DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS,
+  DEFAULT_MEMORY_DREAMING_ALERTS,
   DEFAULT_MEMORY_DREAMING_CRON,
   DEFAULT_MEMORY_EMBED_BATCH_SIZE,
   DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
@@ -25,7 +26,7 @@ import {
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
-  getPresetManagedMemoryDefaults,
+  getProviderManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
 import type {
   RuntimeCredentialBrokerSettings,
@@ -33,13 +34,11 @@ import type {
   RuntimeBrowserSettings,
   RuntimeConfiguredAgentSourceRef,
   RuntimeConfiguredAgent,
-  RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
   RuntimeDesiredStateSettings,
   RuntimeMemorySettings,
   RuntimePermissionSettings,
-  RuntimeProviderConnectionSettings,
-  RuntimeProviderSettings,
+  RuntimeProviderAccountSettings,
   RuntimeSettings,
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
@@ -48,6 +47,7 @@ import {
   renderModelAliasesYaml,
   renderModelFamiliesYaml,
 } from './runtime-settings-optional-blocks-renderer.js';
+import { resolveConfiguredAgentRuntime } from './runtime-settings-agent-runtime.js';
 
 const SYSTEM_DEFAULT_MODEL_ALIAS = 'opus';
 
@@ -140,6 +140,7 @@ function renderMemorySettingsYaml(
     '  dreaming:',
     `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
     `    cron: ${quoteYamlString(memory.dreaming.cron)}`,
+    `    alerts: ${memory.dreaming.alerts ? 'true' : 'false'}`,
     '    embeddings:',
     `      enabled: ${memory.dreaming.embeddings.enabled ? 'true' : 'false'}`,
     `      provider: ${memory.dreaming.embeddings.provider}`,
@@ -217,6 +218,33 @@ function renderConfiguredAgentsYaml(
       lines.push(
         `    relationship_mode: ${quoteYamlString(agent.relationshipMode)}`,
       );
+    }
+    const agentRuntime = resolveConfiguredAgentRuntime(agent);
+    if (agentRuntime !== 'worker') {
+      lines.push(`    runtime: ${quoteYamlString(agentRuntime)}`);
+    }
+    if (agent.maxTurns !== undefined) {
+      lines.push(`    max_turns: ${agent.maxTurns}`);
+    }
+    if (agent.maxRunTokens !== undefined) {
+      lines.push(`    max_run_tokens: ${agent.maxRunTokens}`);
+    }
+    if (agent.effort !== undefined) {
+      lines.push(`    effort: ${quoteYamlString(agent.effort)}`);
+    }
+    if (agent.thinking !== undefined) {
+      if (agent.thinking.budgetTokens === undefined) {
+        lines.push(`    thinking: ${agent.thinking.mode}`);
+      } else {
+        lines.push(
+          '    thinking:',
+          '      mode: on',
+          `      budget_tokens: ${agent.thinking.budgetTokens}`,
+        );
+      }
+    }
+    if (agent.maxOutputTokens !== undefined) {
+      lines.push(`    max_output_tokens: ${agent.maxOutputTokens}`);
     }
     if (agent.model) {
       lines.push(`    model: ${quoteYamlString(agent.model)}`);
@@ -300,24 +328,28 @@ function renderAgentSourceListYaml(
   }
 }
 
-function renderProviderConnectionsYaml(
+function renderProviderAccountsYaml(
   lines: string[],
-  connections: Record<string, RuntimeProviderConnectionSettings>,
+  accounts: Record<string, RuntimeProviderAccountSettings>,
 ): void {
-  const entries = Object.entries(connections).sort(([a], [b]) =>
+  const entries = Object.entries(accounts).sort(([a], [b]) =>
     a.localeCompare(b),
   );
   if (entries.length === 0) {
     return;
   }
-  lines.push('provider_connections:');
-  for (const [connectionId, connection] of entries) {
+  lines.push('provider_accounts:');
+  for (const [accountId, account] of entries) {
     lines.push(
-      `  ${quoteYamlKey(connectionId)}:`,
-      `    provider: ${quoteYamlString(connection.provider)}`,
-      `    label: ${quoteYamlString(connection.label)}`,
+      `  ${quoteYamlKey(accountId)}:`,
+      `    agent: ${quoteYamlString(account.agentId)}`,
+      `    provider: ${quoteYamlString(account.provider)}`,
+      `    label: ${quoteYamlString(account.label)}`,
     );
-    const refs = Object.entries(connection.runtimeSecretRefs).sort(([a], [b]) =>
+    if (account.status === 'disabled') {
+      lines.push('    status: disabled');
+    }
+    const refs = Object.entries(account.runtimeSecretRefs).sort(([a], [b]) =>
       a.localeCompare(b),
     );
     if (refs.length === 0) {
@@ -328,6 +360,24 @@ function renderProviderConnectionsYaml(
         lines.push(`      ${quoteYamlKey(key)}: ${quoteYamlString(value)}`);
       }
     }
+    const identities = Object.entries(account.externalIdentityRef ?? {}).sort(
+      ([a], [b]) => a.localeCompare(b),
+    );
+    if (identities.length > 0) {
+      lines.push('    external_identity_ref:');
+      for (const [key, value] of identities) {
+        lines.push(`      ${quoteYamlKey(key)}: ${quoteYamlString(value)}`);
+      }
+    }
+    const config = Object.entries(account.config ?? {}).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    if (config.length > 0) {
+      lines.push('    config:');
+      for (const [key, value] of config) {
+        lines.push(`      ${quoteYamlKey(key)}: ${quoteYamlString(value)}`);
+      }
+    }
   }
   lines.push('');
 }
@@ -335,9 +385,6 @@ function renderProviderConnectionsYaml(
 function renderConversationsYaml(
   lines: string[],
   conversations: Record<string, RuntimeConfiguredConversation>,
-  providers: Record<string, RuntimeProviderSettings>,
-  providerConnections: Record<string, RuntimeProviderConnectionSettings>,
-  bindingsByConversation: Map<string, RuntimeConfiguredBinding[]>,
 ): void {
   const entries = Object.entries(conversations).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -347,28 +394,18 @@ function renderConversationsYaml(
   }
   lines.push('conversations:');
   for (const [conversationId, conversation] of entries) {
-    const connection = providerConnections[conversation.providerConnection];
-    const conversationBindings =
-      bindingsByConversation.get(conversationId) || [];
-    const binding =
-      conversationBindings.length === 1 ? conversationBindings[0] : undefined;
     lines.push(`  ${quoteYamlKey(conversationId)}:`);
-    if (
-      connection &&
-      providers[connection.provider]?.defaultConnection ===
-        conversation.providerConnection
-    ) {
-      lines.push(`    provider: ${quoteYamlString(connection.provider)}`);
-    } else {
-      lines.push(
-        `    provider_connection: ${quoteYamlString(conversation.providerConnection)}`,
-      );
-    }
+    lines.push(
+      `    provider_account: ${quoteYamlString(conversation.providerAccount ?? conversation.providerConnection)}`,
+    );
     lines.push(
       `    id: ${quoteYamlString(conversation.externalId)}`,
       `    type: ${quoteYamlString(conversation.kind === 'group' ? 'channel' : conversation.kind)}`,
       `    display_name: ${quoteYamlString(conversation.displayName)}`,
     );
+    if (conversation.brainHarvest) {
+      lines.push('    brain_harvest: true');
+    }
     lines.push(
       '    sender_policy:',
       `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,
@@ -379,70 +416,44 @@ function renderConversationsYaml(
         `    control_approvers: ${JSON.stringify(conversation.controlApprovers)}`,
       );
     }
-    if (binding) {
-      lines.push(
-        `    agent: ${quoteYamlString(binding.agent)}`,
-        `    trigger: ${quoteYamlString(binding.trigger)}`,
-        `    added_at: ${quoteYamlString(binding.addedAt)}`,
-      );
-      if (binding.requiresTrigger !== true) {
-        lines.push(
-          `    requires_trigger: ${binding.requiresTrigger ? 'true' : 'false'}`,
-        );
-      }
-      if (binding.memoryScope !== 'conversation') {
-        lines.push(`    memory_scope: ${quoteYamlString(binding.memoryScope)}`);
-      }
-      if (binding.model) {
-        lines.push(`    model: ${quoteYamlString(binding.model)}`);
-      }
-    }
-  }
-  lines.push('');
-}
-
-function renderBindingsYaml(
-  lines: string[],
-  bindings: Record<string, RuntimeConfiguredBinding>,
-): void {
-  const entries = Object.entries(bindings).sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
-  if (entries.length === 0) {
-    lines.push('bindings: {}', '');
-    return;
-  }
-  lines.push('bindings:');
-  for (const [bindingId, binding] of entries) {
-    lines.push(
-      `  ${quoteYamlKey(bindingId)}:`,
-      `    agent: ${quoteYamlString(binding.agent)}`,
-      `    conversation: ${quoteYamlString(binding.conversation)}`,
-      `    trigger: ${quoteYamlString(binding.trigger)}`,
-      `    added_at: ${quoteYamlString(binding.addedAt)}`,
-      `    requires_trigger: ${binding.requiresTrigger ? 'true' : 'false'}`,
-      `    memory_scope: ${quoteYamlString(binding.memoryScope)}`,
+    const installs = Object.entries(conversation.installedAgents ?? {}).sort(
+      ([a], [b]) => a.localeCompare(b),
     );
-    if (binding.model) {
-      lines.push(`    model: ${quoteYamlString(binding.model)}`);
+    if (installs.length > 0) {
+      lines.push('    installed_agents:');
+      for (const [agentId, install] of installs) {
+        lines.push(
+          `      ${quoteYamlKey(agentId)}:`,
+          `        provider_account: ${quoteYamlString(install.providerAccountId)}`,
+          `        added_at: ${quoteYamlString(install.addedAt)}`,
+        );
+        if (agentId !== install.agentId) {
+          lines.push(`        agent: ${quoteYamlString(install.agentId)}`);
+        }
+        if (install.status !== 'active') {
+          lines.push(`        status: ${quoteYamlString(install.status)}`);
+        }
+        if (install.threadId) {
+          lines.push(`        thread_id: ${quoteYamlString(install.threadId)}`);
+        }
+        if (install.memoryScope !== 'conversation') {
+          lines.push(
+            `        memory_scope: ${quoteYamlString(install.memoryScope)}`,
+          );
+        }
+        if (install.trigger) {
+          lines.push(`        trigger: ${quoteYamlString(install.trigger)}`);
+        }
+        if (install.requiresTrigger !== undefined) {
+          lines.push(`        requires_trigger: ${install.requiresTrigger}`);
+        }
+        if (install.model) {
+          lines.push(`        model: ${quoteYamlString(install.model)}`);
+        }
+      }
     }
   }
   lines.push('');
-}
-
-function bindingsByConversation(
-  bindings: Record<string, RuntimeConfiguredBinding>,
-): Map<string, RuntimeConfiguredBinding[]> {
-  const grouped = new Map<string, RuntimeConfiguredBinding[]>();
-  for (const binding of Object.values(bindings)) {
-    const existing = grouped.get(binding.conversation);
-    if (existing) {
-      existing.push(binding);
-    } else {
-      grouped.set(binding.conversation, [binding]);
-    }
-  }
-  return grouped;
 }
 
 function renderModelAccessSettingsYaml(
@@ -454,6 +465,10 @@ function renderModelAccessSettingsYaml(
     `  enabled: ${credentialBroker.mode === 'gantry' ? 'true' : 'false'}`,
     '  gateway:',
     `    bind_host: ${quoteYamlString(credentialBroker.gateway.bindHost)}`,
+    '  prompt_cache:',
+    `    enabled: ${credentialBroker.promptCache.enabled ? 'true' : 'false'}`,
+    '    anthropic:',
+    `      default_ttl: ${quoteYamlString(credentialBroker.promptCache.anthropic.defaultTtl)}`,
     '',
   );
 }
@@ -470,12 +485,14 @@ function isDefaultCredentialBroker(
 ): boolean {
   return (
     credentialBroker.mode === 'gantry' &&
-    credentialBroker.gateway.bindHost === DEFAULT_MODEL_GATEWAY_BIND_HOST
+    credentialBroker.gateway.bindHost === DEFAULT_MODEL_GATEWAY_BIND_HOST &&
+    credentialBroker.promptCache.enabled === true &&
+    credentialBroker.promptCache.anthropic.defaultTtl === '5m'
   );
 }
 
 function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
-  const models = getPresetManagedMemoryDefaults();
+  const models = getProviderManagedMemoryDefaults();
   return (
     memory.enabled === true &&
     memory.embeddings.enabled === false &&
@@ -493,6 +510,7 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
       DEFAULT_MEMORY_BACKFILL_PROVIDER_BATCH_MIN_ITEMS &&
     memory.dreaming.enabled === false &&
     memory.dreaming.cron === DEFAULT_MEMORY_DREAMING_CRON &&
+    memory.dreaming.alerts === DEFAULT_MEMORY_DREAMING_ALERTS &&
     memory.dreaming.embeddings.enabled === false &&
     memory.dreaming.embeddings.provider === 'disabled' &&
     memory.dreaming.embeddings.model === DEFAULT_EMBED_MODEL &&
@@ -623,41 +641,17 @@ function renderRuntimeProcessYaml(
   lines.push(...renderArtifactStoreYamlLines(runtime.artifactStore), '');
 }
 
-function renderProviderConnectionsInlineYaml(
-  lines: string[],
-  settings: RuntimeSettings,
-): Set<string> {
-  const renderedConnections = new Set<string>();
+function renderProvidersYaml(lines: string[], settings: RuntimeSettings): void {
   const enabledProviders = Object.entries(settings.providers)
     .filter(([, provider]) => provider.enabled)
     .sort(([a], [b]) => a.localeCompare(b));
-  if (enabledProviders.length === 0) return renderedConnections;
+  if (enabledProviders.length === 0) return;
 
   lines.push('providers:');
-  for (const [providerId, provider] of enabledProviders) {
+  for (const [providerId] of enabledProviders) {
     lines.push(`  ${quoteYamlKey(providerId)}:`, '    enabled: true');
-    const connectionId = provider.defaultConnection;
-    const connection = connectionId
-      ? settings.providerConnections[connectionId]
-      : undefined;
-    if (connectionId && connection?.provider === providerId) {
-      renderedConnections.add(connectionId);
-      if (connection.label) {
-        lines.push(`    label: ${quoteYamlString(connection.label)}`);
-      }
-      for (const [key, value] of Object.entries(
-        connection.runtimeSecretRefs,
-      ).sort(([a], [b]) => a.localeCompare(b))) {
-        lines.push(
-          `    ${quoteYamlKey(`${key}_ref`)}: ${quoteYamlString(value)}`,
-        );
-      }
-    } else if (connectionId) {
-      lines.push(`    default_connection: ${quoteYamlString(connectionId)}`);
-    }
   }
   lines.push('');
-  return renderedConnections;
 }
 
 export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
@@ -666,33 +660,10 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     renderDesiredStateYaml(lines, settings.desiredState);
   }
   renderDefaultsYaml(lines, settings.agent);
-  const renderedInlineConnections = renderProviderConnectionsInlineYaml(
-    lines,
-    settings,
-  );
-  const extraConnections = Object.fromEntries(
-    Object.entries(settings.providerConnections).filter(
-      ([connectionId]) => !renderedInlineConnections.has(connectionId),
-    ),
-  );
-  renderProviderConnectionsYaml(lines, extraConnections);
+  renderProvidersYaml(lines, settings);
+  renderProviderAccountsYaml(lines, settings.providerAccounts);
   renderConfiguredAgentsYaml(lines, settings.agents);
-  const groupedBindings = bindingsByConversation(settings.bindings);
-  renderConversationsYaml(
-    lines,
-    settings.conversations,
-    settings.providers,
-    settings.providerConnections,
-    groupedBindings,
-  );
-  const verboseBindings = Object.fromEntries(
-    Object.entries(settings.bindings).filter(([, binding]) => {
-      return (groupedBindings.get(binding.conversation)?.length || 0) > 1;
-    }),
-  );
-  if (Object.keys(verboseBindings).length > 0) {
-    renderBindingsYaml(lines, verboseBindings);
-  }
+  renderConversationsYaml(lines, settings.conversations);
   if (!isDefaultStorage(settings.storage)) {
     renderStorageSettingsYaml(lines, settings.storage);
   }

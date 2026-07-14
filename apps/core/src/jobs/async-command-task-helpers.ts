@@ -3,14 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type {
-  AsyncTaskCreateInput,
   AsyncTaskRecord,
   AsyncTaskRepository,
 } from '../domain/ports/async-tasks.js';
 import type {
   AsyncCommandLaunchControl,
   AsyncCommandProcessHandle,
-  StartAsyncCommandTaskResult,
 } from './async-command-task-service.js';
 import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
 import { nowIso } from '../shared/time/datetime.js';
@@ -221,19 +219,6 @@ export function isTimeoutError(err: unknown): boolean {
   return /timed out|timeout/i.test(errorMessage(err));
 }
 
-export function admissionFailure(reason: 'app_capacity' | 'agent_capacity'): {
-  ok: false;
-  message: string;
-} {
-  return {
-    ok: false,
-    message:
-      reason === 'app_capacity'
-        ? 'Async command capacity is full for this app. Wait for an existing task to finish or cancel one.'
-        : 'Async command capacity is full for this agent. Wait for an existing task to finish or cancel one.',
-  };
-}
-
 export async function withLocalAdmissionLock<T>(
   repository: AsyncTaskRepository,
   fn: () => Promise<T>,
@@ -265,20 +250,34 @@ export function taskInScope(
   task: AsyncTaskRecord,
   input: {
     appId: string;
-    agentId: string;
+    agentId?: string;
     conversationId?: string | null;
+    providerAccountId?: string | null;
     threadId?: string | null;
     parentTaskId?: string | null;
   },
 ): boolean {
   return (
     task.appId === input.appId &&
-    task.agentId === input.agentId &&
+    (input.agentId === undefined || task.agentId === input.agentId) &&
     (input.conversationId === undefined ||
       task.conversationId === input.conversationId) &&
+    (input.providerAccountId === undefined ||
+      (task.privateCorrelationJson.providerAccountId ?? null) ===
+        input.providerAccountId) &&
     (input.threadId === undefined || task.threadId === input.threadId) &&
     (input.parentTaskId === undefined ||
       task.privateCorrelationJson.parentTaskId === input.parentTaskId)
+  );
+}
+
+export function delegatedTaskAgentInScope(
+  task: AsyncTaskRecord,
+  agentId: string,
+): boolean {
+  return (
+    task.agentId === agentId ||
+    task.privateCorrelationJson.targetAgentId === agentId
   );
 }
 
@@ -291,10 +290,3 @@ export function hasAsyncTaskRepository(deps: {
     return false;
   }
 }
-
-export type AdmissionResult =
-  | { ok: true; task: AsyncTaskRecord }
-  | { ok: false; reason: 'app_capacity' | 'agent_capacity' };
-
-export type AsyncTaskAdmissionInput = AsyncTaskCreateInput;
-export type AsyncCommandStartResult = StartAsyncCommandTaskResult;

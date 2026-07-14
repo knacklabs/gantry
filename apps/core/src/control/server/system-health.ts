@@ -12,6 +12,7 @@ import {
   HOST_EXECUTION_SLOT_KEY_PREFIX,
   hostExecutionSlotKey,
 } from '../../shared/host-capacity.js';
+import { runtimePgBossJobTableSql } from '../../infrastructure/pgboss/pgboss-schema.js';
 
 /**
  * Process role string. Kept as a local union (not imported from the runtime
@@ -327,7 +328,7 @@ export async function renderMetrics(deps: MetricsDeps): Promise<string> {
   try {
     const rows = await deps.query<QueueDepthRow>(
       `SELECT state, count(*)::int AS count
-       FROM pgboss.job
+       FROM ${runtimePgBossJobTableSql()}
        WHERE state IN ('created', 'retry', 'active')
        GROUP BY state`,
     );

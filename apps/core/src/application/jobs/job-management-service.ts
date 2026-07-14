@@ -174,6 +174,7 @@ export class JobManagementService {
               {
                 conversationJid: authenticatedContext.conversationJid,
                 threadId: authenticatedContext.threadId,
+                providerAccountId: authenticatedContext.providerAccountId,
                 label: 'primary',
               },
             ]),

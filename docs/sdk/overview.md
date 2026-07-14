@@ -100,6 +100,13 @@ uses `sessions:read` and `sessions:write`; job dashboards add `jobs:read` and
 it. Advanced multi-app callers may pass `appId` as an assertion, but Gantry
 rejects it when it does not match the resolved app scope.
 
+Step 5 runs on the agent's configured runtime tier: `worker` (sandboxed
+subprocess, full capability projection) or `inline` (provider loop in the
+Gantry host process for lightweight chat-style agents). The flow, persistence,
+and event contract are identical for both. Apps that need a raw model call
+without an agent loop use the Direct LLM API instead — see
+[api-reference.md](./api-reference.md).
+
 ```mermaid
 sequenceDiagram
   participant App
@@ -129,7 +136,8 @@ sequenceDiagram
 - `skills`
 - `mcpServers`
 - `providers`
-- `providerConnections`
+- `providerAccounts`
+- `conversationInstalls`
 - `conversations`
 - `ingresses`
 - `webhooks`

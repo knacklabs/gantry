@@ -96,6 +96,10 @@ export const controlHttpWebhooksPostgres = pgTable(
     url: text('url').notNull(),
     secret: text('secret').notNull(),
     enabled: boolean('enabled').notNull().default(true),
+    eventTypes: text('event_types').array(),
+    agentId: text('agent_id'),
+    sessionId: text('session_id'),
+    jobId: text('job_id'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'string',
@@ -114,6 +118,9 @@ export const controlHttpWebhooksPostgres = pgTable(
       table.appId,
       table.name,
     ),
+    subscriptionAppIdx: index('idx_control_http_webhooks_subscription_app')
+      .on(table.appId, table.enabled)
+      .where(sql`${table.eventTypes} IS NOT NULL`),
   }),
 );
 

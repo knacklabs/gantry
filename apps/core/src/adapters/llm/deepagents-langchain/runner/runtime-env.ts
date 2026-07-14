@@ -27,6 +27,7 @@ export function buildPermissionIpcRuntimeEnv(): PermissionIpcRuntimeEnv {
     appId: readEnv('GANTRY_APP_ID') || 'default',
     agentId: readEnv('GANTRY_AGENT_ID'),
     chatJid: readEnv('GANTRY_CHAT_JID'),
+    providerAccountId: readEnv('GANTRY_PROVIDER_ACCOUNT_ID') || undefined,
     jobId,
     jobName: readEnv('GANTRY_JOB_NAME'),
     jobRunId: readEnv('GANTRY_JOB_RUN_ID'),

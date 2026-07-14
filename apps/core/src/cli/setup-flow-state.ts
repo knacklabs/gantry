@@ -17,12 +17,8 @@ import {
   loadRuntimeSettingsFromPath,
 } from '../config/settings/runtime-settings.js';
 import {
-  DEFAULT_MODEL_PRESET_ID,
   DEFAULT_SETUP_MODEL_ALIAS,
-  isModelPresetId,
-  resolveModelSelectionForWorkload,
   resolveModelAlias,
-  type ModelPresetId,
 } from '../shared/model-catalog.js';
 import { writeOnboardingState } from './onboarding-state.js';
 import type { OnboardingState, OnboardingStep } from './onboarding-state.js';
@@ -34,6 +30,7 @@ export const FULL_SEQUENCE: OnboardingStep[] = [
   'storage',
   'channel',
   'model',
+  'memory',
   'credentials',
   'telegram',
   'slack',
@@ -51,9 +48,9 @@ export interface SetupDraft {
   primaryProvider: 'telegram' | 'slack';
   credentialMode: HostCredentialMode;
   agentName: string;
-  modelPreset: ModelPresetId;
   selectedModel: string;
   agentHarness: AgentHarness;
+  credentialLiveSkipProviderIds: string[];
   telegramBotToken: string;
   telegramChatJid: string;
   telegramDisplayName: string;
@@ -72,6 +69,10 @@ export interface SetupDraft {
   workspaceKey: string;
   conversationLabel: string;
   startAfterSetup: boolean;
+  maintenanceMode: boolean;
+  hasConfiguredChannelBinding: boolean;
+  hasStoredTelegramSecretRefs: boolean;
+  hasStoredSlackSecretRefs: boolean;
 }
 
 export interface SetupFlowOptions {
@@ -97,8 +98,58 @@ export function shouldSkipStep(
   step: OnboardingStep,
   draft: SetupDraft,
 ): boolean {
+  if (
+    draft.maintenanceMode &&
+    draft.hasConfiguredChannelBinding &&
+    (step === 'channel' ||
+      step === 'telegram' ||
+      step === 'slack' ||
+      step === 'group')
+  ) {
+    return true;
+  }
   if (step === 'telegram' && draft.primaryProvider !== 'telegram') return true;
   if (step === 'slack' && draft.primaryProvider !== 'slack') return true;
+  return false;
+}
+
+export function shouldAutoSkipAnsweredProviderStep(
+  step: OnboardingStep,
+  draft: SetupDraft,
+  state: OnboardingState | null,
+): boolean {
+  const savedTelegramAnswer = Boolean(
+    state?.status === 'in_progress' &&
+    state.data.completedProviderSteps?.includes('telegram') &&
+    state.data.telegramChatJid &&
+    state.data.telegramPermissionApproverIds,
+  );
+  const savedSlackAnswer = Boolean(
+    state?.status === 'in_progress' &&
+    state.data.completedProviderSteps?.includes('slack') &&
+    state.data.slackChatJid &&
+    state.data.slackPermissionApproverIds,
+  );
+  if (
+    step === 'telegram' &&
+    draft.primaryProvider === 'telegram' &&
+    savedTelegramAnswer &&
+    draft.hasStoredTelegramSecretRefs &&
+    draft.telegramChatJid &&
+    draft.telegramPermissionApproverIds
+  ) {
+    return true;
+  }
+  if (
+    step === 'slack' &&
+    draft.primaryProvider === 'slack' &&
+    savedSlackAnswer &&
+    draft.hasStoredSlackSecretRefs &&
+    draft.slackChatJid &&
+    draft.slackPermissionApproverIds
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -106,6 +157,12 @@ export function updateStateData(
   state: OnboardingState,
   draft: SetupDraft,
 ): void {
+  const completedProviderSteps = state.data.completedProviderSteps?.length
+    ? state.data.completedProviderSteps
+    : undefined;
+  const storedProviderSecretRefs = state.data.storedProviderSecretRefs?.length
+    ? state.data.storedProviderSecretRefs
+    : undefined;
   state.data = {
     runtimeHome: draft.runtimeHome,
     postgresSetupKind: draft.postgresSetupKind,
@@ -123,14 +180,19 @@ export function updateStateData(
     slackPermissionApproverIds: draft.slackPermissionApproverIds || undefined,
     credentialMode: draft.credentialMode,
     agentName: draft.agentName,
-    modelPreset: draft.modelPreset,
     selectedModel: draft.selectedModel || undefined,
     agentHarness: draft.agentHarness,
+    credentialLiveSkipProviderIds: draft.credentialLiveSkipProviderIds?.length
+      ? draft.credentialLiveSkipProviderIds
+      : undefined,
     workspaceKey: draft.workspaceKey || undefined,
     conversationLabel: draft.conversationLabel || undefined,
     memoryEnabled: draft.memoryEnabled,
     embeddingsEnabled: draft.embeddingsEnabled,
     dreamingEnabled: draft.dreamingEnabled,
+    maintenanceMode: draft.maintenanceMode || undefined,
+    completedProviderSteps,
+    storedProviderSecretRefs,
   };
 }
 
@@ -163,14 +225,14 @@ export function updateDraftFromState(
     state.data.credentialMode || draft.credentialMode,
   );
   draft.agentName = state.data.agentName || draft.agentName;
-  draft.modelPreset = isModelPresetId(state.data.modelPreset)
-    ? state.data.modelPreset
-    : draft.modelPreset;
   draft.selectedModel =
     resolveModelAlias(state.data.selectedModel) || draft.selectedModel;
   draft.agentHarness = isAgentHarness(state.data.agentHarness)
     ? state.data.agentHarness
     : draft.agentHarness;
+  draft.credentialLiveSkipProviderIds =
+    state.data.credentialLiveSkipProviderIds ??
+    draft.credentialLiveSkipProviderIds;
   draft.workspaceKey = state.data.workspaceKey || draft.workspaceKey;
   draft.conversationLabel =
     state.data.conversationLabel || draft.conversationLabel;
@@ -178,6 +240,7 @@ export function updateDraftFromState(
   draft.embeddingsEnabled =
     state.data.embeddingsEnabled ?? draft.embeddingsEnabled;
   draft.dreamingEnabled = state.data.dreamingEnabled ?? draft.dreamingEnabled;
+  draft.maintenanceMode = state.data.maintenanceMode ?? draft.maintenanceMode;
 }
 
 export function persistProgress(
@@ -199,6 +262,26 @@ function loadExistingRuntimeSettings(runtimeHome: string) {
   }
 }
 
+const REQUIRED_CHANNEL_SECRET_REFS = {
+  telegram: ['bot_token'],
+  slack: ['bot_token', 'app_token'],
+} as const;
+
+function hasEnabledProviderWithStoredSecretRefs(
+  settings: ReturnType<typeof loadExistingRuntimeSettings>,
+  providerId: SetupDraft['primaryProvider'],
+): boolean {
+  if (!settings.providers[providerId]?.enabled) return false;
+  return Object.values(settings.providerAccounts).some(
+    (account) =>
+      account.provider === providerId &&
+      account.status !== 'disabled' &&
+      REQUIRED_CHANNEL_SECRET_REFS[providerId].every((key) =>
+        Boolean(account.runtimeSecretRefs[key]?.trim()),
+      ),
+  );
+}
+
 export function restoreDraft(
   runtimeHome: string,
   state: OnboardingState | null,
@@ -217,18 +300,21 @@ export function restoreDraft(
   const defaultDreamingEnabled = hasConfiguredProvider
     ? settings.memory.dreaming.enabled
     : true;
-  const stateModelPreset = state?.data.modelPreset;
-  const resolvedSettingsModel = resolveModelSelectionForWorkload(
-    settings.agent.defaultModel,
-    'chat',
-  );
-  const settingsModelPreset = resolvedSettingsModel.ok
-    ? resolvedSettingsModel.entry.modelRoute.id
-    : DEFAULT_MODEL_PRESET_ID;
   const postgresUrlEnv =
     settings.storage.postgres.urlEnv || 'GANTRY_DATABASE_URL';
   const postgresDatabaseUrl =
     env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';
+  const readySummary = resolveReadySummary(settings, primaryProvider);
+  const hasConfiguredChannelBinding = Boolean(
+    settings.providers[primaryProvider]?.enabled &&
+    readySummary.conversationJid,
+  );
+  const hasStoredTelegramSecretRefs =
+    hasEnabledProviderWithStoredSecretRefs(settings, 'telegram') ||
+    Boolean(state?.data.storedProviderSecretRefs?.includes('telegram'));
+  const hasStoredSlackSecretRefs =
+    hasEnabledProviderWithStoredSecretRefs(settings, 'slack') ||
+    Boolean(state?.data.storedProviderSecretRefs?.includes('slack'));
   const draft: SetupDraft = {
     runtimeHome,
     postgresSetupKind:
@@ -243,9 +329,6 @@ export function restoreDraft(
     credentialMode,
     agentName:
       state?.data.agentName || settings.agent.name || DEFAULT_AGENT_CLI_NAME,
-    modelPreset: isModelPresetId(stateModelPreset)
-      ? stateModelPreset
-      : settingsModelPreset,
     selectedModel:
       resolveModelAlias(
         state?.data.selectedModel || settings.agent.defaultModel,
@@ -253,8 +336,11 @@ export function restoreDraft(
     agentHarness: isAgentHarness(state?.data.agentHarness)
       ? state.data.agentHarness
       : settings.agent.agentHarness || AUTO_AGENT_HARNESS,
+    credentialLiveSkipProviderIds:
+      state?.data.credentialLiveSkipProviderIds ?? [],
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || '',
-    telegramChatJid: '',
+    telegramChatJid:
+      primaryProvider === 'telegram' ? readySummary.conversationJid : '',
     telegramDisplayName: settings.agent.name || DEFAULT_AGENT_CLI_NAME,
     telegramAdminSenderId: '',
     telegramAdminSenderName: '',
@@ -262,7 +348,8 @@ export function restoreDraft(
     telegramBotUsername: '',
     slackBotToken: env.SLACK_BOT_TOKEN || '',
     slackAppToken: env.SLACK_APP_TOKEN || '',
-    slackChatJid: '',
+    slackChatJid:
+      primaryProvider === 'slack' ? readySummary.conversationJid : '',
     slackDisplayName: settings.agent.name || DEFAULT_AGENT_CLI_NAME,
     slackPermissionApproverIds: firstConversationApprovers(
       settings,
@@ -272,8 +359,13 @@ export function restoreDraft(
     embeddingsEnabled:
       state?.data.embeddingsEnabled ?? settings.memory.embeddings.enabled,
     dreamingEnabled: state?.data.dreamingEnabled ?? defaultDreamingEnabled,
-    ...resolveReadySummary(settings, primaryProvider),
+    workspaceKey: readySummary.workspaceKey,
+    conversationLabel: readySummary.conversationLabel,
     startAfterSetup: false,
+    maintenanceMode: state?.data.maintenanceMode ?? false,
+    hasConfiguredChannelBinding,
+    hasStoredTelegramSecretRefs,
+    hasStoredSlackSecretRefs,
   };
   if (state) updateDraftFromState(draft, state);
   return draft;
@@ -282,17 +374,20 @@ export function restoreDraft(
 function resolveReadySummary(
   settings: ReturnType<typeof loadExistingRuntimeSettings>,
   providerId: string,
-): Pick<SetupDraft, 'workspaceKey' | 'conversationLabel'> {
+): Pick<SetupDraft, 'workspaceKey' | 'conversationLabel'> & {
+  conversationJid: string;
+} {
   for (const [agentId, agent] of Object.entries(settings.agents)) {
     for (const binding of Object.values(agent.bindings)) {
       if (binding.provider !== providerId) continue;
       return {
         workspaceKey: agent.folder || agentId,
         conversationLabel: binding.name || binding.jid,
+        conversationJid: binding.jid,
       };
     }
   }
-  return { workspaceKey: '', conversationLabel: '' };
+  return { workspaceKey: '', conversationLabel: '', conversationJid: '' };
 }
 
 function firstConversationApprovers(
@@ -300,8 +395,7 @@ function firstConversationApprovers(
   providerId: string,
 ): string[] {
   for (const conversation of Object.values(settings.conversations)) {
-    const connection =
-      settings.providerConnections[conversation.providerConnection];
+    const connection = settings.providerAccounts[conversation.providerAccount];
     if (connection?.provider === providerId) {
       return conversation.controlApprovers;
     }

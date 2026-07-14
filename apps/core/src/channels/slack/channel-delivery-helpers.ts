@@ -3,6 +3,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageDeliveryResult,
   MessageSendOptions,
+  OnChatMetadata,
   ProgressUpdateOptions,
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
@@ -41,6 +42,13 @@ type SlackPostMessagePayload = {
 type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
 };
+function slackActionBlocks(text: string, options: MessageSendOptions) {
+  return options.actionAffordances
+    ? slackMessageActionBlocks(text, options.actionAffordances, {
+        providerAccountId: options.providerAccountId,
+      })
+    : undefined;
+}
 export type SlackSnippetFallbackInput = {
   channelId: string;
   text: string;
@@ -156,7 +164,7 @@ export async function sendSlackMessage(input: {
     const part = parts[partIndex];
     const actionBlocks =
       partIndex === parts.length - 1
-        ? slackMessageActionBlocks(part, input.options.actionAffordances)
+        ? slackActionBlocks(part, input.options)
         : undefined;
     try {
       const posted = await postSlackMessageWithRetry(
@@ -500,9 +508,7 @@ export async function sendSlackProgressUpdate(input: {
     input.persistProgress());
 
   if (!existing) {
-    const blocks = input.options.actionAffordances
-      ? slackMessageActionBlocks(trimmed, input.options.actionAffordances)
-      : undefined;
+    const blocks = slackActionBlocks(trimmed, input.options);
     const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
       text: trimmed,
@@ -575,9 +581,7 @@ export async function sendSlackProgressUpdate(input: {
   }
 
   if (existing.messageTs) {
-    const blocks = input.options.actionAffordances
-      ? slackMessageActionBlocks(trimmed, input.options.actionAffordances)
-      : undefined;
+    const blocks = slackActionBlocks(trimmed, input.options);
     await input.app.client.chat.update({
       channel: existing.channelId,
       ts: existing.messageTs,
@@ -586,9 +590,7 @@ export async function sendSlackProgressUpdate(input: {
     });
   } else {
     const existingThreadTs = slackThreadTsFromThreadId(existing.threadId);
-    const blocks = input.options.actionAffordances
-      ? slackMessageActionBlocks(trimmed, input.options.actionAffordances)
-      : undefined;
+    const blocks = slackActionBlocks(trimmed, input.options);
     const sent = (await input.app.client.chat.postMessage({
       channel: existing.channelId,
       text: trimmed,
@@ -729,13 +731,8 @@ export async function syncSlackGroups(input: {
   force: boolean;
   channelNameCache: Map<string, string>;
   resolveChannelName: (channelId: string) => Promise<string>;
-  onChatMetadata: (
-    jid: string,
-    observedAt: string,
-    displayName: string,
-    channel: string,
-    isGroup: boolean,
-  ) => Promise<void>;
+  onChatMetadata: OnChatMetadata;
+  providerAccountId?: string;
 }): Promise<void> {
   if (!input.app) return;
   const now = nowIso();
@@ -765,6 +762,7 @@ export async function syncSlackGroups(input: {
         name,
         'slack',
         !channel.is_im,
+        { providerAccountId: input.providerAccountId },
       );
     }
 

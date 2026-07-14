@@ -1,5 +1,6 @@
 import { getGantryHome } from '../shared/gantry-home.js';
 import { envConfig } from './env/index.js';
+import { DEFAULT_MEMORY_DREAMING_ALERTS } from './settings/runtime-settings-defaults.js';
 import {
   readRuntimeMemorySettingsSnapshot,
   type RuntimeMemorySettingsSnapshot,
@@ -26,3 +27,5 @@ if (runtimeMemorySettingsError) {
 export const RUNTIME_MEMORY_ENABLED = runtimeMemorySettings.enabled ?? true;
 export const RUNTIME_MEMORY_DREAMING_ENABLED =
   runtimeMemorySettings.dreamingEnabled ?? false;
+export const RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED =
+  runtimeMemorySettings.dreamingAlerts ?? DEFAULT_MEMORY_DREAMING_ALERTS;

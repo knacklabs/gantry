@@ -23,7 +23,7 @@ function slotFor(
   return {
     configuredAlias: alias,
     effectiveAlias: resolved.alias,
-    source: 'preset-managed',
+    source: 'provider-managed',
     workload,
     modelEntry: resolved.entry,
   };

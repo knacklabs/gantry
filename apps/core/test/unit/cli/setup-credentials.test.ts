@@ -5,6 +5,7 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock('@clack/prompts');
   vi.doUnmock('@core/adapters/storage/postgres/factory.js');
+  vi.doUnmock('@core/cli/model-credential-verify.js');
 });
 
 async function loadCredentialsStep(
@@ -12,13 +13,29 @@ async function loadCredentialsStep(
     selections?: string[];
     password?: string;
     readyProviders?: string[];
+    verificationResults?: Array<
+      | { ok: true }
+      | { ok: false; message: string }
+      | { skipped: true; reason: string }
+    >;
   } = {},
 ) {
   const note = vi.fn();
   const success = vi.fn();
+  const warn = vi.fn();
   const password = vi.fn(async () => input.password ?? 'provider-key');
   const selections = [...(input.selections ?? ['api_key', 'store'])];
   const select = vi.fn(async () => selections.shift() ?? 'store');
+  const spinner = {
+    start: vi.fn(),
+    stop: vi.fn(),
+  };
+  const verificationResults = [
+    ...(input.verificationResults ?? [{ ok: true as const }]),
+  ];
+  const verifyModelProviderCredentialLive = vi.fn(
+    async () => verificationResults.shift() ?? { ok: true },
+  );
   const listModelCredentials = vi.fn(async () =>
     (input.readyProviders ?? []).map((providerId) => ({
       id: `model-credential:default:${providerId}`,
@@ -50,7 +67,11 @@ async function loadCredentialsStep(
     note,
     password,
     select,
-    log: { error: vi.fn(), info: vi.fn(), success, warn: vi.fn() },
+    spinner: () => spinner,
+    log: { error: vi.fn(), info: vi.fn(), success, warn },
+  }));
+  vi.doMock('@core/cli/model-credential-verify.js', () => ({
+    verifyModelProviderCredentialLive,
   }));
   vi.doMock('@core/adapters/storage/postgres/factory.js', () => ({
     createStorageRuntime: () => ({
@@ -79,6 +100,8 @@ async function loadCredentialsStep(
     password,
     select,
     success,
+    warn,
+    verifyModelProviderCredentialLive,
     listModelCredentials,
     upsertModelCredential,
   };
@@ -98,7 +121,6 @@ describe('setup credentials step', () => {
     const draft = {
       credentialMode: 'none' as const,
       postgresSetupKind: 'local' as const,
-      modelPreset: 'anthropic' as const,
       selectedModel: 'opus',
       memoryEnabled: false,
       embeddingsEnabled: false,
@@ -141,7 +163,6 @@ describe('setup credentials step', () => {
     const draft = {
       credentialMode: 'none' as const,
       postgresSetupKind: 'local' as const,
-      modelPreset: 'anthropic' as const,
       selectedModel: 'gpt',
       memoryEnabled: true,
       embeddingsEnabled: true,
@@ -155,7 +176,7 @@ describe('setup credentials step', () => {
 
     expect(action).toEqual({ type: 'next' });
     expect(note).toHaveBeenCalledWith(
-      'Selected defaults require credentials for: anthropic, openai.',
+      'Selected defaults require credentials for: openai.',
       'Model Access required',
     );
     expect(upsertModelCredential).toHaveBeenCalledWith(
@@ -172,7 +193,6 @@ describe('setup credentials step', () => {
     expect(
       requiredModelCredentialProviderReasonsForSetupDraft({
         credentialMode: 'gantry',
-        modelPreset: 'anthropic',
         selectedModel: 'opus',
         memoryEnabled: true,
         embeddingsEnabled: true,
@@ -201,7 +221,6 @@ describe('setup credentials step', () => {
     const draft = {
       credentialMode: 'none' as const,
       postgresSetupKind: 'local' as const,
-      modelPreset: 'anthropic' as const,
       selectedModel: 'opus',
       memoryEnabled: false,
       embeddingsEnabled: false,
@@ -232,6 +251,77 @@ describe('setup credentials step', () => {
     expect(upsertModelCredential).not.toHaveBeenCalled();
   });
 
+  it('re-prompts when live verification fails and the user re-enters the key', async () => {
+    const {
+      runCredentialsStep,
+      password,
+      verifyModelProviderCredentialLive,
+      upsertModelCredential,
+    } = await loadCredentialsStep({
+      selections: ['api_key', 'store', 'reenter'],
+      verificationResults: [
+        { ok: false, message: 'Anthropic rejected key.' },
+        { ok: true },
+      ],
+    });
+    const draft = {
+      credentialMode: 'none' as const,
+      postgresSetupKind: 'local' as const,
+      selectedModel: 'opus',
+      memoryEnabled: false,
+      embeddingsEnabled: false,
+      dreamingEnabled: false,
+    };
+
+    const action = await runCredentialsStep(
+      draft,
+      '/tmp/gantry-credentials-test',
+    );
+
+    expect(action).toEqual({ type: 'next' });
+    expect(password).toHaveBeenCalledTimes(2);
+    expect(verifyModelProviderCredentialLive).toHaveBeenCalledTimes(2);
+    expect(upsertModelCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores when live verification fails and the user explicitly skips', async () => {
+    const { runCredentialsStep, warn, upsertModelCredential } =
+      await loadCredentialsStep({
+        selections: ['api_key', 'store', 'store_anyway'],
+        verificationResults: [
+          { ok: false, message: 'Anthropic rejected key.' },
+        ],
+      });
+    const draft = {
+      runtimeHome: '/tmp/gantry-credentials-test',
+      credentialMode: 'none' as const,
+      postgresSetupKind: 'local' as const,
+      selectedModel: 'opus',
+      credentialLiveSkipProviderIds: [] as string[],
+      memoryEnabled: false,
+      embeddingsEnabled: false,
+      dreamingEnabled: false,
+    };
+
+    const action = await runCredentialsStep(
+      draft,
+      '/tmp/gantry-credentials-test',
+    );
+
+    expect(action).toEqual({ type: 'next' });
+    expect(upsertModelCredential).toHaveBeenCalledTimes(1);
+    expect(draft.credentialLiveSkipProviderIds).toEqual(['anthropic']);
+    const { createInitialState } =
+      await import('@core/cli/onboarding-state.js');
+    const { updateStateData } = await import('@core/cli/setup-flow-state.js');
+    const state = createInitialState('/tmp/gantry-credentials-test');
+    updateStateData(state, draft as never);
+    expect(state.data.credentialLiveSkipProviderIds).toEqual(['anthropic']);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('stored without live verification'),
+    );
+  });
+
   it('can go back from the first model access prompt', async () => {
     const { runCredentialsStep, password, upsertModelCredential } =
       await loadCredentialsStep({
@@ -240,7 +330,6 @@ describe('setup credentials step', () => {
     const draft = {
       credentialMode: 'none' as const,
       postgresSetupKind: 'local' as const,
-      modelPreset: 'anthropic' as const,
       selectedModel: 'opus',
       memoryEnabled: false,
       embeddingsEnabled: false,
@@ -270,7 +359,6 @@ describe('setup credentials step', () => {
       const draft = {
         credentialMode: 'none' as const,
         postgresSetupKind: 'local' as const,
-        modelPreset: 'anthropic' as const,
         selectedModel: 'opus',
         memoryEnabled: false,
         embeddingsEnabled: false,
@@ -299,7 +387,6 @@ describe('setup credentials step', () => {
     const draft = {
       credentialMode: 'none' as const,
       postgresSetupKind: 'local' as const,
-      modelPreset: 'anthropic' as const,
       selectedModel: 'opus',
       memoryEnabled: false,
       embeddingsEnabled: false,

@@ -46,6 +46,10 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     return /\bNo conversation found with session ID\b/i.test(error ?? '');
   }
 
+  sessionCompactionPrompt(): string {
+    return '/compact';
+  }
+
   async prepare(
     input: AgentExecutionAdapterPrepareInput,
   ): Promise<PreparedAgentExecution> {
@@ -215,7 +219,18 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     input: AgentExecutionAdapterPrepareInput,
   ): void {
     const { effectiveModelEntry, modelCredentialProjection } = input;
-    if (!effectiveModelEntry) return;
+    if (!effectiveModelEntry) {
+      // Fail closed for gateway-brokered spawns: an uncatalogued model
+      // cannot have its projection verified, and skipping the check would
+      // let a raw provider key reach the runner. Non-gantry projections
+      // carry no gateway guarantee to verify.
+      if (modelCredentialProjection.brokerProfile === 'gantry') {
+        throw new Error(
+          'Agent spawn model is not in the model catalog; cannot verify Gantry Model Gateway credentials.',
+        );
+      }
+      return;
+    }
     validateModelCredentialProjectionForEntry({
       model: effectiveModelEntry,
       projection: modelCredentialProjection,

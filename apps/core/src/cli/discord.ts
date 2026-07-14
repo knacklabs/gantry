@@ -11,6 +11,7 @@ import {
 } from '../channels/discord-setup-discovery.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import {
+  ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
   writeDesiredRuntimeSettings,
@@ -18,6 +19,7 @@ import {
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import {
   allocateDefaultAgentFolder,
+  DEFAULT_AGENT_FOLDER,
   defaultTriggerForAgentName,
   normalizeDefaultAgentName,
 } from './main-agent.js';
@@ -28,6 +30,7 @@ import {
   createProfileFileMirrorWriter,
 } from '../platform/profile-file-mirror.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
+import { providerAccountIdForAgent } from './provider-utils.js';
 
 type DiscordChannelChoice =
   | { type: 'selected'; channel: DiscordDiscoveredChannel }
@@ -50,16 +53,31 @@ export async function registerDiscordMainGroup(options: {
   runtimeHome: string;
   chatJid: string;
   displayName: string;
+  agentId?: string;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
   try {
     const existing = await db.getAllConversationRoutes();
     const existingGroup = existing[options.chatJid];
+    // An already-registered conversation keeps its owning agent; agentId
+    // only binds conversations that are not routed yet.
     const folder =
       existingGroup?.folder ||
+      options.agentId?.trim() ||
       allocateDefaultAgentFolder(options.runtimeHome, existing);
-    const groupName = normalizeDefaultAgentName(options.displayName);
+    // A conversation owned by a DIFFERENT agent than the requested one is
+    // reused as-is: rewriting its display name would rename someone else's
+    // route with no rollback path in the route DB.
+    const requestedAgentId = options.agentId?.trim();
+    const keepExistingRoute = Boolean(
+      existingGroup &&
+      requestedAgentId &&
+      existingGroup.folder !== requestedAgentId,
+    );
+    const groupName = keepExistingRoute
+      ? existingGroup!.name
+      : normalizeDefaultAgentName(options.displayName);
     const route = {
       name: groupName,
       folder,
@@ -152,8 +170,11 @@ async function chooseDiscordChannelForConnect(
 export async function runDiscordConnectCommand(
   runtimeHome: string,
   discoveryClient: DiscordSetupDiscoveryClient = new RestDiscordSetupDiscoveryClient(),
+  requestedAgentId?: string,
+  requestedAgentName?: string,
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
+  const requestedAgentDisplayName = requestedAgentName?.trim();
   p.note(
     [
       'Create or reuse a Discord application and bot.',
@@ -228,6 +249,7 @@ export async function runDiscordConnectCommand(
   const approverIds = parseDiscordApproverIds(approverInput || '');
 
   if (channelChoice.type === 'selected') {
+    const currentSettings = loadRuntimeSettings(runtimeHome);
     const verified = await discoveryClient.verifyChannel({
       credentials,
       guildId: channelChoice.channel.guildId,
@@ -252,7 +274,11 @@ export async function runDiscordConnectCommand(
     const registered = await registerDiscordMainGroup({
       runtimeHome,
       chatJid: verified.chatJid,
-      displayName: loadRuntimeSettings(runtimeHome).agent.name,
+      displayName:
+        (requestedAgentId && currentSettings.agents[requestedAgentId]?.name) ||
+        requestedAgentDisplayName ||
+        currentSettings.agent.name,
+      agentId: requestedAgentId,
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -267,26 +293,25 @@ export async function runDiscordConnectCommand(
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   const previousDiscordEnabled = settings.providers.discord?.enabled ?? false;
-  const providerConnectionId =
-    settings.providers.discord?.defaultConnection || 'discord_default';
+  let providerAccountId = 'discord_default';
+  // The registered route's owner wins: reusing an existing conversation
+  // must not hand its provider account to the requesting agent.
+  const providerAgentId =
+    registeredFolder || requestedAgentId || DEFAULT_AGENT_FOLDER;
   settings.providers.discord = {
     enabled: channelChoice.type === 'selected' || previousDiscordEnabled,
-    defaultConnection: providerConnectionId,
   };
-  settings.providerConnections[providerConnectionId] = {
-    provider: 'discord',
-    label:
-      settings.providerConnections[providerConnectionId]?.label ||
-      'Discord Default',
-    runtimeSecretRefs: {
-      ...(settings.providerConnections[providerConnectionId]
-        ?.runtimeSecretRefs || {}),
-      bot_token: botSecret.ref,
-      application_id: applicationSecret.ref,
-    },
-  };
+  ensureConfiguredAgent(settings, {
+    agentId: providerAgentId,
+    agentName:
+      settings.agents[providerAgentId]?.name ||
+      requestedAgentDisplayName ||
+      registeredChatTitle ||
+      settings.agent.name,
+    agentFolder: providerAgentId,
+  });
   if (registeredFolder) {
-    ensureConfiguredConversationBinding(settings, {
+    const binding = ensureConfiguredConversationBinding(settings, {
       agentId: registeredFolder,
       agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
@@ -296,7 +321,26 @@ export async function runDiscordConnectCommand(
       requiresTrigger: false,
       approverIds,
     });
+    providerAccountId = binding.providerConnectionId;
+  } else {
+    providerAccountId = providerAccountIdForAgent(settings, {
+      providerId: 'discord',
+      agentId: providerAgentId,
+      defaultAccountId: providerAccountId,
+    });
   }
+  settings.providerAccounts[providerAccountId] = {
+    agentId: providerAgentId,
+    provider: 'discord',
+    label:
+      settings.providerAccounts[providerAccountId]?.label || 'Discord Default',
+    runtimeSecretRefs: {
+      ...(settings.providerAccounts[providerAccountId]?.runtimeSecretRefs ||
+        {}),
+      bot_token: botSecret.ref,
+      application_id: applicationSecret.ref,
+    },
+  };
   await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,

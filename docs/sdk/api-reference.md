@@ -200,19 +200,19 @@ GET    /v1/agents/:agentId/access
 PUT    /v1/agents/:agentId/access
 
 GET    /v1/providers
-GET    /v1/provider-connections
-POST   /v1/provider-connections
-GET    /v1/provider-connections/:providerConnectionId
-PATCH  /v1/provider-connections/:providerConnectionId
-POST   /v1/provider-connections/:providerConnectionId/discover-conversations
+GET    /v1/provider-accounts
+POST   /v1/provider-accounts
+GET    /v1/provider-accounts/:providerAccountId
+PATCH  /v1/provider-accounts/:providerAccountId
+POST   /v1/provider-accounts/:providerAccountId/discover-conversations
 GET    /v1/conversations
 GET    /v1/conversations/:conversationId
 GET    /v1/conversations/:conversationId/approvers
 PUT    /v1/conversations/:conversationId/approvers
-GET    /v1/agents/:agentId/conversation-bindings
-PUT    /v1/agents/:agentId/conversation-bindings/:conversationId
-PATCH  /v1/agents/:agentId/conversation-bindings/:conversationId
-DELETE /v1/agents/:agentId/conversation-bindings/:conversationId
+GET    /v1/agents/:agentId/conversation-installs
+PUT    /v1/agents/:agentId/conversation-installs/:conversationId
+PATCH  /v1/agents/:agentId/conversation-installs/:conversationId
+DELETE /v1/agents/:agentId/conversation-installs/:conversationId
 ```
 
 Agents expose `sources` and `capabilities` as separate API surfaces.
@@ -504,6 +504,51 @@ mean the model run has completed, a provider accepted outbound delivery, or the
 user-facing channel has received a response synchronously. Observe delivery and
 model progress through `client.sessions.stream`, `client.sessions.wait`,
 `client.sessions.listEvents`, or the configured outbound webhook events.
+
+### Structured output (`response_schema`)
+
+Sessions bound to an inline-runtime agent accept an optional JSON Schema on the
+message-send payload. The selected inline lane enforces the schema and the turn
+result carries the validated JSON. The field is available on the HTTP payload
+(`POST /v1/sessions/:sessionId/messages`); the typed SDK helper does not expose
+it yet.
+
+```http
+POST /v1/sessions/:sessionId/messages
+{
+  "message": "Summarize open incidents",
+  "response_schema": { "type": "object", "properties": { ... }, "required": [ ... ] }
+}
+```
+
+`response_schema` must be a JSON Schema object; worker-runtime agents reject
+it. Direct LLM API callers use provider-native structured output in the
+provider-shaped payload instead (see Direct LLM API below).
+
+### Per-request model controls
+
+Session message sends also accept per-request overrides of the agent's
+configured model controls. They apply to that turn only, win over the agent's
+settings defaults, are persisted with the message, and survive replay:
+
+```http
+POST /v1/sessions/:sessionId/messages
+{
+  "message": "...",
+  "effort": "high",
+  "thinking": { "mode": "on", "budget_tokens": 8192 },
+  "max_output_tokens": 2048
+}
+```
+
+- `effort` — `low | medium | high | xhigh | max`
+- `thinking` — `"off"`, `"on"`, or `{ "mode": "on", "budget_tokens": <positive int> }`
+- `max_output_tokens` — positive integer; DeepAgents-engine agents only
+  (Claude-engine agents reject it; use `effort` there)
+
+Overrides are validated against the target agent's model capabilities; an
+unsupported combination is rejected with a `400` naming the field. These
+fields are HTTP-level today, like `response_schema`.
 
 Read-only history endpoints are available over the control API. SDK helpers are
 not exposed for these endpoints yet.
@@ -809,9 +854,10 @@ and Teams threads plus Telegram forum topics inherit approvers from the parent c
 ```ts
 client.providers.list()
 
-client.providerConnections.create({
+client.providerAccounts.create({
   appId,
   providerId, // app | telegram | slack
+  agentId,
   label,
   config?,
   externalRef?,
@@ -819,9 +865,9 @@ client.providerConnections.create({
   enabled?,
 })
 
-client.providerConnections.list()
-client.providerConnections.get(providerConnectionId)
-client.providerConnections.update(providerConnectionId, {
+client.providerAccounts.list()
+client.providerAccounts.get(providerAccountId)
+client.providerAccounts.update(providerAccountId, {
   label?,
   status?,
   config?,
@@ -829,17 +875,25 @@ client.providerConnections.update(providerConnectionId, {
   runtimeSecretRefs?,
   enabled?,
 })
-client.providerConnections.delete(providerConnectionId)
-client.providerConnections.discoverConversations(providerConnectionId, {
+client.providerAccounts.delete(providerAccountId)
+client.providerAccounts.discoverConversations(providerAccountId, {
   query?,
   limit?,
   includeArchived?,
 })
 
-client.conversations.list({ providerConnectionId? })
+client.conversations.list({ providerAccountId? })
 client.conversations.get(conversationId)
 client.conversations.getApprovers(conversationId)
 client.conversations.setApprovers(conversationId, userIds)
+client.conversationInstalls.create({
+  agentId,
+  providerAccountId,
+  conversationId,
+  threadId?,
+})
+client.conversationInstalls.list({ agentId? })
+client.conversationInstalls.disable({ agentId, conversationId, threadId? })
 client.conversations.messages(conversationId, {
   threadId?,
   after?,
@@ -872,12 +926,12 @@ GET    /v1/agents/:id/access                       agents:admin
 PUT    /v1/agents/:id/access                       agents:admin
 
 GET    /v1/providers                               providers:read
-POST   /v1/provider-connections                    providers:admin
-GET    /v1/provider-connections                    providers:read
-GET    /v1/provider-connections/:id                providers:read
-PATCH  /v1/provider-connections/:id                providers:admin
-DELETE /v1/provider-connections/:id                providers:admin
-POST   /v1/provider-connections/:id/discover-conversations providers:admin
+POST   /v1/provider-accounts                       providers:admin
+GET    /v1/provider-accounts                       providers:read
+GET    /v1/provider-accounts/:id                   providers:read
+PATCH  /v1/provider-accounts/:id                   providers:admin
+DELETE /v1/provider-accounts/:id                   providers:admin
+POST   /v1/provider-accounts/:id/discover-conversations providers:admin
 
 GET    /v1/conversations                           conversations:read
 GET    /v1/conversations/:id                       conversations:read
@@ -886,10 +940,10 @@ PUT    /v1/conversations/:id/approvers             conversations:admin
 GET    /v1/conversations/:id/threads               conversations:read
 GET    /v1/conversations/:id/messages              messages:read
 
-GET    /v1/agents/:id/conversation-bindings        conversations:read
-PUT    /v1/agents/:id/conversation-bindings/:conversationId agents:admin
-PATCH  /v1/agents/:id/conversation-bindings/:conversationId agents:admin
-DELETE /v1/agents/:id/conversation-bindings/:conversationId agents:admin
+GET    /v1/agents/:agentId/conversation-installs                 conversations:read
+PUT    /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
+PATCH  /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
+DELETE /v1/agents/:agentId/conversation-installs/:conversationId agents:admin
 ```
 
 `GET /v1/agents/:id/admin` returns Agent admin state, including
@@ -924,27 +978,26 @@ includes tested normalization and Adaptive Card approval scaffolding. `whatsapp`
 is still returned as an unavailable placeholder until its adapter is
 implemented.
 
-## Agent Conversation Bindings
+## Conversation Installs
 
 ```ts
-client.agents.conversationBindings.list(agentId)
-client.agents.conversationBindings.enable(agentId, conversationId, {
-  providerConnectionId?,
+client.conversationInstalls.list({ agentId? })
+client.conversationInstalls.create({
+  agentId,
+  conversationId,
+  providerAccountId,
   threadId?,
   displayName?,
-  triggerMode?, // always | mention | keyword | manual | webhook
-  triggerPattern?,
-  requiresTrigger?,
   memoryScope?, // user | conversation | agent | app
   memorySubject?,
   workspaceSnapshotId?,
   permissionPolicyIds?,
 })
-client.agents.bindings.update(agentId, conversationId, patch)
-client.agents.bindings.disable(agentId, conversationId, { threadId? })
+client.conversationInstalls.update(installId, patch)
+client.conversationInstalls.disable(installId)
 ```
 
-Binding writes require `agents:admin`. `disable()` marks the binding disabled;
+Install writes require `agents:admin`. `disable()` marks the install disabled;
 it does not delete the row.
 
 ## Agent Skill Bindings
@@ -1041,12 +1094,55 @@ client.memory.dreaming.status({ appId?, agentId? })
 `reference` memory is reserved for procedure/knowledge-source flows instead of
 direct `memory_save` payloads.
 
+## Direct LLM API
+
+Provider-shaped raw model calls through the Gantry Model Gateway — no agent
+loop, no agent tools. Streaming and non-streaming both pass through. There is
+no SDK helper; point the official provider SDK at Gantry instead:
+
+```ts
+import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
+
+// Anthropic Messages shape → POST {base}/llm/v1/messages
+const anthropic = new Anthropic({
+  apiKey: process.env.GANTRY_CONTROL_API_KEY!,
+  baseURL: 'http://127.0.0.1:3939/llm',
+});
+
+// OpenAI Chat Completions shape → POST {base}/llm/v1/chat/completions
+const openai = new OpenAI({
+  apiKey: process.env.GANTRY_CONTROL_API_KEY!,
+  baseURL: 'http://127.0.0.1:3939/llm/v1',
+});
+```
+
+- `POST {base}/llm/v1/messages/count_tokens` (Anthropic shape) is also
+  mounted for context-window budgeting, with the same auth, scope, and model
+  rules as the messages route.
+- The API key must carry the `llm:invoke` scope. Missing/invalid key → `401`;
+  valid key without the scope → `403`.
+- `model` must be a registered Gantry model alias for the endpoint's response
+  family; raw provider model ids are rejected with `400`.
+- An API key may carry an optional `maxTokens` ceiling. Limited keys must send
+  an explicit `max_tokens` / `max_completion_tokens` at or below the limit
+  (`n` choices are multiplied in on chat completions); violations are rejected
+  with `400 MAX_TOKENS_EXCEEDED` naming the limit — never silently clamped.
+  Keys without the field are unlimited.
+- Client-side tools, structured outputs, `max_tokens`, and thinking/effort
+  parameters pass through to the provider unchanged. Provider-hosted execution
+  surfaces (Anthropic server tools, remote MCP, containers; OpenAI hosted
+  tools, attachments, file references) are rejected with `400
+  UNSUPPORTED_FIELD` naming the field.
+- Usage is attributed to the API key in the request log; the gateway credential
+  is request-scoped and revoked when delivery ends.
+
 ## Webhooks
 
 ```ts
-client.webhooks.register({ name, url, secret?, enabled? })
+client.webhooks.register({ name, url, secret?, enabled?, eventTypes?, agentId?, sessionId?, jobId? })
 client.webhooks.list()
-client.webhooks.update(webhookId, { name?, url?, secret?, enabled? })
+client.webhooks.update(webhookId, { name?, url?, secret?, enabled?, eventTypes?, agentId?, sessionId?, jobId? })
 client.webhooks.delete(webhookId)
 client.webhooks.test(webhookId)
 client.webhooks.replayDeadLetter(webhookId)

@@ -79,6 +79,9 @@ export type MemoryItemResponse = z.infer<typeof MemoryItemResponseSchema>;
 export const MEMORY_IPC_ACTIONS = [
   'memory_search',
   'memory_save',
+  'brain_search',
+  'brain_query',
+  'brain_write',
   'memory_patch',
   'memory_demote',
   'continuity_summary',
@@ -99,6 +102,8 @@ export const MemoryIpcRequestSchema = z.object({
   payload: ContractMetadataSchema,
   context: z
     .object({
+      appId: z.string().optional(),
+      agentId: z.string().optional(),
       threadId: z.string().optional(),
       userId: z.string().optional(),
       defaultScope: z.enum(['user', 'group']).optional(),

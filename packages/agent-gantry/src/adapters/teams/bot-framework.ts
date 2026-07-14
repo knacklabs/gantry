@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import {
   ActivityTypes,
   BotFrameworkAdapter,
@@ -8,7 +8,6 @@ import {
   type ResourceResponse,
 } from 'botbuilder';
 import type {
-  BotFrameworkAdapterLike,
   GantryBotFrameworkTeamsTransportConfig,
   GantryDispatchResult,
   GantryRuntimeStorage,

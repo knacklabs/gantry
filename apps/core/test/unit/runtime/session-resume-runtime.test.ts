@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeAgentSessionRepository } from '@core/domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
+import { createGroupAgentRunner } from '@core/runtime/group-agent-runner.js';
+import { buildProviderSessionAccessFingerprint } from '@core/runtime/provider-session-access-fingerprint.js';
 import {
   buildApprovedSkillContextBlock,
   createRuntimeResultSummaryAccumulator,
@@ -13,6 +15,408 @@ import {
 } from '@core/runtime/session-resume-runtime.js';
 
 describe('session-resume-runtime', () => {
+  it('runs maintenance-locked provider sessions without resume or head writes', async () => {
+    const setSession = vi.fn();
+    const getAgentTurnContext = vi.fn(async () => ({
+      appId: 'default',
+      agentId: 'agent:main_agent',
+      agentSessionId: 'agent-session:main',
+      latestProviderSessionLocked: true,
+      lockedProviderSessionId: 'provider-session:locked',
+    }));
+    const runAgent = vi.fn(async (_group, input, _register, onOutput) => {
+      await onOutput?.({
+        status: 'success',
+        result: 'ok',
+        newSessionId: 'provider-session:ephemeral',
+      });
+      return {
+        status: 'success',
+        result: 'ok',
+        newSessionId: 'provider-session:ephemeral',
+      };
+    });
+    const defaultProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+    const runner = createGroupAgentRunner({
+      deps: {
+        channelRuntime: {
+          hasChannel: () => true,
+          supportsStreaming: () => false,
+          supportsProgress: () => false,
+          sendMessage: async () => {},
+          sendStreamingChunk: async () => false,
+          resetStreaming: () => {},
+          setTyping: async () => {},
+          sendProgressUpdate: async () => {},
+        },
+        queue: {
+          enqueueMessageCheck: () => false,
+          closeStdin: () => {},
+          notifyIdle: () => {},
+          registerProcess: () => {},
+        },
+        getGroup: () => undefined,
+        clearSession: async () => {},
+        getCursor: () => '',
+        setCursor: () => {},
+        saveState: async () => {},
+        setGroupModelOverride: async () => {},
+        setGroupThinkingOverride: async () => {},
+        getAvailableGroups: () => [],
+        getRegisteredJids: () => new Set(),
+        runAgent: runAgent as never,
+        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
+        executionAdapter: { id: defaultProviderId } as never,
+        getSelectedAgentHarness: () => 'auto',
+      },
+      ops: () =>
+        ({
+          getAgentTurnContext,
+          setSession,
+        }) as unknown as RuntimeAgentSessionRepository,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+        },
+        'hello',
+        'tg:chat',
+        'tg:chat',
+      ),
+    ).resolves.toBe('success');
+
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(getAgentTurnContext).toHaveBeenCalledWith(
+      expect.objectContaining({ promoteReadyProviderSession: true }),
+    );
+    expect(runAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  it('injects compacted-session transcript delta before resumed turn', async () => {
+    const markProviderSessionDeltaReplay = vi.fn();
+    const accessFingerprint = buildProviderSessionAccessFingerprint({});
+    const getAgentTurnContext = vi.fn(async (input) =>
+      input.promoteReadyProviderSession
+        ? {
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            agentSessionId: 'agent-session:main',
+            providerSessionId: 'provider-session:ready',
+            externalSessionId: 'provider-session:ready',
+            providerSessionAccessFingerprint: accessFingerprint,
+            compactionDeltaReplay: {
+              status: 'pending',
+              baseCursor: 'cursor:base',
+              lockedAt: new Date().toISOString(),
+            },
+          }
+        : {
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            agentSessionId: 'agent-session:main',
+            latestProviderSessionReady: true,
+            readyProviderSessionId: 'provider-session:ready',
+            readyExternalSessionId: 'provider-session:ready',
+            providerSessionAccessFingerprint: accessFingerprint,
+            compactionDeltaReplay: {
+              status: 'pending',
+              baseCursor: 'cursor:base',
+              lockedAt: new Date().toISOString(),
+            },
+          },
+    );
+    const getContextMessagesSince = vi.fn(async () => [
+      {
+        id: '2',
+        chat_jid: 'tg:chat',
+        sender: 'user-1',
+        content: 'overlap question',
+        timestamp: '2026-04-28T00:00:02.000Z',
+        is_from_me: false,
+      },
+      {
+        id: '3',
+        chat_jid: 'tg:chat',
+        sender: 'bot',
+        content: 'overlap answer',
+        timestamp: '2026-04-28T00:00:03.000Z',
+        is_from_me: true,
+      },
+    ]);
+    const runAgent = vi.fn(async () => ({ status: 'success', result: 'ok' }));
+    const defaultProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+    const runner = createGroupAgentRunner({
+      deps: {
+        channelRuntime: {
+          hasChannel: () => true,
+          supportsStreaming: () => false,
+          supportsProgress: () => false,
+          sendMessage: async () => {},
+          sendStreamingChunk: async () => false,
+          resetStreaming: () => {},
+          setTyping: async () => {},
+          sendProgressUpdate: async () => {},
+        },
+        queue: {
+          enqueueMessageCheck: () => false,
+          closeStdin: () => {},
+          notifyIdle: () => {},
+          registerProcess: () => {},
+        },
+        getGroup: () => undefined,
+        clearSession: async () => {},
+        getCursor: () => '',
+        setCursor: () => {},
+        saveState: async () => {},
+        setGroupModelOverride: async () => {},
+        setGroupThinkingOverride: async () => {},
+        getAvailableGroups: () => [],
+        getRegisteredJids: () => new Set(),
+        runAgent: runAgent as never,
+        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
+        executionAdapter: { id: defaultProviderId } as never,
+        getSelectedAgentHarness: () => 'auto',
+      },
+      ops: () =>
+        ({
+          getAgentTurnContext,
+          getContextMessagesSince,
+          markProviderSessionDeltaReplay,
+        }) as never,
+    });
+
+    await runner(
+      {
+        name: 'Main',
+        folder: 'main_agent',
+        added_at: new Date(0).toISOString(),
+      },
+      'hello',
+      'tg:chat',
+      'tg:chat',
+    );
+
+    expect(getContextMessagesSince).toHaveBeenCalledWith(
+      'tg:chat',
+      'cursor:base',
+      51,
+      { threadId: null, providerAccountId: undefined },
+    );
+    expect(runAgent.mock.calls[0][1].sessionId).toBe('provider-session:ready');
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      '<gantry_compaction_delta>',
+    );
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      'overlap question',
+    );
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      'overlap answer',
+    );
+    expect(markProviderSessionDeltaReplay).toHaveBeenCalledWith({
+      providerSessionId: 'provider-session:ready',
+      agentSessionId: 'agent-session:main',
+      provider: defaultProviderId,
+      externalSessionId: 'provider-session:ready',
+      status: 'applied',
+      compactionBaseCursor: 'cursor:base',
+    });
+  });
+
+  it('keeps compacted-session delta replay pending when the first resumed turn fails', async () => {
+    const markProviderSessionDeltaReplay = vi.fn();
+    const accessFingerprint = buildProviderSessionAccessFingerprint({});
+    const getAgentTurnContext = vi.fn(async (input) =>
+      input.promoteReadyProviderSession
+        ? {
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            agentSessionId: 'agent-session:main',
+            providerSessionId: 'provider-session:ready',
+            externalSessionId: 'provider-session:ready',
+            providerSessionAccessFingerprint: accessFingerprint,
+            compactionDeltaReplay: {
+              status: 'pending',
+              baseCursor: 'cursor:base',
+              lockedAt: new Date().toISOString(),
+            },
+          }
+        : {
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            agentSessionId: 'agent-session:main',
+            latestProviderSessionReady: true,
+            readyProviderSessionId: 'provider-session:ready',
+            readyExternalSessionId: 'provider-session:ready',
+            providerSessionAccessFingerprint: accessFingerprint,
+            compactionDeltaReplay: {
+              status: 'pending',
+              baseCursor: 'cursor:base',
+              lockedAt: new Date().toISOString(),
+            },
+          },
+    );
+    const getContextMessagesSince = vi.fn(async () => [
+      {
+        id: '2',
+        chat_jid: 'tg:chat',
+        sender: 'user-1',
+        content: 'overlap question',
+        timestamp: '2026-04-28T00:00:02.000Z',
+        is_from_me: false,
+      },
+    ]);
+    const runAgent = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'error', result: null, error: 'boom' })
+      .mockResolvedValueOnce({ status: 'success', result: 'ok' });
+    const defaultProviderId = ['anth', 'ropic:claude-agent-sdk'].join('');
+    const runner = createGroupAgentRunner({
+      deps: {
+        channelRuntime: {
+          hasChannel: () => true,
+          supportsStreaming: () => false,
+          supportsProgress: () => false,
+          sendMessage: async () => {},
+          sendStreamingChunk: async () => false,
+          resetStreaming: () => {},
+          setTyping: async () => {},
+          sendProgressUpdate: async () => {},
+        },
+        queue: {
+          enqueueMessageCheck: () => false,
+          closeStdin: () => {},
+          notifyIdle: () => {},
+          registerProcess: () => {},
+        },
+        getGroup: () => undefined,
+        clearSession: async () => {},
+        getCursor: () => '',
+        setCursor: () => {},
+        saveState: async () => {},
+        setGroupModelOverride: async () => {},
+        setGroupThinkingOverride: async () => {},
+        getAvailableGroups: () => [],
+        getRegisteredJids: () => new Set(),
+        runAgent: runAgent as never,
+        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
+        executionAdapter: { id: defaultProviderId } as never,
+        getSelectedAgentHarness: () => 'auto',
+      },
+      ops: () =>
+        ({
+          getAgentTurnContext,
+          getContextMessagesSince,
+          markProviderSessionDeltaReplay,
+        }) as never,
+    });
+
+    const group = {
+      name: 'Main',
+      folder: 'main_agent',
+      added_at: new Date(0).toISOString(),
+    };
+
+    await expect(runner(group, 'hello', 'tg:chat', 'tg:chat')).resolves.toBe(
+      'error',
+    );
+    expect(runAgent.mock.calls[0][1].sessionId).toBe('provider-session:ready');
+    expect(runAgent.mock.calls[0][1].memoryContextBlock).toContain(
+      '<gantry_compaction_delta>',
+    );
+    expect(markProviderSessionDeltaReplay).not.toHaveBeenCalled();
+    expect(
+      getAgentTurnContext.mock.calls.some(
+        ([input]) => input.promoteReadyProviderSession === true,
+      ),
+    ).toBe(false);
+
+    await expect(
+      runner(group, 'hello again', 'tg:chat', 'tg:chat'),
+    ).resolves.toBe('success');
+    expect(runAgent.mock.calls[1][1].sessionId).toBe('provider-session:ready');
+    expect(markProviderSessionDeltaReplay).toHaveBeenCalledWith({
+      providerSessionId: 'provider-session:ready',
+      agentSessionId: 'agent-session:main',
+      provider: defaultProviderId,
+      externalSessionId: 'provider-session:ready',
+      status: 'applied',
+      compactionBaseCursor: 'cursor:base',
+    });
+  });
+
+  it('does not report native DeepAgents compaction success without an adapter compaction prompt', async () => {
+    const runAgent = vi.fn(async () => ({ status: 'success', result: 'ok' }));
+    const runner = createGroupAgentRunner({
+      deps: {
+        channelRuntime: {
+          hasChannel: () => true,
+          supportsStreaming: () => false,
+          supportsProgress: () => false,
+          sendMessage: async () => {},
+          sendStreamingChunk: async () => false,
+          resetStreaming: () => {},
+          setTyping: async () => {},
+          sendProgressUpdate: async () => {},
+        },
+        queue: {
+          enqueueMessageCheck: () => false,
+          closeStdin: () => {},
+          notifyIdle: () => {},
+          registerProcess: () => {},
+        },
+        getGroup: () => undefined,
+        clearSession: async () => {},
+        getCursor: () => '',
+        setCursor: () => {},
+        saveState: async () => {},
+        setGroupModelOverride: async () => {},
+        setGroupThinkingOverride: async () => {},
+        getAvailableGroups: () => [],
+        getRegisteredJids: () => new Set(),
+        runAgent: runAgent as never,
+        runnerSandboxProvider: { id: 'direct', enforcing: true } as never,
+        executionAdapter: { id: 'deepagents:langchain' } as never,
+        getSelectedAgentHarness: () => 'deepagents',
+      },
+      ops: () =>
+        ({
+          getAgentTurnContext: vi.fn(async () => ({
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            agentSessionId: 'agent-session:main',
+          })),
+        }) as never,
+    });
+
+    await expect(
+      runner(
+        {
+          name: 'Main',
+          folder: 'main_agent',
+          added_at: new Date(0).toISOString(),
+          agentConfig: { model: 'gpt-5.5' },
+        },
+        '',
+        'tg:chat',
+        'tg:chat',
+        undefined,
+        {
+          maintenanceCompaction: true,
+          maintenanceProviderSession: {
+            providerSessionId: 'provider-session:locked',
+            externalSessionId: 'provider-session:locked',
+          },
+        },
+      ),
+    ).resolves.toBe('error');
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
   it('renders installed skill metadata without reading full skill artifacts', async () => {
     const skillRepository = {
       listEnabledSkillsForAgent: vi.fn(async () => [

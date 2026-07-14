@@ -263,7 +263,7 @@ export async function runGenericAgentTask(
         step,
         state,
       });
-      const actionSchema = buildGenericAgentActionSchema();
+      const actionSchema = buildGenericAgentActionSchema(input.finalSchema);
       let modelInput = await buildAgentModelInput(input, {
         step,
         state,
@@ -377,7 +377,7 @@ export async function runGenericAgentTask(
           outputSchema: actionSchema,
           attachments,
         });
-        let retryPromptMetricsWithCache = attachPromptCacheRequestMetrics(
+        const retryPromptMetricsWithCache = attachPromptCacheRequestMetrics(
           retryPromptMetrics,
           input,
         );
@@ -1055,7 +1055,7 @@ export async function runGenericAgentTask(
               'Tool timeout recovery is active.',
               'Do not call tools. Return a final answer using the current state.',
             ].join('\n');
-          const actionSchema = buildGenericAgentActionSchema();
+          const actionSchema = buildGenericAgentActionSchema(input.finalSchema);
           const recoveryModelInput = await buildAgentModelInput(input, {
             step,
             state,

@@ -181,9 +181,9 @@ const mcpServersRepo = {
   listAgentBindingsForAgents: vi.fn(async () => []),
 };
 
-const providerConnectionsRepo = {
-  listProviderConnections: vi.fn(async () => []),
-  listAgentConversationBindings: vi.fn(async () => []),
+const providerAccountsRepo = {
+  listProviderAccounts: vi.fn(async () => []),
+  listConversationInstalls: vi.fn(async () => []),
 };
 
 const conversationsRepo = {
@@ -213,7 +213,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       skills: skillsRepo,
       tools: toolsRepo,
       mcpServers: mcpServersRepo,
-      providerConnections: providerConnectionsRepo,
+      providerAccounts: providerAccountsRepo,
       conversations: conversationsRepo,
     },
     skillArtifacts,

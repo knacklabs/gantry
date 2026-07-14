@@ -1,22 +1,24 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type {
-  AgentConversationBinding,
-  AgentConversationBindingMemoryScope,
-  AgentConversationBindingTriggerMode,
+  ConversationInstall,
+  ConversationInstallMemoryScope,
   Provider,
-  ProviderConnection,
-  ProviderConnectionId,
+  ProviderAccount,
+  ProviderAccountId,
   ProviderId,
 } from '../../domain/provider/provider.js';
 import type {
   ConversationId,
   ConversationThreadId,
 } from '../../domain/conversation/conversation.js';
-import type { MemorySubject } from '../../domain/memory/memory.js';
+import type {
+  MemorySubject,
+  MemorySubjectRoute,
+} from '../../domain/memory/memory.js';
 import type {
   AgentRepository,
-  ProviderConnectionRepository,
+  ProviderAccountRepository,
   ConversationRepository,
 } from '../../domain/ports/repositories.js';
 import type { PermissionPolicyId } from '../../domain/permissions/permissions.js';
@@ -33,27 +35,25 @@ import {
 } from '../../domain/ports/runtime-secret-provider.js';
 import { isProviderRuntimeSecretRefTarget } from '../../domain/provider/provider-runtime-secret-keys.js';
 
-export interface ProviderConnectionPatch {
+export interface ProviderAccountPatch {
   label?: string;
-  status?: ProviderConnection['status'] | 'inactive' | 'archived';
+  status?: ProviderAccount['status'] | 'inactive' | 'archived';
   enabled?: boolean;
   config?: Record<string, unknown>;
-  externalInstallationRef?: ExternalRef<'provider_connection'> | null;
+  externalInstallationRef?: ExternalRef<'provider_account'> | null;
   runtimeSecretRefs?: Record<string, string>;
 }
 
-export interface AgentBindingPatch {
-  providerConnectionId?: ProviderConnectionId;
+export interface ConversationInstallPatch {
+  providerAccountId?: ProviderAccountId;
   threadId?: ConversationThreadId;
   displayName?: string;
-  triggerMode?: AgentConversationBindingTriggerMode;
-  triggerPattern?: string | null;
-  requiresTrigger?: boolean;
-  memoryScope?: AgentConversationBindingMemoryScope;
+  memoryScope?: ConversationInstallMemoryScope;
   memorySubject?: MemorySubject;
+  routeConfig?: MemorySubjectRoute;
   workspaceSnapshotId?: WorkspaceSnapshotId | null;
   permissionPolicyIds?: PermissionPolicyId[];
-  status?: AgentConversationBinding['status'];
+  status?: ConversationInstall['status'];
 }
 
 export interface DiscoveredConversation {
@@ -66,7 +66,7 @@ export interface DiscoveredConversation {
 
 export interface ProviderConversationDiscoveryPort {
   discover(input: {
-    providerConnection: ProviderConnection;
+    providerAccount: ProviderAccount;
     query?: string;
     includeArchived?: boolean;
     limit?: number;
@@ -152,31 +152,25 @@ function explicitProviderIdForExternalId(externalId: string): string | null {
   return /^[a-z][a-z0-9_-]{1,31}$/.test(rawPrefix) ? rawPrefix : null;
 }
 
-function normalizeProviderConnectionStatus(
-  status: ProviderConnectionPatch['status'] | undefined,
-): ProviderConnection['status'] | undefined {
+function normalizeProviderAccountStatus(
+  status: ProviderAccountPatch['status'] | undefined,
+): ProviderAccount['status'] | undefined {
   if (!status) return undefined;
   if (status === 'active' || status === 'disabled') return status;
   if (status === 'inactive' || status === 'archived') return 'disabled';
   return undefined;
 }
 
-function assertOwnedProviderConnection(
-  providerConnection: ProviderConnection,
+function assertOwnedProviderAccount(
+  providerAccount: ProviderAccount,
   appId: AppId,
 ): void {
-  if (providerConnection.appId !== appId) {
+  if (providerAccount.appId !== appId) {
     throw new ApplicationError(
       'FORBIDDEN',
-      'API key cannot access this provider connection',
+      'API key cannot access this provider account',
     );
   }
-}
-
-function triggerModeToRequiresTrigger(
-  mode: AgentConversationBindingTriggerMode,
-): boolean {
-  return mode === 'mention' || mode === 'keyword';
 }
 
 function memorySubjectForScope(input: {
@@ -184,7 +178,7 @@ function memorySubjectForScope(input: {
   agentId: AgentId;
   conversationId: ConversationId;
   threadId?: ConversationThreadId;
-  memoryScope: AgentConversationBindingMemoryScope;
+  memoryScope: ConversationInstallMemoryScope;
   memorySubject?: MemorySubject;
 }): MemorySubject {
   if (input.memorySubject) return input.memorySubject;
@@ -207,44 +201,45 @@ function memorySubjectForScope(input: {
   }
 }
 
-export class ProviderConnectionControlService {
+export class ProviderAccountControlService {
   constructor(
     private readonly deps: {
-      providerConnections: ProviderConnectionRepository;
+      agents: AgentRepository;
+      providerAccounts: ProviderAccountRepository;
       providers: ProviderCatalogPort;
       ids: IdGenerator;
       clock: Clock;
     },
   ) {}
 
-  async list(appId: AppId): Promise<ProviderConnection[]> {
-    return await this.deps.providerConnections.listProviderConnections(appId);
+  async list(appId: AppId): Promise<ProviderAccount[]> {
+    return await this.deps.providerAccounts.listProviderAccounts(appId);
   }
 
   async get(input: {
     appId: AppId;
-    providerConnectionId: ProviderConnectionId;
-  }): Promise<ProviderConnection> {
-    const providerConnection =
-      await this.deps.providerConnections.getProviderConnection(
-        input.providerConnectionId,
-      );
-    if (!providerConnection) {
-      throw new ApplicationError('NOT_FOUND', 'provider connection not found');
+    providerAccountId: ProviderAccountId;
+  }): Promise<ProviderAccount> {
+    const providerAccount = await this.deps.providerAccounts.getProviderAccount(
+      input.providerAccountId,
+    );
+    if (!providerAccount) {
+      throw new ApplicationError('NOT_FOUND', 'provider account not found');
     }
-    assertOwnedProviderConnection(providerConnection, input.appId);
-    return providerConnection;
+    assertOwnedProviderAccount(providerAccount, input.appId);
+    return providerAccount;
   }
 
   async create(input: {
     appId: AppId;
+    agentId: AgentId;
     providerId: ProviderId;
     label: string;
     config?: Record<string, unknown>;
-    externalInstallationRef?: ExternalRef<'provider_connection'>;
+    externalInstallationRef?: ExternalRef<'provider_account'>;
     runtimeSecretRefs?: Record<string, string>;
     enabled?: boolean;
-  }): Promise<ProviderConnection> {
+  }): Promise<ProviderAccount> {
     assertNoRawSecrets(input.config, 'config');
     assertNoRawSecrets(input.externalInstallationRef, 'externalRef');
     const providers = await this.deps.providers.listProviders();
@@ -255,13 +250,22 @@ export class ProviderConnectionControlService {
         `Provider ${input.providerId} is not implemented`,
       );
     }
+    const agent = await this.deps.agents.getAgent(input.agentId);
+    if (!agent) throw new ApplicationError('NOT_FOUND', 'Agent not found');
+    if (agent.appId !== input.appId) {
+      throw new ApplicationError(
+        'FORBIDDEN',
+        'API key cannot access this agent',
+      );
+    }
     assertAllowedRuntimeSecretRefs(provider, input.runtimeSecretRefs);
     const now = this.deps.clock.now();
-    const providerConnection: ProviderConnection = {
-      id: this.deps.ids.generate() as ProviderConnectionId,
+    const providerAccount: ProviderAccount = {
+      id: this.deps.ids.generate() as ProviderAccountId,
       appId: input.appId,
+      agentId: input.agentId,
       providerId: input.providerId,
-      externalInstallationRef: input.externalInstallationRef,
+      externalIdentityRef: input.externalInstallationRef,
       label: input.label.trim(),
       status: input.enabled === false ? 'disabled' : 'active',
       config: input.config ?? {},
@@ -269,17 +273,15 @@ export class ProviderConnectionControlService {
       createdAt: now,
       updatedAt: now,
     };
-    await this.deps.providerConnections.saveProviderConnection(
-      providerConnection,
-    );
-    return providerConnection;
+    await this.deps.providerAccounts.saveProviderAccount(providerAccount);
+    return providerAccount;
   }
 
   async update(input: {
     appId: AppId;
-    providerConnectionId: ProviderConnectionId;
-    patch: ProviderConnectionPatch;
-  }): Promise<ProviderConnection> {
+    providerAccountId: ProviderAccountId;
+    patch: ProviderAccountPatch;
+  }): Promise<ProviderAccount> {
     assertNoRawSecrets(input.patch.config, 'config');
     assertNoRawSecrets(input.patch.externalInstallationRef, 'externalRef');
     const existing = await this.get(input);
@@ -297,11 +299,9 @@ export class ProviderConnectionControlService {
       },
       input.patch.runtimeSecretRefs,
     );
-    const normalizedStatus = normalizeProviderConnectionStatus(
-      input.patch.status,
-    );
+    const normalizedStatus = normalizeProviderAccountStatus(input.patch.status);
     const patch: Parameters<
-      ProviderConnectionRepository['updateProviderConnection']
+      ProviderAccountRepository['updateProviderAccount']
     >[0]['patch'] = {
       ...(input.patch.label !== undefined
         ? { label: input.patch.label.trim() }
@@ -316,39 +316,37 @@ export class ProviderConnectionControlService {
         : {}),
       ...(input.patch.externalInstallationRef !== undefined
         ? {
-            externalInstallationRef: input.patch.externalInstallationRef,
+            externalIdentityRef: input.patch.externalInstallationRef,
           }
         : {}),
       ...(input.patch.runtimeSecretRefs !== undefined
         ? { runtimeSecretRefs: input.patch.runtimeSecretRefs }
         : {}),
     };
-    const updated =
-      await this.deps.providerConnections.updateProviderConnection({
-        appId: input.appId,
-        id: existing.id,
-        patch,
-        updatedAt: this.deps.clock.now(),
-      });
+    const updated = await this.deps.providerAccounts.updateProviderAccount({
+      appId: input.appId,
+      id: existing.id,
+      patch,
+      updatedAt: this.deps.clock.now(),
+    });
     if (!updated) {
-      throw new ApplicationError('NOT_FOUND', 'provider connection not found');
+      throw new ApplicationError('NOT_FOUND', 'provider account not found');
     }
     return updated;
   }
 
   async disable(input: {
     appId: AppId;
-    providerConnectionId: ProviderConnectionId;
-  }): Promise<ProviderConnection> {
+    providerAccountId: ProviderAccountId;
+  }): Promise<ProviderAccount> {
     const existing = await this.get(input);
-    const disabled =
-      await this.deps.providerConnections.disableProviderConnection({
-        appId: input.appId,
-        id: existing.id,
-        updatedAt: this.deps.clock.now(),
-      });
+    const disabled = await this.deps.providerAccounts.disableProviderAccount({
+      appId: input.appId,
+      id: existing.id,
+      updatedAt: this.deps.clock.now(),
+    });
     if (!disabled) {
-      throw new ApplicationError('NOT_FOUND', 'provider connection not found');
+      throw new ApplicationError('NOT_FOUND', 'provider account not found');
     }
     return disabled;
   }
@@ -357,7 +355,7 @@ export class ProviderConnectionControlService {
 export class DiscoverProviderConversationsService {
   constructor(
     private readonly deps: {
-      providerConnections: ProviderConnectionRepository;
+      providerAccounts: ProviderAccountRepository;
       conversations: ConversationRepository;
       discovery: ProviderConversationDiscoveryPort;
       ids: IdGenerator;
@@ -367,25 +365,24 @@ export class DiscoverProviderConversationsService {
 
   async execute(input: {
     appId: AppId;
-    providerConnectionId: ProviderConnectionId;
+    providerAccountId: ProviderAccountId;
     query?: string;
     includeArchived?: boolean;
     limit?: number;
     providerMetadata?: Record<string, unknown>;
   }) {
-    const providerConnection =
-      await this.deps.providerConnections.getProviderConnection(
-        input.providerConnectionId,
-      );
-    if (!providerConnection) {
-      throw new ApplicationError('NOT_FOUND', 'provider connection not found');
+    const providerAccount = await this.deps.providerAccounts.getProviderAccount(
+      input.providerAccountId,
+    );
+    if (!providerAccount) {
+      throw new ApplicationError('NOT_FOUND', 'provider account not found');
     }
-    assertOwnedProviderConnection(providerConnection, input.appId);
-    if (providerConnection.status !== 'active') {
-      throw new ApplicationError('CONFLICT', 'provider connection is disabled');
+    assertOwnedProviderAccount(providerAccount, input.appId);
+    if (providerAccount.status !== 'active') {
+      throw new ApplicationError('CONFLICT', 'provider account is disabled');
     }
     const discovered = await this.deps.discovery.discover({
-      providerConnection,
+      providerAccount,
       query: input.query,
       includeArchived: input.includeArchived,
       limit: input.limit,
@@ -399,26 +396,26 @@ export class DiscoverProviderConversationsService {
       );
       if (
         explicitProviderId &&
-        explicitProviderId !== providerConnection.providerId
+        explicitProviderId !== providerAccount.providerId
       ) {
         throw new ApplicationError(
           'INVALID_REQUEST',
-          `Discovered conversation externalId "${item.externalId}" has provider prefix "${explicitProviderId}:" but provider connection ${providerConnection.id} is ${providerConnection.providerId}.`,
+          `Discovered conversation externalId "${item.externalId}" has provider prefix "${explicitProviderId}:" but provider account ${providerAccount.id} is ${providerAccount.providerId}.`,
         );
       }
       const existing =
         await this.deps.conversations.getConversationByExternalRef({
           appId: input.appId,
-          providerId: providerConnection.providerId,
-          providerConnectionId: providerConnection.id,
+          providerId: providerAccount.providerId,
+          providerAccountId: providerAccount.id,
           externalConversationId: item.externalId,
         });
       const conversation = {
         id:
           existing?.id ??
-          (`conversation:${providerConnection.id}:${item.externalId}` as ConversationId),
+          (`conversation:${providerAccount.id}:${item.externalId}` as ConversationId),
         appId: input.appId,
-        providerConnectionId: providerConnection.id,
+        providerAccountId: providerAccount.id,
         externalRef:
           item.externalRef ??
           ({
@@ -438,11 +435,11 @@ export class DiscoverProviderConversationsService {
   }
 }
 
-export class AgentConversationBindingControlService {
+export class ConversationInstallControlService {
   constructor(
     private readonly deps: {
       agents: AgentRepository;
-      providerConnections: ProviderConnectionRepository;
+      providerAccounts: ProviderAccountRepository;
       conversations: ConversationRepository;
       ids: IdGenerator;
       clock: Clock;
@@ -452,7 +449,7 @@ export class AgentConversationBindingControlService {
   async list(input: {
     appId: AppId;
     agentId: AgentId;
-  }): Promise<AgentConversationBinding[]> {
+  }): Promise<ConversationInstall[]> {
     const agent = await this.deps.agents.getAgent(input.agentId);
     if (!agent) throw new ApplicationError('NOT_FOUND', 'Agent not found');
     if (agent.appId !== input.appId) {
@@ -461,7 +458,7 @@ export class AgentConversationBindingControlService {
         'API key cannot access this agent',
       );
     }
-    return await this.deps.providerConnections.listAgentConversationBindings(
+    return await this.deps.providerAccounts.listConversationInstalls(
       input.appId,
       input.agentId,
     );
@@ -471,8 +468,8 @@ export class AgentConversationBindingControlService {
     appId: AppId;
     agentId: AgentId;
     conversationId: ConversationId;
-    patch: AgentBindingPatch;
-  }): Promise<AgentConversationBinding> {
+    patch: ConversationInstallPatch;
+  }): Promise<ConversationInstall> {
     return await this.upsert({ ...input, requireExisting: false });
   }
 
@@ -480,8 +477,8 @@ export class AgentConversationBindingControlService {
     appId: AppId;
     agentId: AgentId;
     conversationId: ConversationId;
-    patch: AgentBindingPatch;
-  }): Promise<AgentConversationBinding> {
+    patch: ConversationInstallPatch;
+  }): Promise<ConversationInstall> {
     return await this.upsert({ ...input, requireExisting: true });
   }
 
@@ -490,10 +487,10 @@ export class AgentConversationBindingControlService {
     agentId: AgentId;
     conversationId: ConversationId;
     threadId?: ConversationThreadId;
-  }): Promise<AgentConversationBinding> {
+  }): Promise<ConversationInstall> {
     await this.assertAgent(input.appId, input.agentId);
     const disabled =
-      await this.deps.providerConnections.disableAgentConversationBinding({
+      await this.deps.providerAccounts.disableConversationInstall({
         appId: input.appId,
         agentId: input.agentId,
         conversationId: input.conversationId,
@@ -501,10 +498,7 @@ export class AgentConversationBindingControlService {
         updatedAt: this.deps.clock.now(),
       });
     if (!disabled) {
-      throw new ApplicationError(
-        'NOT_FOUND',
-        'Agent conversation binding not found',
-      );
+      throw new ApplicationError('NOT_FOUND', 'Conversation install not found');
     }
     return disabled;
   }
@@ -513,9 +507,9 @@ export class AgentConversationBindingControlService {
     appId: AppId;
     agentId: AgentId;
     conversationId: ConversationId;
-    patch: AgentBindingPatch;
+    patch: ConversationInstallPatch;
     requireExisting: boolean;
-  }): Promise<AgentConversationBinding> {
+  }): Promise<ConversationInstall> {
     await this.assertAgent(input.appId, input.agentId);
     const conversation = await this.deps.conversations.getConversation(
       input.conversationId,
@@ -539,45 +533,63 @@ export class AgentConversationBindingControlService {
         );
       }
     }
-    const providerConnectionId =
-      input.patch.providerConnectionId ??
-      conversation.providerConnectionId ??
-      (conversation as { providerConnectionId?: ProviderConnectionId })
-        .providerConnectionId;
-    const providerConnection =
-      await this.deps.providerConnections.getProviderConnection(
-        providerConnectionId,
-      );
-    if (!providerConnection) {
-      throw new ApplicationError('NOT_FOUND', 'provider connection not found');
-    }
-    assertOwnedProviderConnection(providerConnection, input.appId);
-    const existing =
-      await this.deps.providerConnections.getAgentConversationBinding({
-        appId: input.appId,
-        agentId: input.agentId,
-        conversationId: input.conversationId,
-        threadId,
-      });
-    if (input.requireExisting && !existing) {
+    const providerAccountId =
+      input.patch.providerAccountId ?? conversation.providerAccountId;
+    if (providerAccountId !== conversation.providerAccountId) {
       throw new ApplicationError(
-        'NOT_FOUND',
-        'Agent conversation binding not found',
+        'INVALID_REQUEST',
+        'Conversation install provider account must match the conversation provider account',
       );
     }
-    const triggerMode =
-      input.patch.triggerMode ?? existing?.triggerMode ?? 'always';
-    const triggerModeWasPatched = input.patch.triggerMode !== undefined;
-    const memoryScope =
-      input.patch.memoryScope ?? existing?.memoryScope ?? 'conversation';
-    const now = this.deps.clock.now();
-    const binding: AgentConversationBinding = {
-      id:
-        existing?.id ??
-        (this.deps.ids.generate() as BrandedId<'AgentConversationBindingId'>),
+    const providerAccount =
+      await this.deps.providerAccounts.getProviderAccount(providerAccountId);
+    if (!providerAccount) {
+      throw new ApplicationError('NOT_FOUND', 'provider account not found');
+    }
+    assertOwnedProviderAccount(providerAccount, input.appId);
+    if (providerAccount.agentId !== input.agentId) {
+      throw new ApplicationError(
+        'FORBIDDEN',
+        'Provider account is owned by a different agent',
+      );
+    }
+    const existing = await this.deps.providerAccounts.getConversationInstall({
       appId: input.appId,
       agentId: input.agentId,
-      providerConnectionId: providerConnection.id,
+      conversationId: input.conversationId,
+      threadId,
+      exactThreadId: Boolean(threadId),
+    });
+    if (input.requireExisting && !existing) {
+      throw new ApplicationError('NOT_FOUND', 'Conversation install not found');
+    }
+    const memoryScope =
+      input.patch.memoryScope ?? existing?.memoryScope ?? 'conversation';
+    const memorySubject = memorySubjectForScope({
+      appId: input.appId,
+      agentId: input.agentId,
+      conversationId: input.conversationId,
+      threadId: threadId ?? existing?.threadId,
+      memoryScope,
+      memorySubject: input.patch.memorySubject,
+    });
+    if (!input.patch.memorySubject && existing?.memorySubject?.route) {
+      memorySubject.route = existing.memorySubject.route;
+    }
+    if (input.patch.routeConfig !== undefined) {
+      memorySubject.route = {
+        ...(memorySubject.route ?? {}),
+        ...input.patch.routeConfig,
+      };
+    }
+    const now = this.deps.clock.now();
+    const install: ConversationInstall = {
+      id:
+        existing?.id ??
+        (this.deps.ids.generate() as BrandedId<'ConversationInstallId'>),
+      appId: input.appId,
+      agentId: input.agentId,
+      providerAccountId: providerAccount.id,
       conversationId: conversation.id,
       ...(threadId
         ? { threadId }
@@ -593,26 +605,10 @@ export class AgentConversationBindingControlService {
         input.patch.status ??
         (input.requireExisting ? existing?.status : undefined) ??
         'active',
-      triggerMode,
-      triggerPattern:
-        input.patch.triggerPattern === null
-          ? undefined
-          : (input.patch.triggerPattern ?? existing?.triggerPattern),
-      requiresTrigger:
-        input.patch.requiresTrigger ??
-        (triggerModeWasPatched
-          ? triggerModeToRequiresTrigger(triggerMode)
-          : existing?.requiresTrigger) ??
-        triggerModeToRequiresTrigger(triggerMode),
+      senderPolicy: 'provider_native',
+      controlPolicy: 'conversation_approvers',
       memoryScope,
-      memorySubject: memorySubjectForScope({
-        appId: input.appId,
-        agentId: input.agentId,
-        conversationId: input.conversationId,
-        threadId: threadId ?? existing?.threadId,
-        memoryScope,
-        memorySubject: input.patch.memorySubject,
-      }),
+      memorySubject,
       workspaceSnapshotId:
         input.patch.workspaceSnapshotId === null
           ? undefined
@@ -622,8 +618,8 @@ export class AgentConversationBindingControlService {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    await this.deps.providerConnections.saveAgentConversationBinding(binding);
-    return binding;
+    await this.deps.providerAccounts.saveConversationInstall(install);
+    return install;
   }
 
   private async assertAgent(appId: AppId, agentId: AgentId): Promise<void> {

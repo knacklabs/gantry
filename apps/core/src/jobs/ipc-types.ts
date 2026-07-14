@@ -5,6 +5,7 @@ export interface TaskIpcData {
   type: string;
   appId?: string;
   agentId?: string;
+  providerAccountId?: string;
   authThreadId?: string;
   responseKeyId?: string;
   taskId?: string;
@@ -25,6 +26,7 @@ export interface TaskIpcData {
   notificationRoutes?: Array<{
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string | null;
     label: string;
   }>;
   accessRequirements?: JobAccessRequirement[];

@@ -22,21 +22,13 @@ import {
   buildPermissionReceiptBlocks,
 } from './permission-blocks.js';
 import { registerSlackRichFormHandlers } from './rich-interaction.js';
-import {
-  buildTriggerPattern,
-  triggerForRoute,
-} from '../../shared/trigger-pattern.js';
 import { SLACK_PERMISSION_DECISION_ACTION_IDS } from './permission-action-id.js';
-import { nowIso } from '../../shared/time/datetime.js';
-import {
-  tryNativeStreamAppend,
-  tryNativeStreamStart,
-  tryNativeStreamStop,
-} from './native-stream.js';
 import { registerSlackMessageActionHandler } from './channel-message-action-handler.js';
 import { registerSlackUtilityHandlers } from './channel-utility-handlers.js';
-import { ingestSlackSlashCommand as ingestSlackSlashCommandEvent } from './slash-command-ingest.js';
-
+import {
+  ingestSlackMessage as ingestSlackMessageEvent,
+  ingestSlackSlashCommand as ingestSlackSlashCommandEvent,
+} from './channel-message-ingest.js';
 export abstract class SlackChannelInteractions extends SlackChannelState {
   protected async ingestSlackSlashCommand(command: {
     channel_id?: string;
@@ -55,103 +47,39 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         this.isLikelyGroupConversation(channelId),
     });
   }
-
   protected async ingestSlackMessage(
     event: SlackMessageLike,
     options: { forceOwnedTopLevel?: boolean } = {},
   ): Promise<void> {
-    if (!event.channel || !event.ts) return;
-    if (event.bot_id) return;
-    if (event.subtype && event.subtype !== 'file_share') return;
-    if (event.subtype === 'message_changed') return;
-    if (event.edited) return;
-    const jid = `sl:${event.channel}`;
-    const chatName = await this.resolveChannelName(event.channel);
-    await this.opts.onChatMetadata(
-      jid,
-      nowIso(),
-      chatName,
-      'slack',
-      this.isLikelyGroupConversation(event.channel),
-    );
-    const group = this.opts.conversationRoutes()[jid];
-    const isGroupConversation = this.isLikelyGroupConversation(event.channel);
-    if (!group && isGroupConversation) {
-      logger.debug(
-        { jid, chatName },
-        'Message from unregistered Slack conversation',
-      );
-      return;
-    }
-    const enriched = await this.enrichMessage(jid, event);
-    const rawContent = enriched.text;
-    const content =
-      this.botUserId && group
-        ? rawContent.replace(
-            new RegExp(`^<@${this.botUserId}>\\s+`),
-            `${triggerForRoute(group)} `,
-          )
-        : rawContent;
-    if (!content) return;
-    const sender = event.user || 'unknown';
-    const senderName = await this.resolveUserName(event.user);
-    const ownsTopLevelMessage =
-      Boolean(group) &&
-      (options.forceOwnedTopLevel ||
-        group.requiresTrigger === false ||
-        buildTriggerPattern(triggerForRoute(group)).test(content.trim()));
-    const threadId =
-      event.thread_ts ||
-      (isGroupConversation && ownsTopLevelMessage ? event.ts : undefined);
-    await this.opts.onMessage(jid, {
-      id: event.ts,
-      chat_jid: jid,
-      provider: 'slack',
-      sender,
-      sender_name: senderName,
-      content,
-      timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
-      is_from_me: this.botUserId ? sender === this.botUserId : false,
-      external_message_id: event.ts,
-      thread_id: threadId,
-      attachments: enriched.attachments,
-      reply_to_message_id:
-        event.thread_ts && event.thread_ts !== event.ts
-          ? event.thread_ts
-          : undefined,
+    await ingestSlackMessageEvent({
+      event,
+      options,
+      opts: this.opts,
+      botUserId: this.botUserId,
+      resolveChannelName: (channelId) => this.resolveChannelName(channelId),
+      resolveUserName: (userId) => this.resolveUserName(userId),
+      isLikelyGroupConversation: (channelId) =>
+        this.isLikelyGroupConversation(channelId),
+      enrichMessage: (jid, slackEvent, targetFolder) =>
+        this.enrichMessage(jid, slackEvent, targetFolder),
     });
-  }
-  protected async tryNativeStreamStart(
-    channelId: string,
-    threadId: string | undefined,
-    text: string,
-  ): Promise<string | undefined> {
-    return tryNativeStreamStart({ app: this.app, channelId, threadId, text });
-  }
-  protected async tryNativeStreamAppend(
-    channelId: string,
-    streamTs: string,
-    text: string,
-  ): Promise<{ completed: boolean; sentPrefix: string }> {
-    return tryNativeStreamAppend({ app: this.app, channelId, streamTs, text });
-  }
-  protected async tryNativeStreamStop(
-    channelId: string,
-    streamTs: string,
-  ): Promise<boolean> {
-    return tryNativeStreamStop({ app: this.app, channelId, streamTs });
   }
   protected async canDecidePermission(
     userId: string,
     sourceAgentFolder: string,
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'],
     conversationJid?: string,
+    threadId?: string,
+    providerAccountId = this.opts.providerAccountId,
   ): Promise<boolean> {
     if (decisionPolicy && decisionPolicy !== 'same_channel') return false;
     if (this.opts.isControlApproverAllowed && conversationJid) {
       return this.opts.isControlApproverAllowed({
         providerId: 'slack',
+        providerAccountId,
+        agentId: this.opts.agentId,
         conversationJid,
+        threadId,
         userId,
         sourceAgentFolder,
         decisionPolicy,
@@ -221,17 +149,23 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         | {
             requestId: string;
             decision: string;
+            providerAccountId?: string;
           }
         | undefined;
       try {
         payload = JSON.parse(action.value) as {
           requestId: string;
           decision: string;
+          providerAccountId?: string;
         };
       } catch {
         return;
       }
       if (!payload?.requestId) return;
+      const callbackProviderAccountId =
+        typeof payload.providerAccountId === 'string'
+          ? payload.providerAccountId
+          : this.opts.providerAccountId;
       const mode = normalizePermissionAction(payload.decision);
       if (!mode) return;
       const pending = this.pendingPermissionPrompts.get(payload.requestId);
@@ -252,6 +186,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           durable.sourceAgentFolder,
           durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
           durable.targetJid,
+          durable.threadId ?? undefined,
+          callbackProviderAccountId,
         );
         if (!allowed) return;
         const resolved = await resolveDurablePermissionInteractionByRequestId({
@@ -302,6 +238,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
           pending.sourceAgentFolder,
           pending.decisionPolicy,
           pending.approvalContextJid || `sl:${pending.channelId}`,
+          pending.request.threadId,
+          callbackProviderAccountId,
         ))
       ) {
         try {
@@ -334,13 +272,20 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       const userId = body.user?.id || '';
       const triggerId = body.trigger_id;
       if (!action.value || !userId || !triggerId) return;
-      let payload: { requestId?: string } = {};
+      let payload: { requestId?: string; providerAccountId?: string } = {};
       try {
-        payload = JSON.parse(action.value) as { requestId?: string };
+        payload = JSON.parse(action.value) as {
+          requestId?: string;
+          providerAccountId?: string;
+        };
       } catch {
         return;
       }
       if (!payload.requestId) return;
+      const callbackProviderAccountId =
+        typeof payload.providerAccountId === 'string'
+          ? payload.providerAccountId
+          : this.opts.providerAccountId;
       const callbackChannelId =
         body.channel?.id ||
         body.container?.channel_id ||
@@ -355,6 +300,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
             pending.sourceAgentFolder,
             pending.decisionPolicy,
             pending.approvalContextJid || `sl:${pending.channelId}`,
+            undefined,
+            callbackProviderAccountId,
           ))
         ) {
           try {
@@ -380,6 +327,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
             durable.sourceAgentFolder,
             durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
             durable.targetJid,
+            durable.threadId ?? undefined,
+            callbackProviderAccountId,
           ))
         ) {
           try {
@@ -704,6 +653,6 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       app: this.app,
       pendingRichForms: this.pendingRichForms,
     });
-    registerSlackMessageActionHandler(this.app, this.opts.onMessageAction);
+    registerSlackMessageActionHandler(this.app, this.opts);
   }
 }

@@ -12,7 +12,14 @@ import {
 } from '../../jobs/capability-starvation.js';
 import { WORKER_STALE_AFTER_MS } from '../../shared/worker-heartbeat.js';
 import type { IpcDeps } from '../../runtime/ipc.js';
+import {
+  findConversationRouteForQueue,
+  makeThreadQueueKey,
+} from '../../shared/thread-queue-key.js';
 import type { RuntimeApp } from './runtime-app.js';
+
+const UNRESOLVED_LIVE_TURN_OWNER_CAPABILITY =
+  'gantry:unresolved-live-turn-owner';
 
 export function buildLiveTurnRecoveryCapabilityGate(input: {
   app: RuntimeApp;
@@ -42,9 +49,24 @@ export function buildLiveTurnRecoveryCapabilityGate(input: {
   const requiredCapabilitiesForLiveTurn = async (
     turn: LiveTurn,
   ): Promise<string[]> => {
-    const folder =
-      input.app.getConversationRoutes()[turn.conversationId]?.folder;
-    if (!folder) return [];
+    const pendingQueueJid =
+      turn.pendingMessage &&
+      typeof turn.pendingMessage === 'object' &&
+      !Array.isArray(turn.pendingMessage) &&
+      typeof turn.pendingMessage.queueJid === 'string'
+        ? turn.pendingMessage.queueJid
+        : undefined;
+    const route = findConversationRouteForQueue(
+      input.app.getConversationRoutes(),
+      pendingQueueJid ?? makeThreadQueueKey(turn.conversationId, turn.threadId),
+      (candidate) => input.agentIdForFolder(candidate.folder),
+    );
+    const folder = route?.folder;
+    if (!folder) {
+      // ponytail: sentinel keeps fleet recovery fail-closed without widening
+      // the capability-gate return type.
+      return [UNRESOLVED_LIVE_TURN_OWNER_CAPABILITY];
+    }
     return resolveRequiredCapabilities(
       {
         deploymentMode: 'fleet',

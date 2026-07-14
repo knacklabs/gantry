@@ -1,20 +1,68 @@
 import { createHash } from 'node:crypto';
 import {
+  getActiveSpanId,
   LangfuseOtelSpanAttributes,
   propagateAttributes,
+  setLangfuseTracerProvider,
   startActiveObservation,
   type LangfuseObservation,
   type LangfuseObservationType,
 } from '@langfuse/tracing';
 import type { GantryObservabilityContext } from '../shared/types.js';
 
+export type GantryModelCallType =
+  | 'generation'
+  | 'rerank'
+  | 'ocr'
+  | 'agent_step';
+
+let langfuseTracerProvider: { shutdown(): Promise<void> } | null = null;
+
+export async function initializeGantryLangfuseTracingFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
+  if (langfuseTracerProvider) return true;
+  if (!isLangfuseEnabled(env)) return false;
+  const publicKey = env.LANGFUSE_PUBLIC_KEY?.trim();
+  const secretKey = env.LANGFUSE_SECRET_KEY?.trim();
+  if (!publicKey || !secretKey) return false;
+  const [{ LangfuseSpanProcessor }, { NodeTracerProvider }] = await Promise.all(
+    [import('@langfuse/otel'), import('@opentelemetry/sdk-trace-node')],
+  );
+  const processor = new LangfuseSpanProcessor({
+    publicKey,
+    secretKey,
+    baseUrl: env.LANGFUSE_BASE_URL?.trim() || undefined,
+    environment: env.LANGFUSE_TRACING_ENVIRONMENT?.trim() || env.NODE_ENV,
+    release: env.LANGFUSE_RELEASE?.trim() || undefined,
+    flushAt: readPositiveInteger(env.LANGFUSE_FLUSH_AT),
+    flushInterval: readPositiveInteger(env.LANGFUSE_FLUSH_INTERVAL),
+    timeout: readPositiveInteger(env.LANGFUSE_TIMEOUT),
+  });
+  const provider = new NodeTracerProvider({ spanProcessors: [processor] });
+  provider.register();
+  langfuseTracerProvider = provider;
+  setLangfuseTracerProvider(provider);
+  return true;
+}
+
+export async function shutdownGantryLangfuseTracing(): Promise<void> {
+  const provider = langfuseTracerProvider;
+  if (!provider) return;
+  langfuseTracerProvider = null;
+  setLangfuseTracerProvider(null);
+  await provider.shutdown();
+}
+
 export interface GantryModelObservationInput<TOutput> {
   readonly operationName: string;
   readonly taskType?: string | null;
-  readonly modelCallType: 'generation' | 'agent_step';
+  readonly modelCallType: GantryModelCallType;
   readonly provider: string;
   readonly model: string;
   readonly attempt?: number;
+  readonly costStage?: string;
+  readonly parentSpanContext?: GantryParentSpanContext;
   readonly input?: unknown;
   readonly output?: unknown | ((result: TOutput) => unknown);
   readonly usageDetails?:
@@ -24,6 +72,11 @@ export interface GantryModelObservationInput<TOutput> {
   readonly metadata?: Record<string, unknown>;
   readonly resultMetadata?: (result: TOutput) => Record<string, unknown>;
   readonly observability?: GantryObservabilityContext | null;
+}
+
+export interface GantryParentSpanContext {
+  readonly traceId: string;
+  readonly spanId: string;
 }
 
 export interface GantryAgentSpanInput<TOutput> {
@@ -52,16 +105,18 @@ export async function observeGantryModelCall<TOutput>(
   input: GantryModelObservationInput<TOutput>,
   operation: () => Promise<TOutput>,
 ): Promise<TOutput> {
+  const costStage = resolveModelObservationCostStage(input);
   return observeGantryOperation(
     {
       asType: 'generation',
       operationName: input.operationName,
-      costStage: 'agent.structured_model',
+      costStage,
       taskType: input.taskType,
       modelCallType: input.modelCallType,
       provider: input.provider,
       model: input.model,
       attempt: input.attempt,
+      parentSpanContext: input.parentSpanContext,
       input: input.input,
       output: input.output,
       usageDetails: input.usageDetails,
@@ -136,12 +191,21 @@ export function extractAnthropicUsageDetails(
   if (!usage) return undefined;
   const inputTokens = readNumber(usage.input_tokens);
   const outputTokens = readNumber(usage.output_tokens);
+  const cacheCreationInputTokens = readNumber(
+    usage.cache_creation_input_tokens,
+  );
+  const cacheReadInputTokens = readNumber(usage.cache_read_input_tokens);
   return compactUsage({
     input: inputTokens,
     output: outputTokens,
-    total: sumDefined(inputTokens, outputTokens),
-    cache_creation_input: readNumber(usage.cache_creation_input_tokens),
-    cached_input: readNumber(usage.cache_read_input_tokens),
+    total: sumDefined(
+      inputTokens,
+      cacheCreationInputTokens,
+      cacheReadInputTokens,
+      outputTokens,
+    ),
+    cache_creation_input_tokens: cacheCreationInputTokens,
+    cache_read_input_tokens: cacheReadInputTokens,
   });
 }
 
@@ -151,10 +215,11 @@ async function observeGantryOperation<TOutput>(
     readonly operationName: string;
     readonly costStage: string;
     readonly taskType?: string | null;
-    readonly modelCallType: 'generation' | 'agent_step';
+    readonly modelCallType: GantryModelCallType;
     readonly provider: string;
     readonly model: string;
     readonly attempt?: number;
+    readonly parentSpanContext?: GantryParentSpanContext;
     readonly input?: unknown;
     readonly output?: unknown | ((result: TOutput) => unknown);
     readonly usageDetails?:
@@ -173,13 +238,14 @@ async function observeGantryOperation<TOutput>(
   const metadata = buildMetadata(input, 'pending');
   const sessionId = resolveObservabilitySessionId(input.observability);
   const tags = buildTags(input);
+  const hasParent = Boolean(input.parentSpanContext) || safelyHasActiveParent();
   let operationStarted = false;
   let operationCompleted = false;
   let operationResult: TOutput | undefined;
   try {
     return await propagateAttributes(
       {
-        traceName: input.costStage,
+        ...(!hasParent ? { traceName: input.costStage } : {}),
         ...(sessionId ? { sessionId } : {}),
         userId: input.observability?.userId ?? undefined,
         tags,
@@ -191,7 +257,7 @@ async function observeGantryOperation<TOutput>(
           async (observation) => {
             applyTraceAttributes(observation, {
               sessionId,
-              traceName: input.costStage,
+              ...(!hasParent ? { traceName: input.costStage } : {}),
               tags,
             });
             safeUpdateObservation(observation, {
@@ -230,6 +296,7 @@ async function observeGantryOperation<TOutput>(
             }
           },
           input.asType,
+          input.parentSpanContext,
         ),
     );
   } catch (error) {
@@ -243,12 +310,31 @@ async function observeGantryOperation<TOutput>(
   }
 }
 
+function safelyHasActiveParent(): boolean {
+  try {
+    return Boolean(getActiveSpanId());
+  } catch {
+    return false;
+  }
+}
+
+function resolveModelObservationCostStage<TOutput>(
+  input: GantryModelObservationInput<TOutput>,
+): string {
+  return (
+    readNonEmptyString(input.observability?.costStage) ??
+    readNonEmptyString(input.metadata?.cost_stage) ??
+    readNonEmptyString(input.costStage) ??
+    'agent.structured_model'
+  );
+}
+
 function buildMetadata<TOutput>(
   input: {
     readonly operationName: string;
     readonly costStage: string;
     readonly taskType?: string | null;
-    readonly modelCallType: 'generation' | 'agent_step';
+    readonly modelCallType: GantryModelCallType;
     readonly provider: string;
     readonly model: string;
     readonly attempt?: number;
@@ -265,6 +351,7 @@ function buildMetadata<TOutput>(
   return sanitizeObservationMetadata(
     {
       ...contextMetadata,
+      ...(input.metadata ?? {}),
       cost_category: costCategory,
       cost_stage: costStage,
       operation_name: input.operationName,
@@ -274,9 +361,8 @@ function buildMetadata<TOutput>(
       model: input.model,
       service_name: 'agent-gantry',
       environment: process.env.NODE_ENV ?? 'development',
-      status,
+      ...(status === 'pending' ? {} : { status }),
       ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
-      ...(input.metadata ?? {}),
       ...(result === undefined || !input.resultMetadata
         ? {}
         : input.resultMetadata(result)),
@@ -285,9 +371,9 @@ function buildMetadata<TOutput>(
   );
 }
 
-function buildTags<TOutput>(input: {
+function buildTags(input: {
   readonly costStage: string;
-  readonly modelCallType: 'generation' | 'agent_step';
+  readonly modelCallType: GantryModelCallType;
   readonly provider: string;
   readonly observability?: GantryObservabilityContext | null;
 }): string[] {
@@ -342,7 +428,7 @@ function applyTraceAttributes(
   observation: LangfuseObservation,
   input: {
     readonly sessionId?: string;
-    readonly traceName: string;
+    readonly traceName?: string;
     readonly tags: readonly string[];
   },
 ): void {
@@ -355,7 +441,9 @@ function applyTraceAttributes(
   ).otelSpan;
   if (!span) return;
   span.setAttributes({
-    [LangfuseOtelSpanAttributes.TRACE_NAME]: input.traceName,
+    ...(input.traceName
+      ? { [LangfuseOtelSpanAttributes.TRACE_NAME]: input.traceName }
+      : {}),
     [LangfuseOtelSpanAttributes.TRACE_TAGS]: [...input.tags],
     ...(input.sessionId
       ? { [LangfuseOtelSpanAttributes.TRACE_SESSION_ID]: input.sessionId }
@@ -373,13 +461,33 @@ function startTypedObservation<TOutput>(
   name: string,
   fn: (observation: LangfuseObservation) => Promise<TOutput>,
   asType: LangfuseObservationType,
+  parentSpanContext?: GantryParentSpanContext,
 ): Promise<TOutput> {
   const start = startActiveObservation as unknown as (
     observationName: string,
     observationFn: (observation: LangfuseObservation) => Promise<TOutput>,
-    options: { readonly asType: LangfuseObservationType },
+    options: {
+      readonly asType: LangfuseObservationType;
+      readonly parentSpanContext?: {
+        readonly traceId: string;
+        readonly spanId: string;
+        readonly traceFlags: number;
+        readonly isRemote: boolean;
+      };
+    },
   ) => Promise<TOutput>;
-  return start(name, fn, { asType });
+  return start(name, fn, {
+    asType,
+    ...(parentSpanContext
+      ? {
+          parentSpanContext: {
+            ...parentSpanContext,
+            traceFlags: 1,
+            isRemote: true,
+          },
+        }
+      : {}),
+  });
 }
 
 function updateObservation(
@@ -481,9 +589,14 @@ function stringifyTraceMetadata(
   return propagated;
 }
 
-function isLangfuseEnabled(): boolean {
-  const explicit = process.env.LANGFUSE_TRACING_ENABLED?.trim().toLowerCase();
+function isLangfuseEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const explicit = env.LANGFUSE_TRACING_ENABLED?.trim().toLowerCase();
   return explicit !== 'false' && explicit !== '0';
+}
+
+function readPositiveInteger(value: string | undefined): number | undefined {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

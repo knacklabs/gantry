@@ -1,8 +1,8 @@
 import type { AppId } from '../../../domain/app/app.js';
 import type {
-  AgentConversationBinding,
-  ProviderConnection,
-  ProviderConnectionId,
+  ConversationInstall,
+  ProviderAccount,
+  ProviderAccountId,
   Provider,
 } from '../../../domain/provider/provider.js';
 import type {
@@ -22,7 +22,7 @@ import type { WorkspaceSnapshotId } from '../../../domain/sandbox/sandbox.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { ExternalRef } from '../../../shared/ids/branded-id.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
-import type { AgentBindingPatch } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
+import type { ConversationInstallPatch } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
 
 export function parseLimit(raw: string | null): number | undefined {
   if (!raw) return undefined;
@@ -60,6 +60,23 @@ function memorySubjectToContract(subject: MemorySubject | undefined) {
   }
 }
 
+function routeConfigToContract(subject: MemorySubject | undefined) {
+  if (!subject?.route) return undefined;
+  return {
+    ...(subject.route.trigger !== undefined
+      ? { trigger: subject.route.trigger }
+      : {}),
+    ...(subject.route.requiresTrigger !== undefined
+      ? { requiresTrigger: subject.route.requiresTrigger }
+      : {}),
+    ...(subject.route.agentConfig &&
+    typeof subject.route.agentConfig === 'object' &&
+    !Array.isArray(subject.route.agentConfig)
+      ? { agentConfig: subject.route.agentConfig as Record<string, unknown> }
+      : {}),
+  };
+}
+
 export function memorySubjectFromContract(
   appId: AppId,
   raw: { type: string; id: string } | undefined,
@@ -82,7 +99,7 @@ export function memorySubjectFromContract(
     default:
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'Unsupported memorySubject type for conversation binding',
+        'Unsupported memorySubject type for conversation install',
       );
   }
 }
@@ -100,22 +117,19 @@ export function providerToResponse(provider: Provider) {
   };
 }
 
-export function providerConnectionToResponse(
-  providerConnection: ProviderConnection,
-) {
+export function providerAccountToResponse(providerAccount: ProviderAccount) {
   return {
-    id: providerConnection.id,
-    appId: providerConnection.appId,
-    providerId: providerConnection.providerId,
-    label: providerConnection.label,
-    status: providerConnection.status,
-    config: providerConnection.config,
-    externalRef: externalRefToContract(
-      providerConnection.externalInstallationRef,
-    ),
-    runtimeSecretRefs: providerConnection.runtimeSecretRefs,
-    createdAt: providerConnection.createdAt,
-    updatedAt: providerConnection.updatedAt,
+    id: providerAccount.id,
+    appId: providerAccount.appId,
+    agentId: providerAccount.agentId,
+    providerId: providerAccount.providerId,
+    label: providerAccount.label,
+    status: providerAccount.status,
+    config: providerAccount.config,
+    externalRef: externalRefToContract(providerAccount.externalIdentityRef),
+    runtimeSecretRefs: providerAccount.runtimeSecretRefs,
+    createdAt: providerAccount.createdAt,
+    updatedAt: providerAccount.updatedAt,
   };
 }
 
@@ -130,13 +144,10 @@ function conversationStatusToContract(status: Conversation['status']) {
 }
 
 export function conversationToResponse(conversation: Conversation) {
-  const providerConnectionId =
-    conversation.providerConnectionId ??
-    (conversation as { providerConnectionId?: string }).providerConnectionId;
   return {
     id: conversation.id,
     appId: conversation.appId,
-    providerConnectionId,
+    providerAccountId: conversation.providerAccountId,
     externalRef: externalRefToContract(conversation.externalRef),
     kind: conversationKindToContract(conversation.kind),
     title: conversation.title ?? null,
@@ -218,66 +229,51 @@ export function messageToResponse(message: Message) {
   };
 }
 
-export function bindingToResponse(binding: AgentConversationBinding) {
-  const providerConnectionId =
-    binding.providerConnectionId ??
-    (binding as { providerConnectionId?: string }).providerConnectionId;
+export function conversationInstallToResponse(install: ConversationInstall) {
   return {
-    id: binding.id,
-    appId: binding.appId,
-    agentId: binding.agentId,
-    providerConnectionId,
-    conversationId: binding.conversationId,
-    threadId: binding.threadId ?? null,
-    displayName: binding.displayName,
-    status: binding.status,
-    triggerMode: binding.triggerMode,
-    triggerPattern: binding.triggerPattern ?? null,
-    requiresTrigger: binding.requiresTrigger,
-    memoryScope: binding.memoryScope,
-    memorySubject: memorySubjectToContract(binding.memorySubject),
-    workspaceSnapshotId: binding.workspaceSnapshotId ?? null,
-    permissionPolicyIds: binding.permissionPolicyIds,
-    createdAt: binding.createdAt,
-    updatedAt: binding.updatedAt,
+    id: install.id,
+    appId: install.appId,
+    agentId: install.agentId,
+    providerAccountId: install.providerAccountId,
+    conversationId: install.conversationId,
+    threadId: install.threadId ?? null,
+    displayName: install.displayName,
+    status: install.status,
+    memoryScope: install.memoryScope,
+    memorySubject: memorySubjectToContract(install.memorySubject),
+    routeConfig: routeConfigToContract(install.memorySubject),
+    workspaceSnapshotId: install.workspaceSnapshotId ?? null,
+    permissionPolicyIds: install.permissionPolicyIds,
+    createdAt: install.createdAt,
+    updatedAt: install.updatedAt,
   };
 }
 
-export function bindingPatchFromParsed(
+export function conversationInstallPatchFromParsed(
   appId: AppId,
   conversationId: ConversationId,
   data: {
-    providerConnectionId?: string;
+    providerAccountId?: string;
     threadId?: string;
     displayName?: string;
-    triggerMode?: AgentBindingPatch['triggerMode'];
-    triggerPattern?: string | null;
-    requiresTrigger?: boolean;
-    memoryScope?: AgentBindingPatch['memoryScope'];
+    memoryScope?: ConversationInstallPatch['memoryScope'];
     memorySubject?: { type: string; id: string };
+    routeConfig?: ConversationInstallPatch['routeConfig'];
     workspaceSnapshotId?: string | null;
     permissionPolicyIds?: string[];
-    status?: AgentBindingPatch['status'];
+    status?: ConversationInstallPatch['status'];
   },
-): AgentBindingPatch {
+): ConversationInstallPatch {
   return {
-    ...(data.providerConnectionId
+    ...(data.providerAccountId
       ? {
-          providerConnectionId:
-            data.providerConnectionId as ProviderConnectionId,
+          providerAccountId: data.providerAccountId as ProviderAccountId,
         }
       : {}),
     ...(data.threadId
       ? { threadId: data.threadId as ConversationThreadId }
       : {}),
     ...(data.displayName ? { displayName: data.displayName } : {}),
-    ...(data.triggerMode ? { triggerMode: data.triggerMode } : {}),
-    ...(data.triggerPattern !== undefined
-      ? { triggerPattern: data.triggerPattern }
-      : {}),
-    ...(data.requiresTrigger !== undefined
-      ? { requiresTrigger: data.requiresTrigger }
-      : {}),
     ...(data.memoryScope ? { memoryScope: data.memoryScope } : {}),
     ...(data.memorySubject
       ? {
@@ -287,6 +283,9 @@ export function bindingPatchFromParsed(
             conversationId,
           ),
         }
+      : {}),
+    ...(data.routeConfig !== undefined
+      ? { routeConfig: data.routeConfig }
       : {}),
     ...(data.workspaceSnapshotId !== undefined
       ? {

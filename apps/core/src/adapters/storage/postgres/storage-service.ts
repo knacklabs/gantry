@@ -22,6 +22,7 @@ import {
   DEFAULT_TOOL_CATALOG,
   seedDefaultRuntimeData,
 } from './seeds.js';
+import { runtimePgBossSchema } from '../../../infrastructure/pgboss/pgboss-schema.js';
 
 const storageDir = path.dirname(fileURLToPath(import.meta.url));
 export const postgresMigrationsFolder = path.join(
@@ -301,7 +302,7 @@ export class PostgresStorageService implements StorageService {
     );
     const boss = new PgBoss({
       connectionString: poolConfig.connectionString,
-      schema: 'pgboss',
+      schema: runtimePgBossSchema(),
       createSchema: true,
       migrate: true,
       schedule: false,

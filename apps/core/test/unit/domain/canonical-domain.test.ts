@@ -108,9 +108,7 @@ describe('canonical Postgres persistence cut', () => {
 
     expect(schema).toContain("'messages'");
     expect(schema).toContain("providerId: text('provider')");
-    expect(schema).toContain(
-      "providerConnectionId: text('provider_connection_id')",
-    );
+    expect(schema).toContain("providerAccountId: text('provider_account_id')");
     expect(schema).toContain("externalMessageId: text('external_message_id')");
     expect(migration).toContain('idx_messages_external_redelivery_unique');
     expect(migration).toContain('WHERE external_message_id IS NOT NULL');

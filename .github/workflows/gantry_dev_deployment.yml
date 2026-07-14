@@ -50,21 +50,6 @@ jobs:
       - name: Download task definition
         run: aws ecs describe-task-definition --task-definition ${{ env.TASK_NAME }} --query taskDefinition > task-definition.json
 
-      - name: Normalize task definition for sandbox runtime
-        run: |
-          jq --arg container "${{ env.CONTAINER_NAME }}" '
-            .containerDefinitions |= map(
-              if .name == $container then
-                del(.dockerSecurityOptions)
-                | .privileged = true
-                | .linuxParameters = ((.linuxParameters // {}) + { initProcessEnabled: true })
-              else
-                .
-              end
-            )
-          ' task-definition.json > task-definition.normalized.json
-          mv task-definition.normalized.json task-definition.json
-
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
@@ -73,14 +58,6 @@ jobs:
             container-name: ${{ env.CONTAINER_NAME }}
             image: ${{ steps.build-image.outputs.image }}
 
-      - name: Verify sandbox runtime task options
-        run: |
-          jq -e --arg container "${{ env.CONTAINER_NAME }}" '
-            .containerDefinitions[]
-            | select(.name == $container)
-            | .privileged == true
-          ' "${{ steps.task-def.outputs.task-definition }}" >/dev/null
-
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
@@ -88,4 +65,5 @@ jobs:
             service: ${{ env.ECS_SERVICE }}
             cluster: ${{ env.ECS_CLUSTER }}
             wait-for-service-stability: true
+            wait-max-delay-seconds: 15
             wait-for-minutes: 15

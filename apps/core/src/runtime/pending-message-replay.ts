@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { NewMessage } from '../domain/types.js';
+import type { AgentControlOverrides, NewMessage } from '../domain/types.js';
 import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
@@ -10,13 +10,15 @@ export type GetMessagesSince = (
   conversationJid: string,
   sinceCursor: string,
   limit?: number,
-  options?: { threadId?: string | null },
+  options?: { threadId?: string | null; providerAccountId?: string | null },
 ) => Promise<NewMessage[]>;
 
 export interface PendingMessageReplay {
   messages: NewMessage[];
   hasMore: boolean;
   cursorAfter: string | null;
+  responseSchema?: Record<string, unknown>;
+  agentControls?: AgentControlOverrides;
 }
 
 export async function collectPendingMessagesSince(input: {
@@ -25,7 +27,7 @@ export async function collectPendingMessagesSince(input: {
   sinceCursor: string;
   pageSize: number;
   maxMessages?: number;
-  options?: { threadId?: string | null };
+  options?: { threadId?: string | null; providerAccountId?: string | null };
 }): Promise<PendingMessageReplay> {
   const pageSize = Math.max(1, Math.floor(input.pageSize));
   const maxMessages = Math.max(
@@ -44,11 +46,7 @@ export async function collectPendingMessagesSince(input: {
       input.options,
     );
     if (batch.length === 0) {
-      return {
-        messages,
-        hasMore: false,
-        cursorAfter: messagesCursor(messages),
-      };
+      return selectPendingMessageBatch(messages, false);
     }
 
     const remaining = maxMessages - messages.length;
@@ -56,11 +54,7 @@ export async function collectPendingMessagesSince(input: {
     messages.push(...acceptedBatch);
     const lastAcceptedMessage = acceptedBatch[acceptedBatch.length - 1];
     if (!lastAcceptedMessage) {
-      return {
-        messages,
-        hasMore: true,
-        cursorAfter: messagesCursor(messages),
-      };
+      return selectPendingMessageBatch(messages, true);
     }
     const nextCursor = encodeGroupMessageCursor(
       toGroupMessageCursor(lastAcceptedMessage),
@@ -71,13 +65,35 @@ export async function collectPendingMessagesSince(input: {
     cursor = nextCursor;
 
     if (acceptedBatch.length < batch.length) {
-      return { messages, hasMore: true, cursorAfter: cursor };
+      return selectPendingMessageBatch(messages, true);
     }
     if (batch.length < limit) {
-      return { messages, hasMore: false, cursorAfter: cursor };
+      return selectPendingMessageBatch(messages, false);
     }
   }
-  return { messages, hasMore: true, cursorAfter: cursor };
+  return selectPendingMessageBatch(messages, true);
+}
+
+function selectPendingMessageBatch(
+  messages: NewMessage[],
+  hasMore: boolean,
+): PendingMessageReplay {
+  const firstControlled = messages.findIndex(
+    (message) =>
+      message.responseSchema !== undefined ||
+      message.agentControls !== undefined,
+  );
+  if (firstControlled < 0) {
+    return { messages, hasMore, cursorAfter: messagesCursor(messages) };
+  }
+  const selected = messages.slice(0, firstControlled + 1);
+  return {
+    messages: selected,
+    hasMore: hasMore || selected.length < messages.length,
+    cursorAfter: messagesCursor(selected),
+    responseSchema: messages[firstControlled]!.responseSchema,
+    agentControls: messages[firstControlled]!.agentControls,
+  };
 }
 
 export function buildPendingMessagesContinuationIdempotencyKey(input: {

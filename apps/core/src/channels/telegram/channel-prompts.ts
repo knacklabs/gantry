@@ -298,31 +298,30 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
   ): string[] {
     if (!chatId.startsWith('-')) return [chatId];
     const settings = this.opts.runtimeSettings?.();
-    const binding = settings
-      ? Object.values(settings.bindings || {}).find(
-          (entry) =>
-            entry.agent === request.sourceAgentFolder &&
-            this.telegramConversationMatchesChat(
-              settings.conversations[entry.conversation],
-              settings.providerConnections,
-              chatId,
-            ),
-        )
-      : undefined;
-    const conversation = binding
-      ? settings?.conversations[binding.conversation]
-      : undefined;
-    return [...new Set(conversation?.controlApprovers || [])].filter(Boolean);
+    const binding = Object.values(settings?.bindings || {}).find(
+      (entry) =>
+        entry.agent === request.sourceAgentFolder &&
+        this.telegramConversationMatchesChat(
+          settings?.conversations[entry.conversation],
+          settings?.providerAccounts || {},
+          request.providerAccountId ?? this.opts.providerAccountId,
+          chatId,
+        ),
+    );
+    if (!binding || !settings) return [];
+    const approvers =
+      settings.conversations[binding.conversation]?.controlApprovers || [];
+    return [...new Set(approvers)].filter(Boolean);
   }
   private telegramConversationMatchesChat(
-    conversation:
-      | { providerConnection: string; externalId: string }
-      | undefined,
-    providerConnections: Record<string, { provider: string } | undefined>,
+    conversation: { providerAccount: string; externalId: string } | undefined,
+    providerAccounts: Record<string, { provider: string } | undefined>,
+    providerAccountId: string | undefined,
     chatId: string,
   ): boolean {
-    if (!conversation) return false;
-    const connection = providerConnections[conversation.providerConnection];
+    if (!conversation || conversation.providerAccount !== providerAccountId)
+      return false;
+    const connection = providerAccounts[conversation.providerAccount];
     if (connection?.provider !== 'telegram') return false;
     const externalId = conversation.externalId.trim();
     return externalId === chatId || externalId === `tg:${chatId}`;
@@ -380,6 +379,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     userId: string,
     sourceAgentFolder: string,
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'],
+    threadId?: string,
   ): Promise<boolean> {
     if (decisionPolicy && decisionPolicy !== 'same_channel') {
       logger.warn(
@@ -392,7 +392,10 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
     if (this.opts.isControlApproverAllowed) {
       return this.opts.isControlApproverAllowed({
         providerId: 'telegram',
+        providerAccountId: this.opts.providerAccountId,
+        agentId: this.opts.agentId,
         conversationJid,
+        threadId,
         userId,
         sourceAgentFolder,
         decisionPolicy,
@@ -405,7 +408,8 @@ export abstract class TelegramChannelPrompts extends TelegramChannelPolling {
             entry.agent === sourceAgentFolder &&
             this.telegramConversationMatchesChat(
               settings.conversations[entry.conversation],
-              settings.providerConnections,
+              settings.providerAccounts,
+              this.opts.providerAccountId,
               chatId,
             ),
         )

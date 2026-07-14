@@ -1,8 +1,10 @@
 import { ModelCredentialService } from '../application/model-credentials/model-credential-service.js';
 import { requiredModelCredentialProviders } from '../application/model-resolution/required-model-credential-providers.js';
 import type { AppId } from '../domain/app/app.js';
+import type { ModelCredentialProvider } from '../domain/model-credentials/model-credentials.js';
 import type { DoctorCheck } from './doctor.js';
 import type { GuidedActionRef } from '../application/guided-actions/guided-action-model.js';
+import { verifyModelProviderCredentialLive } from './model-credential-verify.js';
 
 type ModelCredentialReadinessSettings = {
   credentialBroker: { mode: string };
@@ -40,6 +42,7 @@ type ModelCredentialReadinessStorage = {
 export async function inspectModelCredentialReadiness(
   runtimeHome: string,
   settings: ModelCredentialReadinessSettings,
+  options: { live?: boolean; skipLiveProviderIds?: readonly string[] } = {},
 ): Promise<DoctorCheck> {
   if (settings.credentialBroker.mode !== 'gantry') {
     return {
@@ -80,7 +83,16 @@ export async function inspectModelCredentialReadiness(
     const healthByProvider = new Map<string, (typeof rows)[number]['health']>(
       rows.map((row) => [row.providerId, row.health]),
     );
-    const missing = requiredProviders.filter(
+    // Re-derive with the stored credential set so family aliases require the
+    // member the runtime would actually select.
+    const configuredProviderIds = new Set(
+      rows.filter((row) => row.health === 'ready').map((row) => row.providerId),
+    );
+    const refinedRequiredProviders = requiredModelCredentialProviders(
+      settings,
+      { configuredProviderIds },
+    );
+    const missing = refinedRequiredProviders.filter(
       (providerId) => healthByProvider.get(providerId) !== 'ready',
     );
     if (missing.length > 0) {
@@ -99,11 +111,58 @@ export async function inspectModelCredentialReadiness(
         action: missingCredentialAction,
       };
     }
+    if (options.live) {
+      const skipLiveProviderIds = new Set(options.skipLiveProviderIds ?? []);
+      const liveResults = await Promise.all(
+        refinedRequiredProviders
+          .filter((providerId) => !skipLiveProviderIds.has(providerId))
+          .map(async (providerId) => {
+            const credential = await service.getActiveCredential({
+              appId: 'default' as AppId,
+              providerId: providerId as ModelCredentialProvider,
+            });
+            if (!credential) {
+              return {
+                providerId,
+                result: {
+                  ok: false,
+                  message: `No active ${providerId} model credential was found.`,
+                },
+              };
+            }
+            return {
+              providerId,
+              result: await verifyModelProviderCredentialLive({
+                providerId,
+                authMode: credential.authMode,
+                payload: credential.payload,
+              }),
+            };
+          }),
+      );
+      const failed = liveResults.find(
+        (item) => 'ok' in item.result && !item.result.ok,
+      );
+      if (failed && 'ok' in failed.result && !failed.result.ok) {
+        const actionLabel = `gantry credentials model set ${failed.providerId}`;
+        return {
+          id: 'model-access-credentials',
+          title: 'Model Access Credentials',
+          status: 'fail',
+          message: `${failed.providerId} live credential check failed: ${failed.result.message}`,
+          nextAction: actionLabel,
+          action: {
+            type: 'connect_provider',
+            label: actionLabel,
+          },
+        };
+      }
+    }
     return {
       id: 'model-access-credentials',
       title: 'Model Access Credentials',
       status: 'pass',
-      message: `Active model credentials found for selected defaults: ${requiredProviders.join(', ')}.`,
+      message: `Active model credentials found for selected defaults: ${refinedRequiredProviders.join(', ')}.`,
     };
   } catch (err) {
     return {

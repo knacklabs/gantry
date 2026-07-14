@@ -2,10 +2,7 @@ import * as p from '@clack/prompts';
 
 import { agentEngineLabel } from '../shared/agent-engine.js';
 import { resolveExecutionRoute } from '../shared/model-execution-route.js';
-import {
-  resolveModelSelectionForWorkload,
-  type ModelPresetId,
-} from '../shared/model-catalog.js';
+import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import {
   requiredModelCredentialProviderReasonsForSetupDraft,
   requiredModelCredentialProvidersForSetupDraft,
@@ -17,7 +14,6 @@ export interface SetupReadyDraft {
   agentHarness: string;
   conversationLabel: string;
   selectedModel: string;
-  modelPreset?: ModelPresetId;
   memoryEnabled?: boolean;
   embeddingsEnabled?: boolean;
   dreamingEnabled?: boolean;
@@ -42,7 +38,7 @@ export async function runReadyStep(
       ...formatRequiredProviderReasons(draft),
       '',
       'Next: Start chatting or run gantry status.',
-      'Optional setup: memory, background service, extra providers.',
+      'Optional setup: memory, background service, extra chat channels.',
     ].join('\n'),
     'Ready',
   );
@@ -82,7 +78,6 @@ function formatProviderIds(providerIds: readonly string[]): string {
 function requiredModelProviders(draft: SetupReadyDraft): string[] {
   return requiredModelCredentialProvidersForSetupDraft({
     credentialMode: 'gantry',
-    modelPreset: draft.modelPreset,
     selectedModel: draft.selectedModel,
     memoryEnabled: draft.memoryEnabled,
     embeddingsEnabled: draft.embeddingsEnabled,
@@ -93,7 +88,6 @@ function requiredModelProviders(draft: SetupReadyDraft): string[] {
 function formatRequiredProviderReasons(draft: SetupReadyDraft): string[] {
   return requiredModelCredentialProviderReasonsForSetupDraft({
     credentialMode: 'gantry',
-    modelPreset: draft.modelPreset,
     selectedModel: draft.selectedModel,
     memoryEnabled: draft.memoryEnabled,
     embeddingsEnabled: draft.embeddingsEnabled,

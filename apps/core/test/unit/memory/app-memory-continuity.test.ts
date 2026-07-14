@@ -233,6 +233,71 @@ describe('app memory continuity summary', () => {
     });
   });
 
+  it('includes recent blocked dream decisions in continuity details', async () => {
+    const listRecentBlockedDreamDecisions = vi.fn().mockResolvedValue([
+      {
+        id: 'mdd-1',
+        runId: 'mdr-1',
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C-target',
+        candidateId: 'memcand-1',
+        itemId: null,
+        kind: 'preference',
+        key: 'preference:telegram-copy',
+        value: 'Keep dreaming notices short.',
+        rationale: 'review creation failed',
+        createdAt: '2026-05-08T02:01:00.000Z',
+      },
+    ]);
+    const memory = {
+      dreamingStatus: vi.fn().mockResolvedValue([
+        {
+          completedAt: '2026-05-08T02:00:00.000Z',
+          status: 'completed',
+          phase: 'rem',
+          summary: { blocked: 1 },
+        },
+      ]),
+      listPendingReviews: vi.fn().mockResolvedValue([]),
+      list: vi.fn().mockResolvedValue([]),
+      listRecentBlockedDreamDecisions,
+    };
+
+    const summary = await buildAppMemoryContinuitySummary(memory, {
+      appId: 'default',
+      agentId: 'agent:team',
+      channelId: 'conversation:sl:C-target',
+    });
+
+    expect(listRecentBlockedDreamDecisions).toHaveBeenCalledWith(
+      {
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C-target',
+        channelId: 'conversation:sl:C-target',
+      },
+      expect.objectContaining({ limit: 10 }),
+    );
+    expect(summary.sections.blocked_dream_decisions).toMatchObject({
+      status: 'populated',
+      count: 1,
+      items: [
+        {
+          id: 'mdd-1',
+          run_id: 'mdr-1',
+          candidate_id: 'memcand-1',
+          kind: 'preference',
+          key: 'preference:telegram-copy',
+          value: 'Keep dreaming notices short.',
+          rationale: 'review creation failed',
+        },
+      ],
+    });
+  });
+
   it('marks continuity summary partial when one memory section is unavailable', async () => {
     const memory = {
       dreamingStatus: vi.fn().mockResolvedValue([

@@ -19,6 +19,7 @@ export type SessionEventSubscription = Awaited<
 export function createSessionInteractionModule(
   input: {
     liveAdmissionAppId?: string | null;
+    getConfiguredAgentRuntime?: ControlRouteContext['getConfiguredAgentRuntime'];
   } = {},
 ): SessionInteractionModule {
   return new SessionInteractionModule({
@@ -27,6 +28,7 @@ export function createSessionInteractionModule(
     repositories: getRuntimeStorage().repositories,
     runtimeEvents: getRuntimeEventExchange(),
     liveAdmissionAppId: input.liveAdmissionAppId,
+    getConfiguredAgentRuntime: input.getConfiguredAgentRuntime,
     now: () => nowIso() as never,
     createId: randomUUID,
     stableHash: (input) => createHash('sha256').update(input).digest('hex'),
@@ -52,6 +54,7 @@ export async function acceptMessageForControl(
   const accepted = await createSessionInteractionModule({
     liveAdmissionAppId:
       ctx.liveTurnsEnabled === false ? null : DEFAULT_JOB_RUNTIME_APP_ID,
+    getConfiguredAgentRuntime: ctx.getConfiguredAgentRuntime,
   }).acceptMessage(input);
   if (!accepted.enqueue.durableAdmissionCreated) {
     ctx.app.queue.enqueueMessageCheck(accepted.enqueue.queueKey);

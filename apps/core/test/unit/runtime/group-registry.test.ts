@@ -51,6 +51,7 @@ import {
   setGroupThinkingOverride,
   listAvailableGroups,
 } from '@core/runtime/group-registry.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 type PersistGroupFn = (jid: string, group: ConversationRoute) => void;
 
@@ -404,6 +405,29 @@ describe('listAvailableGroups', () => {
         name: 'Group Two',
         lastActivity: '2026-01-02',
         isRegistered: false,
+      },
+    ]);
+  });
+
+  it('marks chats registered through agent-qualified route keys', () => {
+    const chats = [
+      {
+        jid: 'g1@g.us',
+        name: 'Group One',
+        last_message_time: '2026-01-01',
+        is_group: true,
+      },
+    ];
+    const registered: Record<string, ConversationRoute> = {
+      [makeAgentThreadQueueKey('g1@g.us', 'agent:triage')]: makeGroup(),
+    };
+
+    expect(listAvailableGroups(chats, registered)).toEqual([
+      {
+        jid: 'g1@g.us',
+        name: 'Group One',
+        lastActivity: '2026-01-01',
+        isRegistered: true,
       },
     ]);
   });

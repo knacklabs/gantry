@@ -5,10 +5,21 @@ import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
-import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
-import type { ChannelWiring } from './channel-wiring.js';
+import type { ChannelWiring } from './channel-wiring-types.js';
+
+export function controlAckMessageOptions(
+  threadId?: string,
+  providerAccountId?: string,
+): { threadId?: string; providerAccountId?: string } | undefined {
+  return threadId || providerAccountId
+    ? {
+        ...(threadId ? { threadId } : {}),
+        ...(providerAccountId ? { providerAccountId } : {}),
+      }
+    : undefined;
+}
 
 export async function handleActiveNewSessionCommand(input: {
   app: {
@@ -16,7 +27,7 @@ export async function handleActiveNewSessionCommand(input: {
     clearSessionForChatJid(
       chatJid: string,
       threadId?: string | null,
-      metadata?: { memoryUserId?: string },
+      metadata?: { memoryUserId?: string; providerAccountId?: string | null },
     ): Promise<void>;
     setAgentCursor(queueKey: string, cursor: string): void;
     saveState(): Promise<void>;
@@ -25,7 +36,11 @@ export async function handleActiveNewSessionCommand(input: {
   opsRepository: RuntimeAgentSessionRepository;
   collectSessionMemory: SessionMemoryCollector;
   logger: { warn(payload: unknown, message: string): void };
-  group: { folder: string; conversationKind?: 'dm' | 'channel' };
+  group: {
+    folder: string;
+    conversationKind?: 'dm' | 'channel';
+    providerAccountId?: string;
+  };
   executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   chatJid: string;
   queueJid: string;
@@ -47,6 +62,10 @@ export async function handleActiveNewSessionCommand(input: {
   let boundaryAgentSessionId: string | undefined;
   const defaultScope = group.conversationKind === 'dm' ? 'user' : 'group';
   const memoryUserId = message.sender?.trim() || undefined;
+  const messageOptions = controlAckMessageOptions(
+    threadId,
+    group.providerAccountId,
+  );
   try {
     const turnContext = await opsRepository.getAgentTurnContext?.({
       agentFolder: group.folder,
@@ -54,6 +73,7 @@ export async function handleActiveNewSessionCommand(input: {
         input.executionAdapter,
       ),
       conversationJid: chatJid,
+      providerAccountId: group.providerAccountId,
       threadId,
       conversationKind: group.conversationKind,
       memoryUserId,
@@ -68,7 +88,10 @@ export async function handleActiveNewSessionCommand(input: {
   }
   if (!app.queue.stopGroup(queueJid)) return false;
   try {
-    await app.clearSessionForChatJid(chatJid, threadId, { memoryUserId });
+    await app.clearSessionForChatJid(queueJid, threadId, {
+      memoryUserId,
+      providerAccountId: group.providerAccountId,
+    });
   } catch (err) {
     logger.warn(
       { err, chatJid, threadId },
@@ -79,7 +102,7 @@ export async function handleActiveNewSessionCommand(input: {
       'Could not start a fresh session because session state could not be persisted. The active run was stopped; existing session state was left unchanged.',
       {
         durability: 'required',
-        ...(threadId ? { messageOptions: { threadId } } : {}),
+        ...(messageOptions ? { messageOptions } : {}),
       },
     );
     return true;
@@ -97,13 +120,13 @@ export async function handleActiveNewSessionCommand(input: {
     });
   }
   app.setAgentCursor(
-    makeThreadQueueKey(chatJid, threadId),
+    queueJid,
     encodeGroupMessageCursor(toGroupMessageCursor(message)),
   );
   await app.saveState();
   await channelWiring.sendMessage(chatJid, 'Started a fresh session.', {
     durability: 'required',
-    ...(threadId ? { messageOptions: { threadId } } : {}),
+    ...(messageOptions ? { messageOptions } : {}),
   });
   return true;
 }

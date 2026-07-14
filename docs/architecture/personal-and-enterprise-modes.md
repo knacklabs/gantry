@@ -1,7 +1,7 @@
 # Personal And Enterprise Modes
 
 Gantry has one canonical runtime model with multiple deployment modes. Personal
-usage and enterprise usage differ by seeding, providerConnection, policy, user
+usage and enterprise usage differ by seeding, Provider Account, policy, user
 surfaces, and operations. They must not become separate product architectures.
 
 ## Shared Runtime Model
@@ -11,7 +11,7 @@ Both modes use:
 - `App` as the namespace
 - `Agent` and `AgentConfigVersion` for behavior
 - `LlmProfile` for provider-neutral model selection
-- `Provider`, `ProviderConnection`, and `AgentConversationBinding` for provider
+- `Provider`, `ProviderAccount`, and `ConversationInstall` for provider
   presence
 - `Conversation` and `ConversationThread` for communication
 - `User`, `Message`, `MessagePart`, and `MessageAttachment` for normalized
@@ -39,9 +39,9 @@ Seeded defaults:
 - local `settings.yaml`
 - local runtime secret source
 - local memory root and Postgres schema
-- one or more `ProviderConnection` records for Telegram, WhatsApp, Slack, or
+- one or more Provider Account records for Telegram, WhatsApp, Slack, or
   another personal provider
-- `AgentConversationBinding` records for the conversations where the user wants
+- Conversation Install records for the conversations where the user wants
   the agent present
 - local default model alias, backed by Gantry Model Gateway credentials
 - conservative default `PermissionPolicy`
@@ -58,7 +58,7 @@ Personal administration should be represented as policy:
 - Admin ability comes from selected capabilities plus conversation approval,
   not from a hard-coded privileged conversation.
 - `/new` and related session commands operate on canonical `AgentSession`
-  records for the binding while preserving configured model overrides when the
+  records for the install while preserving configured model overrides when the
   policy requires it.
 
 Personal mode can stay lightweight and understandable while still using the
@@ -73,22 +73,22 @@ surfaces:
 - Web UI for users, administrators, and operators
 - control API for backend integrations and administration
 - server-side SDK for application developers
-- provider connections for Slack, Teams, Web UI, and other providers
+- Provider Accounts for Slack, Teams, Web UI, and other providers
 - explicit users, roles, app scopes, and policy-managed admin actions
 - enterprise credential brokers or secret managers behind the same ports
 - deployment-specific sandbox providers
 - audit, event, and webhook integrations based on `RuntimeEvent` projections
 
 Enterprise applications should integrate through the SDK, control API, Web UI,
-and provider connections. They must not import runtime internals from
+and Provider Accounts. They must not import runtime internals from
 `apps/core/src/**`.
 
 Enterprise conversation examples:
 
-- Slack workspace providerConnection creates a `ProviderConnection`.
+- A Slack Provider Account owns one Slack app/bot identity.
 - A Slack channel creates or maps to a `Conversation`.
 - A Slack thread maps to `ConversationThread`.
-- A Teams tenant/app providerConnection creates a `ProviderConnection`.
+- A Teams Provider Account owns one Teams app/bot identity.
 - A Teams personal chat or channel chat maps to `Conversation`.
 - A Teams reply chain maps to `ConversationThread`.
 - A Web UI can model each chat as a `Conversation`, or model a visible chat as
@@ -101,8 +101,8 @@ Web UI, control API, and SDK are adapters over application use cases.
 
 They may:
 
-- create apps, agents, configs, and provider connections
-- bind agents to conversations and threads
+- create apps, agents, configs, and Provider Accounts
+- install agents in conversations and threads
 - send messages
 - stream run events
 - manage jobs
@@ -141,7 +141,7 @@ or rely on provider session handles for continuity.
 | ------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
 | App                | Seeded local app                                                  | Explicit app per deployment, team, product, or tenant boundary   |
 | Agent              | Default local agent plus optional custom agents                   | Managed agents with versioned configs                            |
-| Conversation setup | CLI-guided local provider connections and bindings                | Web UI/control API/SDK-managed provider connections and bindings |
+| Conversation setup | CLI-guided local Provider Accounts and installs                   | Web UI/control API/SDK-managed Provider Accounts and installs    |
 | Admin surface      | Seeded conversation approver/conversation approvers and local CLI | Web UI, control API, SDK, conversation approver bindings         |
 | Credentials        | Local runtime secrets plus Gantry Credential Center model/capability credentials | Runtime secret provider plus enterprise-backed Credential Center |
 | Permissions        | Conservative defaults with local approvals                        | Explicit policies, roles, audit, and approval flows              |
@@ -155,7 +155,7 @@ Future code movement should keep personal setup as a convenience layer:
 
 - Seed default records through application services.
 - Store local folders as workspace projections.
-- Convert group registration flows into provider connection plus binding
+- Convert group registration flows into Provider Account plus Conversation Install
   flows.
 - Keep administration behavior explicit in conversation approver policy.
 - Store provider export/debug metadata only when needed; canonical continuity

@@ -45,7 +45,7 @@
   Unsupported shell grammar and destructive redirects fail closed to one-time
   approval, and persistent suggestions must list separate safe leaf rules
   instead of the compound command.
-- Native SDK `Agent` and `Task` tool calls are always background work. Force `run_in_background: true` in runner tool input before validation, permission checks, sandbox/network gates, and SDK allow responses; SDK `task_notification` system messages should be emitted as structured runtime events instead of log-only observations.
+- Native SDK `Agent` tool calls are always background work. Force `run_in_background: true` in runner tool input before validation, permission checks, sandbox/network gates, and SDK allow responses. Native SDK `Task*` subagent aliases are unsupported; SDK `task_notification` system messages should be emitted as structured runtime events instead of log-only observations.
 - Delegation wrappers are authority surfaces. Mount `delegate_task` only through
   Gantry's durable task lifecycle: row before child agent spawn, scoped
   read/list/cancel, steering via `task_message`, abort propagation, terminal

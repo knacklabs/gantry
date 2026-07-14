@@ -174,7 +174,7 @@ function mockContext(scopes: Scope[] = ['agents:admin']): ControlRouteContext {
     getModelDefaults: () =>
       ({ defaults: {} }) as ReturnType<ControlRouteContext['getModelDefaults']>,
     patchModelDefaults: async () => ({ ok: true }),
-    preflightModelPreset: async () => ({
+    preflightModelProvider: async () => ({
       ok: true,
       status: 'pass',
       message: 'ok',

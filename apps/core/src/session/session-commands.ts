@@ -3,6 +3,7 @@ import type {
   NewMessage,
   ThinkingOverride,
 } from '../domain/types.js';
+import type { AsyncTaskRecord } from '../domain/ports/async-tasks.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   extractSessionCommand,
@@ -28,12 +29,14 @@ import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.j
 import {
   describeThinking,
   formatBrowserStatus,
+  formatCompactionStatus,
   formatCurrentModel,
   formatModelsList,
   formatModelStatus,
   formatMemoryStatus,
   formatModelWhy,
   type BrowserStatusSnapshot,
+  type CompactionStatusSnapshot,
   type MemoryStatusSnapshot,
 } from './session-command-format.js';
 import { formatSessionCommandsHelp } from './session-command-help.js';
@@ -42,10 +45,20 @@ import {
   type ModelStatusSelectionUpdate,
 } from './session-model-status.js';
 import {
+  COMPACTION_ALREADY_RUNNING_MESSAGE,
+  COMPACTION_QUEUED_MESSAGE,
+  hasQueuedSessionCompaction,
+  queueSessionCompaction,
+} from './session-compaction-command.js';
+import {
   prepareNewSessionArchive,
   runNewSessionArchiveFinalizer,
   type PrepareSessionArchive,
 } from './session-new-archive.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '../shared/message-cursor.js';
 
 interface DreamQueueResult {
   queued: boolean;
@@ -53,6 +66,15 @@ interface DreamQueueResult {
   pending?: number;
   reason?: 'queued' | 'deduped' | 'full' | 'invalid';
 }
+
+type CompactionProviderSession = {
+  providerSessionId: string;
+  externalSessionId: string;
+};
+
+export type SessionArchiveOutcome = {
+  memory: 'ok' | 'degraded' | 'skipped';
+};
 
 function isDreamQueueResult(value: unknown): value is DreamQueueResult {
   if (!value || typeof value !== 'object') return false;
@@ -69,8 +91,20 @@ export interface SessionCommandDeps {
   runAgent: (
     prompt: string,
     onOutput: (result: AgentResult) => Promise<void>,
-    options?: { timeoutMs?: number },
+    options?: {
+      timeoutMs?: number;
+      maintenanceProviderSession?: CompactionProviderSession;
+    },
   ) => Promise<'success' | 'error' | 'stopped'>;
+  runSessionCompaction: (
+    onOutput: (result: AgentResult) => Promise<void>,
+    options: {
+      maintenanceProviderSession: CompactionProviderSession;
+    },
+  ) => Promise<'success' | 'error' | 'stopped'>;
+  getSessionCompactionStrategy?: () => Promise<
+    'provider_compaction' | 'fresh_checkpoint'
+  >;
   closeStdin: () => void;
   advanceCursor: (message: Pick<NewMessage, 'timestamp' | 'id'>) => void;
   formatMessages: (msgs: NewMessage[], timezone: string) => string;
@@ -95,15 +129,47 @@ export interface SessionCommandDeps {
   ) => Promise<void> | void;
   archiveCurrentSession: (
     cause?: 'new-session' | 'manual-compact',
-  ) => Promise<void>;
+  ) => Promise<void | SessionArchiveOutcome>;
   prepareSessionArchive?: PrepareSessionArchive;
   onSessionArchived?: (
     cause?: 'new-session' | 'manual-compact',
   ) => Promise<void>;
+  beginSessionCompaction?: (input?: {
+    baseCursor?: string;
+  }) => Promise<CompactionProviderSession | undefined>;
+  admitSessionCompactionTask?: () => Promise<
+    { task: AsyncTaskRecord; admitted: boolean } | undefined
+  >;
+  markSessionCompactionTaskRunning?: (
+    task: AsyncTaskRecord,
+    locked: CompactionProviderSession,
+  ) => Promise<AsyncTaskRecord | null>;
+  heartbeatSessionCompactionTask?: (
+    task: AsyncTaskRecord | undefined,
+  ) => Promise<AsyncTaskRecord | null>;
+  finishSessionCompactionTask?: (
+    task: AsyncTaskRecord | undefined,
+    outcome: 'ready' | 'degraded' | 'failed',
+  ) => Promise<void>;
+  finishSessionCompaction?: (
+    locked: CompactionProviderSession | undefined,
+    status: 'active' | 'expired' | 'ready',
+  ) => Promise<void>;
+  publishSessionCompactionEvent?: (
+    state: 'queued' | 'running' | 'ready' | 'degraded' | 'failed' | 'timeout',
+    details?: {
+      task?: AsyncTaskRecord;
+      strategy?: 'provider_compaction' | 'fresh_checkpoint';
+      errorSummary?: string;
+    },
+  ) => Promise<void> | void;
   clearCurrentSession: () => Promise<void> | void;
   stopCurrentRun?: () => boolean;
   runMemoryDreaming?: () => Promise<unknown>;
   getMemoryStatus?: () => Promise<MemoryStatusSnapshot>;
+  getSessionCompactionStatus?: () =>
+    | Promise<CompactionStatusSnapshot>
+    | CompactionStatusSnapshot;
   saveProcedure?: (input: {
     title: string;
     body: string;
@@ -112,13 +178,10 @@ export interface SessionCommandDeps {
   isSenderControlAllowlisted: (msg: NewMessage) => boolean;
   /** Whether the denied sender would normally be allowed to interact (for denial messages). */
   canSenderInteract: (msg: NewMessage) => boolean;
+  compactionScopeKey?: string;
 }
 
 const MAX_MODEL_ERROR_MESSAGE_CHARS = 240;
-
-// Best-effort configured-provider set for /models + /model why availability
-// badges. Returns undefined (-> no badges, graceful) when the dep is absent or
-// throws, so a transient credential read never breaks a command.
 async function readConfiguredProviders(
   deps: SessionCommandDeps,
 ): Promise<Set<string> | undefined> {
@@ -338,32 +401,17 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'compact') {
-    let compactError: string | undefined;
-    const compactResult = await deps.runAgent('/compact', async (result) => {
-      if (result.status !== 'error') return;
-      compactError = resultToText(result.result) || 'Compact failed.';
-    });
-
-    if (compactResult !== 'success' || compactError) {
-      const suffix = compactError ? ` ${sanitizeErrorText(compactError)}` : '';
-      await deps.sendMessage(`/compact failed.${suffix}`);
-      return { handled: true, success: false };
-    }
-
-    try {
-      await deps.archiveCurrentSession('manual-compact');
-      await deps.onSessionArchived?.('manual-compact');
-    } catch (err) {
-      logger.error(
-        { group: groupName, err },
-        'Failed to collect durable memory after SDK compact',
-      );
-      await deps.sendMessage('/compact failed. Memory collection failed.');
-      return { handled: true, success: false };
-    }
-
     deps.advanceCursor(cmdMsg);
-    await deps.sendMessage('Compacted current session.');
+    const queueResult = await queueSessionCompaction(
+      groupName,
+      deps,
+      encodeGroupMessageCursor(toGroupMessageCursor(cmdMsg)),
+    );
+    await deps.sendMessage(
+      queueResult === 'queued'
+        ? COMPACTION_QUEUED_MESSAGE
+        : COMPACTION_ALREADY_RUNNING_MESSAGE,
+    );
     return { handled: true, success: true };
   }
 
@@ -496,7 +544,20 @@ export async function handleSessionCommand(opts: {
     const browserStatusText = deps.getBrowserStatus
       ? `\n\n${formatBrowserStatus(await deps.getBrowserStatus())}`
       : '';
-    await deps.sendMessage(`${modelStatusText}${browserStatusText}`);
+    const compactionStatus = await deps.getSessionCompactionStatus?.();
+    const compactionScopeKey = deps.compactionScopeKey?.trim() || groupName;
+    const shownCompactionStatus =
+      hasQueuedSessionCompaction(compactionScopeKey) &&
+      (!compactionStatus || compactionStatus.state === 'idle')
+        ? { state: 'queued' as const }
+        : compactionStatus;
+    await deps.sendMessage(
+      `${modelStatusText}${
+        shownCompactionStatus
+          ? `\n\n${formatCompactionStatus(shownCompactionStatus)}`
+          : ''
+      }${browserStatusText}`,
+    );
     return { handled: true, success: true };
   }
 

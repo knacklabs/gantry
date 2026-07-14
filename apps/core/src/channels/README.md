@@ -62,9 +62,9 @@ supports.
 A provider `id` becomes:
 
 - `settings.yaml` key under `providers.<id>`
-- provider connection records under `provider_connections.*`
+- Provider Account records under `provider_accounts.*`
 - conversation records under `conversations.*`
-- binding records under `bindings.*`
+- Conversation Install records under `conversation_installs.*`
 - conversation approvers on `conversations.<id>.control_approvers`
 
 A provider `jidPrefix` is used for:

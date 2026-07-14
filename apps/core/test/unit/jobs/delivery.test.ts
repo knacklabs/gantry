@@ -218,6 +218,7 @@ describe('jobs/delivery', () => {
         {
           conversationJid: 'sl:C123',
           threadId: 'thread-1',
+          providerAccountId: 'slack-account-1',
           label: 'thread',
         },
       ],
@@ -230,9 +231,7 @@ describe('jobs/delivery', () => {
       message: 'partial',
     });
     Object.assign(partial, { provider: 'telegram' });
-    const send = vi
-      .fn<(...args: [string, string, { threadId: string }?]) => Promise<void>>()
-      .mockRejectedValueOnce(partial);
+    const send = vi.fn().mockRejectedValueOnce(partial);
 
     const delivered = await sendJobNotification({
       job,
@@ -247,6 +246,7 @@ describe('jobs/delivery', () => {
     expect(send).toHaveBeenNthCalledWith(1, 'tg:1', 'hello');
     expect(send).toHaveBeenNthCalledWith(2, 'sl:C123', 'hello', {
       threadId: 'thread-1',
+      providerAccountId: 'slack-account-1',
     });
   });
 

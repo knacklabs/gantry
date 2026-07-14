@@ -3,6 +3,7 @@ import {
   logger,
 } from '../infrastructure/logging/logger.js';
 import { createChannelWiring } from './bootstrap/channel-wiring.js';
+import { createRuntimeBrainChannelHarvestTap } from '../brain/brain-runtime.js';
 import { getDefaultRuntimeApp } from './bootstrap/runtime-app.js';
 import {
   startRuntimeServices,
@@ -92,6 +93,7 @@ export async function startGantryRuntime(
     },
   });
   const channelWiring = createChannelWiring(app, {
+    brainHarvestTap: createRuntimeBrainChannelHarvestTap(),
     publishRuntimeEvent: async (event) => {
       await getRuntimeEventExchange().publish(event);
     },
@@ -282,6 +284,7 @@ export async function startGantryRuntime(
         getToolRepository: () => storage.repositories.tools,
         getSkillRepository: () => storage.repositories.skills,
         getAsyncTaskRepository: () => storage.repositories.asyncTasks,
+        getFileArtifactStore: () => storage.fileArtifacts,
         getMcpServerRepository: () => storage.repositories.mcpServers,
         getCapabilitySecretRepository: () =>
           storage.repositories.capabilitySecrets,
@@ -303,6 +306,8 @@ export async function startGantryRuntime(
         publishRuntimeEvent: async (event) => {
           await getRuntimeEventExchange().publish(event);
         },
+        subscribeRuntimeEvents: (filter) =>
+          getRuntimeEventExchange().subscribe(filter),
         callBrowserTool: async (input) =>
           (await loadBrowserToolModule()).callBrowserTool(input),
         publishBrowserJobActivity: async (input) => {
@@ -394,12 +399,15 @@ export async function startGantryRuntime(
           durability: 'required',
           throwOnMissing: true,
           messageOptions: input.threadId
-            ? { threadId: input.threadId }
-            : undefined,
+            ? {
+                threadId: input.threadId,
+                providerAccountId: input.providerAccountId,
+              }
+            : { providerAccountId: input.providerAccountId },
         });
       },
-      addMessageReaction: (jid, messageRef, emoji) =>
-        channelWiring.addReaction(jid, messageRef, emoji),
+      addMessageReaction: (jid, messageRef, emoji, options) =>
+        channelWiring.addReaction(jid, messageRef, emoji, options),
     });
   } catch (err) {
     await liveRecoveryCoordinatorLeaseManager.stop();

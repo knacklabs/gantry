@@ -9,12 +9,35 @@ import {
 import { taskIpcResponsePath } from '../../jobs/ipc-shared.js';
 import type { IpcDeps } from '../../runtime/ipc-domain-types.js';
 import { requestSchedulerSync } from '../../jobs/scheduler.js';
-import { makeThreadQueueKey } from '../../shared/thread-queue-key.js';
+import {
+  findConversationRoutesForChat,
+  makeAgentThreadQueueKey,
+  makeThreadQueueKey,
+  parseAgentThreadQueueKey,
+} from '../../shared/thread-queue-key.js';
 import type { ChannelWiring } from './channel-wiring-types.js';
 import type {
   ConversationRoute,
   MessageSendOptions,
 } from '../../domain/types.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+
+function getSourceAgentFolder(
+  routes: Record<string, ConversationRoute>,
+  conversationJid: string,
+  threadId?: string,
+  providerAccountId?: string,
+): string | undefined {
+  const folders = new Set(
+    findConversationRoutesForChat(
+      routes,
+      conversationJid,
+      threadId,
+      providerAccountId,
+    ).map(([, route]) => route.folder),
+  );
+  return folders.size === 1 ? folders.values().next().value : undefined;
+}
 
 export function registerRuntimeLiveStopMessageAction(
   channelWiring: ChannelWiring,
@@ -35,7 +58,14 @@ export function registerRuntimeLiveStopMessageAction(
 ): void {
   registerLiveStopMessageAction({
     channelWiring,
-    sourceAgentFolderFor: (jid) => app.getConversationRoutes()[jid]?.folder,
+    sourceAgentFolderFor: (jid, threadId, providerAccountId) => {
+      return getSourceAgentFolder(
+        app.getConversationRoutes(),
+        jid,
+        threadId,
+        providerAccountId,
+      );
+    },
     conversationBindings: () => app.getConversationRoutes(),
     stopGroup: liveMessageQueue.stopGroup,
     runSchedulerNow:
@@ -136,7 +166,11 @@ async function readSchedulerRunNowIpcResult(
 
 export function registerLiveStopMessageAction(input: {
   channelWiring: ChannelWiring;
-  sourceAgentFolderFor: (conversationJid: string) => string | undefined;
+  sourceAgentFolderFor: (
+    conversationJid: string,
+    threadId?: string,
+    providerAccountId?: string,
+  ) => string | undefined;
   conversationBindings?: () => Record<string, ConversationRoute>;
   stopGroup: (queueJid: string) => boolean | Promise<boolean>;
   runSchedulerNow?: (schedulerInput: {
@@ -151,10 +185,15 @@ export function registerLiveStopMessageAction(input: {
   input.channelWiring.setMessageActionHandler(async (action) => {
     const sourceAgentFolder = input.sourceAgentFolderFor(
       action.conversationJid,
+      action.threadId,
+      action.providerAccountId,
     );
     if (!action.userId || !sourceAgentFolder) return;
     const allowed = await input.channelWiring.isControlApproverAllowed({
       conversationJid: action.conversationJid,
+      ...(action.providerAccountId
+        ? { providerAccountId: action.providerAccountId }
+        : {}),
       userId: action.userId,
       sourceAgentFolder,
       decisionPolicy: 'same_channel',
@@ -164,8 +203,16 @@ export function registerLiveStopMessageAction(input: {
       if (!input.runSchedulerNow || !input.conversationBindings) return;
       const conversationBindings = input.conversationBindings();
       const sourceConversationJids = Object.entries(conversationBindings)
-        .filter(([, route]) => route.folder === sourceAgentFolder)
-        .map(([jid]) => jid);
+        .filter(([jid, route]) => {
+          const parsed = parseAgentThreadQueueKey(jid);
+          return (
+            route.folder === sourceAgentFolder &&
+            (!action.providerAccountId ||
+              parsed.providerAccountId === action.providerAccountId ||
+              route.providerAccountId === action.providerAccountId)
+          );
+        })
+        .map(([jid]) => parseAgentThreadQueueKey(jid).chatJid);
       const text = await input.runSchedulerNow({
         jobId: action.jobId,
         sourceAgentFolder,
@@ -176,9 +223,7 @@ export function registerLiveStopMessageAction(input: {
       });
       await input.channelWiring.sendMessage(action.conversationJid, text, {
         durability: 'required',
-        ...(action.threadId
-          ? { messageOptions: { threadId: action.threadId } }
-          : {}),
+        ...messageActionSendOptions(action.threadId, action.providerAccountId),
       });
       return;
     }
@@ -187,19 +232,35 @@ export function registerLiveStopMessageAction(input: {
       action.conversationJid,
       action.threadId,
     );
+    const scopedQueueJid = makeAgentThreadQueueKey(
+      action.conversationJid,
+      agentIdForFolder(sourceAgentFolder),
+      action.threadId,
+      action.providerAccountId,
+    );
     const stopped = action.actionToken
       ? await input.stopGroup(action.actionToken)
-      : await input.stopGroup(queueJid);
+      : await input.stopGroup(
+          action.providerAccountId ? scopedQueueJid : queueJid,
+        );
     if (!stopped) return;
     await input.channelWiring.sendMessage(
       action.conversationJid,
       'Stopping current run.',
       {
         durability: 'required',
-        ...(action.threadId
-          ? { messageOptions: { threadId: action.threadId } }
-          : {}),
+        ...messageActionSendOptions(action.threadId, action.providerAccountId),
       },
     );
   });
+}
+
+function messageActionSendOptions(
+  threadId?: string,
+  providerAccountId?: string,
+): { messageOptions: MessageSendOptions } | Record<string, never> {
+  const messageOptions: MessageSendOptions = {};
+  if (threadId) messageOptions.threadId = threadId;
+  if (providerAccountId) messageOptions.providerAccountId = providerAccountId;
+  return Object.keys(messageOptions).length > 0 ? { messageOptions } : {};
 }

@@ -62,6 +62,23 @@ export interface BrowserStatusSnapshot {
   error?: string;
 }
 
+export interface CompactionStatusSnapshot {
+  state:
+    | 'idle'
+    | 'queued'
+    | 'running'
+    | 'ready'
+    | 'degraded'
+    | 'failed'
+    | 'timeout';
+}
+
+export function formatCompactionStatus(
+  status: CompactionStatusSnapshot,
+): string {
+  return `Compaction status: ${status.state}`;
+}
+
 export function formatBrowserStatus(status: BrowserStatusSnapshot): string {
   const state = status.running
     ? status.cdpReady

@@ -1,11 +1,114 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-import { formatRuntimeStatus } from '@core/cli/status.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const mockRunDoctorWithNetwork = vi.hoisted(() => vi.fn());
+
+vi.mock('@core/cli/doctor.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@core/cli/doctor.js')>()),
+  runDoctorWithNetwork: mockRunDoctorWithNetwork,
+}));
+
+vi.mock('@core/infrastructure/service/manager.js', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@core/infrastructure/service/manager.js')
+  >()),
+  getServiceStatus: vi.fn(() => ({ kind: 'mock', status: 'stopped' })),
+}));
+
+vi.mock(
+  '@core/adapters/storage/postgres/storage-readiness.js',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('@core/adapters/storage/postgres/storage-readiness.js')
+    >()),
+    inspectRuntimeSecretReadiness: vi.fn(async () => ({
+      status: 'pass',
+      message: 'Runtime secret refs are ready.',
+    })),
+  }),
+);
+
+import { collectRuntimeStatus, formatRuntimeStatus } from '@core/cli/status.js';
 import { unresolvedProviderIdsFromRuntimeSecretDetails } from '@core/cli/runtime-secret-status.js';
 import type { RuntimeStatusSummary } from '@core/cli/status.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
+import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
+
+const runtimeHomes: string[] = [];
+
+function makeRuntimeHome(): string {
+  const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-status-'));
+  runtimeHomes.push(runtimeHome);
+  return runtimeHome;
+}
+
+afterEach(() => {
+  mockRunDoctorWithNetwork.mockReset();
+  for (const runtimeHome of runtimeHomes.splice(0)) {
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+  }
+});
 
 describe('status command formatting', () => {
+  it('collects runtime status without channel live token probes', async () => {
+    mockRunDoctorWithNetwork.mockResolvedValue({
+      ok: false,
+      warnings: 0,
+      blockingFailures: 1,
+      checks: [
+        {
+          id: 'storage-capabilities',
+          title: 'Storage Capabilities',
+          status: 'fail',
+          message: 'Postgres unavailable.',
+        },
+      ],
+    });
+    const runtimeHome = makeRuntimeHome();
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack',
+      runtimeSecretRefs: {
+        bot_token: 'env:SLACK_BOT_TOKEN',
+        app_token: 'env:SLACK_APP_TOKEN',
+      },
+    };
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      'SLACK_BOT_TOKEN=xoxb-valid\nSLACK_APP_TOKEN=xapp-valid\n',
+    );
+    fs.writeFileSync(
+      path.join(runtimeHome, 'settings.yaml'),
+      renderRuntimeSettingsYaml(settings),
+    );
+
+    await collectRuntimeStatus(import.meta.url, runtimeHome);
+
+    expect(mockRunDoctorWithNetwork).toHaveBeenCalledWith(
+      import.meta.url,
+      runtimeHome,
+      {
+        validateTelegramToken: false,
+        validateSlackToken: false,
+        validateModelCredentials: false,
+      },
+    );
+  });
+
   it('maps unresolved runtime secret readiness details back to blocked providers', () => {
     expect(
       unresolvedProviderIdsFromRuntimeSecretDetails([
@@ -19,7 +122,7 @@ describe('status command formatting', () => {
   it('renders the unified operator status without storage internals', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = { enabled: true };
-    settings.providerConnections.telegram_default = {
+    settings.providerAccounts.telegram_default = {
       provider: 'telegram',
       label: 'Telegram',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -121,10 +224,10 @@ describe('status command formatting', () => {
     expect(output).not.toContain('IPC');
   });
 
-  it('reports missing conversation binding after provider setup is ready', () => {
+  it('reports missing conversation install after provider setup is ready', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = { enabled: true };
-    settings.providerConnections.telegram_default = {
+    settings.providerAccounts.telegram_default = {
       provider: 'telegram',
       label: 'Telegram',
       runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
@@ -166,7 +269,7 @@ describe('status command formatting', () => {
 
     expect(output).toContain('Providers: 1/0/0');
     expect(output).toContain(
-      'Next action: Run `gantry agent add <chat-jid>` to bind an agent to a conversation.',
+      'Next action: Run `gantry conversation install --agent <agent-id> --conversation <conversation-id>` to install an agent in a conversation.',
     );
   });
 

@@ -5,18 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createClient } from '../../../../packages/sdk/src/index.js';
 import { startTestControlServer } from '../harness/control-http-server.js';
 import {
-  AgentConversationBindingResponseSchema,
-  AgentConversationBindingListResponseSchema,
-  ProviderConnectionResponseSchema,
+  ConversationInstallResponseSchema,
+  ConversationInstallListResponseSchema,
+  ProviderAccountResponseSchema,
   ProviderListResponseSchema,
 } from '@gantry/contracts';
 import { syncRuntimeSettingsFromProjection } from '@core/config/index.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 const state = vi.hoisted(() => ({
-  providerConnections: new Map<string, any>(),
+  providerAccounts: new Map<string, any>(),
   conversations: new Map<string, any>(),
   threads: new Map<string, any>(),
-  bindings: new Map<string, any>(),
+  conversationInstalls: new Map<string, any>(),
 }));
 
 vi.mock('@core/config/index.js', () => ({
@@ -27,6 +28,7 @@ vi.mock('@core/config/index.js', () => ({
     model: 'opus',
     source: 'system default',
   })),
+  getSelectedAgentHarness: vi.fn(() => 'auto'),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
   configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
@@ -57,20 +59,20 @@ vi.mock('@core/jobs/scheduler.js', () => ({
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
-  const providerConnections = {
-    listProviderConnections: vi.fn(async (appId: string) =>
-      [...state.providerConnections.values()].filter(
-        (providerConnection) => providerConnection.appId === appId,
+  const providerAccounts = {
+    listProviderAccounts: vi.fn(async (appId: string) =>
+      [...state.providerAccounts.values()].filter(
+        (providerAccount) => providerAccount.appId === appId,
       ),
     ),
-    getProviderConnection: vi.fn(
-      async (id: string) => state.providerConnections.get(id) ?? null,
+    getProviderAccount: vi.fn(
+      async (id: string) => state.providerAccounts.get(id) ?? null,
     ),
-    saveProviderConnection: vi.fn(async (providerConnection: any) => {
-      state.providerConnections.set(providerConnection.id, providerConnection);
+    saveProviderAccount: vi.fn(async (providerAccount: any) => {
+      state.providerAccounts.set(providerAccount.id, providerAccount);
     }),
-    updateProviderConnection: vi.fn(async (input: any) => {
-      const existing = state.providerConnections.get(input.id);
+    updateProviderAccount: vi.fn(async (input: any) => {
+      const existing = state.providerAccounts.get(input.id);
       if (!existing || existing.appId !== input.appId) return null;
       const updated = {
         ...existing,
@@ -80,64 +82,63 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
       if (input.patch.externalInstallationRef === undefined) {
         updated.externalInstallationRef = existing.externalInstallationRef;
       }
-      state.providerConnections.set(updated.id, updated);
+      state.providerAccounts.set(updated.id, updated);
       return updated;
     }),
-    disableProviderConnection: vi.fn(async (input: any) => {
-      const existing = state.providerConnections.get(input.id);
+    disableProviderAccount: vi.fn(async (input: any) => {
+      const existing = state.providerAccounts.get(input.id);
       if (!existing || existing.appId !== input.appId) return null;
       const disabled = {
         ...existing,
         status: 'disabled',
         updatedAt: input.updatedAt,
       };
-      state.providerConnections.set(disabled.id, disabled);
+      state.providerAccounts.set(disabled.id, disabled);
       return disabled;
     }),
-    saveAgentConversationBinding: vi.fn(async (binding: any) => {
-      state.bindings.set(
-        `${binding.appId}:${binding.agentId}:${binding.conversationId}:${binding.threadId ?? ''}`,
-        binding,
+    saveConversationInstall: vi.fn(async (conversationInstall: any) => {
+      state.conversationInstalls.set(
+        `${conversationInstall.appId}:${conversationInstall.agentId}:${conversationInstall.conversationId}:${conversationInstall.threadId ?? ''}`,
+        conversationInstall,
       );
     }),
-    disableAgentConversationBinding: vi.fn(async (input: any) => {
+    disableConversationInstall: vi.fn(async (input: any) => {
       const key = `${input.appId}:${input.agentId}:${input.conversationId}:${input.threadId ?? ''}`;
-      const existing = state.bindings.get(key);
+      const existing = state.conversationInstalls.get(key);
       if (!existing) return null;
       const disabled = {
         ...existing,
         status: 'disabled',
         updatedAt: input.updatedAt,
       };
-      state.bindings.set(key, disabled);
+      state.conversationInstalls.set(key, disabled);
       return disabled;
     }),
-    getAgentConversationBinding: vi.fn(async (input: any) => {
+    getConversationInstall: vi.fn(async (input: any) => {
       return (
-        state.bindings.get(
+        state.conversationInstalls.get(
           `${input.appId}:${input.agentId}:${input.conversationId}:${input.threadId ?? ''}`,
         ) ?? null
       );
     }),
     isAgentEnabledInConversation: vi.fn(async (input: any) => {
-      const binding = state.bindings.get(
+      const conversationInstall = state.conversationInstalls.get(
         `${input.appId}:${input.agentId}:${input.conversationId}:${input.threadId ?? ''}`,
       );
-      return binding?.status === 'active';
+      return conversationInstall?.status === 'active';
     }),
-    listAgentConversationBindings: vi.fn(
-      async (appId: string, agentId?: string) =>
-        [...state.bindings.values()].filter(
-          (binding) =>
-            binding.appId === appId &&
-            (!agentId || binding.agentId === agentId),
-        ),
+    listConversationInstalls: vi.fn(async (appId: string, agentId?: string) =>
+      [...state.conversationInstalls.values()].filter(
+        (conversationInstall) =>
+          conversationInstall.appId === appId &&
+          (!agentId || conversationInstall.agentId === agentId),
+      ),
     ),
-    listAgentConversationBindingsByConversation: vi.fn(async (input: any) =>
-      [...state.bindings.values()].filter(
-        (binding) =>
-          binding.appId === input.appId &&
-          binding.conversationId === input.conversationId,
+    listConversationInstallsByConversation: vi.fn(async (input: any) =>
+      [...state.conversationInstalls.values()].filter(
+        (conversationInstall) =>
+          conversationInstall.appId === input.appId &&
+          conversationInstall.conversationId === input.conversationId,
       ),
     ),
   };
@@ -146,8 +147,8 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
       [...state.conversations.values()].filter(
         (conversation) =>
           conversation.appId === input.appId &&
-          (!input.providerConnectionId ||
-            conversation.providerConnectionId === input.providerConnectionId),
+          (!input.providerAccountId ||
+            conversation.providerAccountId === input.providerAccountId),
       ),
     ),
     getConversation: vi.fn(
@@ -158,7 +159,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
         [...state.conversations.values()].find(
           (conversation) =>
             conversation.appId === input.appId &&
-            conversation.providerConnectionId === input.providerConnectionId &&
+            conversation.providerAccountId === input.providerAccountId &&
             conversation.externalRef?.value === input.externalConversationId,
         ) ?? null
       );
@@ -176,6 +177,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
         (thread) => thread.conversationId === conversationId,
       ),
     ),
+    listConversationApprovers: vi.fn(async () => []),
     listConversationApproversForConversations: vi.fn(async () => []),
   };
   return {
@@ -225,16 +227,25 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
             return null;
           }),
         },
-        providerConnections,
+        providerAccounts,
         conversations,
         tools: {
           listTools: vi.fn(async () => []),
+          getTool: vi.fn(async () => null),
+          listAgentToolBindings: vi.fn(async () => []),
           listAgentToolBindingsForAgents: vi.fn(async () => []),
+          listAgentToolSources: vi.fn(async () => []),
         },
         skills: {
+          getSkill: vi.fn(async () => null),
+          listSkills: vi.fn(async () => []),
+          listAgentSkillBindings: vi.fn(async () => []),
           listAgentSkillBindingsForAgents: vi.fn(async () => []),
         },
         mcpServers: {
+          getServer: vi.fn(async () => null),
+          listServers: vi.fn(async () => []),
+          listAgentBindings: vi.fn(async () => []),
           listAgentBindingsForAgents: vi.fn(async () => []),
         },
         messages: {
@@ -251,10 +262,10 @@ describe('provider conversation onboarding control SDK integration', () => {
       recursive: true,
       force: true,
     });
-    state.providerConnections.clear();
+    state.providerAccounts.clear();
     state.conversations.clear();
     state.threads.clear();
-    state.bindings.clear();
+    state.conversationInstalls.clear();
   });
 
   afterEach(() => {
@@ -271,7 +282,15 @@ describe('provider conversation onboarding control SDK integration', () => {
           registered.set(jid, group);
         }),
         projectConversationRoute: vi.fn(async (jid: string, group: any) => {
-          registered.set(jid, group);
+          registered.set(
+            makeAgentThreadQueueKey(
+              jid,
+              `agent:${group.folder}`,
+              undefined,
+              group.providerAccountId,
+            ),
+            group,
+          );
         }),
         unregisterConversationRoute: vi.fn(async (jid: string) => {
           registered.delete(jid);
@@ -280,7 +299,7 @@ describe('provider conversation onboarding control SDK integration', () => {
     };
   }
 
-  it('creates provider connection and binds an agent with permission policies through SDK/control routes', async () => {
+  it('creates provider account and installs an agent with permission policies through SDK/control routes', async () => {
     const runtimeApp = runtimeProjectionApp();
     const server = await startTestControlServer({
       token: 'token-channels',
@@ -308,17 +327,18 @@ describe('provider conversation onboarding control SDK integration', () => {
         'slack',
       );
 
-      const providerConnection = ProviderConnectionResponseSchema.parse(
-        await client.providerConnections.create({
+      const providerAccount = ProviderAccountResponseSchema.parse(
+        await client.providerAccounts.create({
           appId: 'app-one',
+          agentId: 'agent:one',
           providerId: 'slack',
           label: 'Engineering Slack',
-          externalRef: { kind: 'provider_connection', id: 'T123' },
+          externalRef: { kind: 'provider_account', id: 'T123' },
           config: { workspace: 'engineering' },
           runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
         }),
       );
-      expect(providerConnection).toMatchObject({
+      expect(providerAccount).toMatchObject({
         appId: 'app-one',
         providerId: 'slack',
         status: 'active',
@@ -332,8 +352,7 @@ describe('provider conversation onboarding control SDK integration', () => {
       const conversation = {
         id: 'conversation:slack:C123',
         appId: 'app-one',
-        providerConnectionId: providerConnection.id,
-        providerConnectionId: providerConnection.id,
+        providerAccountId: providerAccount.id,
         externalRef: { kind: 'conversation', value: 'C123' },
         kind: 'channel',
         title: 'engineering',
@@ -353,13 +372,12 @@ describe('provider conversation onboarding control SDK integration', () => {
         updatedAt: '2026-04-28T00:00:00.000Z',
       });
 
-      const binding = AgentConversationBindingResponseSchema.parse(
-        await client.agents.conversationBindings.enable(
+      const conversationInstall = ConversationInstallResponseSchema.parse(
+        await client.agents.conversationInstalls.enable(
           'agent:one',
           conversation.id,
           {
-            providerConnectionId: providerConnection.id,
-            triggerMode: 'mention',
+            providerAccountId: providerAccount.id,
             displayName: 'Engineering',
             permissionPolicyIds: ['permission-policy:deploy'],
             memoryScope: 'conversation',
@@ -367,40 +385,68 @@ describe('provider conversation onboarding control SDK integration', () => {
           },
         ),
       );
-      expect(binding).toMatchObject({
+      expect(conversationInstall).toMatchObject({
         appId: 'app-one',
         agentId: 'agent:one',
-        providerConnectionId: providerConnection.id,
+        providerAccountId: providerAccount.id,
         conversationId: conversation.id,
         displayName: 'Engineering',
-        triggerMode: 'mention',
-        requiresTrigger: true,
         permissionPolicyIds: ['permission-policy:deploy'],
       });
-      expect(binding.memorySubject).toMatchObject({
+      expect(conversationInstall.memorySubject).toMatchObject({
         type: 'conversation',
         id: conversation.id,
       });
-      expect(runtimeApp.app.projectConversationRoute).not.toHaveBeenCalled();
+      const threadRouteJid = makeAgentThreadQueueKey(
+        'sl:C123',
+        undefined,
+        '1700.1',
+      );
+      const projectedThreadRouteKey = makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:one',
+        '1700.1',
+        providerAccount.id,
+      );
+      expect(runtimeApp.app.projectConversationRoute).toHaveBeenCalledWith(
+        threadRouteJid,
+        expect.objectContaining({
+          name: 'Engineering',
+          folder: 'one',
+          providerAccountId: providerAccount.id,
+          requiresTrigger: true,
+          conversationKind: 'channel',
+        }),
+      );
       expect(runtimeApp.app.registerGroup).not.toHaveBeenCalled();
       expect(runtimeApp.registered.has('sl:C123')).toBe(false);
+      expect(runtimeApp.registered.has(projectedThreadRouteKey)).toBe(true);
       expect(syncRuntimeSettingsFromProjection).toHaveBeenCalledTimes(2);
       expect(syncRuntimeSettingsFromProjection).toHaveBeenLastCalledWith(
         expect.objectContaining({ appId: 'app-one' }),
       );
 
-      const listed = await client.agents.conversationBindings.list('agent:one');
-      const parsedList =
-        AgentConversationBindingListResponseSchema.parse(listed);
-      expect(parsedList.bindings.map((entry) => entry.id)).toEqual([
-        binding.id,
+      const listed = await client.agents.conversationInstalls.list('agent:one');
+      const parsedList = ConversationInstallListResponseSchema.parse(listed);
+      expect(parsedList.conversationInstalls.map((entry) => entry.id)).toEqual([
+        conversationInstall.id,
       ]);
+
+      await client.agents.conversationInstalls.disable(
+        'agent:one',
+        conversation.id,
+        { threadId: 'thread:slack:C123:1700.1' },
+      );
+      expect(runtimeApp.app.unregisterConversationRoute).toHaveBeenCalledWith(
+        projectedThreadRouteKey,
+      );
+      expect(runtimeApp.registered.has(projectedThreadRouteKey)).toBe(false);
     } finally {
       await server.close();
     }
   });
 
-  it('projects whole-conversation binding disable out of live runtime routing', async () => {
+  it('projects whole-conversation install disable out of live runtime routing', async () => {
     const runtimeApp = runtimeProjectionApp();
     const server = await startTestControlServer({
       token: 'token-channels',
@@ -414,11 +460,12 @@ describe('provider conversation onboarding control SDK integration', () => {
       timeoutMs: 3000,
     });
 
-    const providerConnectionId = 'providerConnection:slack:disable';
+    const providerAccountId = 'providerAccount:slack:disable';
     const conversationId = 'conversation:slack:disable';
-    state.providerConnections.set(providerConnectionId, {
-      id: providerConnectionId,
+    state.providerAccounts.set(providerAccountId, {
+      id: providerAccountId,
       appId: 'app-one',
+      agentId: 'agent:one',
       providerId: 'slack',
       label: 'Slack',
       status: 'active',
@@ -430,7 +477,7 @@ describe('provider conversation onboarding control SDK integration', () => {
     state.conversations.set(conversationId, {
       id: conversationId,
       appId: 'app-one',
-      providerConnectionId,
+      providerAccountId,
       externalRef: { kind: 'conversation', value: 'C999' },
       kind: 'channel',
       title: 'ops',
@@ -440,40 +487,135 @@ describe('provider conversation onboarding control SDK integration', () => {
     });
 
     try {
-      await client.agents.conversationBindings.enable(
+      await client.agents.conversationInstalls.enable(
         'agent:one',
         conversationId,
         {
-          providerConnectionId,
+          providerAccountId,
           displayName: 'Ops',
-          triggerMode: 'always',
         },
       );
-      expect(runtimeApp.registered.has('sl:C999')).toBe(true);
+      expect(
+        runtimeApp.registered.has(
+          makeAgentThreadQueueKey(
+            'sl:C999',
+            'agent:one',
+            undefined,
+            providerAccountId,
+          ),
+        ),
+      ).toBe(true);
       expect(runtimeApp.app.projectConversationRoute).toHaveBeenCalledWith(
         'sl:C999',
         expect.objectContaining({
           name: 'Ops',
           folder: 'one',
+          providerAccountId,
+          requiresTrigger: true,
           conversationKind: 'channel',
         }),
       );
       expect(runtimeApp.app.registerGroup).not.toHaveBeenCalled();
+      await expect(client.agents.getAdmin('agent:one')).resolves.toEqual(
+        expect.objectContaining({
+          boundConversations: [
+            expect.objectContaining({
+              conversationId,
+              requiresTrigger: true,
+            }),
+          ],
+        }),
+      );
 
-      await client.agents.conversationBindings.disable(
+      const installKey = `app-one:agent:one:${conversationId}:`;
+      state.conversationInstalls.set(installKey, {
+        ...state.conversationInstalls.get(installKey),
+        memorySubject: {
+          ...state.conversationInstalls.get(installKey).memorySubject,
+          route: { trigger: '/ops', requiresTrigger: true },
+        },
+      });
+      await client.agents.conversationInstalls.update(
+        'agent:one',
+        conversationId,
+        {
+          displayName: 'Ops Updated',
+        },
+      );
+      expect(runtimeApp.app.projectConversationRoute).toHaveBeenLastCalledWith(
+        'sl:C999',
+        expect.objectContaining({
+          trigger: '/ops',
+          requiresTrigger: true,
+        }),
+      );
+      await expect(client.agents.getAdmin('agent:one')).resolves.toEqual(
+        expect.objectContaining({
+          boundConversations: [
+            expect.objectContaining({
+              conversationId,
+              requiresTrigger: true,
+              trigger: '/ops',
+            }),
+          ],
+        }),
+      );
+
+      await client.agents.conversationInstalls.disable(
         'agent:one',
         conversationId,
       );
       expect(runtimeApp.app.unregisterConversationRoute).toHaveBeenCalledWith(
-        'sl:C999',
+        makeAgentThreadQueueKey(
+          'sl:C999',
+          'agent:one',
+          undefined,
+          providerAccountId,
+        ),
       );
-      expect(runtimeApp.registered.has('sl:C999')).toBe(false);
+      expect(
+        runtimeApp.registered.has(
+          makeAgentThreadQueueKey(
+            'sl:C999',
+            'agent:one',
+            undefined,
+            providerAccountId,
+          ),
+        ),
+      ).toBe(false);
+
+      state.conversations.set('conversation:slack:dm', {
+        id: 'conversation:slack:dm',
+        appId: 'app-one',
+        providerAccountId,
+        externalRef: { kind: 'conversation', value: 'D123' },
+        kind: 'direct',
+        title: 'dm',
+        status: 'active',
+        createdAt: '2026-04-28T00:00:00.000Z',
+        updatedAt: '2026-04-28T00:00:00.000Z',
+      });
+      await client.agents.conversationInstalls.enable(
+        'agent:one',
+        'conversation:slack:dm',
+        {
+          providerAccountId,
+          displayName: 'Direct',
+        },
+      );
+      expect(runtimeApp.app.projectConversationRoute).toHaveBeenLastCalledWith(
+        'sl:D123',
+        expect.objectContaining({
+          requiresTrigger: false,
+          conversationKind: 'dm',
+        }),
+      );
     } finally {
       await server.close();
     }
   });
 
-  it('blocks cross-app provider connection and binding requests before mutation', async () => {
+  it('blocks cross-app provider account and conversation install requests before mutation', async () => {
     const server = await startTestControlServer({
       token: 'token-channels',
       appId: 'app-one',
@@ -487,16 +629,17 @@ describe('provider conversation onboarding control SDK integration', () => {
 
     try {
       await expect(
-        client.providerConnections.create({
+        client.providerAccounts.create({
           appId: 'app-two',
+          agentId: 'agent:one',
           providerId: 'slack',
           label: 'Wrong app',
         }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      expect(state.providerConnections).toHaveLength(0);
+      expect(state.providerAccounts).toHaveLength(0);
 
-      state.providerConnections.set('channel-providerConnection:one', {
-        id: 'channel-providerConnection:one',
+      state.providerAccounts.set('channel-providerAccount:one', {
+        id: 'channel-providerAccount:one',
         appId: 'app-one',
         providerId: 'slack',
         label: 'Engineering Slack',
@@ -509,8 +652,7 @@ describe('provider conversation onboarding control SDK integration', () => {
       state.conversations.set('conversation:one', {
         id: 'conversation:one',
         appId: 'app-one',
-        providerConnectionId: 'channel-providerConnection:one',
-        providerConnectionId: 'channel-providerConnection:one',
+        providerAccountId: 'channel-providerAccount:one',
         kind: 'channel',
         title: 'engineering',
         status: 'active',
@@ -519,21 +661,21 @@ describe('provider conversation onboarding control SDK integration', () => {
       });
 
       await expect(
-        client.agents.conversationBindings.enable(
+        client.agents.conversationInstalls.enable(
           'agent:two',
           'conversation:one',
           {
-            providerConnectionId: 'channel-providerConnection:one',
+            providerAccountId: 'channel-providerAccount:one',
           },
         ),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-      expect(state.bindings).toHaveLength(0);
+      expect(state.conversationInstalls).toHaveLength(0);
     } finally {
       await server.close();
     }
   });
 
-  it('supports reserved URL ids and thread-scoped disable for conversation bindings', async () => {
+  it('supports reserved URL ids and thread-scoped disable for conversation installs', async () => {
     const server = await startTestControlServer({
       token: 'token-channels',
       appId: 'app-one',
@@ -545,13 +687,14 @@ describe('provider conversation onboarding control SDK integration', () => {
       timeoutMs: 3000,
     });
 
-    const providerConnectionId = 'channel-providerConnection/slash';
+    const providerAccountId = 'channel-providerAccount/slash';
     const conversationId = 'conversation/slash';
     const threadId = 'thread/slash';
 
-    state.providerConnections.set(providerConnectionId, {
-      id: providerConnectionId,
+    state.providerAccounts.set(providerAccountId, {
+      id: providerAccountId,
       appId: 'app-one',
+      agentId: 'agent:one',
       providerId: 'slack',
       label: 'Slash Workspace',
       status: 'active',
@@ -563,8 +706,7 @@ describe('provider conversation onboarding control SDK integration', () => {
     state.conversations.set(conversationId, {
       id: conversationId,
       appId: 'app-one',
-      providerConnectionId: providerConnectionId,
-      providerConnectionId: providerConnectionId,
+      providerAccountId: providerAccountId,
       externalRef: { kind: 'conversation', value: 'C/slash' },
       kind: 'channel',
       title: 'slash-room',
@@ -584,28 +726,27 @@ describe('provider conversation onboarding control SDK integration', () => {
     });
 
     try {
-      const enabled = AgentConversationBindingResponseSchema.parse(
-        await client.agents.conversationBindings.enable(
+      const enabled = ConversationInstallResponseSchema.parse(
+        await client.agents.conversationInstalls.enable(
           'agent:one',
           conversationId,
           {
-            providerConnectionId: providerConnectionId,
+            providerAccountId: providerAccountId,
             threadId,
-            displayName: 'Slash Binding',
-            triggerMode: 'mention',
+            displayName: 'Slash Install',
             memoryScope: 'conversation',
           },
         ),
       );
       expect(enabled).toMatchObject({
         appId: 'app-one',
-        providerConnectionId: providerConnectionId,
+        providerAccountId: providerAccountId,
         conversationId,
         threadId,
         status: 'active',
       });
 
-      const disabled = await client.agents.conversationBindings.disable(
+      const disabled = await client.agents.conversationInstalls.disable(
         'agent:one',
         conversationId,
         {
@@ -613,17 +754,17 @@ describe('provider conversation onboarding control SDK integration', () => {
         },
       );
       expect(disabled.disabled).toBe(true);
-      expect(disabled.binding).toMatchObject({
+      expect(disabled.conversationInstall).toMatchObject({
         conversationId,
         threadId,
         status: 'disabled',
       });
 
-      const listed = AgentConversationBindingListResponseSchema.parse(
-        await client.agents.conversationBindings.list('agent:one'),
+      const listed = ConversationInstallListResponseSchema.parse(
+        await client.agents.conversationInstalls.list('agent:one'),
       );
-      expect(listed.bindings).toHaveLength(1);
-      expect(listed.bindings[0]).toMatchObject({
+      expect(listed.conversationInstalls).toHaveLength(1);
+      expect(listed.conversationInstalls[0]).toMatchObject({
         conversationId,
         threadId,
         status: 'disabled',
@@ -633,7 +774,7 @@ describe('provider conversation onboarding control SDK integration', () => {
     }
   });
 
-  it('rejects discovery for disabled provider connections through control SDK routes', async () => {
+  it('rejects discovery for disabled provider accounts through control SDK routes', async () => {
     const server = await startTestControlServer({
       token: 'token-channels',
       appId: 'app-one',
@@ -646,20 +787,21 @@ describe('provider conversation onboarding control SDK integration', () => {
     });
 
     try {
-      const created = ProviderConnectionResponseSchema.parse(
-        await client.providerConnections.create({
+      const created = ProviderAccountResponseSchema.parse(
+        await client.providerAccounts.create({
           appId: 'app-one',
+          agentId: 'agent:one',
           providerId: 'slack',
           label: 'To Disable',
         }),
       );
       expect(created.status).toBe('active');
 
-      const disabled = await client.providerConnections.delete(created.id);
+      const disabled = await client.providerAccounts.delete(created.id);
       expect(disabled).toMatchObject({ deleted: true });
 
       await expect(
-        client.providerConnections.discoverConversations(created.id, {
+        client.providerAccounts.discoverConversations(created.id, {
           limit: 1,
         }),
       ).rejects.toMatchObject({

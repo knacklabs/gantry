@@ -6,7 +6,10 @@ import type { createChannelMessageActionRouter } from './channel-message-action-
 type ProgressChannel = Parameters<typeof asProgressSink>[0];
 
 export function createChannelProgressSender(input: {
-  findBoundChannel: (jid: string) => ProgressChannel | undefined;
+  findBoundChannel: (
+    jid: string,
+    providerAccountId?: string,
+  ) => ProgressChannel | undefined;
   messageActionRouter: ReturnType<typeof createChannelMessageActionRouter>;
   logger: Pick<typeof logger, 'info'>;
 }) {
@@ -16,7 +19,7 @@ export function createChannelProgressSender(input: {
     options?: ProgressUpdateOptions,
   ): Promise<void> {
     input.messageActionRouter.trackProgress(jid, options);
-    const channel = input.findBoundChannel(jid);
+    const channel = input.findBoundChannel(jid, options?.providerAccountId);
     if (!channel) {
       input.logger.info(
         { jid, progressText: text, options },

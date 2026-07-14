@@ -483,6 +483,11 @@ maybeDescribe('live turn real runner (Postgres)', () => {
         workspaceIpcDir: temp.workspaceIpcDir,
         runnerDistDir: temp.runnerDistDir,
       }),
+      withControls: (input: unknown) => input,
+      createConfiguredRunTokenBudget: () => ({
+        exceeded: false,
+        enforce: (output: unknown) => output,
+      }),
     }));
     vi.doMock('@core/application/agents/prompt-profile-service.js', () => {
       class MockPromptProfileService {

@@ -33,11 +33,11 @@ export type RuntimeSenderControlAllowlistConfig = Record<
 >;
 
 interface AllowlistDesiredState {
-  providerConnections: Record<string, { provider: string }>;
+  providerAccounts: Record<string, { provider: string }>;
   conversations: Record<
     string,
     {
-      providerConnection: string;
+      providerAccount: string;
       externalId: string;
       senderPolicy: ChatAllowlistEntry;
       controlApprovers: string[];
@@ -120,8 +120,7 @@ function deriveSenderAllowlistFromSettings(
   for (const binding of Object.values(settings.bindings)) {
     const conversation = settings.conversations[binding.conversation];
     if (!conversation) continue;
-    const connection =
-      settings.providerConnections[conversation.providerConnection];
+    const connection = settings.providerAccounts[conversation.providerAccount];
     if (!connection) continue;
     const providerId = connection.provider;
     sender[providerId] ??= cloneDefaultChannelConfig();
@@ -146,8 +145,7 @@ function deriveControlAllowlistFromSettings(
   for (const binding of Object.values(settings.bindings)) {
     const conversation = settings.conversations[binding.conversation];
     if (!conversation) continue;
-    const connection =
-      settings.providerConnections[conversation.providerConnection];
+    const connection = settings.providerAccounts[conversation.providerAccount];
     if (!connection) continue;
     const providerId = connection.provider;
     control[providerId] ??= cloneDefaultControlChannelConfig();

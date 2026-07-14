@@ -3,7 +3,16 @@ import http from 'node:http';
 import https from 'node:https';
 
 import { logger } from '../../infrastructure/logging/logger.js';
-import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+  getRuntimeStorage,
+} from '../../adapters/storage/postgres/runtime-store.js';
+import { PostgresEventBusOutboxConsumer } from '../../adapters/storage/postgres/repositories/event-bus-outbox.postgres.js';
+import type {
+  RuntimeEvent,
+  RuntimeEventId,
+} from '../../domain/events/events.js';
 import {
   hostnameForNetwork,
   type ResolvedWebhookTarget,
@@ -14,6 +23,41 @@ import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 const WEBHOOK_DELIVERY_BATCH_SIZE = 20;
 const WEBHOOK_DELIVERY_CONCURRENCY = 4;
 const WEBHOOK_REQUEST_TIMEOUT_MS = 10_000;
+
+type WebhookDeliveryEnvelopeEvent = Pick<
+  RuntimeEvent,
+  | 'eventId'
+  | 'eventType'
+  | 'agentId'
+  | 'sessionId'
+  | 'jobId'
+  | 'runId'
+  | 'triggerId'
+  | 'conversationId'
+  | 'threadId'
+  | 'correlationId'
+  | 'createdAt'
+  | 'payload'
+>;
+
+export function buildWebhookDeliveryEnvelope(
+  event: WebhookDeliveryEnvelopeEvent,
+): Record<string, unknown> {
+  return {
+    eventId: event.eventId,
+    eventType: event.eventType,
+    agentId: event.agentId ?? null,
+    sessionId: event.sessionId ?? null,
+    jobId: event.jobId ?? null,
+    runId: event.runId ?? null,
+    triggerId: event.triggerId ?? null,
+    conversationId: event.conversationId ?? null,
+    threadId: event.threadId ?? null,
+    correlationId: event.correlationId ?? null,
+    createdAt: event.createdAt,
+    payload: event.payload,
+  };
+}
 
 async function requestWebhook(
   target: ResolvedWebhookTarget,
@@ -80,17 +124,31 @@ export async function deliverWebhookDelivery(
     return;
   }
   try {
-    const body = JSON.stringify({
-      eventId: event.eventId,
-      eventType: event.eventType,
-      sessionId: event.sessionId,
-      jobId: event.jobId,
-      runId: event.runId,
-      triggerId: event.triggerId,
-      correlationId: event.correlationId,
-      createdAt: event.createdAt,
-      payload: JSON.parse(event.payload),
-    });
+    const runtimeEvent = (
+      await getRuntimeEventExchange().list({
+        appId: webhook.appId as RuntimeEvent['appId'],
+        afterEventId: (event.eventId - 1) as RuntimeEventId,
+        limit: 1,
+      })
+    ).find((candidate) => candidate.eventId === event.eventId);
+    const body = JSON.stringify(
+      buildWebhookDeliveryEnvelope(
+        runtimeEvent ?? {
+          eventId: event.eventId as RuntimeEventId,
+          eventType: event.eventType as RuntimeEvent['eventType'],
+          agentId: undefined,
+          sessionId: event.sessionId as RuntimeEvent['sessionId'],
+          jobId: event.jobId as RuntimeEvent['jobId'],
+          runId: event.runId as RuntimeEvent['runId'],
+          triggerId: event.triggerId ?? undefined,
+          conversationId: undefined,
+          threadId: undefined,
+          correlationId: event.correlationId ?? undefined,
+          createdAt: event.createdAt as RuntimeEvent['createdAt'],
+          payload: JSON.parse(event.payload),
+        },
+      ),
+    );
     const target = await validateWebhookTarget(webhook.url);
     const timestamp = String(currentTimeMs());
     const signature = createHmac('sha256', webhook.secret)
@@ -171,6 +229,9 @@ async function runWithConcurrency<T>(
 }
 
 export async function flushWebhookDeliveries(): Promise<void> {
+  await new PostgresEventBusOutboxConsumer(
+    getRuntimeStorage().service.db,
+  ).consume(WEBHOOK_DELIVERY_BATCH_SIZE);
   const control = getRuntimeControlRepository();
   const due = await control.claimDueWebhookDeliveries(
     WEBHOOK_DELIVERY_BATCH_SIZE,

@@ -6,6 +6,11 @@ import {
 } from '@core/session/session-commands.js';
 import type { NewMessage } from '@core/domain/types.js';
 import type { SessionCommandDeps } from '@core/session/session-commands.js';
+import type { AsyncTaskRecord } from '@core/domain/ports/async-tasks.js';
+import {
+  formatCompactionStatus,
+  type CompactionStatusSnapshot,
+} from '@core/session/session-command-format.js';
 
 describe('extractSessionCommand', () => {
   const trigger = /^@Andy\b/i;
@@ -360,6 +365,29 @@ describe('isSessionCommandAllowed', () => {
   });
 });
 
+describe('formatCompactionStatus', () => {
+  it('formats every supported compaction state', () => {
+    const states: CompactionStatusSnapshot['state'][] = [
+      'idle',
+      'queued',
+      'running',
+      'ready',
+      'degraded',
+      'failed',
+      'timeout',
+    ];
+    expect(states.map((state) => formatCompactionStatus({ state }))).toEqual([
+      'Compaction status: idle',
+      'Compaction status: queued',
+      'Compaction status: running',
+      'Compaction status: ready',
+      'Compaction status: degraded',
+      'Compaction status: failed',
+      'Compaction status: timeout',
+    ]);
+  });
+});
+
 function makeMsg(
   content: string,
   overrides: Partial<NewMessage> = {},
@@ -383,6 +411,7 @@ function makeDeps(
     sendMessage: vi.fn().mockResolvedValue(undefined),
     setTyping: vi.fn().mockResolvedValue(undefined),
     runAgent: vi.fn().mockResolvedValue('success'),
+    runSessionCompaction: vi.fn().mockResolvedValue('success'),
     closeStdin: vi.fn(),
     advanceCursor: vi.fn(),
     formatMessages: vi.fn().mockReturnValue('<formatted>'),
@@ -393,9 +422,39 @@ function makeDeps(
     setGroupThinkingOverride: vi.fn(),
     archiveCurrentSession: vi.fn().mockResolvedValue(undefined),
     onSessionArchived: vi.fn().mockResolvedValue(undefined),
+    beginSessionCompaction: vi.fn().mockResolvedValue({
+      providerSessionId: 'provider-session:locked',
+      externalSessionId: 'provider-session:locked',
+    }),
+    finishSessionCompaction: vi.fn().mockResolvedValue(undefined),
     clearCurrentSession: vi.fn(),
     isSenderControlAllowlisted: vi.fn().mockReturnValue(false),
     canSenderInteract: vi.fn().mockReturnValue(true),
+    ...overrides,
+  };
+}
+
+function makeCompactionTask(
+  overrides: Partial<AsyncTaskRecord> = {},
+): AsyncTaskRecord {
+  return {
+    id: 'task-session-compact',
+    appId: 'default',
+    agentId: 'agent:test',
+    conversationId: 'group@test',
+    threadId: null,
+    parentRunId: null,
+    parentJobId: null,
+    parentJobRunId: null,
+    kind: 'session_compaction',
+    status: 'queued',
+    admissionClass: 'task',
+    authoritySnapshotJson: {},
+    privateCorrelationJson: {},
+    leaseToken: 'lease-session-compact',
+    fencingVersion: 1,
+    createdAt: '2026-04-27T00:00:00.000Z',
+    updatedAt: '2026-04-27T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -444,7 +503,20 @@ describe('handleSessionCommand', () => {
   });
 
   it('handles authorized /compact in main group', async () => {
-    const deps = makeDeps();
+    let finishCompact!: (value: 'success') => void;
+    const deps = makeDeps({
+      beginSessionCompaction: vi.fn().mockResolvedValue({
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      }),
+      finishSessionCompaction: vi.fn().mockResolvedValue(undefined),
+      runSessionCompaction: vi.fn(
+        () =>
+          new Promise<'success'>((resolve) => {
+            finishCompact = resolve;
+          }),
+      ),
+    });
     const result = await handleSessionCommand({
       missedMessages: [makeMsg('/compact')],
       groupName: 'test',
@@ -453,16 +525,342 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.runAgent).toHaveBeenCalledWith(
-      '/compact',
+    expect(deps.runSessionCompaction).toHaveBeenCalledWith(
       expect.any(Function),
+      {
+        maintenanceProviderSession: {
+          providerSessionId: 'provider-session:locked',
+          externalSessionId: 'provider-session:locked',
+        },
+      },
     );
-    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
-    expect(deps.onSessionArchived).toHaveBeenCalledWith('manual-compact');
-    expect(deps.sendMessage).toHaveBeenCalledWith('Compacted current session.');
+    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
+    expect(deps.onSessionArchived).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction queued. You can keep messaging me; I'll use the compacted context when it's ready.",
+    );
     expect(deps.advanceCursor).toHaveBeenCalledWith(
       expect.objectContaining({ timestamp: '100' }),
     );
+    finishCompact('success');
+    await flushAsyncFinalizers();
+    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
+    expect(deps.onSessionArchived).toHaveBeenCalledWith('manual-compact');
+    expect(deps.finishSessionCompaction).toHaveBeenCalledWith(
+      {
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      },
+      'ready',
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction ready. I'll use the compacted context and updated memory on your next message.",
+    );
+  });
+
+  it('uses durable session compaction admission and task lifecycle', async () => {
+    const queuedTask = makeCompactionTask();
+    const runningTask = makeCompactionTask({
+      status: 'running',
+      fencingVersion: 2,
+      startedAt: '2026-04-27T00:00:01.000Z',
+    });
+    const deps = makeDeps({
+      admitSessionCompactionTask: vi
+        .fn()
+        .mockResolvedValue({ task: queuedTask, admitted: true }),
+      beginSessionCompaction: vi.fn().mockResolvedValue({
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      }),
+      markSessionCompactionTaskRunning: vi.fn().mockResolvedValue(runningTask),
+      finishSessionCompactionTask: vi.fn().mockResolvedValue(undefined),
+      finishSessionCompaction: vi.fn().mockResolvedValue(undefined),
+      runSessionCompaction: vi.fn().mockResolvedValue('success'),
+      archiveCurrentSession: vi.fn().mockResolvedValue({ memory: 'ok' }),
+    });
+
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-durable-admission',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction queued. You can keep messaging me; I'll use the compacted context when it's ready.",
+    );
+    await flushAsyncFinalizers();
+    expect(deps.markSessionCompactionTaskRunning).toHaveBeenCalledWith(
+      queuedTask,
+      {
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      },
+    );
+    expect(deps.finishSessionCompactionTask).toHaveBeenCalledWith(
+      runningTask,
+      'ready',
+    );
+  });
+
+  it('rotates to a fresh checkpoint when the selected provider has no native compaction', async () => {
+    const deps = makeDeps({
+      getSessionCompactionStrategy: vi
+        .fn()
+        .mockResolvedValue('fresh_checkpoint'),
+      runSessionCompaction: vi.fn().mockResolvedValue('success'),
+      archiveCurrentSession: vi.fn().mockResolvedValue({ memory: 'ok' }),
+    });
+
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-fresh-checkpoint',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    await flushAsyncFinalizers();
+    expect(deps.runSessionCompaction).not.toHaveBeenCalled();
+    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
+    expect(deps.finishSessionCompaction).toHaveBeenCalledWith(
+      {
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      },
+      'expired',
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction ready. I'll use updated memory and a fresh provider context on your next message.",
+    );
+  });
+
+  it('publishes compaction runtime events for queued running and ready states', async () => {
+    const queuedTask = makeCompactionTask();
+    const runningTask = makeCompactionTask({ status: 'running' });
+    const publishSessionCompactionEvent = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      admitSessionCompactionTask: vi
+        .fn()
+        .mockResolvedValue({ task: queuedTask, admitted: true }),
+      markSessionCompactionTaskRunning: vi.fn().mockResolvedValue(runningTask),
+      finishSessionCompactionTask: vi.fn().mockResolvedValue(undefined),
+      finishSessionCompaction: vi.fn().mockResolvedValue(undefined),
+      runSessionCompaction: vi.fn().mockResolvedValue('success'),
+      archiveCurrentSession: vi.fn().mockResolvedValue({ memory: 'ok' }),
+      publishSessionCompactionEvent,
+    });
+
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-compaction-events',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    await flushAsyncFinalizers();
+
+    expect(
+      publishSessionCompactionEvent.mock.calls.map((call) => call[0]),
+    ).toEqual(['queued', 'running', 'ready']);
+  });
+
+  it('keeps successful compaction successful when runtime event publishing fails', async () => {
+    const deps = makeDeps({
+      finishSessionCompaction: vi.fn().mockResolvedValue(undefined),
+      runSessionCompaction: vi.fn().mockResolvedValue('success'),
+      archiveCurrentSession: vi.fn().mockResolvedValue({ memory: 'ok' }),
+      publishSessionCompactionEvent: vi
+        .fn()
+        .mockRejectedValue(new Error('event sink down')),
+    });
+
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-compaction-event-failure',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    await flushAsyncFinalizers();
+
+    expect(deps.finishSessionCompaction).toHaveBeenCalledWith(
+      {
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      },
+      'ready',
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction ready. I'll use the compacted context and updated memory on your next message.",
+    );
+    expect(deps.sendMessage).not.toHaveBeenCalledWith(
+      "Compaction did not finish. I'll keep using current continuity and memory.",
+    );
+  });
+
+  it('heartbeats a running durable session compaction task', async () => {
+    vi.useFakeTimers();
+    try {
+      const queuedTask = makeCompactionTask();
+      const runningTask = makeCompactionTask({ status: 'running' });
+      let finishRun!: (value: 'success') => void;
+      const deps = makeDeps({
+        admitSessionCompactionTask: vi
+          .fn()
+          .mockResolvedValue({ task: queuedTask, admitted: true }),
+        beginSessionCompaction: vi.fn().mockResolvedValue({
+          providerSessionId: 'provider-session:locked',
+          externalSessionId: 'provider-session:locked',
+        }),
+        markSessionCompactionTaskRunning: vi
+          .fn()
+          .mockResolvedValue(runningTask),
+        heartbeatSessionCompactionTask: vi.fn().mockResolvedValue(runningTask),
+        runSessionCompaction: vi.fn(
+          () =>
+            new Promise<'success'>((resolve) => {
+              finishRun = resolve;
+            }),
+        ),
+        archiveCurrentSession: vi.fn().mockResolvedValue({ memory: 'ok' }),
+      });
+
+      await expect(
+        handleSessionCommand({
+          missedMessages: [makeMsg('/compact')],
+          groupName: 'test-durable-heartbeat',
+          triggerPattern: trigger,
+          timezone: 'UTC',
+          deps,
+        }),
+      ).resolves.toEqual({ handled: true, success: true });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(deps.heartbeatSessionCompactionTask).toHaveBeenCalledWith(
+        runningTask,
+      );
+
+      finishRun('success');
+      await Promise.resolve();
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses durable admission to deduplicate queued or running compaction', async () => {
+    const deps = makeDeps({
+      admitSessionCompactionTask: vi
+        .fn()
+        .mockResolvedValue({ task: makeCompactionTask(), admitted: false }),
+      beginSessionCompaction: vi.fn().mockResolvedValue({
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      }),
+    });
+
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-durable-dedupe',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(deps.beginSessionCompaction).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Compaction is already running or queued. You can keep messaging me.',
+    );
+  });
+
+  it('does not run /compact unlocked when the maintenance lock is unavailable', async () => {
+    const deps = makeDeps({
+      beginSessionCompaction: vi.fn().mockResolvedValue(undefined),
+      runAgent: vi.fn().mockResolvedValue('success'),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-lock-unavailable',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.beginSessionCompaction).toHaveBeenCalledTimes(1);
+    expect(deps.runSessionCompaction).not.toHaveBeenCalled();
+    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Compaction is already running or queued. You can keep messaging me.',
+    );
+    expect(deps.sendMessage).not.toHaveBeenCalledWith(
+      "Compaction queued. You can keep messaging me; I'll use the compacted context when it's ready.",
+    );
+  });
+
+  it('deduplicates overlapping background /compact runs per process', async () => {
+    let finishCompact!: (value: 'success') => void;
+    const deps = makeDeps({
+      runSessionCompaction: vi.fn(
+        () =>
+          new Promise<'success'>((resolve) => {
+            finishCompact = resolve;
+          }),
+      ),
+    });
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-dedupe',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'test-dedupe',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(deps.runSessionCompaction).toHaveBeenCalledTimes(1);
+    finishCompact('success');
+    await flushAsyncFinalizers();
+  });
+
+  it('allows overlapping background /compact runs for the same group name in different scopes', async () => {
+    const finishCompacts: Array<(value: 'success') => void> = [];
+    const runSessionCompaction = vi.fn(
+      () =>
+        new Promise<'success'>((resolve) => {
+          finishCompacts.push(resolve);
+        }),
+    );
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      groupName: 'Main Agent',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps: makeDeps({ runSessionCompaction, compactionScopeKey: 'tg:one' }),
+    });
+    await handleSessionCommand({
+      missedMessages: [makeMsg('/compact', { id: 'msg-2' })],
+      groupName: 'Main Agent',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps: makeDeps({ runSessionCompaction, compactionScopeKey: 'tg:two' }),
+    });
+    expect(runSessionCompaction).toHaveBeenCalledTimes(2);
+    finishCompacts.forEach((finishCompact) => finishCompact('success'));
+    await flushAsyncFinalizers();
   });
 
   it('denies /compact in main group when sender is not owner and not allowlisted', async () => {
@@ -730,15 +1128,21 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.formatMessages).toHaveBeenCalledWith([msgs[0]], 'UTC');
-    expect(deps.runAgent).toHaveBeenCalledTimes(2);
+    expect(deps.runAgent).toHaveBeenCalledTimes(1);
     expect(deps.runAgent).toHaveBeenCalledWith(
       '<formatted>',
       expect.any(Function),
     );
-    expect(deps.runAgent).toHaveBeenCalledWith(
-      '/compact',
+    expect(deps.runSessionCompaction).toHaveBeenCalledWith(
       expect.any(Function),
+      {
+        maintenanceProviderSession: {
+          providerSessionId: 'provider-session:locked',
+          externalSessionId: 'provider-session:locked',
+        },
+      },
     );
+    await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
   });
 
@@ -752,10 +1156,16 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.runAgent).toHaveBeenCalledWith(
-      '/compact',
+    expect(deps.runSessionCompaction).toHaveBeenCalledWith(
       expect.any(Function),
+      {
+        maintenanceProviderSession: {
+          providerSessionId: 'provider-session:locked',
+          externalSessionId: 'provider-session:locked',
+        },
+      },
     );
+    await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
   });
 
@@ -1433,9 +1843,14 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('reports /compact failure when SDK compact fails', async () => {
+  it('returns success before background SDK compact failure settles', async () => {
     const deps = makeDeps({
-      runAgent: vi.fn().mockResolvedValue('error'),
+      beginSessionCompaction: vi.fn().mockResolvedValue({
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      }),
+      finishSessionCompaction: vi.fn().mockResolvedValue(undefined),
+      runSessionCompaction: vi.fn().mockResolvedValue('error'),
     });
     const result = await handleSessionCommand({
       missedMessages: [makeMsg('/compact')],
@@ -1444,15 +1859,27 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
+    await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
-    expect(deps.sendMessage).toHaveBeenCalledWith('/compact failed.');
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
+    expect(deps.finishSessionCompaction).toHaveBeenCalledWith(
+      {
+        providerSessionId: 'provider-session:locked',
+        externalSessionId: 'provider-session:locked',
+      },
+      'active',
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction did not finish. I'll keep using current continuity and memory.",
+    );
   });
 
-  it('reports /compact failure when SDK compact is stopped', async () => {
+  it('returns success before background SDK compact stop settles', async () => {
     const deps = makeDeps({
-      runAgent: vi.fn().mockResolvedValue('stopped'),
+      runSessionCompaction: vi.fn().mockResolvedValue('stopped'),
     });
     const result = await handleSessionCommand({
       missedMessages: [makeMsg('/compact')],
@@ -1461,16 +1888,26 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
+    await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
-    expect(deps.sendMessage).toHaveBeenCalledWith('/compact failed.');
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction did not finish. I'll keep using current continuity and memory.",
+    );
   });
 
-  it('reports /compact failure when SDK compact output is an error', async () => {
+  it('returns success before background SDK compact output error settles', async () => {
+    const publishSessionCompactionEvent = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'error', result: 'too large' });
+      publishSessionCompactionEvent,
+      runSessionCompaction: vi.fn().mockImplementation(async (onOutput) => {
+        await onOutput({
+          status: 'error',
+          result: 'provider session handle provider-session:sensitive',
+        });
         return 'success';
       }),
     });
@@ -1481,17 +1918,31 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
+    await flushAsyncFinalizers();
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
-    expect(deps.sendMessage).toHaveBeenCalledWith('/compact failed. too large');
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction did not finish. I'll keep using current continuity and memory.",
+    );
+    const failedEvent = publishSessionCompactionEvent.mock.calls.find(
+      ([state]) => state === 'failed',
+    );
+    expect(failedEvent?.[1]).toEqual(
+      expect.objectContaining({
+        errorSummary: 'Session compaction did not finish.',
+      }),
+    );
+    expect(JSON.stringify(failedEvent?.[1])).not.toContain(
+      'provider-session:sensitive',
+    );
   });
 
-  it('reports /compact failure when memory collection fails', async () => {
+  it('returns success before degraded background memory collection settles', async () => {
     const deps = makeDeps({
-      archiveCurrentSession: vi
-        .fn()
-        .mockRejectedValue(new Error('memory collection failed')),
+      archiveCurrentSession: vi.fn().mockResolvedValue({ memory: 'degraded' }),
     });
     const result = await handleSessionCommand({
       missedMessages: [makeMsg('/compact')],
@@ -1500,11 +1951,14 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      '/compact failed. Memory collection failed.',
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
     );
-    expect(deps.advanceCursor).not.toHaveBeenCalled();
+    await flushAsyncFinalizers();
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "Compaction ready, but memory extraction did not finish. I'll use compacted context and existing memory.",
+    );
   });
 
   it('accepts forgiving multi-word aliases at runtime', async () => {
@@ -1691,6 +2145,7 @@ describe('handleSessionCommand', () => {
   it('shows /status with model and cache token accounting', async () => {
     const deps = makeDeps({
       getGroupModelOverride: vi.fn().mockReturnValue('sonnet'),
+      getSessionCompactionStatus: vi.fn().mockResolvedValue({ state: 'ready' }),
       getBrowserStatus: vi.fn().mockResolvedValue({
         profileName: 'c-test-abc123abc123',
         profileLabel: 'Test conversation browser',
@@ -1768,6 +2223,7 @@ describe('handleSessionCommand', () => {
     expect(sentMsg).toContain('cache read 40');
     expect(sentMsg).toContain('cache write 10');
     expect(sentMsg).toContain('estimated cost $0.0020');
+    expect(sentMsg).toContain('Compaction status: ready');
     expect(sentMsg).toContain('Browser status');
     expect(sentMsg).toContain('Test conversation browser');
     expect(sentMsg).toContain('running and ready');

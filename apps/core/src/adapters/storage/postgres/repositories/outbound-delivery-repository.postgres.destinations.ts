@@ -28,25 +28,24 @@ export async function resolveOutboundDeliveryDestination(
     const rows = await db
       .select({
         conversationId: pgSchema.conversationsPostgres.id,
-        providerConnectionId:
-          pgSchema.conversationsPostgres.providerConnectionId,
+        providerAccountId: pgSchema.conversationsPostgres.providerAccountId,
         conversationExternalRefJson:
           pgSchema.conversationsPostgres.externalRefJson,
-        providerId: pgSchema.providerConnectionsPostgres.providerId,
+        providerId: pgSchema.providerAccountsPostgres.providerId,
         threadId: pgSchema.conversationThreadsPostgres.id,
         threadExternalRefJson:
           pgSchema.conversationThreadsPostgres.externalRefJson,
       })
       .from(pgSchema.conversationsPostgres)
       .innerJoin(
-        pgSchema.providerConnectionsPostgres,
+        pgSchema.providerAccountsPostgres,
         and(
           eq(
-            pgSchema.providerConnectionsPostgres.id,
-            pgSchema.conversationsPostgres.providerConnectionId,
+            pgSchema.providerAccountsPostgres.id,
+            pgSchema.conversationsPostgres.providerAccountId,
           ),
           eq(
-            pgSchema.providerConnectionsPostgres.appId,
+            pgSchema.providerAccountsPostgres.appId,
             pgSchema.conversationsPostgres.appId,
           ),
         ),
@@ -73,7 +72,7 @@ export async function resolveOutboundDeliveryDestination(
     if (!row?.threadId) return null;
     const conversationJid = resolveConversationDestinationJid(
       row.conversationId,
-      row.providerConnectionId,
+      row.providerAccountId,
       row.conversationExternalRefJson,
       row.providerId,
     );
@@ -85,28 +84,28 @@ export async function resolveOutboundDeliveryDestination(
       conversationJid,
       threadId: threadDestinationId,
       providerId: row.providerId as never,
-      providerConnectionId: row.providerConnectionId as never,
+      providerAccountId: row.providerAccountId as never,
     };
   }
 
   const rows = await db
     .select({
       conversationId: pgSchema.conversationsPostgres.id,
-      providerConnectionId: pgSchema.conversationsPostgres.providerConnectionId,
+      providerAccountId: pgSchema.conversationsPostgres.providerAccountId,
       conversationExternalRefJson:
         pgSchema.conversationsPostgres.externalRefJson,
-      providerId: pgSchema.providerConnectionsPostgres.providerId,
+      providerId: pgSchema.providerAccountsPostgres.providerId,
     })
     .from(pgSchema.conversationsPostgres)
     .innerJoin(
-      pgSchema.providerConnectionsPostgres,
+      pgSchema.providerAccountsPostgres,
       and(
         eq(
-          pgSchema.providerConnectionsPostgres.id,
-          pgSchema.conversationsPostgres.providerConnectionId,
+          pgSchema.providerAccountsPostgres.id,
+          pgSchema.conversationsPostgres.providerAccountId,
         ),
         eq(
-          pgSchema.providerConnectionsPostgres.appId,
+          pgSchema.providerAccountsPostgres.appId,
           pgSchema.conversationsPostgres.appId,
         ),
       ),
@@ -122,7 +121,7 @@ export async function resolveOutboundDeliveryDestination(
   if (!row) return null;
   const conversationJid = resolveConversationDestinationJid(
     row.conversationId,
-    row.providerConnectionId,
+    row.providerAccountId,
     row.conversationExternalRefJson,
     row.providerId,
   );
@@ -130,13 +129,13 @@ export async function resolveOutboundDeliveryDestination(
   return {
     conversationJid,
     providerId: row.providerId as never,
-    providerConnectionId: row.providerConnectionId as never,
+    providerAccountId: row.providerAccountId as never,
   };
 }
 
 function resolveConversationDestinationJid(
   conversationId: string,
-  providerConnectionId: string,
+  providerAccountId: string,
   externalRefJson: string | null,
   providerId: string,
 ): string | null {
@@ -168,7 +167,7 @@ function resolveConversationDestinationJid(
   if (resolved.value) return resolved.value;
   const canonicalHint = extractCanonicalConversationHint(
     conversationId,
-    providerConnectionId,
+    providerAccountId,
   );
   const controlHint = extractControlConversationHint(conversationId);
   return normalizeResolvedJid({
@@ -221,15 +220,15 @@ function pickSingleString(values: readonly string[]): string | null {
 
 function extractCanonicalConversationHint(
   conversationId: string,
-  providerConnectionId: string,
+  providerAccountId: string,
 ): string | null {
   if (!conversationId.startsWith(CANONICAL_CONVERSATION_PREFIX)) return null;
   const encoded = conversationId.slice(CANONICAL_CONVERSATION_PREFIX.length);
   const trimmed = encoded.trim();
   if (!trimmed) return null;
-  const providerConnectionPrefix = `${providerConnectionId}:`;
-  if (trimmed.startsWith(providerConnectionPrefix)) {
-    const rawExternalId = trimmed.slice(providerConnectionPrefix.length).trim();
+  const providerAccountPrefix = `${providerAccountId}:`;
+  if (trimmed.startsWith(providerAccountPrefix)) {
+    const rawExternalId = trimmed.slice(providerAccountPrefix.length).trim();
     return rawExternalId || null;
   }
   return trimmed;

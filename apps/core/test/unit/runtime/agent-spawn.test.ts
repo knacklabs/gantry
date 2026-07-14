@@ -42,6 +42,7 @@ vi.mock('@core/config/index.js', () => ({
       : { source: 'unset' },
   ),
   getSelectedAgentHarness: vi.fn(() => 'auto'),
+  getSelectedAgentRuntime: vi.fn(() => 'worker'),
   getDeploymentMode: vi.fn(() => 'workstation'),
   getRuntimeSettingsForConfig: vi.fn(() => ({
     permissions: {
@@ -102,7 +103,8 @@ vi.mock('fs', async () => {
 });
 
 // Mock agent-spawn-host to avoid real filesystem operations
-vi.mock('@core/runtime/agent-spawn-host.js', () => ({
+vi.mock('@core/runtime/agent-spawn-host.js', async (importOriginal) => ({
+  ...(await importOriginal()),
   getHostRuntimeCredentialEnv: vi.fn().mockResolvedValue({
     env: {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:4567/anthropic',
@@ -116,6 +118,22 @@ vi.mock('@core/runtime/agent-spawn-host.js', () => ({
     groupDir: '/tmp/gantry-test-data/agents/test-group',
     workspaceIpcDir: '/tmp/gantry-test-data/ipc/test-group',
     runnerDistDir: '/tmp/gantry-home/dist/runner',
+  })),
+  prepareInlineAgentHostContext: vi.fn(async () => ({
+    dataDir: '/tmp/gantry-test-data',
+    defaultTimeoutMs: 1800000,
+    idleTimeoutMs: 1800000,
+    sandboxProvider: 'direct',
+    compiledSystemPrompt: '',
+    resolvedModel: {
+      ok: true,
+      value: {
+        agentEngine: 'test-engine',
+        executionProviderId: 'test-execution',
+        runnerModel: 'test-model',
+        modelEntry: { modelRoute: { id: 'test-route' } },
+      },
+    },
   })),
 }));
 
@@ -168,6 +186,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 
 // Mock platform
 vi.mock('@core/platform/workspace-folder.js', () => ({
+  isValidWorkspaceFolder: vi.fn(() => true),
   resolveWorkspaceFolderPath: vi.fn(
     (folder: string) => `/tmp/gantry-test-data/agents/${folder}`,
   ),
@@ -234,6 +253,7 @@ import {
   getEffectiveModelConfig,
   getRuntimeSettingsForConfig,
   getSelectedAgentHarness,
+  getSelectedAgentRuntime,
 } from '@core/config/index.js';
 import { getConfiguredModelProvidersForApp } from '@core/adapters/storage/postgres/runtime-store.js';
 import { DirectRunnerSandboxProvider } from '@core/adapters/sandbox/runner-sandbox-provider.js';
@@ -243,7 +263,10 @@ import fs from 'fs';
 import type { ConversationRoute } from '@core/domain/types.js';
 import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
-import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
+import {
+  getHostRuntimeCredentialEnv,
+  prepareHostRuntimeContext,
+} from '@core/runtime/agent-spawn-host.js';
 import { createSignedIpcRequestEnvelope } from '@core/runner/mcp/signing.js';
 import { parseMemoryIpcRequest } from '@core/runtime/ipc-parsing.js';
 import type {
@@ -653,6 +676,8 @@ describe('agent-spawn timeout behavior', () => {
     vi.mocked(getEffectiveModelConfig).mockClear();
     vi.mocked(getSelectedAgentHarness).mockReset();
     vi.mocked(getSelectedAgentHarness).mockReturnValue('auto');
+    vi.mocked(getSelectedAgentRuntime).mockReset();
+    vi.mocked(getSelectedAgentRuntime).mockReturnValue('worker');
     vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
       permissions: {
         yoloMode: {
@@ -939,7 +964,7 @@ describe('agent-spawn timeout behavior', () => {
     delete process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
   });
 
-  it('ensures group IPC layout before spawning host runner', async () => {
+  it('prepares host runtime context before spawning host runner', async () => {
     const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     emitOutputMarker(fakeProc, {
       status: 'success',
@@ -950,9 +975,7 @@ describe('agent-spawn timeout behavior', () => {
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
-    expect(mockEnsureWorkspaceIpcLayout).toHaveBeenCalledWith(
-      '/tmp/gantry-test-data/ipc/test-group',
-    );
+    expect(prepareHostRuntimeContext).toHaveBeenCalledWith(testGroup);
   });
 
   it('publishes a host startup diagnostic with projection counts', async () => {
@@ -1135,6 +1158,7 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(env.GANTRY_CHAT_JID).toBe('tg:trusted-chat');
+    expect(env.GANTRY_PROVIDER_ACCOUNT_ID).toBeUndefined();
     const allowedActions = JSON.parse(
       env.GANTRY_MEMORY_IPC_ACTIONS_JSON,
     ) as string[];
@@ -1173,6 +1197,9 @@ describe('agent-spawn timeout behavior', () => {
       allowedActions: [
         'memory_search',
         'memory_save',
+        'brain_search',
+        'brain_query',
+        'brain_write',
         'continuity_summary',
         'procedure_save',
       ],
@@ -1191,6 +1218,28 @@ describe('agent-spawn timeout behavior', () => {
         testGroup.folder,
       ),
     ).toThrow(/Invalid memory IPC signature/);
+  });
+
+  it('projects provider account scope into runner IPC context', async () => {
+    const resultPromise = spawnTestAgent(
+      { ...testGroup, providerAccountId: 'provider-account:slack:a' },
+      testInput,
+      () => {},
+    );
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'started',
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GANTRY_PROVIDER_ACCOUNT_ID).toBe('provider-account:slack:a');
   });
 
   it('includes reviewer memory actions in spawned IPC signatures for control approvers', async () => {
@@ -1495,6 +1544,62 @@ describe('agent-spawn timeout behavior', () => {
         compiledSystemPrompt: 'compiled profile prompt',
       }),
     );
+  });
+
+  it('merges worker defaults while preserving per-request control precedence', async () => {
+    vi.mocked(getRuntimeSettingsForConfig).mockReturnValue({
+      permissions: {
+        yoloMode: { enabled: true, denylist: [], denylistPaths: [] },
+        egress: { denylist: [] },
+      },
+      runtime: {
+        sandbox: {
+          provider: 'direct',
+          resourceLimits: { cpuSeconds: 0, memoryMb: 0, maxProcesses: 0 },
+        },
+      },
+      agents: {
+        'test-group': {
+          effort: 'low',
+          thinking: { mode: 'on' },
+        },
+      },
+    } as never);
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        effort: 'high',
+        configuredThinking: { mode: 'off' },
+      },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(JSON.parse(String(writeSpy.mock.calls[0]?.[0]))).toMatchObject({
+      effort: 'high',
+      configuredThinking: { mode: 'off' },
+    });
+
+    fakeProc = createFakeProcess();
+    const defaultWriteSpy = vi.spyOn(fakeProc.stdin, 'write');
+    const defaultRun = spawnTestAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await defaultRun;
+
+    expect(
+      JSON.parse(String(defaultWriteSpy.mock.calls[0]?.[0])),
+    ).toMatchObject({
+      effort: 'low',
+      configuredThinking: { mode: 'on' },
+    });
   });
 
   it('passes memory context blocks through runner stdin only when input provides one', async () => {
@@ -4186,6 +4291,83 @@ describe('agent-spawn timeout behavior', () => {
     });
     expect(result.error).toContain('readable/executable');
     expect(result.error).not.toContain('LLM runtime materialization failed');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('routes inline agents through the in-process choke point', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValueOnce('inline');
+
+    const result = await spawnTestAgent(testGroup, testInput, vi.fn());
+
+    expect(result).toMatchObject({
+      status: 'error',
+      result: null,
+      error: expect.stringContaining('INLINE_AGENT_LOOP_NOT_AVAILABLE'),
+    });
+    expect(mockEnsureWorkspaceIpcLayout).toHaveBeenCalledWith(
+      '/tmp/gantry-test-data/ipc/test-group',
+      'inline',
+    );
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('rejects response schemas for worker runtime before spawning', async () => {
+    const result = await spawnTestAgent(
+      testGroup,
+      { ...testInput, responseSchema: { type: 'object' } },
+      vi.fn(),
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      result: null,
+      error: 'response_schema requires an inline agent runtime',
+    });
+    expect(getSelectedAgentRuntime).toHaveBeenCalledOnce();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('uses an explicit worker runtime for worker admission and spawning', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValue('inline');
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        runtime: 'worker',
+        attachedSkillSourceIds: ['skill:writer'],
+      },
+      vi.fn(),
+    );
+    emitOutputMarker(fakeProc, { status: 'success', result: 'Done' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'success',
+      result: 'Done',
+    });
+    expect(getSelectedAgentRuntime).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledOnce();
+  });
+
+  it('uses the configured inline runtime for inline admission', async () => {
+    vi.mocked(getSelectedAgentRuntime).mockReturnValue('inline');
+
+    const result = await spawnTestAgent(
+      testGroup,
+      { ...testInput, attachedSkillSourceIds: ['skill:writer'] },
+      vi.fn(),
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining(
+        'agent.runtime inline supports attached skills only with engine',
+      ),
+    });
+    expect(getSelectedAgentRuntime).toHaveBeenCalledOnce();
     expect(spawn).not.toHaveBeenCalled();
   });
 });

@@ -49,7 +49,7 @@ export const userAliasesPostgres = pgTable(
       .notNull()
       .references(() => usersPostgres.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
-    providerConnectionId: text('provider_connection_id'),
+    providerAccountId: text('provider_account_id'),
     externalUserId: text('external_user_id').notNull(),
     displayName: text('display_name'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -63,7 +63,7 @@ export const userAliasesPostgres = pgTable(
     providerAliasUnique: uniqueIndex('idx_user_aliases_provider_external').on(
       table.appId,
       table.provider,
-      table.providerConnectionId,
+      table.providerAccountId,
       table.externalUserId,
     ),
   }),

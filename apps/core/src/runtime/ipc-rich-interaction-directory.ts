@@ -1,11 +1,13 @@
 import path from 'path';
 
 import type { IpcDeps } from './ipc-domain-types.js';
+import type { ConversationRoute } from '../domain/types.js';
 import { interactionInFlightKey } from './ipc-interaction-processing.js';
 import { parseRichInteractionIpcRequest } from './ipc-parsing.js';
 import { processRichInteractionIpc } from './ipc-rich-interaction-processing.js';
 import { canProcessIpcFile } from './ipc-rate-limit.js';
 import type { FilesystemRunnerControlPort } from './filesystem-runner-control-port.js';
+import { resolveRunnerIpcRoute } from './ipc-route-authorization.js';
 
 const RICH_INTERACTION_LANE = 'rich-interactions';
 
@@ -23,6 +25,7 @@ export function processRichInteractionRequestDirectory(input: {
   ): boolean;
   folderTargetJid: Map<string, string>;
   folderTargetJids: Map<string, Set<string>>;
+  groupRegistry: Record<string, ConversationRoute>;
   inFlightInteractionIpc: Set<string>;
   maxInFlightInteractionIpc: number;
   runnerControlPort: FilesystemRunnerControlPort;
@@ -106,16 +109,15 @@ function processRichInteractionFile(
       claimed.raw,
       sourceAgentFolder,
     );
-    if (
-      request.targetJid &&
-      !input.folderTargetJids.get(sourceAgentFolder)?.has(request.targetJid)
-    ) {
-      throw new Error(
-        'Rich interaction IPC target does not belong to the requesting agent folder',
-      );
-    }
-    request.targetJid =
-      request.targetJid || input.folderTargetJid.get(sourceAgentFolder);
+    const route = resolveRunnerIpcRoute({
+      routes: input.groupRegistry,
+      sourceAgentFolder,
+      targetJid: request.targetJid,
+      threadId: request.threadId,
+      providerAccountId: request.providerAccountId,
+    });
+    request.targetJid = route.targetJid;
+    request.providerAccountId = route.providerAccountId;
     if (input.inFlightInteractionIpc.size >= input.maxInFlightInteractionIpc) {
       throw new Error('Too many in-flight interaction IPC requests');
     }

@@ -9,7 +9,8 @@ import {
 import { readRuntimeMemorySettingsSnapshot } from './settings/runtime-settings-snapshots.js';
 import type { RuntimeMemorySettingsSnapshot } from './settings/memory-snapshot.js';
 import {
-  MEMORY_MODEL_DEFAULT_ALIASES,
+  DEFAULT_SETUP_MODEL_ALIAS,
+  memoryModelDefaultsForProvider,
   resolveModelSelectionForWorkload,
   type ModelCatalogEntry,
   type ModelWorkload,
@@ -17,6 +18,7 @@ import {
 import type { MemoryLlmModelProfile } from '../domain/ports/memory-llm-client.js';
 
 export {
+  RUNTIME_MEMORY_DREAMING_ALERTS_ENABLED,
   RUNTIME_MEMORY_DREAMING_ENABLED,
   RUNTIME_MEMORY_ENABLED,
 } from './memory-state.js';
@@ -143,23 +145,30 @@ export function getMemoryModelConfig(fallbackModel: string | undefined): {
   };
 } {
   const current = readCurrentMemoryModelSettings();
+  const defaultProvider = resolveModelSelectionForWorkload(
+    DEFAULT_SETUP_MODEL_ALIAS,
+    'chat',
+  );
+  const hardDefaults = memoryModelDefaultsForProvider(
+    defaultProvider.ok ? defaultProvider.entry.modelRoute.id : '',
+  );
   const extractor = resolveMemoryLlmModelSlot(
     current.llmExtractorModel,
-    MEMORY_MODEL_DEFAULT_ALIASES.extractor,
+    hardDefaults.extractor,
     fallbackModel,
     'memory_extractor',
     'extractor',
   );
   const dreaming = resolveMemoryLlmModelSlot(
     current.llmDreamingModel,
-    MEMORY_MODEL_DEFAULT_ALIASES.dreaming,
+    hardDefaults.dreaming,
     fallbackModel,
     'memory_dreaming',
     'dreaming',
   );
   const consolidation = resolveMemoryLlmModelSlot(
     current.llmConsolidationModel,
-    MEMORY_MODEL_DEFAULT_ALIASES.consolidation,
+    hardDefaults.consolidation,
     fallbackModel,
     'memory_consolidation',
     'consolidation',

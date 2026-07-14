@@ -1,7 +1,8 @@
 export type AsyncTaskKind =
   | 'async_command'
   | 'delegated_agent'
-  | 'mcp_tool_call';
+  | 'mcp_tool_call'
+  | 'session_compaction';
 
 export type AsyncTaskStatus =
   | 'queued'
@@ -19,6 +20,18 @@ export interface AsyncTaskReceipt {
   delegated: 'yes' | 'no';
   subtasks?: string;
   needsAttention: string;
+}
+
+export type AgentFailureType =
+  | 'execution'
+  | 'timeout'
+  | 'cancelled'
+  | 'child_task';
+
+export interface AgentFailureMetadata {
+  type: AgentFailureType;
+  attemptedAction: string;
+  partialResult?: string | null;
 }
 
 export interface AsyncTaskRecord {
@@ -55,6 +68,8 @@ export interface PublicAsyncTaskDto {
   summary?: string | null;
   outputSummary?: string | null;
   errorSummary?: string | null;
+  failure?: AgentFailureMetadata;
+  terminalChildren?: PublicAsyncTaskDto[];
   currentPhase?: string | null;
   lastProgress?: string | null;
   lastToolSummary?: string | null;
@@ -92,16 +107,39 @@ export interface AsyncTaskCreateInput {
   now: string;
 }
 
+export interface AsyncTaskBacklogAdmissionInput {
+  task: AsyncTaskCreateInput;
+  maxBacklogPerApp: number;
+  maxBacklogPerAgent: number;
+  statuses: AsyncTaskStatus[];
+}
+
+export interface AsyncTaskScopedAdmissionInput {
+  task: AsyncTaskCreateInput;
+  activeStatuses: AsyncTaskStatus[];
+  staleRunningBefore?: string;
+  staleRunningStatus?: Extract<AsyncTaskStatus, 'failed' | 'timed_out'>;
+  staleErrorSummary?: string;
+}
+
+export interface AsyncTaskScopedAdmissionResult {
+  task: AsyncTaskRecord;
+  admitted: boolean;
+  staleTasks: AsyncTaskRecord[];
+}
+
 export interface AsyncTaskListFilter {
   appId: string;
   agentId?: string;
   kind?: AsyncTaskKind;
   conversationId?: string | null;
+  providerAccountId?: string | null;
   threadId?: string | null;
   parentRunId?: string | null;
   parentTaskId?: string | null;
   statuses?: AsyncTaskStatus[];
   limit?: number;
+  order?: 'newest_first' | 'oldest_first';
 }
 
 export interface AsyncTaskStatusCount {
@@ -126,20 +164,23 @@ export interface AsyncTaskTransitionInput {
   expectedPrivateCorrelationJson?: Record<string, unknown>;
 }
 
+export interface AsyncTaskClaimInput {
+  taskId: string;
+  leaseToken: string;
+  now: string;
+  maxRunningPerApp: number;
+  maxRunningPerAgent: number;
+}
+
 export interface AsyncTaskRepository {
   createTask(input: AsyncTaskCreateInput): Promise<AsyncTaskRecord>;
-  createTaskWithAdmission?(
-    input: AsyncTaskCreateInput,
-    admission: {
-      activeStatuses: AsyncTaskStatus[];
-      kind?: AsyncTaskKind;
-      maxActivePerApp: number;
-      maxActivePerAgent: number;
-    },
-  ): Promise<
-    | { ok: true; task: AsyncTaskRecord }
-    | { ok: false; reason: 'app_capacity' | 'agent_capacity' }
-  >;
+  createTaskWithBacklogAdmission?(
+    input: AsyncTaskBacklogAdmissionInput,
+  ): Promise<AsyncTaskRecord | null>;
+  createTaskWithScopedAdmission?(
+    input: AsyncTaskScopedAdmissionInput,
+  ): Promise<AsyncTaskScopedAdmissionResult>;
+  claimQueuedTask?(input: AsyncTaskClaimInput): Promise<AsyncTaskRecord | null>;
   getTask(taskId: string): Promise<AsyncTaskRecord | null>;
   listTasks(filter: AsyncTaskListFilter): Promise<AsyncTaskRecord[]>;
   countTasksByStatus(
@@ -169,6 +210,10 @@ export function isAsyncTaskTerminal(status: AsyncTaskStatus): boolean {
 export function toPublicAsyncTaskDto(
   task: AsyncTaskRecord,
 ): PublicAsyncTaskDto {
+  const failure = publicFailure(task.privateCorrelationJson.failure);
+  const terminalChildren = publicTerminalChildren(
+    task.privateCorrelationJson.terminalChildren,
+  );
   return {
     id: task.id,
     kind: task.kind,
@@ -176,6 +221,8 @@ export function toPublicAsyncTaskDto(
     summary: task.summary,
     outputSummary: task.outputSummary,
     errorSummary: task.errorSummary,
+    ...(failure ? { failure } : {}),
+    ...(terminalChildren.length > 0 ? { terminalChildren } : {}),
     ...publicProgress(task),
     ...publicInspection(task),
     receiptLines: receiptLines(task.receiptJson),
@@ -186,6 +233,38 @@ export function toPublicAsyncTaskDto(
     updatedAt: task.updatedAt,
     terminalAt: task.terminalAt,
   };
+}
+
+function publicFailure(value: unknown): AgentFailureMetadata | null {
+  const failure = record(value);
+  const type = failure.type;
+  const attemptedAction = stringValue(failure.attemptedAction);
+  if (
+    !['execution', 'timeout', 'cancelled', 'child_task'].includes(
+      typeof type === 'string' ? type : '',
+    ) ||
+    !attemptedAction
+  ) {
+    return null;
+  }
+  return {
+    type: type as AgentFailureType,
+    attemptedAction,
+    partialResult: stringValue(failure.partialResult),
+  };
+}
+
+function publicTerminalChildren(value: unknown): PublicAsyncTaskDto[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is PublicAsyncTaskDto =>
+        Boolean(
+          entry &&
+          typeof entry === 'object' &&
+          typeof (entry as { id?: unknown }).id === 'string' &&
+          typeof (entry as { status?: unknown }).status === 'string',
+        ),
+      )
+    : [];
 }
 
 function receiptLines(receipt: AsyncTaskReceipt | null | undefined): string[] {

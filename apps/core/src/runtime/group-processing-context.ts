@@ -12,6 +12,7 @@ export async function buildGroupProcessingConversationContext(input: {
   groupName: string;
   agentFolder: string;
   chatJid: string;
+  providerAccountId?: string | null;
   activeThreadId: string | null | undefined;
   latestMessage: NewMessage;
   currentMessages: NewMessage[];
@@ -23,6 +24,7 @@ export async function buildGroupProcessingConversationContext(input: {
       repository: input.repository,
       agentFolder: input.agentFolder,
       chatJid: input.chatJid,
+      providerAccountId: input.providerAccountId,
       activeThreadId: input.activeThreadId,
       latestMessage: input.latestMessage,
       currentMessages: input.currentMessages,

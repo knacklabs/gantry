@@ -39,6 +39,7 @@ export type RuntimeSettingsResponse = {
             jid: string;
             provider?: string;
             name?: string;
+            threadId?: string;
             trigger: string;
             addedAt: string;
             requiresTrigger: boolean;

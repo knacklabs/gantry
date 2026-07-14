@@ -14,8 +14,8 @@ export async function createTelegramChannel(
 ): Promise<TelegramChannel | null> {
   const token = await getProviderRuntimeSecret({
     providerId: 'telegram',
+    providerAccountId: opts.providerAccountId ?? '',
     key: 'bot_token',
-    defaultEnvName: 'TELEGRAM_BOT_TOKEN',
     settings: opts.runtimeSettings?.(),
     secrets: opts.runtimeSecrets,
   });

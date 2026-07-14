@@ -3,10 +3,13 @@ import '../channels/register-builtins.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import { listTelegramRecentChats } from './telegram-chat-discovery.js';
 import {
+  ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
+import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
 import {
   normalizeTelegramChatJid,
   readTelegramFromRuntimeEnv,
@@ -15,6 +18,7 @@ import {
   verifyTelegramChatAccess,
 } from './telegram.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
+import { providerAccountIdForAgent } from './provider-utils.js';
 
 type TelegramChatChoice =
   | {
@@ -185,8 +189,11 @@ async function chooseChatFromDiscovery(
 
 export async function runTelegramConnectCommand(
   runtimeHome: string,
+  requestedAgentId?: string,
+  requestedAgentName?: string,
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
+  const requestedAgentDisplayName = requestedAgentName?.trim();
   const env = readTelegramFromRuntimeEnv(runtimeHome);
   p.note(
     [
@@ -248,6 +255,7 @@ export async function runTelegramConnectCommand(
   let conversationRouteName = '';
 
   if (normalizedChatJid) {
+    const currentSettings = loadRuntimeSettings(runtimeHome);
     const access = await verifyTelegramChatAccess({
       token: tokenInput,
       chatJid: normalizedChatJid,
@@ -263,7 +271,11 @@ export async function runTelegramConnectCommand(
     const registered = await registerTelegramMainGroup({
       runtimeHome,
       chatJid: normalizedChatJid,
-      displayName: loadRuntimeSettings(runtimeHome).agent.name,
+      displayName:
+        (requestedAgentId && currentSettings.agents[requestedAgentId]?.name) ||
+        requestedAgentDisplayName ||
+        currentSettings.agent.name,
+      agentId: requestedAgentId,
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -277,25 +289,25 @@ export async function runTelegramConnectCommand(
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   settings.providers.telegram.enabled = true;
-  const providerConnectionId =
-    settings.providers.telegram.defaultConnection || 'telegram_default';
-  settings.providers.telegram.defaultConnection = providerConnectionId;
-  settings.providerConnections[providerConnectionId] = {
-    provider: 'telegram',
-    label:
-      settings.providerConnections[providerConnectionId]?.label ||
-      'Telegram Default',
-    runtimeSecretRefs: {
-      ...(settings.providerConnections[providerConnectionId]
-        ?.runtimeSecretRefs || {}),
-      bot_token: tokenSecret.ref,
-    },
-  };
+  let providerAccountId = 'telegram_default';
+  // The registered route's owner wins: reusing an existing conversation
+  // must not hand its provider account to the requesting agent.
+  const providerAgentId =
+    registeredFolder || requestedAgentId || DEFAULT_AGENT_FOLDER;
+  ensureConfiguredAgent(settings, {
+    agentId: providerAgentId,
+    agentName:
+      settings.agents[providerAgentId]?.name ||
+      requestedAgentDisplayName ||
+      conversationRouteName ||
+      settings.agent.name,
+    agentFolder: providerAgentId,
+  });
   if (registeredFolder) {
     const approverIds = parseTelegramApproverIds(
       approverInput || adminSenderId || '',
     );
-    ensureConfiguredConversationBinding(settings, {
+    const binding = ensureConfiguredConversationBinding(settings, {
       agentId: registeredFolder,
       agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
@@ -305,6 +317,7 @@ export async function runTelegramConnectCommand(
       requiresTrigger: false,
       approverIds,
     });
+    providerAccountId = binding.providerConnectionId;
     if (approverIds.length > 0) {
       p.log.success(
         `Enabled session/admin commands and permission approvals for Telegram sender(s) ${approverIds.join(', ')}.`,
@@ -314,12 +327,30 @@ export async function runTelegramConnectCommand(
         'No Telegram conversation approver was configured. Run `gantry provider connect telegram` again and enter your own Telegram user ID if you want chat commands.',
       );
     }
+  } else {
+    providerAccountId = providerAccountIdForAgent(settings, {
+      providerId: 'telegram',
+      agentId: providerAgentId,
+      defaultAccountId: providerAccountId,
+    });
   }
-  await writeDesiredRuntimeSettings({
+  settings.providerAccounts[providerAccountId] = {
+    agentId: providerAgentId,
+    provider: 'telegram',
+    label:
+      settings.providerAccounts[providerAccountId]?.label || 'Telegram Default',
+    runtimeSecretRefs: {
+      ...(settings.providerAccounts[providerAccountId]?.runtimeSecretRefs ||
+        {}),
+      bot_token: tokenSecret.ref,
+    },
+  };
+  const result = await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,
     previousSettings,
   });
+  noteRestartRequired(result);
 
   if (normalizedChatJid) {
     p.outro('Telegram connected. Secret stored encrypted in Gantry.');

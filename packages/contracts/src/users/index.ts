@@ -22,7 +22,7 @@ export const UserAliasResponseSchema = z.object({
   appId: z.string(),
   userId: z.string(),
   provider: z.string(),
-  providerConnectionId: z.string().nullable().optional(),
+  providerAccountId: z.string().nullable().optional(),
   externalUserId: z.string(),
   displayName: z.string().nullable().optional(),
   createdAt: IsoDateTimeSchema,

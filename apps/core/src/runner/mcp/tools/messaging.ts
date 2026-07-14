@@ -17,6 +17,7 @@ import {
   agentId,
   appId,
   chatJid,
+  providerAccountId,
   workspaceFolder,
   IPC_AUTH_TOKEN,
   IPC_DIR,
@@ -440,6 +441,7 @@ export function registerMessagingTools(server: McpServer): void {
         chatJid,
         text: args.text,
         sender: args.sender || undefined,
+        providerAccountId,
         workspaceFolder,
         timestamp: nowIso(),
         files: args.files,
@@ -518,6 +520,7 @@ export function registerMessagingTools(server: McpServer): void {
         context: {
           ...(appId ? { appId } : {}),
           ...(agentId ? { agentId } : {}),
+          ...(providerAccountId ? { providerAccountId } : {}),
           ...(chatJid ? { chatJid } : {}),
           ...(threadId ? { threadId } : {}),
           ...(jobId ? { jobId } : {}),

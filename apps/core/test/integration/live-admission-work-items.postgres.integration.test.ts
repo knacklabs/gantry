@@ -61,6 +61,34 @@ maybeDescribe('live admission work items (Postgres)', () => {
     expect(replay.item.id).toBe('admission-1');
   });
 
+  it('deduplicates provider delivery by deterministic work item id', async () => {
+    const first = await liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'admission-id-replay',
+      ...base,
+      appId: 'app-id-replay',
+      messageId: 'message:tg:live-admission:id-replay',
+      messageCursor: '2026-06-16T00:00:00.500Z::id-replay',
+      idempotencyKey: 'telegram:delivery:id-replay:root',
+      now: toIso(nowMs() - 9_500),
+    });
+    expect(first.outcome).toBe('enqueued');
+
+    const replay = await liveTurns.enqueueLiveAdmissionWorkItem({
+      id: 'admission-id-replay',
+      ...base,
+      appId: 'app-id-replay',
+      messageId: 'message:tg:live-admission:id-replay',
+      messageCursor: '2026-06-16T00:00:00.500Z::id-replay',
+      idempotencyKey: 'telegram:delivery:id-replay:thread',
+    });
+
+    expect(replay.outcome).toBe('replayed');
+    expect(replay.item).toMatchObject({
+      id: 'admission-id-replay',
+      idempotencyKey: 'telegram:delivery:id-replay:root',
+    });
+  });
+
   it('claims due rows in durable FIFO order without prompt text payloads', async () => {
     await liveTurns.enqueueLiveAdmissionWorkItem({
       id: 'admission-2',

@@ -201,7 +201,8 @@ export interface GantryUserConversationStateUpsertInput extends GantryUserConver
   readonly updatedAt?: string | null;
 }
 
-export interface GantryUserConversationStateMergeInput extends GantryUserConversationStateUpsertInput {}
+export type GantryUserConversationStateMergeInput =
+  GantryUserConversationStateUpsertInput;
 
 export interface GantryExternalNotificationCardRequest {
   readonly integrationId: string;

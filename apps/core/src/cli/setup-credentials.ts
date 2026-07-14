@@ -3,10 +3,9 @@ import * as p from '@clack/prompts';
 import { requiredModelCredentialProviders } from '../application/model-resolution/required-model-credential-providers.js';
 import type { HostCredentialMode } from '../config/credentials/mode.js';
 import {
-  DEFAULT_MODEL_PRESET_ID,
-  getModelPreset,
+  DEFAULT_SETUP_MODEL_ALIAS,
+  memoryModelDefaultsForProvider,
   resolveModelSelectionForWorkload,
-  type ModelPresetId,
   type ModelWorkload,
 } from '../shared/model-catalog.js';
 import { getModelProviderDefinition } from '../shared/model-provider-registry.js';
@@ -14,6 +13,7 @@ import {
   listReadyModelCredentialProviders,
   promptModelCredentialPayload,
   storeModelCredentialInput,
+  verifyModelCredentialInputWithPrompt,
 } from './credentials.js';
 import { inspectModelCredentialReadiness } from './model-credential-readiness.js';
 import { prepareOnboardingCredentialStorage } from './onboarding-config.js';
@@ -23,8 +23,8 @@ export interface CredentialSetupDraft {
   postgresSetupKind?: 'local' | 'hosted' | 'existing';
   postgresDatabaseUrl?: string;
   postgresSchema?: string;
-  modelPreset?: ModelPresetId;
   selectedModel?: string;
+  credentialLiveSkipProviderIds?: string[];
   memoryEnabled?: boolean;
   embeddingsEnabled?: boolean;
   dreamingEnabled?: boolean;
@@ -40,6 +40,7 @@ export type CredentialStepAction =
 export async function verifyModelAccess(
   runtimeHome?: string,
   settings?: Parameters<typeof inspectModelCredentialReadiness>[1],
+  options: { skipLiveProviderIds?: readonly string[] } = {},
 ): Promise<{ ok: boolean; message: string; nextAction?: string }> {
   if (!runtimeHome || !settings) {
     return {
@@ -50,7 +51,10 @@ export async function verifyModelAccess(
   }
 
   try {
-    const check = await inspectModelCredentialReadiness(runtimeHome, settings);
+    const check = await inspectModelCredentialReadiness(runtimeHome, settings, {
+      live: true,
+      skipLiveProviderIds: options.skipLiveProviderIds,
+    });
     return {
       ok: check.status !== 'fail',
       message: check.message,
@@ -163,19 +167,55 @@ export async function runCredentialsStep(
     ) {
       return { type: captureChoice };
     }
-    const credentialInput = await promptModelCredentialPayload(provider.id, {
-      authMode: selectedModeId,
-    });
-    if (!credentialInput) return { type: 'cancel' };
+    let credentialInput:
+      | Awaited<ReturnType<typeof promptModelCredentialPayload>>
+      | undefined;
+    let verification:
+      | Awaited<ReturnType<typeof verifyModelCredentialInputWithPrompt>>
+      | undefined;
+    while (true) {
+      credentialInput = await promptModelCredentialPayload(provider.id, {
+        authMode: selectedModeId,
+      });
+      if (!credentialInput) return { type: 'cancel' };
+      verification = await verifyModelCredentialInputWithPrompt({
+        providerId: provider.id,
+        authMode: credentialInput.authMode,
+        payload: credentialInput.payload,
+        allowBackResume: true,
+      });
+      if (verification.type === 'reenter') continue;
+      if (
+        verification.type === 'back' ||
+        verification.type === 'resume' ||
+        verification.type === 'cancel'
+      ) {
+        return { type: verification.type };
+      }
+      break;
+    }
+    if (!credentialInput || !verification) return { type: 'cancel' };
     await storeModelCredentialInput({
       runtimeHome,
       providerId: provider.id,
       authMode: credentialInput.authMode,
       payload: credentialInput.payload,
     });
-    p.log.success(
-      `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
+    const skippedProviderIds = new Set(
+      draft.credentialLiveSkipProviderIds ?? [],
     );
+    if (verification.type === 'skip') {
+      skippedProviderIds.add(provider.id);
+      p.log.warn(
+        `${provider.label} credential stored without live verification: ${verification.reason}`,
+      );
+    } else {
+      skippedProviderIds.delete(provider.id);
+      p.log.success(
+        `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
+      );
+    }
+    draft.credentialLiveSkipProviderIds = [...skippedProviderIds];
   }
   return { type: 'next' };
 }
@@ -183,15 +223,15 @@ export async function runCredentialsStep(
 export function requiredModelCredentialProvidersForSetupDraft(
   draft: CredentialSetupDraft,
 ): string[] {
-  const preset = getModelPreset(draft.modelPreset ?? DEFAULT_MODEL_PRESET_ID);
-  const chatModel = draft.selectedModel || preset.chatDefault;
+  const chatModel = draft.selectedModel || DEFAULT_SETUP_MODEL_ALIAS;
+  const memoryModels = memoryDefaultsForChatModel(chatModel);
   const memoryEnabled = draft.memoryEnabled ?? true;
   const embeddingsEnabled = memoryEnabled && (draft.embeddingsEnabled ?? false);
   return requiredModelCredentialProviders({
     agent: {
       defaultModel: chatModel,
-      oneTimeJobDefaultModel: preset.oneTimeJobDefault,
-      recurringJobDefaultModel: preset.recurringJobDefault,
+      oneTimeJobDefaultModel: '',
+      recurringJobDefaultModel: '',
     },
     memory: {
       enabled: memoryEnabled,
@@ -207,7 +247,7 @@ export function requiredModelCredentialProvidersForSetupDraft(
         },
       },
       llm: {
-        models: preset.memoryDefaults,
+        models: memoryModels,
       },
     },
   });
@@ -221,8 +261,8 @@ export interface RequiredModelCredentialProviderReason {
 export function requiredModelCredentialProviderReasonsForSetupDraft(
   draft: CredentialSetupDraft,
 ): RequiredModelCredentialProviderReason[] {
-  const preset = getModelPreset(draft.modelPreset ?? DEFAULT_MODEL_PRESET_ID);
-  const chatModel = draft.selectedModel || preset.chatDefault;
+  const chatModel = draft.selectedModel || DEFAULT_SETUP_MODEL_ALIAS;
+  const memoryModels = memoryDefaultsForChatModel(chatModel);
   const memoryEnabled = draft.memoryEnabled ?? true;
   const embeddingsEnabled = memoryEnabled && (draft.embeddingsEnabled ?? false);
   const reasons = new Map<string, Set<string>>();
@@ -241,35 +281,27 @@ export function requiredModelCredentialProviderReasonsForSetupDraft(
   };
 
   addModelReason(chatModel, 'chat', `main model ${chatModel}`);
+  addModelReason(chatModel, 'one_time_job', 'one-time jobs inherit main model');
   addModelReason(
-    preset.oneTimeJobDefault || chatModel,
-    'one_time_job',
-    preset.oneTimeJobDefault
-      ? `one-time job model ${preset.oneTimeJobDefault}`
-      : 'one-time jobs inherit main model',
-  );
-  addModelReason(
-    preset.recurringJobDefault || chatModel,
+    chatModel,
     'recurring_job',
-    preset.recurringJobDefault
-      ? `recurring job model ${preset.recurringJobDefault}`
-      : 'recurring jobs inherit main model',
+    'recurring jobs inherit main model',
   );
   if (memoryEnabled) {
     addModelReason(
-      preset.memoryDefaults.extractor,
+      memoryModels.extractor,
       'memory_extractor',
-      `memory LLM extractor ${preset.memoryDefaults.extractor}`,
+      `memory LLM extractor ${memoryModels.extractor}`,
     );
     addModelReason(
-      preset.memoryDefaults.dreaming,
+      memoryModels.dreaming,
       'memory_dreaming',
-      `memory LLM dreaming ${preset.memoryDefaults.dreaming}`,
+      `memory LLM dreaming ${memoryModels.dreaming}`,
     );
     addModelReason(
-      preset.memoryDefaults.consolidation,
+      memoryModels.consolidation,
       'memory_consolidation',
-      `memory LLM consolidation ${preset.memoryDefaults.consolidation}`,
+      `memory LLM consolidation ${memoryModels.consolidation}`,
     );
     if (embeddingsEnabled) {
       addReason('openai', 'memory embeddings');
@@ -281,6 +313,13 @@ export function requiredModelCredentialProviderReasonsForSetupDraft(
       providerId,
       reasons: [...(reasons.get(providerId) ?? [])].sort(),
     }),
+  );
+}
+
+function memoryDefaultsForChatModel(chatModel: string) {
+  const resolved = resolveModelSelectionForWorkload(chatModel, 'chat');
+  return memoryModelDefaultsForProvider(
+    resolved.ok ? resolved.entry.modelRoute.id : 'anthropic',
   );
 }
 

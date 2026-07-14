@@ -61,7 +61,9 @@ describe('locked prompt assembly', () => {
         'ask_user_question for genuine either/or decisions',
       );
       expect(prompt).toContain('render_status, render_facts');
-      expect(prompt).toContain('There is no generic Workflow tool');
+      expect(prompt).toContain(
+        'Use only the Gantry tools mounted in the current run',
+      );
     },
   );
 

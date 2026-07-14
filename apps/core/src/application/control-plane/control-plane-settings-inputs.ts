@@ -10,26 +10,25 @@ import type {
  */
 export interface ControlPlaneSettingsInputView {
   providers?: Record<string, { enabled?: boolean } | undefined>;
-  providerConnections?: Record<string, { provider: string }>;
+  providerAccounts?: Record<string, { provider: string }>;
 }
 
 export function controlPlaneProviderInputs(
   settings: ControlPlaneSettingsInputView,
 ): ControlPlaneProviderInput[] {
-  const connectionProviders = new Set(
-    Object.values(settings.providerConnections ?? {}).map(
-      (connection) => connection.provider,
+  const accountProviders = new Set(
+    Object.values(settings.providerAccounts ?? {}).map(
+      (account) => account.provider,
     ),
   );
   const providerIds = new Set([
     ...Object.keys(settings.providers ?? {}),
-    ...connectionProviders,
+    ...accountProviders,
   ]);
   return [...providerIds]
     .filter(
       (id) =>
-        settings.providers?.[id]?.enabled === true ||
-        connectionProviders.has(id),
+        settings.providers?.[id]?.enabled === true || accountProviders.has(id),
     )
     .map((id) => ({
       id,
@@ -37,7 +36,7 @@ export function controlPlaneProviderInputs(
       ready:
         (settings.providers?.[id]?.enabled === true ||
           settings.providers?.[id] === undefined) &&
-        connectionProviders.has(id),
+        accountProviders.has(id),
     }));
 }
 

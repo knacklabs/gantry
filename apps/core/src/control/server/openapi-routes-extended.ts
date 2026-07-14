@@ -2,6 +2,36 @@ import { doc, ids, query, type RouteDoc } from './openapi-route-helpers.js';
 
 export const extendedOpenApiRouteDocs: RouteDoc[] = [
   doc(
+    'post',
+    '/llm/v1/messages',
+    'invokeLlmMessages',
+    'LLM',
+    'Invoke Messages',
+    'Forwards a Messages-shaped request through the Gantry Model Gateway after resolving the Gantry model alias. Supports streaming, caller-defined tools with input_schema, structured output, and thinking parameters. Rejects provider-side server tools, MCP servers, containers, and execution betas.',
+    ['llm:invoke'],
+    { body: 'json' },
+  ),
+  doc(
+    'post',
+    '/llm/v1/messages/count_tokens',
+    'invokeLlmMessagesCountTokens',
+    'LLM',
+    'Count Messages tokens',
+    'Counts input tokens for a Messages-shaped request after resolving the Gantry model alias.',
+    ['llm:invoke'],
+    { body: 'json' },
+  ),
+  doc(
+    'post',
+    '/llm/v1/chat/completions',
+    'invokeLlmChatCompletions',
+    'LLM',
+    'Invoke Chat Completions',
+    'Forwards a Chat Completions-shaped request through the Gantry Model Gateway after resolving the Gantry model alias. Supports streaming, function tools, response_format structured output, and effort parameters. Rejects hosted provider tools, hosted-tool fields, attachments, and file references.',
+    ['llm:invoke'],
+    { body: 'json' },
+  ),
+  doc(
     'get',
     '/v1/jobs',
     'listJobs',
@@ -9,6 +39,25 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List jobs',
     'Lists jobs visible to the API key app scope.',
     ['jobs:read'],
+    {
+      parameters: [
+        query('status', 'Status filters; repeat for multiple values.', {
+          type: 'array',
+          items: { type: 'string' },
+        }),
+        query('workspaceKey', 'Workspace key filter.'),
+        query('agentId', 'Agent id filter.'),
+        query('kind', 'Job kind filter.', {
+          type: 'string',
+          enum: ['manual', 'once', 'recurring'],
+        }),
+        query('conversationJid', 'Conversation JID filter.'),
+        query('limit', 'Maximum number of jobs.', {
+          type: 'integer',
+          minimum: 1,
+        }),
+      ],
+    },
   ),
   doc(
     'post',
@@ -58,7 +107,23 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List job events',
     'Lists persisted runtime events for a job.',
     ['jobs:read'],
-    { parameters: [ids.job] },
+    {
+      parameters: [
+        ids.job,
+        query('run', 'Run id filter.'),
+        query('runId', 'Run id filter alias.'),
+        query('eventType', 'Runtime event type filter.'),
+        query('sinceId', 'Return events after this event id.', {
+          type: 'integer',
+          minimum: 1,
+        }),
+        query('since', 'Return events after this timestamp.'),
+        query('limit', 'Maximum number of events.', {
+          type: 'integer',
+          minimum: 1,
+        }),
+      ],
+    },
   ),
   doc(
     'post',
@@ -98,7 +163,16 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Wait for trigger completion',
     'Long-polls for a previously accepted job trigger.',
     ['jobs:read'],
-    { parameters: [ids.trigger] },
+    {
+      parameters: [
+        ids.trigger,
+        query('timeoutMs', 'Timeout in milliseconds.', {
+          type: 'integer',
+          minimum: 1000,
+          maximum: 300000,
+        }),
+      ],
+    },
   ),
   doc(
     'get',
@@ -145,7 +219,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'createWebhook',
     'Webhooks',
     'Create outbound webhook',
-    'Registers an outbound callback URL for runtime events.',
+    'Registers an outbound callback URL with optional lifecycle event and subject filters.',
     ['webhooks:write'],
     { body: 'json', status: '201' },
   ),
@@ -155,7 +229,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'updateWebhook',
     'Webhooks',
     'Update outbound webhook',
-    'Updates name, URL, secret, or enabled state.',
+    'Updates destination, enabled state, or lifecycle event subscription filters.',
     ['webhooks:write'],
     { body: 'json', parameters: [ids.webhook] },
   ),
@@ -286,6 +360,28 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List memory items',
     'Lists app-scoped memory items with optional subject filters.',
     ['memory:read'],
+    {
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id filter.'),
+        query('userId', 'User id filter.'),
+        query('groupId', 'Group id filter.'),
+        query('channelId', 'Channel id filter.'),
+        query('threadId', 'Thread id filter.'),
+        query('q', 'Text query.'),
+        query('limit', 'Maximum number of memory items.', {
+          type: 'number',
+        }),
+        query('includeCommon', 'Include common memory.', {
+          type: 'boolean',
+          default: true,
+        }),
+        query('subjectType', 'Subject type filters.', {
+          type: 'array',
+          items: { type: 'string' },
+        }),
+      ],
+    },
   ),
   doc(
     'post',
@@ -325,7 +421,18 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Delete memory item',
     'Deletes a memory item in the requested subject scope.',
     ['memory:admin'],
-    { body: 'none', parameters: [ids.memory] },
+    {
+      body: 'none',
+      parameters: [
+        ids.memory,
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id filter.'),
+        query('userId', 'User id filter.'),
+        query('groupId', 'Group id filter.'),
+        query('channelId', 'Channel id filter.'),
+        query('threadId', 'Thread id filter.'),
+      ],
+    },
   ),
   doc(
     'post',
@@ -345,6 +452,32 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Get memory dreaming status',
     'Returns recent memory dreaming runs.',
     ['memory:read'],
+    {
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id filter.'),
+      ],
+    },
+  ),
+  doc(
+    'post',
+    '/v1/brain/import',
+    'importBrainPages',
+    'Memory',
+    'Import company brain pages',
+    'Upserts company brain markdown pages and extracts entities and edges.',
+    ['memory:admin'],
+    { body: 'json', status: '201' },
+  ),
+  doc(
+    'get',
+    '/v1/brain/status',
+    'getBrainStatus',
+    'Memory',
+    'Get company brain status',
+    'Returns page, entity, edge, and embedding counts for the app-scoped company brain.',
+    ['memory:read'],
+    { parameters: [query('appId', 'App id. Defaults to API key app.')] },
   ),
   doc(
     'get',
@@ -354,6 +487,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List skills',
     'Lists installed skill records.',
     ['skills:read'],
+    { parameters: [query('agentId', 'Agent id filter.')] },
   ),
   doc(
     'post',
@@ -363,7 +497,15 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'Install skill',
     'Installs a zip package as a local skill.',
     ['skills:admin'],
-    { body: 'zip', status: '201' },
+    {
+      body: 'zip',
+      status: '201',
+      parameters: [
+        query('appId', 'App id. Defaults to API key app.'),
+        query('agentId', 'Agent id to bind after install.'),
+        query('createdBy', 'Installer identity.'),
+      ],
+    },
   ),
   doc(
     'get',
@@ -423,6 +565,20 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
     'List MCP servers',
     'Lists MCP server definitions, optionally filtered by status.',
     ['mcp:read'],
+    {
+      parameters: [
+        query('status', 'Server status filter.', {
+          type: 'string',
+          enum: ['active', 'disabled'],
+        }),
+        query('limit', 'Maximum number of servers.', {
+          type: 'integer',
+          minimum: 1,
+          maximum: 500,
+        }),
+        query('cursor', 'Pagination cursor.'),
+      ],
+    },
   ),
   doc(
     'post',

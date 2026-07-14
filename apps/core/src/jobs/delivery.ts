@@ -49,6 +49,7 @@ export interface DurableJobNotificationEnqueueInput {
   route: {
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string;
     label: string;
   };
   profileId: string;
@@ -177,6 +178,7 @@ export async function sendJobNotification(input: {
             routeLabel: route.label,
             routeConversationJid: route.conversationJid,
             routeThreadId: route.threadId,
+            routeProviderAccountId: route.providerAccountId ?? null,
           },
         });
         if (enqueueResult !== false) delivered = true;
@@ -201,9 +203,12 @@ export async function sendJobNotification(input: {
   if (!sendMessage) return false;
   for (const route of routes) {
     const options =
-      route.threadId || input.actionAffordances
+      route.threadId || route.providerAccountId || input.actionAffordances
         ? {
             ...(route.threadId ? { threadId: route.threadId } : {}),
+            ...(route.providerAccountId
+              ? { providerAccountId: route.providerAccountId }
+              : {}),
             ...(input.actionAffordances
               ? { actionAffordances: input.actionAffordances }
               : {}),

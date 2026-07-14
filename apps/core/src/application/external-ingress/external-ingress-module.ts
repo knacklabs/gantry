@@ -100,15 +100,7 @@ type ExternalIngressControlPort = {
     invocationId: string,
     appId: string,
     ingressId: string,
-  ): Promise<
-    | {
-        invocationId: string;
-        status: string;
-        response: unknown;
-        error: string | null;
-      }
-    | undefined
-  >;
+  ): Promise<ExternalIngressInvocationRecord | undefined>;
 };
 
 type ExternalIngressInvocationRecord = {
@@ -124,6 +116,7 @@ type ConversationMessageProjectionPort = {
   send(input: {
     conversationJid: string;
     threadId: string | null;
+    providerAccountId: string;
     text: string;
   }): Promise<void>;
 };
@@ -515,19 +508,20 @@ export class ExternalIngressModule {
       invocationId,
       conversationId,
       threadId: readOptionalString(target, 'threadId'),
+      agentId: readOptionalString(target, 'agentId'),
       message,
       senderId: readOptionalString(target, 'senderId'),
       senderName,
       ...(messageRef ? { messageRef } : {}),
       correlationId: readOptionalString(target, 'correlationId'),
     });
-    if (this.deps.conversationProviderMessages) {
+    if (this.deps.conversationProviderMessages)
       await this.deps.conversationProviderMessages.send({
         conversationJid: accepted.enqueue.conversationJid,
         threadId: accepted.enqueue.threadId,
+        providerAccountId: accepted.enqueue.providerAccountId,
         text: formatConversationMessageProjection({ message, senderName }),
       });
-    }
     return {
       targetKind: 'conversation_message',
       conversationId: accepted.conversationId,

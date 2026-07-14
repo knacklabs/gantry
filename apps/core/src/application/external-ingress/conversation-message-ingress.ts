@@ -23,6 +23,7 @@ import { ApplicationError } from '../common/application-error.js';
 export type ConversationMessageQueueIntent = {
   conversationJid: string;
   threadId: string | null;
+  providerAccountId: string;
   queueKey: string;
   durableAdmissionCreated: boolean;
 };
@@ -30,6 +31,11 @@ export type ConversationMessageQueueIntent = {
 type ConversationMessageThreadRouting = {
   publicThreadId: ConversationThreadId | null;
   runtimeThreadId: string | null;
+};
+
+type ConversationMessageRouteResolution = {
+  agentId?: string | null;
+  queueKey: string;
 };
 
 export class ConversationMessageIngressModule {
@@ -47,6 +53,7 @@ export class ConversationMessageIngressModule {
               appId: string;
               agentId?: string | null;
               agentSessionId?: string | null;
+              providerAccountId?: string | null;
               triggerDecision?: Record<string, unknown>;
               now?: string;
             };
@@ -61,15 +68,32 @@ export class ConversationMessageIngressModule {
           jid: string,
           messageRef: string,
           emoji: string,
+          options?: { providerAccountId?: string },
         ): Promise<void>;
       };
       liveAdmissionAppId?: string | null;
-      isConversationRoutable: (conversationJid: string) => boolean;
+      isConversationRoutable: (
+        conversationJid: string,
+        threadId?: string | null,
+        providerAccountId?: string | null,
+      ) => boolean;
+      resolveProviderJidPrefix?: (
+        providerAccountId: string,
+      ) => Promise<string | null>;
       providerForConversationJid: (conversationJid: string) => string;
       makeQueueKey: (
         conversationJid: string,
         threadId: string | null,
       ) => string;
+      resolveRoute?: (input: {
+        conversationJid: string;
+        threadId: string | null;
+        agentId?: string | null;
+        providerAccountId?: string | null;
+      }) =>
+        | ConversationMessageRouteResolution
+        | null
+        | Promise<ConversationMessageRouteResolution | null>;
       now: () => string;
       createId: () => string;
     },
@@ -80,6 +104,7 @@ export class ConversationMessageIngressModule {
     invocationId: string;
     conversationId: string;
     threadId?: string | null;
+    agentId?: string | null;
     message: string;
     senderId?: string | null;
     senderName?: string | null;
@@ -101,11 +126,11 @@ export class ConversationMessageIngressModule {
       appId: input.appId,
       conversationId: input.conversationId,
     });
-    const conversationJid = resolveConversationJid(conversation);
-    if (
-      !conversationJid ||
-      !this.deps.isConversationRoutable(conversationJid)
-    ) {
+    const conversationJid = resolveConversationJid(
+      conversation,
+      await this.resolveProviderJidPrefix(conversation),
+    );
+    if (!conversationJid) {
       throw new ApplicationError(
         'NOT_FOUND',
         'Conversation is not configured for runtime routing',
@@ -115,10 +140,29 @@ export class ConversationMessageIngressModule {
     const thread = await this.resolveThreadRouting({
       appId: input.appId,
       conversation,
+      conversationJid,
       threadId: input.threadId ?? null,
     });
     const publicThreadId = thread.publicThreadId;
     const runtimeThreadId = thread.runtimeThreadId;
+    if (
+      !this.deps.isConversationRoutable(
+        conversationJid,
+        runtimeThreadId,
+        conversation.providerAccountId,
+      )
+    ) {
+      throw new ApplicationError(
+        'NOT_FOUND',
+        'Conversation is not configured for runtime routing',
+      );
+    }
+    const route = await this.resolveRoute({
+      conversationJid,
+      threadId: runtimeThreadId,
+      agentId: input.agentId ?? null,
+      providerAccountId: conversation.providerAccountId,
+    });
     const now = this.deps.now();
     const senderId = input.senderId?.trim() || 'external-ingress';
     const senderName = input.senderName?.trim() || 'External System';
@@ -137,6 +181,7 @@ export class ConversationMessageIngressModule {
       id: messageId,
       chat_jid: conversationJid,
       provider,
+      providerAccountId: conversation.providerAccountId,
       sender: senderId,
       sender_name: senderName,
       content: text,
@@ -153,6 +198,7 @@ export class ConversationMessageIngressModule {
       conversation.title ?? conversationJid,
       provider,
       conversation.kind === 'group' || conversation.kind === 'channel',
+      { providerAccountId: conversation.providerAccountId },
     );
     const acceptedEvent: RuntimeEventPublishInput = {
       appId: input.appId as AppId,
@@ -191,6 +237,8 @@ export class ConversationMessageIngressModule {
             message,
             liveAdmission: {
               appId: liveAdmissionAppId,
+              ...(route.agentId ? { agentId: route.agentId } : {}),
+              providerAccountId: conversation.providerAccountId,
               triggerDecision: {
                 source: 'external_ingress',
                 conversationKind: conversation.kind,
@@ -211,7 +259,9 @@ export class ConversationMessageIngressModule {
     const messageRef = input.messageRef?.trim();
     if (messageRef) {
       await this.deps.messageReactions
-        ?.addReaction(conversationJid, messageRef, 'seen')
+        ?.addReaction(conversationJid, messageRef, 'seen', {
+          providerAccountId: conversation.providerAccountId,
+        })
         .catch(() => undefined);
     }
 
@@ -223,9 +273,30 @@ export class ConversationMessageIngressModule {
       enqueue: {
         conversationJid,
         threadId: runtimeThreadId,
-        queueKey: this.deps.makeQueueKey(conversationJid, runtimeThreadId),
+        providerAccountId: conversation.providerAccountId,
+        queueKey: route.queueKey,
         durableAdmissionCreated,
       },
+    };
+  }
+
+  private async resolveRoute(input: {
+    conversationJid: string;
+    threadId: string | null;
+    agentId?: string | null;
+    providerAccountId?: string | null;
+  }): Promise<ConversationMessageRouteResolution> {
+    const route = await this.deps.resolveRoute?.(input);
+    if (route) return route;
+    if (this.deps.resolveRoute) {
+      throw new ApplicationError(
+        'NOT_FOUND',
+        'Conversation is not configured for runtime routing',
+      );
+    }
+    return {
+      agentId: input.agentId ?? null,
+      queueKey: this.deps.makeQueueKey(input.conversationJid, input.threadId),
     };
   }
 
@@ -254,6 +325,7 @@ export class ConversationMessageIngressModule {
   private async resolveThreadRouting(input: {
     appId: string;
     conversation: Conversation;
+    conversationJid: string;
     threadId: string | null;
   }): Promise<ConversationMessageThreadRouting> {
     if (!input.threadId) {
@@ -265,7 +337,8 @@ export class ConversationMessageIngressModule {
     if (!thread) {
       const runtimeThreadId = resolveRuntimeThreadIdFromCanonical(
         input.threadId,
-        input.conversation,
+        input.conversationJid,
+        input.conversation.providerAccountId,
       );
       if (runtimeThreadId) {
         return {
@@ -298,14 +371,36 @@ export class ConversationMessageIngressModule {
       runtimeThreadId: resolveRuntimeThreadId(thread),
     };
   }
+
+  private async resolveProviderJidPrefix(
+    conversation: Conversation,
+  ): Promise<string | null> {
+    const refValue = conversation.externalRef?.value?.trim();
+    if (refValue?.includes(':')) return null;
+    if (!this.deps.resolveProviderJidPrefix) return null;
+    return await this.deps.resolveProviderJidPrefix(
+      conversation.providerAccountId,
+    );
+  }
 }
 
-function resolveConversationJid(conversation: Conversation): string | null {
+function resolveConversationJid(
+  conversation: Conversation,
+  providerJidPrefix?: string | null,
+): string | null {
+  const refValue = conversation.externalRef?.value?.trim();
+  if (refValue?.includes(':')) return refValue;
   if (conversation.id.startsWith('conversation:')) {
-    const jid = conversation.id.slice('conversation:'.length).trim();
+    const scopedPrefix = `conversation:${conversation.providerAccountId}:`;
+    const jid = conversation.id.startsWith(scopedPrefix)
+      ? conversation.id.slice(scopedPrefix.length).trim()
+      : conversation.id.slice('conversation:'.length).trim();
+    if (jid && providerJidPrefix && !jid.includes(':')) {
+      return `${providerJidPrefix}${jid}`;
+    }
     if (jid) return jid;
   }
-  const refValue = conversation.externalRef?.value?.trim();
+  if (refValue && providerJidPrefix) return `${providerJidPrefix}${refValue}`;
   return refValue?.includes(':') ? refValue : null;
 }
 
@@ -321,14 +416,18 @@ function resolveRuntimeThreadId(thread: ConversationThread): string | null {
 
 function resolveRuntimeThreadIdFromCanonical(
   threadId: string,
-  conversation: Conversation,
+  conversationJid: string,
+  providerAccountId: string,
 ): string | null {
-  const conversationJid = resolveConversationJid(conversation);
-  if (!conversationJid) return null;
-  const prefix = `thread:${conversationJid}:`;
-  if (!threadId.startsWith(prefix)) return null;
-  const runtimeThreadId = threadId.slice(prefix.length).trim();
-  return runtimeThreadId ? runtimeThreadId : null;
+  for (const prefix of [
+    `thread:${conversationJid}:`,
+    `thread:${providerAccountId}:${conversationJid}:`,
+  ]) {
+    if (!threadId.startsWith(prefix)) continue;
+    const runtimeThreadId = threadId.slice(prefix.length).trim();
+    return runtimeThreadId ? runtimeThreadId : null;
+  }
+  return null;
 }
 
 function stableExternalIngressMessageId(parts: string[]): string {

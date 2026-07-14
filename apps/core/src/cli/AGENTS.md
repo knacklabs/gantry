@@ -11,7 +11,7 @@
   credentials. Do not prompt for harness in setup; persist `agentHarness: auto`
   so Gantry derives Anthropic SDK or DeepAgents from the selected model route.
   Credential prompts must derive required providers from the selected chat
-  model, inherited job defaults, memory preset defaults, and enabled embedding
+  model, inherited job defaults, memory provider defaults, and enabled embedding
   settings; do not show unrelated model providers in first-run setup.
 - Setup credential collection may bootstrap only the storage/env material needed
   for Credential Center writes before final config. Do not persist channel,

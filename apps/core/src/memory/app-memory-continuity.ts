@@ -3,6 +3,7 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { normalizeSubject } from './app-memory-boundaries.js';
 import type {
   AppMemoryItem,
+  BlockedDreamDecision,
   MemoryBoundaryContext,
   MemoryReviewRecord,
   MemorySubjectType,
@@ -20,6 +21,14 @@ type ContinuityMemoryPort = {
     input?: Partial<MemoryBoundaryContext> & { limit?: number },
     options?: { signal?: AbortSignal; statementTimeoutMs?: number },
   ): Promise<AppMemoryItem[]>;
+  listRecentBlockedDreamDecisions?(
+    input?: ContinuityInput,
+    options?: {
+      signal?: AbortSignal;
+      statementTimeoutMs?: number;
+      limit?: number;
+    },
+  ): Promise<BlockedDreamDecision[]>;
 };
 type ContinuityInput = Partial<MemoryBoundaryContext> & {
   subjectType?: MemorySubjectType;
@@ -53,37 +62,59 @@ export async function buildAppMemoryContinuitySummary(
 ) {
   const subject = normalizeSubject(input);
   const startedAtMs = input.nowMs ?? currentTimeMs();
-  const [memoriesResult, runsResult, reviewsResult] = await Promise.all([
-    settleContinuitySection(
-      (signal, statementTimeoutMs) =>
-        memory.list({ ...subject, limit: 100 }, { signal, statementTimeoutMs }),
-      input.deadlineAtMs,
-      startedAtMs,
-      input.signal,
-      input.statementTimeoutMs,
-    ),
-    settleContinuitySection(
-      (signal, statementTimeoutMs) =>
-        memory.dreamingStatus(subject, { signal, statementTimeoutMs }),
-      input.deadlineAtMs,
-      startedAtMs,
-      input.signal,
-      input.statementTimeoutMs,
-    ),
-    settleContinuitySection(
-      (signal, statementTimeoutMs) =>
-        memory.listPendingReviews(subject, { signal, statementTimeoutMs }),
-      input.deadlineAtMs,
-      startedAtMs,
-      input.signal,
-      input.statementTimeoutMs,
-    ),
-  ]);
+  const hasBlockedDreamDecisionSection =
+    memory.listRecentBlockedDreamDecisions !== undefined;
+  const [memoriesResult, runsResult, reviewsResult, blockedResult] =
+    await Promise.all([
+      settleContinuitySection(
+        (signal, statementTimeoutMs) =>
+          memory.list(
+            { ...subject, limit: 100 },
+            { signal, statementTimeoutMs },
+          ),
+        input.deadlineAtMs,
+        startedAtMs,
+        input.signal,
+        input.statementTimeoutMs,
+      ),
+      settleContinuitySection(
+        (signal, statementTimeoutMs) =>
+          memory.dreamingStatus(subject, { signal, statementTimeoutMs }),
+        input.deadlineAtMs,
+        startedAtMs,
+        input.signal,
+        input.statementTimeoutMs,
+      ),
+      settleContinuitySection(
+        (signal, statementTimeoutMs) =>
+          memory.listPendingReviews(subject, { signal, statementTimeoutMs }),
+        input.deadlineAtMs,
+        startedAtMs,
+        input.signal,
+        input.statementTimeoutMs,
+      ),
+      hasBlockedDreamDecisionSection
+        ? settleContinuitySection(
+            (signal, statementTimeoutMs) =>
+              memory.listRecentBlockedDreamDecisions?.(subject, {
+                signal,
+                statementTimeoutMs,
+                limit: 10,
+              }) ?? Promise.resolve([]),
+            input.deadlineAtMs,
+            startedAtMs,
+            input.signal,
+            input.statementTimeoutMs,
+          )
+        : Promise.resolve({ status: 'fulfilled' as const, value: [] }),
+    ]);
   const memories =
     memoriesResult.status === 'fulfilled' ? memoriesResult.value : [];
   const runs = runsResult.status === 'fulfilled' ? runsResult.value : [];
   const reviews =
     reviewsResult.status === 'fulfilled' ? reviewsResult.value : [];
+  const blocked =
+    blockedResult.status === 'fulfilled' ? blockedResult.value : [];
   const status = statusFromParts(subject, runs, reviews.length);
   const injected = injectedStatus(subject);
   const recentDecisions = memories
@@ -97,10 +128,16 @@ export async function buildAppMemoryContinuitySummary(
     }));
   const latestDreamSummary = summaryObject(runs[0]?.summary);
   const lastRun = runs[0];
-  const unavailableCount = [memoriesResult, runsResult, reviewsResult].filter(
+  const sectionResults = [
+    memoriesResult,
+    runsResult,
+    reviewsResult,
+    ...(hasBlockedDreamDecisionSection ? [blockedResult] : []),
+  ];
+  const unavailableCount = sectionResults.filter(
     (result) => result.status === 'unavailable',
   ).length;
-  const sectionCount = [memoriesResult, runsResult, reviewsResult].length;
+  const sectionCount = sectionResults.length;
   return {
     overall_status:
       unavailableCount === 0
@@ -151,6 +188,29 @@ export async function buildAppMemoryContinuitySummary(
             ]
           : [],
         runsResult.status === 'unavailable' ? runsResult.reason : undefined,
+      ),
+      blocked_dream_decisions: section(
+        blockedResult.status === 'unavailable'
+          ? 'unavailable'
+          : blocked.length > 0
+            ? 'populated'
+            : 'empty',
+        blocked.map((item) => ({
+          id: item.id,
+          run_id: item.runId,
+          candidate_id: item.candidateId,
+          item_id: item.itemId,
+          subject_type: item.subjectType,
+          subject_id: item.subjectId,
+          kind: item.kind,
+          key: item.key,
+          value: item.value,
+          rationale: item.rationale,
+          created_at: item.createdAt,
+        })),
+        blockedResult.status === 'unavailable'
+          ? blockedResult.reason
+          : undefined,
       ),
       issue_index: section(
         'deferred',

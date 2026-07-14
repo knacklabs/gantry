@@ -53,7 +53,7 @@ describe('Claude config materializer', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('creates per-run Claude config, settings, and skills without restoring provider SDK files', async () => {
+  it('creates explicit Claude config, settings, and skills without restoring provider SDK files', async () => {
     const materialization = await materializeClaudeRuntime({
       baseTempDir: path.join(tempRoot, 'run'),
       groupDir: path.join(tempRoot, 'agents', 'test'),
@@ -79,6 +79,45 @@ describe('Claude config materializer', () => {
 
     materialization.cleanup();
     expect(fs.existsSync(materialization.baseTempDir)).toBe(false);
+  });
+
+  it('uses a stable default Claude config directory so provider sessions survive restart', async () => {
+    const groupDir = path.join(tempRoot, 'agents', 'test');
+
+    const materialization = await materializeClaudeRuntime({
+      groupDir,
+      cliEntryPoint: path.join(tempRoot, 'dist', 'cli', 'index.js'),
+      packageRoot: tempRoot,
+      settings: { model: 'sonnet' },
+      skillSource: createSkillSource(tempRoot),
+    });
+
+    expect(materialization.baseTempDir).toBe(
+      path.join(groupDir, '.llm-runtime'),
+    );
+    expect(materialization.claudeConfigDir).toBe(
+      path.join(groupDir, '.llm-runtime', 'claude'),
+    );
+    const providerSessionFile = path.join(
+      materialization.projectDir,
+      'provider-session.jsonl',
+    );
+    fs.writeFileSync(providerSessionFile, '{}\n');
+
+    materialization.cleanup();
+    expect(fs.existsSync(providerSessionFile)).toBe(true);
+
+    const nextMaterialization = await materializeClaudeRuntime({
+      groupDir,
+      cliEntryPoint: path.join(tempRoot, 'dist', 'cli', 'index.js'),
+      packageRoot: tempRoot,
+      settings: { model: 'sonnet' },
+      skillSource: createSkillSource(tempRoot),
+    });
+
+    expect(nextMaterialization.projectDir).toBe(materialization.projectDir);
+    expect(fs.existsSync(providerSessionFile)).toBe(true);
+    nextMaterialization.cleanup();
   });
 
   it('cleans stale skills when reusing an explicit base dir', async () => {

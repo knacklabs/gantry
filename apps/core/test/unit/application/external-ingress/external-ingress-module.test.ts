@@ -178,6 +178,7 @@ function makeModule(overrides?: {
       enqueue: {
         conversationJid: 'tg:-100',
         threadId: '42',
+        providerAccountId: 'channel-providerAccount:app-one:telegram',
         queueKey: 'tg:-100::thread:42',
         durableAdmissionCreated: true,
       },
@@ -646,6 +647,7 @@ describe('ExternalIngressModule', () => {
         targetPolicy: {
           allowedTargetKinds: ['conversation_message'],
           conversationIds: ['conversation:tg:-100'],
+          allowedAgentIds: ['agent:main_agent'],
         },
       },
     });
@@ -654,6 +656,7 @@ describe('ExternalIngressModule', () => {
         kind: 'conversation_message',
         conversationId: 'conversation:tg:-100',
         threadId: 'thread:tg:-100:42',
+        agentId: 'agent:main_agent',
         message: 'hello from external system',
         senderId: 'crm-worker',
         senderName: 'CRM Worker',
@@ -694,6 +697,7 @@ describe('ExternalIngressModule', () => {
       invocationId: 'invocation-new',
       conversationId: 'conversation:tg:-100',
       threadId: 'thread:tg:-100:42',
+      agentId: 'agent:main_agent',
       message: 'hello from external system',
       senderId: 'crm-worker',
       senderName: 'CRM Worker',
@@ -706,6 +710,68 @@ describe('ExternalIngressModule', () => {
         }),
       }),
     );
+  });
+
+  it('rejects conversation_message targets that omit agentId when agent policy is scoped', async () => {
+    const { module, conversationMessages } = makeModule({
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['conversation_message'],
+          conversationIds: ['conversation:tg:-100'],
+          allowedAgentIds: ['agent:main_agent'],
+        },
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'conversation_message',
+        conversationId: 'conversation:tg:-100',
+        message: 'launch now',
+      },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-conversation-agent-policy-missing',
+    });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message:
+        'Ingress is not allowed to invoke this conversation agent target',
+    });
+    expect(conversationMessages.acceptMessage).not.toHaveBeenCalled();
+  });
+
+  it('rejects explicit conversation_message agent targets not allowed by the ingress policy', async () => {
+    const { module, conversationMessages } = makeModule({
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['conversation_message'],
+          conversationIds: ['conversation:tg:-100'],
+        },
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'conversation_message',
+        conversationId: 'conversation:tg:-100',
+        agentId: 'agent:main_agent',
+        message: 'launch now',
+      },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-conversation-agent-policy-deny',
+    });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message:
+        'Ingress is not allowed to invoke this conversation agent target',
+    });
+    expect(conversationMessages.acceptMessage).not.toHaveBeenCalled();
   });
 
   it('mirrors conversation_message input into the provider conversation before queueing', async () => {
@@ -739,6 +805,7 @@ describe('ExternalIngressModule', () => {
     expect(conversationProviderMessages?.send).toHaveBeenCalledWith({
       conversationJid: 'tg:-100',
       threadId: '42',
+      providerAccountId: 'channel-providerAccount:app-one:telegram',
       text: 'QA Worker: trigger the job',
     });
     expect(

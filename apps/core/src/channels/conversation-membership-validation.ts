@@ -109,7 +109,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {
     const token = await this.resolveSecret(
-      input.providerConnection.runtimeSecretRefs,
+      input.providerAccount.runtimeSecretRefs,
       ['bot_token'],
     );
     if (!token) {
@@ -171,7 +171,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {
     const botToken = await this.resolveSecret(
-      input.providerConnection.runtimeSecretRefs,
+      input.providerAccount.runtimeSecretRefs,
       ['bot_token'],
     );
     if (!botToken) {
@@ -229,7 +229,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {
     const botToken = await this.resolveSecret(
-      input.providerConnection.runtimeSecretRefs,
+      input.providerAccount.runtimeSecretRefs,
       ['bot_token'],
     );
     if (!botToken) {
@@ -319,15 +319,15 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {
     const clientId = await this.resolveSecret(
-      input.providerConnection.runtimeSecretRefs,
+      input.providerAccount.runtimeSecretRefs,
       ['client_id'],
     );
     const clientSecret = await this.resolveSecret(
-      input.providerConnection.runtimeSecretRefs,
+      input.providerAccount.runtimeSecretRefs,
       ['client_secret'],
     );
     const tenantId = await this.resolveSecret(
-      input.providerConnection.runtimeSecretRefs,
+      input.providerAccount.runtimeSecretRefs,
       ['tenant_id'],
     );
     if (!clientId || !clientSecret || !tenantId) {
@@ -459,9 +459,9 @@ function teamsMembersEndpoint(
   input: ConversationMembershipValidationInput,
 ): string {
   const config =
-    input.providerConnection.config &&
-    typeof input.providerConnection.config === 'object'
-      ? (input.providerConnection.config as Record<string, unknown>)
+    input.providerAccount.config &&
+    typeof input.providerAccount.config === 'object'
+      ? (input.providerAccount.config as Record<string, unknown>)
       : {};
   const teamId = stringConfigValue(config, 'teamId');
   const channelId = stringConfigValue(config, 'channelId');

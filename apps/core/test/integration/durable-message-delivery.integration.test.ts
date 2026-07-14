@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AppId } from '@core/domain/app/app.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import type {
-  ProviderConnectionId,
+  ProviderAccountId,
   ProviderId,
 } from '@core/domain/provider/provider.js';
 import type {
@@ -28,8 +28,7 @@ const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 const appId = DEFAULT_APP_ID as AppId;
 const agentId = DEFAULT_AGENT_ID as AgentId;
 const providerId = 'slack' as ProviderId;
-const providerConnectionId =
-  'channel-providerConnection:durable:slack' as ProviderConnectionId;
+const providerAccountId = 'provider-account:durable:slack' as ProviderAccountId;
 const conversationId = 'conversation:durable:slack:C123' as ConversationId;
 const secondConversationId =
   'conversation:durable:slack:C999' as ConversationId;
@@ -46,12 +45,13 @@ maybeDescribe('durable message delivery persistence', () => {
     runtime = await createPostgresIntegrationRuntime({
       schemaPrefix: 'durable_messages',
     });
-    await runtime.repositories.providerConnections.saveProviderConnection({
-      id: providerConnectionId,
+    await runtime.repositories.providerAccounts.saveProviderAccount({
+      id: providerAccountId,
       appId,
+      agentId,
       providerId,
-      externalInstallationRef: {
-        kind: 'provider_connection',
+      externalIdentityRef: {
+        kind: 'provider_account',
         value: 'T123',
       },
       label: 'Durable Slack',
@@ -64,7 +64,7 @@ maybeDescribe('durable message delivery persistence', () => {
     await runtime.repositories.conversations.saveConversation({
       id: conversationId,
       appId,
-      providerConnectionId: providerConnectionId,
+      providerAccountId,
       externalRef: { kind: 'conversation', value: 'C123' },
       kind: 'channel',
       title: 'engineering',
@@ -85,7 +85,7 @@ maybeDescribe('durable message delivery persistence', () => {
     await runtime.repositories.conversations.saveConversation({
       id: secondConversationId,
       appId,
-      providerConnectionId: providerConnectionId,
+      providerAccountId,
       externalRef: { kind: 'conversation', value: 'C999' },
       kind: 'channel',
       title: 'incidents',

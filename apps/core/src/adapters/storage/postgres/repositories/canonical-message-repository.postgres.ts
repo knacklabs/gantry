@@ -21,7 +21,7 @@ import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
 } from '../../../../shared/message-cursor.js';
-import { makeThreadQueueKey } from '../../../../shared/thread-queue-key.js';
+import { makeAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import * as pgSchema from '../schema/schema.js';
 import { enqueueLiveAdmissionWorkItem } from './live-admission-work-item-repository.postgres.js';
 import {
@@ -34,6 +34,11 @@ import {
   providerIdForJid,
   threadIdFor,
 } from './canonical-graph-repository.postgres.js';
+import {
+  attachmentsJsonForMessage,
+  existingAttachmentStorageMaps,
+  storageRefForIncomingAttachment,
+} from './canonical-message-attachments.postgres.js';
 
 export interface CanonicalOpsMessageRow {
   id: string;
@@ -57,12 +62,14 @@ export interface MessageLiveAdmissionInput {
   appId: string;
   agentId?: string | null;
   agentSessionId?: string | null;
+  providerAccountId?: string | null;
   triggerDecision?: Record<string, unknown>;
   now?: string;
 }
 
 interface MessageListInput {
   jids: string[];
+  providerAccountId?: string | null;
   after?: { timestamp: string; chatJid: string; id: string };
   before?: { timestamp: string; chatJid: string; id: string };
   beforeOrAt?: { timestamp: string; chatJid: string; id: string };
@@ -73,127 +80,129 @@ interface MessageListInput {
   order?: 'asc' | 'desc';
 }
 
-const MAX_MESSAGE_ATTACHMENTS_PER_ROW = 20;
-
-type IncomingMessageAttachment = NonNullable<NewMessage['attachments']>[number];
-
-export function messageIdFor(chatJid: string, id: string): string {
-  return `message:${chatJid}:${id}`;
-}
-
-function attachmentsJsonForMessage(messageId: unknown) {
-  const a = pgSchema.messageAttachmentsPostgres;
-  return sql<string | null>`(
-    SELECT COALESCE(
-      jsonb_agg(
-        jsonb_strip_nulls(
-          jsonb_build_object(
-            'kind', attachment_row.kind,
-            'contentType', attachment_row.content_type,
-            'sizeBytes', attachment_row.size_bytes,
-            'storageRef', attachment_row.storage_ref,
-            'externalId', attachment_row.external_id
-          )
-        )
-        ORDER BY attachment_row.id
-      ),
-      '[]'::jsonb
-    )::text
-    FROM (
-      SELECT
-        ${a.id} AS id,
-        ${a.kind} AS kind,
-        ${a.contentType} AS content_type,
-        ${a.sizeBytes} AS size_bytes,
-        ${a.storageRef} AS storage_ref,
-        CASE
-          WHEN ${a.externalRefJson}->>'kind' = 'message_attachment'
-          THEN ${a.externalRefJson}->>'value'
-          ELSE NULL
-        END AS external_id
-      FROM ${a}
-      WHERE ${a.messageId} = ${messageId}
-      ORDER BY ${a.id}
-      LIMIT ${MAX_MESSAGE_ATTACHMENTS_PER_ROW}
-    ) attachment_row
-  )`;
-}
-
-function externalAttachmentValue(value: unknown): string | undefined {
-  const ref =
-    typeof value === 'string'
-      ? (() => {
-          try {
-            return JSON.parse(value) as unknown;
-          } catch {
-            return undefined;
-          }
-        })()
-      : value;
-  if (!ref || typeof ref !== 'object') return undefined;
-  const record = ref as Record<string, unknown>;
-  return record.kind === 'message_attachment' &&
-    typeof record.value === 'string'
-    ? record.value
-    : undefined;
-}
-
-function existingAttachmentStorageMaps(
-  rows: Array<{
-    id: string;
-    externalRefJson: unknown;
-    storageRef: string | null;
-  }>,
+function messageConversationFilter(
+  m: typeof pgSchema.messagesPostgres,
+  jids: string[],
+  providerAccountId?: string | null,
 ) {
-  const byId = new Map<string, string>();
-  const byExternalId = new Map<string, string>();
-  for (const row of rows) {
-    if (!row.storageRef) continue;
-    byId.set(row.id, row.storageRef);
-    const externalId = externalAttachmentValue(row.externalRefJson);
-    if (externalId) byExternalId.set(externalId, row.storageRef);
+  if (providerAccountId) {
+    return and(
+      inArray(
+        m.conversationId,
+        jids.map((jid) => conversationIdForJid(jid, providerAccountId)),
+      ),
+      eq(m.providerAccountId, providerAccountId),
+    );
   }
-  return { byId, byExternalId };
-}
-
-function storageRefForIncomingAttachment(
-  attachment: IncomingMessageAttachment,
-  attachmentId: string,
-  existingStorageRefs: ReturnType<typeof existingAttachmentStorageMaps>,
-): string | null {
-  return (
-    attachment.storageRef ??
-    existingStorageRefs.byId.get(attachmentId) ??
-    (attachment.externalId
-      ? existingStorageRefs.byExternalId.get(attachment.externalId)
-      : undefined) ??
-    null
+  return or(
+    inArray(
+      m.conversationId,
+      jids.map((jid) => conversationIdForJid(jid)),
+    ),
+    inArray(sql<string>`${m.externalRefJson}::jsonb->>'chat_jid'`, jids),
   );
 }
 
-function liveAdmissionWorkItemId(appId: string, canonicalMessageId: string) {
-  return `live-admission:${appId}:${canonicalMessageId}`;
+function messageThreadFilter(
+  m: typeof pgSchema.messagesPostgres,
+  jids: string[],
+  threadId: string,
+  providerAccountId?: string | null,
+) {
+  return or(
+    eq(sql<string>`${m.externalRefJson}::jsonb->>'thread_id'`, threadId),
+    inArray(
+      m.threadId,
+      jids
+        .flatMap((jid) => [
+          ...(providerAccountId
+            ? [threadIdFor(jid, threadId, providerAccountId)]
+            : []),
+          threadIdFor(jid, threadId),
+        ])
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
+export function messageIdFor(
+  chatJid: string,
+  id: string,
+  providerAccountId?: string | null,
+): string {
+  return providerAccountId
+    ? `message:${providerAccountId}:${chatJid}:${id}`
+    : `message:${chatJid}:${id}`;
+}
+
+function parseExternalRef(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function publicThreadIdForRow(
+  chatJid: string,
+  threadId: string,
+  externalRefJson: string | null,
+): string {
+  const refThreadId = parseExternalRef(externalRefJson).thread_id;
+  if (typeof refThreadId === 'string' && refThreadId.length > 0) {
+    return refThreadId;
+  }
+  const unscopedPrefix = `thread:${chatJid}:`;
+  if (threadId.startsWith(unscopedPrefix)) {
+    return threadId.slice(unscopedPrefix.length);
+  }
+  const scopedSuffix = `:${chatJid}:`;
+  const scopedIndex = threadId.indexOf(scopedSuffix);
+  return scopedIndex >= 0
+    ? threadId.slice(scopedIndex + scopedSuffix.length)
+    : threadId;
+}
+
+function liveAdmissionWorkItemId(
+  appId: string,
+  canonicalMessageId: string,
+  providerAccountId?: string | null,
+  agentId?: string | null,
+) {
+  return [
+    'live-admission',
+    appId,
+    agentId?.trim() || 'default-agent',
+    providerAccountId?.trim() || 'default-provider-account',
+    canonicalMessageId,
+  ].join(':');
 }
 
 function liveAdmissionIdempotencyKey(
   msg: NewMessage,
   appId: string,
   providerId: string,
+  providerAccountId?: string | null,
+  agentId?: string | null,
 ): string {
   const providerMessageId = msg.external_message_id?.trim() || msg.id;
+  const providerScope = providerAccountId?.trim() || providerId;
   return [
     'live-admission',
     appId,
-    providerId,
+    agentId?.trim() || 'default-agent',
+    providerScope,
     msg.chat_jid,
     msg.thread_id?.trim() || 'main',
     providerMessageId,
   ].join(':');
 }
 
-export function externalRefForMessage(
-  msg: NewMessage,
-): Record<string, unknown> {
+export function externalRefForMessage(msg: NewMessage) {
   const retryTailPayload = sanitizeRetryTailProviderPayload(
     msg.delivery_retry_tail?.providerPayload,
   );
@@ -210,21 +219,24 @@ export function externalRefForMessage(
     id: msg.id,
     chat_jid: msg.chat_jid,
     provider: msg.provider,
+    provider_account_id: msg.providerAccountId,
     thread_id: msg.thread_id,
     external_message_id: msg.external_message_id,
     reply_to_message_id: msg.reply_to_message_id,
     reply_to_sender_name: msg.reply_to_sender_name,
+    response_schema: msg.responseSchema,
+    effort: msg.agentControls?.effort,
+    thinking: msg.agentControls?.thinking,
+    max_output_tokens: msg.agentControls?.maxOutputTokens,
     delivery_retry_tail: retryTail,
   };
 }
 
 export class PostgresCanonicalMessageRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
-
   constructor(private readonly db: CanonicalDb) {
     this.graph = new PostgresCanonicalGraphRepository(db);
   }
-
   async saveMessage(
     msg: NewMessage,
     options: { liveAdmission?: MessageLiveAdmissionInput } = {},
@@ -242,11 +254,16 @@ export class PostgresCanonicalMessageRepository {
     const providerId =
       normalizeProviderId(msg.provider ?? providerIdForJid(msg.chat_jid)) ||
       'app';
+    const requestedProviderAccountId =
+      msg.providerAccountId?.trim() ||
+      options.liveAdmission?.providerAccountId?.trim() ||
+      null;
     const conversationId = await this.graph.ensureConversation(
       msg.chat_jid,
       {
         timestamp: msg.timestamp,
         channel: providerId,
+        providerAccountId: requestedProviderAccountId,
       },
       tx,
     );
@@ -254,23 +271,46 @@ export class PostgresCanonicalMessageRepository {
       msg.chat_jid,
       msg.thread_id,
       tx,
-      { channel: providerId },
+      { channel: providerId, providerAccountId: requestedProviderAccountId },
     );
-    const providerConnectionId =
+    const providerAccountId =
+      requestedProviderAccountId ??
       (await this.graph.getConversationInstallationId(conversationId, tx)) ??
-      `channel-providerConnection:${CANONICAL_APP_ID}:${providerId}`;
-    const canonicalMessageId = messageIdFor(msg.chat_jid, msg.id);
+      `channel-providerAccount:${CANONICAL_APP_ID}:${providerId}`;
+    let canonicalMessageId = messageIdFor(
+      msg.chat_jid,
+      msg.id,
+      providerAccountId,
+    );
     const direction =
       msg.is_from_me || msg.is_bot_message ? 'outbound' : 'inbound';
     const externalMessageId =
       msg.external_message_id ??
       (direction === 'inbound' ? msg.id || null : null);
+    if (externalMessageId && externalMessageId !== msg.id) {
+      const duplicateRows = await tx
+        .select({ id: pgSchema.messagesPostgres.id })
+        .from(pgSchema.messagesPostgres)
+        .where(
+          and(
+            eq(pgSchema.messagesPostgres.providerId, providerId),
+            eq(pgSchema.messagesPostgres.providerAccountId, providerAccountId),
+            eq(pgSchema.messagesPostgres.conversationId, conversationId),
+            canonicalThreadId
+              ? eq(pgSchema.messagesPostgres.threadId, canonicalThreadId)
+              : isNull(pgSchema.messagesPostgres.threadId),
+            eq(pgSchema.messagesPostgres.externalMessageId, externalMessageId),
+          ),
+        )
+        .limit(1);
+      canonicalMessageId = duplicateRows[0]?.id ?? canonicalMessageId;
+    }
     if (direction === 'inbound') {
       await this.graph.ensureParticipant(
         {
           conversationId,
           providerId: providerId,
-          providerConnectionId,
+          providerAccountId,
           externalUserId: msg.sender,
           displayName: msg.sender_name,
           timestamp: msg.timestamp,
@@ -284,7 +324,7 @@ export class PostgresCanonicalMessageRepository {
         id: canonicalMessageId,
         appId: CANONICAL_APP_ID,
         providerId,
-        providerConnectionId,
+        providerAccountId,
         conversationId,
         threadId: canonicalThreadId,
         externalMessageId,
@@ -390,16 +430,27 @@ export class PostgresCanonicalMessageRepository {
       return undefined;
     }
     const admission = options.liveAdmission;
+    const agentId = admission.agentId
+      ? normalizeAgentIdForFolder(admission.agentId)
+      : null;
     return enqueueLiveAdmissionWorkItem(tx, {
-      id: liveAdmissionWorkItemId(admission.appId, canonicalMessageId),
+      id: liveAdmissionWorkItemId(
+        admission.appId,
+        canonicalMessageId,
+        providerAccountId,
+        agentId,
+      ),
       appId: admission.appId,
-      agentId: admission.agentId
-        ? normalizeAgentIdForFolder(admission.agentId)
-        : null,
+      agentId,
       agentSessionId: admission.agentSessionId,
       conversationId: msg.chat_jid,
       threadId: msg.thread_id ?? null,
-      queueJid: makeThreadQueueKey(msg.chat_jid, msg.thread_id),
+      queueJid: makeAgentThreadQueueKey(
+        msg.chat_jid,
+        agentId,
+        msg.thread_id,
+        providerAccountId,
+      ),
       messageId: canonicalMessageId,
       messageCursor: encodeGroupMessageCursor(toGroupMessageCursor(msg)),
       senderUserId: msg.sender,
@@ -408,6 +459,8 @@ export class PostgresCanonicalMessageRepository {
         msg,
         admission.appId,
         providerId,
+        providerAccountId,
+        agentId,
       ),
       triggerDecision: admission.triggerDecision,
       now: admission.now ?? msg.timestamp,
@@ -434,24 +487,26 @@ export class PostgresCanonicalMessageRepository {
     if (jids.length === 0) return [];
     const after = input.after?.timestamp.trim() ? input.after : undefined;
     const afterConversationId = after
-      ? conversationIdForJid(after.chatJid)
+      ? conversationIdForJid(after.chatJid, input.providerAccountId)
       : '';
-    const afterMessageId = after ? messageIdFor(after.chatJid, after.id) : '';
+    const afterMessageId = after
+      ? messageIdFor(after.chatJid, after.id, input.providerAccountId)
+      : '';
     const before = input.before?.timestamp.trim() ? input.before : undefined;
     const beforeConversationId = before
-      ? conversationIdForJid(before.chatJid)
+      ? conversationIdForJid(before.chatJid, input.providerAccountId)
       : '';
     const beforeMessageId = before
-      ? messageIdFor(before.chatJid, before.id)
+      ? messageIdFor(before.chatJid, before.id, input.providerAccountId)
       : '';
     const beforeOrAt = input.beforeOrAt?.timestamp.trim()
       ? input.beforeOrAt
       : undefined;
     const beforeOrAtConversationId = beforeOrAt
-      ? conversationIdForJid(beforeOrAt.chatJid)
+      ? conversationIdForJid(beforeOrAt.chatJid, input.providerAccountId)
       : '';
     const beforeOrAtMessageId = beforeOrAt
-      ? messageIdFor(beforeOrAt.chatJid, beforeOrAt.id)
+      ? messageIdFor(beforeOrAt.chatJid, beforeOrAt.id, input.providerAccountId)
       : '';
     const threadId = input.threadId?.trim() || null;
     const m = pgSchema.messagesPostgres;
@@ -512,25 +567,27 @@ export class PostgresCanonicalMessageRepository {
         )
       : undefined;
     const canonicalThreadId = threadId
-      ? threadIdFor(jids[0] ?? '', threadId)
+      ? threadIdFor(jids[0] ?? '', threadId, input.providerAccountId)
       : null;
     const selfThreadRootFilter =
       input.includeSelfThreadRoots && !canonicalThreadId
         ? or(
             ...jids.map((jid) =>
               and(
-                eq(m.conversationId, conversationIdForJid(jid)),
+                messageConversationFilter(m, [jid], input.providerAccountId),
                 eq(
                   m.threadId,
-                  sql<string>`${`thread:${jid}:`} || ${m.externalMessageId}`,
+                  input.providerAccountId
+                    ? sql<string>`${`thread:${input.providerAccountId}:${jid}:`} || ${m.externalMessageId}`
+                    : sql<string>`${`thread:${jid}:`} || ${m.externalMessageId}`,
                 ),
               ),
             ),
           )
         : undefined;
     const threadFilter = input.hasThreadFilter
-      ? canonicalThreadId
-        ? eq(m.threadId, canonicalThreadId)
+      ? threadId
+        ? messageThreadFilter(m, jids, threadId, input.providerAccountId)
         : input.includeSelfThreadRoots
           ? or(isNull(m.threadId), selfThreadRootFilter)
           : isNull(m.threadId)
@@ -564,10 +621,7 @@ export class PostgresCanonicalMessageRepository {
       .leftJoinLateral(firstPart, sql`true`)
       .where(
         and(
-          inArray(
-            m.conversationId,
-            jids.map((jid) => conversationIdForJid(jid)),
-          ),
+          messageConversationFilter(m, jids, input.providerAccountId),
           directionFilter,
           afterFilter,
           beforeFilter,
@@ -583,24 +637,33 @@ export class PostgresCanonicalMessageRepository {
       .limit(input.limit ?? 200);
   }
 
-  async listThreadIds(chatJid: string): Promise<Array<string | null>> {
+  async listThreadIds(
+    chatJid: string,
+    options: { providerAccountId?: string | null } = {},
+  ): Promise<Array<string | null>> {
     const m = pgSchema.messagesPostgres;
     const rows = await this.db
-      .selectDistinct({ thread_id: m.threadId })
+      .select({
+        thread_id: m.threadId,
+        external_ref_json: sql<string | null>`min(${m.externalRefJson}::text)`,
+      })
       .from(m)
-      .where(eq(m.conversationId, conversationIdForJid(chatJid)))
+      .where(messageConversationFilter(m, [chatJid], options.providerAccountId))
+      .groupBy(m.threadId)
       .orderBy(sql`${m.threadId} ASC NULLS FIRST`);
     return rows.map((row) => {
       if (!row.thread_id) return null;
-      const prefix = `thread:${chatJid}:`;
-      return row.thread_id.startsWith(prefix)
-        ? row.thread_id.slice(prefix.length)
-        : row.thread_id;
+      return publicThreadIdForRow(
+        chatJid,
+        row.thread_id,
+        row.external_ref_json,
+      );
     });
   }
 
   async getLastBotMessageRow(
     chatJid: string,
+    options: { providerAccountId?: string | null } = {},
   ): Promise<CanonicalOpsMessageRow | undefined> {
     const m = pgSchema.messagesPostgres;
     const p = pgSchema.messagePartsPostgres;
@@ -626,7 +689,7 @@ export class PostgresCanonicalMessageRepository {
       .innerJoin(p, and(eq(p.messageId, m.id), eq(p.ordinal, 0)))
       .where(
         and(
-          eq(m.conversationId, conversationIdForJid(chatJid)),
+          messageConversationFilter(m, [chatJid], options.providerAccountId),
           eq(m.trust, 'system'),
         ),
       )

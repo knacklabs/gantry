@@ -13,6 +13,7 @@ import {
   readOnboardingState,
   writeOnboardingState,
 } from './onboarding-state.js';
+import type { OnboardingStep } from './onboarding-state.js';
 import {
   resolveRuntimeHome,
   runtimeErrorLogPath,
@@ -84,13 +85,14 @@ function usage(): string {
     '  gantry restart',
     '  gantry logs',
     '  gantry local setup|start|stop|status|logs|doctor',
-    '  gantry provider list|connect|doctor',
+    '  gantry provider list|connect|doctor|account',
     '  gantry conversation info|approvers  # direct/private and group/channel permission approvers',
-    '  gantry agent list|info|add|remove|trigger|policy|access',
+    '  gantry agent list|info|name|add|remove|trigger|policy|access|harness|profile',
     '  gantry browser profiles|status',
     '  gantry jobs list|show|resume|trigger|set-route|events [--full|--json]',
-    '  gantry model status|list|set|reset|why|use-preset|doctor',
-    '  gantry credentials model|capability|browser ...',
+    '  gantry model status|list|set|reset|why|doctor',
+    '  gantry brain import|status',
+    '  gantry credentials model|access|browser ...',
     '  gantry settings validate|import|export|drift|revisions list',
     '  gantry workers list',
     '  gantry bake status',
@@ -156,11 +158,24 @@ async function runStatusCommand(
 
 async function runStartCommand(runtimeHome: string): Promise<number> {
   process.env.GANTRY_HOME = runtimeHome;
+  p.log.info(
+    'gantry start runs the runtime in the FOREGROUND. Manage the background service with `gantry service install` and `gantry restart`.',
+  );
   const { runPostgresMigrations } = await import('../postgres-migrate.js');
   await runPostgresMigrations();
   const runtime = await import('../app/index.js');
   await runtime.startGantryRuntime();
   return 0;
+}
+
+function isMaintenanceSetupChoice(value: unknown): value is OnboardingStep {
+  return (
+    value === 'model' ||
+    value === 'memory' ||
+    value === 'credentials' ||
+    value === 'storage' ||
+    value === 'verify'
+  );
 }
 
 async function runStopCommand(runtimeHome: string): Promise<number> {
@@ -289,28 +304,10 @@ async function runServiceCommand(
 
 async function runSetupCommand(
   runtimeHome: string,
-  initialStep?:
-    | 'welcome'
-    | 'runtime_home'
-    | 'storage'
-    | 'channel'
-    | 'credentials'
-    | 'model'
-    | 'telegram'
-    | 'slack'
-    | 'config'
-    | 'group'
-    | 'verify'
-    | 'ready',
+  initialStep?: OnboardingStep,
 ): Promise<number> {
   const state = readOnboardingState(runtimeHome);
   let startStep = initialStep;
-
-  if (state?.status === 'completed' && !initialStep) {
-    clearOnboardingState(runtimeHome);
-    writeOnboardingState(runtimeHome, createInitialState(runtimeHome));
-    startStep = 'welcome';
-  }
 
   if (state?.status === 'in_progress' && !initialStep) {
     const decision = await p.select({
@@ -342,6 +339,70 @@ async function runSetupCommand(
       writeOnboardingState(runtimeHome, createInitialState(runtimeHome));
       startStep = 'welcome';
     }
+  }
+
+  if (
+    !startStep &&
+    (state?.status === 'completed' ||
+      (!state && fs.existsSync(settingsFilePath(runtimeHome))))
+  ) {
+    const choice = await p.select({
+      message: 'What do you want to change?',
+      options: [
+        {
+          value: 'welcome',
+          label: 'Run full setup',
+          hint: 'Reset setup progress and review every step.',
+        },
+        {
+          value: 'add_agent',
+          label: 'Add another agent',
+        },
+        {
+          value: 'channel',
+          label: 'Chat channel',
+        },
+        {
+          value: 'model',
+          label: 'Model provider',
+        },
+        {
+          value: 'memory',
+          label: 'Memory',
+        },
+        {
+          value: 'credentials',
+          label: 'Model credentials',
+        },
+        {
+          value: 'storage',
+          label: 'Storage',
+        },
+        {
+          value: 'verify',
+          label: 'Verify only',
+        },
+        {
+          value: 'cancel',
+          label: 'Cancel',
+        },
+      ],
+    });
+    if (p.isCancel(choice) || choice === 'cancel') {
+      p.outro('Setup cancelled.');
+      return 1;
+    }
+    if (choice === 'add_agent') {
+      const { runAddAgentSetupSlice } =
+        await import('./setup-flow-core-steps.js');
+      return runAddAgentSetupSlice(runtimeHome);
+    }
+    startStep = choice as OnboardingStep;
+    const nextState = createInitialState(runtimeHome);
+    nextState.currentStep = startStep;
+    nextState.data.maintenanceMode = isMaintenanceSetupChoice(choice);
+    clearOnboardingState(runtimeHome);
+    writeOnboardingState(runtimeHome, nextState);
   }
 
   const { runSetupFlow } = await import('./setup-flow.js');
@@ -469,6 +530,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'memory') {
     const { runMemoryCommand } = await import('./memory.js');
     return runMemoryCommand(runtimeHome, rest);
+  }
+
+  if (command === 'brain') {
+    const { runBrainCommand } = await import('./brain.js');
+    return runBrainCommand(runtimeHome, rest);
   }
 
   if (command === 'browser') {

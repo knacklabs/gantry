@@ -4,6 +4,7 @@ export interface AsyncCommandSandboxPolicy {
   appId: string;
   agentId?: string;
   conversationId: string;
+  providerAccountId?: string | null;
   threadId?: string | null;
   runId?: string;
   jobId?: string;
@@ -40,6 +41,7 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
   appId: string;
   agentId?: string;
   conversationId: string;
+  providerAccountId?: string | null;
   threadId?: string | null;
   runId?: string;
   jobId?: string;
@@ -55,6 +57,7 @@ export function registerSpawnAsyncCommandSandboxPolicy(input: {
       appId: input.appId,
       agentId: input.agentId,
       conversationId: input.conversationId,
+      providerAccountId: input.providerAccountId ?? null,
       threadId: input.threadId ?? null,
       runId: input.runId,
       jobId: input.jobId,
@@ -73,6 +76,7 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
   appId: string;
   agentId?: string;
   conversationId: string;
+  providerAccountId?: string | null;
   threadId?: string | null;
   runId?: string;
   jobId?: string;
@@ -95,6 +99,7 @@ export function configureSpawnAsyncCommandSandboxPolicy(input: {
     appId: input.appId,
     agentId: input.agentId,
     conversationId: input.conversationId,
+    providerAccountId: input.providerAccountId,
     threadId: input.threadId,
     runId: input.runId,
     jobId: input.jobId,

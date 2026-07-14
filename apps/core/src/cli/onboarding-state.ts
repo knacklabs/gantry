@@ -3,7 +3,6 @@ import fs from 'fs';
 import type { HostCredentialMode } from '../config/credentials/mode.js';
 import { onboardingStatePath } from '../config/settings/runtime-home.js';
 import type { AgentHarness } from '../shared/agent-engine.js';
-import type { ModelPresetId } from '../shared/model-catalog.js';
 import { nowIso } from '../shared/time/datetime.js';
 
 export type OnboardingStep =
@@ -12,6 +11,7 @@ export type OnboardingStep =
   | 'storage'
   | 'channel'
   | 'model'
+  | 'memory'
   | 'credentials'
   | 'telegram'
   | 'slack'
@@ -39,11 +39,14 @@ export interface OnboardingData {
   dreamingEnabled?: boolean;
   credentialMode?: HostCredentialMode;
   agentName?: string;
-  modelPreset?: ModelPresetId;
   selectedModel?: string;
   agentHarness?: AgentHarness;
+  credentialLiveSkipProviderIds?: string[];
   workspaceKey?: string;
   conversationLabel?: string;
+  maintenanceMode?: boolean;
+  completedProviderSteps?: Array<'telegram' | 'slack'>;
+  storedProviderSecretRefs?: Array<'telegram' | 'slack'>;
 }
 
 export interface OnboardingState {

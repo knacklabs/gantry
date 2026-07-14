@@ -82,6 +82,16 @@ export function renderModelAliasesYaml(
         `    output_usd_per_million_tokens: ${alias.outputUsdPerMillionTokens}`,
       );
     }
+    if (alias.cachedInputUsdPerMillionTokens !== undefined) {
+      lines.push(
+        `    cached_input_usd_per_million_tokens: ${alias.cachedInputUsdPerMillionTokens}`,
+      );
+    }
+    if (alias.cacheWriteUsdPerMillionTokens !== undefined) {
+      lines.push(
+        `    cache_write_usd_per_million_tokens: ${alias.cacheWriteUsdPerMillionTokens}`,
+      );
+    }
     if (alias.supportsThinking !== undefined) {
       lines.push(
         `    supports_thinking: ${alias.supportsThinking ? 'true' : 'false'}`,

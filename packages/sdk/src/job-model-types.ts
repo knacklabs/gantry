@@ -81,6 +81,7 @@ export interface JobRequestExecutionContext {
 export interface JobNotificationRoute {
   conversationJid: string;
   threadId: string | null;
+  providerAccountId?: string | null;
   label: string;
 }
 
@@ -284,7 +285,6 @@ export interface ModelRecord {
   experimental: boolean;
 }
 
-export type ModelPreset = string;
 export type ModelWorkload =
   | 'chat'
   | 'one_time_job'
@@ -303,8 +303,8 @@ export interface ModelDefaultSlot {
 }
 
 export interface ModelDefaultsResponse {
-  preset: {
-    id: ModelPreset;
+  provider: {
+    id: string;
     label: string;
   } | null;
   chat: ModelDefaultSlot;
@@ -313,7 +313,7 @@ export interface ModelDefaultsResponse {
     recurring: ModelDefaultSlot;
   };
   memory: {
-    mode: 'preset-managed';
+    mode: 'provider-managed';
     extractor: ModelDefaultSlot;
     dreaming: ModelDefaultSlot;
     consolidation: ModelDefaultSlot;
@@ -329,12 +329,11 @@ export interface ModelDefaultsResponse {
 }
 
 export interface ModelDefaultsPatchRequest {
-  preset?: ModelPreset;
   chat?: string | null;
   jobs?: string | null;
   oneTime?: string | null;
   recurring?: string | null;
-  memory?: 'reset' | 'preset-managed' | null;
+  memory?: 'reset' | 'provider-managed' | null;
 }
 
 export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'agent' | 'memory';

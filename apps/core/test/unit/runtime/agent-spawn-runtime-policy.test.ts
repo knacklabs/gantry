@@ -122,6 +122,7 @@ describe('agent spawn runtime policy', () => {
         GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
         GANTRY_DEEPAGENTS_MODEL_PROVIDER: 'openai',
         GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL: 'automatic',
+        GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY: 'cache-key',
         GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS: '400000',
         GANTRY_DEEPAGENTS_CHECKPOINT_DATABASE_URL:
           'postgres://secret@localhost/db',
@@ -130,6 +131,7 @@ describe('agent spawn runtime policy', () => {
       GANTRY_DEEPAGENTS_MODEL_ID: 'gpt-5.5',
       GANTRY_DEEPAGENTS_MODEL_PROVIDER: 'openai',
       GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL: 'automatic',
+      GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY: 'cache-key',
       GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS: '400000',
     });
   });

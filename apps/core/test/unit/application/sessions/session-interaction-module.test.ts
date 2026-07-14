@@ -8,6 +8,9 @@ function makeModule(overrides?: {
   repositories?: Record<string, unknown>;
   runtimeEvents?: Record<string, unknown>;
   liveAdmissionAppId?: string | null;
+  getConfiguredAgentRuntime?: (
+    agentFolder: string,
+  ) => 'worker' | 'inline' | undefined;
 }) {
   const control = {
     ensureAppSession: vi.fn(async (input) => ({
@@ -58,6 +61,8 @@ function makeModule(overrides?: {
     repositories: (overrides?.repositories ?? {}) as never,
     runtimeEvents: runtimeEvents as never,
     liveAdmissionAppId: overrides?.liveAdmissionAppId,
+    getConfiguredAgentRuntime:
+      overrides?.getConfiguredAgentRuntime ?? vi.fn(() => 'inline'),
     now: () => '2026-04-30T00:00:00.000Z' as never,
     createId: () => 'id-1',
     stableHash: () => '123456789abc',
@@ -173,6 +178,15 @@ describe('SessionInteractionModule', () => {
         message: {
           chat_jid: 'app:app-one:conv-1',
           content: 'hello from sdk',
+          responseSchema: {
+            type: 'object',
+            required: ['answer'],
+          },
+          agentControls: {
+            effort: 'high',
+            thinking: { mode: 'on', budgetTokens: 1024 },
+            maxOutputTokens: 4096,
+          },
         },
         liveAdmission: {
           appId: 'default',
@@ -223,6 +237,15 @@ describe('SessionInteractionModule', () => {
       senderId: 'user-1',
       senderName: 'User One',
       correlationId: 'corr-1',
+      responseSchema: {
+        type: 'object',
+        required: ['answer'],
+      },
+      agentControls: {
+        effort: 'high',
+        thinking: { mode: 'on', budgetTokens: 1024 },
+        maxOutputTokens: 4096,
+      },
       beforeDurableAdmission: async () => {
         order.push('beforeDurableAdmission');
       },
@@ -244,6 +267,84 @@ describe('SessionInteractionModule', () => {
     });
   });
 
+  it('rejects response schemas for worker runtimes before persistence or durable admission', async () => {
+    const getConfiguredAgentRuntime = vi.fn(() => 'worker' as const);
+    const publishWithLiveAdmissionMessage = vi.fn();
+    const { module, control, ops, runtimeEvents } = makeModule({
+      getConfiguredAgentRuntime,
+      runtimeEvents: { publishWithLiveAdmissionMessage },
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        responseSchema: { type: 'object' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'response_schema requires an inline agent runtime',
+    });
+
+    expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
+    expect(ops.storeChatMetadata).not.toHaveBeenCalled();
+    expect(control.upsertAppResponseRoute).not.toHaveBeenCalled();
+    expect(ops.storeMessage).not.toHaveBeenCalled();
+    expect(publishWithLiveAdmissionMessage).not.toHaveBeenCalled();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
+  });
+
+  it('rejects response schemas when no settings agent entry resolves', async () => {
+    const getConfiguredAgentRuntime = vi.fn(() => undefined);
+    const { module, control, ops, runtimeEvents } = makeModule({
+      getConfiguredAgentRuntime,
+      liveAdmissionAppId: null,
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        responseSchema: { type: 'object' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'response_schema requires an inline agent runtime',
+    });
+
+    expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
+    expect(ops.storeChatMetadata).not.toHaveBeenCalled();
+    expect(control.upsertAppResponseRoute).not.toHaveBeenCalled();
+    expect(ops.storeMessage).not.toHaveBeenCalled();
+    expect(runtimeEvents.publish).not.toHaveBeenCalled();
+  });
+
+  it('accepts and persists response schemas for inline runtimes', async () => {
+    const getConfiguredAgentRuntime = vi.fn(() => 'inline' as const);
+    const { module, ops } = makeModule({
+      getConfiguredAgentRuntime,
+      liveAdmissionAppId: null,
+    });
+
+    await expect(
+      module.acceptMessage({
+        appId: 'app-one',
+        sessionId: 'session-1',
+        message: 'hello from sdk',
+        responseSchema: { type: 'object' },
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+
+    expect(getConfiguredAgentRuntime).toHaveBeenCalledWith('group');
+    expect(ops.storeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseSchema: { type: 'object' },
+      }),
+    );
+  });
+
   it('falls back to plain message storage when durable live admission is disabled', async () => {
     const storeMessageWithLiveAdmission = vi.fn(async () => ({
       outcome: 'enqueued',
@@ -258,11 +359,15 @@ describe('SessionInteractionModule', () => {
       appId: 'app-one',
       sessionId: 'session-1',
       message: 'hello from sdk',
+      responseSchema: { type: 'object' },
     });
 
     expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
     expect(ops.storeMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ content: 'hello from sdk' }),
+      expect.objectContaining({
+        content: 'hello from sdk',
+        responseSchema: { type: 'object' },
+      }),
     );
     expect(accepted.enqueue.durableAdmissionCreated).toBe(false);
   });

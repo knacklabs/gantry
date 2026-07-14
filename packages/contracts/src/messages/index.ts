@@ -76,7 +76,7 @@ export const MessageResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
   providerId: z.string().optional(),
-  providerConnectionId: z.string().optional(),
+  providerAccountId: z.string().optional(),
   conversationId: z.string(),
   threadId: z.string().nullable().optional(),
   externalMessageId: z.string().nullable().optional(),

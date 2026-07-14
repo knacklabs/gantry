@@ -1,3 +1,6 @@
+import { createHmac } from 'node:crypto';
+import http from 'node:http';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -9,6 +12,10 @@ import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage
 import type { AppId } from '@core/domain/app/app.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { JobId } from '@core/domain/jobs/jobs.js';
+import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
+import { flushWebhookDeliveries } from '@core/control/server/webhook-delivery.js';
+import { recordPendingInteractionRequested } from '@core/application/interactions/pending-interaction-durability.js';
+import { publishPendingInteractionRuntimeEvent } from '@core/runtime/ipc-interaction-processing.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -175,6 +182,214 @@ maybeDescribe('Postgres runtime event outbox', () => {
     ]);
   });
 
+  it('fans out filtered lifecycle webhooks, emits pending interactions, settles outbox rows, and preserves dead letters', async () => {
+    _setRuntimeStorageForTest(runtime.storageRuntime);
+    process.env.GANTRY_CONTROL_ALLOW_INSECURE_WEBHOOKS = 'true';
+    process.env.GANTRY_CONTROL_ALLOW_PRIVATE_WEBHOOKS = 'true';
+    const secret = 'lifecycle-webhook-secret';
+    const received: Array<{
+      body: string;
+      eventType: string;
+      signature: string;
+      timestamp: string;
+    }> = [];
+    const receiver = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      request.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
+        const eventType = String(request.headers['x-gantry-webhook-event']);
+        received.push({
+          body,
+          eventType,
+          signature: String(request.headers['x-gantry-webhook-signature']),
+          timestamp: String(request.headers['x-gantry-webhook-timestamp']),
+        });
+        response.statusCode =
+          eventType === RUNTIME_EVENT_TYPES.WEBHOOK_TEST ? 400 : 204;
+        response.end();
+      });
+    });
+    await new Promise<void>((resolve) =>
+      receiver.listen(0, '127.0.0.1', resolve),
+    );
+    const address = receiver.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Lifecycle webhook receiver did not bind');
+    }
+
+    const appId = DEFAULT_APP_ID as AppId;
+    const agentId = DEFAULT_AGENT_ID;
+    const jobId = 'job:lifecycle-webhook';
+    const conversationId = 'conversation:app:lifecycle-webhook';
+    const threadId = 'thread:app:lifecycle-webhook:topic';
+    const webhook = await runtime.control.registerWebhook({
+      webhookId: 'webhook:lifecycle-filtered',
+      appId,
+      name: 'lifecycle-filtered',
+      url: `http://127.0.0.1:${address.port}/events`,
+      secret,
+      eventTypes: [
+        RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+        RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
+      ],
+      jobId,
+    });
+
+    try {
+      await runtime.service.pool.query(
+        `INSERT INTO conversations (
+           id, app_id, provider_account_id, external_ref_json, kind, title,
+           status, created_at, updated_at
+         ) VALUES ($1, $2, 'provider:test', '{}', 'group', 'Lifecycle',
+           'active', now(), now())
+         ON CONFLICT (id) DO NOTHING`,
+        [conversationId, appId],
+      );
+      await runtime.service.pool.query(
+        `INSERT INTO conversation_threads (
+           id, app_id, conversation_id, external_ref_json, title, status,
+           created_at, updated_at
+         ) VALUES ($1, $2, $3, '{}', 'Lifecycle topic', 'active', now(), now())
+         ON CONFLICT (id) DO NOTHING`,
+        [threadId, appId, conversationId],
+      );
+
+      await runtime.storageRuntime.runtimeEvents.publish({
+        appId,
+        agentId: agentId as never,
+        jobId: jobId as never,
+        conversationId: conversationId as never,
+        threadId: threadId as never,
+        eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
+        actor: 'runtime',
+        payload: { status: 'running' },
+      });
+      const completed = await runtime.storageRuntime.runtimeEvents.publish({
+        appId,
+        agentId: agentId as never,
+        jobId: jobId as never,
+        conversationId: conversationId as never,
+        threadId: threadId as never,
+        eventType: RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+        actor: 'runtime',
+        payload: { status: 'completed' },
+      });
+      await expect(
+        recordPendingInteractionRequested({
+          kind: 'question',
+          sourceAgentFolder: 'main_agent',
+          requestId: 'question:lifecycle-webhook',
+          appId,
+          payload: { questions: ['Continue?'] },
+        }),
+      ).resolves.toBe(true);
+      await publishPendingInteractionRuntimeEvent(
+        {
+          publishRuntimeEvent: (event) =>
+            runtime.storageRuntime.runtimeEvents
+              .publish(event)
+              .then(() => undefined),
+        } as never,
+        {
+          requestId: 'question:lifecycle-webhook',
+          appId,
+          agentId,
+          jobId,
+          targetJid: conversationId,
+          threadId,
+          questions: [],
+        } as never,
+        'question',
+        'main_agent',
+      );
+      await runtime.storageRuntime.runtimeEvents.publish({
+        appId,
+        eventType: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
+        actor: 'sdk',
+        responseMode: 'webhook',
+        webhookId: webhook.webhookId,
+        payload: { ok: true },
+      });
+
+      await flushWebhookDeliveries();
+
+      expect(received.map((delivery) => delivery.eventType).sort()).toEqual(
+        [
+          RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
+          RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+          RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
+        ].sort(),
+      );
+      expect(received).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
+          }),
+        ]),
+      );
+      for (const delivery of received) {
+        const envelope = JSON.parse(delivery.body) as Record<string, unknown>;
+        expect(delivery.signature).toBe(
+          createHmac('sha256', secret)
+            .update(
+              `${delivery.timestamp}.${envelope.eventId}.${delivery.eventType}.${delivery.body}`,
+            )
+            .digest('hex'),
+        );
+      }
+      expect(
+        JSON.parse(
+          received.find(
+            (delivery) =>
+              delivery.eventType === RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+          )!.body,
+        ),
+      ).toMatchObject({
+        eventId: completed.eventId,
+        agentId,
+        conversationId,
+        threadId,
+        payload: { status: 'completed' },
+      });
+
+      const outbox = await runtime.service.pool.query<{ count: string }>(
+        'SELECT COUNT(*)::text AS count FROM event_bus_outbox',
+      );
+      expect(Number(outbox.rows[0]?.count ?? -1)).toBe(0);
+      const deliveries = await runtime.service.pool.query<{
+        event_type: string;
+        status: string;
+      }>(
+        `SELECT event.event_type, delivery.status
+         FROM control_http_webhook_deliveries AS delivery
+         JOIN runtime_events AS event ON event.event_id = delivery.event_id
+         WHERE delivery.webhook_id = $1`,
+        [webhook.webhookId],
+      );
+      expect(deliveries.rows).toEqual(
+        expect.arrayContaining([
+          {
+            event_type: RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+            status: 'delivered',
+          },
+          {
+            event_type: RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
+            status: 'delivered',
+          },
+          {
+            event_type: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
+            status: 'dead_lettered',
+          },
+        ]),
+      );
+    } finally {
+      await new Promise<void>((resolve) => receiver.close(() => resolve()));
+      delete process.env.GANTRY_CONTROL_ALLOW_INSECURE_WEBHOOKS;
+      delete process.env.GANTRY_CONTROL_ALLOW_PRIVATE_WEBHOOKS;
+    }
+  });
+
   it('writes runtime event replay EXPLAIN evidence at row volume', async () => {
     const appId = DEFAULT_APP_ID as AppId;
     const otherAppId = 'app:test:runtime-event-replay-other';
@@ -195,7 +410,7 @@ maybeDescribe('Postgres runtime event outbox', () => {
       [otherAppId, createdAt],
     );
     await runtime.service.pool.query(
-      `INSERT INTO conversations (id, app_id, provider_connection_id, external_ref_json, kind, title, status, created_at, updated_at)
+      `INSERT INTO conversations (id, app_id, provider_account_id, external_ref_json, kind, title, status, created_at, updated_at)
          VALUES ($1, $2, 'provider:test', '{}', 'group', 'Runtime Event Replay', 'active', $3, $3)
          ON CONFLICT (id) DO NOTHING`,
       [conversationId, appId, createdAt],

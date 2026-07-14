@@ -8,6 +8,11 @@ import {
 } from '@gantry/contracts';
 
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
+import {
+  processBrainQueryRequest,
+  processBrainSearchRequest,
+  processBrainWriteRequest,
+} from './memory-ipc-brain.js';
 import { nowMs } from '../shared/time/datetime.js';
 import {
   ensurePrivateDirSync,
@@ -72,6 +77,9 @@ type TrustedMemoryRequest = Omit<MemoryIpcRequest, 'context'> & {
 const DEFAULT_ALLOWED_MEMORY_IPC_ACTIONS = new Set<MemoryIpcAction>([
   'memory_search',
   'memory_save',
+  'brain_search',
+  'brain_query',
+  'brain_write',
   'continuity_summary',
   'procedure_save',
 ]);
@@ -322,6 +330,18 @@ export async function processMemoryRequest(
           provider,
           data: { memory: saved },
         };
+      }
+      case 'brain_search': {
+        provider = 'postgres';
+        return processBrainSearchRequest(request);
+      }
+      case 'brain_query': {
+        provider = 'postgres';
+        return processBrainQueryRequest(request);
+      }
+      case 'brain_write': {
+        provider = 'postgres';
+        return processBrainWriteRequest(request, sourceAgentFolder);
       }
       case 'memory_patch': {
         const input = parsePatchMemoryInput(request.payload);

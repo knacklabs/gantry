@@ -81,7 +81,11 @@ async function main(): Promise<void> {
   setExternalMcpServerEgressEnv(agentInput.toolNetworkEnv);
   const mcpServerPath = resolveMcpServerPath(import.meta.url);
   const configuredModel = resolveConfiguredModel();
-  const configuredThinking = resolveThinkingOptions(agentInput.thinking);
+  const configuredThinking = resolveThinkingOptions(
+    agentInput.thinking,
+    agentInput.configuredThinking,
+    agentInput.effort,
+  );
   if (configuredModel.model) {
     log(
       `Configured model: ${configuredModel.model} (source: ${configuredModel.source})`,

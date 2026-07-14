@@ -1,8 +1,9 @@
 import {
   DEFAULT_SETUP_MODEL_ALIAS,
   listModelCatalogEntries,
+  resolveModelSelectionForWorkload,
   type ModelCatalogEntry,
-  type ModelPresetId,
+  type ModelWorkload,
 } from '../shared/model-catalog.js';
 import { resolveModelCacheSupport } from '../shared/model-cache-support.js';
 import {
@@ -10,13 +11,17 @@ import {
   formatCostPerMillion,
 } from '../shared/model-catalog-format.js';
 import {
+  isModelFamilyAlias,
   listModelFamilies,
+  resolveModelFamilyAlias,
+  resolveModelSelectionForWorkloadWithFamilies,
   type FamilyOrderOverrides,
 } from '../shared/model-families.js';
 import {
   availabilityBadgeForProvider,
   describeFamilyAvailability,
   familyAvailabilityBadge,
+  providerLabel,
 } from '../shared/model-catalog-availability.js';
 import { controlApiRequest } from './control-api.js';
 
@@ -40,8 +45,163 @@ interface ModelListSettings {
   modelFamilies: Record<string, string[]>;
 }
 
-function chatAlias(settings: ModelListSettings): string {
+// `gantry model status` settings shape: the list shape plus per-agent and
+// per-binding model overrides (same structural, no-config-import rule).
+export interface ModelStatusSettings extends ModelListSettings {
+  agents: Record<
+    string,
+    {
+      model?: string;
+      oneTimeJobDefaultModel?: string;
+      recurringJobDefaultModel?: string;
+    }
+  >;
+  bindings: Record<string, { model?: string }>;
+}
+
+export function chatAlias(settings: ModelListSettings): string {
   return settings.agent.defaultModel || DEFAULT_SETUP_MODEL_ALIAS;
+}
+
+export function effectiveJobAlias(
+  settings: ModelListSettings,
+  kind: 'oneTime' | 'recurring',
+): string {
+  const explicit =
+    kind === 'oneTime'
+      ? settings.agent.oneTimeJobDefaultModel
+      : settings.agent.recurringJobDefaultModel;
+  return explicit || chatAlias(settings);
+}
+
+export function providerForAlias(
+  alias: string,
+  workload: ModelWorkload,
+  familyOrder?: FamilyOrderOverrides,
+): string | undefined {
+  // Family-aware: family aliases resolve to their selected member's provider.
+  const resolved = resolveModelSelectionForWorkloadWithFamilies(
+    alias,
+    workload,
+    familyOrder,
+  );
+  return resolved.ok ? resolved.entry.modelRoute.id : undefined;
+}
+
+export function providerFromSettings(settings: ModelListSettings): string {
+  return (
+    providerForAlias(chatAlias(settings), 'chat', settings.modelFamilies) ??
+    'anthropic'
+  );
+}
+
+// Configured model providers for CLI family resolution. Storage is the
+// source of truth and works with the service stopped; the control API is
+// the fallback when storage is unreachable from this process. Both are
+// lazy/dynamic so this file's static graph stays config-free.
+export async function configuredProviderIdsForCli(
+  runtimeHome: string,
+): Promise<ReadonlySet<string> | undefined> {
+  try {
+    const { listReadyModelCredentialProviders } =
+      await import('./credentials.js');
+    return await listReadyModelCredentialProviders(runtimeHome);
+  } catch {
+    return fetchConfiguredProviders(runtimeHome);
+  }
+}
+
+export async function memoryResetProviderFromSettings(
+  runtimeHome: string,
+  settings: ModelListSettings,
+): Promise<string> {
+  const fallback = providerFromSettings(settings);
+  const alias = chatAlias(settings);
+  if (!isModelFamilyAlias(alias)) return fallback;
+  const configuredProviders = await configuredProviderIdsForCli(runtimeHome);
+  if (!configuredProviders) return fallback;
+  const concreteAlias = resolveModelFamilyAlias(alias, {
+    isProviderConfigured: (providerId) => configuredProviders.has(providerId),
+    order: familyOrderFromSettings(settings),
+  })?.alias;
+  return (concreteAlias && providerForAlias(concreteAlias, 'chat')) ?? fallback;
+}
+
+export function memoryProviderFromSettings(
+  settings: ModelListSettings,
+): string {
+  const providers = [
+    providerForAlias(settings.memory.llm.models.extractor, 'memory_extractor'),
+    providerForAlias(settings.memory.llm.models.dreaming, 'memory_dreaming'),
+    providerForAlias(
+      settings.memory.llm.models.consolidation,
+      'memory_consolidation',
+    ),
+  ].filter((provider): provider is string => Boolean(provider));
+  const unique = [...new Set(providers)];
+  if (unique.length === 1) return unique[0]!;
+  return unique.length === 0 ? providerFromSettings(settings) : 'mixed';
+}
+
+export function resolveSlot(alias: string, workload: ModelWorkload): string {
+  const resolved = resolveModelSelectionForWorkload(alias, workload);
+  return resolved.ok
+    ? `${resolved.alias} (${resolved.entry.displayName}; cache: ${resolveModelCacheSupport(resolved.entry).statusLabel})`
+    : `invalid (${resolved.message})`;
+}
+
+function formatAgentOverrides(settings: ModelStatusSettings): string[] {
+  const lines: string[] = [];
+  for (const [agentId, agent] of Object.entries(settings.agents)) {
+    const overrides = [
+      agent.model ? `chat=${agent.model}` : undefined,
+      agent.oneTimeJobDefaultModel
+        ? `one-time=${agent.oneTimeJobDefaultModel}`
+        : undefined,
+      agent.recurringJobDefaultModel
+        ? `recurring=${agent.recurringJobDefaultModel}`
+        : undefined,
+    ].filter(Boolean);
+    if (overrides.length)
+      lines.push(`agent ${agentId}: ${overrides.join(', ')}`);
+  }
+  for (const [bindingId, binding] of Object.entries(settings.bindings)) {
+    if (binding.model)
+      lines.push(`binding ${bindingId}: chat=${binding.model}`);
+  }
+  return lines;
+}
+
+export function formatModelStatus(settings: ModelStatusSettings): string {
+  const providerId = providerFromSettings(settings);
+  const oneTimeInherited = !settings.agent.oneTimeJobDefaultModel;
+  const recurringInherited = !settings.agent.recurringJobDefaultModel;
+  const lines = [
+    'Model status',
+    `provider: ${providerId} (${providerLabel(providerId)})`,
+    `chat: ${resolveSlot(chatAlias(settings), 'chat')}`,
+    `one-time: ${
+      oneTimeInherited
+        ? `inherits chat (${resolveSlot(effectiveJobAlias(settings, 'oneTime'), 'one_time_job')})`
+        : resolveSlot(effectiveJobAlias(settings, 'oneTime'), 'one_time_job')
+    }`,
+    `recurring: ${
+      recurringInherited
+        ? `inherits chat (${resolveSlot(effectiveJobAlias(settings, 'recurring'), 'recurring_job')})`
+        : resolveSlot(effectiveJobAlias(settings, 'recurring'), 'recurring_job')
+    }`,
+    `memory: provider-managed (from ${memoryProviderFromSettings(settings)})`,
+    `memory extractor: ${resolveSlot(settings.memory.llm.models.extractor, 'memory_extractor')}`,
+    `memory dreaming: ${resolveSlot(settings.memory.llm.models.dreaming, 'memory_dreaming')}`,
+    `memory consolidation: ${resolveSlot(settings.memory.llm.models.consolidation, 'memory_consolidation')}`,
+  ];
+  const overrides = formatAgentOverrides(settings);
+  lines.push(
+    overrides.length
+      ? `overrides:\n${overrides.map((line) => `  ${line}`).join('\n')}`
+      : 'overrides: none configured',
+  );
+  return lines.join('\n');
 }
 
 function defaultsFor(settings: ModelListSettings) {
@@ -75,7 +235,7 @@ function aliasStatus(
 
 export function formatModelList(
   settings: ModelListSettings,
-  preset: ModelPresetId | undefined,
+  providerId: string | undefined,
   availability: {
     configuredProviders?: Set<string>;
     familyOrder?: FamilyOrderOverrides;
@@ -93,7 +253,7 @@ export function formatModelList(
     header.replace(/[^|]+/g, '---'),
   ];
   for (const entry of listModelCatalogEntries()) {
-    if (preset && entry.modelRoute.id !== preset) continue;
+    if (providerId && entry.modelRoute.id !== providerId) continue;
     const cacheSupport = resolveModelCacheSupport(entry);
     const badge = availabilityBadgeForProvider(
       entry.modelRoute.id,
@@ -114,7 +274,7 @@ export function formatModelList(
       rows.push(cells.join(' | '));
     }
   }
-  if (!preset) {
+  if (!providerId) {
     const familyHeader = hasAvailability
       ? 'Family | Model | Providers (preference order) | Availability'
       : 'Family | Model | Providers (preference order)';

@@ -29,6 +29,12 @@ import type {
   RuntimeSettings,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
+import {
+  configuredAgentControlConstraintErrors,
+  formatInlineAgentWorkerOnlyConfigError,
+  inlineConfiguredSkillEngineConstraintError,
+  inlineWorkerOnlyConfiguredCapabilityLabels,
+} from './runtime-settings-agent-runtime.js';
 
 export function validateLoadedRuntimeSettings(
   runtimeHome: string,
@@ -141,25 +147,37 @@ export function validateLoadedRuntimeSettings(
       continue;
     }
 
-    for (const envKey of provider.setup.envKeys) {
-      const credential = validateProviderCredentialRef({
-        settings,
-        env,
-        providerId: provider.id,
-        envKey,
-      });
-      if (!credential.ok) {
-        details.push(credential.message);
+    const accounts = Object.entries(settings.providerAccounts).filter(
+      ([, account]) =>
+        account.provider === provider.id && account.status !== 'disabled',
+    );
+    if (accounts.length === 0) {
+      details.push(
+        `providers.${provider.id}.enabled is true but no active provider account is configured.`,
+      );
+      continue;
+    }
+    for (const [accountId, account] of accounts) {
+      for (const envKey of provider.setup.envKeys) {
+        const credential = validateProviderCredentialRef({
+          env,
+          accountId,
+          account,
+          envKey,
+        });
+        if (!credential.ok) {
+          details.push(credential.message);
+        }
       }
     }
   }
 
   for (const [connectionId, connection] of Object.entries(
-    settings.providerConnections,
+    settings.providerAccounts,
   )) {
     if (!settings.providers[connection.provider]) {
       details.push(
-        `provider_connections.${connectionId}.provider references unknown provider ${connection.provider}.`,
+        `provider_accounts.${connectionId}.provider references unknown provider ${connection.provider}.`,
       );
     }
   }
@@ -168,10 +186,12 @@ export function validateLoadedRuntimeSettings(
     settings.conversations,
   )) {
     const connection =
-      settings.providerConnections[conversation.providerConnection];
+      settings.providerAccounts[
+        conversation.providerAccount ?? conversation.providerConnection
+      ];
     if (!connection) {
       details.push(
-        `conversations.${conversationId}.provider_connection references unknown provider connection ${conversation.providerConnection}.`,
+        `conversations.${conversationId}.provider_account references unknown provider account ${conversation.providerAccount ?? conversation.providerConnection}.`,
       );
     }
     if (
@@ -196,12 +216,44 @@ export function validateLoadedRuntimeSettings(
       explicitProviderId !== expectedProviderId
     ) {
       details.push(
-        `conversations.${conversationId}.external_id prefix "${explicitProviderId}:" does not match provider connection ${conversation.providerConnection} (${expectedProviderId}).`,
+        `conversations.${conversationId}.external_id prefix "${explicitProviderId}:" does not match provider account ${conversation.providerAccount ?? conversation.providerConnection} (${expectedProviderId}).`,
       );
     }
   }
 
   for (const [agentId, agent] of Object.entries(settings.agents)) {
+    details.push(
+      ...configuredAgentControlConstraintErrors({
+        subject: `agents.${agentId}`,
+        agent,
+        defaultModel: settings.agent.defaultModel,
+        defaultOneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
+        defaultRecurringJobDefaultModel:
+          settings.agent.recurringJobDefaultModel,
+        defaultAgentHarness: settings.agent.agentHarness,
+        modelFamilyOrder: settings.modelFamilies,
+      }),
+    );
+    const skillEngineError = inlineConfiguredSkillEngineConstraintError({
+      subject: `agents.${agentId}`,
+      agent,
+      defaultModel: settings.agent.defaultModel,
+      defaultOneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
+      defaultRecurringJobDefaultModel: settings.agent.recurringJobDefaultModel,
+      modelFamilyOrder: settings.modelFamilies,
+    });
+    if (skillEngineError) details.push(skillEngineError);
+    const inlineBlockers = inlineWorkerOnlyConfiguredCapabilityLabels({
+      agent,
+    });
+    if (inlineBlockers.length > 0) {
+      details.push(
+        formatInlineAgentWorkerOnlyConfigError(
+          `agents.${agentId}`,
+          inlineBlockers,
+        ),
+      );
+    }
     const effectiveModel = (
       agent.model ||
       settings.agent.defaultModel ||
@@ -295,11 +347,17 @@ function enabledProviderUsesStoredRuntimeSecretRefs(
   enabledProviderIds: string[],
 ): boolean {
   for (const providerId of enabledProviderIds) {
-    const connectionId = settings.providers[providerId]?.defaultConnection;
-    if (!connectionId) continue;
+    const accounts = Object.values(settings.providerAccounts).filter(
+      (account) =>
+        account.provider === providerId && account.status !== 'disabled',
+    );
     const refs =
-      settings.providerConnections[connectionId]?.runtimeSecretRefs ?? {};
-    for (const ref of Object.values(refs)) {
+      accounts.length > 0
+        ? accounts.flatMap((account) =>
+            Object.values(account.runtimeSecretRefs),
+          )
+        : [];
+    for (const ref of refs) {
       try {
         const parsed = parseRuntimeSecretRefString(
           normalizeRuntimeSecretRefString(ref),
@@ -314,27 +372,18 @@ function enabledProviderUsesStoredRuntimeSecretRefs(
 }
 
 function validateProviderCredentialRef(input: {
-  settings: RuntimeSettings;
   env: Record<string, string | undefined>;
-  providerId: string;
+  accountId: string;
+  account: RuntimeSettings['providerAccounts'][string];
   envKey: string;
 }): { ok: true } | { ok: false; message: string } {
-  const connectionId =
-    input.settings.providers[input.providerId]?.defaultConnection;
-  const refKey = runtimeSecretKeyForEnv(input.providerId, input.envKey);
-  const ref = connectionId
-    ? input.settings.providerConnections[connectionId]?.runtimeSecretRefs[
-        refKey
-      ]
-    : undefined;
+  const refKey = runtimeSecretKeyForEnv(input.account.provider, input.envKey);
+  const ref = input.account.runtimeSecretRefs[refKey];
   const value = ref?.trim();
   if (!value) {
-    if (input.env[input.envKey]?.trim() || process.env[input.envKey]?.trim()) {
-      return { ok: true };
-    }
     return {
       ok: false,
-      message: `${input.envKey} is required when provider '${input.providerId}' is enabled.`,
+      message: `provider_accounts.${input.accountId}.runtime_secret_refs.${refKey} is required when provider '${input.account.provider}' is enabled.`,
     };
   }
 
@@ -349,7 +398,7 @@ function validateProviderCredentialRef(input: {
   } catch (err) {
     return {
       ok: false,
-      message: `provider_connections.${connectionId}.runtime_secret_refs.${refKey} is invalid: ${
+      message: `provider_accounts.${input.accountId}.runtime_secret_refs.${refKey} is invalid: ${
         err instanceof Error ? err.message : String(err)
       }`,
     };
@@ -359,15 +408,19 @@ function validateProviderCredentialRef(input: {
     if (isForbiddenRuntimeSecretEnvName(refName)) {
       return {
         ok: false,
-        message: `${refName} is not allowed for provider '${input.providerId}' runtime secret ref ${normalized}. Use a channel runtime secret name, not model/provider credential authority.`,
+        message: `${refName} is not allowed for provider '${input.account.provider}' runtime secret ref ${normalized}. Use a channel runtime secret name, not model/provider credential authority.`,
       };
     }
     if (
-      !isProviderRuntimeSecretRefTarget(input.providerId, refKey, normalized)
+      !isProviderRuntimeSecretRefTarget(
+        input.account.provider,
+        refKey,
+        normalized,
+      )
     ) {
       return {
         ok: false,
-        message: `provider_connections.${connectionId}.runtime_secret_refs.${refKey} must point to ${input.envKey}.`,
+        message: `provider_accounts.${input.accountId}.runtime_secret_refs.${refKey} must point to ${input.envKey}.`,
       };
     }
     if (input.env[refName]?.trim() || process.env[refName]?.trim()) {
@@ -375,14 +428,20 @@ function validateProviderCredentialRef(input: {
     }
     return {
       ok: false,
-      message: `${refName} is required because provider '${input.providerId}' runtime secret ref ${normalized} resolves from env.`,
+      message: `${refName} is required because provider '${input.account.provider}' runtime secret ref ${normalized} resolves from env.`,
     };
   }
 
-  if (!isProviderRuntimeSecretRefTarget(input.providerId, refKey, normalized)) {
+  if (
+    !isProviderRuntimeSecretRefTarget(
+      input.account.provider,
+      refKey,
+      normalized,
+    )
+  ) {
     return {
       ok: false,
-      message: `provider_connections.${connectionId}.runtime_secret_refs.${refKey} must point to ${input.envKey}.`,
+      message: `provider_accounts.${input.accountId}.runtime_secret_refs.${refKey} must point to ${input.envKey}.`,
     };
   }
 

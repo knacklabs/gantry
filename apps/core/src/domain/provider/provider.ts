@@ -12,7 +12,7 @@ import type { BrandedId, ExternalRef } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 
 export type ProviderId = BrandedId<'ProviderId'>;
-export type ProviderConnectionId = BrandedId<'ProviderConnectionId'>;
+export type ProviderAccountId = BrandedId<'ProviderAccountId'>;
 export type ConversationApproverId = BrandedId<'ConversationApproverId'>;
 export type ProviderRuntimeSecretRefs = Record<string, string>;
 
@@ -24,11 +24,12 @@ export interface Provider {
   createdAt: IsoTimestamp;
 }
 
-export interface ProviderConnection {
-  id: ProviderConnectionId;
+export interface ProviderAccount {
+  id: ProviderAccountId;
   appId: AppId;
+  agentId: AgentId;
   providerId: ProviderId;
-  externalInstallationRef?: ExternalRef<'provider_connection'>;
+  externalIdentityRef?: ExternalRef<'provider_account'>;
   label: string;
   status: 'active' | 'disabled';
   config: Record<string, unknown>;
@@ -46,33 +47,28 @@ export interface ConversationApprover {
   updatedAt: IsoTimestamp;
 }
 
-export type AgentConversationBindingStatus = 'active' | 'disabled';
-export type AgentConversationBindingTriggerMode =
-  | 'always'
-  | 'mention'
-  | 'keyword'
-  | 'manual'
-  | 'webhook';
-export type AgentConversationBindingMemoryScope =
+export type ConversationInstallStatus = 'active' | 'disabled';
+export type ConversationInstallMemoryScope =
   | 'user'
   | 'conversation'
   | 'agent'
   | 'app';
+export type ConversationInstallSenderPolicy = 'provider_native';
+export type ConversationInstallControlPolicy = 'conversation_approvers';
 
-export interface AgentConversationBinding {
-  id: BrandedId<'AgentConversationBindingId'>;
+export interface ConversationInstall {
+  id: BrandedId<'ConversationInstallId'>;
   appId: AppId;
   agentId: AgentId;
-  providerConnectionId: ProviderConnectionId;
+  providerAccountId: ProviderAccountId;
   conversationId: ConversationId;
   threadId?: ConversationThreadId;
   externalConversationId?: ExternalConversationId;
   displayName: string;
-  status: AgentConversationBindingStatus;
-  triggerMode: AgentConversationBindingTriggerMode;
-  triggerPattern?: string;
-  requiresTrigger: boolean;
-  memoryScope: AgentConversationBindingMemoryScope;
+  status: ConversationInstallStatus;
+  senderPolicy: ConversationInstallSenderPolicy;
+  controlPolicy: ConversationInstallControlPolicy;
+  memoryScope: ConversationInstallMemoryScope;
   memorySubject: MemorySubject;
   workspaceSnapshotId?: WorkspaceSnapshotId;
   permissionPolicyIds: PermissionPolicyId[];

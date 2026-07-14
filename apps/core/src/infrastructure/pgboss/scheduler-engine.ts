@@ -51,6 +51,7 @@ import {
   parseIso,
   toIso,
 } from '../../shared/time/datetime.js';
+import { runtimePgBossSchema } from './pgboss-schema.js';
 
 const SCHEDULER_QUEUE = 'gantry.jobs';
 const SCHEDULER_QUEUE_DEAD_LETTER = 'gantry.jobs.dead_letter';
@@ -148,7 +149,7 @@ export class PgBossSchedulerEngine {
     }
     const boss = new PgBoss({
       connectionString: STORAGE_POSTGRES_URL,
-      schema: 'pgboss',
+      schema: runtimePgBossSchema(),
       createSchema: true,
       migrate: true,
       schedule: true,

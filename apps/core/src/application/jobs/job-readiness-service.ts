@@ -287,7 +287,7 @@ function invalidWorkspaceConfigBlocker(
         : '';
     if (!ctxWorkspaceKey || !ctxConversationJid) {
       return brokerUnreachableBlocker(
-        'Job execution context is invalid. It is missing a workspace key or conversation binding.',
+        'Job execution context is invalid. It is missing a workspace key or conversation install.',
       );
     }
   }

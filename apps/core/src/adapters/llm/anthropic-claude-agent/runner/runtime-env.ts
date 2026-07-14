@@ -27,6 +27,8 @@ export const IPC_AUTH_TOKEN = process.env.GANTRY_IPC_AUTH_TOKEN || '';
 export const APP_ID = process.env.GANTRY_APP_ID?.trim() || '';
 export const AGENT_ID = process.env.GANTRY_AGENT_ID?.trim() || '';
 export const CHAT_JID = process.env.GANTRY_CHAT_JID?.trim() || '';
+export const PROVIDER_ACCOUNT_ID =
+  process.env.GANTRY_PROVIDER_ACCOUNT_ID?.trim() || '';
 export const JOB_ID = process.env.GANTRY_JOB_ID?.trim() || '';
 export const JOB_NAME = process.env.GANTRY_JOB_NAME?.trim() || '';
 export const JOB_RUN_ID = process.env.GANTRY_JOB_RUN_ID?.trim() || '';
@@ -87,6 +89,11 @@ const SANDBOX_RUNTIME_SDK_DIRECT_EGRESS_GUARDS = {
   DISABLE_TELEMETRY: '1',
   CLAUDE_CODE_BYOC_ENABLE_DATADOG: '0',
   CLAUDE_CODE_REMOTE_SEND_KEEPALIVES: '0',
+} as const;
+const CLAUDE_CODE_RUNTIME_FEATURE_GUARDS = {
+  // Gantry owns orchestration and tool routing; Claude Code Workflows injects
+  // keyword-triggered meta notes that leak into live channel replies.
+  CLAUDE_CODE_DISABLE_WORKFLOWS: '1',
 } as const;
 const SANDBOX_RUNTIME_SDK_DIRECT_EGRESS_ENV_DENYLIST = [
   'CLAUDE_CODE_ENABLE_TELEMETRY',
@@ -204,8 +211,8 @@ export function buildSdkEnv(
     TZ: process.env.TZ,
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
-    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
+    ...CLAUDE_CODE_RUNTIME_FEATURE_GUARDS,
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
   };
   Object.assign(sdkEnv, readModelCredentialEnv(modelCredentialEnv));

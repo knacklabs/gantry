@@ -13,6 +13,7 @@ import {
   enqueueSchedulerTriggerDelivery,
   ensureSchedulerQueues,
 } from '../infrastructure/pgboss/scheduler-engine.js';
+import { runtimePgBossSchema } from '../infrastructure/pgboss/pgboss-schema.js';
 import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
@@ -154,7 +155,7 @@ async function enqueueJobTriggerFromNonExecutingRole(
   // is only consulted on the migrate path, which is disabled.
   const boss = sendOnlyPgBossFactory({
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'pgboss',
+    schema: runtimePgBossSchema(),
     migrate: false,
     schedule: false,
     supervise: false,

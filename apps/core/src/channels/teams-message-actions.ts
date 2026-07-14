@@ -55,6 +55,7 @@ export async function handleTeamsMessageAction(input: {
   message: TeamsInboundMessage;
   jid: string;
   userId: string;
+  providerAccountId?: string;
   onMessageAction?: OnMessageAction;
   sendDenied: (conversationId: string | null, text: string) => Promise<void>;
 }): Promise<boolean> {
@@ -71,6 +72,9 @@ export async function handleTeamsMessageAction(input: {
     await input.onMessageAction?.({
       kind: 'scheduler_run_now',
       conversationJid: input.jid,
+      ...(input.providerAccountId
+        ? { providerAccountId: input.providerAccountId }
+        : {}),
       userId: input.userId,
       jobId: payload.jobId,
       ...(payload.threadId ? { threadId: payload.threadId } : {}),
@@ -80,6 +84,9 @@ export async function handleTeamsMessageAction(input: {
   await input.onMessageAction?.({
     kind: 'live_turn_stop',
     conversationJid: input.jid,
+    ...(input.providerAccountId
+      ? { providerAccountId: input.providerAccountId }
+      : {}),
     userId: input.userId,
     actionToken: payload.actionToken,
     ...(payload.threadId ? { threadId: payload.threadId } : {}),

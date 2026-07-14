@@ -43,30 +43,40 @@ maybeDescribe('PostgresOutboundDeliveryRepository integration', () => {
       createdAt: '2026-05-08T00:00:00.000Z',
       updatedAt: '2026-05-08T00:00:00.000Z',
     });
-    await runtime.repositories.providerConnections.saveProviderConnection({
-      id: 'provider-connection:outbound' as never,
+    await runtime.repositories.agents.saveAgent({
+      id: 'agent:other' as never,
+      appId: 'app:other' as never,
+      name: 'Other Agent',
+      status: 'active',
+      createdAt: '2026-05-08T00:00:00.000Z',
+      updatedAt: '2026-05-08T00:00:00.000Z',
+    });
+    await runtime.repositories.providerAccounts.saveProviderAccount({
+      id: 'provider-account:outbound' as never,
       appId: 'default' as never,
+      agentId: 'agent:main_agent' as never,
       providerId: 'slack' as never,
-      externalInstallationRef: {
-        kind: 'provider_connection',
+      externalIdentityRef: {
+        kind: 'provider_account',
         value: 'T-outbound',
       },
-      label: 'Outbound Delivery Connection',
+      label: 'Outbound Delivery Account',
       status: 'active',
       config: {},
       runtimeSecretRefs: {},
       createdAt: '2026-05-08T00:00:00.000Z',
       updatedAt: '2026-05-08T00:00:00.000Z',
     });
-    await runtime.repositories.providerConnections.saveProviderConnection({
-      id: 'provider-connection:other' as never,
+    await runtime.repositories.providerAccounts.saveProviderAccount({
+      id: 'provider-account:other' as never,
       appId: 'app:other' as never,
+      agentId: 'agent:other' as never,
       providerId: 'slack' as never,
-      externalInstallationRef: {
-        kind: 'provider_connection',
+      externalIdentityRef: {
+        kind: 'provider_account',
         value: 'T-other',
       },
-      label: 'Other Connection',
+      label: 'Other Account',
       status: 'active',
       config: {},
       runtimeSecretRefs: {},
@@ -76,7 +86,7 @@ maybeDescribe('PostgresOutboundDeliveryRepository integration', () => {
     await runtime.repositories.conversations.saveConversation({
       id: 'conversation:outbound' as never,
       appId: 'default' as never,
-      providerConnectionId: 'provider-connection:outbound' as never,
+      providerAccountId: 'provider-account:outbound' as never,
       externalRef: { kind: 'conversation', value: 'C-outbound' },
       kind: 'channel',
       title: 'Outbound Delivery',
@@ -97,7 +107,7 @@ maybeDescribe('PostgresOutboundDeliveryRepository integration', () => {
     await runtime.repositories.conversations.saveConversation({
       id: 'conversation:other' as never,
       appId: 'app:other' as never,
-      providerConnectionId: 'provider-connection:other' as never,
+      providerAccountId: 'provider-account:other' as never,
       externalRef: { kind: 'conversation', value: 'C-other' },
       kind: 'channel',
       title: 'Other Outbound Delivery',
@@ -464,7 +474,7 @@ maybeDescribe('PostgresOutboundDeliveryRepository integration', () => {
       conversationJid: 'sl:C-outbound',
       threadId: 'thread-outbound',
       providerId: 'slack',
-      providerConnectionId: 'provider-connection:outbound',
+      providerAccountId: 'provider-account:outbound',
     });
     await runtime.repositories.conversations.saveThread({
       id: 'thread:missing-ref' as never,

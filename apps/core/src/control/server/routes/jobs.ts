@@ -231,6 +231,7 @@ async function runtimeContextPreviewFor(input: {
   notificationRoutes: Array<{
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string | null;
     label: string;
   }>;
   groups: ReturnType<ControlRouteContext['app']['getConversationRoutes']>;

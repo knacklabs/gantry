@@ -106,6 +106,29 @@ describe('capabilityStatusText access projection', () => {
     expect(text).toContain('Scheduler monitoring:');
   });
 
+  it('shows memory review guidance when review tools are mounted', async () => {
+    setRunnerEnv({
+      GANTRY_AGENT_ACCESS_PRESET: 'full',
+      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify([
+        'send_message',
+        'continuity_summary',
+        'memory_review_pending',
+        'memory_review_decision',
+      ]),
+      GANTRY_SELECTED_SKILLS_JSON: JSON.stringify([]),
+      GANTRY_SELECTED_MCP_SERVERS_JSON: JSON.stringify([]),
+    });
+    vi.resetModules();
+    const { capabilityStatusText } =
+      await import('@core/runner/mcp/context.js');
+
+    const text = capabilityStatusText();
+    expect(text).toContain('- available: mcp__gantry__memory_review_pending');
+    expect(text).toContain('- available: mcp__gantry__memory_review_decision');
+    expect(text).toContain('Memory review:');
+    expect(text).toContain('inspect continuity_summary');
+  });
+
   it('does not label requestable MCP capabilities as selected', async () => {
     const semanticCapability = {
       capabilityId: 'mcp.crm.lookup',

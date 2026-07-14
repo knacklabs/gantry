@@ -39,4 +39,16 @@ describe('cli onboarding-state helpers', () => {
 
     fs.rmSync(runtimeHome, { recursive: true, force: true });
   });
+
+  it('persists the memory onboarding step', () => {
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-state-'));
+    const state = createInitialState(runtimeHome);
+    state.currentStep = 'memory';
+
+    writeOnboardingState(runtimeHome, state);
+
+    expect(readOnboardingState(runtimeHome)?.currentStep).toBe('memory');
+
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+  });
 });

@@ -13,19 +13,16 @@ import {
   getRuntimeSettingsForConfig,
   getEffectiveModelConfig,
   getSelectedAgentHarness,
+  getSelectedAgentRuntime,
 } from '../config/index.js';
 import { resolveAgentAccessPolicy } from '../config/profiles.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute } from '../domain/types.js';
-import {
-  getHostRuntimeCredentialEnv,
-  prepareHostRuntimeContext,
-} from './agent-spawn-host.js';
+import * as host from './agent-spawn-host.js';
 import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
-import { ensureWorkspaceIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
@@ -101,11 +98,8 @@ import {
   type RunnerAgentInput,
 } from './agent-spawn-helpers.js';
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
-export type {
-  AvailableGroup,
-  AgentInput,
-  AgentOutput,
-} from './agent-spawn-types.js';
+export type { AvailableGroup } from './agent-spawn-types.js';
+export type { AgentInput, AgentOutput } from './agent-spawn-types.js';
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -113,6 +107,11 @@ export async function spawnAgent(
   onOutput: ((output: AgentOutput) => Promise<void>) | undefined,
   options: RunAgentOptions,
 ): Promise<AgentOutput> {
+  const agentRuntime = input.runtime ?? getSelectedAgentRuntime(group.folder);
+  if (agentRuntime === 'inline') {
+    const { runInlineAgent } = await import('./agent-inline.js');
+    return runInlineAgent(group, input, onProcess, onOutput, options);
+  }
   const startTime = currentTimeMs();
   const hostStartup = createRunnerHostStartupTiming({ nowMs: currentTimeMs });
   const { groupDir, processName } = hostStartup.measure('workspacePrepMs', () =>
@@ -148,15 +147,17 @@ export async function spawnAgent(
       error: resolvedModel.message,
     };
   }
+  input = host.withControls(input, runtimeSettings.agents?.[group.folder]);
   const agentEngine = resolvedModel.value.agentEngine;
   const effectiveModel = resolvedModel.value.runnerModel;
-  const effectiveModelEntry = resolvedModel.value.modelEntry;
   const preSpawnAdmissionError = hostStartup.measure(
     'preSpawnAdmissionMs',
     () =>
       validateAgentPreSpawnAdmission({
         agentInput: input,
         agentEngine,
+        agentRuntime,
+        modelEntry: resolvedModel.value.modelEntry,
         securityEnv: process.env,
         sandboxProvider: runtimeSettings.runtime.sandbox.provider,
       }),
@@ -165,6 +166,7 @@ export async function spawnAgent(
     return { status: 'error', result: null, error: preSpawnAdmissionError };
   }
   const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
+  const credentials = host.getHostRuntimeCredentialEnv;
   const agentAccessPolicy = resolveAgentAccessPolicy(
     runtimeSettings.agents?.[group.folder]?.accessPreset,
   );
@@ -198,8 +200,7 @@ export async function spawnAgent(
     compiledSystemPrompt,
     yoloMode: effectiveYoloModeSettings(runtimeSettings.permissions.yoloMode),
   };
-  const hostRuntime = prepareHostRuntimeContext(group);
-  ensureWorkspaceIpcLayout(hostRuntime.workspaceIpcDir);
+  const hostRuntime = host.prepareHostRuntimeContext(group);
   let executionAdapter: NonNullable<RunAgentOptions['executionAdapter']>;
   try {
     executionAdapter = resolveAgentExecutionAdapter({
@@ -225,10 +226,10 @@ export async function spawnAgent(
   const hostCredentials = await hostStartup.measureAsync(
     'credentialProjectionMs',
     () =>
-      getHostRuntimeCredentialEnv(agentIdentifier, options?.credentialBroker, {
+      credentials(agentIdentifier, options?.credentialBroker, {
         purpose: 'model_runtime',
         runContext: input,
-        modelRouteId: effectiveModelEntry?.modelRoute.id,
+        modelRouteId: resolvedModel.value.modelEntry.modelRoute.id,
       }),
   );
   let preparedExecution: Awaited<ReturnType<typeof executionAdapter.prepare>>;
@@ -240,7 +241,7 @@ export async function spawnAgent(
         hostRuntime,
         groupDir,
         effectiveModel,
-        effectiveModelEntry,
+        effectiveModelEntry: resolvedModel.value.modelEntry,
         modelCredentialProjection: {
           env: hostCredentials.env,
           credentialProviders: hostCredentials.credentialProviders,
@@ -482,10 +483,8 @@ export async function spawnAgent(
       }
     }
     // DeepAgents model traffic runs inside the runner process. In
-    // sandbox_runtime, OpenRouter uses raw fetch rather than an SDK client, so
-    // the runner process itself needs the Gantry egress proxy to reach the
-    // sandbox-private model-gateway alias. Child shell/tool envs still receive
-    // only the separately sanitized toolNetworkEnv projection.
+    // OpenRouter's sandbox_runtime lane needs the Gantry egress proxy because
+    // it uses raw fetch; child tools still receive only sanitized toolNetworkEnv.
     const runnerToolProcessEnv =
       preparedExecution.providerId === 'deepagents:langchain'
         ? toolNetworkEnv
@@ -510,6 +509,7 @@ export async function spawnAgent(
       ipcInputDir,
       ipcAuthToken: ipcAuth.authToken,
       chatJid: input.chatJid,
+      providerAccountId: group.providerAccountId,
       jobId: input.jobId,
       jobName: input.jobName,
       runId: input.runId,
@@ -680,6 +680,7 @@ export async function spawnAgent(
       appId: runnerAppId,
       agentId: input.agentId,
       conversationId: input.chatJid,
+      providerAccountId: group.providerAccountId,
       threadId: input.threadId,
       runId: input.runId,
       jobId: input.jobId,
@@ -780,9 +781,7 @@ export async function spawnAgent(
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath, logger.warn.bind(logger));
     cleanupRunnerMcpConfigFile(sandboxConfigPath, logger.warn.bind(logger));
-    if (egressGateway) {
-      await closeEgressGateway(egressGateway);
-    }
+    if (egressGateway) await closeEgressGateway(egressGateway);
     await hostCredentials.revoke?.();
     try {
       preparedExecution.cleanup();

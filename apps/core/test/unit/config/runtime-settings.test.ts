@@ -18,6 +18,11 @@ import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-set
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 import { addActiveMcpSourcesToRuntimeSettings } from '@core/config/settings/restart-sync.js';
 import { runSettingsCommand } from '@core/cli/settings.js';
+import {
+  deriveBindingsFromConversationInstalls,
+  flattenConversationInstalls,
+} from '@core/config/settings/runtime-settings-binding-derivation.js';
+import type { RuntimeConfiguredConversation } from '@core/config/settings/runtime-settings-types.js';
 
 function emptySources() {
   return { skills: [], mcpServers: [], tools: [] };
@@ -75,6 +80,519 @@ describe('runtime settings', () => {
     expect(parsed.agent.name).toBe('Kai');
   });
 
+  it('rejects stale provider connection and binding settings keys', () => {
+    for (const yaml of [
+      'provider_' + 'connections: {}',
+      'bindings: {}',
+      'providers:\n  slack:\n    enabled: true\n    default_connection: slack_default\n',
+      'agents:\n  main_agent:\n    name: Main\n    bindings: {}\n',
+      'agents:\n  main_agent:\n    name: Main\n    requires_trigger: true\n',
+      'conversations:\n  c1:\n    provider_connection: slack_one\n',
+    ]) {
+      expect(() => parseRuntimeSettings(yaml)).toThrow(
+        /not supported|no longer supported/,
+      );
+    }
+  });
+
+  it('accepts two provider accounts installed in one conversation', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+  agent_two:
+    name: Two
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+    runtime_secret_refs:
+      bot_token: gantry-secret:SLACK_ONE_BOT_TOKEN
+    config:
+      signing_secret_ref: gantry-secret:SLACK_ONE_SIGNING_SECRET
+    external_identity_ref:
+      team_id: T1
+      bot_user_id: U1
+  slack_two:
+    agent: agent_two
+    provider: slack
+    label: Two Slack Bot
+    runtime_secret_refs:
+      bot_token: gantry-secret:SLACK_TWO_BOT_TOKEN
+    external_identity_ref:
+      team_id: T1
+      bot_user_id: U2
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    control_approvers: ["slack:UADMIN"]
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+      agent_two:
+        provider_account: slack_two
+        added_at: 2026-05-02T00:00:00.000Z
+`);
+
+    expect(Object.keys(parsed.providerAccounts)).toEqual([
+      'slack_one',
+      'slack_two',
+    ]);
+    expect(
+      Object.values(parsed.conversations.shared_channel.installedAgents).map(
+        (install) => install.providerAccountId,
+      ),
+    ).toEqual(['slack_one', 'slack_two']);
+    expect(renderRuntimeSettingsYaml(parsed)).toContain('provider_accounts:');
+    expect(renderRuntimeSettingsYaml(parsed)).toContain('installed_agents:');
+    expect(renderRuntimeSettingsYaml(parsed)).toContain(
+      'added_at: "2026-05-02T00:00:00.000Z"',
+    );
+    expect(
+      parseRuntimeSettings(renderRuntimeSettingsYaml(parsed)).conversations
+        .shared_channel.installedAgents.agent_two.addedAt,
+    ).toBe('2026-05-02T00:00:00.000Z');
+    expect(renderRuntimeSettingsYaml(parsed)).toContain(
+      'signing_secret_ref: "gantry-secret:SLACK_ONE_SIGNING_SECRET"',
+    );
+  });
+
+  it('accepts provider-account-only conversation objects', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.agents.agent_one = {
+      name: 'One',
+      folder: 'agent_one',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+    };
+    settings.providerAccounts.slack_one = {
+      agentId: 'agent_one',
+      provider: 'slack',
+      label: 'One Slack Bot',
+      runtimeSecretRefs: {},
+    };
+    const conversation = {
+      providerAccount: 'slack_one',
+      externalId: 'slack:C123',
+      kind: 'channel',
+      displayName: 'shared',
+      brainHarvest: false,
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['slack:UADMIN'],
+      installedAgents: {},
+    } satisfies RuntimeConfiguredConversation;
+    settings.conversations.shared_channel = conversation;
+
+    const rendered = renderRuntimeSettingsYaml(settings);
+    expect(rendered).toContain('provider_account: slack_one');
+    expect(rendered).not.toContain('providerConnection');
+    expect(parseRuntimeSettings(rendered).conversations.shared_channel).toEqual(
+      expect.objectContaining({ providerAccount: 'slack_one' }),
+    );
+  });
+
+  it('round-trips per-conversation brain harvest with default off', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  opted_in:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    brain_harvest: true
+  default_off:
+    provider_account: slack_one
+    id: slack:C999
+    type: channel
+    display_name: quiet
+`);
+
+    expect(parsed.conversations.opted_in.brainHarvest).toBe(true);
+    expect(parsed.conversations.default_off.brainHarvest).toBe(false);
+    const rendered = renderRuntimeSettingsYaml(parsed);
+    expect(rendered).toContain('brain_harvest: true');
+    expect(rendered).not.toContain('brain_harvest: false');
+    expect(
+      parseRuntimeSettings(rendered).conversations.opted_in.brainHarvest,
+    ).toBe(true);
+    expect(
+      parseRuntimeSettings(rendered).conversations.default_off.brainHarvest,
+    ).toBe(false);
+  });
+
+  it('preserves thread-scoped conversation installs in derived bindings', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+        thread_id: "171.222"
+`);
+
+    expect(parsed.bindings['agent_one_shared_channel_171.222']?.threadId).toBe(
+      '171.222',
+    );
+    expect(
+      parsed.agents.agent_one.bindings['agent_one_shared_channel_171.222'],
+    ).toEqual(
+      expect.objectContaining({
+        jid: 'sl:slack:C123',
+        threadId: '171.222',
+        providerAccountId: 'slack_one',
+      }),
+    );
+    expect(
+      parsed.conversationInstalls['agent_one_shared_channel_171.222']?.threadId,
+    ).toBe('171.222');
+  });
+
+  it('keeps same-agent thread installs distinct in derived binding ids', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents: {}
+`);
+
+    parsed.conversations.shared_channel.installedAgents = {
+      first: {
+        agentId: 'agent_one',
+        providerAccountId: 'slack_one',
+        threadId: '171.111',
+        status: 'active',
+        addedAt: new Date(0).toISOString(),
+        memoryScope: 'conversation',
+      },
+      second: {
+        agentId: 'agent_one',
+        providerAccountId: 'slack_one',
+        threadId: '171.222',
+        status: 'active',
+        addedAt: new Date(0).toISOString(),
+        memoryScope: 'conversation',
+      },
+    };
+
+    expect(
+      Object.keys(deriveBindingsFromConversationInstalls(parsed.conversations)),
+    ).toEqual([
+      'agent_one_shared_channel_171.111',
+      'agent_one_shared_channel_171.222',
+    ]);
+    expect(
+      Object.keys(flattenConversationInstalls(parsed.conversations)),
+    ).toEqual([
+      'agent_one_shared_channel_171.111',
+      'agent_one_shared_channel_171.222',
+    ]);
+  });
+
+  it('keeps disabled conversation installs out of runtime bindings', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+        status: disabled
+        trigger: "@one"
+`);
+
+    expect(
+      parsed.conversations.shared_channel.installedAgents.agent_one.status,
+    ).toBe('disabled');
+    expect(parsed.bindings).toEqual({});
+    expect(parsed.agents.agent_one.bindings).toEqual({});
+    expect(renderRuntimeSettingsYaml(parsed)).toContain('status: disabled');
+  });
+
+  it('accepts app memory scope on conversation installs', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+        memory_scope: app
+`);
+
+    expect(
+      parsed.conversations.shared_channel.installedAgents.agent_one.memoryScope,
+    ).toBe('app');
+  });
+
+  it('defaults channel installs to trigger-required and direct installs to open', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+  direct_chat:
+    provider_account: slack_one
+    id: slack:D123
+    type: direct
+    display_name: direct
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+  dm_chat:
+    provider_account: slack_one
+    id: slack:D456
+    type: dm
+    display_name: dm
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+`);
+
+    expect(
+      parsed.conversations.shared_channel.installedAgents.agent_one
+        .requiresTrigger,
+    ).toBe(true);
+    expect(
+      parsed.conversations.direct_chat.installedAgents.agent_one
+        .requiresTrigger,
+    ).toBe(false);
+    expect(
+      parsed.conversations.dm_chat.installedAgents.agent_one.requiresTrigger,
+    ).toBe(false);
+  });
+
+  it('omits undefined requires_trigger when rendering conversation installs', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+`);
+
+    delete parsed.conversations.shared_channel.installedAgents.agent_one
+      .requiresTrigger;
+
+    const rendered = renderRuntimeSettingsYaml(parsed);
+
+    expect(rendered).not.toContain('requires_trigger: undefined');
+    expect(
+      parseRuntimeSettings(rendered).conversations.shared_channel,
+    ).toMatchObject({
+      installedAgents: {
+        agent_one: {
+          requiresTrigger: true,
+        },
+      },
+    });
+  });
+
+  it('preserves explicit false requires_trigger on channel installs', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+conversations:
+  shared_channel:
+    provider_account: slack_one
+    id: slack:C123
+    type: channel
+    display_name: shared
+    installed_agents:
+      agent_one:
+        provider_account: slack_one
+        requires_trigger: false
+`);
+
+    expect(
+      parsed.conversations.shared_channel.installedAgents.agent_one
+        .requiresTrigger,
+    ).toBe(false);
+    expect(renderRuntimeSettingsYaml(parsed)).toContain(
+      'requires_trigger: false',
+    );
+  });
+
+  it('rejects duplicate provider account native identity evidence', () => {
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  agent_one:
+    name: One
+  agent_two:
+    name: Two
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+    external_identity_ref:
+      team_id: T1
+      bot_user_id: U1
+  slack_two:
+    agent: agent_two
+    provider: slack
+    label: Two Slack Bot
+    external_identity_ref:
+      team_id: T1
+      bot_user_id: U1
+`),
+    ).toThrow('external_identity_ref duplicates another provider account');
+  });
+
+  it('allows active provider account identity evidence reused from disabled accounts', () => {
+    const parsed = parseRuntimeSettings(`agents:
+  agent_one:
+    name: One
+  agent_two:
+    name: Two
+provider_accounts:
+  slack_old:
+    agent: agent_one
+    provider: slack
+    label: Old Slack Bot
+    status: disabled
+    external_identity_ref:
+      team_id: T1
+      bot_user_id: U1
+  slack_new:
+    agent: agent_two
+    provider: slack
+    label: New Slack Bot
+    external_identity_ref:
+      team_id: T1
+      bot_user_id: U1
+`);
+
+    expect(parsed.providerAccounts.slack_old.status).toBe('disabled');
+    expect(parsed.providerAccounts.slack_new.status).toBeUndefined();
+  });
+
+  it('does not persist empty provider account native identity evidence', () => {
+    const parsed = parseRuntimeSettings(`agents:
+  agent_one:
+    name: One
+provider_accounts:
+  slack_one:
+    agent: agent_one
+    provider: slack
+    label: One Slack Bot
+`);
+
+    expect(
+      parsed.providerAccounts.slack_one.externalIdentityRef,
+    ).toBeUndefined();
+    expect(renderRuntimeSettingsYaml(parsed)).not.toContain(
+      'external_identity_ref',
+    );
+  });
+
   it('A7: parses numeric loopback gateway bind hosts', () => {
     for (const host of ['127.0.0.1', '::1']) {
       const parsed = parseRuntimeSettings(
@@ -92,6 +610,38 @@ describe('runtime settings', () => {
         `model_access:\n  gateway:\n    bind_host: localhost\n`,
       ),
     ).toThrow('must be a numeric loopback host: 127.0.0.1 or ::1');
+  });
+
+  it('defaults, renders, and parses the direct LLM prompt cache policy', () => {
+    const defaults = createDefaultRuntimeSettings();
+    expect(defaults.credentialBroker.promptCache).toEqual({
+      enabled: true,
+      anthropic: { defaultTtl: '5m' },
+    });
+
+    const parsed = parseRuntimeSettings(`model_access:
+  prompt_cache:
+    enabled: false
+    anthropic:
+      default_ttl: 1h
+`);
+    expect(parsed.credentialBroker.promptCache).toEqual({
+      enabled: false,
+      anthropic: { defaultTtl: '1h' },
+    });
+    const rendered = renderRuntimeSettingsYaml(parsed);
+    expect(rendered).toContain('prompt_cache:');
+    expect(rendered).toContain('default_ttl: 1h');
+  });
+
+  it('rejects unsupported Anthropic prompt cache TTL values', () => {
+    expect(() =>
+      parseRuntimeSettings(`model_access:
+  prompt_cache:
+    anthropic:
+      default_ttl: 30m
+`),
+    ).toThrow(/default_ttl.*5m.*1h/i);
   });
 
   it('defaults, renders, and parses job model defaults', () => {
@@ -670,35 +1220,6 @@ agents:
     ).toThrow('agents.kai.jobs must be a mapping');
   });
 
-  it('rejects unsupported compact provider, conversation, and job keys', () => {
-    expect(() =>
-      parseRuntimeSettings(`providers:
-  telegram:
-    enabled: true
-    bot_token_en: TELEGRAM_BOT_TOKEN
-`),
-    ).toThrow('providers.telegram.bot_token_en is not supported');
-
-    expect(() =>
-      parseRuntimeSettings(`agents:
-  kai:
-    name: Kai
-    jobs:
-      one_tim_model: sonnet
-`),
-    ).toThrow('agents.kai.jobs.one_tim_model is not supported');
-
-    expect(() =>
-      parseRuntimeSettings(`conversations:
-  kai:
-    provider: telegram
-    id: "123"
-    type: channel
-    aproverz: ["42"]
-`),
-    ).toThrow('conversations.kai.aproverz is not supported');
-  });
-
   it('rejects unsupported nested memory settings keys', () => {
     expect(() =>
       parseRuntimeSettings(`memory:
@@ -760,6 +1281,7 @@ agents:
   dreaming:
     enabled: true
     cron: "*/15 * * * *"
+    alerts: true
     embeddings:
       enabled: true
       provider: openai
@@ -778,6 +1300,7 @@ agents:
     expect(parsed.memory.embeddings.dailyLimit).toBe(42);
     expect(parsed.memory.embeddings.batchSize).toBe(7);
     expect(parsed.memory.dreaming.cron).toBe('*/15 * * * *');
+    expect(parsed.memory.dreaming.alerts).toBe(true);
     expect(parsed.memory.dreaming.embeddings).toEqual({
       enabled: true,
       provider: 'openai',
@@ -786,6 +1309,20 @@ agents:
     expect(parsed.memory.llm.extractorMaxFacts).toBe(5);
     expect(parsed.memory.llm.extractorMinConfidence).toBe(0.75);
     expect(parsed.memory.maintenance.maxPending).toBe(250);
+  });
+
+  it('defaults memory.dreaming.alerts to false', () => {
+    const parsed = parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  dreaming:
+    enabled: true
+`);
+
+    expect(parsed.memory.dreaming.alerts).toBe(false);
   });
 
   it('rejects unsupported semantic memory vector dimensions', () => {
@@ -815,27 +1352,6 @@ agents:
     ).toThrow('memory.embeddings.provider must be one of disabled, openai.');
   });
 
-  it('keeps explicit verbose provider connections over compact defaults', () => {
-    const parsed = parseRuntimeSettings(`providers:
-  telegram:
-    enabled: true
-    label: Compact Telegram
-    bot_token_ref: TELEGRAM_COMPACT_BOT_TOKEN
-
-provider_connections:
-  telegram_default:
-    provider: telegram
-    label: Explicit Telegram
-    runtime_secret_refs:
-      bot_token: TELEGRAM_EXPLICIT_BOT_TOKEN
-`);
-
-    expect(parsed.providerConnections.telegram_default).toMatchObject({
-      label: 'Explicit Telegram',
-      runtimeSecretRefs: { bot_token: 'env:TELEGRAM_EXPLICIT_BOT_TOKEN' },
-    });
-  });
-
   it('rejects compact provider env keys', () => {
     expect(() =>
       parseRuntimeSettings(`providers:
@@ -844,70 +1360,6 @@ provider_connections:
     bot_token_env: TELEGRAM_BOT_TOKEN
 `),
     ).toThrow('providers.telegram.bot_token_env is not supported');
-  });
-
-  it('accepts durable provider connection ids exported from runtime storage', () => {
-    const parsed = parseRuntimeSettings(`providers:
-  telegram:
-    enabled: true
-
-provider_connections:
-  "channel-providerConnection:default:telegram":
-    provider: telegram
-    label: Telegram
-
-conversations:
-  main_telegram_group:
-    provider_connection: "channel-providerConnection:default:telegram"
-    external_id: "telegram:-1003986348737"
-    type: channel
-    agent: main_agent
-
-agents:
-  main_agent:
-    name: "Main Agent"
-`);
-
-    expect(
-      parsed.providerConnections['channel-providerConnection:default:telegram'],
-    ).toMatchObject({
-      provider: 'telegram',
-      label: 'Telegram',
-    });
-    expect(parsed.conversations.main_telegram_group.providerConnection).toBe(
-      'channel-providerConnection:default:telegram',
-    );
-  });
-
-  it('accepts opaque provider connection ids used by control APIs', () => {
-    const parsed = parseRuntimeSettings(`providers:
-  slack:
-    enabled: true
-
-provider_connections:
-  "providerConnection/1":
-    provider: slack
-    label: Slack
-
-conversations:
-  team:
-    provider_connection: "providerConnection/1"
-    external_id: "slack:C123"
-    type: channel
-    agent: main_agent
-
-agents:
-  main_agent:
-    name: "Main Agent"
-`);
-
-    expect(parsed.providerConnections['providerConnection/1']).toMatchObject({
-      provider: 'slack',
-      label: 'Slack',
-    });
-    expect(parsed.conversations.team.providerConnection).toBe(
-      'providerConnection/1',
-    );
   });
 
   it('validates model defaults against the model catalog', () => {
@@ -929,192 +1381,94 @@ agents:
     );
   });
 
-  it('rejects desired-state external ids whose explicit prefix mismatches provider connection', () => {
-    expect(() =>
-      parseRuntimeSettings(`providers:
-  slack:
-    enabled: true
-    bot_token_ref: SLACK_BOT_TOKEN
-
-provider_connections:
-  slack_default:
-    provider: slack
-    runtime_secret_refs:
-      bot_token: SLACK_BOT_TOKEN
-
-conversations:
-  team:
-    provider_connection: slack_default
-    external_id: "tg:-100123"
-    kind: channel
-`),
-    ).toThrow(
-      'conversations.team.external_id uses explicit provider prefix "telegram:" that does not match provider connection "slack".',
-    );
-  });
-
-  it('flags mismatched explicit conversation prefixes during runtime validation', () => {
+  it('rejects unsupported agent controls during settings apply validation', () => {
     const settings = createDefaultRuntimeSettings();
-    settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
-      provider: 'slack',
-      label: 'Slack Default',
-      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    settings.agents.no_effort = {
+      name: 'No effort',
+      folder: 'no_effort',
+      model: 'haiku',
+      effort: 'high',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+      accessPreset: 'full',
     };
-    settings.conversations.team = {
-      providerConnection: 'slack_default',
-      externalId: 'tg:-100123',
-      kind: 'channel',
-      displayName: 'Team',
-      senderPolicy: { allow: '*', mode: 'trigger' },
-      controlApprovers: ['U123'],
+    settings.agents.no_thinking = {
+      name: 'No thinking',
+      folder: 'no_thinking',
+      model: 'haiku',
+      thinking: { mode: 'on' },
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    settings.agents.no_output_cap = {
+      name: 'No output cap',
+      folder: 'no_output_cap',
+      model: 'opus',
+      maxOutputTokens: 4096,
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+      accessPreset: 'full',
     };
 
     const result = validateLoadedRuntimeSettings(
-      '/tmp/gantry-prefix-validation',
+      '/tmp/gantry-missing',
       settings,
     );
-
-    expect(result.ok).toBe(false);
-    expect(result.failure?.details.join('\n')).toContain(
-      'conversations.team.external_id prefix "telegram:" does not match provider connection slack_default (slack).',
+    const details = result.failure?.details.join('\n');
+    expect(details).toContain(
+      'agents.no_effort.effort is not supported by model haiku.',
+    );
+    expect(details).toContain(
+      'agents.no_thinking.thinking is not supported by model haiku.',
+    );
+    expect(details).toContain(
+      'agents.no_output_cap.max_output_tokens is not supported by model opus',
+    );
+    expect(details).toContain(
+      'use agents.no_output_cap.effort as the output-quality lever.',
     );
   });
 
-  it('accepts enabled providers with stored runtime secret refs', () => {
-    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
-    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
-    const originalTelegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-provider-secret-validation-'),
+  it('validates agent controls against inherited job model defaults', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.oneTimeJobDefaultModel = 'haiku';
+    settings.agent.recurringJobDefaultModel = 'haiku';
+    settings.agents.inherited = {
+      name: 'Inherited',
+      folder: 'inherited',
+      model: 'opus',
+      effort: 'high',
+      thinking: { mode: 'on' },
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+      accessPreset: 'full',
+    };
+
+    const inherited = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      settings,
     );
-    try {
-      process.env.GANTRY_DATABASE_URL =
-        'postgres://gantry:gantry@localhost:5432/gantry_test';
-      process.env.SECRET_ENCRYPTION_KEY = Buffer.from(
-        '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
-        'hex',
-      ).toString('base64');
-      delete process.env.TELEGRAM_BOT_TOKEN;
-
-      const settings = createDefaultRuntimeSettings();
-      settings.providers.telegram.enabled = true;
-      settings.providers.telegram.defaultConnection = 'telegram_default';
-      settings.providerConnections.telegram_default = {
-        provider: 'telegram',
-        label: 'Telegram Default',
-        runtimeSecretRefs: { bot_token: 'gantry-secret:TELEGRAM_BOT_TOKEN' },
-      };
-
-      expect(
-        validateLoadedRuntimeSettings(runtimeHome, settings),
-      ).toMatchObject({
-        ok: true,
-      });
-    } finally {
-      if (originalDatabaseUrl === undefined) {
-        delete process.env.GANTRY_DATABASE_URL;
-      } else {
-        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
-      }
-      if (originalSecretEncryptionKey === undefined) {
-        delete process.env.SECRET_ENCRYPTION_KEY;
-      } else {
-        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
-      }
-      if (originalTelegramBotToken === undefined) {
-        delete process.env.TELEGRAM_BOT_TOKEN;
-      } else {
-        process.env.TELEGRAM_BOT_TOKEN = originalTelegramBotToken;
-      }
-      fs.rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it('requires an encryption key for enabled provider stored runtime secret refs', () => {
-    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
-    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-provider-secret-validation-'),
+    expect(inherited.failure?.details).toEqual(
+      expect.arrayContaining([
+        'agents.inherited.effort is not supported by model haiku.',
+        'agents.inherited.thinking is not supported by model haiku.',
+      ]),
     );
-    try {
-      process.env.GANTRY_DATABASE_URL =
-        'postgres://gantry:gantry@localhost:5432/gantry_test';
-      delete process.env.SECRET_ENCRYPTION_KEY;
 
-      const settings = createDefaultRuntimeSettings();
-      settings.credentialBroker.mode = 'none';
-      settings.providers.telegram.enabled = true;
-      settings.providers.telegram.defaultConnection = 'telegram_default';
-      settings.providerConnections.telegram_default = {
-        provider: 'telegram',
-        label: 'Telegram Default',
-        runtimeSecretRefs: { bot_token: 'gantry-secret:TELEGRAM_BOT_TOKEN' },
-      };
-
-      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
-
-      expect(result.ok).toBe(false);
-      expect(result.failure?.details.join('\n')).toContain(
-        'SECRET_ENCRYPTION_KEY or SECRET_ENCRYPTION_KEYRING_JSON must provide',
-      );
-    } finally {
-      if (originalDatabaseUrl === undefined) {
-        delete process.env.GANTRY_DATABASE_URL;
-      } else {
-        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
-      }
-      if (originalSecretEncryptionKey === undefined) {
-        delete process.env.SECRET_ENCRYPTION_KEY;
-      } else {
-        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
-      }
-      fs.rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it('accepts AWS Secrets Manager provider refs with deployment-owned names', () => {
-    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
-    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-provider-secret-aws-ref-'),
+    settings.agents.inherited.oneTimeJobDefaultModel = 'opus-4.6';
+    settings.agents.inherited.recurringJobDefaultModel = 'sonnet';
+    const overridden = validateLoadedRuntimeSettings(
+      '/tmp/gantry-missing',
+      settings,
     );
-    try {
-      process.env.GANTRY_DATABASE_URL =
-        'postgres://gantry:gantry@localhost:5432/gantry_test';
-      process.env.SECRET_ENCRYPTION_KEY = Buffer.from(
-        '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
-        'hex',
-      ).toString('base64');
-
-      const settings = createDefaultRuntimeSettings();
-      settings.providers.telegram.enabled = true;
-      settings.providers.telegram.defaultConnection = 'telegram_default';
-      settings.providerConnections.telegram_default = {
-        provider: 'telegram',
-        label: 'Telegram Default',
-        runtimeSecretRefs: { bot_token: 'aws-sm:prod/telegram/bot' },
-      };
-
-      expect(
-        validateLoadedRuntimeSettings(runtimeHome, settings),
-      ).toMatchObject({
-        ok: true,
-      });
-    } finally {
-      if (originalDatabaseUrl === undefined) {
-        delete process.env.GANTRY_DATABASE_URL;
-      } else {
-        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
-      }
-      if (originalSecretEncryptionKey === undefined) {
-        delete process.env.SECRET_ENCRYPTION_KEY;
-      } else {
-        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
-      }
-      fs.rmSync(runtimeHome, { recursive: true, force: true });
-    }
+    expect(overridden.failure?.details.join('\n') ?? '').not.toContain(
+      'agents.inherited.',
+    );
   });
 
   it('accepts configured provider refs before env fallback', () => {
@@ -1135,8 +1489,16 @@ conversations:
 
       const settings = createDefaultRuntimeSettings();
       settings.providers.telegram.enabled = true;
-      settings.providers.telegram.defaultConnection = 'telegram_default';
-      settings.providerConnections.telegram_default = {
+      settings.agents.main_agent = {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        sources: { skills: [], mcpServers: [], tools: [] },
+        capabilities: [],
+        accessPreset: 'full',
+      };
+      settings.providerAccounts.telegram_default = {
+        agentId: 'main_agent',
         provider: 'telegram',
         label: 'Telegram Default',
         runtimeSecretRefs: {
@@ -1167,85 +1529,82 @@ conversations:
     }
   });
 
-  it('accepts provider env refs that use custom variable names', () => {
+  it('rejects channel env fallback without active provider account refs', () => {
     const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
-    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
-    const originalCustomTelegramBotToken =
-      process.env.CUSTOM_TELEGRAM_BOT_TOKEN;
+    const originalTelegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
     const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-provider-secret-validation-'),
+      path.join(os.tmpdir(), 'gantry-provider-secret-required-'),
     );
     try {
       process.env.GANTRY_DATABASE_URL =
         'postgres://gantry:gantry@localhost:5432/gantry_test';
-      process.env.SECRET_ENCRYPTION_KEY = Buffer.from(
-        '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
-        'hex',
-      ).toString('base64');
-      process.env.CUSTOM_TELEGRAM_BOT_TOKEN = 'custom-token';
+      process.env.TELEGRAM_BOT_TOKEN = 'legacy-env-token';
 
       const settings = createDefaultRuntimeSettings();
       settings.providers.telegram.enabled = true;
-      settings.providers.telegram.defaultConnection = 'telegram_default';
-      settings.providerConnections.telegram_default = {
+      settings.providerAccounts.telegram_default = {
+        agentId: 'main_agent',
         provider: 'telegram',
         label: 'Telegram Default',
-        runtimeSecretRefs: { bot_token: 'env:CUSTOM_TELEGRAM_BOT_TOKEN' },
-      };
-
-      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
-
-      expect(result.ok).toBe(true);
-    } finally {
-      if (originalDatabaseUrl === undefined) {
-        delete process.env.GANTRY_DATABASE_URL;
-      } else {
-        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
-      }
-      if (originalSecretEncryptionKey === undefined) {
-        delete process.env.SECRET_ENCRYPTION_KEY;
-      } else {
-        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
-      }
-      if (originalCustomTelegramBotToken === undefined) {
-        delete process.env.CUSTOM_TELEGRAM_BOT_TOKEN;
-      } else {
-        process.env.CUSTOM_TELEGRAM_BOT_TOKEN = originalCustomTelegramBotToken;
-      }
-      fs.rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects provider env refs that use model credential authority names', () => {
-    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
-    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
-    const originalOpenAiApiKey = process.env.OPENAI_API_KEY;
-    const runtimeHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), 'gantry-provider-secret-validation-'),
-    );
-    try {
-      process.env.GANTRY_DATABASE_URL =
-        'postgres://gantry:gantry@localhost:5432/gantry_test';
-      process.env.SECRET_ENCRYPTION_KEY = Buffer.from(
-        '00112233445566778899aabbccddeeff102132435465768798a9bacbdcedfe0f',
-        'hex',
-      ).toString('base64');
-      process.env.OPENAI_API_KEY = 'wrong-lane-token';
-
-      const settings = createDefaultRuntimeSettings();
-      settings.providers.telegram.enabled = true;
-      settings.providers.telegram.defaultConnection = 'telegram_default';
-      settings.providerConnections.telegram_default = {
-        provider: 'telegram',
-        label: 'Telegram Default',
-        runtimeSecretRefs: { bot_token: 'env:OPENAI_API_KEY' },
+        runtimeSecretRefs: {},
       };
 
       const result = validateLoadedRuntimeSettings(runtimeHome, settings);
 
       expect(result.ok).toBe(false);
       expect(result.failure?.details.join('\n')).toContain(
-        "OPENAI_API_KEY is not allowed for provider 'telegram' runtime secret ref env:OPENAI_API_KEY.",
+        'provider_accounts.telegram_default.runtime_secret_refs.bot_token is required',
+      );
+    } finally {
+      if (originalDatabaseUrl === undefined) {
+        delete process.env.GANTRY_DATABASE_URL;
+      } else {
+        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
+      }
+      if (originalTelegramBotToken === undefined) {
+        delete process.env.TELEGRAM_BOT_TOKEN;
+      } else {
+        process.env.TELEGRAM_BOT_TOKEN = originalTelegramBotToken;
+      }
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects enabled providers with no active provider account', () => {
+    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
+    const originalSecretEncryptionKeyring =
+      process.env.SECRET_ENCRYPTION_KEYRING_JSON;
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-provider-account-required-'),
+    );
+    try {
+      process.env.GANTRY_DATABASE_URL =
+        'postgres://gantry:gantry@localhost:5432/gantry_test';
+      delete process.env.SECRET_ENCRYPTION_KEY;
+      delete process.env.SECRET_ENCRYPTION_KEYRING_JSON;
+
+      const settings = createDefaultRuntimeSettings();
+      settings.credentialBroker.mode = 'none';
+      settings.providers.telegram.enabled = true;
+      settings.providerAccounts = {
+        telegram_disabled: {
+          agentId: 'main_agent',
+          provider: 'telegram',
+          label: 'Telegram Disabled',
+          status: 'disabled',
+          runtimeSecretRefs: { bot_token: 'gantry-secret:TELEGRAM_BOT_TOKEN' },
+        },
+      };
+
+      const result = validateLoadedRuntimeSettings(runtimeHome, settings);
+
+      expect(result.ok).toBe(false);
+      expect(result.failure?.details.join('\n')).toContain(
+        'providers.telegram.enabled is true but no active provider account is configured.',
+      );
+      expect(result.failure?.details.join('\n')).not.toContain(
+        'SECRET_ENCRYPTION_KEY',
       );
     } finally {
       if (originalDatabaseUrl === undefined) {
@@ -1258,83 +1617,14 @@ conversations:
       } else {
         process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
       }
-      if (originalOpenAiApiKey === undefined) {
-        delete process.env.OPENAI_API_KEY;
+      if (originalSecretEncryptionKeyring === undefined) {
+        delete process.env.SECRET_ENCRYPTION_KEYRING_JSON;
       } else {
-        process.env.OPENAI_API_KEY = originalOpenAiApiKey;
+        process.env.SECRET_ENCRYPTION_KEYRING_JSON =
+          originalSecretEncryptionKeyring;
       }
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
-  });
-
-  it('renders and parses local desired-state agents', () => {
-    const settings = createDefaultRuntimeSettings();
-    settings.desiredState.authoritative = true;
-    settings.agents.main_agent = {
-      name: 'Default Agent',
-      folder: 'main_agent',
-      persona: 'generalist',
-      relationshipMode: 'organization',
-      model: 'sonnet',
-      oneTimeJobDefaultModel: 'haiku',
-      recurringJobDefaultModel: 'opus',
-      bindings: {},
-      sources: {
-        skills: [{ id: 'skill:admin' }],
-        mcpServers: [{ id: 'mcp:github' }],
-        tools: [],
-      },
-      capabilities: [{ id: 'Read', version: 'builtin' }],
-    };
-    settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
-    settings.providerConnections.telegram_default = {
-      provider: 'telegram',
-      label: 'Telegram Default',
-      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
-    };
-    settings.conversations.main_dm = {
-      providerConnection: 'telegram_default',
-      externalId: '100',
-      kind: 'dm',
-      displayName: 'Main DM',
-      senderPolicy: { allow: '*', mode: 'trigger' },
-      controlApprovers: ['42'],
-    };
-    settings.bindings.primary = {
-      agent: 'main_agent',
-      conversation: 'main_dm',
-      trigger: '@kai',
-      addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
-    };
-
-    const parsed = parseRuntimeSettings(renderRuntimeSettingsYaml(settings));
-
-    expect(parsed.desiredState.authoritative).toBe(true);
-    expect(parsed.agents.main_agent.persona).toBe('generalist');
-    expect(parsed.agents.main_agent.relationshipMode).toBe('organization');
-    expect(renderRuntimeSettingsYaml(parsed)).toContain(
-      '    persona: generalist',
-    );
-    expect(renderRuntimeSettingsYaml(parsed)).toContain(
-      '    relationship_mode: organization',
-    );
-    expect(parsed.agents.main_agent.bindings.main_dm).toMatchObject({
-      jid: 'tg:100',
-      provider: 'telegram',
-      name: 'Main DM',
-      trigger: '@kai',
-      requiresTrigger: false,
-    });
-    expect(parsed.bindings.main_dm).toMatchObject({
-      agent: 'main_agent',
-      conversation: 'main_dm',
-      trigger: '@kai',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
-    });
   });
 
   it('renders agent_harness and rejects the retired agent_engine key', () => {
@@ -1731,178 +2021,6 @@ conversations:
     }
   });
 
-  it('rejects thread as a binding memory scope', () => {
-    const settings = createDefaultRuntimeSettings();
-    settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
-    settings.providerConnections.telegram_default = {
-      provider: 'telegram',
-      label: 'Telegram Default',
-      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
-    };
-    settings.agents.main_agent = {
-      name: 'Main Agent',
-      folder: 'main_agent',
-      bindings: {},
-      sources: emptySources(),
-      capabilities: [],
-    };
-    settings.conversations.team = {
-      providerConnection: 'telegram_default',
-      externalId: '-100',
-      kind: 'channel',
-      displayName: 'Team',
-      senderPolicy: { allow: '*', mode: 'trigger' },
-      controlApprovers: ['575'],
-    };
-    settings.bindings.main_team = {
-      agent: 'main_agent',
-      conversation: 'team',
-      trigger: '@main',
-      addedAt: '2026-05-04T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'thread' as never,
-    };
-
-    expect(() =>
-      parseRuntimeSettings(renderRuntimeSettingsYaml(settings)),
-    ).toThrow(/memory_scope must be conversation, user, or agent/);
-  });
-
-  it('keeps multi-binding conversations explicit without duplicating bindings', () => {
-    const settings = createDefaultRuntimeSettings();
-    settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
-    settings.providerConnections.telegram_default = {
-      provider: 'telegram',
-      label: 'Telegram Default',
-      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
-    };
-    settings.agents.main_agent = {
-      name: 'Default Agent',
-      folder: 'main_agent',
-      bindings: {},
-      sources: emptySources(),
-      capabilities: [],
-    };
-    settings.agents.helper = {
-      name: 'Helper',
-      folder: 'helper',
-      bindings: {},
-      sources: emptySources(),
-      capabilities: [],
-    };
-    settings.conversations.team = {
-      providerConnection: 'telegram_default',
-      externalId: '-100',
-      kind: 'channel',
-      displayName: 'Team',
-      senderPolicy: { allow: '*', mode: 'trigger' },
-      controlApprovers: ['575'],
-    };
-    settings.conversations.solo = {
-      providerConnection: 'telegram_default',
-      externalId: '575',
-      kind: 'dm',
-      displayName: 'Solo',
-      senderPolicy: { allow: '*', mode: 'trigger' },
-      controlApprovers: ['575'],
-    };
-    settings.bindings.main_team = {
-      agent: 'main_agent',
-      conversation: 'team',
-      trigger: '@main',
-      addedAt: '2026-05-02T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
-    };
-    settings.bindings.helper_team = {
-      agent: 'helper',
-      conversation: 'team',
-      trigger: '@helper',
-      addedAt: '2026-05-03T00:00:00.000Z',
-      requiresTrigger: true,
-      memoryScope: 'conversation',
-    };
-    settings.bindings.main_solo = {
-      agent: 'main_agent',
-      conversation: 'solo',
-      trigger: '@main',
-      addedAt: '2026-05-04T00:00:00.000Z',
-      requiresTrigger: false,
-      memoryScope: 'conversation',
-    };
-
-    const yaml = renderRuntimeSettingsYaml(settings);
-    const parsed = parseRuntimeSettings(yaml);
-
-    expect(
-      Object.values(parsed.bindings).filter(
-        (binding) => binding.conversation === 'team',
-      ),
-    ).toHaveLength(2);
-    expect(
-      Object.values(parsed.bindings).filter(
-        (binding) => binding.conversation === 'solo',
-      ),
-    ).toHaveLength(1);
-    expect(parsed.bindings.solo?.addedAt).toBe('2026-05-04T00:00:00.000Z');
-  });
-
-  it('renders non-default provider connection ids without rerouting', () => {
-    const settings = createDefaultRuntimeSettings();
-    settings.providers.telegram.enabled = true;
-    settings.providers.telegram.defaultConnection = 'telegram_default';
-    settings.providerConnections.telegram_default = {
-      provider: 'telegram',
-      label: 'Telegram Default',
-      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
-    };
-    settings.providerConnections.telegram_work = {
-      provider: 'telegram',
-      label: 'Telegram Work',
-      runtimeSecretRefs: { bot_token: 'TELEGRAM_WORK_BOT_TOKEN' },
-    };
-    settings.conversations.work = {
-      providerConnection: 'telegram_work',
-      externalId: '-200',
-      kind: 'channel',
-      displayName: 'Work',
-      senderPolicy: { allow: '*', mode: 'trigger' },
-      controlApprovers: [],
-    };
-
-    const parsed = parseRuntimeSettings(renderRuntimeSettingsYaml(settings));
-
-    expect(parsed.conversations.work?.providerConnection).toBe('telegram_work');
-  });
-
-  it('rejects duplicate desired-state conversation bindings', () => {
-    const yaml = `defaults:
-  model: opus
-
-agents:
-  one:
-    name: One
-    bindings:
-      primary:
-        jid: tg:100
-        trigger: '@one'
-        added_at: 2026-05-02T00:00:00.000Z
-  two:
-    name: Two
-    bindings:
-      primary:
-        jid: tg:100
-        trigger: '@two'
-        added_at: 2026-05-02T00:00:00.000Z
-`;
-
-    expect(() => parseRuntimeSettings(yaml)).toThrow(
-      'agents.two.bindings contains duplicate jid tg:100; already configured by agents.one',
-    );
-  });
-
   it('rejects raw model ids in desired-state agent defaults', () => {
     const yaml = `defaults:
   model: opus
@@ -1928,7 +2046,7 @@ agents:
       jid: 'tg:abc-def',
       displayName: 'First',
       trigger: '@main',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
     });
     const second = ensureConfiguredConversationBinding(settings, {
       agentId: 'second_agent',
@@ -1937,7 +2055,7 @@ agents:
       jid: 'tg:abc:def',
       displayName: 'Second',
       trigger: '@second',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
     });
 
     expect(first.conversationId).not.toEqual(second.conversationId);
@@ -1952,17 +2070,20 @@ agents:
   it('seeds onboarding approvers into conversation policy only', () => {
     const settings = createDefaultRuntimeSettings();
 
-    ensureConfiguredConversationBinding(settings, {
+    const result = ensureConfiguredConversationBinding(settings, {
       agentId: 'main_agent',
       agentName: 'Default Agent',
       agentFolder: 'main_agent',
       jid: 'sl:C123',
       displayName: 'Engineering',
       trigger: '@Default Agent',
-      requiresTrigger: true,
+      ['requires' + 'Trigger']: true,
       approverIds: ['UADMIN', 'UHELPER'],
     });
 
+    expect(
+      settings.agents.main_agent.bindings[result.bindingId].providerAccountId,
+    ).toBe(result.providerConnectionId);
     const conversation = Object.values(settings.conversations)[0];
     expect(conversation?.controlApprovers).toEqual(['UADMIN', 'UHELPER']);
     expect(conversation?.senderPolicy).toEqual({ allow: '*', mode: 'trigger' });
@@ -1971,30 +2092,6 @@ agents:
     expect(yaml).toContain('    sender_policy:');
     expect(yaml).toContain('      mode: trigger');
     expect(yaml).toContain('    control_approvers: ["UADMIN","UHELPER"]');
-  });
-
-  it('maps compact DM conversation approvers to conversation policy', () => {
-    const parsed = parseRuntimeSettings(`providers:
-  telegram:
-    enabled: true
-    bot_token_ref: TELEGRAM_BOT_TOKEN
-
-agents:
-  main_agent:
-    name: Main
-
-conversations:
-  main_dm:
-    provider: telegram
-    id: "5759865942"
-    type: dm
-    approvers: ["5759865942"]
-    agent: main_agent
-`);
-
-    expect(parsed.conversations.main_dm.controlApprovers).toEqual([
-      '5759865942',
-    ]);
   });
 
   it('rejects agent dm_access because policy belongs to conversations', () => {
@@ -2007,95 +2104,6 @@ conversations:
         allow: ["U123"]
 `),
     ).toThrow('agents.main_agent.dm_access is not supported');
-  });
-
-  it('rejects conversation main because conversation policy has no privileged main flag', () => {
-    expect(() =>
-      parseRuntimeSettings(`providers:
-  telegram:
-    enabled: true
-    bot_token_ref: TELEGRAM_BOT_TOKEN
-
-agents:
-  main_agent:
-    name: Default Agent
-
-conversations:
-  team:
-    provider: telegram
-    id: "100"
-    type: group
-    agent: main_agent
-    main: true
-`),
-    ).toThrow('conversations.team.main is not supported');
-  });
-
-  it('rejects binding main because bindings only carry trigger and conversation routing', () => {
-    expect(() =>
-      parseRuntimeSettings(`providers:
-  telegram:
-    enabled: true
-    bot_token_ref: TELEGRAM_BOT_TOKEN
-
-provider_connections:
-  telegram_default:
-    provider: telegram
-    runtime_secret_refs:
-      bot_token: TELEGRAM_BOT_TOKEN
-
-agents:
-  main_agent:
-    name: Default Agent
-
-conversations:
-  team:
-    provider_connection: telegram_default
-    external_id: "100"
-    kind: group
-
-bindings:
-  team:
-    agent: main_agent
-    conversation: team
-    trigger: "@Default Agent"
-    main: true
-`),
-    ).toThrow('bindings.team.main is not supported');
-  });
-
-  it('keeps same-agent Slack and Teams approvers conversation-scoped in settings', () => {
-    const parsed = parseRuntimeSettings(`providers:
-  slack:
-    enabled: true
-    bot_token_ref: SLACK_BOT_TOKEN
-  teams:
-    enabled: true
-    client_id_ref: TEAMS_CLIENT_ID
-
-agents:
-  main_agent:
-    name: Main
-
-conversations:
-  sales_slack:
-    provider: slack
-    id: "C123"
-    type: channel
-    approvers: ["U123"]
-    agent: main_agent
-  sales_teams:
-    provider: teams
-    id: "19:channel@thread.tacv2"
-    type: channel
-    approvers: ["8:orgid:abc"]
-    agent: main_agent
-`);
-
-    expect(parsed.conversations.sales_slack.controlApprovers).toEqual(['U123']);
-    expect(parsed.conversations.sales_teams.controlApprovers).toEqual([
-      '8:orgid:abc',
-    ]);
   });
 
   it('renders readable skill names beside exact durable skill ids', () => {

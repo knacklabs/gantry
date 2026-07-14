@@ -2,8 +2,12 @@ import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
-import type { RuntimeConfiguredAgent } from './runtime-settings-types.js';
+import type {
+  RuntimeConfiguredAgent,
+  RuntimeSettings,
+} from './runtime-settings-types.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
+import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import type { AgentToolSource } from '../../domain/tools/tools.js';
 import {
   resolveConfiguredSkillReferences,
@@ -23,10 +27,18 @@ import {
   skillActionDefinitionsForSkills,
 } from './configured-capability-normalization.js';
 import type { SemanticCapabilityDefinition } from '../../shared/semantic-capabilities.js';
+import { projectToolCatalogItemToRuntimeRules } from '../../shared/semantic-capabilities.js';
 import {
   normalizeMcpToolScope,
   reviewedMcpToolPatterns,
 } from '../../shared/mcp-tool-scope.js';
+import {
+  formatInlineAgentWorkerOnlyConfigError,
+  inlineConfiguredSkillEngineConstraintError,
+  inlineWorkerOnlyConfiguredCapabilityLabels,
+  inlineWorkerOnlyToolRuleLabels,
+  resolveConfiguredAgentRuntime,
+} from './runtime-settings-agent-runtime.js';
 
 export async function replaceDesiredStateCapabilities(input: {
   appId: AppId;
@@ -93,6 +105,99 @@ export async function replaceDesiredStateCapabilities(input: {
     updatedAt: input.now,
   });
   await replaceAgentToolSources(input);
+}
+
+export async function inlineAgentRuntimeCapabilityErrors(input: {
+  appId: AppId;
+  settings: RuntimeSettings;
+  repositories: SettingsDesiredStateRepositories;
+  servers: Map<
+    string,
+    Awaited<
+      ReturnType<SettingsDesiredStateRepositories['mcpServers']['getServer']>
+    >
+  >;
+  catalogSemanticCapabilityDefinitions: Record<
+    string,
+    SemanticCapabilityDefinition
+  >;
+}): Promise<string[]> {
+  const errors: string[] = [];
+  for (const [folder, agent] of Object.entries(input.settings.agents)) {
+    if (resolveConfiguredAgentRuntime(agent) !== 'inline') continue;
+    const skillEngineError = inlineConfiguredSkillEngineConstraintError({
+      subject: `agents.${folder}`,
+      agent,
+      defaultModel: input.settings.agent.defaultModel,
+      defaultOneTimeJobDefaultModel:
+        input.settings.agent.oneTimeJobDefaultModel,
+      defaultRecurringJobDefaultModel:
+        input.settings.agent.recurringJobDefaultModel,
+      modelFamilyOrder: input.settings.modelFamilies,
+    });
+    if (skillEngineError) errors.push(skillEngineError);
+    const blockers = new Set(
+      inlineWorkerOnlyConfiguredCapabilityLabels({
+        agent,
+        stdioMcpServerIds: new Set(
+          agent.sources.mcpServers
+            .filter(
+              (source) =>
+                input.servers.get(source.id)?.transport === 'stdio_template',
+            )
+            .map((source) => source.id),
+        ),
+      }),
+    );
+    const resolvedSkills = await resolveConfiguredSkillReferences({
+      repository: input.repositories.skills,
+      appId: input.appId,
+      agentId: `agent:${folder}` as AgentId,
+      references: agent.sources.skills.map((source) => source.id),
+    });
+    const skillActionDefinitions = {
+      ...input.catalogSemanticCapabilityDefinitions,
+      ...semanticCapabilityDefinitionsById(
+        skillActionDefinitionsForSkills([...resolvedSkills.skills.values()]),
+      ),
+    };
+    const normalizedCapabilities = normalizeConfiguredCapabilities({
+      capabilities: agent.capabilities,
+    }).capabilities;
+    for (const capability of [
+      ...new Set(normalizedCapabilities.map((item) => item.id)),
+    ]) {
+      const resolved = await resolveAgentToolReference({
+        repository: input.repositories.tools,
+        appId: input.appId,
+        reference: settingsCapabilityToToolReference({
+          id: capability,
+          version: 'builtin',
+        }),
+        semanticCapabilityDefinitions: skillActionDefinitions,
+      });
+      if (!resolved.tool?.name) continue;
+      if (
+        inlineWorkerOnlyToolRuleLabels(
+          projectToolCatalogItemToRuntimeRules({
+            name: resolved.tool.name,
+            inputSchema: resolved.tool.inputSchema,
+          }),
+        ).length > 0
+      ) {
+        blockers.add(capability);
+      }
+    }
+    if (blockers.size > 0) {
+      errors.push(
+        formatInlineAgentWorkerOnlyConfigError(
+          `agents.${folder}`,
+          [...blockers].sort(),
+        ),
+      );
+    }
+  }
+  return errors.sort();
 }
 
 async function replaceAgentToolSources(input: {

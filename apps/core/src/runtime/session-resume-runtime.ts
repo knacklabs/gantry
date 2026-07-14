@@ -23,6 +23,9 @@ import {
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 
 export const RUNTIME_RESULT_SUMMARY_MAX_CHARS = 4_000;
+type RuntimeSessionArchiveOutcome = {
+  memory: 'ok' | 'degraded' | 'skipped';
+};
 
 const RUNTIME_RESULT_SUMMARY_TRUNCATION_PREFIX =
   '[output truncated; showing tail]\n';
@@ -286,19 +289,21 @@ export async function archiveCurrentRuntimeSession(input: {
   memoryUserId?: string;
   collectMemory?: SessionMemoryCollector;
   executionProviderId?: import('../domain/sessions/sessions.js').ExecutionProviderId;
-}): Promise<void> {
+}): Promise<RuntimeSessionArchiveOutcome> {
   const turnContext = await input.ops.getAgentTurnContext?.({
     appId: input.appId,
     agentFolder: input.group.folder,
     executionProviderId:
       input.executionProviderId ?? resolveRuntimeExecutionProviderId(),
     conversationJid: input.chatJid,
+    providerAccountId: input.group.providerAccountId,
     threadId: input.threadId,
     conversationKind: input.group.conversationKind,
     memoryUserId: input.memoryUserId,
     hydrateMemory: false,
   });
   const collectMemory = input.collectMemory;
+  let memory: RuntimeSessionArchiveOutcome['memory'] = 'skipped';
   if (turnContext?.agentSessionId && collectMemory) {
     const trigger =
       input.cause === 'manual-compact' ? 'precompact' : 'session-end';
@@ -317,7 +322,9 @@ export async function archiveCurrentRuntimeSession(input: {
         },
         'Collected durable memory at session boundary',
       );
+      memory = 'ok';
     } catch (err) {
+      memory = 'degraded';
       logger.warn(
         { group: input.group.name, err, trigger },
         'Failed to collect durable memory at session boundary',
@@ -328,6 +335,7 @@ export async function archiveCurrentRuntimeSession(input: {
     { group: input.group.name, agentSessionId: turnContext?.agentSessionId },
     'Archived Gantry session boundary memory; provider transcripts are not runtime state',
   );
+  return { memory };
 }
 
 export function buildRuntimeRunOptions(input: {

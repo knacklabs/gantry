@@ -79,4 +79,18 @@ describe('memory command', () => {
     expect(settings.memory.embeddings.enabled).toBe(true);
     expect(settings.memory.embeddings.provider).toBe('openai');
   });
+
+  it('prints restart guidance when dreaming changes', async () => {
+    const runtimeHome = makeRuntimeHome();
+    saveRuntimeSettings(runtimeHome, loadRuntimeSettings(runtimeHome));
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runMemoryCommand } = await loadMemoryCommand();
+
+    const code = await runMemoryCommand(runtimeHome, ['dreaming', 'on']);
+
+    expect(code).toBe(0);
+    expect(consoleLog).toHaveBeenCalledWith(
+      'This change requires a restart to take effect — run `gantry restart`.',
+    );
+  });
 });

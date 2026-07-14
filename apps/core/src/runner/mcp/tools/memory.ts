@@ -106,7 +106,7 @@ export function registerMemoryTools(server: McpServer): void {
 
   server.tool(
     'memory_save',
-    'Save a durable memory statement. Defaults to workspace scope in group/channel conversations and user scope in DMs. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory without an approved admin path.',
+    'Save a durable memory statement. Defaults to workspace scope in group/channel conversations and user scope in DMs. Pass scope "user" for user-private facts learned in shared conversations so they never persist workspace-visible. Use this for preferences, facts, decisions, corrections, and constraints that should survive future sessions. Do not save raw logs, temporary task progress, secrets, generic summaries, or common/global memory without an approved admin path. For durable organization-level facts every agent should see, use brain_write instead; when unsure, prefer memory_save (memory stays scoped, brain pages are org-visible).',
     {
       scope: z.enum(['user', 'group', 'global']).optional(),
       workspace_folder: z.string().optional(),

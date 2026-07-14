@@ -17,8 +17,18 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock('@core/infrastructure/service/manager.js');
   vi.doUnmock('@core/config/settings/runtime-settings.js');
+  vi.doUnmock('@core/adapters/storage/postgres/runtime-store.js');
   vi.doUnmock('@core/adapters/storage/postgres/storage-service.js');
   vi.doUnmock('@core/cli/provider.js');
+  vi.doUnmock('@core/cli/provider-connect.js');
+  vi.doUnmock('@core/cli/credentials.js');
+  vi.doUnmock('@core/cli/onboarding-state.js');
+  vi.doUnmock('@core/cli/setup-flow.js');
+  vi.doUnmock('@core/cli/setup-flow-core-steps.js');
+  vi.doUnmock('@core/cli/setup-credentials.js');
+  vi.doUnmock('@core/cli/setup-flow-provider-steps.js');
+  vi.doUnmock('@core/cli/setup-flow-final-steps.js');
+  vi.doUnmock('@core/cli/setup-ready.js');
   vi.doUnmock('@core/cli/local.js');
   vi.doUnmock('@core/app/index.js');
   vi.doUnmock('@core/postgres-migrate.js');
@@ -30,6 +40,383 @@ afterEach(() => {
 });
 
 describe('CLI local routing', () => {
+  it('uses credentials access in top-level help', async () => {
+    const output: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((message?: unknown) => {
+      output.push(String(message));
+    });
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      note: vi.fn(),
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+      select: vi.fn(),
+      text: vi.fn(),
+      spinner: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        message: vi.fn(),
+      })),
+    }));
+    const { main } = await import('@core/cli/index.js');
+
+    const code = await main(['--help']);
+
+    expect(code).toBe(0);
+    expect(output.join('\n')).toContain(
+      'gantry credentials model|access|browser',
+    );
+    expect(output.join('\n')).not.toContain('credentials capability');
+  });
+
+  it.each([
+    ['welcome', 'welcome'],
+    ['channel', 'channel'],
+    ['model', 'model'],
+    ['memory', 'memory'],
+    ['credentials', 'credentials'],
+    ['storage', 'storage'],
+    ['verify', 'verify'],
+  ] as const)(
+    'starts completed setup menu choice %s at %s',
+    async (choice, expectedStep) => {
+      const runtimeHome = makeRuntimeHome();
+      const onboarding = await import('@core/cli/onboarding-state.js');
+      const state = onboarding.createInitialState(runtimeHome);
+      state.status = 'completed';
+      state.currentStep = 'ready';
+      onboarding.writeOnboardingState(runtimeHome, state);
+      const select = vi.fn(async () => choice);
+      const runSetupFlow = vi.fn(async () => ({
+        status: 'completed',
+        runtimeHome,
+        startAfterSetup: false,
+      }));
+      vi.doMock('@clack/prompts', () => ({
+        isCancel: () => false,
+        outro: vi.fn(),
+        select,
+        log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+      }));
+      vi.doMock('@core/cli/setup-flow.js', () => ({
+        runSetupFlow,
+      }));
+
+      const { main } = await import('@core/cli/index.js');
+      const code = await main(['--runtime-home', runtimeHome, 'setup']);
+
+      expect(code).toBe(0);
+      expect(select).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'What do you want to change?' }),
+      );
+      expect(runSetupFlow).toHaveBeenCalledWith(
+        expect.objectContaining({ initialStep: expectedStep }),
+      );
+      expect(onboarding.readOnboardingState(runtimeHome)).toMatchObject({
+        status: 'in_progress',
+        currentStep: expectedStep,
+      });
+    },
+  );
+
+  it('skips channel reconnect steps for memory maintenance when a binding exists', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const onboarding = await import('@core/cli/onboarding-state.js');
+    const state = onboarding.createInitialState(runtimeHome);
+    state.status = 'completed';
+    state.currentStep = 'ready';
+    onboarding.writeOnboardingState(runtimeHome, state);
+    fs.writeFileSync(
+      path.join(runtimeHome, 'settings.yaml'),
+      'providers: {}\n',
+    );
+
+    const runMemoryStep = vi.fn(async () => ({ type: 'next' }));
+    const runCredentialsStep = vi.fn(async () => ({ type: 'next' }));
+    const runTelegramStep = vi.fn(async () => ({ type: 'next' }));
+    const runSlackStep = vi.fn(async () => ({ type: 'next' }));
+    const runConfigStep = vi.fn(async () => ({ type: 'next' }));
+    const runGroupStep = vi.fn(async () => ({ type: 'next' }));
+    const runVerifyStep = vi.fn(async () => ({ type: 'next' }));
+    const runReadyStep = vi.fn(async () => ({ type: 'next' }));
+    const select = vi.fn(async () => 'memory');
+
+    vi.doMock('@clack/prompts', () => ({
+      intro: vi.fn(),
+      outro: vi.fn(),
+      isCancel: () => false,
+      select,
+      log: {
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        success: vi.fn(),
+        step: vi.fn(),
+        message: vi.fn(),
+      },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => {
+        const actual =
+          await importOriginal<
+            typeof import('@core/config/settings/runtime-settings.js')
+          >();
+        const settings = actual.createDefaultRuntimeSettings();
+        settings.providers.slack.enabled = true;
+        settings.providerAccounts.slack_default = {
+          agentId: 'main_agent',
+          provider: 'slack',
+          label: 'Slack',
+          runtimeSecretRefs: {
+            bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
+            app_token: 'gantry-secret:SLACK_APP_TOKEN',
+          },
+        };
+        settings.agents.main_agent = {
+          name: 'Main',
+          folder: 'main_agent',
+          model: 'opus',
+          bindings: {
+            main: {
+              jid: 'sl:C123',
+              provider: 'slack',
+              name: 'Ops',
+              trigger: '@Main',
+              addedAt: '2026-01-01T00:00:00.000Z',
+              requiresTrigger: false,
+            },
+          },
+          sources: { skills: [], mcpServers: [], tools: [] },
+          capabilities: [],
+          accessPreset: 'full',
+        };
+        return {
+          ...actual,
+          configureDesiredSettingsStorageProvider: vi.fn(),
+          ensureRuntimeSettings: vi.fn(() => settings),
+          loadRuntimeSettingsFromPath: vi.fn(() => settings),
+        };
+      },
+    );
+    vi.doMock('@core/cli/setup-flow-core-steps.js', () => ({
+      runAddAgentSetupSlice: vi.fn(),
+      runWelcomeStep: vi.fn(),
+      runRuntimeHomeStep: vi.fn(),
+      runStorageStep: vi.fn(),
+      runChannelStep: vi.fn(),
+      runModelStep: vi.fn(),
+      runMemoryStep,
+    }));
+    vi.doMock('@core/cli/setup-credentials.js', () => ({
+      runCredentialsStep,
+    }));
+    vi.doMock('@core/cli/setup-flow-provider-steps.js', () => ({
+      runTelegramStep,
+      runSlackStep,
+    }));
+    vi.doMock('@core/cli/setup-flow-final-steps.js', () => ({
+      runConfigStep,
+      runGroupStep,
+      runVerifyStep,
+    }));
+    vi.doMock('@core/cli/setup-ready.js', () => ({
+      runReadyStep,
+    }));
+
+    const { main } = await import('@core/cli/index.js');
+    const code = await main(['--runtime-home', runtimeHome, 'setup']);
+
+    expect(code).toBe(0);
+    expect(runMemoryStep).toHaveBeenCalledTimes(1);
+    expect(runCredentialsStep).toHaveBeenCalledTimes(1);
+    expect(runConfigStep).toHaveBeenCalledTimes(1);
+    expect(runVerifyStep).toHaveBeenCalledTimes(1);
+    expect(runReadyStep).toHaveBeenCalledTimes(1);
+    expect(runTelegramStep).not.toHaveBeenCalled();
+    expect(runSlackStep).not.toHaveBeenCalled();
+    expect(runGroupStep).not.toHaveBeenCalled();
+  });
+
+  it('runs the completed setup add-agent mini-flow', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const onboarding = await import('@core/cli/onboarding-state.js');
+    const state = onboarding.createInitialState(runtimeHome);
+    state.status = 'completed';
+    state.currentStep = 'ready';
+    onboarding.writeOnboardingState(runtimeHome, state);
+    const select = vi.fn(async ({ message }: { message: string }) => {
+      if (message === 'What do you want to change?') return 'add_agent';
+      if (message === 'Choose this agent chat model') return 'gpt';
+      if (message === 'Choose a channel to connect this agent') return 'slack';
+      return 'cancel';
+    });
+    const text = vi.fn(async () => 'Research Bot');
+    const runSetupFlow = vi.fn(async () => ({
+      status: 'completed',
+      runtimeHome,
+      startAfterSetup: false,
+    }));
+    const listReadyModelCredentialProviders = vi.fn(async () => new Set());
+    const promptModelCredentialPayload = vi.fn(async () => ({
+      authMode: 'api_key',
+      payload: { apiKey: 'sk-test' },
+    }));
+    const verifyModelCredentialInputWithPrompt = vi.fn(async () => ({
+      type: 'verified',
+    }));
+    const storeModelCredentialInput = vi.fn(async () => undefined);
+    const runProviderConnectCommand = vi.fn(async () => 0);
+    const settings = { agents: {} as Record<string, any> };
+    const writeDesiredRuntimeSettings = vi.fn(async (input) => {
+      Object.assign(settings, structuredClone(input.settings));
+      return { reconciled: true };
+    });
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      outro: vi.fn(),
+      select,
+      text,
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import('@core/config/settings/runtime-settings.js')
+        >()),
+        configureDesiredSettingsStorageProvider: vi.fn(),
+        ensureRuntimeSettings: vi.fn(),
+        loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
+        writeDesiredRuntimeSettings,
+        ensureConfiguredAgent: vi.fn((target, input) => {
+          target.agents[input.agentId] ??= {
+            name: input.agentName,
+            folder: input.agentFolder,
+            persona: 'developer',
+            bindings: {},
+            sources: { skills: [], mcpServers: [], tools: [] },
+            capabilities: [],
+            accessPreset: 'full',
+          };
+        }),
+      }),
+    );
+    vi.doMock('@core/cli/setup-flow.js', () => ({ runSetupFlow }));
+    vi.doMock('@core/cli/credentials.js', () => ({
+      listReadyModelCredentialProviders,
+      promptModelCredentialPayload,
+      verifyModelCredentialInputWithPrompt,
+      storeModelCredentialInput,
+    }));
+    vi.doMock('@core/cli/provider-connect.js', () => ({
+      runProviderConnectCommand,
+    }));
+    vi.doMock('@core/cli/runtime-group-db.js', () => ({
+      openRuntimeGroupDb: vi.fn(async () => ({
+        getAllConversationRoutes: vi.fn(async () => ({
+          'slack:C123': { name: 'Research Bot', folder: 'research_bot' },
+        })),
+        close: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const { main } = await import('@core/cli/index.js');
+    const code = await main(['--runtime-home', runtimeHome, 'setup']);
+
+    expect(code).toBe(0);
+    expect(runSetupFlow).not.toHaveBeenCalled();
+    expect(settings.agents.research_bot).toMatchObject({
+      name: 'Research Bot',
+      model: 'gpt',
+    });
+    expect(promptModelCredentialPayload).toHaveBeenCalledWith('openai');
+    expect(verifyModelCredentialInputWithPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'openai', authMode: 'api_key' }),
+    );
+    expect(storeModelCredentialInput).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeHome, providerId: 'openai' }),
+    );
+    expect(runProviderConnectCommand).toHaveBeenCalledWith(
+      runtimeHome,
+      'slack',
+      'research_bot',
+      'Research Bot',
+    );
+  });
+
+  it('does not persist an add-agent when the conversation kept its existing owner', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const onboarding = await import('@core/cli/onboarding-state.js');
+    const state = onboarding.createInitialState(runtimeHome);
+    state.status = 'completed';
+    state.currentStep = 'ready';
+    onboarding.writeOnboardingState(runtimeHome, state);
+    const select = vi.fn(async ({ message }: { message: string }) => {
+      if (message === 'What do you want to change?') return 'add_agent';
+      if (message === 'Choose this agent chat model') return 'gpt';
+      if (message === 'Choose a channel to connect this agent') return 'slack';
+      return 'cancel';
+    });
+    const text = vi.fn(async () => 'Research Bot');
+    const logError = vi.fn();
+    const settings = { agents: {} as Record<string, unknown> };
+    const writeDesiredRuntimeSettings = vi.fn(async () => ({
+      reconciled: true,
+    }));
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      outro: vi.fn(),
+      select,
+      text,
+      log: { error: logError, info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+    }));
+    vi.doMock(
+      '@core/config/settings/runtime-settings.js',
+      async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import('@core/config/settings/runtime-settings.js')
+        >()),
+        configureDesiredSettingsStorageProvider: vi.fn(),
+        ensureRuntimeSettings: vi.fn(),
+        loadDesiredRuntimeSettingsForWrite: vi.fn(async () => settings),
+        writeDesiredRuntimeSettings,
+      }),
+    );
+    vi.doMock('@core/cli/setup-flow.js', () => ({
+      runSetupFlow: vi.fn(),
+    }));
+    vi.doMock('@core/cli/credentials.js', () => ({
+      listReadyModelCredentialProviders: vi.fn(async () => new Set(['openai'])),
+      promptModelCredentialPayload: vi.fn(),
+      verifyModelCredentialInputWithPrompt: vi.fn(),
+      storeModelCredentialInput: vi.fn(),
+    }));
+    vi.doMock('@core/cli/provider-connect.js', () => ({
+      runProviderConnectCommand: vi.fn(async () => 0),
+    }));
+    vi.doMock('@core/cli/runtime-group-db.js', () => ({
+      openRuntimeGroupDb: vi.fn(async () => ({
+        getAllConversationRoutes: vi.fn(async () => ({
+          'slack:C123': { name: 'Main Agent', folder: 'main_agent' },
+        })),
+        close: vi.fn(async () => undefined),
+      })),
+    }));
+
+    const { main } = await import('@core/cli/index.js');
+    const code = await main(['--runtime-home', runtimeHome, 'setup']);
+
+    expect(code).toBe(1);
+    // The only write is the rollback restoring pre-connect channel state.
+    expect(writeDesiredRuntimeSettings).toHaveBeenCalledTimes(1);
+    expect(writeDesiredRuntimeSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ createdBy: 'cli:setup-add-agent-rollback' }),
+    );
+    expect(logError).toHaveBeenCalledWith(
+      expect.stringContaining('No conversation was bound to the new agent'),
+    );
+  });
+
   it('does not override CLI settings storage resolution when URL lives in runtime .env', async () => {
     const runtimeHome = makeRuntimeHome();
     const originalGantryHome = process.env.GANTRY_HOME;
@@ -147,10 +534,16 @@ describe('CLI local routing', () => {
       validateRuntimePreflightWithStorage,
       formatRuntimePreflightFailure: vi.fn(),
     }));
+    const log = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      success: vi.fn(),
+    };
     vi.doMock('@clack/prompts', () => ({
       isCancel: () => false,
       note: vi.fn(),
-      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+      log,
       select: vi.fn(),
       text: vi.fn(),
       spinner: vi.fn(() => ({
@@ -167,6 +560,9 @@ describe('CLI local routing', () => {
     expect(runPostgresMigrations).toHaveBeenCalledBefore(startGantryRuntime);
     expect(startGantryRuntime).toHaveBeenCalledWith();
     expect(validateRuntimePreflightWithStorage).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(
+      'gantry start runs the runtime in the FOREGROUND. Manage the background service with `gantry service install` and `gantry restart`.',
+    );
   });
 
   it('runs migrations before smart CLI status checks', async () => {

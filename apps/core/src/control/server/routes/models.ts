@@ -5,14 +5,16 @@ import { ModelDefaultsResponseSchema } from '@gantry/contracts';
 import { ApplicationError } from '../../../application/common/application-error.js';
 import type { AppId } from '../../../domain/app/app.js';
 import {
-  DEFAULT_MODEL_PRESET_ID,
-  getModelPreset,
-  isModelPresetId,
+  DEFAULT_SETUP_MODEL_ALIAS,
   listModelCatalogEntries,
+  memoryModelDefaultsForProvider,
   resolveModelSelectionForWorkload,
-  type ModelPresetId,
   type ModelWorkload,
 } from '../../../shared/model-catalog.js';
+import {
+  isModelFamilyAlias,
+  resolveModelFamilyAlias,
+} from '../../../shared/model-families.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
 import {
   deriveAgentEngineForProvider,
@@ -31,6 +33,11 @@ import {
 } from '../handler-context.js';
 import { readJson, sendError, sendJson } from '../http.js';
 import { authenticate, type ApiKeyRecord } from '../auth.js';
+
+type FamilyProviderOptions = {
+  configuredProviders?: ReadonlySet<string>;
+  familyOrder?: Record<string, string[]>;
+};
 
 function modelToResponse(
   entry: ReturnType<typeof listModelCatalogEntries>[number],
@@ -180,16 +187,16 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
   const memoryConsolidation = modelDefaultSlotToResponse(
     defaults.memoryConsolidation,
   );
-  const presetModel =
+  const providerModel =
     defaults.chat.modelEntry ??
     defaults.oneTime.modelEntry ??
     defaults.recurring.modelEntry ??
     defaults.memoryExtractor.modelEntry;
   return ModelDefaultsResponseSchema.parse({
-    preset: presetModel
+    provider: providerModel
       ? {
-          id: presetModel.modelRoute.id,
-          label: presetModel.modelRoute.label,
+          id: providerModel.modelRoute.id,
+          label: providerModel.modelRoute.label,
         }
       : null,
     chat,
@@ -198,7 +205,7 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
       recurring,
     },
     memory: {
-      mode: 'preset-managed',
+      mode: 'provider-managed',
       extractor: memoryExtractor,
       dreaming: memoryDreaming,
       consolidation: memoryConsolidation,
@@ -214,64 +221,45 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
   });
 }
 
-function presetFromDefaults(
-  defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
-): ModelPresetId {
-  // Guard: a DeepAgents-lane provider id is not a preset; fall back to default.
-  const providerId =
-    defaults.defaults.chat.modelEntry?.modelRoute.id ??
-    defaults.defaults.oneTime.modelEntry?.modelRoute.id ??
-    defaults.defaults.recurring.modelEntry?.modelRoute.id ??
-    defaults.defaults.memoryExtractor.modelEntry?.modelRoute.id;
-  return isModelPresetId(providerId) ? providerId : DEFAULT_MODEL_PRESET_ID;
-}
-
 function providerForAlias(
   value: unknown,
   workload: ModelWorkload,
-): ModelPresetId | undefined {
+  options: FamilyProviderOptions = {},
+): string | undefined {
   if (typeof value !== 'string' || value === 'inherit') return undefined;
-  const resolved = resolveModelSelectionForWorkload(value, workload);
+  const configuredProviders = options.configuredProviders;
+  const alias = isModelFamilyAlias(value)
+    ? (resolveModelFamilyAlias(value, {
+        isProviderConfigured: (providerId) =>
+          configuredProviders?.has(providerId) ?? false,
+        order: options.familyOrder,
+      })?.alias ?? value)
+    : value;
+  const resolved = resolveModelSelectionForWorkload(alias, workload);
   if (!resolved.ok) return undefined;
-  // DeepAgents-lane provider ids are not presets, so skip them in the loop.
-  const providerId = resolved.entry.modelRoute.id;
-  return isModelPresetId(providerId) ? providerId : undefined;
+  return resolved.entry.modelRoute.id;
 }
 
 export function providersSelectedByPatch(
   body: Record<string, unknown>,
   defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
-): ModelPresetId[] {
-  const preset = isModelPresetId(body.preset)
-    ? body.preset
-    : presetFromDefaults(defaults);
-  const modelPreset = getModelPreset(preset);
+  options: FamilyProviderOptions = {},
+): string[] {
   let chatAlias =
-    'preset' in body
-      ? modelPreset.chatDefault
-      : (defaults.defaults.chat.effectiveAlias ?? modelPreset.chatDefault);
+    defaults.defaults.chat.effectiveAlias ?? DEFAULT_SETUP_MODEL_ALIAS;
 
   if ('chat' in body) {
     chatAlias =
       body.chat === null || body.chat === 'inherit'
-        ? modelPreset.chatDefault
+        ? DEFAULT_SETUP_MODEL_ALIAS
         : typeof body.chat === 'string'
           ? body.chat
           : chatAlias;
   }
 
-  let oneTimeAlias =
-    'preset' in body
-      ? modelPreset.oneTimeJobDefault || chatAlias
-      : (defaults.defaults.oneTime.configuredAlias ??
-        defaults.defaults.oneTime.effectiveAlias ??
-        chatAlias);
-  let recurringAlias =
-    'preset' in body
-      ? modelPreset.recurringJobDefault || chatAlias
-      : (defaults.defaults.recurring.configuredAlias ??
-        defaults.defaults.recurring.effectiveAlias ??
-        chatAlias);
+  // Inherited job defaults follow the patched chat alias.
+  let oneTimeAlias = defaults.defaults.oneTime.configuredAlias ?? chatAlias;
+  let recurringAlias = defaults.defaults.recurring.configuredAlias ?? chatAlias;
 
   if ('jobs' in body) {
     if (body.jobs === null || body.jobs === 'inherit') {
@@ -299,29 +287,34 @@ export function providersSelectedByPatch(
           : recurringAlias;
   }
 
-  const memoryDefaults = modelPreset.memoryDefaults;
-  const memoryExtractorAlias =
-    'preset' in body || 'memory' in body
-      ? memoryDefaults.extractor
-      : defaults.defaults.memoryExtractor.effectiveAlias;
-  const memoryDreamingAlias =
-    'preset' in body || 'memory' in body
-      ? memoryDefaults.dreaming
-      : defaults.defaults.memoryDreaming.effectiveAlias;
-  const memoryConsolidationAlias =
-    'preset' in body || 'memory' in body
-      ? memoryDefaults.consolidation
-      : defaults.defaults.memoryConsolidation.effectiveAlias;
+  const chatProvider = providerForAlias(chatAlias, 'chat', options);
+  const memoryDefaults = memoryModelDefaultsForProvider(
+    chatProvider ??
+      providerForAlias(DEFAULT_SETUP_MODEL_ALIAS, 'chat', options) ??
+      '',
+  );
+  const memoryAliases =
+    'memory' in body
+      ? memoryDefaults
+      : {
+          extractor: defaults.defaults.memoryExtractor.effectiveAlias,
+          dreaming: defaults.defaults.memoryDreaming.effectiveAlias,
+          consolidation: defaults.defaults.memoryConsolidation.effectiveAlias,
+        };
 
   return [
     [chatAlias, 'chat'],
     [oneTimeAlias, 'one_time_job'],
     [recurringAlias, 'recurring_job'],
-    [memoryExtractorAlias, 'memory_extractor'],
-    [memoryDreamingAlias, 'memory_dreaming'],
-    [memoryConsolidationAlias, 'memory_consolidation'],
-  ].reduce<ModelPresetId[]>((providers, [alias, workload]) => {
-    const provider = providerForAlias(alias, workload as ModelWorkload);
+    [memoryAliases.extractor, 'memory_extractor'],
+    [memoryAliases.dreaming, 'memory_dreaming'],
+    [memoryAliases.consolidation, 'memory_consolidation'],
+  ].reduce<string[]>((providers, [alias, workload]) => {
+    const provider = providerForAlias(
+      alias,
+      workload as ModelWorkload,
+      options,
+    );
     if (provider && !providers.includes(provider)) providers.push(provider);
     return providers;
   }, []);
@@ -395,7 +388,7 @@ export function memoryModelPreview(
       responseFamily,
       diagnosticLane,
       why: [
-        `memory ${task} uses preset-managed settings from ${slot.source}`,
+        `memory ${task} uses provider-managed settings from ${slot.source}`,
         `memory transport: ${agentEngineLabel(engine)}`,
       ],
     },
@@ -655,28 +648,36 @@ export async function handleModelRoutes(
         return true;
       }
       const body = rawBody as Record<string, unknown>;
+      const appId = auth.appId as AppId;
+      const configuredProviders = new Set(
+        await ctx.getActiveModelCredentialProviderIds(appId),
+      );
       for (const provider of providersSelectedByPatch(
         body,
         ctx.getModelDefaults(),
+        {
+          configuredProviders,
+          familyOrder: ctx.getInternalRuntimeSettings().modelFamilies,
+        },
       )) {
-        const preflight = await ctx.preflightModelPreset(
-          provider,
-          auth.appId as AppId,
-        );
+        const preflight = await ctx.preflightModelProvider(provider, appId);
         if (!preflight.ok) {
           sendError(
             res,
             400,
             'INVALID_REQUEST',
-            `Preset preflight failed: ${preflight.message}`,
+            `Provider preflight failed: ${preflight.message}`,
           );
           return true;
         }
       }
       const result = await ctx.patchModelDefaults(
         body,
-        auth.appId as AppId,
+        appId,
         `control-api:${auth.kid}`,
+        {
+          getConfiguredModelProviderIds: async () => configuredProviders,
+        },
       );
       if (!result.ok) {
         sendError(res, 400, 'INVALID_REQUEST', result.message);

@@ -91,6 +91,33 @@ describe('GroupQueue', () => {
     expect(maxConcurrent).toBe(1);
   });
 
+  it('coalesces N wakeups queued during an active run', async () => {
+    const seen: Array<{ finalRetry: boolean }> = [];
+    let releaseFirst: () => void;
+
+    queue.setProcessMessagesFn(async (_groupJid, context) => {
+      seen.push(context);
+      if (seen.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+      }
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    for (let i = 0; i < 100; i++) {
+      queue.enqueueMessageCheck('group1@g.us');
+    }
+
+    releaseFirst!();
+    await vi.advanceTimersByTimeAsync(10);
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(seen).toEqual([{ finalRetry: false }, { finalRetry: false }]);
+  });
+
   it('registers live-turn runner hooks with routing metadata', async () => {
     const registrar = vi.fn();
     queue.setLiveTurnRunnerRegistrar(registrar);

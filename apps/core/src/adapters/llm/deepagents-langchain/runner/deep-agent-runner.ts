@@ -123,9 +123,14 @@ export async function runDeepAgentTurn(input: {
       gatewayBaseUrl: gateway.baseUrl,
       gatewayToken: gateway.token,
       sessionId: stickySessionId,
+      promptCacheKey:
+        process.env.GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY?.trim() || undefined,
       ...(input.maxInputTokens !== undefined
         ? { maxInputTokens: input.maxInputTokens }
         : {}),
+      effort: input.agentInput.effort,
+      configuredThinking: input.agentInput.configuredThinking,
+      maxOutputTokens: input.agentInput.maxOutputTokens,
       ...(input.openRouterProviderRouting
         ? { openRouterProviderRouting: input.openRouterProviderRouting }
         : {}),

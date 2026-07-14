@@ -95,6 +95,7 @@ export interface ModelProviderCacheUsageFields {
 export interface ModelProviderPromptCacheSupport {
   mode: ModelProviderPromptCacheMode;
   automatic: boolean;
+  promptCacheKey?: boolean;
   requestControl: 'none' | 'cache_control_blocks' | 'provider_automatic_prefix';
   ttlOptions: readonly string[];
   minimumTokenThresholds: readonly {
@@ -140,6 +141,8 @@ export interface ModelProviderDefinition {
   gateway: ModelGatewayDefinition;
   cacheSupport: ModelProviderCacheSupport;
   executionRoute: ModelExecutionRoute;
+  sdkModelCapabilityMetadata?: boolean;
+  supportsReasoningEffort?: boolean;
 }
 
 export const MODEL_PROVIDER_DEFINITIONS = [
@@ -241,6 +244,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       executionProviderId: 'anthropic:claude-agent-sdk',
       supportedCredentialModes: ['api_key', 'claude_code_oauth'],
     },
+    sdkModelCapabilityMetadata: true,
   },
   {
     id: 'openrouter',
@@ -334,6 +338,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       executionProviderId: 'deepagents:langchain',
       supportedCredentialModes: ['api_key'],
     },
+    supportsReasoningEffort: true,
   },
   {
     id: 'openai',
@@ -404,6 +409,7 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       executionProviderId: 'deepagents:langchain',
       supportedCredentialModes: ['api_key'],
     },
+    supportsReasoningEffort: true,
   },
   // Additional OpenAI-chat-completions-compatible providers on the DeepAgents
   // engine. Defined in a sibling module to keep this file under its line

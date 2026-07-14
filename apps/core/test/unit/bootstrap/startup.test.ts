@@ -144,7 +144,7 @@ describe('runStartup', () => {
             providers: {
               telegram: { enabled: true },
             },
-            providerConnections: {
+            providerAccounts: {
               telegram_default: {
                 provider: 'telegram',
                 label: 'Telegram',

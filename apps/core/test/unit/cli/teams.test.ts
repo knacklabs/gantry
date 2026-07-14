@@ -362,9 +362,7 @@ describe('cli teams helpers', () => {
     );
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.teams.enabled).toBe(true);
-    expect(
-      settings.providerConnections.teams_default.runtimeSecretRefs,
-    ).toEqual({
+    expect(settings.providerAccounts.teams_default.runtimeSecretRefs).toEqual({
       client_id: 'gantry-secret:TEAMS_CLIENT_ID',
       client_secret: 'gantry-secret:TEAMS_CLIENT_SECRET',
       tenant_id: 'gantry-secret:TEAMS_TENANT_ID',

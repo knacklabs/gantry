@@ -1,6 +1,10 @@
 import { initChatModel } from 'langchain/chat_models/universal';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatOpenRouterInput } from '@langchain/openrouter';
+import type {
+  AgentControlEffort,
+  AgentControlThinking,
+} from '../../../../domain/types.js';
 import { GantryChatOpenRouter } from './gantry-chat-openrouter.js';
 
 // Builds the LangChain chat-model instance the DeepAgents graph runs on. Model
@@ -67,12 +71,16 @@ export async function buildRunnerModel(input: {
   // Durable session id for OpenRouter sticky cache routing (see below). OpenAI
   // has no session_id concept, so this is applied to the openrouter lane only.
   sessionId?: string;
+  promptCacheKey?: string;
   // Curated context window (host-projected GANTRY_DEEPAGENTS_MAX_INPUT_TOKENS)
   // for ids the LangChain library has no built-in profile for. When present it
   // becomes the model profile's `maxInputTokens` so DeepAgents summarizes at 85%
   // of the real window and context-usage reports correctly. When ABSENT (e.g.
   // gpt-5.5/gpt-5.4), the library's real profile is used unchanged.
   maxInputTokens?: number;
+  effort?: AgentControlEffort;
+  configuredThinking?: AgentControlThinking;
+  maxOutputTokens?: number;
   openRouterProviderRouting?: OpenRouterProviderPreferences;
 }): Promise<ResolvedRunnerModel> {
   const provider = input.provider.trim().toLowerCase();
@@ -80,6 +88,12 @@ export async function buildRunnerModel(input: {
   assertLoopbackGatewayUrl(baseURL, 'gateway base URL');
   const apiKey = requireGatewayToken(input.gatewayToken, 'gateway token');
   const maxInputTokens = resolveMaxInputTokens(input.maxInputTokens);
+  const maxOutputTokens = resolveMaxOutputTokens(input.maxOutputTokens);
+  const reasoningEffort = resolveReasoningEffort({
+    provider,
+    effort: input.effort,
+    thinking: input.configuredThinking,
+  });
 
   if (provider === 'openrouter') {
     const sessionId = input.sessionId?.trim();
@@ -106,6 +120,10 @@ export async function buildRunnerModel(input: {
       ...(input.openRouterProviderRouting
         ? { provider: input.openRouterProviderRouting }
         : {}),
+      ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
+      ...(reasoningEffort
+        ? { modelKwargs: { reasoning: { effort: reasoningEffort } } }
+        : {}),
     });
     return { model, endpointFamily: 'openrouter', modelId: input.modelId };
   }
@@ -118,6 +136,11 @@ export async function buildRunnerModel(input: {
     const model = await initChatModel(`openai:${input.modelId}`, {
       apiKey,
       configuration: { baseURL },
+      ...(input.promptCacheKey
+        ? { modelKwargs: { prompt_cache_key: input.promptCacheKey } }
+        : {}),
+      ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
+      ...(maxOutputTokens !== undefined ? { maxTokens: maxOutputTokens } : {}),
       streamUsage: true,
       // initChatModel stores `profile` on the ConfigurableModel wrapper and its
       // `.profile` getter returns it first, so the curated window reaches both
@@ -139,6 +162,40 @@ export async function buildRunnerModel(input: {
   );
 }
 
+type SupportedReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+function resolveReasoningEffort(input: {
+  provider: string;
+  effort?: AgentControlEffort;
+  thinking?: AgentControlThinking;
+}): SupportedReasoningEffort | undefined {
+  if (input.thinking?.budgetTokens !== undefined) {
+    throw new Error(
+      `DeepAgents model provider "${input.provider}" does not support thinking budget tokens.`,
+    );
+  }
+  if (input.effort === 'max') {
+    throw new Error(
+      `DeepAgents model provider "${input.provider}" does not support effort "max".`,
+    );
+  }
+  const effort =
+    input.thinking?.mode === 'off'
+      ? 'none'
+      : (input.effort ??
+        (input.thinking?.mode === 'on' ? 'medium' : undefined));
+  if (
+    effort !== undefined &&
+    input.provider !== 'openai' &&
+    input.provider !== 'openrouter'
+  ) {
+    throw new Error(
+      `DeepAgents model provider "${input.provider}" does not support reasoning effort.`,
+    );
+  }
+  return effort;
+}
+
 // Normalizes the optional curated window to a positive finite number or
 // undefined (so the profile override is attached only when meaningful).
 function resolveMaxInputTokens(value: number | undefined): number | undefined {
@@ -146,6 +203,12 @@ function resolveMaxInputTokens(value: number | undefined): number | undefined {
     return value;
   }
   return undefined;
+}
+
+function resolveMaxOutputTokens(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (Number.isInteger(value) && value > 0) return value;
+  throw new Error('DeepAgents max_output_tokens must be a positive integer.');
 }
 
 function requireGatewayToken(value: string | undefined, label: string): string {

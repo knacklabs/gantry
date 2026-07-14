@@ -28,7 +28,7 @@
   display/source metadata only unless explicitly registered as aliases.
 - Catalog response families are simple API-shape labels, currently `anthropic`
   and schema-only `openai`. OpenRouter belongs in `modelRoute` metadata and
-  preset UX, not in `responseFamily` or raw user-facing model selectors.
+  provider defaults, not in `responseFamily` or raw user-facing model selectors.
 - `model-families.ts` is a SEPARATE selector namespace, not part of the catalog
   `ALIAS_INDEX`. A family alias (e.g. `gpt-oss`, `llama-70b`) maps to ordered
   EXISTING concrete catalog member aliases; the load-time guard throws if a
@@ -66,7 +66,8 @@
   DeepAgents task/todo/async task tools) are not durable authority. Shared tool
   rule matching must keep canonical `AgentDelegation` separate from raw
   provider projections unless a Gantry-owned wrapper explicitly performs the
-  provider call after policy and lifecycle checks.
+  provider call after policy and lifecycle checks. Anthropic native `Task*`
+  subagent aliases must be rejected; use native `Agent` only.
 - Durable-memory tool-use guards are shared policy, not runner-only behavior.
   Keep `memory-boundary.ts` usable from jobs and runner adapters so async
   command execution and provider SDK tool callbacks deny the same high-risk

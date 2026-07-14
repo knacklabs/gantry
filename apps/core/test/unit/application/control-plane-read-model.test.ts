@@ -71,7 +71,7 @@ describe('control plane read model', () => {
         blockedJobs: 1,
         memoryStatus: 'Needs review',
       }).kind,
-    ).toBe('missing_conversation_binding');
+    ).toBe('missing_conversation_install');
 
     expect(
       selectControlPlaneNextAction({

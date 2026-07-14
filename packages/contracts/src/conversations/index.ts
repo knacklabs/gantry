@@ -27,7 +27,7 @@ export type ConversationStatus = z.infer<typeof ConversationStatusSchema>;
 export const DiscoverConversationsRequestSchema =
   CursorPageRequestSchema.extend({
     appId: z.string(),
-    providerConnectionId: z.string(),
+    providerAccountId: z.string(),
     query: z.string().optional(),
     includeArchived: z.boolean().optional(),
     providerMetadata: ContractMetadataSchema.optional(),
@@ -39,7 +39,7 @@ export type DiscoverConversationsRequest = z.infer<
 export const ConversationResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
-  providerConnectionId: z.string(),
+  providerAccountId: z.string(),
   externalRef: ExternalReferenceSchema.optional(),
   kind: ConversationKindSchema,
   title: z.string().nullable().optional(),

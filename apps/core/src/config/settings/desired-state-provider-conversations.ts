@@ -1,7 +1,7 @@
 import type { Conversation } from '../../domain/conversation/conversation.js';
 import type {
   RuntimeConfiguredConversation,
-  RuntimeProviderConnectionSettings,
+  RuntimeProviderAccountSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
 import { envRuntimeSecretRef } from '../../domain/ports/runtime-secret-provider.js';
@@ -73,9 +73,11 @@ export function stripProviderPrefix(jid: string): string {
 
 export function jidForConfiguredConversation(
   conversation: RuntimeConfiguredConversation,
-  providerConnections: Record<string, RuntimeProviderConnectionSettings>,
+  providerAccounts: Record<string, RuntimeProviderAccountSettings>,
 ): string {
-  const connection = providerConnections[conversation.providerConnection];
+  const connection =
+    providerAccounts[conversation.providerAccount] ??
+    providerAccounts[conversation.providerConnection ?? ''];
   const provider = connection
     ? providerInfoForId(connection.provider)
     : undefined;
@@ -124,13 +126,8 @@ export function defaultRuntimeSecretRefs(
 export function providerTopology(
   settings: RuntimeSettings,
 ): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(settings.providers).map(([providerId, provider]) => [
-      providerId,
-      {
-        enabled: provider.enabled,
-        defaultConnection: provider.defaultConnection,
-      },
-    ]),
-  );
+  return {
+    providers: settings.providers,
+    providerAccounts: settings.providerAccounts,
+  };
 }

@@ -4,10 +4,7 @@ import { hasRuntimeCredentialConfigured } from './runtime-credential-check.js';
 type RuntimeConfigSettings = NonNullable<
   Parameters<typeof hasRuntimeCredentialConfigured>[0]['settings']
 > & {
-  providers: Record<
-    string,
-    { enabled?: boolean; defaultConnection?: string } | undefined
-  >;
+  providers: Record<string, { enabled?: boolean } | undefined>;
 };
 
 export function hasConfiguredChannelProvider(

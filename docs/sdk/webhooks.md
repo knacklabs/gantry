@@ -7,6 +7,34 @@ Gantry has accepted work.
 Do not use `/v1/webhooks` for inbound authority. Signed inbound systems use
 external ingress records under `/v1/ingresses`.
 
+## Lifecycle subscriptions
+
+A registration may subscribe to runtime event types, optionally scoped to one
+subject:
+
+```ts
+client.webhooks.register({
+  name: 'run-lifecycle',
+  url: 'https://app.example.com/hooks/gantry',
+  eventTypes: ['run.completed', 'run.failed', 'interaction.pending'],
+  agentId: 'support-agent', // optional; sessionId / jobId also accepted
+});
+```
+
+Subscribed events are fanned out automatically from the durable runtime event
+log (transactional outbox) through the same signed delivery machinery — no
+per-request `webhookId` needed. Subject scoping (`agentId`, `sessionId`,
+`jobId`) requires `eventTypes`. Registrations without `eventTypes` keep the
+original behavior: they deliver only when a session/message names the webhook
+explicitly.
+
+`interaction.pending` fires when an agent records a durable pending
+interaction (a question or permission prompt awaiting a human) — subscribe to
+it to react to "agent is waiting" without polling session events.
+
+Delivery payloads carry top-level `agentId`, `conversationId`, and `threadId`
+when present on the event, alongside the existing envelope fields.
+
 ## Delivery behavior
 
 - signed with HMAC-SHA256

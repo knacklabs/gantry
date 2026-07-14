@@ -13,8 +13,8 @@ App
   Agent
     AgentConfigVersion
     LlmProfile
-    AgentConversationBinding
-      ProviderConnection
+    ConversationInstall
+      ProviderAccount
         Provider
         Conversation
           ConversationThread
@@ -53,14 +53,14 @@ Identity rules:
 | Concept                    | Owner                    | Meaning                                                                                                                                                                                                    |
 | -------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `App`                      | Domain                   | A runtime namespace for agents, users, memory, policies, conversations, jobs, and SDK/API access.                                                                                                          |
-| `Agent`                    | Domain                   | A configured agent inside an app. It owns prompt profile lineage, model profile selection, tools, skills, memory visibility, and conversation bindings.                                                    |
+| `Agent`                    | Domain                   | A configured agent inside an app. It owns prompt profile lineage, model profile selection, tools, skills, memory visibility, Provider Accounts, and conversation installs.                                 |
 | `AgentConfigVersion`       | Domain                   | An immutable version of agent behavior: prompt profile, model selection, tool/skill catalog references, workspace defaults, permission policy references, and runtime limits.                              |
 | `LlmProfile`               | Domain                   | Provider-neutral model intent such as purpose, model alias, budget, thinking mode, embedding usage, and credential-broker reference. Concrete SDK names live in provider adapters.                         |
 | `Provider`                 | Adapter catalog          | A chat adapter type such as Telegram, WhatsApp, Slack, Teams, or Web UI. It describes capabilities and normalization rules.                                                                                |
-| `ProviderConnection`       | Application plus adapter | An installed provider connection for an app, including workspace/team/bot/account identity, runtime-owned secrets, webhook/socket config, and enablement state.                                            |
+| `ProviderAccount`          | Application plus adapter | One native provider identity owned by exactly one Gantry agent, including workspace/team/bot/account identity evidence, runtime-owned secret refs, webhook/socket config, and enablement state.              |
 | `Conversation`             | Domain                   | A provider-neutral communication container. It can be a DM, group, channel, chat, SDK conversation, or Web UI chat.                                                                                        |
 | `ConversationThread`       | Domain                   | A sub-conversation within a conversation, such as Slack `thread_ts`, Telegram forum topic, Teams reply chain, or a Web UI branch.                                                                          |
-| `AgentConversationBinding` | Domain                   | The relationship that says an agent is present in a conversation or thread with trigger, routing, permissions, memory scope, and workspace projection.                                                     |
+| `ConversationInstall`      | Domain                   | The relationship that says an agent's Provider Account is installed in a conversation or thread with sender/control policy, memory scope, and workspace projection.                                        |
 | `User`                     | Domain                   | A human or service actor known to an app. Provider-specific user ids are aliases.                                                                                                                          |
 | `Message`                  | Domain                   | A normalized inbound, outbound, system, or tool-visible communication event within a conversation or thread.                                                                                               |
 | `MessagePart`              | Domain                   | A typed part of a message, such as text, markdown, image, file reference, tool result, form response, or structured data.                                                                                  |
@@ -102,17 +102,17 @@ resolve to Claude, OpenAI, Gemini, a local model, or a future provider through
 an adapter. The domain must not import provider SDKs or provider model
 registries.
 
-### Providers, Conversations, And Bindings
+### Providers, Accounts, Conversations, And Installs
 
 `Provider` describes adapter capabilities. Examples include Telegram, WhatsApp,
 Slack, Teams, and Web UI. It is catalog metadata, not an installed runtime
 account.
 
-`ProviderConnection` is an app's installed provider instance. For Slack it may
-represent a workspace app providerConnection. For Telegram it may represent a bot
-token. For Teams it may represent a tenant/app providerConnection. For Web UI it may
-represent the app-owned web surface. Secrets belong behind
-`RuntimeSecretProvider`.
+`ProviderAccount` is one native provider identity owned by exactly one Gantry
+agent. For Slack it is a Slack app/bot identity. For Telegram it is a bot token.
+For Teams it is a Teams app/bot identity. For Discord it is a bot/application
+identity. For App/Web it is a virtual account with no external runtime secret.
+Secrets are stored only as refs and resolved through `RuntimeSecretProvider`.
 
 `Conversation` is the canonical message container. Provider ids such as
 Telegram chat id, WhatsApp chat id, Slack channel id, Teams chat id, or SDK
@@ -122,12 +122,12 @@ conversation id are external aliases on a conversation.
 topic, branch, or thread boundary. Thread ids are external aliases under the
 conversation.
 
-`AgentConversationBinding` connects one agent to one conversation or thread. It
-owns trigger behavior, routing, sender policy, memory subject selection,
-default workspace projection, and permission policy selection. A workspace folder
-is only one possible workspace projection of this binding. Conversation
-approvers belong to the conversation, while conversation approvers belong to an agent's
-private/direct conversation policy.
+`ConversationInstall` connects one agent's Provider Account to one conversation
+or thread. It owns routing presence, sender/control policy, memory subject
+selection, default workspace projection, and permission policy selection. A
+workspace folder is only one possible workspace projection of this install.
+Conversation approvers belong to the conversation and govern approvals for all
+installed agents in that conversation.
 
 ### Users And Messages
 
@@ -153,8 +153,8 @@ Adapters perform provider-specific download and upload.
 
 `AgentSession` is canonical continuity. It links an agent to an app-level
 context such as a conversation, thread, job, user, or manual control request.
-`/new` clears the canonical session state for the relevant binding while
-preserving the binding's selected model override when policy says so.
+`/new` clears the canonical session state for the relevant conversation install
+while preserving the install's selected model override when policy says so.
 The deterministic session key includes app, agent, conversation, thread, user,
 and job fields so Slack threads, Telegram topics, and Web UI branches do not
 collide inside one conversation.
@@ -196,7 +196,7 @@ forum topics, and Web UI branches remain conversation/session routing metadata;
 they do not create separate durable memory subjects.
 
 `Job` belongs to an app and runs through the same agent/session/run path as a
-message-triggered run. Jobs can target an agent binding, a session, a
+message-triggered run. Jobs can target an agent install, a session, a
 conversation, a thread, or a service context. Job execution must not bypass
 permission policy or sandbox lease rules.
 
@@ -220,11 +220,11 @@ agent. Provider sessions and Claude config files do not own MCP state; they
 only receive a per-run adapter projection.
 
 `PermissionPolicy` groups deterministic rules. It is attached explicitly to an
-app, agent, binding, tool catalog item, job, or sandbox profile.
+app, agent, conversation install, tool catalog item, job, or sandbox profile.
 
 `PermissionRule` evaluates a request using known runtime facts: actor, agent,
-binding, message, tool, requested path, credential profile, channel, sandbox,
-and risk classification.
+provider account, conversation install, message, tool, requested path,
+credential profile, channel, sandbox, and risk classification.
 
 `PermissionDecision` is durable and auditable. It records the request, matched
 rules, decision, approver when applicable, expiration, and run/tool context.
@@ -263,8 +263,8 @@ policy. Browser profile use still requires permission and sandbox checks.
 
 Mapping rules:
 
-- A provider conversation id is never the only Gantry identity. Store it as an
-  alias under `ProviderConnection`.
+- A provider conversation id is never the only Gantry identity. Store it with
+  the Provider Account and conversation metadata needed to reply correctly.
 - Threads are optional. A provider without threads maps all messages directly
   to `Conversation`.
 - Web UI must choose one mapping during implementation and document it in the
@@ -278,9 +278,9 @@ These mappings describe current code so future refactors know what to replace:
 
 | Current implementation      | Canonical target                                                                            |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Registered group            | `AgentConversationBinding` plus `Conversation` and optional `ConversationThread`            |
+| Registered group            | `ConversationInstall` plus `Conversation` and optional `ConversationThread`                 |
 | Group JID/chat JID          | Provider alias for `Conversation`                                                           |
-| Group folder                | Workspace projection for `AgentConversationBinding` and `WorkspaceSnapshot`                 |
+| Group folder                | Workspace projection for `ConversationInstall` and `WorkspaceSnapshot`                      |
 | Legacy sender/control lists | Sender policy and conversation approver inputs                                              |
 | Claude session id           | `ProviderSession` attached to `AgentSession`                                                |
 | Group queue key             | Queue key derived from canonical app, agent, conversation, thread, session, and run context |

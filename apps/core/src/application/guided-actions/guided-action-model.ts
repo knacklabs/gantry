@@ -9,7 +9,7 @@ import type { ControlPlaneNextAction } from '../control-plane/control-plane-read
  */
 export type GuidedActionType =
   | 'connect_provider'
-  | 'add_conversation_binding'
+  | 'add_conversation_install'
   | 'grant_access'
   | 'resume_job'
   | 'review_memory'
@@ -61,9 +61,9 @@ export const GUIDED_ACTION_DESCRIPTORS: Record<
     writesSettings: true,
     restartsRuntime: false,
   },
-  add_conversation_binding: {
-    type: 'add_conversation_binding',
-    effect: 'Binds an agent to a conversation.',
+  add_conversation_install: {
+    type: 'add_conversation_install',
+    effect: 'Installs an agent in a conversation.',
     requiresApproval: false,
     writesSettings: true,
     restartsRuntime: false,
@@ -151,8 +151,8 @@ export function guidedActionTypeForControlPlaneKind(
       return 'connect_provider';
     case 'missing_provider_connection':
       return 'connect_provider';
-    case 'missing_conversation_binding':
-      return 'add_conversation_binding';
+    case 'missing_conversation_install':
+      return 'add_conversation_install';
     case 'missing_access_approval':
       return 'grant_access';
     case 'blocked_job':

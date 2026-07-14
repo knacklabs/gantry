@@ -302,16 +302,23 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
   try {
     const injection = gateway.injection;
     opts.signal?.throwIfAborted();
-    if (modelEntry) {
-      validateModelCredentialProjectionForEntry({
-        model: modelEntry,
-        projection: {
-          env: injection.env,
-          credentialProviders: injection.credentialProviders,
-          brokerProfile: injection.brokerProfile,
-        },
-      });
+    if (!modelEntry) {
+      // Fail closed: an uncatalogued model cannot have its gateway
+      // projection verified, and skipping the check would let a raw
+      // provider key reach the runner. Custom aliases register catalog
+      // entries, so a miss here is a real configuration error.
+      throw new Error(
+        `Model "${opts.modelProfile?.runnerModel ?? opts.model}" is not in the model catalog; cannot verify Gantry Model Gateway credentials for memory queries.`,
+      );
     }
+    validateModelCredentialProjectionForEntry({
+      model: modelEntry,
+      projection: {
+        env: injection.env,
+        credentialProviders: injection.credentialProviders,
+        brokerProfile: injection.brokerProfile,
+      },
+    });
     const sdkEnv = {
       ...scrubAmbientAgentCredentials(injection.env),
       ...SDK_NATIVE_SKILL_DISABLE_ENV,

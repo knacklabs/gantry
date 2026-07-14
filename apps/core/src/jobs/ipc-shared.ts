@@ -13,6 +13,8 @@ import {
 } from '../infrastructure/service/manager.js';
 import { toTrimmedString } from '../shared/object.js';
 import { getIpcResponseSigningPrivateKey } from '../runtime/ipc-auth.js';
+import type { CoreTaskLifecycleResult } from '../application/core-tools/task-lifecycle.js';
+import type { TaskContext } from './ipc-types.js';
 
 const TASK_IPC_RESPONSE_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 export { toTrimmedString };
@@ -139,6 +141,22 @@ export function createTaskResponder(
       );
     },
   };
+}
+
+export function respondTaskLifecycleResult(
+  context: TaskContext,
+  result: CoreTaskLifecycleResult,
+): void {
+  const responder = createTaskResponder(
+    context.sourceAgentFolder,
+    context.data.taskId,
+    context.data.authThreadId,
+    context.data.responseKeyId,
+  );
+  if (!result.ok) responder.reject(result.message, result.code);
+  else if (result.data === undefined) {
+    responder.accept(result.message, result.code);
+  } else responder.acceptData(result.message, result.data, result.code);
 }
 
 export function restartServiceForRuntimeHome(runtimeHome: string): {

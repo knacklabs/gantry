@@ -7,7 +7,6 @@ import { listModelRouteProviders } from '@core/shared/model-provider-registry.js
 function makeDraft(): any {
   return {
     agentName: 'Default Agent',
-    modelPreset: 'anthropic',
     selectedModel: 'opus',
     agentHarness: AUTO_AGENT_HARNESS,
   };
@@ -38,16 +37,12 @@ async function loadModelStep(
 
 describe('setup model step', () => {
   it('keeps guided setup model selections in catalog alias space', async () => {
-    const { runModelStep, select } = await loadModelStep([
-      'anthropic',
-      'sonnet',
-    ]);
+    const { runModelStep, select } = await loadModelStep(['sonnet']);
     const draft = makeDraft();
 
     const action = await runModelStep(draft);
 
     expect(action).toEqual({ type: 'next' });
-    expect(draft.modelPreset).toBe('anthropic');
     expect(draft.selectedModel).toBe('sonnet');
     expect(draft.agentHarness).toBe(AUTO_AGENT_HARNESS);
     expect(select).not.toHaveBeenCalledWith(
@@ -55,32 +50,22 @@ describe('setup model step', () => {
     );
   });
 
-  it('labels preset and main model/provider prompts distinctly', async () => {
-    const { runModelStep, select } = await loadModelStep([
-      'anthropic',
-      'sonnet',
-    ]);
+  it('asks for the main chat model directly', async () => {
+    const { runModelStep, select } = await loadModelStep(['sonnet']);
 
     await runModelStep(makeDraft());
 
     expect(select.mock.calls[0]?.[0]?.message).toBe(
-      'Choose chat and memory LLM defaults preset',
-    );
-    expect(select.mock.calls[1]?.[0]?.message).toBe(
-      'Choose main model/provider',
+      'Choose your main chat model',
     );
   });
 
   it('does not offer legacy opusplan as a setup model choice', async () => {
-    const { runModelStep, select } = await loadModelStep(['anthropic', 'opus']);
+    const { runModelStep, select } = await loadModelStep(['opus']);
 
     await runModelStep(makeDraft());
 
-    const presetOptions = select.mock.calls[0]?.[0]?.options ?? [];
-    expect(
-      presetOptions.map((option: { value: string }) => option.value),
-    ).not.toContain('memory');
-    const options = select.mock.calls[1]?.[0]?.options ?? [];
+    const options = select.mock.calls[0]?.[0]?.options ?? [];
     expect(
       options.map((option: { value: string }) => option.value),
     ).not.toContain('opusplan');
@@ -90,46 +75,35 @@ describe('setup model step', () => {
   });
 
   it('offers OpenRouter chat models from the catalog', async () => {
-    const { runModelStep, select } = await loadModelStep([
-      'openrouter',
-      'kimi',
-    ]);
+    const { runModelStep, select } = await loadModelStep(['kimi']);
     const draft = makeDraft();
 
     await runModelStep(draft);
 
-    expect(draft.modelPreset).toBe('openrouter');
     expect(draft.selectedModel).toBe('kimi');
-    const options = select.mock.calls[1]?.[0]?.options ?? [];
+    const options = select.mock.calls[0]?.[0]?.options ?? [];
     expect(options.map((option: { value: string }) => option.value)).toContain(
       'kimi',
     );
   });
 
-  it('keeps the selected preset when the main model uses another preset provider', async () => {
-    const { runModelStep, note } = await loadModelStep(['anthropic', 'kimi']);
+  it('describes memory defaults from the selected provider', async () => {
+    const { runModelStep, note } = await loadModelStep(['kimi']);
     const draft = makeDraft();
 
     const action = await runModelStep(draft);
 
     expect(action).toEqual({ type: 'next' });
-    expect(draft.modelPreset).toBe('anthropic');
     expect(draft.selectedModel).toBe('kimi');
     expect(note).toHaveBeenCalledWith(
       expect.stringContaining(
-        'Memory LLM defaults will use the Anthropic preset.',
+        'Memory LLM defaults derive from openrouter: kimi, kimi, kimi.',
       ),
     );
   });
 
-  it('offers non-preset (DeepAgents-lane) models and keeps the memory preset', async () => {
-    // Pick the Anthropic preset (memory cascade) but a non-preset chat model
-    // (gpt -> openai). The model offerings include non-preset providers, the
-    // chat selection is stored, the preset stays for memory, and a note is shown.
-    const { runModelStep, select, note } = await loadModelStep([
-      'anthropic',
-      'gpt',
-    ]);
+  it('offers DeepAgents-lane models and derives memory from that provider', async () => {
+    const { runModelStep, select, note } = await loadModelStep(['gpt']);
     const draft = makeDraft();
 
     const action = await runModelStep(draft);
@@ -137,23 +111,23 @@ describe('setup model step', () => {
     expect(action).toEqual({ type: 'next' });
     expect(draft.selectedModel).toBe('gpt');
     expect(draft.agentHarness).toBe(AUTO_AGENT_HARNESS);
-    // Non-preset chat model does NOT change the memory LLM/defaults preset.
-    expect(draft.modelPreset).toBe('anthropic');
-    // The model list now spans providers beyond the selected preset.
-    const options = select.mock.calls[1]?.[0]?.options ?? [];
+    const options = select.mock.calls[0]?.[0]?.options ?? [];
     expect(options.map((option: { value: string }) => option.value)).toContain(
       'gpt',
     );
-    // The user is told to configure the non-preset provider's credential.
-    expect(note).toHaveBeenCalledTimes(1);
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Memory LLM defaults derive from openai: gpt-mini, gpt-mini, gpt-mini.',
+      ),
+    );
   });
 
   it('offers at least one chat alias for every chat-capable route provider', async () => {
-    const { runModelStep, select } = await loadModelStep(['anthropic', 'opus']);
+    const { runModelStep, select } = await loadModelStep(['opus']);
 
     await runModelStep(makeDraft());
 
-    const options = select.mock.calls[1]?.[0]?.options ?? [];
+    const options = select.mock.calls[0]?.[0]?.options ?? [];
     const offeredAliases = new Set(
       options.map((option: { value: string }) => option.value),
     );
@@ -196,28 +170,12 @@ describe('setup model step', () => {
     ['back', { type: 'back' }],
     ['resume', { type: 'resume' }],
     ['cancel', { type: 'cancel' }],
-  ])('returns %s from the preset prompt', async (selection, expected) => {
+  ])('returns %s from the model prompt', async (selection, expected) => {
     const { runModelStep, select } = await loadModelStep([selection]);
 
     const action = await runModelStep(makeDraft());
 
     expect(action).toEqual(expected);
     expect(select).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    ['back', { type: 'back' }],
-    ['resume', { type: 'resume' }],
-    ['cancel', { type: 'cancel' }],
-  ])('returns %s from the main model prompt', async (selection, expected) => {
-    const { runModelStep, select } = await loadModelStep([
-      'anthropic',
-      selection,
-    ]);
-
-    const action = await runModelStep(makeDraft());
-
-    expect(action).toEqual(expected);
-    expect(select).toHaveBeenCalledTimes(2);
   });
 });

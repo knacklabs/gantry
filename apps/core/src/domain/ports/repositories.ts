@@ -17,10 +17,10 @@ import type {
 } from '../model-credentials/model-credentials.js';
 import type { ModelCredentialPayload } from '../../shared/model-provider-registry.js';
 import type {
-  AgentConversationBinding,
+  ConversationInstall,
   ConversationApprover,
-  ProviderConnection,
-  ProviderConnectionId,
+  ProviderAccount,
+  ProviderAccountId,
   ProviderId,
 } from '../provider/provider.js';
 import type {
@@ -135,73 +135,68 @@ export interface AgentConfigRepository {
   saveConfigVersion(version: AgentConfigVersion): Promise<void>;
 }
 
-export interface ProviderConnectionRepository {
-  listProviderConnections(appId: AppId): Promise<ProviderConnection[]>;
-  getProviderConnection(
-    id: ProviderConnectionId,
-  ): Promise<ProviderConnection | null>;
-  saveProviderConnection(providerConnection: ProviderConnection): Promise<void>;
-  updateProviderConnection(input: {
+export interface ProviderAccountRepository {
+  listProviderAccounts(appId: AppId): Promise<ProviderAccount[]>;
+  getProviderAccount(id: ProviderAccountId): Promise<ProviderAccount | null>;
+  saveProviderAccount(providerAccount: ProviderAccount): Promise<void>;
+  updateProviderAccount(input: {
     appId: AppId;
-    id: ProviderConnectionId;
+    id: ProviderAccountId;
     patch: {
-      externalInstallationRef?:
-        | ProviderConnection['externalInstallationRef']
-        | null;
+      externalIdentityRef?: ProviderAccount['externalIdentityRef'] | null;
       label?: string;
-      status?: ProviderConnection['status'];
-      config?: ProviderConnection['config'];
-      runtimeSecretRefs?: ProviderConnection['runtimeSecretRefs'];
+      status?: ProviderAccount['status'];
+      config?: ProviderAccount['config'];
+      runtimeSecretRefs?: ProviderAccount['runtimeSecretRefs'];
     };
     updatedAt: string;
-  }): Promise<ProviderConnection | null>;
-  disableProviderConnection(input: {
+  }): Promise<ProviderAccount | null>;
+  disableProviderAccount(input: {
     appId: AppId;
-    id: ProviderConnectionId;
+    id: ProviderAccountId;
     updatedAt: string;
-  }): Promise<ProviderConnection | null>;
-  saveAgentConversationBinding(
-    binding: AgentConversationBinding,
-  ): Promise<void>;
-  disableAgentConversationBinding(input: {
+  }): Promise<ProviderAccount | null>;
+  saveConversationInstall(binding: ConversationInstall): Promise<void>;
+  disableConversationInstall(input: {
     appId: AppId;
     agentId: AgentId;
     conversationId: ConversationId;
     threadId?: ConversationThreadId;
     updatedAt: string;
-  }): Promise<AgentConversationBinding | null>;
-  getAgentConversationBinding(input: {
+  }): Promise<ConversationInstall | null>;
+  getConversationInstall(input: {
     appId: AppId;
     agentId: AgentId;
     conversationId: ConversationId;
     threadId?: ConversationThreadId;
-  }): Promise<AgentConversationBinding | null>;
+    exactThreadId?: boolean;
+  }): Promise<ConversationInstall | null>;
   isAgentEnabledInConversation(input: {
     appId: AppId;
     agentId: AgentId;
     conversationId: ConversationId;
     threadId?: ConversationThreadId;
   }): Promise<boolean>;
-  listAgentConversationBindings(
+  listConversationInstalls(
     appId: AppId,
     agentId?: AgentId,
-  ): Promise<AgentConversationBinding[]>;
-  listAgentConversationBindingsByConversation(input: {
+  ): Promise<ConversationInstall[]>;
+  listConversationInstallsByConversation(input: {
     appId: AppId;
     conversationId: ConversationId;
-  }): Promise<AgentConversationBinding[]>;
+  }): Promise<ConversationInstall[]>;
 }
 
 export interface ConversationRepository {
   listConversations(input: {
     appId: AppId;
-    providerConnectionId?: ProviderConnectionId;
+    providerAccountId?: ProviderAccountId;
   }): Promise<Conversation[]>;
   getConversation(id: ConversationId): Promise<Conversation | null>;
   getConversationByExternalRef(input: {
     appId: AppId;
     providerId: ProviderId;
-    providerConnectionId: ProviderConnectionId;
+    providerAccountId: ProviderAccountId;
     externalConversationId: ExternalConversationId | string;
   }): Promise<Conversation | null>;
   findConversationByExternalValue(input: {

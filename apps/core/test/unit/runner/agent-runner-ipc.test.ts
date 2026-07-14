@@ -470,6 +470,10 @@ export async function* query({ prompt, options }) {
     process.env.TEST_EMPTY_RESUMED_QUERY === '1'
   ) {
     appendRecord(call);
+    if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
+      fs.mkdirSync(process.env.GANTRY_IPC_INPUT_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.GANTRY_IPC_INPUT_DIR, '_close'), '');
+    }
     return;
   }
 

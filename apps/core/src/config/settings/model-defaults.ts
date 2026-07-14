@@ -1,17 +1,17 @@
 import {
-  DEFAULT_MODEL_PRESET_ID,
-  isModelPresetId,
-  getModelPreset,
-  listModelPresets,
+  DEFAULT_SETUP_MODEL_ALIAS,
   resolveModelSelectionForWorkload,
   type ModelCatalogEntry,
-  type ModelPresetId,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
+import {
+  isModelFamilyAlias,
+  resolveModelFamilyAlias,
+  resolveModelSelectionForWorkloadWithFamilies,
+} from '../../shared/model-families.js';
 import type { AppId } from '../../domain/app/app.js';
 import {
-  applyModelPreset,
-  applyPresetManagedMemoryDefaults,
+  applyProviderManagedMemoryDefaults,
   loadRuntimeSettings,
   type RuntimeSettings,
 } from './runtime-settings.js';
@@ -55,13 +55,20 @@ export type RuntimeModelDefaultsPatchResult =
   | { ok: true }
   | { ok: false; message: string };
 
-function presetFromSettings(settings: RuntimeSettings): ModelPresetId {
-  const resolved = resolveModelSelectionForWorkload(
-    settings.agent.defaultModel,
+function providerFromSettings(settings: RuntimeSettings): string {
+  // Family-aware: a stored family chat alias derives its provider from the
+  // selected member, not the default-provider fallback.
+  const resolved = resolveModelSelectionForWorkloadWithFamilies(
+    settings.agent.defaultModel || DEFAULT_SETUP_MODEL_ALIAS,
+    'chat',
+    settings.modelFamilies,
+  );
+  if (resolved.ok) return resolved.entry.modelRoute.id;
+  const fallback = resolveModelSelectionForWorkload(
+    DEFAULT_SETUP_MODEL_ALIAS,
     'chat',
   );
-  const providerId = resolved.ok ? resolved.entry.modelRoute.id : undefined;
-  return isModelPresetId(providerId) ? providerId : DEFAULT_MODEL_PRESET_ID;
+  return fallback.ok ? fallback.entry.modelRoute.id : '';
 }
 
 function modelDefaultSlot(input: {
@@ -157,16 +164,17 @@ function applyAliasOverride(input: {
   if (typeof value !== 'string') {
     return `${input.field} must be a model alias or null.`;
   }
-  const resolved = resolveModelSelectionForWorkload(value, input.workload);
+  // Family-aware so the Control API accepts the same family aliases the CLI
+  // and settings parser do; a family resolves back to its own alias and is
+  // stored verbatim.
+  const resolved = resolveModelSelectionForWorkloadWithFamilies(
+    value,
+    input.workload,
+    input.settings.modelFamilies,
+  );
   if (!resolved.ok) return resolved.message;
   input.set(resolved.alias);
   return undefined;
-}
-
-function presetMessage(): string {
-  return `preset must be one of: ${listModelPresets()
-    .map((preset) => `"${preset.id}"`)
-    .join(', ')}.`;
 }
 
 function applyJobsPatch(input: {
@@ -181,11 +189,16 @@ function applyJobsPatch(input: {
   if (typeof input.value !== 'string') {
     return 'jobs must be a model alias, "inherit", or null.';
   }
-  const oneTime = resolveModelSelectionForWorkload(input.value, 'one_time_job');
+  const oneTime = resolveModelSelectionForWorkloadWithFamilies(
+    input.value,
+    'one_time_job',
+    input.settings.modelFamilies,
+  );
   if (!oneTime.ok) return oneTime.message;
-  const recurring = resolveModelSelectionForWorkload(
+  const recurring = resolveModelSelectionForWorkloadWithFamilies(
     input.value,
     'recurring_job',
+    input.settings.modelFamilies,
   );
   if (!recurring.ok) return recurring.message;
   input.settings.agent.oneTimeJobDefaultModel = oneTime.alias;
@@ -195,9 +208,36 @@ function applyJobsPatch(input: {
 
 function resetMemoryDefaults(
   settings: RuntimeSettings,
-  preset: ModelPresetId,
+  providerId = providerFromSettings(settings),
 ): void {
-  applyPresetManagedMemoryDefaults(settings, preset);
+  applyProviderManagedMemoryDefaults(settings, providerId);
+}
+
+async function memoryResetProviderFromSettings(
+  settings: RuntimeSettings,
+  getConfiguredModelProviderIds?: () => Promise<ReadonlySet<string>>,
+): Promise<string> {
+  const fallback = providerFromSettings(settings);
+  const alias = settings.agent.defaultModel || DEFAULT_SETUP_MODEL_ALIAS;
+  if (!isModelFamilyAlias(alias) || !getConfiguredModelProviderIds) {
+    return fallback;
+  }
+  let configuredProviders: ReadonlySet<string>;
+  try {
+    configuredProviders = await getConfiguredModelProviderIds();
+  } catch {
+    return fallback;
+  }
+  const resolved = resolveModelFamilyAlias(alias, {
+    isProviderConfigured: (providerId) => configuredProviders.has(providerId),
+    order: settings.modelFamilies,
+  });
+  if (!resolved) return fallback;
+  const concrete = resolveModelSelectionForWorkload(resolved.alias, 'chat');
+  const providerId = concrete.ok ? concrete.entry.modelRoute.id : undefined;
+  return providerId && configuredProviders.has(providerId)
+    ? providerId
+    : fallback;
 }
 
 export async function updateRuntimeModelDefaults(input: {
@@ -205,9 +245,9 @@ export async function updateRuntimeModelDefaults(input: {
   body: Record<string, unknown>;
   appId?: AppId;
   createdBy?: string;
+  getConfiguredModelProviderIds?: () => Promise<ReadonlySet<string>>;
 }): Promise<RuntimeModelDefaultsPatchResult> {
   const supportedFields = new Set([
-    'preset',
     'chat',
     'jobs',
     'oneTime',
@@ -224,15 +264,6 @@ export async function updateRuntimeModelDefaults(input: {
   }
   const settings = loadRuntimeSettings(input.runtimeHome);
   const previousSettings = structuredClone(settings);
-  let preset = presetFromSettings(settings);
-  if ('preset' in input.body) {
-    const nextPreset = input.body.preset;
-    if (!isModelPresetId(nextPreset)) {
-      return { ok: false, message: presetMessage() };
-    }
-    preset = nextPreset;
-    applyModelPreset(settings, preset);
-  }
 
   if ('jobs' in input.body) {
     const message = applyJobsPatch({
@@ -240,17 +271,6 @@ export async function updateRuntimeModelDefaults(input: {
       value: input.body.jobs,
     });
     if (message) return { ok: false, message };
-  }
-
-  if ('memory' in input.body) {
-    const value = input.body.memory;
-    if (value !== null && value !== 'reset' && value !== 'preset-managed') {
-      return {
-        ok: false,
-        message: 'memory must be null, "reset", or "preset-managed".',
-      };
-    }
-    resetMemoryDefaults(settings, preset);
   }
 
   const overrides: Array<{
@@ -263,7 +283,7 @@ export async function updateRuntimeModelDefaults(input: {
       field: 'chat',
       workload: 'chat',
       reset: () => {
-        settings.agent.defaultModel = getModelPreset(preset).chatDefault;
+        settings.agent.defaultModel = DEFAULT_SETUP_MODEL_ALIAS;
       },
       set: (alias) => {
         settings.agent.defaultModel = alias;
@@ -297,6 +317,23 @@ export async function updateRuntimeModelDefaults(input: {
       ...override,
     });
     if (message) return { ok: false, message };
+  }
+
+  if ('memory' in input.body) {
+    const value = input.body.memory;
+    if (value !== null && value !== 'reset' && value !== 'provider-managed') {
+      return {
+        ok: false,
+        message: 'memory must be null, "reset", or "provider-managed".',
+      };
+    }
+    resetMemoryDefaults(
+      settings,
+      await memoryResetProviderFromSettings(
+        settings,
+        input.getConfiguredModelProviderIds,
+      ),
+    );
   }
   await writeDesiredRuntimeSettings({
     runtimeHome: input.runtimeHome,

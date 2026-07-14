@@ -5,7 +5,7 @@ import type {
   ConversationThreadId,
 } from '../conversation/conversation.js';
 import type { AgentRunId } from '../events/events.js';
-import type { ProviderConnectionId, ProviderId } from '../provider/provider.js';
+import type { ProviderAccountId, ProviderId } from '../provider/provider.js';
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 
@@ -85,7 +85,7 @@ export interface OutboundDeliveryResolvedDestination {
   conversationJid: string;
   threadId?: string;
   providerId: ProviderId;
-  providerConnectionId: ProviderConnectionId;
+  providerAccountId: ProviderAccountId;
 }
 
 export interface ClaimedOutboundDeliveryItem {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gantry Goal Pipeline"
+  short_description: "Plan-to-PR Gantry implementation workflow"
+  default_prompt: "Use $gantry-goal-pipeline to implement this Gantry plan through verification, runtime smoke, and PR closeout."

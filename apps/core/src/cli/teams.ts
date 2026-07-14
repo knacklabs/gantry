@@ -11,6 +11,7 @@ import {
 } from '../channels/teams-setup-discovery.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import {
+  ensureConfiguredAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
   writeDesiredRuntimeSettings,
@@ -18,6 +19,7 @@ import {
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import {
   allocateDefaultAgentFolder,
+  DEFAULT_AGENT_FOLDER,
   defaultTriggerForAgentName,
   normalizeDefaultAgentName,
 } from './main-agent.js';
@@ -28,6 +30,7 @@ import {
   createProfileFileMirrorWriter,
 } from '../platform/profile-file-mirror.js';
 import { planRuntimeSecretInput } from './runtime-secret-ref-prompt.js';
+import { providerAccountIdForAgent } from './provider-utils.js';
 
 type TeamsChannelChoice =
   | { type: 'selected'; channel: TeamsDiscoveredChannel }
@@ -50,16 +53,31 @@ export async function registerTeamsMainGroup(options: {
   runtimeHome: string;
   chatJid: string;
   displayName: string;
+  agentId?: string;
 }): Promise<{ folder: string; groupName: string }> {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
   try {
     const existing = await db.getAllConversationRoutes();
     const existingGroup = existing[options.chatJid];
+    // An already-registered conversation keeps its owning agent; agentId
+    // only binds conversations that are not routed yet.
     const folder =
       existingGroup?.folder ||
+      options.agentId?.trim() ||
       allocateDefaultAgentFolder(options.runtimeHome, existing);
-    const groupName = normalizeDefaultAgentName(options.displayName);
+    // A conversation owned by a DIFFERENT agent than the requested one is
+    // reused as-is: rewriting its display name would rename someone else's
+    // route with no rollback path in the route DB.
+    const requestedAgentId = options.agentId?.trim();
+    const keepExistingRoute = Boolean(
+      existingGroup &&
+      requestedAgentId &&
+      existingGroup.folder !== requestedAgentId,
+    );
+    const groupName = keepExistingRoute
+      ? existingGroup!.name
+      : normalizeDefaultAgentName(options.displayName);
 
     const route = {
       name: groupName,
@@ -211,8 +229,11 @@ async function chooseTeamsChannelForConnect(
 export async function runTeamsConnectCommand(
   runtimeHome: string,
   discoveryClient: TeamsSetupDiscoveryClient = new GraphTeamsSetupDiscoveryClient(),
+  requestedAgentId?: string,
+  requestedAgentName?: string,
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
+  const requestedAgentDisplayName = requestedAgentName?.trim();
   p.note(
     [
       'Create or reuse a Microsoft Entra app for Teams Graph discovery.',
@@ -327,6 +348,7 @@ export async function runTeamsConnectCommand(
   const approverIds = parseTeamsApproverIds(approverInput || '');
 
   if (channelChoice.type === 'selected') {
+    const currentSettings = loadRuntimeSettings(runtimeHome);
     const verified = await discoveryClient.verifyChannel({
       credentials,
       teamId: channelChoice.channel.teamId,
@@ -340,7 +362,11 @@ export async function runTeamsConnectCommand(
     const registered = await registerTeamsMainGroup({
       runtimeHome,
       chatJid: verified.chatJid,
-      displayName: loadRuntimeSettings(runtimeHome).agent.name,
+      displayName:
+        (requestedAgentId && currentSettings.agents[requestedAgentId]?.name) ||
+        requestedAgentDisplayName ||
+        currentSettings.agent.name,
+      agentId: requestedAgentId,
     });
     registeredFolder = registered.folder;
     conversationRouteName = registered.groupName;
@@ -359,24 +385,22 @@ export async function runTeamsConnectCommand(
   const settings = loadRuntimeSettings(runtimeHome);
   const previousSettings = structuredClone(settings);
   settings.providers.teams.enabled = true;
-  const providerConnectionId =
-    settings.providers.teams.defaultConnection || 'teams_default';
-  settings.providers.teams.defaultConnection = providerConnectionId;
-  settings.providerConnections[providerConnectionId] = {
-    provider: 'teams',
-    label:
-      settings.providerConnections[providerConnectionId]?.label ||
-      'Teams Default',
-    runtimeSecretRefs: {
-      ...(settings.providerConnections[providerConnectionId]
-        ?.runtimeSecretRefs || {}),
-      client_id: clientIdSecret.ref,
-      client_secret: clientSecretRef.ref,
-      tenant_id: tenantIdSecret.ref,
-    },
-  };
+  let providerAccountId = 'teams_default';
+  // The registered route's owner wins: reusing an existing conversation
+  // must not hand its provider account to the requesting agent.
+  const providerAgentId =
+    registeredFolder || requestedAgentId || DEFAULT_AGENT_FOLDER;
+  ensureConfiguredAgent(settings, {
+    agentId: providerAgentId,
+    agentName:
+      settings.agents[providerAgentId]?.name ||
+      requestedAgentDisplayName ||
+      registeredChatTitle ||
+      settings.agent.name,
+    agentFolder: providerAgentId,
+  });
   if (registeredFolder) {
-    ensureConfiguredConversationBinding(settings, {
+    const binding = ensureConfiguredConversationBinding(settings, {
       agentId: registeredFolder,
       agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
@@ -386,7 +410,27 @@ export async function runTeamsConnectCommand(
       requiresTrigger: false,
       approverIds,
     });
+    providerAccountId = binding.providerConnectionId;
+  } else {
+    providerAccountId = providerAccountIdForAgent(settings, {
+      providerId: 'teams',
+      agentId: providerAgentId,
+      defaultAccountId: providerAccountId,
+    });
   }
+  settings.providerAccounts[providerAccountId] = {
+    agentId: providerAgentId,
+    provider: 'teams',
+    label:
+      settings.providerAccounts[providerAccountId]?.label || 'Teams Default',
+    runtimeSecretRefs: {
+      ...(settings.providerAccounts[providerAccountId]?.runtimeSecretRefs ||
+        {}),
+      client_id: clientIdSecret.ref,
+      client_secret: clientSecretRef.ref,
+      tenant_id: tenantIdSecret.ref,
+    },
+  };
   await writeDesiredRuntimeSettings({
     runtimeHome,
     settings,

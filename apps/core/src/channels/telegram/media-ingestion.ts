@@ -1,4 +1,9 @@
 import { logger } from '../../infrastructure/logging/logger.js';
+import {
+  buildTriggerPattern,
+  triggerForRoute,
+} from '../../shared/trigger-pattern.js';
+import { findConversationRoutesForChat } from '../../shared/thread-queue-key.js';
 
 type TelegramMediaQueue = {
   enqueue(task: () => Promise<void>): boolean;
@@ -15,10 +20,15 @@ export function registerTelegramMediaHandlers(input: {
       name: string | undefined,
       provider: 'telegram',
       isGroup: boolean,
+      options?: { providerAccountId?: string },
     ) => Promise<void>;
+    providerAccountId?: string;
     onMessage: (jid: string, message: any) => Promise<void>;
     ensureMessageRoute?: (jid: string, message: any) => Promise<unknown>;
-    conversationRoutes: () => Record<string, { folder: string }>;
+    conversationRoutes: () => Record<
+      string,
+      { folder: string; name?: string | null; trigger?: string | null }
+    >;
   };
   mediaIngestionQueue: TelegramMediaQueue;
   downloadFile: (
@@ -42,15 +52,28 @@ export function registerTelegramMediaHandlers(input: {
       undefined,
       'telegram',
       isGroup,
+      { providerAccountId: input.opts.providerAccountId },
     );
 
     const routeGroups = input.opts.conversationRoutes;
+    const threadId = ctx.message.message_thread_id
+      ? ctx.message.message_thread_id.toString()
+      : undefined;
     let groups = routeGroups();
-    if (!isGroup && !groups[chatJid]) {
+    if (
+      !isGroup &&
+      findConversationRoutesForChat(
+        groups,
+        chatJid,
+        threadId,
+        input.opts.providerAccountId,
+      ).length < 1
+    ) {
       await input.opts.ensureMessageRoute?.(chatJid, {
         id: ctx.message.message_id.toString(),
         chat_jid: chatJid,
         provider: 'telegram',
+        providerAccountId: input.opts.providerAccountId,
         sender: ctx.from?.id?.toString() || '',
         sender_name:
           ctx.from?.first_name ||
@@ -61,15 +84,18 @@ export function registerTelegramMediaHandlers(input: {
         timestamp,
         is_from_me: false,
         external_message_id: ctx.message.message_id.toString(),
-        thread_id: ctx.message.message_thread_id
-          ? ctx.message.message_thread_id.toString()
-          : undefined,
+        thread_id: threadId,
       });
       groups = routeGroups();
     }
 
-    const group = groups[chatJid];
-    if (!group && isGroup) return;
+    const matchingGroups = findConversationRoutesForChat(
+      groups,
+      chatJid,
+      threadId,
+      input.opts.providerAccountId,
+    );
+    if (matchingGroups.length < 1 && isGroup) return;
 
     const senderName =
       ctx.from?.first_name ||
@@ -77,6 +103,14 @@ export function registerTelegramMediaHandlers(input: {
       ctx.from?.id?.toString() ||
       'Unknown';
     const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
+    const triggeredGroups =
+      matchingGroups.length > 1 && ctx.message.caption
+        ? matchingGroups.filter(([, route]) =>
+            buildTriggerPattern(triggerForRoute(route)).test(
+              ctx.message.caption.trim(),
+            ),
+          )
+        : [];
 
     const deliver = async (
       content: string,
@@ -86,7 +120,6 @@ export function registerTelegramMediaHandlers(input: {
         storageRef?: string;
       },
     ) => {
-      const threadId = ctx.message.message_thread_id;
       const msgId = ctx.message.message_id.toString();
       await input.opts.onMessage(chatJid, {
         id: msgId,
@@ -98,30 +131,23 @@ export function registerTelegramMediaHandlers(input: {
         timestamp,
         is_from_me: false,
         external_message_id: msgId,
-        thread_id: threadId ? threadId.toString() : undefined,
+        thread_id: threadId,
         attachments: attachment
           ? [
               {
                 id: `telegram-attachment:${chatJid}:${msgId}`,
                 kind: attachment.kind,
                 externalId: attachment.externalId,
-                storageRef: attachment.storageRef,
+                ...(attachment.storageRef === undefined
+                  ? {}
+                  : { storageRef: attachment.storageRef }),
               },
             ]
           : undefined,
       });
     };
 
-    if (opts?.fileId && group) {
-      const msgId = ctx.message.message_id.toString();
-      const filename =
-        opts.filename ||
-        `${placeholder.replace(/[[\] ]/g, '').toLowerCase()}_${msgId}`;
-      const downloaded = await input.downloadFile(
-        opts.fileId,
-        group.folder,
-        filename,
-      );
+    if (opts?.fileId && matchingGroups.length > 0) {
       const kind =
         placeholder === '[Photo]'
           ? 'image'
@@ -130,18 +156,36 @@ export function registerTelegramMediaHandlers(input: {
             : placeholder === '[Voice message]' || placeholder === '[Audio]'
               ? 'audio'
               : 'file';
-      if (downloaded) {
-        await deliver(`${placeholder} (${downloaded.storageRef})${caption}`, {
-          kind,
-          externalId: opts.fileId,
-          storageRef: downloaded.storageRef,
-        });
-      } else {
-        await deliver(`${placeholder}${caption}`, {
-          kind,
-          externalId: opts.fileId,
-        });
+      const folders = Array.from(
+        new Set(
+          (triggeredGroups.length === 1 ? triggeredGroups : matchingGroups).map(
+            ([, group]) => group.folder,
+          ),
+        ),
+      );
+      if (folders.length === 1) {
+        const msgId = ctx.message.message_id.toString();
+        const filename =
+          opts.filename ||
+          `${placeholder.replace(/[[\] ]/g, '').toLowerCase()}_${msgId}`;
+        const downloaded = await input.downloadFile(
+          opts.fileId,
+          folders[0]!,
+          filename,
+        );
+        if (downloaded) {
+          await deliver(`${placeholder} (${downloaded.storageRef})${caption}`, {
+            kind,
+            externalId: opts.fileId,
+            storageRef: downloaded.storageRef,
+          });
+          return;
+        }
       }
+      await deliver(`${placeholder}${caption}`, {
+        kind,
+        externalId: opts.fileId,
+      });
       return;
     }
 

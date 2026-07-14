@@ -29,13 +29,15 @@ interface RuntimeSecretReadinessSettings {
       schema: string;
     };
   };
-  providers: Record<
+  providers: Record<string, { enabled: boolean } | undefined>;
+  providerAccounts: Record<
     string,
-    { enabled: boolean; defaultConnection?: string } | undefined
-  >;
-  providerConnections: Record<
-    string,
-    { runtimeSecretRefs: Record<string, string | undefined> } | undefined
+    | {
+        provider: string;
+        status?: string;
+        runtimeSecretRefs: Record<string, string | undefined>;
+      }
+    | undefined
   >;
 }
 
@@ -136,17 +138,21 @@ export async function inspectRuntimeSecretReadiness(
   runtimeHome: string,
   settings: RuntimeSecretReadinessSettings,
 ): Promise<RuntimeStorageReadiness> {
-  const refsToResolve: { providerId: string; refKey: string; ref: string }[] =
-    [];
-  for (const [providerId, providerSettings] of Object.entries(
-    settings.providers,
+  const refsToResolve: {
+    providerId: string;
+    providerAccountId: string;
+    refKey: string;
+    ref: string;
+  }[] = [];
+  for (const [providerAccountId, account] of Object.entries(
+    settings.providerAccounts,
   )) {
-    if (!providerSettings?.enabled) continue;
+    if (!account) continue;
+    if (account.status === 'disabled') continue;
+    const providerId = account.provider;
+    if (!settings.providers[providerId]?.enabled) continue;
     const provider = getProvider(providerId);
-    const connectionId = providerSettings.defaultConnection;
-    const refs = connectionId
-      ? settings.providerConnections[connectionId]?.runtimeSecretRefs
-      : undefined;
+    const refs = account.runtimeSecretRefs;
     for (const envKey of provider?.setup.envKeys ?? []) {
       const refKey = runtimeSecretKeyForEnv(providerId, envKey);
       const rawRef = refs?.[refKey]?.trim();
@@ -154,7 +160,12 @@ export async function inspectRuntimeSecretReadiness(
       const normalized = normalizeRuntimeSecretRefString(rawRef);
       const parsed = parseRuntimeSecretRefString(normalized);
       if (parsed.source === 'env') continue;
-      refsToResolve.push({ providerId, refKey, ref: normalized });
+      refsToResolve.push({
+        providerId,
+        providerAccountId,
+        refKey,
+        ref: normalized,
+      });
     }
   }
   if (refsToResolve.length === 0) {
@@ -189,7 +200,7 @@ export async function inspectRuntimeSecretReadiness(
       const value = await getOptionalRuntimeSecret(secrets, { ref: ref.ref });
       if (!value?.trim()) {
         missing.push(
-          `providers.${ref.providerId}.${ref.refKey} runtime secret ref ${ref.ref} did not resolve.`,
+          `provider_accounts.${ref.providerAccountId}.provider ${ref.providerId} runtime_secret_refs.${ref.refKey} runtime secret ref ${ref.ref} did not resolve.`,
         );
       }
     }

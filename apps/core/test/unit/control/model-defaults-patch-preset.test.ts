@@ -19,7 +19,7 @@ function slotFor(
   return {
     configuredAlias: alias,
     effectiveAlias: resolved.alias,
-    source: 'preset-managed',
+    source: 'provider-managed',
     workload,
     modelEntry: resolved.entry,
   };
@@ -45,20 +45,66 @@ function defaultsWith(
   } as unknown as ReturnType<ControlRouteContext['getModelDefaults']>;
 }
 
+function familyDefaults(
+  familyAlias: string,
+): ReturnType<ControlRouteContext['getModelDefaults']> {
+  const inherited = {
+    configuredAlias: null,
+    effectiveAlias: familyAlias,
+    source: 'settings.yaml agent.default_model',
+    workload: 'one_time_job' as const,
+    modelEntry: null,
+  };
+  return {
+    defaults: {
+      chat: {
+        ...inherited,
+        configuredAlias: familyAlias,
+        workload: 'chat',
+      },
+      oneTime: inherited,
+      recurring: { ...inherited, workload: 'recurring_job' },
+      memoryExtractor: slotFor('groq-oss', 'memory_extractor'),
+      memoryDreaming: slotFor('groq-oss', 'memory_dreaming'),
+      memoryConsolidation: slotFor('groq-oss', 'memory_consolidation'),
+    },
+  } as unknown as ReturnType<ControlRouteContext['getModelDefaults']>;
+}
+
 describe('providersSelectedByPatch', () => {
-  it('does not throw when the chat default is a DeepAgents model and the body omits preset', () => {
-    // groq resolves to the groq (DeepAgents-lane) provider, whose provider id is
-    // not a model preset; the patch preflight selection must guard rather than
-    // letting getModelPreset throw and turn the PATCH into a 500. groq memory
-    // slots keep every workload on the DeepAgents lane, so none have a preset.
+  it('selects a DeepAgents provider when the body omits provider-managed memory', () => {
     const defaults = defaultsWith('groq', 'groq');
     expect(() => providersSelectedByPatch({}, defaults)).not.toThrow();
-    // DeepAgents-lane providers have no preset to preflight, so none are selected.
-    expect(providersSelectedByPatch({}, defaults)).toEqual([]);
+    expect(providersSelectedByPatch({}, defaults)).toEqual(['groq']);
   });
 
-  it('still selects the anthropic preset for an anthropic chat default', () => {
+  it('selects the anthropic provider for an anthropic chat default', () => {
     const defaults = defaultsWith('sonnet', 'haiku');
     expect(providersSelectedByPatch({}, defaults)).toEqual(['anthropic']);
+  });
+
+  it('follows the patched chat alias for inherited job defaults', () => {
+    const defaults = defaultsWith('sonnet', 'groq');
+    const inheritedOneTime = slotFor('sonnet', 'one_time_job');
+    const inheritedRecurring = slotFor('sonnet', 'recurring_job');
+    inheritedOneTime.configuredAlias = null;
+    inheritedRecurring.configuredAlias = null;
+    defaults.defaults.oneTime = inheritedOneTime;
+    defaults.defaults.recurring = inheritedRecurring;
+
+    const selected = providersSelectedByPatch(
+      { chat: 'groq', memory: 'reset' },
+      defaults,
+    );
+    expect(selected).not.toContain('anthropic');
+    expect(selected).toContain('groq');
+  });
+
+  it('uses configured family provider for provider-managed memory patches', () => {
+    expect(
+      providersSelectedByPatch({ memory: 'reset' }, familyDefaults('gpt-oss'), {
+        configuredProviders: new Set(['cerebras']),
+      }),
+    ).toEqual(['cerebras']);
   });
 });

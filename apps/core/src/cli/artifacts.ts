@@ -19,6 +19,7 @@ import {
 } from '../jobs/toolchain-bake-reaper.js';
 import { ToolchainBakeSender } from '../jobs/toolchain-bake-queue.js';
 import { PostgresToolchainManifestNotifier } from '../jobs/toolchain-manifest-notify.js';
+import { runtimePgBossSchema } from '../infrastructure/pgboss/pgboss-schema.js';
 
 function usage(): string {
   return [
@@ -98,7 +99,7 @@ async function rebake(manifestHash: string | undefined): Promise<number> {
   await initializeRuntimeStorage();
   const queue = new ToolchainBakeSender({
     connectionString: STORAGE_POSTGRES_URL,
-    schema: 'pgboss',
+    schema: runtimePgBossSchema(),
     applicationName: `gantry-${STORAGE_POSTGRES_SCHEMA}-rebake`,
   });
   try {

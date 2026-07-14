@@ -40,6 +40,8 @@ describe('FilesystemRunnerControlPort', () => {
     expect(fs.readdirSync(workspaceDir).sort()).toEqual([
       'browser-requests',
       'browser-responses',
+      'conversation-history-requests',
+      'conversation-history-responses',
       'input',
       'interaction-boundaries',
       'memory-requests',

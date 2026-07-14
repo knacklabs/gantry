@@ -42,7 +42,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     const db = new FakeDb([
       {
         conversationId: 'conversation:slack_default:C123',
-        providerConnectionId: 'slack_default',
+        providerAccountId: 'slack_default',
         conversationExternalRefJson: JSON.stringify({ jid: 'tg:-100123' }),
         providerId: 'slack',
       },
@@ -60,7 +60,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     const db = new FakeDb([
       {
         conversationId: 'conversation:slack_default:C123',
-        providerConnectionId: 'slack_default',
+        providerAccountId: 'slack_default',
         conversationExternalRefJson: JSON.stringify({ jid: 'sl:C123' }),
         providerId: 'slack',
       },
@@ -74,7 +74,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     expect(resolved).toEqual({
       conversationJid: 'sl:C123',
       providerId: 'slack',
-      providerConnectionId: 'slack_default',
+      providerAccountId: 'slack_default',
     });
   });
 
@@ -82,7 +82,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     const db = new FakeDb([
       {
         conversationId: 'conversation:slack_default:C123',
-        providerConnectionId: 'slack_default',
+        providerAccountId: 'slack_default',
         conversationExternalRefJson: JSON.stringify({ jid: 'C123' }),
         providerId: 'slack',
       },
@@ -96,7 +96,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     expect(resolved).toEqual({
       conversationJid: 'sl:C123',
       providerId: 'slack',
-      providerConnectionId: 'slack_default',
+      providerAccountId: 'slack_default',
     });
   });
 
@@ -104,7 +104,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     const db = new FakeDb([
       {
         conversationId: 'control:app-one:conversation:conv-1',
-        providerConnectionId: 'control:app-one',
+        providerAccountId: 'control:app-one',
         conversationExternalRefJson: JSON.stringify({
           externalConversationId: 'conv-1',
           externalConversationRef: 'app:app-one:conv-1',
@@ -121,7 +121,7 @@ describe('resolveOutboundDeliveryDestination', () => {
     expect(resolved).toEqual({
       conversationJid: 'app:app-one:conv-1',
       providerId: 'app',
-      providerConnectionId: 'control:app-one',
+      providerAccountId: 'control:app-one',
     });
   });
 });

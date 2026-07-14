@@ -2,6 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { ensurePrivateDirSync } from '../shared/private-fs.js';
+import type { AgentRuntime } from '../shared/agent-runtime.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 
 const SOURCE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +30,11 @@ export function getHostAgentRunnerDistDir(): string {
   return path.join(packageRoot, 'dist', 'runner');
 }
 
-export function ensureWorkspaceIpcLayout(workspaceIpcDir: string): void {
+export function ensureWorkspaceIpcLayout(
+  workspaceIpcDir: string,
+  runtime: AgentRuntime = 'worker',
+): void {
+  if (runtime === 'inline') return;
   ensurePrivateDirSync(workspaceIpcDir);
   for (const subdir of IPC_WORKSPACE_SUBDIRS) {
     ensurePrivateDirSync(path.join(workspaceIpcDir, subdir));

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -12,7 +11,7 @@ import type {
   SaveAppMemoryInput,
 } from './memory-types.js';
 import { embeddingContentHash } from './app-memory-service-helpers.js';
-import { hashText } from './app-memory-canonical-codec.js';
+import { hashText, parseItemSource } from './app-memory-canonical-codec.js';
 import {
   extractMemoryValue,
   parseStagedCandidateMetadata,
@@ -25,46 +24,18 @@ import {
   parseJsonObject,
 } from './app-memory-dreaming-evidence.js';
 import { nowIso as currentIso } from '../shared/time/datetime.js';
+import {
+  recordDreamDecision,
+  routeMemoryProposalToReview,
+  setCandidateStatus,
+  type CreatePendingReview,
+} from './app-memory-dreaming-review-routing.js';
 type Db = NodePgDatabase<typeof pgSchema>;
 type MemoryItemRow = typeof pgSchema.memoryItemsPostgres.$inferSelect;
-// prettier-ignore
-type CreatePendingReview = (p: MemoryLifecycleProposal, db?: Db) => Promise<string>;
 // prettier-ignore
 type DreamEmbeddingResult = { status: 'stored' | 'disabled' | 'retryable'; reason?: string };
 function nowIso(): string {
   return currentIso();
-}
-async function setCandidateStatus(db: Db, id: string, status: string) {
-  await db
-    .update(pgSchema.memoryCandidatesPostgres)
-    .set({ status, updatedAt: nowIso() })
-    .where(eq(pgSchema.memoryCandidatesPostgres.id, id));
-}
-async function recordDreamDecision(input: {
-  db: Db;
-  runId: string;
-  subject: NormalizedMemorySubject;
-  action: DreamDecisionAction;
-  rationale: string;
-  itemId?: string;
-  candidateId?: string;
-  evidenceIds?: string[];
-  applied: boolean;
-}): Promise<void> {
-  await input.db.insert(pgSchema.memoryDreamDecisionsPostgres).values({
-    id: `mdd_${randomUUID().replace(/-/g, '')}`,
-    runId: input.runId,
-    appId: input.subject.appId,
-    agentId: input.subject.agentId,
-    threadId: null,
-    itemId: input.itemId ?? null,
-    candidateId: input.candidateId ?? null,
-    action: input.action,
-    rationale: input.rationale,
-    evidenceIdsJson: JSON.stringify(input.evidenceIds || []),
-    applied: input.applied,
-    createdAt: nowIso(),
-  });
 }
 async function candidateCitesUnsafeEvidence(db: Db, evidenceIds: string[]) {
   if (evidenceIds.length === 0) return false;
@@ -77,71 +48,6 @@ async function candidateCitesUnsafeEvidence(db: Db, evidenceIds: string[]) {
 }
 // prettier-ignore
 function candidateMemoryKind(kind: string): MemoryKind | undefined { return ['preference', 'decision', 'fact', 'correction', 'constraint'].includes(kind) ? (kind as MemoryKind) : undefined; }
-async function routeMemoryProposalToReview(input: {
-  db: Db;
-  runId: string;
-  subject: NormalizedMemorySubject;
-  dryRun: boolean;
-  createPendingReview?: CreatePendingReview;
-  proposal: MemoryLifecycleProposal;
-  candidateId?: string;
-  itemId?: string;
-  evidenceIds?: string[];
-  reviewRationale: string;
-  blockRationale: string;
-}): Promise<DreamDecisionAction> {
-  if (input.dryRun) {
-    await recordDreamDecision({
-      db: input.db,
-      runId: input.runId,
-      subject: input.subject,
-      action: 'dry_run',
-      ...(input.itemId ? { itemId: input.itemId } : {}),
-      ...(input.candidateId ? { candidateId: input.candidateId } : {}),
-      rationale: input.reviewRationale,
-      ...(input.evidenceIds ? { evidenceIds: input.evidenceIds } : {}),
-      applied: false,
-    });
-    return 'dry_run';
-  }
-  let reviewId = '';
-  const createReview = (db = input.db) =>
-    input.createPendingReview?.(input.proposal, db) || '';
-  try {
-    if (input.candidateId) {
-      reviewId = await input.db.transaction(async (tx) => {
-        await setCandidateStatus(tx, input.candidateId!, 'needs_review');
-        const id = await createReview(tx);
-        if (!id) {
-          throw new Error('pending memory review creation returned empty id');
-        }
-        return id;
-      });
-    } else {
-      reviewId = await createReview();
-    }
-  } catch {
-    reviewId = '';
-  }
-  const action = reviewId ? 'needs_review' : 'blocked';
-  if (input.candidateId && !reviewId) {
-    await setCandidateStatus(input.db, input.candidateId, action);
-  }
-  await recordDreamDecision({
-    db: input.db,
-    runId: input.runId,
-    subject: input.subject,
-    action,
-    ...(input.itemId ? { itemId: input.itemId } : {}),
-    ...(input.candidateId ? { candidateId: input.candidateId } : {}),
-    rationale: reviewId
-      ? `${input.reviewRationale}: ${reviewId}.`
-      : input.blockRationale,
-    ...(input.evidenceIds ? { evidenceIds: input.evidenceIds } : {}),
-    applied: false,
-  });
-  return action;
-}
 async function blockCandidate(input: {
   db: Db;
   runId: string;
@@ -292,6 +198,7 @@ export async function runAppMemoryDreamPass(input: {
       const value =
         typeof payload.value === 'string' ? payload.value.toLowerCase() : '';
       if (/\b(no longer|instead|actually|correction|wrong)\b/.test(value)) {
+        const evidenceIds = parseItemSource(item.row).evidenceIds;
         const action = await routeMemoryProposalToReview({
           db,
           runId,
@@ -299,7 +206,7 @@ export async function runAppMemoryDreamPass(input: {
           dryRun,
           createPendingReview: input.createPendingReview,
           itemId: item.row.id,
-          evidenceIds: [],
+          evidenceIds,
           proposal: {
             action: 'needs_review',
             itemId: item.row.id,
@@ -308,12 +215,14 @@ export async function runAppMemoryDreamPass(input: {
             reason:
               'REM dreaming found correction language; human or admin review should decide whether to rewrite or retire related memory.',
             confidence: item.row.confidence,
-            evidenceIds: [],
+            evidenceIds,
           },
           reviewRationale:
             'REM dreaming routed correction language to memory review',
           blockRationale:
-            'REM dreaming blocked correction-language review because memory review creation failed.',
+            evidenceIds.length > 0
+              ? 'REM dreaming blocked correction-language review because memory review creation failed.'
+              : 'REM dreaming blocked correction-language review because the active memory has no source evidence.',
         });
         decisions.push({ action });
       }

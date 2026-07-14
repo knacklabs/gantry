@@ -23,6 +23,7 @@ import {
 import { hasDreamingStatusSubjectScope } from './app-memory-service-dreaming.js';
 import { toRun } from './app-memory-service-record-mappers.js';
 import type {
+  BlockedDreamDecision,
   DemoteDreamingMemoryInput,
   DeleteAppMemoryInput,
   DreamingRunStatus,
@@ -94,6 +95,135 @@ export async function listDreamingStatuses(
   )) as Array<typeof pgSchema.memoryDreamRunsPostgres.$inferSelect>;
   options.signal?.throwIfAborted();
   return rows.map(toRun);
+}
+
+export async function listRecentBlockedDreamDecisions(
+  db: Db,
+  input: Partial<MemoryBoundaryContext> & {
+    subjectType?: MemorySubjectType;
+    subjectId?: string;
+  } = {},
+  options: {
+    signal?: AbortSignal;
+    statementTimeoutMs?: number;
+    limit?: number;
+  } = {},
+): Promise<BlockedDreamDecision[]> {
+  options.signal?.throwIfAborted();
+  const hasSubjectScope = hasDreamingStatusSubjectScope(input);
+  const subject = normalizeSubject(input);
+  const subjectFilters = hasSubjectScope
+    ? [
+        eq(pgSchema.memoryDreamRunsPostgres.subjectType, subject.subjectType),
+        eq(pgSchema.memoryDreamRunsPostgres.subjectId, subject.subjectId),
+      ]
+    : [];
+  const limit =
+    options.limit && Number.isSafeInteger(options.limit) && options.limit > 0
+      ? Math.min(options.limit, 25)
+      : 10;
+  type BlockedDreamDecisionRow = {
+    id: string;
+    runId: string;
+    itemId: string | null;
+    candidateId: string | null;
+    rationale: string;
+    createdAt: string;
+    subjectType: string;
+    subjectId: string;
+    itemKind: string | null;
+    itemKey: string | null;
+    itemValue: string | null;
+    candidateKind: string | null;
+    candidateKey: string | null;
+    candidateValue: string | null;
+  };
+  const rows = (await withStatementTimeout(
+    db,
+    options.statementTimeoutMs,
+    (timeoutMs) =>
+      sql`select set_config('statement_timeout', ${String(timeoutMs)}, true)`,
+    (queryDb) =>
+      queryDb
+        .select({
+          id: pgSchema.memoryDreamDecisionsPostgres.id,
+          runId: pgSchema.memoryDreamDecisionsPostgres.runId,
+          itemId: pgSchema.memoryDreamDecisionsPostgres.itemId,
+          candidateId: pgSchema.memoryDreamDecisionsPostgres.candidateId,
+          rationale: pgSchema.memoryDreamDecisionsPostgres.rationale,
+          createdAt: pgSchema.memoryDreamDecisionsPostgres.createdAt,
+          subjectType: pgSchema.memoryDreamRunsPostgres.subjectType,
+          subjectId: pgSchema.memoryDreamRunsPostgres.subjectId,
+          itemKind: pgSchema.memoryItemsPostgres.kind,
+          itemKey: pgSchema.memoryItemsPostgres.key,
+          itemValue: sql<
+            string | null
+          >`${pgSchema.memoryItemsPostgres.valueJson}->>'value'`,
+          candidateKind: pgSchema.memoryCandidatesPostgres.kind,
+          candidateKey: pgSchema.memoryCandidatesPostgres.key,
+          candidateValue: pgSchema.memoryCandidatesPostgres.value,
+        })
+        .from(pgSchema.memoryDreamDecisionsPostgres)
+        .innerJoin(
+          pgSchema.memoryDreamRunsPostgres,
+          and(
+            eq(
+              pgSchema.memoryDreamDecisionsPostgres.runId,
+              pgSchema.memoryDreamRunsPostgres.id,
+            ),
+            eq(pgSchema.memoryDreamRunsPostgres.appId, subject.appId),
+            eq(pgSchema.memoryDreamRunsPostgres.agentId, subject.agentId),
+          ),
+        )
+        .leftJoin(
+          pgSchema.memoryCandidatesPostgres,
+          and(
+            eq(
+              pgSchema.memoryDreamDecisionsPostgres.candidateId,
+              pgSchema.memoryCandidatesPostgres.id,
+            ),
+            eq(pgSchema.memoryCandidatesPostgres.appId, subject.appId),
+            eq(pgSchema.memoryCandidatesPostgres.agentId, subject.agentId),
+          ),
+        )
+        .leftJoin(
+          pgSchema.memoryItemsPostgres,
+          and(
+            eq(
+              pgSchema.memoryDreamDecisionsPostgres.itemId,
+              pgSchema.memoryItemsPostgres.id,
+            ),
+            eq(pgSchema.memoryItemsPostgres.appId, subject.appId),
+            eq(pgSchema.memoryItemsPostgres.agentId, subject.agentId),
+          ),
+        )
+        .where(
+          and(
+            eq(pgSchema.memoryDreamDecisionsPostgres.appId, subject.appId),
+            eq(pgSchema.memoryDreamDecisionsPostgres.agentId, subject.agentId),
+            eq(pgSchema.memoryDreamDecisionsPostgres.action, 'blocked'),
+            ...subjectFilters,
+          ),
+        )
+        .orderBy(desc(pgSchema.memoryDreamDecisionsPostgres.createdAt))
+        .limit(limit),
+  )) as BlockedDreamDecisionRow[];
+  options.signal?.throwIfAborted();
+  return rows.map((row) => ({
+    appId: subject.appId,
+    agentId: subject.agentId,
+    subjectType: row.subjectType as MemorySubjectType,
+    subjectId: row.subjectId,
+    id: row.id,
+    runId: row.runId,
+    itemId: row.itemId,
+    candidateId: row.candidateId,
+    rationale: row.rationale,
+    kind: row.candidateKind ?? row.itemKind,
+    key: row.candidateKey ?? row.itemKey,
+    value: row.candidateValue ?? row.itemValue,
+    createdAt: row.createdAt,
+  }));
 }
 
 export async function getOwnedMemoryItem(input: {

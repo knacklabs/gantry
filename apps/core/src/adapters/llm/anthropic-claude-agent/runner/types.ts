@@ -50,6 +50,10 @@ export interface AgentRunnerInput {
     budgetTokens?: number;
     display?: 'summarized' | 'omitted';
   };
+  effort?: EffortLevel;
+  configuredThinking?:
+    | { mode: 'off'; budgetTokens?: never }
+    | { mode: 'on'; budgetTokens?: number };
 }
 
 export interface AgentRunnerOutput {

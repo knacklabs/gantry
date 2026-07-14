@@ -29,7 +29,7 @@ import { createProfileFileMirrorWriter } from '../../../platform/profile-file-mi
 import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import type { Agent, AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
-import type { AgentConversationBinding } from '../../../domain/provider/provider.js';
+import type { ConversationInstall } from '../../../domain/provider/provider.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -491,14 +491,14 @@ async function agentBoundConversations(input: {
     displayName?: string;
     approverUserIds: string[];
     requiresTrigger: boolean;
+    trigger?: string;
   }>
 > {
   const repositories = getRuntimeStorage().repositories;
-  const bindings =
-    await repositories.providerConnections.listAgentConversationBindings(
-      input.appId,
-      input.agentId,
-    );
+  const bindings = await repositories.providerAccounts.listConversationInstalls(
+    input.appId,
+    input.agentId,
+  );
   const activeBindings = bindings
     .filter((binding) => binding.status === 'active')
     .sort((a, b) =>
@@ -516,7 +516,7 @@ async function agentBoundConversations(input: {
 
 async function agentBoundConversation(
   appId: AppId,
-  binding: AgentConversationBinding,
+  binding: ConversationInstall,
 ): Promise<{
   conversationId: string;
   provider: string;
@@ -524,6 +524,7 @@ async function agentBoundConversation(
   displayName?: string;
   approverUserIds: string[];
   requiresTrigger: boolean;
+  trigger?: string;
 } | null> {
   const repositories = getRuntimeStorage().repositories;
   const conversation = await repositories.conversations.getConversation(
@@ -531,19 +532,36 @@ async function agentBoundConversation(
   );
   if (!conversation || conversation.appId !== appId) return null;
   const providerConnection =
-    await repositories.providerConnections.getProviderConnection(
-      conversation.providerConnectionId,
+    await repositories.providerAccounts.getProviderAccount(
+      conversation.providerAccountId,
     );
   if (!providerConnection || providerConnection.appId !== appId) return null;
   const approvers = await repositories.conversations.listConversationApprovers(
     conversation.id,
   );
+  const route =
+    binding.memorySubject &&
+    typeof binding.memorySubject === 'object' &&
+    'route' in binding.memorySubject &&
+    binding.memorySubject.route &&
+    typeof binding.memorySubject.route === 'object'
+      ? (binding.memorySubject.route as {
+          requiresTrigger?: unknown;
+          trigger?: unknown;
+        })
+      : undefined;
   return {
     conversationId: conversation.id,
     provider: providerConnection.providerId,
     kind: conversation.kind,
     ...(conversation.title ? { displayName: conversation.title } : {}),
     approverUserIds: approvers.map((approver) => approver.externalUserId),
-    requiresTrigger: binding.requiresTrigger,
+    requiresTrigger:
+      typeof route?.requiresTrigger === 'boolean'
+        ? route.requiresTrigger
+        : conversation.kind !== 'direct',
+    ...(typeof route?.trigger === 'string' && route.trigger
+      ? { trigger: route.trigger }
+      : {}),
   };
 }

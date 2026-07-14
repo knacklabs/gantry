@@ -142,6 +142,7 @@ describe('host child-process runtime smoke', () => {
         workspaceIpcDir: groupIpcDir,
         runnerDistDir,
       }),
+      withControls: (input: unknown) => input,
     }));
     vi.doMock('@core/runtime/agent-spawn-layout.js', () => ({
       ensureWorkspaceIpcLayout: (dir: string) => {

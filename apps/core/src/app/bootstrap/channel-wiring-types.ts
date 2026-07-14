@@ -38,6 +38,7 @@ import type {
   ConversationContextHydrationRequest,
   ConversationContextHydrationResult,
 } from '../../channels/channel-provider.js';
+import type { BrainChannelHarvestTap } from '../../brain/brain-channel-harvest.js';
 
 export type ChannelWiringRepository = RuntimeChatMetadataRepository &
   RuntimeMessageRepository;
@@ -46,6 +47,7 @@ export interface RetryTailRecoveryEnqueueInput {
   appId: AppId;
   chatJid: string;
   threadId?: string;
+  providerAccountId?: string;
   sourceMessageId: string;
   provider: string;
   retryTail: {
@@ -58,10 +60,13 @@ export type RetryTailRecoveryEnqueue = (
   input: RetryTailRecoveryEnqueueInput,
 ) => Promise<void>;
 
+export type ChannelAccountOptions = { providerAccountId?: string };
+
 export interface DurableOutboundAttemptInput {
   appId: AppId;
   chatJid: string;
   threadId?: string;
+  providerAccountId?: string;
   sourceMessageId: string;
   provider: string;
   canonicalText: string;
@@ -118,6 +123,7 @@ export interface ChannelWiringDeps {
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
   runtimeSecrets: RuntimeSecretProvider;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<unknown>;
+  brainHarvestTap?: BrainChannelHarvestTap;
 }
 
 export interface ChannelWiring {
@@ -132,9 +138,15 @@ export interface ChannelWiring {
     options?: { providerInbound?: boolean },
   ) => Promise<void>;
   hasConnectedChannels: () => boolean;
-  hasChannel: (jid: string) => boolean;
-  supportsStreaming: (jid: string) => boolean;
-  supportsProgress: (jid: string) => boolean;
+  hasChannel: (jid: string, options?: ChannelAccountOptions) => boolean;
+  supportsStreaming: (
+    jid: string,
+    options?: { providerAccountId?: string },
+  ) => boolean;
+  supportsProgress: (
+    jid: string,
+    options?: { providerAccountId?: string },
+  ) => boolean;
   sendMessage: (
     jid: string,
     rawText: string,
@@ -176,8 +188,12 @@ export interface ChannelWiring {
     rawText: string,
     options?: StreamingChunkOptions,
   ) => Promise<boolean>;
-  resetStreaming: (jid: string) => void;
-  setTyping: (jid: string, isTyping: boolean) => Promise<void>;
+  resetStreaming: (jid: string, options?: ChannelAccountOptions) => void;
+  setTyping: (
+    jid: string,
+    isTyping: boolean,
+    options?: ChannelAccountOptions,
+  ) => Promise<void>;
   sendProgressUpdate: (
     jid: string,
     text: string,
@@ -187,6 +203,7 @@ export interface ChannelWiring {
     jid: string,
     messageRef: string,
     emoji: string,
+    options?: ChannelAccountOptions,
   ) => Promise<void>;
   syncGroups: (force: boolean) => Promise<void>;
   requestPermissionApproval: (
@@ -195,10 +212,15 @@ export interface ChannelWiring {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
-  renderAgentTodo: (jid: string, render: AgentTodoRender) => Promise<boolean>;
+  renderAgentTodo: (
+    jid: string,
+    render: AgentTodoRender,
+    options?: ChannelAccountOptions,
+  ) => Promise<boolean>;
   renderRichInteraction: (
     jid: string,
     request: RichInteractionRequest,
+    options?: ChannelAccountOptions,
   ) => Promise<boolean>;
   hydrateConversationContext?: (
     request: ConversationContextHydrationRequest,
@@ -210,9 +232,12 @@ export interface ChannelWiring {
       cardKind?: AgentTodoRender['cardKind'];
       status: AgentTodoCardStatus;
     },
+    options?: ChannelAccountOptions,
   ) => Promise<boolean>;
   isControlApproverAllowed: (input: {
     conversationJid: string;
+    providerAccountId?: string;
+    agentId?: string;
     userId: string;
     sourceAgentFolder: string;
     decisionPolicy?: 'same_channel';

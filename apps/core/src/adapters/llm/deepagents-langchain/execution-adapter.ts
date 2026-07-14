@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 import type {
   AgentExecutionAdapter,
@@ -13,6 +13,7 @@ import { validateDeepAgentCredentialProjection } from './credential-validation.j
 import { isMissingDeepAgentSessionError } from './runner/session-store.js';
 import { ensureDeepAgentsCheckpointSchema } from './checkpoint-setup.js';
 import { resolveModelCacheSupport } from '../../../shared/model-cache-support.js';
+import { getModelProviderDefinition } from '../../../shared/model-provider-registry.js';
 import { resolveDeepAgentSkillProjection } from './skill-projection.js';
 import type { OpenRouterProviderRouting } from '../../../shared/model-catalog-provider-metadata.js';
 
@@ -20,6 +21,8 @@ const GANTRY_DEEPAGENTS_MODEL_ID_ENV = 'GANTRY_DEEPAGENTS_MODEL_ID';
 const GANTRY_DEEPAGENTS_MODEL_PROVIDER_ENV = 'GANTRY_DEEPAGENTS_MODEL_PROVIDER';
 const GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL_ENV =
   'GANTRY_DEEPAGENTS_CACHE_PROMPT_CONTROL';
+const GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY_ENV =
+  'GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY';
 // Curated context window for empty-profile models (see model-catalog.ts). The
 // runner passes it as the LangChain model profile's `maxInputTokens` so
 // DeepAgents summarizes at 85% of the real window and context-usage reports a
@@ -153,6 +156,15 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
         resolveModelCacheSupport(input.effectiveModelEntry).prompt
           .requestControl,
       );
+      const provider = getModelProviderDefinition(
+        input.effectiveModelEntry.modelRoute.id,
+      );
+      if (provider?.cacheSupport.prompt.promptCacheKey) {
+        env[GANTRY_DEEPAGENTS_PROMPT_CACHE_KEY_ENV] = promptCacheKey({
+          conversationId: input.input.chatJid,
+          threadId: input.input.threadId,
+        });
+      }
       // Project the curated window only when the catalog declares one; absent ->
       // the runner uses the library's real profile (gpt-5.5/gpt-5.4).
       const contextWindowTokens = input.effectiveModelEntry.contextWindowTokens;
@@ -235,6 +247,18 @@ export class DeepAgentsLangChainExecutionAdapter implements AgentExecutionAdapte
 
 function safePathSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]/g, '_');
+}
+
+function promptCacheKey(input: {
+  conversationId: string;
+  threadId?: string;
+}): string {
+  return createHash('sha256')
+    .update('gantry-deepagents-prompt-cache-key\0')
+    .update(input.conversationId)
+    .update('\0')
+    .update(input.threadId ?? '')
+    .digest('hex');
 }
 
 export function createDeepAgentsLangChainExecutionAdapter(): AgentExecutionAdapter {

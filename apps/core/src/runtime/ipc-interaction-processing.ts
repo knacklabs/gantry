@@ -6,7 +6,7 @@ import type {
 } from '../domain/types.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
-import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
+import type { PausedJobCapabilityRecheckResult } from '../application/jobs/job-permission-recovery.js';
 import {
   formatDurableAccessRuleForEvent,
   formatDurableAccessRulesForUser,
@@ -21,16 +21,19 @@ import {
   getIpcResponseSigningPrivateKey,
   sealIpcResponseSigningPrivateKey,
 } from './ipc-auth.js';
+import { durablePermissionCallbackId } from './ipc-durable-permission.js';
 import {
-  durablePermissionCallbackId,
-  durablePermissionRequestSnapshot,
-} from './ipc-durable-permission.js';
-import {
+  applyPermissionInteractionDecision,
   isActiveRunLeaseForInteraction,
-  recordPendingInteractionRequested,
-  recordRunScopedTransientGrant,
   resolvePendingInteractionRecord,
 } from '../application/interactions/pending-interaction-durability.js';
+import {
+  beginDurablePermissionInteraction,
+  beginDurableQuestionInteraction,
+  durablePermissionRequestSnapshot,
+  finishDurableQuestionInteraction,
+  resolveDurablePermissionInteraction,
+} from '../application/interactions/durable-interaction-handler.js';
 import {
   resolveAgentLockStatus,
   type AgentLockStatus,
@@ -184,14 +187,9 @@ export async function processPermissionInteractionIpc(input: {
     input.logger.info?.(requestedContext, 'Permission requested');
     // Durable pending record first: the prompt may only render once the
     // interaction can survive a provider/control-plane restart.
-    const recorded = await recordPendingInteractionRequested({
-      kind: 'permission',
+    await beginDurablePermissionInteraction({
+      request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      appId: input.request.appId,
-      runId: input.request.runId,
-      runLeaseToken: input.request.runLeaseToken,
-      runLeaseFencingVersion: input.request.runLeaseFencingVersion,
       payload: {
         ...requestedContext,
         decisionPolicy: input.request.decisionPolicy ?? null,
@@ -216,8 +214,12 @@ export async function processPermissionInteractionIpc(input: {
         responseNonce: input.request.responseNonce ?? null,
       },
     });
-    if (!recorded)
-      throw new Error('Permission prompt was not durably recorded');
+    await publishPendingInteractionRuntimeEvent(
+      input.deps,
+      input.request,
+      'permission',
+      input.sourceAgentFolder,
+    );
     await publishPermissionRuntimeEvent(input.deps, input.request, {
       eventType: RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
       payload: requestedContext,
@@ -227,27 +229,6 @@ export async function processPermissionInteractionIpc(input: {
       requestPermissionApproval: input.deps.requestPermissionApproval,
     });
     await assertActiveScheduledPermissionLease(input);
-    if (
-      decision.approved === true &&
-      decision.decisionClassification !== 'user_permanent' &&
-      input.request.runId
-    ) {
-      // Transient authority stays run-scoped: bound to the active run lease
-      // and gone when the lease ends. Only the persistent path below commits
-      // durable grants.
-      await recordRunScopedTransientGrant({
-        appId: input.request.appId,
-        runId: input.request.runId,
-        runLeaseToken: input.request.runLeaseToken,
-        runLeaseFencingVersion: input.request.runLeaseFencingVersion,
-        grant: {
-          toolName: input.request.toolName,
-          mode: decision.mode,
-          requestId: input.request.requestId,
-        },
-        expiresAtMs: decision.timedGrantExpiresAtMs,
-      });
-    }
     const decisionContext = permissionTelemetryContext(input.request, {
       sourceAgentFolder: input.sourceAgentFolder,
       decision: permissionDecisionName(decision),
@@ -259,90 +240,79 @@ export async function processPermissionInteractionIpc(input: {
       eventType: permissionDecisionEventType(decision),
       payload: decisionContext,
     });
-    const permissionService = new PermissionManagementService();
-    if (
-      decision.approved === true &&
-      decision.mode === 'allow_persistent_rule' &&
-      decision.decisionClassification === 'user_permanent' &&
-      (decision.updatedPermissions?.length ?? 0) > 0
-    ) {
-      await assertActiveScheduledPermissionLease(input);
-      const persistentScopeRequest = persistentPermissionScopeRequest(
-        input.request,
-      );
-      const updatedPermissions = decision.updatedPermissions ?? [];
-      const toolRepository = input.deps.getToolRepository?.();
-      const mirrorAgentToolRulesToSettings =
-        input.deps.mirrorAgentToolRulesToSettings;
-      if (!toolRepository || !mirrorAgentToolRulesToSettings) {
-        throw new Error(
-          'Persistent permission approval requires tool repository and settings mirror',
-        );
-      }
-      await permissionService.applyPersistentToolRuleGrant({
-        appId: input.request.appId as never,
-        agentId: (input.request.agentId ??
-          `agent:${input.sourceAgentFolder}`) as never,
-        sourceAgentFolder: input.sourceAgentFolder,
-        updates: updatedPermissions,
-        toolRepository,
-        mcpServerRepository: input.deps.getMcpServerRepository?.(),
-        mirrorAgentToolRulesToSettings,
-        permissionRepository: input.deps.getPermissionRepository?.(),
-        semanticCapabilityDefinitions:
-          input.request.semanticCapabilityDefinitions,
-        ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
-        runHandle: input.request.runHandle,
-        requestId: input.request.requestId,
-        actor: decision.decidedBy,
-        conversationId: persistentScopeRequest.targetJid,
-        threadId: persistentScopeRequest.threadId,
-        runId: input.request.runId,
-        jobId: input.request.jobId,
-        reason: decision.reason,
-      });
-      const persistedContext = permissionTelemetryContext(
-        persistentScopeRequest,
-        {
-          sourceAgentFolder: input.sourceAgentFolder,
-          decision: 'persisted',
-          persistedRules: permissionUpdateAllowedToolRules(
-            decision.updatedPermissions,
-          ).map(formatDurableAccessRuleForEvent),
-        },
-      );
-      input.logger.info?.(persistedContext, 'Permission persisted');
-      await publishPermissionRuntimeEvent(input.deps, persistentScopeRequest, {
-        eventType: RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
-        payload: persistedContext,
-      });
-      const recovery = await recheckSetupPausedJobsAfterCapabilityUpdate({
-        appId: input.request.appId,
-        sourceAgentFolder: input.sourceAgentFolder,
-        conversationJid: input.request.targetJid,
-        jobId: input.request.jobId,
+    await assertActiveScheduledPermissionLease(input);
+    const applied = await applyPermissionInteractionDecision({
+      request: input.request,
+      sourceAgentFolder: input.sourceAgentFolder,
+      decision,
+      appId: input.request.appId,
+      runId: input.request.runId,
+      runLeaseToken: input.request.runLeaseToken,
+      runLeaseFencingVersion: input.request.runLeaseFencingVersion,
+      toolName: input.request.toolName,
+      requestId: input.request.requestId,
+      ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
+      permissionPersistence: {
         opsRepository: input.deps.opsRepository,
-        scheduler: {
-          requestSchedulerSync: input.deps.onSchedulerChanged,
-        },
-        toolRepository,
-        skillRepository: input.deps.getSkillRepository?.(),
-        mcpServerRepository: input.deps.getMcpServerRepository?.(),
-        capabilitySecretRepository:
-          input.deps.getCapabilitySecretRepository?.(),
-        credentialBroker: await input.deps.getCredentialBroker?.(),
+        getToolRepository: input.deps.getToolRepository,
+        getPermissionRepository: input.deps.getPermissionRepository,
+        mirrorAgentToolRulesToSettings:
+          input.deps.mirrorAgentToolRulesToSettings,
+        onSchedulerChanged: input.deps.onSchedulerChanged,
+        getSkillRepository: input.deps.getSkillRepository,
+        getMcpServerRepository: input.deps.getMcpServerRepository,
+        getCapabilitySecretRepository: input.deps.getCapabilitySecretRepository,
+        getCredentialBroker: input.deps.getCredentialBroker,
         getBrowserStatus: input.deps.getBrowserStatus,
         publishRuntimeEvent: input.deps.publishRuntimeEvent,
-      });
-      await sendPermissionOutcomeMessage(input.deps, input.request, {
-        text: formatPersistentPermissionOutcome({
-          rules: permissionUpdateAllowedToolRules(decision.updatedPermissions),
-          semanticCapabilityDefinitions:
-            input.request.semanticCapabilityDefinitions,
-          recovery,
-        }),
-      });
-    } else {
+      },
+      onPersistentGrantApplied: async (recovery) => {
+        const persistentScopeRequest = persistentPermissionScopeRequest(
+          input.request,
+        );
+        const persistedContext = permissionTelemetryContext(
+          persistentScopeRequest,
+          {
+            sourceAgentFolder: input.sourceAgentFolder,
+            decision: 'persisted',
+            persistedRules: permissionUpdateAllowedToolRules(
+              decision.updatedPermissions,
+            ).map(formatDurableAccessRuleForEvent),
+          },
+        );
+        input.logger.info?.(persistedContext, 'Permission persisted');
+        await publishPermissionRuntimeEvent(
+          input.deps,
+          persistentScopeRequest,
+          {
+            eventType: RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
+            payload: persistedContext,
+          },
+        );
+        await sendPermissionOutcomeMessage(input.deps, input.request, {
+          text: formatPersistentPermissionOutcome({
+            rules: permissionUpdateAllowedToolRules(
+              decision.updatedPermissions,
+            ),
+            semanticCapabilityDefinitions:
+              input.request.semanticCapabilityDefinitions,
+            recovery,
+          }),
+        });
+      },
+    });
+    if (!applied) {
+      input.logger.warn(
+        decisionContext,
+        'Withholding permission IPC response because grant application failed',
+      );
+      return;
+    }
+    const permissionService = new PermissionManagementService();
+    if (
+      decision.mode !== 'allow_persistent_rule' ||
+      decision.decisionClassification !== 'user_permanent'
+    ) {
       await permissionService.recordDecision({
         appId: input.request.appId as never,
         agentId: input.request.agentId as never,
@@ -384,22 +354,11 @@ export async function processPermissionInteractionIpc(input: {
       | PermissionApprovalDecision['updatedPermissions']
       | undefined;
     await assertActiveScheduledPermissionLease(input);
-    const resolved = await resolvePendingInteractionRecord({
-      kind: 'permission',
+    const resolved = await resolveDurablePermissionInteraction({
+      request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      appId: input.request.appId ?? null,
-      runId: input.request.runId,
-      status: decision.mode === 'cancel' ? 'cancelled' : 'resolved',
-      resolution: {
-        approved: decision.approved,
-        mode: decision.mode,
-        reason: decision.reason ?? null,
-        updatedPermissions: responsePermissionUpdates ?? null,
-        decisionClassification: decision.decisionClassification ?? null,
-        timedGrantExpiresAtMs: decision.timedGrantExpiresAtMs ?? null,
-      },
-      approverRef: decision.decidedBy ?? null,
+      decision,
+      updatedPermissions: responsePermissionUpdates,
     });
     if (!resolved) {
       input.logger.warn(
@@ -568,9 +527,7 @@ function persistentPermissionScopeRequest(
 function formatPersistentPermissionOutcome(input: {
   rules: string[];
   semanticCapabilityDefinitions?: PermissionApprovalRequest['semanticCapabilityDefinitions'];
-  recovery: Awaited<
-    ReturnType<typeof recheckSetupPausedJobsAfterCapabilityUpdate>
-  >;
+  recovery: PausedJobCapabilityRecheckResult;
 }): string {
   const lines = [
     `Allowed for future: ${formatDurableAccessRulesForUser(input.rules, {
@@ -737,6 +694,36 @@ async function publishPermissionRuntimeEvent(
   }
 }
 
+export async function publishPendingInteractionRuntimeEvent(
+  deps: IpcDeps,
+  request: PermissionApprovalRequest | UserQuestionRequest,
+  kind: 'permission' | 'question',
+  sourceAgentFolder: string,
+): Promise<void> {
+  if (!deps.publishRuntimeEvent) return;
+  try {
+    await deps.publishRuntimeEvent({
+      appId: (request.appId ?? 'default') as never,
+      agentId: request.agentId as never,
+      runId: request.runId as never,
+      jobId: request.jobId as never,
+      conversationId: request.targetJid as never,
+      threadId: request.threadId as never,
+      eventType: RUNTIME_EVENT_TYPES.INTERACTION_PENDING,
+      actor: 'interaction',
+      correlationId: request.requestId,
+      payload: {
+        kind,
+        requestId: request.requestId,
+        sourceAgentFolder,
+        status: 'pending',
+      },
+    });
+  } catch {
+    // Durable interaction recording succeeded; wakeup telemetry is best-effort.
+  }
+}
+
 function pathForGroupIpc(
   ipcBaseDir: string,
   sourceAgentFolder: string,
@@ -754,14 +741,9 @@ export async function processUserQuestionInteractionIpc(input: {
   logger: IpcInteractionLogger;
 }): Promise<void> {
   try {
-    const recorded = await recordPendingInteractionRequested({
-      kind: 'question',
+    await beginDurableQuestionInteraction({
+      request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      appId: input.request.appId ?? null,
-      runId: input.request.runId ?? null,
-      runLeaseToken: input.request.runLeaseToken ?? null,
-      runLeaseFencingVersion: input.request.runLeaseFencingVersion ?? null,
       payload: {
         sourceAgentFolder: input.sourceAgentFolder,
         requestId: input.request.requestId,
@@ -786,21 +768,21 @@ export async function processUserQuestionInteractionIpc(input: {
           ) ?? null,
       },
     });
-    if (!recorded) throw new Error('Question prompt was not durably recorded');
+    await publishPendingInteractionRuntimeEvent(
+      input.deps,
+      input.request,
+      'question',
+      input.sourceAgentFolder,
+    );
     await assertActiveScheduledQuestionLease(input);
     const response = await processUserQuestionIpcRequest(input.request, {
       requestUserAnswer: input.deps.requestUserAnswer,
     });
     await assertActiveScheduledQuestionLease(input);
-    const resolved = await resolvePendingInteractionRecord({
-      kind: 'question',
+    const resolved = await finishDurableQuestionInteraction({
+      request: input.request,
       sourceAgentFolder: input.sourceAgentFolder,
-      requestId: input.request.requestId,
-      appId: input.request.appId ?? null,
-      runId: input.request.runId ?? null,
-      status: 'resolved',
-      resolution: { answers: response.answers || {} },
-      approverRef: response.answeredBy ?? null,
+      response,
     });
     if (!resolved) {
       input.logger.warn(

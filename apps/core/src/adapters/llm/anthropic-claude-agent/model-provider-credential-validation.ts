@@ -1,5 +1,6 @@
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
 import type { ModelCatalogEntry } from '../../../shared/model-catalog.js';
+import { getModelProviderDefinition } from '../../../shared/model-provider-registry.js';
 
 export function validateModelCredentialProjectionForEntry(input: {
   model: ModelCatalogEntry;
@@ -18,28 +19,27 @@ export function validateModelCredentialProjectionForEntry(input: {
 }
 
 function validateGantryGatewayProjection(
-  env: Partial<
-    Record<
-      | 'ANTHROPIC_BASE_URL'
-      | 'ANTHROPIC_API_KEY'
-      | 'ANTHROPIC_AUTH_TOKEN'
-      | 'CLAUDE_CODE_OAUTH_TOKEN',
-      string
-    >
-  >,
+  env: Partial<Record<string, string>>,
   model: ModelCatalogEntry,
 ): void {
+  // The gateway projects provider-specific env names (ANTHROPIC_* for the
+  // Anthropic route, OPENAI_* for OpenAI-compatible routes); validate the
+  // names the model's provider actually declares.
+  const projection = getModelProviderDefinition(model.modelRoute.id)?.gateway
+    .sdkProjection;
+  const baseUrlEnv = projection?.baseUrlEnv ?? 'ANTHROPIC_BASE_URL';
+  const tokenEnv = projection?.tokenEnv ?? 'ANTHROPIC_API_KEY';
   if (env.CLAUDE_CODE_OAUTH_TOKEN) {
     throw new Error(
       `Gantry Model Gateway projection for ${model.displayName} must not expose provider OAuth tokens.`,
     );
   }
-  if (!isLoopbackGatewayUrl(env.ANTHROPIC_BASE_URL)) {
+  if (!isLoopbackGatewayUrl(env[baseUrlEnv])) {
     throw new Error(
-      `Gantry Model Gateway projection for ${model.displayName} must use a loopback ANTHROPIC_BASE_URL.`,
+      `Gantry Model Gateway projection for ${model.displayName} must use a loopback ${baseUrlEnv}.`,
     );
   }
-  if (!env.ANTHROPIC_API_KEY?.startsWith('gtw_')) {
+  if (!env[tokenEnv]?.startsWith('gtw_')) {
     throw new Error(
       `Gantry Model Gateway projection for ${model.displayName} must use a run-scoped gateway token.`,
     );

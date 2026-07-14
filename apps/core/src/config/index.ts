@@ -18,7 +18,11 @@ import {
 import { settingsFilePath } from './settings/runtime-home.js';
 import { DEFAULT_AGENT_NAME } from './settings/runtime-settings-defaults.js';
 import type { RuntimeDeploymentMode } from '../shared/runtime-deployment-mode.js';
-import type { RuntimeSettings } from './settings/runtime-settings-types.js';
+import type {
+  AgentRuntime,
+  RuntimeSettings,
+} from './settings/runtime-settings-types.js';
+import { resolveConfiguredAgentRuntime } from './settings/runtime-settings-agent-runtime.js';
 import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
@@ -41,6 +45,7 @@ export {
 export {
   resolveRuntimeBootstrapStorageConfigFromEnv,
   resolveRuntimeStorageConfig,
+  resolveRuntimeStorageConfigFromSettings,
 } from './settings/storage.js';
 export type { RuntimeSettings } from './settings/runtime-settings-types.js';
 export type ControlEnvKey =
@@ -123,6 +128,7 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         folder: agent.folder,
         persona: agent.persona,
         relationshipMode: agent.relationshipMode,
+        runtime: resolveConfiguredAgentRuntime(agent),
         model: agent.model,
         agentHarness: agent.agentHarness,
         oneTimeJobDefaultModel: agent.oneTimeJobDefaultModel,
@@ -135,6 +141,19 @@ function getPublicConfiguredAgents(settings: RuntimeSettings) {
         },
       },
     ]),
+  );
+}
+
+function getPublicConfiguredConversations(settings: RuntimeSettings) {
+  return Object.fromEntries(
+    Object.entries(settings.conversations).map(([conversationId, entry]) => {
+      const { providerConnection: _providerConnection, ...conversation } =
+        entry;
+      return [
+        conversationId,
+        { ...conversation, brainHarvest: conversation.brainHarvest ?? false },
+      ];
+    }),
   );
 }
 
@@ -151,8 +170,9 @@ export function getPublicRuntimeSettings() {
     },
     agents: getPublicConfiguredAgents(settings),
     providers: settings.providers,
-    providerConnections: settings.providerConnections,
-    conversations: settings.conversations,
+    providerAccounts: settings.providerAccounts,
+    conversations: getPublicConfiguredConversations(settings),
+    conversationInstalls: settings.conversationInstalls,
     bindings: settings.bindings,
     modelAliases: settings.modelAliases,
     memory: {
@@ -224,11 +244,13 @@ export const AGENT_MAX_OUTPUT_SIZE = parseInt(
 export function getCredentialBrokerRuntimeConfig(): {
   mode: RuntimeSettings['credentialBroker']['mode'];
   gatewayBindHost: string;
+  promptCache: RuntimeSettings['credentialBroker']['promptCache'];
 } {
   const settings = getRuntimeSettingsForConfig();
   return {
     mode: settings.credentialBroker.mode,
     gatewayBindHost: settings.credentialBroker.gateway.bindHost,
+    promptCache: settings.credentialBroker.promptCache,
   };
 }
 export const SECRET_ENCRYPTION_KEY = envValue('SECRET_ENCRYPTION_KEY');
@@ -381,12 +403,16 @@ export function patchRuntimeModelDefaults(
   body: Record<string, unknown>,
   appId?: AppId,
   createdBy?: string,
+  options?: {
+    getConfiguredModelProviderIds?: () => Promise<ReadonlySet<string>>;
+  },
 ) {
   return updateRuntimeModelDefaults({
     runtimeHome: GANTRY_HOME,
     body,
     appId,
     createdBy,
+    getConfiguredModelProviderIds: options?.getConfiguredModelProviderIds,
   });
 }
 export function getEffectiveModelConfig(
@@ -417,6 +443,21 @@ export function getSelectedAgentHarness(agentFolder?: string): AgentHarness {
     settings.agent.agentHarness ??
     AUTO_AGENT_HARNESS
   );
+}
+
+export function getSelectedAgentRuntime(agentFolder?: string): AgentRuntime {
+  return getConfiguredAgentRuntime(agentFolder) ?? 'worker';
+}
+
+export function getConfiguredAgentRuntime(
+  agentFolder?: string,
+): AgentRuntime | undefined {
+  const settings = getRuntimeSettingsForConfig();
+  const configuredAgent = agentFolder
+    ? settings.agents[agentFolder]
+    : undefined;
+  if (!configuredAgent) return undefined;
+  return resolveConfiguredAgentRuntime(configuredAgent);
 }
 
 export const MESSAGE_FETCH_PAGE_SIZE = Math.max(

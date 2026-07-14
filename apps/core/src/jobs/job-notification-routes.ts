@@ -14,6 +14,7 @@ export type JobNotificationPhase = 'start' | 'summary';
 export interface NormalizedJobNotificationRoute {
   conversationJid: string;
   threadId: string | null;
+  providerAccountId?: string;
   label: string;
 }
 
@@ -51,7 +52,10 @@ export function buildJobNotificationIdempotencyKey(input: {
   jobId: string;
   runId?: string | null;
   phase: JobNotificationPhase;
-  route: Pick<NormalizedJobNotificationRoute, 'conversationJid' | 'threadId'>;
+  route: Pick<
+    NormalizedJobNotificationRoute,
+    'conversationJid' | 'threadId' | 'providerAccountId'
+  >;
 }): string {
   const digest = createHash('sha256')
     .update(
@@ -62,6 +66,7 @@ export function buildJobNotificationIdempotencyKey(input: {
         phase: input.phase,
         conversationJid: input.route.conversationJid,
         threadId: input.route.threadId,
+        providerAccountId: input.route.providerAccountId ?? null,
       }),
       'utf8',
     )
@@ -122,6 +127,7 @@ function normalizeRoutes(
     normalized.push({
       conversationJid,
       threadId: normalizeOptional(route?.threadId) ?? null,
+      providerAccountId: normalizeOptional(route?.providerAccountId),
       label: normalizeOptional(route?.label) ?? conversationJid,
     });
   }
@@ -134,7 +140,7 @@ function dedupeRoutes(
   const seen = new Set<string>();
   const unique: NormalizedJobNotificationRoute[] = [];
   for (const route of routes) {
-    const key = `${route.conversationJid}\u0000${route.threadId ?? ''}`;
+    const key = `${route.conversationJid}\u0000${route.threadId ?? ''}\u0000${route.providerAccountId ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(route);

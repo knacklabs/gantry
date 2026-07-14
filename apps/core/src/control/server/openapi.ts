@@ -1,6 +1,5 @@
 import {
   errors,
-  jsonObject,
   type BodyKind,
   type JsonSchema,
   type RouteDoc,
@@ -14,6 +13,8 @@ import { extendedOpenApiRouteDocs } from './openapi-routes-extended.js';
 import { adminOpenApiSchemas } from './openapi-schemas-admin.js';
 import { automationOpenApiSchemas } from './openapi-schemas-automation.js';
 import { extensionOpenApiSchemas } from './openapi-schemas-extensions.js';
+import { llmOpenApiSchemas } from './openapi-schemas-llm.js';
+import { controlOpenApiSchemas } from './openapi-schemas-control.js';
 import { openApiSchemas } from './openapi-schemas.js';
 
 const routeDocs: RouteDoc[] = [
@@ -21,7 +22,7 @@ const routeDocs: RouteDoc[] = [
   ...extendedOpenApiRouteDocs,
 ];
 
-function response(description: string, schema: JsonSchema = jsonObject) {
+function response(description: string, schema: JsonSchema) {
   return { description, content: { 'application/json': { schema } } };
 }
 
@@ -36,7 +37,7 @@ function requestBody(kind: BodyKind | undefined): JsonSchema | undefined {
       },
     };
   }
-  return jsonRequestBody(jsonObject);
+  throw new Error('JSON request bodies require an operation schema');
 }
 
 function jsonRequestBody(schema: JsonSchema): JsonSchema {
@@ -47,15 +48,19 @@ function jsonRequestBody(schema: JsonSchema): JsonSchema {
   };
 }
 
-function statusDescription(status: '200' | '201' | '202'): string {
+function statusDescription(status: '200' | '201' | '202' | '409'): string {
   if (status === '201') return 'Resource created.';
   if (status === '202') return 'Request accepted for asynchronous processing.';
+  if (status === '409') return 'Request conflicts with current API policy.';
   return 'Request succeeded.';
 }
 
 function operationFromDoc(doc: RouteDoc) {
   const status = doc.status ?? '200';
-  const responseSchema = openApiResponseSchemas[doc.operationId] ?? jsonObject;
+  const responseSchema = openApiResponseSchemas[doc.operationId];
+  if (!responseSchema) {
+    throw new Error(`Missing OpenAPI response schema for ${doc.operationId}`);
+  }
   const operation: Record<string, unknown> = {
     operationId: doc.operationId,
     tags: [doc.tag],
@@ -67,10 +72,13 @@ function operationFromDoc(doc: RouteDoc) {
       ...errors,
     },
   };
-  const body =
-    doc.body === 'json' && openApiRequestSchemas[doc.operationId]
-      ? jsonRequestBody(openApiRequestSchemas[doc.operationId])
-      : requestBody(doc.body);
+  const requestSchema = openApiRequestSchemas[doc.operationId];
+  if (doc.body === 'json' && !requestSchema) {
+    throw new Error(`Missing OpenAPI request schema for ${doc.operationId}`);
+  }
+  const body = requestSchema
+    ? jsonRequestBody(requestSchema)
+    : requestBody(doc.body);
   if (body) operation.requestBody = body;
   if (doc.scopes) {
     operation.security = [{ bearerAuth: doc.scopes }];
@@ -109,6 +117,7 @@ export const GANTRY_OPENAPI_DOCUMENT = {
     { name: 'Agents', description: 'Agent identity and administration.' },
     { name: 'Capabilities', description: 'Capability selection.' },
     { name: 'Sessions', description: 'Durable SDK chat sessions.' },
+    { name: 'LLM', description: 'Direct model invocation passthrough.' },
     { name: 'Models', description: 'Provider-neutral model catalog.' },
     { name: 'Providers', description: 'Provider connections.' },
     { name: 'Conversations', description: 'Conversations and bindings.' },
@@ -137,6 +146,8 @@ export const GANTRY_OPENAPI_DOCUMENT = {
       ...adminOpenApiSchemas,
       ...automationOpenApiSchemas,
       ...extensionOpenApiSchemas,
+      ...llmOpenApiSchemas,
+      ...controlOpenApiSchemas,
       ErrorEnvelope: {
         type: 'object',
         required: ['error'],

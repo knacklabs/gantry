@@ -258,6 +258,81 @@ Postgres binding and intersected at materialization so the proxy only exposes
 the agent's allowed operations. Set it with
 `gantry mcp connect --agent-tool <pattern>` or the agent access API.
 
+## Agent Runtime Tiers
+
+Each configured agent has one execution tier: `runtime: worker` or
+`runtime: inline`. Omitted `runtime` defaults to `worker`. The tier changes how
+the agent loop executes, not the agent's identity, conversation bindings, model
+selection, durable memory, run/turn persistence, or permission authority.
+
+- `worker` executes in the existing worker subprocess and supports the full
+  reviewed worker capability projection and sandbox boundary.
+- `inline` executes the provider loop in the Gantry host process. Its built-in
+  surface is limited to `send_message`, `ask_user_question`, `memory_search`,
+  `memory_save`, `delegate_task`, `task_get`, `task_list`, `task_cancel`, and
+  `task_message`, as declared in
+  `apps/core/src/runtime/core-tools/registry.ts`. Approved remote `http` and
+  `sse` MCP operations are connected in-process through the same per-agent tool
+  scope, permission checks, audit, and DNS-pinned egress policy.
+
+Cross-agent delegation requires `AgentDelegation`, may target only an agent
+bound to the current conversation, and runs under the target agent's selected
+capabilities.
+
+Settings parse/apply and pre-spawn admission hard-reject `runtime: inline` when
+the agent has an attached skill, a `local_cli` source or runtime access, a
+`stdio_template` MCP source, a skill-action runtime access, or a selected tool
+rule that projects filesystem access (`FileSearch`, `FileRead`, `FileEdit`, or
+`FileWrite`) or `RunCommand(...)`. The configuration error lists every detected
+worker-only source, capability, or rule. The same validation applies when an
+existing worker agent is changed to inline; changing an inline agent to worker
+does not have this inline-only restriction.
+
+V1 inline loops also do not expose browser tools, capability self-service
+tools, agent-created-job tools, or provider-library internal subagents. Gantry's
+task lifecycle remains available, including delegation to inline or worker
+agents. Inline scheduled runs use the existing job persistence, heartbeat, and
+failover paths.
+
+Inline loops are turn-bounded: the optional per-agent `max_turns` setting caps
+provider-loop iterations, and when unset a built-in default cap applies
+(`DEFAULT_INLINE_AGENT_MAX_TURNS` in
+`apps/core/src/adapters/llm/inline-lane-dispatcher.ts`). Hitting the cap
+produces a terminal error naming the cap. Session messages to inline agents may
+carry a per-message `response_schema` (JSON Schema) enforced by the selected
+lane; see the Direct LLM API section for the passthrough equivalent.
+
+### Agent control knobs
+
+Per-agent model-control settings apply on every runtime tier and are validated
+against the model catalog's capability metadata at settings parse/apply —
+a knob the selected model cannot honor is a configuration error naming the
+field and model, never a silent no-op:
+
+- `effort` (`low|medium|high|xhigh|max`) maps to the provider's
+  effort/reasoning parameter on the Claude and DeepAgents lanes, worker and
+  inline alike.
+- `thinking` (`off`, `on`, or `{mode: on, budget_tokens: <positive int>}`)
+  maps to provider thinking configuration where the model supports it.
+- `max_output_tokens` (positive int) sets the per-call output cap on
+  DeepAgents-engine agents. Claude-engine agents reject the field at
+  settings-apply — the claude-agent-sdk has no per-query output-token option;
+  `effort` is the Claude-side spend lever.
+
+Session message sends accept the same three fields (`effort`, `thinking`,
+`max_output_tokens`) as per-request overrides. An override is persisted on the
+message record, survives replay, and wins over the agent's configured default
+for that turn. On the Claude worker path the conversation-level `/thinking`
+command override continues to win over both.
+
+Two spend guards complement the knobs. A per-agent `max_run_tokens` setting
+bounds cumulative normalized usage across a run: the budget is checked at turn
+boundaries and exceeding it terminates the run with an error naming the budget
+and observed total (no mid-turn cutoff). On the direct LLM API, an optional
+per-API-key `maxTokens` ceiling rejects requests whose `max_tokens` /
+`max_completion_tokens` exceed the key's limit with a shaped `400`
+`MAX_TOKENS_EXCEEDED` — requests are never silently clamped.
+
 ## Administration Model
 
 The deterministic ownership rule is:
@@ -299,6 +374,46 @@ API, CLI, and MCP are adapters over the same application services:
 - Gantry MCP tools are for agent-requested reviewed changes and safe runtime
   interactions. They create reviewable requests rendered through
   `InteractionDescriptor`.
+
+## Direct LLM API
+
+The Control API exposes provider-shaped raw model calls at
+`POST /llm/v1/messages`, `POST /llm/v1/chat/completions`, and
+`POST /llm/v1/messages/count_tokens`. Both streaming and
+non-streaming responses pass through the Gantry Model Gateway; the control
+route does not receive provider credentials or implement provider
+authentication. These calls do not run an agent loop or grant access to agent
+tools and capabilities.
+
+The passthrough supports ordinary chat and streaming, caller-defined
+client-side tools (Anthropic tools with `input_schema` and OpenAI `function`
+tools), structured outputs, and thinking or effort parameters. It does not
+delegate execution to provider-hosted tools: Anthropic server tools, remote MCP
+servers, containers, and execution betas are rejected, as are OpenAI hosted
+tools, hosted-tool fields, attachments, and file references. Unsupported
+surfaces return `400` with code `UNSUPPORTED_FIELD` and identify the rejected
+field or tool type.
+
+Direct LLM callers request provider-native strict JSON-schema output in the
+provider-shaped payload, which Gantry passes through to the selected provider.
+Inline agent callers instead send `response_schema` with the session message;
+the selected inline lane enforces that schema and returns the validated payload
+as the turn result.
+
+Clients authenticate with a Control API bearer key carrying `llm:invoke`.
+Missing or invalid keys return `401`; a valid key without the scope returns
+`403`. The request `model` must be a registered Gantry model alias for the
+endpoint's response family. Raw provider model ids and incompatible aliases are
+rejected with `400`; the resolved provider model id is used only for the
+gateway request. The request log attributes the route, result, model alias,
+model route, and request/response sizes to the API key and app. Each request
+uses an API-key/request-scoped gateway credential that is revoked when response
+delivery ends, including failures.
+
+For official SDK base-URL configuration, the Anthropic Messages route is under
+the `/llm` base (`/v1/messages`), while OpenAI Chat Completions is under the
+`/llm/v1` base (`/chat/completions`). The active route implementation is
+`apps/core/src/control/server/routes/llm.ts`.
 
 The single agent-wide view of what an agent can do is
 `GET /v1/agents/{id}/access` (and `gantry agent access show <agent>`): one place

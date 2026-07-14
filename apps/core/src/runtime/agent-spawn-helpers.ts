@@ -70,6 +70,7 @@ export function buildBaseRunnerEnv(input: {
   ipcInputDir: string;
   ipcAuthToken: string;
   chatJid: string;
+  providerAccountId?: string;
   jobId?: string;
   jobName?: string;
   runId?: string;
@@ -123,6 +124,9 @@ export function buildBaseRunnerEnv(input: {
     GANTRY_IPC_INPUT_DIR: input.ipcInputDir,
     GANTRY_IPC_AUTH_TOKEN: input.ipcAuthToken,
     GANTRY_CHAT_JID: input.chatJid,
+    ...(input.providerAccountId
+      ? { GANTRY_PROVIDER_ACCOUNT_ID: input.providerAccountId }
+      : {}),
     ...(input.jobId ? { GANTRY_JOB_ID: input.jobId } : {}),
     ...(input.jobName ? { GANTRY_JOB_NAME: input.jobName } : {}),
     ...(input.runId ? { GANTRY_JOB_RUN_ID: input.runId } : {}),

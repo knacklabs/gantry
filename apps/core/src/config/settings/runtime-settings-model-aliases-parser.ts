@@ -1,10 +1,14 @@
 import {
   executableModelEntry,
+  type ModelCacheMode,
   providerRoute,
   type ModelCatalogEntry,
   type ModelWorkload,
 } from '../../shared/model-catalog.js';
-import { normalizeModelRouteProviderId } from '../../shared/model-provider-registry.js';
+import {
+  getModelProviderDefinition,
+  normalizeModelRouteProviderId,
+} from '../../shared/model-provider-registry.js';
 import type { RuntimeCustomModelAlias } from './runtime-settings-types.js';
 import {
   containsControlCharacter,
@@ -42,8 +46,9 @@ export function parseModelAliases(
 export function modelAliasesToCatalogEntries(
   aliases: Record<string, RuntimeCustomModelAlias>,
 ): readonly ModelCatalogEntry[] {
-  return Object.entries(aliases).map(([aliasId, alias]) =>
-    executableModelEntry({
+  return Object.entries(aliases).map(([aliasId, alias]) => {
+    const cache = cacheSettingsForProvider(alias.provider);
+    return executableModelEntry({
       id: `settings:${aliasId}`,
       route: providerRoute(alias.provider, alias.providerModelId),
       displayName: alias.displayName,
@@ -55,14 +60,46 @@ export function modelAliasesToCatalogEntries(
       maxOutputTokens: alias.maxOutputTokens,
       inputUsdPerMillionTokens: alias.inputUsdPerMillionTokens,
       outputUsdPerMillionTokens: alias.outputUsdPerMillionTokens,
-      cacheMode: 'none',
-      cacheTokenFields: [],
+      cachedInputUsdPerMillionTokens: alias.cachedInputUsdPerMillionTokens,
+      cacheWriteUsdPerMillionTokens: alias.cacheWriteUsdPerMillionTokens,
+      cacheMode: cache.cacheMode,
+      cacheTokenFields: cache.cacheTokenFields,
       supportsThinking: alias.supportsThinking,
       supportsTools: alias.supportsTools,
       supportedWorkloads: alias.supportedWorkloads,
       experimental: true,
-    }),
-  );
+    });
+  });
+}
+
+function cacheSettingsForProvider(providerId: string): {
+  cacheMode: ModelCacheMode;
+  cacheTokenFields: readonly string[];
+} {
+  const prompt = getModelProviderDefinition(providerId)?.cacheSupport.prompt;
+  const cacheMode = prompt ? cacheModeForPromptMode(prompt.mode) : undefined;
+  if (!prompt || !cacheMode) {
+    return { cacheMode: 'none', cacheTokenFields: [] };
+  }
+  const cacheTokenFields = [
+    prompt.usageFields.writeTokens,
+    prompt.usageFields.readTokens,
+  ].filter((field): field is string => typeof field === 'string');
+  return { cacheMode, cacheTokenFields };
+}
+
+function cacheModeForPromptMode(mode: string): ModelCacheMode | undefined {
+  if (mode === 'none') return undefined;
+  const providerPrefix = mode.split('_', 1)[0];
+  if (mode.endsWith('_cache_control')) {
+    return `${providerPrefix}-prompt` as ModelCacheMode;
+  }
+  if (mode.endsWith('_automatic_prefix')) {
+    const suffix =
+      providerPrefix === 'openrouter' ? 'provider-prompt' : 'automatic-prompt';
+    return `${providerPrefix}-${suffix}` as ModelCacheMode;
+  }
+  return undefined;
 }
 
 function parseModelAlias(
@@ -89,6 +126,8 @@ function parseModelAlias(
       key !== 'max_output_tokens' &&
       key !== 'input_usd_per_million_tokens' &&
       key !== 'output_usd_per_million_tokens' &&
+      key !== 'cached_input_usd_per_million_tokens' &&
+      key !== 'cache_write_usd_per_million_tokens' &&
       key !== 'supports_thinking' &&
       key !== 'supports_tools' &&
       key !== 'source'
@@ -140,6 +179,14 @@ function parseModelAlias(
     outputUsdPerMillionTokens: parseOptionalPrice(
       map.output_usd_per_million_tokens,
       `${pathPrefix}.output_usd_per_million_tokens`,
+    ),
+    cachedInputUsdPerMillionTokens: parseOptionalPrice(
+      map.cached_input_usd_per_million_tokens,
+      `${pathPrefix}.cached_input_usd_per_million_tokens`,
+    ),
+    cacheWriteUsdPerMillionTokens: parseOptionalPrice(
+      map.cache_write_usd_per_million_tokens,
+      `${pathPrefix}.cache_write_usd_per_million_tokens`,
     ),
     supportsThinking:
       map.supports_thinking === undefined

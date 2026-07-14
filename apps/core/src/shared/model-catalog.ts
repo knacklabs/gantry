@@ -19,7 +19,7 @@ import {
 
 export type ModelResponseFamily = string;
 export type ModelRouteId = ModelRouteProviderId;
-export type ModelPresetId = ModelRouteId;
+export type ModelEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ModelExecutionProviderId =
   | 'anthropic:claude-agent-sdk'
   | 'deepagents:langchain'
@@ -72,6 +72,20 @@ const ALL_MODEL_WORKLOADS = [
   'memory_dreaming',
   'memory_consolidation',
 ] as const satisfies readonly ModelWorkload[];
+const OPENAI_MODEL_WORKLOADS = [
+  'chat',
+  'memory_extractor',
+  'memory_dreaming',
+  'memory_consolidation',
+] as const satisfies readonly ModelWorkload[];
+const ALL_MODEL_EFFORT_LEVELS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const satisfies readonly ModelEffortLevel[];
+const REASONING_EFFORT_LEVELS = ALL_MODEL_EFFORT_LEVELS.slice(0, -1);
 const MODEL_RUNTIME_CREDENTIAL_PROFILE_REF = 'gantry-model-access';
 const CLAUDE_MODELS_OVERVIEW_SOURCE = {
   label: 'Anthropic models overview',
@@ -83,27 +97,32 @@ const CLAUDE_MODEL_IDS_SOURCE = {
   url: 'https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions',
   verifiedAt: '2026-05-21',
 };
+const OPUS_MODEL_METADATA = {
+  contextWindowTokens: 1_000_000,
+  maxOutputTokens: 128_000,
+  inputUsdPerMillionTokens: 5,
+  outputUsdPerMillionTokens: 25,
+  cachedInputUsdPerMillionTokens: 0.5,
+  cacheWriteUsdPerMillionTokens: 6.25,
+  cacheMode: DIRECT_PROMPT_CACHE_MODE,
+  cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
+  supportsThinking: true,
+  supportsTools: true,
+  supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+} as const;
 
-function gptDocsUrl(modelId: string): string {
+function gptSource(model: string) {
   const host = ['developers', 'op' + 'enai', 'com'].join('.');
-  return `https://${host}/api/docs/models/${modelId}`;
+  return {
+    label: `${model} model`,
+    url: `https://${host}/api/docs/models/${model.toLowerCase().replace(' ', '-')}`,
+    verifiedAt: '2026-06-19',
+  };
 }
 
-const GPT_55_SOURCE = {
-  label: 'GPT-5.5 model',
-  url: gptDocsUrl('gpt-5.5'),
-  verifiedAt: '2026-06-19',
-};
-const GPT_54_SOURCE = {
-  label: 'GPT-5.4 model',
-  url: gptDocsUrl('gpt-5.4'),
-  verifiedAt: '2026-06-19',
-};
-const GPT_54_MINI_SOURCE = {
-  label: 'GPT-5.4 mini model',
-  url: gptDocsUrl('gpt-5.4-mini'),
-  verifiedAt: '2026-06-19',
-};
+const GPT_55_SOURCE = gptSource('GPT-5.5');
+const GPT_54_SOURCE = gptSource('GPT-5.4');
+const GPT_54_MINI_SOURCE = gptSource('GPT-5.4 mini');
 const OPENROUTER_PROVIDER_AVAILABILITY: ModelProviderAvailability = {
   verifiedAt: '2026-06-22',
   evidence: {
@@ -142,9 +161,16 @@ export interface ModelCatalogEntry {
   maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCacheMode;
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
+  supportsEffort: boolean;
+  supportedEffortLevels: readonly ModelEffortLevel[];
+  supportsAdaptiveThinking: boolean;
+  supportsReasoningEffort: boolean;
+  supportsThinkingBudget: boolean;
   supportsTools?: boolean;
   capabilities: ModelCapabilityDescriptor;
   supportedWorkloads: readonly ModelWorkload[];
@@ -175,17 +201,10 @@ export interface ModelDefaultAliases {
   memoryConsolidation?: string;
 }
 
-export interface ModelPreset {
-  id: ModelPresetId;
-  label: string;
-  chatDefault: string;
-  oneTimeJobDefault: string;
-  recurringJobDefault: string;
-  memoryDefaults: {
-    extractor: string;
-    dreaming: string;
-    consolidation: string;
-  };
+export interface MemoryModelDefaults {
+  extractor: string;
+  dreaming: string;
+  consolidation: string;
 }
 
 export interface NormalizedModelUsage {
@@ -225,11 +244,18 @@ export interface RuntimeContextUsageSnapshot {
 
 export const DEFAULT_SETUP_MODEL_ALIAS = 'opus';
 
-export const MEMORY_MODEL_DEFAULT_ALIASES = {
-  extractor: 'haiku',
-  dreaming: 'sonnet',
-  consolidation: 'sonnet',
-} as const;
+const CURATED_MEMORY_MODEL_DEFAULTS: Record<string, MemoryModelDefaults> = {
+  anthropic: {
+    extractor: 'haiku',
+    dreaming: 'sonnet',
+    consolidation: 'sonnet',
+  },
+  openrouter: {
+    extractor: 'kimi',
+    dreaming: 'kimi',
+    consolidation: 'kimi',
+  },
+};
 
 const CURRENT_RESPONSE_FAMILY_CAPABILITIES: ModelCapabilityDescriptor = {
   streaming: true,
@@ -243,54 +269,6 @@ const CURRENT_RESPONSE_FAMILY_CAPABILITIES: ModelCapabilityDescriptor = {
   cacheAccounting: true,
   structuredOutput: false,
 };
-
-export const MODEL_PRESETS: readonly ModelPreset[] = [
-  {
-    id: 'anthropic',
-    label: 'Anthropic',
-    chatDefault: DEFAULT_SETUP_MODEL_ALIAS,
-    oneTimeJobDefault: '',
-    recurringJobDefault: '',
-    memoryDefaults: {
-      extractor: MEMORY_MODEL_DEFAULT_ALIASES.extractor,
-      dreaming: MEMORY_MODEL_DEFAULT_ALIASES.dreaming,
-      consolidation: MEMORY_MODEL_DEFAULT_ALIASES.consolidation,
-    },
-  },
-  {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    chatDefault: 'kimi',
-    oneTimeJobDefault: '',
-    recurringJobDefault: '',
-    memoryDefaults: {
-      extractor: 'kimi',
-      dreaming: 'kimi',
-      consolidation: 'kimi',
-    },
-  },
-] as const;
-
-export const DEFAULT_MODEL_PRESET_ID: ModelPresetId = MODEL_PRESETS[0].id;
-
-export function listModelPresets(): readonly ModelPreset[] {
-  return MODEL_PRESETS;
-}
-
-export function isModelPresetId(value: unknown): value is ModelPresetId {
-  return (
-    typeof value === 'string' &&
-    MODEL_PRESETS.some((preset) => preset.id === value)
-  );
-}
-
-export function getModelPreset(presetId: ModelPresetId): ModelPreset {
-  const preset = MODEL_PRESETS.find((entry) => entry.id === presetId);
-  if (!preset) {
-    throw new Error(`Unknown model preset: ${presetId}`);
-  }
-  return preset;
-}
 
 export function providerRoute(providerId: string, providerModelId: string) {
   const id = normalizeModelRouteProviderId(providerId);
@@ -325,9 +303,14 @@ export function executableModelEntry(input: {
   maxOutputTokens?: number;
   inputUsdPerMillionTokens?: number;
   outputUsdPerMillionTokens?: number;
+  cachedInputUsdPerMillionTokens?: number;
+  cacheWriteUsdPerMillionTokens?: number;
   cacheMode: ModelCacheMode;
   cacheTokenFields: readonly string[];
   supportsThinking?: boolean;
+  supportedEffortLevels?: readonly ModelEffortLevel[];
+  supportsAdaptiveThinking?: boolean;
+  supportsThinkingBudget?: boolean;
   supportsTools?: boolean;
   supportedWorkloads: readonly ModelWorkload[];
   providerAvailability?: ModelProviderAvailability;
@@ -340,11 +323,21 @@ export function executableModelEntry(input: {
       `Model catalog route ${input.route.id} is not executable in the provider registry.`,
     );
   }
+  const supportsReasoningEffort =
+    provider.supportsReasoningEffort === true &&
+    input.supportsThinking === true;
   return {
     ...input,
     responseFamily: provider.responseFamily,
     credentialProfileRef: MODEL_RUNTIME_CREDENTIAL_PROFILE_REF,
     modelRoute: input.route,
+    supportsEffort: input.supportedEffortLevels !== undefined,
+    supportedEffortLevels:
+      input.supportedEffortLevels ??
+      (supportsReasoningEffort ? REASONING_EFFORT_LEVELS : []),
+    supportsAdaptiveThinking: input.supportsAdaptiveThinking ?? false,
+    supportsReasoningEffort,
+    supportsThinkingBudget: input.supportsThinkingBudget ?? false,
     capabilities: {
       ...CURRENT_RESPONSE_FAMILY_CAPABILITIES,
       thinking: input.supportsThinking ?? false,
@@ -383,15 +376,9 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     aliases: ['opus', 'opus-4.8'],
     recommendedAlias: 'opus',
     source: CLAUDE_MODELS_OVERVIEW_SOURCE,
-    contextWindowTokens: 1_000_000,
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 5,
-    outputUsdPerMillionTokens: 25,
-    cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
-    supportsThinking: true,
-    supportsTools: true,
-    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+    ...OPUS_MODEL_METADATA,
+    supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
+    supportsAdaptiveThinking: true,
   }),
   executableModelEntry({
     id: 'anthropic:opus-4.7',
@@ -401,15 +388,9 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     aliases: ['opus-4.7'],
     recommendedAlias: 'opus-4.7',
     source: CLAUDE_MODELS_OVERVIEW_SOURCE,
-    contextWindowTokens: 1_000_000,
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 5,
-    outputUsdPerMillionTokens: 25,
-    cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
-    supportsThinking: true,
-    supportsTools: true,
-    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+    ...OPUS_MODEL_METADATA,
+    supportedEffortLevels: ALL_MODEL_EFFORT_LEVELS,
+    supportsAdaptiveThinking: true,
   }),
   executableModelEntry({
     id: 'anthropic:opus-4.6',
@@ -419,15 +400,10 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     aliases: ['opus-4.6'],
     recommendedAlias: 'opus-4.6',
     source: CLAUDE_MODEL_IDS_SOURCE,
-    contextWindowTokens: 1_000_000,
-    maxOutputTokens: 128_000,
-    inputUsdPerMillionTokens: 5,
-    outputUsdPerMillionTokens: 25,
-    cacheMode: DIRECT_PROMPT_CACHE_MODE,
-    cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
-    supportsThinking: true,
-    supportsTools: true,
-    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
+    ...OPUS_MODEL_METADATA,
+    supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+    supportsAdaptiveThinking: true,
+    supportsThinkingBudget: true,
   }),
   executableModelEntry({
     id: 'anthropic:sonnet-4.6',
@@ -441,9 +417,14 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 64_000,
     inputUsdPerMillionTokens: 3,
     outputUsdPerMillionTokens: 15,
+    cachedInputUsdPerMillionTokens: 0.3,
+    cacheWriteUsdPerMillionTokens: 3.75,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+    supportsAdaptiveThinking: true,
+    supportsThinkingBudget: true,
     supportsTools: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
   }),
@@ -459,6 +440,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 64_000,
     inputUsdPerMillionTokens: 1,
     outputUsdPerMillionTokens: 5,
+    cachedInputUsdPerMillionTokens: 0.1,
+    cacheWriteUsdPerMillionTokens: 1.25,
     cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: DIRECT_PROMPT_CACHE_TOKEN_FIELDS,
     supportsThinking: false,
@@ -505,8 +488,8 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 32_768,
     inputUsdPerMillionTokens: 0.95,
     outputUsdPerMillionTokens: 3,
-    cacheMode: 'openrouter-provider-prompt',
-    cacheTokenFields: OPENROUTER_CACHE_TOKEN_FIELDS,
+    cacheMode: 'none',
+    cacheTokenFields: [],
     supportsThinking: true,
     supportsTools: true,
     supportedWorkloads: ALL_MODEL_WORKLOADS,
@@ -536,16 +519,12 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 30,
+    cachedInputUsdPerMillionTokens: 0.5,
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportsThinking: true,
     supportsTools: true,
-    supportedWorkloads: [
-      'chat',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
+    supportedWorkloads: OPENAI_MODEL_WORKLOADS,
     experimental: true,
   }),
   executableModelEntry({
@@ -559,16 +538,12 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 2.5,
     outputUsdPerMillionTokens: 15,
+    cachedInputUsdPerMillionTokens: 0.25,
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportsThinking: true,
     supportsTools: true,
-    supportedWorkloads: [
-      'chat',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
+    supportedWorkloads: OPENAI_MODEL_WORKLOADS,
     experimental: true,
   }),
   executableModelEntry({
@@ -583,16 +558,12 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 0.75,
     outputUsdPerMillionTokens: 4.5,
+    cachedInputUsdPerMillionTokens: 0.075,
     cacheMode: 'openai-automatic-prompt',
     cacheTokenFields: ['prompt_tokens_details.cached_tokens'],
     supportsThinking: true,
     supportsTools: true,
-    supportedWorkloads: [
-      'chat',
-      'memory_extractor',
-      'memory_dreaming',
-      'memory_consolidation',
-    ],
+    supportedWorkloads: OPENAI_MODEL_WORKLOADS,
     experimental: true,
   }),
   // Additional OpenAI-chat-completions-compatible providers on the deepagents
@@ -674,6 +645,35 @@ export function withCustomModelCatalogEntries<T>(
 
 export function listModelCatalogEntries(): readonly ModelCatalogEntry[] {
   return activeModelCatalogEntries;
+}
+
+export function memoryModelDefaultsForProvider(
+  providerId: string,
+): MemoryModelDefaults {
+  const curated = CURATED_MEMORY_MODEL_DEFAULTS[providerId];
+  if (curated) return { ...curated };
+  const selected = activeModelCatalogEntries
+    .filter(
+      (entry) =>
+        entry.modelRoute.id === providerId &&
+        entry.supportedWorkloads.includes('memory_extractor') &&
+        entry.supportedWorkloads.includes('memory_dreaming') &&
+        entry.supportedWorkloads.includes('memory_consolidation'),
+    )
+    .sort(
+      (a, b) =>
+        (a.inputUsdPerMillionTokens ?? Number.POSITIVE_INFINITY) -
+          (b.inputUsdPerMillionTokens ?? Number.POSITIVE_INFINITY) ||
+        a.id.localeCompare(b.id),
+    )[0];
+  if (selected) {
+    return {
+      extractor: selected.recommendedAlias,
+      dreaming: selected.recommendedAlias,
+      consolidation: selected.recommendedAlias,
+    };
+  }
+  return { ...CURATED_MEMORY_MODEL_DEFAULTS.anthropic };
 }
 
 export function resolveModelSelection(value?: string | null): ModelResolution {

@@ -8,6 +8,8 @@ import {
 export async function runProviderConnectCommand(
   runtimeHome: string,
   providerId: string,
+  agentId?: string,
+  agentName?: string,
 ): Promise<number> {
   const provider = getProvider(providerId);
   const isConnectable = listConnectableChannelProviders().some(
@@ -37,6 +39,8 @@ export async function runProviderConnectCommand(
   try {
     await provider.setup.run({
       runtimeHome,
+      agentId,
+      agentName,
       prompt,
       confirm,
     });

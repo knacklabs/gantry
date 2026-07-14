@@ -38,9 +38,10 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
 
     const result = await validator.validateControlApprovers({
       providerId: 'tg' as never,
-      providerConnection: {
-        id: 'providerConnection-tg',
+      providerAccount: {
+        id: 'providerAccount-tg',
         appId: 'default' as never,
+        agentId: 'main_agent' as never,
         providerId: 'tg' as never,
         label: 'Telegram',
         status: 'active',
@@ -52,7 +53,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       conversation: {
         id: 'conversation:tg:-100123' as never,
         appId: 'default' as never,
-        providerConnectionId: 'providerConnection-tg' as never,
+        providerAccountId: 'providerAccount-tg' as never,
         externalRef: { kind: 'conversation', value: 'tg:-100123' },
         kind: 'group',
         title: 'Default Agent Telegram Group',
@@ -115,9 +116,10 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
 
     const result = await validator.validateControlApprovers({
       providerId: 'teams' as never,
-      providerConnection: {
-        id: 'providerConnection-1',
+      providerAccount: {
+        id: 'providerAccount-1',
         appId: 'default' as never,
+        agentId: 'main_agent' as never,
         providerId: 'teams' as never,
         label: 'Teams',
         status: 'active',
@@ -133,7 +135,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       conversation: {
         id: 'conversation-1' as never,
         appId: 'default' as never,
-        providerConnectionId: 'providerConnection-1' as never,
+        providerAccountId: 'providerAccount-1' as never,
         externalRef: { kind: 'conversation', value: 'teams:19:abc@thread.v2' },
         kind: 'channel',
         title: 'Engineering',
@@ -190,9 +192,10 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
 
     const result = await validator.validateControlApprovers({
       providerId: 'discord' as never,
-      providerConnection: {
-        id: 'providerConnection-discord',
+      providerAccount: {
+        id: 'providerAccount-discord',
         appId: 'default' as never,
+        agentId: 'main_agent' as never,
         providerId: 'discord' as never,
         label: 'Discord',
         status: 'active',
@@ -207,7 +210,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       conversation: {
         id: 'conversation:dc:1234567890' as never,
         appId: 'default' as never,
-        providerConnectionId: 'providerConnection-discord' as never,
+        providerAccountId: 'providerAccount-discord' as never,
         externalRef: { kind: 'conversation', value: 'dc:1234567890' },
         kind: 'channel',
         title: 'Engineering / #general',
@@ -275,9 +278,10 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
 
     const result = await validator.validateControlApprovers({
       providerId: 'discord' as never,
-      providerConnection: {
-        id: 'providerConnection-discord',
+      providerAccount: {
+        id: 'providerAccount-discord',
         appId: 'default' as never,
+        agentId: 'main_agent' as never,
         providerId: 'discord' as never,
         label: 'Discord',
         status: 'active',
@@ -289,7 +293,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       conversation: {
         id: 'conversation:dc:1234567890' as never,
         appId: 'default' as never,
-        providerConnectionId: 'providerConnection-discord' as never,
+        providerAccountId: 'providerAccount-discord' as never,
         externalRef: { kind: 'conversation', value: 'dc:1234567890' },
         kind: 'channel',
         title: 'Engineering / #private',
@@ -351,9 +355,10 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
 
     const result = await validator.validateControlApprovers({
       providerId: 'teams' as never,
-      providerConnection: {
-        id: 'providerConnection-2',
+      providerAccount: {
+        id: 'providerAccount-2',
         appId: 'default' as never,
+        agentId: 'main_agent' as never,
         providerId: 'teams' as never,
         label: 'Teams',
         status: 'active',
@@ -372,7 +377,7 @@ describe('RuntimeSecretConversationMembershipValidator', () => {
       conversation: {
         id: 'conversation-2' as never,
         appId: 'default' as never,
-        providerConnectionId: 'providerConnection-2' as never,
+        providerAccountId: 'providerAccount-2' as never,
         externalRef: { kind: 'conversation', value: 'teams:19:def@thread.v2' },
         kind: 'channel',
         title: 'Design',

@@ -233,6 +233,7 @@ function toOptionalNotificationRoutes(value: unknown):
   | Array<{
       conversationJid: string;
       threadId: string | null;
+      providerAccountId?: string | null;
       label: string;
     }>
   | undefined {
@@ -243,6 +244,7 @@ function toOptionalNotificationRoutes(value: unknown):
   const routes: Array<{
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string | null;
     label: string;
   }> = [];
   for (const entry of value) {
@@ -257,6 +259,14 @@ function toOptionalNotificationRoutes(value: unknown):
       entry.threadId === null
         ? null
         : toTrimmedString(entry.threadId, { maxLen: 255 });
+    const hasProviderAccountId = Object.prototype.hasOwnProperty.call(
+      entry,
+      'providerAccountId',
+    );
+    const providerAccountId =
+      entry.providerAccountId === null
+        ? null
+        : toTrimmedString(entry.providerAccountId, { maxLen: 255 });
     const label = toTrimmedString(entry.label, { maxLen: 80 });
     if (!conversationJid || !label || !hasThreadId) {
       throw new Error(
@@ -268,9 +278,27 @@ function toOptionalNotificationRoutes(value: unknown):
         'notificationRoutes entries threadId must be a string or null.',
       );
     }
+    if (
+      hasProviderAccountId &&
+      entry.providerAccountId !== null &&
+      !providerAccountId
+    ) {
+      throw new Error(
+        'notificationRoutes entries providerAccountId must be a string or null.',
+      );
+    }
     const normalizedThreadId: string | null =
       entry.threadId === null ? null : (threadId as string);
-    routes.push({ conversationJid, threadId: normalizedThreadId, label });
+    const normalizedProviderAccountId: string | null =
+      entry.providerAccountId === null ? null : (providerAccountId as string);
+    routes.push({
+      conversationJid,
+      threadId: normalizedThreadId,
+      ...(hasProviderAccountId
+        ? { providerAccountId: normalizedProviderAccountId }
+        : {}),
+      label,
+    });
   }
   return routes;
 }
@@ -355,6 +383,9 @@ export function parseTaskIpcData(
   const workspaceFolder = toTrimmedString(raw.workspaceFolder, { maxLen: 128 });
   const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
   const targetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
+  const providerAccountId = toTrimmedString(raw.providerAccountId, {
+    maxLen: 255,
+  });
   const memoryUserId = toTrimmedString(raw.memoryUserId, { maxLen: 255 });
   const jid = toTrimmedString(raw.jid, { maxLen: 255 });
   const name = toTrimmedString(raw.name, { maxLen: 255 });
@@ -449,6 +480,7 @@ export function parseTaskIpcData(
   if (workspaceFolder) parsed.workspaceFolder = workspaceFolder;
   if (chatJid) parsed.chatJid = chatJid;
   if (targetJid) parsed.targetJid = targetJid;
+  if (providerAccountId) parsed.providerAccountId = providerAccountId;
   if (memoryUserId) parsed.memoryUserId = memoryUserId;
   if (jid) parsed.jid = jid;
   if (name) parsed.name = name;

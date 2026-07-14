@@ -2,6 +2,48 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApplicationError } from '../../application/common/application-error.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+
+export type ControlRequestLogEntry = {
+  route: string;
+  method: string;
+  statusCode: number;
+  apiKeyId?: string;
+  appId?: string;
+  modelAlias?: string;
+  modelRouteId?: string;
+  requestBodyBytes?: number;
+  responseBodyBytes?: number;
+  clientDisconnected?: boolean;
+};
+
+export type ControlRequestLogSink = (
+  entry: ControlRequestLogEntry,
+) => Promise<void> | void;
+
+let controlRequestLogSink: ControlRequestLogSink = (entry) => {
+  logger.info(entry, 'Control request completed');
+};
+
+export function configureControlRequestLogSink(
+  sink: ControlRequestLogSink,
+): () => void {
+  const previous = controlRequestLogSink;
+  controlRequestLogSink = sink;
+  return () => {
+    controlRequestLogSink = previous;
+  };
+}
+
+export async function recordControlRequestLog(
+  entry: ControlRequestLogEntry,
+): Promise<void> {
+  try {
+    await controlRequestLogSink(entry);
+  } catch (error) {
+    logger.warn({ err: error }, 'Control request log sink failed');
+  }
+}
 
 export function readRawBody(
   req: IncomingMessage,

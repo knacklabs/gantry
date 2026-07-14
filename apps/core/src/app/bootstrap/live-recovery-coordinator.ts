@@ -5,8 +5,16 @@ import type { NewMessage } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
 import { collectPendingMessagesSince } from '../../runtime/pending-message-replay.js';
-import { parseThreadQueueKey } from '../../shared/thread-queue-key.js';
+import { agentIdForFolder } from '../../domain/agent/agent-folder-id.js';
+import {
+  findConversationRouteForQueue,
+  parseAgentThreadQueueKey,
+} from '../../shared/thread-queue-key.js';
 import { buildLiveTurnContinuation } from './live-turn-continuation.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '../../shared/message-cursor.js';
 
 /**
  * WP2: the singleton lease is now a RECOVERY COORDINATOR election, not a live
@@ -219,6 +227,7 @@ export interface LiveTurnScopeRepository {
     executionProviderId: ExecutionProviderId;
     conversationJid: string;
     threadId: string | null;
+    providerAccountId?: string | null;
     conversationKind?: 'channel' | 'dm';
     hydrateMemory: boolean;
   }) => Promise<
@@ -233,8 +242,20 @@ export interface LiveTurnScopeRepository {
 interface LiveTurnScopeApp {
   getConversationRoutes(): Record<
     string,
-    { folder: string; conversationKind?: 'channel' | 'dm' }
+    {
+      folder: string;
+      conversationKind?: 'channel' | 'dm';
+      agentConfig?: { model?: string };
+    }
   >;
+  resolveExecutionProviderId?: (
+    route: {
+      folder: string;
+      conversationKind?: 'channel' | 'dm';
+      agentConfig?: { model?: string };
+    },
+    chatJid: string,
+  ) => Promise<ExecutionProviderId> | ExecutionProviderId;
 }
 
 export async function liveTurnScopeForQueue(input: {
@@ -244,16 +265,23 @@ export async function liveTurnScopeForQueue(input: {
   queueJid: string;
 }): Promise<LiveTurnScope | null> {
   const { app, opsRepository, executionAdapter, queueJid } = input;
-  const { chatJid, threadId } = parseThreadQueueKey(queueJid);
-  const route = app.getConversationRoutes()[chatJid];
+  const { chatJid, threadId, providerAccountId } =
+    parseAgentThreadQueueKey(queueJid);
+  const route = findConversationRouteForQueue(
+    app.getConversationRoutes(),
+    queueJid,
+    (candidate) => agentIdForFolder(candidate.folder),
+  );
   if (!route) return null;
   const executionProviderId =
+    (await app.resolveExecutionProviderId?.(route, chatJid)) ??
     resolveRuntimeExecutionProviderId(executionAdapter);
   const turnContext = await opsRepository.getAgentTurnContext?.({
     agentFolder: route.folder,
     executionProviderId,
     conversationJid: chatJid,
     threadId: threadId ?? null,
+    providerAccountId: providerAccountId ?? null,
     conversationKind: route.conversationKind,
     hydrateMemory: false,
   });
@@ -334,11 +362,13 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     conversationJid: string,
     sinceCursor: string,
     limit?: number,
-    options?: { threadId?: string | null },
+    options?: { threadId?: string | null; providerAccountId?: string | null },
   ) => Promise<NewMessage[]>;
   setAgentCursor: (queueJid: string, cursor: string) => void;
   saveState: () => Promise<void> | void;
   enqueueMessageCheck?: (queueJid: string) => void;
+  isActiveControlMessage?: (message: NewMessage) => boolean;
+  handleActiveControlMessage?: (message: NewMessage) => Promise<boolean>;
   routeMessage: NonNullable<
     Parameters<typeof routeScopeActiveLiveTurnAdmission>[0]['routeMessage']
   >;
@@ -352,10 +382,32 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
         chatJid: input.chatJid,
         sinceCursor: input.replayCursor,
         pageSize: input.messageFetchPageSize,
-        options: { threadId: input.threadId },
+        options: {
+          threadId: input.threadId,
+          providerAccountId: parseAgentThreadQueueKey(input.queueJid)
+            .providerAccountId,
+        },
       })
     : undefined;
   const messages = replay?.messages;
+  if (messages?.length && input.handleActiveControlMessage) {
+    const nextMessage = messages[0];
+    if (await input.handleActiveControlMessage(nextMessage)) {
+      input.setAgentCursor(
+        input.queueJid,
+        encodeGroupMessageCursor(toGroupMessageCursor(nextMessage)),
+      );
+      await input.saveState();
+      return true;
+    }
+  }
+  const controlIndex = messages?.findIndex(
+    (message) => input.isActiveControlMessage?.(message) === true,
+  );
+  const replayMessages =
+    controlIndex === undefined || controlIndex < 0
+      ? messages
+      : messages?.slice(0, controlIndex);
   const routed = await routeScopeActiveLiveTurnAdmission({
     scope: input.scope,
     queueJid: input.queueJid,
@@ -363,7 +415,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     continuation: buildLiveTurnContinuation({
       queueJid: input.queueJid,
       sinceCursor: input.replayCursor,
-      messages,
+      messages: replayMessages,
       timezone: input.timezone,
       setAgentCursor: input.setAgentCursor,
       saveState: input.saveState,
@@ -371,7 +423,7 @@ export async function routeScopeActiveLiveTurnAdmissionFromCursor(input: {
     routeMessage: input.routeMessage,
     completeSessionAgentRun: input.completeSessionAgentRun,
   });
-  if (routed && replay?.hasMore) {
+  if (routed && (replay?.hasMore || (controlIndex ?? -1) >= 0)) {
     input.enqueueMessageCheck?.(input.queueJid);
   }
   return routed;

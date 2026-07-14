@@ -93,7 +93,11 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       jid,
       channelId: parsed.channelId,
       formattedText: formatOutboundForChannel(text, 'slack'),
-      options,
+      options: {
+        ...options,
+        providerAccountId:
+          options.providerAccountId ?? this.opts.providerAccountId,
+      },
       log: logger,
       sendSnippetFallback: (fallback) => this.sendSnippetFallback(fallback),
     });
@@ -133,6 +137,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       jid,
       channelId: parsed.channelId,
       render,
+      providerAccountId: this.opts.providerAccountId,
       todoKey,
       pendingTodos: this.pendingTodos,
     });
@@ -473,7 +478,11 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       channelId: parsed.channelId,
       key,
       text,
-      options,
+      options: {
+        ...options,
+        providerAccountId:
+          options.providerAccountId ?? this.opts.providerAccountId,
+      },
       activeProgress: this.activeProgress,
       persistProgress: () => this.persistProgress(),
     });
@@ -528,6 +537,12 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         ...new Set(
           Object.values(this.opts.runtimeSettings?.().conversations || {})
             .filter((conversation) => conversation.externalId === channelId)
+            .filter(
+              (conversation) =>
+                (conversation.providerAccount ??
+                  conversation.providerConnection) ===
+                this.opts.providerAccountId,
+            )
             .flatMap((conversation) => conversation.controlApprovers),
         ),
       ];
@@ -683,6 +698,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       channelNameCache: this.channelNameCache,
       resolveChannelName: (channelId) => this.resolveChannelName(channelId),
       onChatMetadata: this.opts.onChatMetadata,
+      providerAccountId: this.opts.providerAccountId,
     });
   }
   isConnected(): boolean {

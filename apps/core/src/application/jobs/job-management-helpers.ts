@@ -22,6 +22,7 @@ export interface AuthenticatedJobRouteContext {
   conversationJid: string;
   threadId: string | null;
   workspaceKey: string;
+  providerAccountId?: string | null;
 }
 
 export interface JobNotificationRouteApprovalDecision {
@@ -148,6 +149,8 @@ export function authenticatedContextFromAccess(
     conversationJid,
     workspaceKey,
     threadId: normalizeNullableOptionalString(access.authThreadId) ?? null,
+    providerAccountId:
+      normalizeNullableOptionalString(access.originProviderAccountId) ?? null,
   };
 }
 
@@ -197,16 +200,22 @@ export function normalizeNotificationRoutes(
         : '';
     const label = typeof route.label === 'string' ? route.label.trim() : '';
     const threadId = normalizeNullableString(route.threadId);
+    const providerAccountId = normalizeNullableString(route.providerAccountId);
     if (!conversationJid || !label || threadId === undefined) {
       throw new ApplicationError(
         'INVALID_REQUEST',
         'notificationRoutes entries require conversationJid, threadId, and label.',
       );
     }
-    const dedupeKey = `${conversationJid}\u0000${threadId ?? ''}\u0000${label}`;
+    const dedupeKey = `${conversationJid}\u0000${threadId ?? ''}\u0000${providerAccountId ?? ''}\u0000${label}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
-    normalized.push({ conversationJid, threadId, label });
+    normalized.push({
+      conversationJid,
+      threadId,
+      ...(providerAccountId !== undefined ? { providerAccountId } : {}),
+      label,
+    });
   }
   if (normalized.length === 0) {
     throw new ApplicationError(
@@ -230,11 +239,17 @@ export function normalizeStoredNotificationRoutes(
         : '';
     const label = typeof route?.label === 'string' ? route.label.trim() : '';
     const threadId = normalizeNullableString(route?.threadId);
+    const providerAccountId = normalizeNullableString(route?.providerAccountId);
     if (!conversationJid || !label || threadId === undefined) continue;
-    const dedupeKey = `${conversationJid}\u0000${threadId ?? ''}\u0000${label}`;
+    const dedupeKey = `${conversationJid}\u0000${threadId ?? ''}\u0000${providerAccountId ?? ''}\u0000${label}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
-    normalized.push({ conversationJid, threadId, label });
+    normalized.push({
+      conversationJid,
+      threadId,
+      ...(providerAccountId !== undefined ? { providerAccountId } : {}),
+      label,
+    });
   }
   return normalized;
 }
@@ -247,7 +262,9 @@ export function routesBeyondAuthenticatedContext(input: {
   return routes.filter(
     (route) =>
       route.conversationJid !== authenticatedContext.conversationJid ||
-      (route.threadId ?? null) !== (authenticatedContext.threadId ?? null),
+      (route.threadId ?? null) !== (authenticatedContext.threadId ?? null) ||
+      (route.providerAccountId ?? null) !==
+        (authenticatedContext.providerAccountId ?? null),
   );
 }
 

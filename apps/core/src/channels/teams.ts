@@ -401,6 +401,7 @@ export class TeamsChannel implements ChannelAdapter {
       message.conversationName,
       'teams',
       message.conversationType !== 'personal',
+      { providerAccountId: this.opts.providerAccountId },
     );
 
     const normalized: NewMessage = {
@@ -566,6 +567,7 @@ export class TeamsChannel implements ChannelAdapter {
       message,
       jid,
       userId,
+      providerAccountId: this.opts.providerAccountId,
       onMessageAction: this.opts.onMessageAction,
       sendDenied: async (conversationId, text) => {
         if (!conversationId) return;
@@ -634,7 +636,11 @@ export async function createTeamsChannel(
 ): Promise<TeamsChannel | null> {
   const credentials =
     deps.credentials ??
-    (await readTeamsCredentials(opts.runtimeSecrets, opts.runtimeSettings?.()));
+    (await readTeamsCredentials(
+      opts.runtimeSecrets,
+      opts.runtimeSettings?.(),
+      opts.providerAccountId,
+    ));
   if (!credentials) {
     logger.warn(
       'Teams: TEAMS_CLIENT_ID, TEAMS_CLIENT_SECRET, and TEAMS_TENANT_ID are required',

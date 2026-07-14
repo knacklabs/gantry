@@ -16,6 +16,7 @@ precedence when they conflict with broader architecture notes.
 - [Canonical domain model](./canonical-domain-model.md)
 - [Personal and enterprise modes](./personal-and-enterprise-modes.md)
 - [Agent runtime and SDK control plane](./agent-runtime.md)
+- [Multi-agent provider configuration](./multi-agent-provider-configuration.md)
 - [Conversation interactions](./channel-interactions.md)
 - [Autonomous jobs](./autonomous-jobs.md)
 - [Live horizontal execution](./live-horizontal-execution.md)

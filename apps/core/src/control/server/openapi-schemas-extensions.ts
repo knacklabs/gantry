@@ -71,6 +71,27 @@ export const extensionOpenApiSchemas: Record<string, JsonSchema> = {
       groupId: { type: 'string' },
     },
   },
+  MemoryDreamingTriggerRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      appId: { type: 'string' },
+      agentId: { type: 'string' },
+      userId: { type: 'string' },
+      groupId: { type: 'string' },
+      channelId: { type: 'string' },
+      threadId: { type: 'string' },
+      subjectType: {
+        type: 'string',
+        enum: ['user', 'group', 'channel', 'common'],
+      },
+      subjectId: { type: 'string' },
+      phase: { type: 'string', enum: ['light', 'rem', 'deep', 'all'] },
+      dryRun: { type: 'boolean' },
+      timeoutMs: { type: 'number', minimum: 0 },
+      deadlineAtMs: { type: 'number', minimum: 0 },
+    },
+  },
   MemoryDreamingResponse: envelope('run', metadata),
   MemoryDreamingStatusResponse: envelope('runs', {
     type: 'array',

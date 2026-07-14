@@ -8,6 +8,7 @@ import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import {
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
+  noteRestartRequired,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
@@ -54,7 +55,7 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       `Postgres schema: ${draft.postgresSchema}`,
       `Channel: ${channelLabel}`,
       `Model access: ${draft.credentialMode === 'gantry' ? 'enabled' : 'disabled'}`,
-      `Model preset: ${draft.modelPreset}`,
+      `Model provider: ${resolvedModelProvider(draft.selectedModel)}`,
       `Main model: ${draft.selectedModel}`,
       `Agent harness: ${draft.agentHarness} (${resolvedHarnessLabel(draft.selectedModel)})`,
       `Required model providers: ${formatProviderIds(requiredModelCredentialProvidersForSetupDraft(draft))}`,
@@ -94,12 +95,13 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       postgresDatabaseUrl: draft.postgresDatabaseUrl || undefined,
       postgresSchema: draft.postgresSchema || undefined,
       primaryProvider: draft.primaryProvider,
-      modelPreset: draft.modelPreset,
       modelAlias: draft.selectedModel || undefined,
       telegramBotToken: draft.telegramBotToken,
+      hasStoredTelegramSecretRefs: draft.hasStoredTelegramSecretRefs,
       telegramPermissionApproverIds: draft.telegramPermissionApproverIds,
       slackBotToken: draft.slackBotToken,
       slackAppToken: draft.slackAppToken,
+      hasStoredSlackSecretRefs: draft.hasStoredSlackSecretRefs,
       slackPermissionApproverIds: draft.slackPermissionApproverIds,
       credentialMode: draft.credentialMode,
       agentName: draft.agentName,
@@ -112,12 +114,12 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
   } catch (err) {
     spinner.stop('Failed to write config');
     const message = err instanceof Error ? err.message : String(err);
-    p.log.error(
-      setupBlocked(
-        `could not save config (${message})`,
-        'run `gantry setup` after fixing the save error.',
-      ),
-    );
+    const nextAction = message.includes(
+      'Settings mutation is based on stale settings',
+    )
+      ? 'another process changed settings during setup — re-run `gantry setup`; your answers are saved and pre-filled'
+      : 'check Postgres connectivity (`gantry doctor`), then re-run `gantry setup`';
+    p.log.error(setupBlocked(`could not save config (${message})`, nextAction));
     return { type: 'resume' };
   }
 
@@ -164,12 +166,13 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
         requiresTrigger: false,
         approverIds,
       });
-      await writeDesiredRuntimeSettings({
+      const writeResult = await writeDesiredRuntimeSettings({
         runtimeHome: draft.runtimeHome,
         settings,
         previousSettings,
         createdBy: 'cli:onboarding',
       });
+      noteRestartRequired(writeResult);
       draft.workspaceKey = result.folder;
       draft.conversationLabel = conversationLabel;
       spinner.stop(`Registered ${result.groupName} (${result.folder})`);
@@ -196,7 +199,11 @@ export async function runVerifyStep(
   importMetaUrl: string,
   draft: SetupDraft,
 ): Promise<FlowAction> {
-  const report = await runDoctorWithNetwork(importMetaUrl, draft.runtimeHome);
+  const credentialLiveSkipProviderIds =
+    draft.credentialLiveSkipProviderIds ?? [];
+  const report = await runDoctorWithNetwork(importMetaUrl, draft.runtimeHome, {
+    modelCredentialLiveSkipProviderIds: credentialLiveSkipProviderIds,
+  });
   const runtimeConfigured = hasRuntimeConfig(draft.runtimeHome);
   const hasProcessableGroup = await hasProcessableGroupForConfiguredChannel(
     draft.runtimeHome,
@@ -233,7 +240,7 @@ export async function runVerifyStep(
         'no processable conversation for the configured channel',
         providerAvailable
           ? `run ${connectCommand}.`
-          : 'choose Telegram or Slack in the Provider step.',
+          : 'choose Telegram or Slack in the Chat channel step.',
       ),
     );
     return {
@@ -259,6 +266,7 @@ export async function runVerifyStep(
   const modelAccess = await verifyModelAccess(
     draft.runtimeHome,
     loadRuntimeSettings(draft.runtimeHome),
+    { skipLiveProviderIds: credentialLiveSkipProviderIds },
   );
   if (!modelAccess.ok) {
     p.log.warn(
@@ -291,4 +299,9 @@ function resolvedHarnessLabel(alias: string): string {
   if (!resolved.ok) return 'unknown';
   const route = resolveExecutionRoute({ entry: resolved.entry });
   return route.ok ? agentEngineLabel(route.value.engine) : 'unknown';
+}
+
+function resolvedModelProvider(alias: string): string {
+  const resolved = resolveModelSelectionForWorkload(alias, 'chat');
+  return resolved.ok ? resolved.entry.modelRoute.id : 'unknown';
 }

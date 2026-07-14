@@ -3,6 +3,7 @@
   "defaultLineBudget": 700,
   "lineBudgets": {
     "apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts": 2100,
+    "apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts": 760,
     "apps/core/src/adapters/storage/postgres/repositories/canonical-job-repository.postgres.ts": 875,
     "apps/core/src/adapters/storage/postgres/repositories/live-turn-repository.postgres.ts": 770,
     "apps/core/src/adapters/storage/postgres/services/canonical-job-ops-service.ts": 807,
@@ -17,7 +18,7 @@
     "apps/core/src/channels/telegram/channel-delivery.ts": 766,
     "apps/core/src/cli/group.ts": 824,
     "apps/core/src/cli/model.ts": 723,
-    "apps/core/src/config/settings/desired-state-service.ts": 820,
+    "apps/core/src/config/settings/desired-state-service.ts": 830,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1145,
     "apps/core/src/application/jobs/job-readiness-service.ts": 754,
     "apps/core/src/jobs/execution.ts": 822,

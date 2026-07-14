@@ -26,7 +26,6 @@ const CLAUDE_MODEL_CREDENTIAL_ENV_KEYS = new Set([
 export interface ClaudeRuntimeMaterialization extends RuntimeMaterialization {
   claudeConfigDir: string;
   skillsDir: string;
-  providerSessionRestoreDir: string;
   projectDir: string;
   protectedFilesystemPaths: string[];
   protectedFilesystemDenyReadPaths: string[];
@@ -67,9 +66,8 @@ export async function materializeClaudeRuntime(
   input: ClaudeRuntimeMaterializationInput,
 ): Promise<ClaudeRuntimeMaterialization> {
   const runId = input.runId ?? randomUUID();
-  const ownsBaseTempDir = !input.baseTempDir;
-  const baseTempDir =
-    input.baseTempDir ?? createDefaultBaseTempDir(input.groupDir);
+  const cleanupBaseDir = Boolean(input.baseTempDir);
+  const baseTempDir = input.baseTempDir ?? createDefaultBaseDir(input.groupDir);
   const claudeConfigDir = path.join(baseTempDir, 'claude');
   const skillsDir = path.join(claudeConfigDir, 'skills');
   const projectDir = path.join(
@@ -100,7 +98,7 @@ export async function materializeClaudeRuntime(
       enabledSkillIds: input.enabledSkillIds,
     });
   } catch (err) {
-    if (ownsBaseTempDir) {
+    if (cleanupBaseDir) {
       fs.rmSync(baseTempDir, { recursive: true, force: true });
     }
     throw err;
@@ -130,22 +128,23 @@ export async function materializeClaudeRuntime(
     baseTempDir,
     claudeConfigDir,
     skillsDir,
-    providerSessionRestoreDir: projectDir,
     projectDir,
     protectedFilesystemPaths: protectedFilesystemDenyWritePaths,
     protectedFilesystemDenyReadPaths,
     protectedFilesystemDenyWritePaths,
     materializedSkills,
     cleanup: () => {
-      fs.rmSync(baseTempDir, { recursive: true, force: true });
+      if (cleanupBaseDir) {
+        fs.rmSync(baseTempDir, { recursive: true, force: true });
+      }
     },
   };
 }
 
-function createDefaultBaseTempDir(groupDir: string): string {
+function createDefaultBaseDir(groupDir: string): string {
   const runtimeDir = path.join(groupDir, '.llm-runtime');
   fs.mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
-  return fs.mkdtempSync(path.join(runtimeDir, 'run-'));
+  return runtimeDir;
 }
 
 function workspaceProtectedPaths(root: string): string[] {

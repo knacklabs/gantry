@@ -53,6 +53,30 @@ function makeBundleWithSessionService(input: {
 }
 
 describe('PostgresRuntimeRepositoryBundle', () => {
+  it('stores chat metadata under the provider account scoped conversation', async () => {
+    const bundle = new PostgresRuntimeRepositoryBundle(
+      { end: vi.fn(async () => undefined) } as any,
+      {} as any,
+      { runtimeEvents: { publish: vi.fn(async () => undefined) } },
+    );
+    const ensureConversation = vi.fn(async () => 'conversation:slack:alpha');
+    Object.assign(bundle as any, {
+      graph: { ensureConversation },
+    });
+
+    await bundle.storeChatMetadata('sl:C123', now, 'sales', 'slack', true, {
+      providerAccountId: 'slack_alpha',
+    });
+
+    expect(ensureConversation).toHaveBeenCalledWith('sl:C123', {
+      name: 'sales',
+      channel: 'slack',
+      isGroup: true,
+      timestamp: now,
+      providerAccountId: 'slack_alpha',
+    });
+  });
+
   it('includes resolved canonical agent ownership in provider session scope keys', () => {
     const routeScope =
       'runtime_workspace_folder::conversation:tg%3Asession-rebind';
@@ -265,6 +289,50 @@ describe('PostgresRuntimeRepositoryBundle', () => {
         expectedAgentSessionId:
           'agent-session:main::conversation:sl%3AC-A::thread:111.222',
         expectedAgentSessionResetAt: null,
+      }),
+    );
+  });
+
+  it('includes provider account in turn and provider session scope', async () => {
+    const repository = {
+      getAgentTurnContext: vi.fn(async (input) => ({
+        appId: 'app:default',
+        agentId: 'agent:main',
+        agentSessionId: `agent-session:${input.scopeKey}`,
+      })),
+      setProviderSession: vi.fn(async () => true),
+    } as unknown as PostgresCanonicalSessionRepository;
+    const bundle = makeBundleWithSessionService({
+      repository,
+      agentSessions: {
+        getAgentSession: vi.fn(async () => null),
+      } as unknown as AgentSessionRepository,
+      loadAppMemoryItems: vi.fn(async () => []),
+    });
+
+    await bundle.getAgentTurnContext({
+      agentFolder: 'main',
+      conversationJid: 'sl:C-A',
+      providerAccountId: 'slack-alpha',
+      conversationKind: 'channel',
+      hydrateMemory: false,
+    });
+    await bundle.setSession('main', 'provider-session:next', null, {
+      conversationJid: 'sl:C-A',
+      providerAccountId: 'slack-alpha',
+      conversationKind: 'channel',
+    });
+
+    expect(repository.getAgentTurnContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: 'slack-alpha',
+        scopeKey: 'main::conversation:sl%3AC-A::provider_account:slack-alpha',
+      }),
+    );
+    expect(repository.setProviderSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: 'slack-alpha',
+        scopeKey: 'main::conversation:sl%3AC-A::provider_account:slack-alpha',
       }),
     );
   });

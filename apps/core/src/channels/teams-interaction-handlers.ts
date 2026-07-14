@@ -158,6 +158,7 @@ export async function handleTeamsPermissionDecision(input: {
           durable.sourceAgentFolder,
           durable.decisionPolicy as PermissionApprovalRequest['decisionPolicy'],
           input.jid,
+          durable.threadId ?? undefined,
         ));
       if (authorized) {
         await resolveDurablePermissionInteractionByRequestId({
@@ -190,6 +191,7 @@ export async function handleTeamsPermissionDecision(input: {
     pending.sourceAgentFolder,
     pending.decisionPolicy,
     pending.approvalContextJid || input.jid,
+    pending.threadId,
   );
   if (!authorized) {
     logger.warn(
@@ -289,12 +291,16 @@ async function canDecideTeamsPermission(
   sourceAgentFolder: string,
   decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | undefined,
   conversationJid: string,
+  threadId?: string,
 ): Promise<boolean> {
   if (decisionPolicy && decisionPolicy !== 'same_channel') return false;
   if (!context.opts.isControlApproverAllowed) return false;
   return context.opts.isControlApproverAllowed({
     providerId: 'teams',
+    providerAccountId: context.opts.providerAccountId,
+    agentId: context.opts.agentId,
     conversationJid,
+    threadId,
     userId,
     sourceAgentFolder,
     decisionPolicy,

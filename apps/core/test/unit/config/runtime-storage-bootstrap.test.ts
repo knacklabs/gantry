@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { resolveRuntimeStorageConfig } from '@core/config/settings/storage.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
+import { parseRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 
 const ENV_KEYS = [
   'GANTRY_BOOTSTRAP_SETTINGS_IF_MISSING',
@@ -118,6 +119,37 @@ describe('runtime storage bootstrap', () => {
       expect(() =>
         resolveRuntimeStorageConfig(runtimeHome, runtimeHome),
       ).toThrow('Invalid runtime storage settings');
+    });
+  });
+
+  it('reads storage while full runtime settings still reject stale root keys', () => {
+    withCleanEnv(() => {
+      const runtimeHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'gantry-storage-bootstrap-'),
+      );
+      homes.push(runtimeHome);
+      const yaml = [
+        'provider_connections: {}',
+        'storage:',
+        '  postgres:',
+        '    url_env: GANTRY_DATABASE_URL',
+        '    schema: revision_authority',
+        '',
+      ].join('\n');
+
+      fs.writeFileSync(settingsFilePath(runtimeHome), yaml);
+      process.env.GANTRY_DATABASE_URL =
+        'postgres://user:pass@127.0.0.1:5432/gantry';
+
+      expect(
+        resolveRuntimeStorageConfig(runtimeHome, runtimeHome),
+      ).toMatchObject({
+        postgresUrlEnv: 'GANTRY_DATABASE_URL',
+        postgresSchema: 'revision_authority',
+      });
+      expect(() => parseRuntimeSettings(yaml)).toThrow(
+        'provider_connections is no longer supported',
+      );
     });
   });
 });

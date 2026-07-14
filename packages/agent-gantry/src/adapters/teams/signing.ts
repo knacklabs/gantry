@@ -7,7 +7,7 @@ import type {
   GantrySignatureVerificationInput,
   GantryWebhookSignatureVerificationInput,
 } from './types.js';
-import { asRecord, readStringValue } from '../../shared/helpers.js';
+import { readStringValue } from '../../shared/helpers.js';
 
 export function signExternalEventRequest(input: GantrySignatureInput): string {
   return createHmac('sha256', input.secret)

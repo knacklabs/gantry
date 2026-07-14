@@ -1,4 +1,11 @@
-import { boolean, index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import { agentsPostgres } from './agents.js';
 import { appsPostgres } from './apps.js';
@@ -17,17 +24,20 @@ export const providersPostgres = pgTable('providers', {
     .defaultNow(),
 });
 
-export const providerConnectionsPostgres = pgTable(
-  'provider_connections',
+export const providerAccountsPostgres = pgTable(
+  'provider_accounts',
   {
     id: text('id').primaryKey(),
     appId: text('app_id')
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
     providerId: text('provider_id')
       .notNull()
       .references(() => providersPostgres.id),
-    externalRefJson: text('external_ref_json'),
+    externalIdentityRefJson: text('external_identity_ref_json'),
     label: text('label').notNull(),
     status: text('status').notNull().default('active'),
     configJson: text('config_json').notNull().default('{}'),
@@ -42,15 +52,24 @@ export const providerConnectionsPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    providerIdx: index('idx_provider_connections_provider').on(
+    providerIdx: index('idx_provider_accounts_provider').on(
       table.appId,
       table.providerId,
     ),
+    agentIdx: index('idx_provider_accounts_agent').on(
+      table.appId,
+      table.agentId,
+    ),
+    activeIdentityUnique: uniqueIndex('uniq_provider_accounts_active_identity')
+      .on(table.appId, table.providerId, table.externalIdentityRefJson)
+      .where(
+        sql`${table.status} = 'active' AND ${table.externalIdentityRefJson} IS NOT NULL`,
+      ),
   }),
 );
 
-export const agentConversationBindingsPostgres = pgTable(
-  'agent_conversation_bindings',
+export const conversationInstallsPostgres = pgTable(
+  'conversation_installs',
   {
     id: text('id').primaryKey(),
     appId: text('app_id')
@@ -59,9 +78,9 @@ export const agentConversationBindingsPostgres = pgTable(
     agentId: text('agent_id')
       .notNull()
       .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
-    providerConnectionId: text('provider_connection_id')
+    providerAccountId: text('provider_account_id')
       .notNull()
-      .references(() => providerConnectionsPostgres.id, {
+      .references(() => providerAccountsPostgres.id, {
         onDelete: 'cascade',
       }),
     conversationId: text('conversation_id')
@@ -73,9 +92,10 @@ export const agentConversationBindingsPostgres = pgTable(
     ),
     displayName: text('display_name').notNull(),
     status: text('status').notNull().default('active'),
-    triggerMode: text('trigger_mode').notNull().default('keyword'),
-    triggerPattern: text('trigger_pattern'),
-    requiresTrigger: boolean('requires_trigger').notNull().default(true),
+    senderPolicy: text('sender_policy').notNull().default('provider_native'),
+    controlPolicy: text('control_policy')
+      .notNull()
+      .default('conversation_approvers'),
     memoryScope: text('memory_scope').notNull().default('conversation'),
     memorySubjectJson: text('memory_subject_json').notNull(),
     workspaceSnapshotId: text('workspace_snapshot_id').references(
@@ -92,9 +112,12 @@ export const agentConversationBindingsPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    conversationIdx: index('idx_agent_conversation_bindings_conversation').on(
+    conversationIdx: index('idx_conversation_installs_conversation').on(
       table.conversationId,
       table.threadId,
+    ),
+    accountIdx: index('idx_conversation_installs_account').on(
+      table.providerAccountId,
     ),
   }),
 );

@@ -46,6 +46,9 @@ export async function requestSlackPermissionApproval(input: {
               },
               value: JSON.stringify({
                 requestId: input.request.requestId,
+                ...(input.request.providerAccountId
+                  ? { providerAccountId: input.request.providerAccountId }
+                  : {}),
               }),
             },
           ]
@@ -63,6 +66,9 @@ export async function requestSlackPermissionApproval(input: {
         value: JSON.stringify({
           requestId: input.request.requestId,
           decision: mode,
+          ...(input.request.providerAccountId
+            ? { providerAccountId: input.request.providerAccountId }
+            : {}),
         }),
       })),
     ],

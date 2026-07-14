@@ -252,9 +252,9 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
           listSkills: vi.fn(async () => []),
           listAgentSkillBindingsForAgents: vi.fn(async () => []),
         },
-        providerConnections: {
-          listProviderConnections: vi.fn(async () => []),
-          listAgentConversationBindings: vi.fn(async () => []),
+        providerAccounts: {
+          listProviderAccounts: vi.fn(async () => []),
+          listConversationInstalls: vi.fn(async () => []),
         },
         conversations: {
           listConversations: vi.fn(async () => []),

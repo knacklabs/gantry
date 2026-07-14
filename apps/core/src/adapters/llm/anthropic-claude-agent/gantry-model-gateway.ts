@@ -70,8 +70,11 @@ interface GatewayTokenRecord {
   credentialFingerprint: string;
   createdAtMs: number;
   expiresAtMs: number;
+  tokenScope: string;
   agentId?: RuntimeEventPublishInput['agentId'];
   runId?: RuntimeEventPublishInput['runId'];
+  apiKeyId?: string;
+  apiRequestId?: string;
   jobId?: RuntimeEventPublishInput['jobId'];
   conversationId?: RuntimeEventPublishInput['conversationId'];
   threadId?: RuntimeEventPublishInput['threadId'];
@@ -161,8 +164,13 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
       credentialFingerprint: credential.fingerprint,
       createdAtMs: Date.now(),
       expiresAtMs: Date.now() + this.tokenTtlMs,
+      tokenScope: gatewayTokenScope(input.binding),
       ...(input.binding.agentId ? { agentId: input.binding.agentId } : {}),
       ...(input.binding.runId ? { runId: input.binding.runId } : {}),
+      ...(input.binding.apiKeyId ? { apiKeyId: input.binding.apiKeyId } : {}),
+      ...(input.binding.apiRequestId
+        ? { apiRequestId: input.binding.apiRequestId }
+        : {}),
       ...(input.binding.jobId ? { jobId: input.binding.jobId } : {}),
       ...(input.binding.conversationId
         ? { conversationId: input.binding.conversationId }
@@ -246,14 +254,17 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
     );
     const providerId = provider.id as ModelCredentialProvider;
     const appId = requireBindingAppId(input);
-    if (!input.binding.runId) {
-      throw new Error('Gantry Model Gateway token revocation requires runId.');
+    const tokenScope = gatewayTokenScope(input.binding);
+    if (!isRevocableGatewayTokenScope(tokenScope)) {
+      throw new Error(
+        'Gantry Model Gateway token revocation requires runId or apiKeyId.',
+      );
     }
     for (const [token, record] of this.tokens.entries()) {
       if (
         record.appId === appId &&
         record.providerId === providerId &&
-        record.runId === input.binding.runId
+        record.tokenScope === tokenScope
       ) {
         this.tokens.delete(token);
       }
@@ -517,6 +528,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         actor: 'gantry-model-gateway',
         payload: {
           providerId: tokenRecord.providerId,
+          tokenScope: tokenRecord.tokenScope,
+          ...(tokenRecord.apiKeyId ? { apiKeyId: tokenRecord.apiKeyId } : {}),
           outcome: input.outcome,
           method: input.method,
           status: input.status,
@@ -555,6 +568,8 @@ export class GantryModelGatewayBroker implements AgentCredentialBroker {
         actor: 'gantry-model-gateway',
         payload: {
           providerId: tokenRecord.providerId,
+          tokenScope: tokenRecord.tokenScope,
+          ...(tokenRecord.apiKeyId ? { apiKeyId: tokenRecord.apiKeyId } : {}),
           outcome,
           tokenIssuedAtMs: tokenRecord.createdAtMs,
           tokenExpiresAtMs: tokenRecord.expiresAtMs,
@@ -600,6 +615,22 @@ function runtimeEventRunIdFor(
     runId.startsWith('memory-query:')
     ? undefined
     : tokenRecord.runId;
+}
+
+function gatewayTokenScope(
+  binding: AgentCredentialBrokerInput['binding'],
+): string {
+  if (binding.apiKeyId) {
+    return `api_key:${[binding.apiKeyId, binding.apiRequestId]
+      .filter(Boolean)
+      .join(':')}`;
+  }
+  if (binding.runId) return `run:${String(binding.runId)}`;
+  return 'unscoped';
+}
+
+function isRevocableGatewayTokenScope(scope: string): boolean {
+  return scope.startsWith('run:') || scope.startsWith('api_key:');
 }
 
 function defaultGatewayProviderId(): string {

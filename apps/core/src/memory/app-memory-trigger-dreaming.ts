@@ -37,7 +37,7 @@ import {
   safeCountPendingMemoryReviews,
   withPendingReviews,
 } from './app-memory-dreaming-review-summary.js';
-import { createPendingMemoryReview } from './app-memory-review.js';
+import { createPendingMemoryReview } from './app-memory-review-create.js';
 import {
   proposeMemoryConsolidationActions,
   proposeMemoryDreamingActions,

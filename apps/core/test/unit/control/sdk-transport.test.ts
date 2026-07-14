@@ -140,6 +140,7 @@ describe('@gantry/sdk ingress signature verification', () => {
     expect(
       conversationMessageTarget({
         conversationId: 'conversation:ops-room',
+        agentId: 'agent:ops',
         threadId: 'thread:ops-room:daily',
         message: 'Run the test',
         senderId: 'external-ci',
@@ -148,6 +149,7 @@ describe('@gantry/sdk ingress signature verification', () => {
     ).toEqual({
       kind: 'conversation_message',
       conversationId: 'conversation:ops-room',
+      agentId: 'agent:ops',
       threadId: 'thread:ops-room:daily',
       message: 'Run the test',
       senderId: 'external-ci',
@@ -288,7 +290,13 @@ describe('@gantry/sdk transport', () => {
                 : null,
         });
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, conversations: [], bindings: [] }));
+        res.end(
+          JSON.stringify({
+            ok: true,
+            conversations: [],
+            conversationInstalls: [],
+          }),
+        );
       });
     });
     const client = new GantryClient({
@@ -298,28 +306,26 @@ describe('@gantry/sdk transport', () => {
 
     await client.settings.get();
     await client.providers.list();
-    await client.providerConnections.create({
+    await client.providerAccounts.create({
       appId: 'app-one',
+      agentId: 'agent/1',
       providerId: 'slack',
       label: 'Slack',
       runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
     });
-    await client.providerConnections.list();
-    await client.providerConnections.get('providerConnection/1');
-    await client.providerConnections.update('providerConnection/1', {
+    await client.providerAccounts.list();
+    await client.providerAccounts.get('providerAccount/1');
+    await client.providerAccounts.update('providerAccount/1', {
       label: 'Slack workspace',
       enabled: false,
       runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN_V2' },
     });
-    await client.providerConnections.delete('providerConnection/1');
-    await client.providerConnections.discoverConversations(
-      'providerConnection/1',
-      {
-        limit: 10,
-      },
-    );
+    await client.providerAccounts.delete('providerAccount/1');
+    await client.providerAccounts.discoverConversations('providerAccount/1', {
+      limit: 10,
+    });
     await client.conversations.list({
-      providerConnectionId: 'providerConnection/1',
+      providerAccountId: 'providerAccount/1',
     });
     await client.conversations.get('conversation/1');
     await client.conversations.messages('conversation/1', {
@@ -327,25 +333,22 @@ describe('@gantry/sdk transport', () => {
       after: 'message/0',
       limit: 5,
     });
-    await client.agents.conversationBindings.list('agent/1');
-    await client.agents.conversationBindings.enable(
+    await client.agents.conversationInstalls.list('agent/1');
+    await client.agents.conversationInstalls.enable(
       'agent/1',
       'conversation/1',
       {
-        triggerMode: 'mention',
         memoryScope: 'conversation',
       },
     );
-    await client.agents.conversationBindings.update(
+    await client.agents.conversationInstalls.update(
       'agent/1',
       'conversation/1',
       {
-        triggerMode: 'keyword',
-        triggerPattern: 'deploy',
         permissionPolicyIds: ['policy/1'],
       },
     );
-    await client.agents.conversationBindings.disable(
+    await client.agents.conversationInstalls.disable(
       'agent/1',
       'conversation/1',
       {
@@ -367,23 +370,24 @@ describe('@gantry/sdk transport', () => {
       { method: 'GET', url: '/v1/providers', body: null },
       {
         method: 'POST',
-        url: '/v1/provider-connections',
+        url: '/v1/provider-accounts',
         body: {
           appId: 'app-one',
+          agentId: 'agent/1',
           providerId: 'slack',
           label: 'Slack',
           runtimeSecretRefs: { bot_token: 'env:SLACK_BOT_TOKEN' },
         },
       },
-      { method: 'GET', url: '/v1/provider-connections', body: null },
+      { method: 'GET', url: '/v1/provider-accounts', body: null },
       {
         method: 'GET',
-        url: '/v1/provider-connections/providerConnection%2F1',
+        url: '/v1/provider-accounts/providerAccount%2F1',
         body: null,
       },
       {
         method: 'PATCH',
-        url: '/v1/provider-connections/providerConnection%2F1',
+        url: '/v1/provider-accounts/providerAccount%2F1',
         body: {
           label: 'Slack workspace',
           enabled: false,
@@ -392,17 +396,17 @@ describe('@gantry/sdk transport', () => {
       },
       {
         method: 'DELETE',
-        url: '/v1/provider-connections/providerConnection%2F1',
+        url: '/v1/provider-accounts/providerAccount%2F1',
         body: null,
       },
       {
         method: 'POST',
-        url: '/v1/provider-connections/providerConnection%2F1/discover-conversations',
+        url: '/v1/provider-accounts/providerAccount%2F1/discover-conversations',
         body: { limit: 10 },
       },
       {
         method: 'GET',
-        url: '/v1/conversations?providerConnectionId=providerConnection%2F1',
+        url: '/v1/conversations?providerAccountId=providerAccount%2F1',
         body: null,
       },
       {
@@ -417,29 +421,26 @@ describe('@gantry/sdk transport', () => {
       },
       {
         method: 'GET',
-        url: '/v1/agents/agent%2F1/conversation-bindings',
+        url: '/v1/agents/agent%2F1/conversation-installs',
         body: null,
       },
       {
         method: 'PUT',
-        url: '/v1/agents/agent%2F1/conversation-bindings/conversation%2F1',
+        url: '/v1/agents/agent%2F1/conversation-installs/conversation%2F1',
         body: {
-          triggerMode: 'mention',
           memoryScope: 'conversation',
         },
       },
       {
         method: 'PATCH',
-        url: '/v1/agents/agent%2F1/conversation-bindings/conversation%2F1',
+        url: '/v1/agents/agent%2F1/conversation-installs/conversation%2F1',
         body: {
-          triggerMode: 'keyword',
-          triggerPattern: 'deploy',
           permissionPolicyIds: ['policy/1'],
         },
       },
       {
         method: 'DELETE',
-        url: '/v1/agents/agent%2F1/conversation-bindings/conversation%2F1?threadId=thread%2F1',
+        url: '/v1/agents/agent%2F1/conversation-installs/conversation%2F1?threadId=thread%2F1',
         body: null,
       },
       {

@@ -3,6 +3,7 @@ import { and, asc, eq, isNull, like } from 'drizzle-orm';
 import type { ConversationRoute } from '../../../../domain/repositories/domain-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
+import { parseAgentThreadQueueKey } from '../../../../shared/thread-queue-key.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
@@ -14,6 +15,7 @@ import {
 export interface CanonicalBindingRecord {
   id: string;
   agentId: string;
+  providerAccountId: string;
   conversationId: string;
   threadId: string | null;
   status: string;
@@ -21,8 +23,6 @@ export interface CanonicalBindingRecord {
   conversationKind: string;
   memorySubjectJson: string;
   displayName: string;
-  triggerPattern: string | null;
-  requiresTrigger: boolean;
   createdAt: string;
 }
 
@@ -40,7 +40,11 @@ function routeMemorySubject(
     kind: 'conversation',
     appId: CANONICAL_APP_ID,
     conversationId,
-    ...(group.agentConfig ? { route: { agentConfig: group.agentConfig } } : {}),
+    route: {
+      trigger: group.trigger,
+      requiresTrigger: group.requiresTrigger ?? true,
+      ...(group.agentConfig ? { agentConfig: group.agentConfig } : {}),
+    },
   };
 }
 
@@ -55,11 +59,14 @@ export class PostgresCanonicalBindingRepository {
     jid: string,
     group: ConversationRoute,
   ): Promise<void> {
+    const { chatJid } = parseAgentThreadQueueKey(jid);
     await this.db.transaction(async (tx) => {
       const conversationId = await this.graph.ensureConversation(
-        jid,
+        chatJid,
         {
           name: group.name,
+          agentFolder: group.folder,
+          providerAccountId: group.providerAccountId,
           isGroup:
             group.conversationKind === 'dm'
               ? false
@@ -74,23 +81,24 @@ export class PostgresCanonicalBindingRepository {
         group.name,
         tx,
       );
-      const providerConnectionId =
-        await this.graph.getConversationInstallationId(conversationId, tx);
-      if (!providerConnectionId) return;
+      const providerAccountId = await this.graph.getConversationInstallationId(
+        conversationId,
+        tx,
+      );
+      if (!providerAccountId) return;
       const now = group.added_at || currentIso();
       await tx
-        .insert(pgSchema.agentConversationBindingsPostgres)
+        .insert(pgSchema.conversationInstallsPostgres)
         .values({
           id: routeBindingId(jid),
           appId: CANONICAL_APP_ID,
           agentId,
-          providerConnectionId,
+          providerAccountId,
           conversationId,
           displayName: group.name,
           status: 'active',
-          triggerMode: group.requiresTrigger === false ? 'always' : 'keyword',
-          triggerPattern: group.trigger,
-          requiresTrigger: group.requiresTrigger ?? true,
+          senderPolicy: 'provider_native',
+          controlPolicy: 'conversation_approvers',
           memoryScope: 'conversation',
           memorySubjectJson: json(routeMemorySubject(conversationId, group)),
           permissionPolicyIdsJson: '[]',
@@ -98,16 +106,15 @@ export class PostgresCanonicalBindingRepository {
           updatedAt: now,
         })
         .onConflictDoUpdate({
-          target: pgSchema.agentConversationBindingsPostgres.id,
+          target: pgSchema.conversationInstallsPostgres.id,
           set: {
             agentId,
-            providerConnectionId,
+            providerAccountId,
             conversationId,
             displayName: group.name,
             status: 'active',
-            triggerMode: group.requiresTrigger === false ? 'always' : 'keyword',
-            triggerPattern: group.trigger,
-            requiresTrigger: group.requiresTrigger ?? true,
+            senderPolicy: 'provider_native',
+            controlPolicy: 'conversation_approvers',
             memoryScope: 'conversation',
             memorySubjectJson: json(routeMemorySubject(conversationId, group)),
             updatedAt: now,
@@ -118,19 +125,19 @@ export class PostgresCanonicalBindingRepository {
 
   async deleteConversationRoute(jid: string): Promise<void> {
     await this.db
-      .delete(pgSchema.agentConversationBindingsPostgres)
-      .where(
-        eq(pgSchema.agentConversationBindingsPostgres.id, routeBindingId(jid)),
-      );
+      .delete(pgSchema.conversationInstallsPostgres)
+      .where(eq(pgSchema.conversationInstallsPostgres.id, routeBindingId(jid)));
   }
 
   async listConversationRoutes(): Promise<CanonicalBindingRecord[]> {
-    const b = pgSchema.agentConversationBindingsPostgres;
+    const b = pgSchema.conversationInstallsPostgres;
     const c = pgSchema.conversationsPostgres;
+    const pa = pgSchema.providerAccountsPostgres;
     return this.db
       .select({
         id: b.id,
         agentId: b.agentId,
+        providerAccountId: b.providerAccountId,
         conversationId: b.conversationId,
         threadId: b.threadId,
         status: b.status,
@@ -138,17 +145,17 @@ export class PostgresCanonicalBindingRepository {
         conversationKind: c.kind,
         memorySubjectJson: b.memorySubjectJson,
         displayName: b.displayName,
-        triggerPattern: b.triggerPattern,
-        requiresTrigger: b.requiresTrigger,
         createdAt: b.createdAt,
       })
       .from(b)
       .innerJoin(c, eq(c.id, b.conversationId))
+      .innerJoin(pa, eq(pa.id, b.providerAccountId))
       .where(
         and(
           eq(b.appId, CANONICAL_APP_ID),
           like(b.id, `${CONVERSATION_ROUTE_BINDING_ID_PREFIX}%`),
           eq(b.status, 'active'),
+          eq(pa.status, 'active'),
           isNull(b.threadId),
         ),
       )
@@ -168,13 +175,16 @@ export function bindingRowToGroup(
     {},
   );
   const routeSubject = parseJson<{
-    route?: { agentConfig?: ConversationRoute['agentConfig'] };
+    route?: {
+      agentConfig?: ConversationRoute['agentConfig'];
+      trigger?: string;
+      requiresTrigger?: boolean;
+    };
   }>(row.memorySubjectJson, {});
-  const jid =
-    externalRef.jid ||
-    (row.conversationId.startsWith('conversation:')
-      ? row.conversationId.slice('conversation:'.length)
-      : externalRef.value);
+  const bindingIdRouteKey = row.id.slice(
+    CONVERSATION_ROUTE_BINDING_ID_PREFIX.length,
+  );
+  const jid = bindingIdRouteKey || externalRef.jid || externalRef.value;
   if (!jid) return undefined;
   const folder = row.agentId.startsWith('agent:')
     ? row.agentId.slice('agent:'.length)
@@ -189,10 +199,11 @@ export function bindingRowToGroup(
     group: {
       name: row.displayName,
       folder,
-      trigger: row.triggerPattern?.trim() || `@${folder || 'agent'}`,
+      trigger: routeSubject.route?.trigger?.trim() || `@${folder || 'agent'}`,
       added_at: row.createdAt,
-      requiresTrigger: row.requiresTrigger,
+      requiresTrigger: routeSubject.route?.requiresTrigger ?? true,
       conversationKind,
+      providerAccountId: row.providerAccountId,
       ...(agentConfig ? { agentConfig } : {}),
     },
   };

@@ -9,20 +9,28 @@ import {
   ensureRuntimeLayout,
 } from '../config/settings/runtime-home.js';
 import {
-  applyModelPreset,
+  applyModelDefaults,
+  ensureConfiguredAgent,
   loadDesiredRuntimeSettingsForWrite,
   loadRuntimeSettings,
+  noteRestartRequired,
+  type RuntimeSettings,
   writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
+import { DEFAULT_SETUP_MODEL_ALIAS } from '../shared/model-catalog.js';
+import { resolveModelSelectionForWorkloadWithFamilies } from '../shared/model-families.js';
 import {
-  DEFAULT_MODEL_PRESET_ID,
-  isModelPresetId,
-  resolveModelSelectionForWorkload,
-  type ModelPresetId,
-} from '../shared/model-catalog.js';
-import { gantryRuntimeSecretRef } from '../domain/ports/runtime-secret-provider.js';
+  gantryRuntimeSecretRef,
+  normalizeRuntimeSecretRefString,
+  parseRuntimeSecretRefString,
+} from '../domain/ports/runtime-secret-provider.js';
 import { runPostgresMigrations } from '../postgres-migrate.js';
 import { storeRuntimeSecretInput } from './credentials.js';
+import { DEFAULT_AGENT_FOLDER } from './main-agent.js';
+import {
+  readOnboardingState,
+  writeOnboardingState,
+} from './onboarding-state.js';
 
 export interface OnboardingConfigInput {
   runtimeHome: string;
@@ -30,11 +38,12 @@ export interface OnboardingConfigInput {
   postgresSchema?: string;
   primaryProvider: 'telegram' | 'slack';
   telegramBotToken?: string;
+  hasStoredTelegramSecretRefs?: boolean;
   telegramPermissionApproverIds?: string;
   slackBotToken?: string;
   slackAppToken?: string;
+  hasStoredSlackSecretRefs?: boolean;
   slackPermissionApproverIds?: string;
-  modelPreset?: ModelPresetId;
   modelAlias?: string;
   agentHarness?: AgentHarness;
   credentialMode: HostCredentialMode;
@@ -42,6 +51,65 @@ export interface OnboardingConfigInput {
   memoryEnabled: boolean;
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
+}
+
+const REQUIRED_CHANNEL_SECRET_REFS = {
+  telegram: ['bot_token'],
+  slack: ['bot_token', 'app_token'],
+} as const satisfies Record<
+  OnboardingConfigInput['primaryProvider'],
+  readonly string[]
+>;
+
+function hasEnabledProviderWithStoredSecretRefs(
+  settings: RuntimeSettings,
+  providerId: OnboardingConfigInput['primaryProvider'],
+): boolean {
+  if (!settings.providers[providerId]?.enabled) return false;
+  return Object.values(settings.providerAccounts).some(
+    (account) =>
+      account.provider === providerId &&
+      account.status !== 'disabled' &&
+      REQUIRED_CHANNEL_SECRET_REFS[providerId].every((key) =>
+        Boolean(account.runtimeSecretRefs[key]?.trim()),
+      ),
+  );
+}
+
+const CHANNEL_ENV_KEYS = [
+  'TELEGRAM_BOT_TOKEN',
+  'SLACK_BOT_TOKEN',
+  'SLACK_APP_TOKEN',
+  'SLACK_PERMISSION_APPROVER_IDS',
+] as const;
+
+const STALE_SETTINGS_MESSAGE =
+  'Settings mutation is based on stale settings; reload latest desired state and retry.';
+const MAX_STALE_SETTINGS_RETRIES = 3;
+
+type ResolvedOnboardingModel = ReturnType<typeof resolveOnboardingModel>;
+type OnboardingWriteResult = Awaited<
+  ReturnType<typeof writeDesiredRuntimeSettings>
+>;
+type ChannelProviderId = OnboardingConfigInput['primaryProvider'];
+
+function enabledProviderEnvSecretNames(settings: RuntimeSettings): Set<string> {
+  const names = new Set<string>();
+  for (const account of Object.values(settings.providerAccounts)) {
+    if (account.status === 'disabled') continue;
+    if (!settings.providers[account.provider]?.enabled) continue;
+    for (const [key, value] of Object.entries(account.runtimeSecretRefs)) {
+      const ref = value?.trim();
+      if (!ref) continue;
+      const normalized = normalizeRuntimeSecretRefString(
+        ref,
+        `provider account ${account.provider} secret ref ${key}`,
+      );
+      const parsed = parseRuntimeSecretRefString(normalized);
+      if (parsed.source === 'env') names.add(parsed.name);
+    }
+  }
+  return names;
 }
 
 export async function persistOnboardingConfig(
@@ -81,21 +149,6 @@ export async function persistOnboardingConfig(
   }
 
   const model = resolveOnboardingModel(input.modelAlias);
-  // The preset governs chat plus memory LLM defaults. Embeddings are handled
-  // separately and use the registered OpenAI embedding provider when enabled.
-  // A non-preset (DeepAgents-lane) chat model legitimately pairs with any
-  // preset, so only fall back to the model's provider as the preset when it is
-  // itself a preset id.
-  const modelPresetId =
-    model.preset && isModelPresetId(model.preset) ? model.preset : undefined;
-  const preset = input.modelPreset ?? modelPresetId ?? DEFAULT_MODEL_PRESET_ID;
-  // Only a cross-PRESET mismatch is an error (e.g. an OpenRouter model selected
-  // under the Anthropic preset); non-preset chat models pair with any preset.
-  if (modelPresetId && modelPresetId !== preset) {
-    throw new Error(
-      `Selected model alias "${model.alias}" belongs to ${modelPresetId}, not ${preset}.`,
-    );
-  }
   const postgresSchema = input.postgresSchema?.trim() || 'gantry';
   if (input.postgresDatabaseUrl?.trim()) {
     await runPostgresMigrations({
@@ -103,99 +156,175 @@ export async function persistOnboardingConfig(
       schema: postgresSchema,
     });
   }
+  const { settings, result } = await writeOnboardingSettingsWithRetry({
+    config: input,
+    model,
+    postgresSchema,
+  });
+  noteRestartRequired(result);
+  const envSecretRefs = enabledProviderEnvSecretNames(settings);
+  upsertEnvFile(
+    envPath,
+    Object.fromEntries(
+      CHANNEL_ENV_KEYS.filter((key) => !envSecretRefs.has(key)).map((key) => [
+        key,
+        null,
+      ]),
+    ),
+  );
+}
+
+async function writeOnboardingSettingsWithRetry(input: {
+  config: OnboardingConfigInput;
+  model: ResolvedOnboardingModel;
+  postgresSchema: string;
+}): Promise<{ settings: RuntimeSettings; result: OnboardingWriteResult }> {
+  let secretsStored = false;
+  for (let attempt = 0; attempt <= MAX_STALE_SETTINGS_RETRIES; attempt += 1) {
+    const previousSettings = await loadOnboardingSettingsBase(
+      input.config,
+      input.postgresSchema,
+    );
+    const settings = buildOnboardingSettings({
+      config: input.config,
+      baseSettings: previousSettings,
+      model: input.model,
+      postgresSchema: input.postgresSchema,
+    });
+    if (!secretsStored) {
+      const storedProviders = await storeOnboardingRuntimeSecrets(
+        input.config,
+        settings,
+      );
+      markOnboardingRuntimeSecretsStored(
+        input.config.runtimeHome,
+        storedProviders,
+      );
+      secretsStored = true;
+    }
+    try {
+      const result = await writeDesiredRuntimeSettings({
+        runtimeHome: input.config.runtimeHome,
+        settings,
+        previousSettings,
+        createdBy: 'cli:onboarding',
+      });
+      return { settings, result };
+    } catch (err) {
+      if (
+        !isStaleSettingsWriteError(err) ||
+        attempt === MAX_STALE_SETTINGS_RETRIES
+      ) {
+        throw err;
+      }
+    }
+  }
+  throw new Error(STALE_SETTINGS_MESSAGE);
+}
+
+async function loadOnboardingSettingsBase(
+  input: OnboardingConfigInput,
+  postgresSchema: string,
+): Promise<RuntimeSettings> {
   const settingsSeed = loadRuntimeSettings(input.runtimeHome);
   settingsSeed.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
   settingsSeed.storage.postgres.schema = postgresSchema;
-  const settings = await loadDesiredRuntimeSettingsForWrite({
+  return loadDesiredRuntimeSettingsForWrite({
     runtimeHome: input.runtimeHome,
     settings: settingsSeed,
   });
-  const previousSettings = structuredClone(settings);
-  if (input.agentName?.trim()) {
-    settings.agent.name = input.agentName.trim();
+}
+
+function buildOnboardingSettings(input: {
+  config: OnboardingConfigInput;
+  baseSettings: RuntimeSettings;
+  model: ResolvedOnboardingModel;
+  postgresSchema: string;
+}): RuntimeSettings {
+  const settings = structuredClone(input.baseSettings);
+  if (input.config.agentName?.trim()) {
+    settings.agent.name = input.config.agentName.trim();
   }
   settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
-  settings.storage.postgres.schema = postgresSchema;
-  let previousSettingsForFinalWrite = previousSettings;
-  const storesRuntimeSecrets = Boolean(
-    input.telegramBotToken?.trim() ||
-    (input.slackBotToken?.trim() && input.slackAppToken?.trim()),
+  settings.storage.postgres.schema = input.postgresSchema;
+  // Re-derive job/memory defaults only when the chat model actually changes
+  // (or was never set) — maintenance runs that leave the model alone must not
+  // wipe explicit job defaults or custom memory models. An absent alias means
+  // "keep the configured model", never a reset to the setup default.
+  const nextChatAlias =
+    input.model.alias ||
+    settings.agent.defaultModel ||
+    DEFAULT_SETUP_MODEL_ALIAS;
+  if (settings.agent.defaultModel !== nextChatAlias) {
+    applyModelDefaults(settings, nextChatAlias);
+  }
+  if (input.config.agentHarness) {
+    settings.agent.agentHarness = input.config.agentHarness;
+  }
+  settings.credentialBroker.mode = input.config.credentialMode;
+  const hasTelegramBotToken = Boolean(input.config.telegramBotToken?.trim());
+  const hasSlackTokens = Boolean(
+    input.config.slackBotToken?.trim() && input.config.slackAppToken?.trim(),
   );
-  if (storesRuntimeSecrets) {
-    await writeDesiredRuntimeSettings({
-      runtimeHome: input.runtimeHome,
-      settings,
-      previousSettings,
-      createdBy: 'cli:onboarding',
-    });
-    previousSettingsForFinalWrite = structuredClone(settings);
-  }
-  applyModelPreset(settings, preset);
-  if (model.alias) {
-    settings.agent.defaultModel = model.alias;
-  }
-  if (input.agentHarness) {
-    settings.agent.agentHarness = input.agentHarness;
-  }
-  settings.credentialBroker.mode = input.credentialMode;
+  const useStoredTelegramSecretRefs = Boolean(
+    input.config.primaryProvider === 'telegram' &&
+    input.config.hasStoredTelegramSecretRefs,
+  );
+  const useStoredSlackSecretRefs = Boolean(
+    input.config.primaryProvider === 'slack' &&
+    input.config.hasStoredSlackSecretRefs,
+  );
+  // A channel that is already enabled with stored secret refs stays enabled
+  // unless this run reconfigures it — maintenance runs and channel switches
+  // must not silently disable a working channel.
+  const preserveTelegram =
+    !hasTelegramBotToken &&
+    hasEnabledProviderWithStoredSecretRefs(input.baseSettings, 'telegram');
+  const preserveSlack =
+    !hasSlackTokens &&
+    hasEnabledProviderWithStoredSecretRefs(input.baseSettings, 'slack');
   settings.providers.telegram.enabled =
-    input.primaryProvider === 'telegram' && Boolean(input.telegramBotToken);
+    (input.config.primaryProvider === 'telegram' &&
+      (hasTelegramBotToken || useStoredTelegramSecretRefs)) ||
+    preserveTelegram;
   settings.providers.slack.enabled =
-    input.primaryProvider === 'slack' &&
-    Boolean(input.slackBotToken) &&
-    Boolean(input.slackAppToken);
-  const secretWrites: Promise<void>[] = [];
-  if (input.telegramBotToken?.trim()) {
-    secretWrites.push(
-      storeRuntimeSecretInput({
-        runtimeHome: input.runtimeHome,
-        name: 'TELEGRAM_BOT_TOKEN',
-        value: input.telegramBotToken.trim(),
-        actor: 'cli:onboarding',
-      }),
-    );
-    settings.providers.telegram.defaultConnection ||= 'telegram_default';
-    settings.providerConnections[
-      settings.providers.telegram.defaultConnection
-    ] = {
+    (input.config.primaryProvider === 'slack' &&
+      (hasSlackTokens || useStoredSlackSecretRefs)) ||
+    preserveSlack;
+  if (input.config.telegramBotToken?.trim() || useStoredTelegramSecretRefs) {
+    ensureConfiguredAgent(settings, {
+      agentId: DEFAULT_AGENT_FOLDER,
+      agentName: settings.agent.name,
+      agentFolder: DEFAULT_AGENT_FOLDER,
+    });
+    settings.providerAccounts.telegram_default = {
+      agentId: DEFAULT_AGENT_FOLDER,
       provider: 'telegram',
       label:
-        settings.providerConnections[
-          settings.providers.telegram.defaultConnection
-        ]?.label || 'Telegram Default',
+        settings.providerAccounts.telegram_default?.label || 'Telegram Default',
       runtimeSecretRefs: {
-        ...(settings.providerConnections[
-          settings.providers.telegram.defaultConnection
-        ]?.runtimeSecretRefs || {}),
+        ...(settings.providerAccounts.telegram_default?.runtimeSecretRefs ||
+          {}),
         bot_token: gantryRuntimeSecretRef('TELEGRAM_BOT_TOKEN'),
       },
     };
   }
-  if (input.slackBotToken?.trim() && input.slackAppToken?.trim()) {
-    secretWrites.push(
-      storeRuntimeSecretInput({
-        runtimeHome: input.runtimeHome,
-        name: 'SLACK_BOT_TOKEN',
-        value: input.slackBotToken.trim(),
-        actor: 'cli:onboarding',
-      }),
-      storeRuntimeSecretInput({
-        runtimeHome: input.runtimeHome,
-        name: 'SLACK_APP_TOKEN',
-        value: input.slackAppToken.trim(),
-        actor: 'cli:onboarding',
-      }),
-    );
-    settings.providers.slack.defaultConnection ||= 'slack_default';
-    settings.providerConnections[settings.providers.slack.defaultConnection] = {
+  if (
+    (input.config.slackBotToken?.trim() &&
+      input.config.slackAppToken?.trim()) ||
+    useStoredSlackSecretRefs
+  ) {
+    ensureConfiguredAgent(settings, {
+      agentId: DEFAULT_AGENT_FOLDER,
+      agentName: settings.agent.name,
+      agentFolder: DEFAULT_AGENT_FOLDER,
+    });
+    settings.providerAccounts.slack_default = {
+      agentId: DEFAULT_AGENT_FOLDER,
       provider: 'slack',
-      label:
-        settings.providerConnections[settings.providers.slack.defaultConnection]
-          ?.label || 'Slack Default',
+      label: settings.providerAccounts.slack_default?.label || 'Slack Default',
       runtimeSecretRefs: {
-        ...(settings.providerConnections[
-          settings.providers.slack.defaultConnection
-        ]?.runtimeSecretRefs || {}),
+        ...(settings.providerAccounts.slack_default?.runtimeSecretRefs || {}),
         bot_token: gantryRuntimeSecretRef('SLACK_BOT_TOKEN'),
         app_token: gantryRuntimeSecretRef('SLACK_APP_TOKEN'),
       },
@@ -203,31 +332,84 @@ export async function persistOnboardingConfig(
   }
   settings.memory = {
     ...settings.memory,
-    enabled: input.memoryEnabled,
+    enabled: input.config.memoryEnabled,
     embeddings: {
       ...settings.memory.embeddings,
-      enabled: input.memoryEnabled && input.embeddingsEnabled,
+      enabled: input.config.memoryEnabled && input.config.embeddingsEnabled,
       provider:
-        input.memoryEnabled && input.embeddingsEnabled ? 'openai' : 'disabled',
+        input.config.memoryEnabled && input.config.embeddingsEnabled
+          ? 'openai'
+          : 'disabled',
     },
     dreaming: {
       ...settings.memory.dreaming,
-      enabled: input.memoryEnabled && input.dreamingEnabled,
+      enabled: input.config.memoryEnabled && input.config.dreamingEnabled,
     },
   };
-  await Promise.all(secretWrites);
-  await writeDesiredRuntimeSettings({
-    runtimeHome: input.runtimeHome,
-    settings,
-    previousSettings: previousSettingsForFinalWrite,
-    createdBy: 'cli:onboarding',
-  });
-  upsertEnvFile(envPath, {
-    TELEGRAM_BOT_TOKEN: null,
-    SLACK_BOT_TOKEN: null,
-    SLACK_APP_TOKEN: null,
-    SLACK_PERMISSION_APPROVER_IDS: null,
-  });
+  return settings;
+}
+
+async function storeOnboardingRuntimeSecrets(
+  input: OnboardingConfigInput,
+  runtimeSettings: RuntimeSettings,
+): Promise<ChannelProviderId[]> {
+  const storedProviders: ChannelProviderId[] = [];
+  if (input.telegramBotToken?.trim()) {
+    await storeRuntimeSecretInput({
+      runtimeHome: input.runtimeHome,
+      name: 'TELEGRAM_BOT_TOKEN',
+      value: input.telegramBotToken.trim(),
+      actor: 'cli:onboarding',
+      runtimeSettings,
+    });
+    storedProviders.push('telegram');
+  }
+  if (input.slackBotToken?.trim() && input.slackAppToken?.trim()) {
+    await Promise.all([
+      storeRuntimeSecretInput({
+        runtimeHome: input.runtimeHome,
+        name: 'SLACK_BOT_TOKEN',
+        value: input.slackBotToken.trim(),
+        actor: 'cli:onboarding',
+        runtimeSettings,
+      }),
+      storeRuntimeSecretInput({
+        runtimeHome: input.runtimeHome,
+        name: 'SLACK_APP_TOKEN',
+        value: input.slackAppToken.trim(),
+        actor: 'cli:onboarding',
+        runtimeSettings,
+      }),
+    ]);
+    storedProviders.push('slack');
+  }
+  return storedProviders;
+}
+
+function markOnboardingRuntimeSecretsStored(
+  runtimeHome: string,
+  providers: readonly ChannelProviderId[],
+): void {
+  if (providers.length === 0) return;
+  const state = readOnboardingState(runtimeHome);
+  if (!state || state.status !== 'in_progress') return;
+  const storedProviderSecretRefs = new Set(
+    state.data.storedProviderSecretRefs ?? [],
+  );
+  for (const provider of providers) {
+    storedProviderSecretRefs.add(provider);
+  }
+  state.data.storedProviderSecretRefs = [...storedProviderSecretRefs];
+  writeOnboardingState(runtimeHome, state);
+}
+
+function isStaleSettingsWriteError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return (
+    err.name === 'SettingsRevisionConflictError' ||
+    err.message.includes(STALE_SETTINGS_MESSAGE) ||
+    err.message.includes('settings revision conflicted:')
+  );
 }
 
 export async function prepareOnboardingCredentialStorage(input: {
@@ -270,13 +452,18 @@ function isValidCredentialEncryptionKey(raw: string): boolean {
 
 function resolveOnboardingModel(value: string | undefined): {
   alias: string;
-  preset?: ModelPresetId;
 } {
   const trimmed = value?.trim();
   if (!trimmed) return { alias: '' };
-  const resolved = resolveModelSelectionForWorkload(trimmed, 'chat');
+  // Family-aware: maintenance runs carry the stored chat alias through the
+  // draft, and a family selection (gpt-oss) must survive a non-model edit
+  // verbatim instead of being rejected or reset.
+  const resolved = resolveModelSelectionForWorkloadWithFamilies(
+    trimmed,
+    'chat',
+  );
   if (!resolved.ok) {
     throw new Error(resolved.message);
   }
-  return { alias: resolved.alias, preset: resolved.entry.modelRoute.id };
+  return { alias: resolved.alias };
 }

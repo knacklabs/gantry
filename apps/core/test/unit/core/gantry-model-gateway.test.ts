@@ -834,6 +834,65 @@ describe('GantryModelGatewayBroker', () => {
     }
   });
 
+  it('supports API-key-scoped gateway tokens without runtime run ids', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-api-key-scope');
+    const audit = vi.fn(async () => undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"ok":true}')),
+    );
+    const broker = new GantryModelGatewayBroker(repo, { audit });
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          apiKeyId: 'control-key-a',
+          modelRouteId: 'anthropic',
+        },
+      });
+
+      expect(audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId,
+          eventType: 'credential.model.used',
+          actor: 'gantry-model-gateway',
+          payload: expect.objectContaining({
+            providerId: 'anthropic',
+            tokenScope: 'api_key:control-key-a',
+            outcome: 'token_issued',
+          }),
+        }),
+      );
+      expect(audit.mock.calls[0]?.[0]).not.toHaveProperty('runId');
+
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+      expect(response.status).toBe(200);
+
+      await broker.revokeInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          apiKeyId: 'control-key-a',
+          modelRouteId: 'anthropic',
+        },
+      });
+      const afterRevoke = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+      expect(afterRevoke.status).toBe(401);
+    } finally {
+      await broker.close();
+    }
+  });
+
   it('streams upstream provider responses without buffering the full body', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-stream');

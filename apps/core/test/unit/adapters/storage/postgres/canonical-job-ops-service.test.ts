@@ -27,6 +27,7 @@ describe('CanonicalJobOpsService', () => {
         {
           conversationJid: 'tg:1',
           threadId: null,
+          providerAccountId: 'telegram_main',
           label: 'Primary',
         },
       ],
@@ -49,6 +50,7 @@ describe('CanonicalJobOpsService', () => {
       {
         conversationJid: 'tg:1',
         threadId: null,
+        providerAccountId: 'telegram_main',
         label: 'Primary',
       },
     ]);

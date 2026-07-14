@@ -4,6 +4,7 @@ import path from 'path';
 import * as p from '@clack/prompts';
 
 import type { ConversationRoute } from '../domain/types.js';
+import { agentIdForFolder } from '../domain/agent/agent-folder-id.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
@@ -59,6 +60,10 @@ import {
 } from '../shared/tool-access-view.js';
 import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
 import { nowIso } from '../shared/time/datetime.js';
+import {
+  makeAgentThreadQueueKey,
+  parseAgentThreadQueueKey,
+} from '../shared/thread-queue-key.js';
 
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
@@ -73,7 +78,7 @@ function displayNameForConfiguredConversation(
   const existingConversation = Object.values(settings.conversations).find(
     (conversation) => {
       const connection =
-        settings.providerConnections[conversation.providerConnection];
+        settings.providerAccounts[conversation.providerAccount];
       return (
         connection?.provider === provider &&
         (conversation.externalId === jid ||
@@ -196,22 +201,18 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
 
-    if (groups[normalized]) {
-      p.log.error(`Agent already exists for ${normalized}.`);
-      p.log.info(
-        'Next action: run `gantry agent info <jid>` or `gantry agent trigger <jid> <word>`.',
-      );
-      return 1;
-    }
-
     let displayName = parsed.name?.trim() || '';
     let chatProbeMessage = '';
 
     const settings = loadRuntimeSettings(runtimeHome);
 
     if (normalized.startsWith('tg:')) {
+      const providerAccountId = Object.entries(settings.providerAccounts).find(
+        ([, account]) => account.provider === 'telegram',
+      )?.[0];
       const token = await getProviderRuntimeSecret({
         providerId: 'telegram',
+        providerAccountId,
         key: 'bot_token',
         defaultEnvName: 'TELEGRAM_BOT_TOKEN',
         settings,
@@ -225,7 +226,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       if (!token) {
         p.log.error('Telegram bot token runtime secret is missing.');
         p.log.info(
-          'Next action: run `gantry provider connect telegram` or configure provider_connections.telegram_default.runtime_secret_refs.bot_token.',
+          'Next action: run `gantry provider connect telegram` or configure provider_accounts.telegram_default.runtime_secret_refs.bot_token.',
         );
         return 1;
       }
@@ -290,7 +291,10 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     };
 
     try {
-      await db.setConversationRoute(normalized, record);
+      await db.setConversationRoute(
+        makeAgentThreadQueueKey(normalized, agentIdForFolder(agentFolder)),
+        record,
+      );
       try {
         ensureConfiguredConversationBinding(settings, {
           agentId: agentFolder,
@@ -369,9 +373,6 @@ async function runName(runtimeHome: string, args: string[]): Promise<number> {
     p.log.success(
       `Default agent name updated from "${previous}" to "${nextName}".`,
     );
-    p.log.info(
-      'Restart Gantry for all running processes to pick up the new identity.',
-    );
     return 0;
   } catch (err) {
     p.log.error(
@@ -416,6 +417,8 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
     const found = resolved.found;
+    const routeKey = found.jid;
+    const { chatJid } = parseAgentThreadQueueKey(routeKey);
 
     if (!parsed.assumeYes) {
       if (!isInteractiveTerminal()) {
@@ -445,7 +448,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     try {
-      await db.deleteConversationRoute(found.jid);
+      await db.deleteConversationRoute(routeKey);
       await db.deleteSession(found.group.folder);
     } catch (err) {
       p.log.error(`Could not remove agent from database: ${errorMessage(err)}`);
@@ -454,7 +457,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
 
     const policyPrune = await pruneAgentSenderPolicyOverride(
       runtimeHome,
-      found.jid,
+      chatJid,
       found.group.folder,
     );
     if (policyPrune.error) {
@@ -531,6 +534,8 @@ async function runTrigger(
       return 1;
     }
     const found = resolved.found;
+    const routeKey = found.jid;
+    const { chatJid } = parseAgentThreadQueueKey(routeKey);
 
     const nextGroup: ConversationRoute = {
       ...found.group,
@@ -546,7 +551,7 @@ async function runTrigger(
     }
 
     try {
-      const providerId = providerFromGroupJid(found.jid);
+      const providerId = providerFromGroupJid(chatJid);
       if (providerId) {
         const settings = await loadDesiredRuntimeSettingsForWrite({
           runtimeHome,
@@ -556,10 +561,10 @@ async function runTrigger(
           agentId: found.group.folder,
           agentName: found.group.name,
           agentFolder: found.group.folder,
-          jid: found.jid,
+          jid: chatJid,
           displayName: displayNameForConfiguredConversation(
             settings,
-            found.jid,
+            chatJid,
             found.group.name,
           ),
           trigger: nextGroup.trigger,
@@ -571,7 +576,7 @@ async function runTrigger(
           previousSettings,
         });
       }
-      await db.setConversationRoute(found.jid, nextGroup);
+      await db.setConversationRoute(routeKey, nextGroup);
     } catch (err) {
       p.log.error(`Could not update trigger settings: ${errorMessage(err)}`);
       return 1;
@@ -622,7 +627,8 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     const found = resolved.found;
-    const channel = providerFromGroupJid(found.jid);
+    const { chatJid } = parseAgentThreadQueueKey(found.jid);
+    const channel = providerFromGroupJid(chatJid);
     if (!channel) {
       p.log.error(
         `Agent ${found.group.name} (${found.jid}) does not map to a registered provider.`,
@@ -636,7 +642,7 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
       agentId: found.group.folder,
       agentName: found.group.name,
       agentFolder: found.group.folder,
-      jid: found.jid,
+      jid: chatJid,
       displayName: found.group.name,
       trigger: found.group.trigger,
       requiresTrigger: found.group.requiresTrigger !== false,

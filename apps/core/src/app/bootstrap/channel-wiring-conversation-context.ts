@@ -11,6 +11,7 @@ interface ChannelConversationContextProvider {
 
 type ConversationContextLookup = (
   conversationJid: string,
+  providerAccountId?: string,
 ) => ChannelConversationContextProvider | undefined;
 
 type ProviderIdResolver = (conversationJid: string, fallback: string) => string;
@@ -20,7 +21,10 @@ export async function hydrateChannelConversationContext(
   findBoundChannel: ConversationContextLookup,
   providerIdForJid: ProviderIdResolver,
 ): Promise<ConversationContextHydrationResult> {
-  const channel = findBoundChannel(request.conversationJid);
+  const channel = findBoundChannel(
+    request.conversationJid,
+    request.providerAccountId ?? undefined,
+  );
   return channel?.hydrateConversationContext
     ? channel.hydrateConversationContext(request)
     : {

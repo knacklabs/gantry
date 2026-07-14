@@ -250,7 +250,9 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('request_skill_proposal');
     expect(prompt).toContain('request_access target.kind=capability');
     expect(prompt).toContain('render_status, render_facts');
-    expect(prompt).toContain('There is no generic Workflow tool');
+    expect(prompt).toContain(
+      'Use only the Gantry tools mounted in the current run',
+    );
     expect(prompt).toContain('admin_permission_list');
     expect(prompt).toContain(
       'first send one short natural acknowledgement with send_message',

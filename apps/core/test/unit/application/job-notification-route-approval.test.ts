@@ -41,6 +41,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
       {
         conversationJid: 'tg:team',
         threadId: 'thread-1',
+        providerAccountId: 'telegram_main',
         label: 'primary',
       },
     ],
@@ -52,8 +53,9 @@ function makeAccess() {
   return {
     sourceAgentFolder: 'team',
     originConversationJid: 'tg:team',
+    originProviderAccountId: 'telegram_main',
     conversationBindings: {
-      'tg:team': { folder: 'team' },
+      'tg:team': { folder: 'team', providerAccountId: 'telegram_main' },
       'tg:other': { folder: 'other' },
     },
     sourceAgentFolderJids: ['tg:team'],
@@ -88,6 +90,7 @@ describe('job notification route approval', () => {
         {
           conversationJid: 'tg:team',
           threadId: 'thread-1',
+          providerAccountId: 'telegram_main',
           label: 'primary',
         },
       ],
@@ -100,11 +103,43 @@ describe('job notification route approval', () => {
           {
             conversationJid: 'tg:team',
             threadId: 'thread-1',
+            providerAccountId: 'telegram_main',
             label: 'primary',
           },
         ],
       }),
     );
+  });
+
+  it('treats same-conversation provider-account mismatch as outside authenticated context', async () => {
+    const upsertJob = vi.fn(async () => ({ created: true }));
+    const service = new JobManagementService({
+      ops: {
+        getJobById: vi.fn(async () => undefined),
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.upsertJobFromIpc({
+        access: makeAccess(),
+        name: 'Cross account route',
+        prompt: 'Run',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+        notificationRoutes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: 'thread-1',
+            providerAccountId: 'telegram_backup',
+            label: 'primary',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(upsertJob).not.toHaveBeenCalled();
   });
 
   it('fails closed for cross-context routes when approval plumbing is unavailable', async () => {
@@ -129,6 +164,7 @@ describe('job notification route approval', () => {
           {
             conversationJid: 'tg:team',
             threadId: 'thread-1',
+            providerAccountId: 'telegram_main',
             label: 'primary',
           },
           {
@@ -167,6 +203,7 @@ describe('job notification route approval', () => {
             {
               conversationJid: 'tg:team',
               threadId: 'thread-1',
+              providerAccountId: 'telegram_main',
               label: 'primary',
             },
             {
@@ -208,6 +245,7 @@ describe('job notification route approval', () => {
             {
               conversationJid: 'tg:team',
               threadId: 'thread-1',
+              providerAccountId: 'telegram_main',
               label: 'primary',
             },
             {

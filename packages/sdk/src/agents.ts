@@ -16,6 +16,7 @@ export type AgentAdminBoundConversation = {
     mode: 'trigger' | 'drop';
   };
   requiresTrigger?: boolean;
+  trigger?: string;
   approverUserIds: string[];
 };
 

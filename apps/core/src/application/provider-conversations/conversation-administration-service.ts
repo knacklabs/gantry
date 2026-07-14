@@ -1,21 +1,24 @@
 import type { AppId } from '../../domain/app/app.js';
+import type { AgentId } from '../../domain/agent/agent.js';
 import type {
-  ProviderConnection,
+  ProviderAccount,
+  ProviderAccountId,
   ProviderId,
 } from '../../domain/provider/provider.js';
 import type {
   Conversation,
   ConversationId,
 } from '../../domain/conversation/conversation.js';
+import { canonicalConversationThreadId } from '../../domain/conversation/conversation.js';
 import type {
-  ProviderConnectionRepository,
+  ProviderAccountRepository,
   ConversationRepository,
 } from '../../domain/ports/repositories.js';
 import { ApplicationError } from '../common/application-error.js';
 
 export interface ConversationMembershipValidationInput {
   providerId: ProviderId;
-  providerConnection: ProviderConnection;
+  providerAccount: ProviderAccount;
   conversation: Conversation;
   userIds: string[];
 }
@@ -39,7 +42,7 @@ export interface ConversationAdminSummary {
 export class ConversationAdministrationService {
   constructor(
     private readonly repositories: {
-      providerConnections: ProviderConnectionRepository;
+      providerAccounts: ProviderAccountRepository;
       conversations: ConversationRepository;
     },
     private readonly membershipValidator?: ConversationMembershipValidator,
@@ -67,7 +70,7 @@ export class ConversationAdministrationService {
     userIds: string[];
     updatedAt: string;
   }): Promise<{ userIds: string[] }> {
-    const { conversation, providerConnection } =
+    const { conversation, providerAccount } =
       await this.requireConversation(input);
     const userIds = normalizeUserIds(input.userIds);
     const invalidShape = userIds.filter((id) => !isValidExternalUserId(id));
@@ -79,8 +82,8 @@ export class ConversationAdministrationService {
     }
     if (userIds.length > 0) {
       const validation = await this.validateMembership({
-        providerId: providerConnection.providerId,
-        providerConnection,
+        providerId: providerAccount.providerId,
+        providerAccount,
         conversation,
         userIds,
       });
@@ -110,13 +113,30 @@ export class ConversationAdministrationService {
   async isControlApproverAllowed(input: {
     appId: AppId;
     providerId: ProviderId;
+    providerAccountId: ProviderAccountId;
+    agentId: AgentId;
     conversationJid: string;
+    threadId?: string;
     userId: string;
   }): Promise<boolean> {
     const userId = input.userId.trim();
     if (!userId) return false;
     const conversation = await this.findConversationForJid(input);
     if (!conversation) return false;
+    if (conversation.providerAccountId !== input.providerAccountId)
+      return false;
+    const threadId = canonicalConversationThreadId({
+      conversation,
+      threadId: input.threadId,
+    });
+    const install =
+      await this.repositories.providerAccounts.getConversationInstall({
+        appId: input.appId,
+        agentId: input.agentId,
+        conversationId: conversation.id,
+        ...(threadId ? { threadId } : {}),
+      });
+    if (!install || install.status !== 'active') return false;
     const approvers =
       await this.repositories.conversations.listConversationApprovers(
         conversation.id,
@@ -124,14 +144,14 @@ export class ConversationAdministrationService {
     if (!approvers.some((approver) => approver.externalUserId === userId)) {
       return false;
     }
-    const providerConnection =
-      await this.repositories.providerConnections.getProviderConnection(
-        conversation.providerConnectionId,
+    const providerAccount =
+      await this.repositories.providerAccounts.getProviderAccount(
+        conversation.providerAccountId,
       );
-    if (!providerConnection) return false;
+    if (!providerAccount) return false;
     const validation = await this.validateMembership({
-      providerId: providerConnection.providerId,
-      providerConnection,
+      providerId: providerAccount.providerId,
+      providerAccount,
       conversation,
       userIds: [userId],
     });
@@ -143,7 +163,7 @@ export class ConversationAdministrationService {
     conversationId: ConversationId;
   }): Promise<{
     conversation: Conversation;
-    providerConnection: ProviderConnection;
+    providerAccount: ProviderAccount;
   }> {
     const conversation = await this.repositories.conversations.getConversation(
       input.conversationId,
@@ -151,14 +171,14 @@ export class ConversationAdministrationService {
     if (!conversation || conversation.appId !== input.appId) {
       throw new ApplicationError('NOT_FOUND', 'Conversation not found');
     }
-    const providerConnection =
-      await this.repositories.providerConnections.getProviderConnection(
-        conversation.providerConnectionId,
+    const providerAccount =
+      await this.repositories.providerAccounts.getProviderAccount(
+        conversation.providerAccountId,
       );
-    if (!providerConnection || providerConnection.appId !== input.appId) {
-      throw new ApplicationError('NOT_FOUND', 'provider connection not found');
+    if (!providerAccount || providerAccount.appId !== input.appId) {
+      throw new ApplicationError('NOT_FOUND', 'provider account not found');
     }
-    return { conversation, providerConnection };
+    return { conversation, providerAccount };
   }
 
   private async validateMembership(
@@ -199,20 +219,29 @@ export class ConversationAdministrationService {
   private async findConversationForJid(input: {
     appId: AppId;
     providerId: ProviderId;
+    providerAccountId: ProviderAccountId;
     conversationJid: string;
   }): Promise<Conversation | null> {
     const direct = await this.repositories.conversations.getConversation(
       `conversation:${input.conversationJid}` as ConversationId,
     );
-    if (direct?.appId === input.appId) return direct;
+    if (
+      direct?.appId === input.appId &&
+      direct.providerAccountId === input.providerAccountId &&
+      direct.status === 'active'
+    ) {
+      return direct;
+    }
     const candidates = conversationExternalRefCandidates({
       providerId: String(input.providerId),
       conversationJid: input.conversationJid,
     });
     for (const candidate of candidates) {
       const conversation =
-        await this.repositories.conversations.findConversationByExternalValue({
+        await this.repositories.conversations.getConversationByExternalRef({
           appId: input.appId,
+          providerId: input.providerId,
+          providerAccountId: input.providerAccountId,
           externalConversationId: candidate,
         });
       if (conversation) return conversation;

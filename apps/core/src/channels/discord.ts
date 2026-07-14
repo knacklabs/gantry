@@ -565,13 +565,20 @@ export class DiscordChannel implements ChannelAdapter {
         message.channel_id,
       );
     }
-    await this.opts.onChatMetadata(
+    const metadataArgs = [
       context.conversationJid,
       message.timestamp || new Date().toISOString(),
       undefined,
       'discord',
       true,
-    );
+    ] as const;
+    if (this.opts.providerAccountId) {
+      await this.opts.onChatMetadata(...metadataArgs, {
+        providerAccountId: this.opts.providerAccountId,
+      });
+    } else {
+      await this.opts.onChatMetadata(...metadataArgs);
+    }
     await this.opts.onMessage(context.conversationJid, {
       id: message.id,
       chat_jid: context.conversationJid,
@@ -651,15 +658,15 @@ export async function createDiscordChannel(
   const settings = opts.runtimeSettings?.();
   const botToken = await getProviderRuntimeSecret({
     providerId: 'discord',
+    providerAccountId: opts.providerAccountId ?? '',
     key: 'bot_token',
-    defaultEnvName: 'DISCORD_BOT_TOKEN',
     settings,
     secrets: opts.runtimeSecrets,
   });
   const applicationId = await getProviderRuntimeSecret({
     providerId: 'discord',
+    providerAccountId: opts.providerAccountId ?? '',
     key: 'application_id',
-    defaultEnvName: 'DISCORD_APPLICATION_ID',
     settings,
     secrets: opts.runtimeSecrets,
   });

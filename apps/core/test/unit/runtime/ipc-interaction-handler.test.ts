@@ -259,6 +259,7 @@ describe('ipc-interaction-handler', () => {
       ['mcp__gantry__service_restart'],
       { appId: 'app:test' },
     );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledOnce();
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
       expect.stringContaining('Allowed for future:'),
@@ -557,6 +558,7 @@ describe('ipc-interaction-handler', () => {
     const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
     fs.writeFileSync(claimedPath, '{}');
     const publishRuntimeEvent = vi.fn(async () => undefined);
+    const createTransientGrant = vi.fn(async () => true);
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     configurePendingInteractionDurability({
       repository: {
@@ -573,7 +575,7 @@ describe('ipc-interaction-handler', () => {
         })),
         createPendingInteraction: vi.fn(async () => true),
         resolvePendingInteraction: vi.fn(async () => true),
-        createTransientGrant: vi.fn(async () => true),
+        createTransientGrant,
       } as never,
     });
     const command =
@@ -616,6 +618,7 @@ describe('ipc-interaction-handler', () => {
     expect(
       publishRuntimeEvent.mock.calls.map((call) => call[0].eventType),
     ).toEqual([
+      'interaction.pending',
       'permission.requested',
       'permission.allowed',
       'permission.resumed',
@@ -643,6 +646,7 @@ describe('ipc-interaction-handler', () => {
     expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
       'sk-ant',
     );
+    expect(createTransientGrant).toHaveBeenCalledOnce();
   });
 
   it('does not prompt or resume scheduled permission IPC when the run lease is stale', async () => {

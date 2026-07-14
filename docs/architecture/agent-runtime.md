@@ -183,12 +183,12 @@ See `validateAgentModelRequest` and `validateAgentToolInput` in
 The control API exposes provider and conversation onboarding through
 application-layer services:
 
-- provider catalog and provider connection records
+- provider catalog and Provider Account records
 - provider discovery into canonical `Conversation` records
-- `AgentConversationBinding` enable/update/disable for a conversation
+- Conversation Install enable/update/disable for a conversation
 - conversation, thread, and message reads for Web UI and SDK clients
 
 Installation payloads store non-secret provider config and runtime secret
 references only. Raw provider tokens stay behind `RuntimeSecretProvider`.
-Disabling a binding marks it `disabled` so UI and CLI clients can re-enable it
-without losing the binding policy, trigger, memory, or permission settings.
+Disabling an install marks it `disabled` so UI and CLI clients can re-enable it
+without losing sender, control, memory, or permission settings.

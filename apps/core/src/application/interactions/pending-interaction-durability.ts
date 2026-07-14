@@ -19,9 +19,10 @@ import type {
 import { nowMs, parseIso, toIso } from '../../shared/time/datetime.js';
 import { enqueueResolvedInteractionCommand } from './pending-interaction-live-turn-delivery.js';
 import {
-  applyRecoveredPersistentPermissionGrant,
-  type PermissionPersistenceBackend,
-} from './pending-interaction-permission-recovery.js';
+  applyPendingInteractionGrantDecision,
+  type PermissionInteractionDecisionInput,
+} from './pending-interaction-grants.js';
+import type { PermissionPersistenceBackend } from './pending-interaction-permission-recovery.js';
 import { configurePendingInteractionPromptBinding } from './pending-interaction-prompt-binding.js';
 import type { DurablePermissionFullView } from './pending-interaction-prompt-binding.js';
 import { readDurablePermissionFullView } from './pending-interaction-prompt-binding.js';
@@ -214,6 +215,7 @@ export async function resolvePendingInteractionRecord(input: {
 export interface DurablePermissionInteractionContext {
   sourceAgentFolder: string;
   targetJid: string | null;
+  threadId: string | null;
   decisionPolicy: string | null;
   fullView?: DurablePermissionFullView;
 }
@@ -249,6 +251,15 @@ export async function findDurablePermissionInteractionByRequestId(input: {
         typeof pending.payload.conversationId === 'string'
           ? pending.payload.conversationId
           : null,
+      threadId:
+        typeof pending.payload.threadId === 'string'
+          ? pending.payload.threadId
+          : typeof pending.payload.request === 'object' &&
+              pending.payload.request !== null &&
+              'threadId' in pending.payload.request &&
+              typeof pending.payload.request.threadId === 'string'
+            ? pending.payload.request.threadId
+            : null,
       decisionPolicy:
         typeof pending.payload.decisionPolicy === 'string'
           ? pending.payload.decisionPolicy
@@ -263,7 +274,6 @@ export async function findDurablePermissionInteractionByRequestId(input: {
     return null;
   }
 }
-
 export {
   bindPendingPermissionInteractionMessage,
   findDurablePermissionInteractionByPromptMessage,
@@ -326,55 +336,27 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
           decidedBy: input.approverRef ?? undefined,
           reason: input.reason ?? undefined,
         } satisfies PermissionApprovalDecision);
-    if (
-      decision.approved &&
-      decision.mode === 'allow_persistent_rule' &&
-      decision.decisionClassification === 'user_permanent'
-    ) {
-      if (!request) return false;
-      if (!permissionPersistence) return false;
-      const persisted = await applyRecoveredPersistentPermissionGrant({
-        persistence: permissionPersistence,
-        request: {
-          ...request,
-          requestId: pendingRequestId,
-          sourceAgentFolder,
-        },
-        sourceAgentFolder,
-        decision,
-      });
-      if (!persisted) return false;
-    }
-    if (
-      decision.approved &&
-      decision.decisionClassification !== 'user_permanent' &&
-      pending.runId
-    ) {
-      await recordRunScopedTransientGrant({
-        appId,
-        runId: pending.runId,
-        runLeaseToken:
-          typeof pending.payload.runLeaseToken === 'string'
-            ? pending.payload.runLeaseToken
-            : null,
-        runLeaseFencingVersion:
-          typeof pending.payload.runLeaseFencingVersion === 'number'
-            ? pending.payload.runLeaseFencingVersion
-            : null,
-        grant: {
-          toolName:
-            typeof pending.payload.toolName === 'string'
-              ? pending.payload.toolName
-              : 'unknown',
-          mode: input.mode,
-          requestId: pendingRequestId,
-        },
-        expiresAtMs:
-          typeof decision.timedGrantExpiresAtMs === 'number'
-            ? decision.timedGrantExpiresAtMs
-            : undefined,
-      });
-    }
+    const applied = await applyPermissionInteractionDecision({
+      request,
+      sourceAgentFolder,
+      decision,
+      appId,
+      runId: pending.runId,
+      runLeaseToken:
+        typeof pending.payload.runLeaseToken === 'string'
+          ? pending.payload.runLeaseToken
+          : null,
+      runLeaseFencingVersion:
+        typeof pending.payload.runLeaseFencingVersion === 'number'
+          ? pending.payload.runLeaseFencingVersion
+          : null,
+      toolName:
+        typeof pending.payload.toolName === 'string'
+          ? pending.payload.toolName
+          : 'unknown',
+      requestId: pendingRequestId,
+    });
+    if (!applied) return false;
     return await resolvePendingInteractionRecord({
       kind: 'permission',
       sourceAgentFolder,
@@ -399,6 +381,15 @@ export async function resolveDurablePermissionInteractionByRequestId(input: {
     );
     return false;
   }
+}
+
+export function applyPermissionInteractionDecision(
+  input: PermissionInteractionDecisionInput,
+): Promise<boolean> {
+  return applyPendingInteractionGrantDecision(input, {
+    permissionPersistence,
+    recordRunScopedTransientGrant,
+  });
 }
 
 export interface DurableQuestionInteractionContext {

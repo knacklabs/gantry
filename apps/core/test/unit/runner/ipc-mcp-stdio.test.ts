@@ -6,6 +6,7 @@ import { generateKeyPairSync } from 'crypto';
 import { fileURLToPath } from 'url';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { buildSync } from 'esbuild';
 
 import { schedulerJobConfirmationToken } from '@core/jobs/job-plan-formatter.js';
 import { ALL_GANTRY_MCP_TOOL_NAMES } from '@agent-runner-src/gantry-mcp-tool-surface.js';
@@ -335,8 +336,14 @@ import fs from 'fs';
 import path from 'path';
 import { sign as cryptoSign } from 'crypto';
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms) =>
+  new Promise((resolve) => {
+    const timeout = setTimeout(resolve, ms);
+    timeout.unref?.();
+  });
 const tools = new Map();
+const interactionBoundaryWaitMs = 5000;
+const taskRequestWaitMs = 30000;
 
 function signPayload(payload) {
   const signingKey = process.env.TEST_IPC_RESPONSE_SIGNING_KEY || '';
@@ -365,7 +372,7 @@ async function waitForQuestionRequest(ipcDir) {
 
 async function waitForInteractionBoundary(ipcDir) {
   const boundaryDir = path.join(ipcDir, 'interaction-boundaries');
-  const deadline = Date.now() + 1000;
+  const deadline = Date.now() + interactionBoundaryWaitMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(boundaryDir)) {
       const files = fs.readdirSync(boundaryDir).filter((file) => file.endsWith('.json'));
@@ -383,7 +390,7 @@ async function waitForInteractionBoundary(ipcDir) {
 
 async function waitForTaskRequest(ipcDir) {
   const requestDir = path.join(ipcDir, 'tasks');
-  const deadline = Date.now() + 1000;
+  const deadline = Date.now() + taskRequestWaitMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(requestDir)) {
       const files = fs
@@ -514,40 +521,54 @@ export class McpServer {
   };
 }
 
+function fixtureProcessEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith('GANTRY_') && !key.startsWith('TEST_MCP_'),
+    ),
+  );
+}
+
 async function runMcpFixture(
   fixture: ReturnType<typeof createMcpFixture>,
   toolName: string,
   args: Record<string, unknown>,
   envOverrides: Record<string, string | undefined> = {},
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-  const child = spawn(
-    process.execPath,
-    [path.join(repoRoot, 'node_modules/tsx/dist/cli.mjs'), fixture.serverPath],
-    {
-      cwd: fixture.root,
-      env: {
-        ...process.env,
-        GANTRY_IPC_DIR: fixture.ipcDir,
-        GANTRY_IPC_AUTH_TOKEN: 'mcp-test-token',
-        GANTRY_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
-        GANTRY_IPC_RESPONSE_KEY_ID: 'mcp-test-response-key-id',
-        TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
-        GANTRY_CHAT_JID: 'tg:team',
-        GANTRY_WORKSPACE_KEY: 'team',
-        GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
-        GANTRY_NO_PERMISSION_TOOLS: '',
-        GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
-        GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
-        ...envOverrides,
-        TEST_MCP_TOOL_NAME: toolName,
-        TEST_MCP_TOOL_ARGS: JSON.stringify(args),
-        TEST_MCP_RESULT_PATH: fixture.resultPath,
-        TEST_MCP_ANSWER_QUESTION: toolName === 'ask_user_question' ? '1' : '0',
-        TEST_MCP_AUTO_RESPOND_TASKS: '1',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
+  const bundledServerPath = path.join(fixture.root, 'stdio.mjs');
+  buildSync({
+    entryPoints: [fixture.serverPath],
+    outfile: bundledServerPath,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    target: 'node24',
+    logLevel: 'silent',
+  });
+  const child = spawn(process.execPath, [bundledServerPath], {
+    cwd: fixture.root,
+    env: {
+      ...fixtureProcessEnv(),
+      GANTRY_IPC_DIR: fixture.ipcDir,
+      GANTRY_IPC_AUTH_TOKEN: 'mcp-test-token',
+      GANTRY_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
+      GANTRY_IPC_RESPONSE_KEY_ID: 'mcp-test-response-key-id',
+      TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
+      GANTRY_CHAT_JID: 'tg:team',
+      GANTRY_WORKSPACE_KEY: 'team',
+      GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
+      GANTRY_NO_PERMISSION_TOOLS: '',
+      GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
+      GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
+      ...envOverrides,
+      TEST_MCP_TOOL_NAME: toolName,
+      TEST_MCP_TOOL_ARGS: JSON.stringify(args),
+      TEST_MCP_RESULT_PATH: fixture.resultPath,
+      TEST_MCP_ANSWER_QUESTION: toolName === 'ask_user_question' ? '1' : '0',
+      TEST_MCP_AUTO_RESPOND_TASKS: '1',
     },
-  );
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 
   let stdout = '';
   let stderr = '';
@@ -559,13 +580,10 @@ async function runMcpFixture(
   });
 
   const exitCode = await new Promise<number | null>((resolve, reject) => {
+    let timedOut = false;
     const timeout = setTimeout(() => {
+      timedOut = true;
       child.kill('SIGKILL');
-      reject(
-        new Error(
-          `MCP fixture timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
-        ),
-      );
     }, MCP_FIXTURE_TIMEOUT_MS);
     child.on('error', (err) => {
       clearTimeout(timeout);
@@ -573,6 +591,14 @@ async function runMcpFixture(
     });
     child.on('exit', (code) => {
       clearTimeout(timeout);
+      if (timedOut) {
+        reject(
+          new Error(
+            `MCP fixture timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+          ),
+        );
+        return;
+      }
       resolve(code);
     });
   });
@@ -837,6 +863,33 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
     });
   });
 
+  it('preserves structured remote MCP failures for the model', async () => {
+    const fixture = createMcpFixture();
+    const remoteResult = {
+      content: [{ type: 'text', text: 'Remote validation failed.' }],
+      structuredContent: { field: 'account_id', reason: 'missing' },
+      isError: true,
+      error: {
+        category: 'business',
+        isRetryable: false,
+        message: 'Remote validation failed.',
+      },
+    };
+
+    const result = await runMcpFixture(
+      fixture,
+      'mcp_call_tool',
+      { serverName: 'crm', toolName: 'lookup' },
+      { TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify(remoteResult) },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result).toMatchObject({
+      ...remoteResult,
+    });
+  });
+
   it('writes MCP tool detail requests through IPC without execution arguments', async () => {
     const fixture = createMcpFixture();
 
@@ -926,6 +979,29 @@ describe('agent-runner MCP stdio tools', { timeout: 70_000 }, () => {
       'Scheduled job message suppressed.',
     );
     expect(fs.existsSync(path.join(fixture.ipcDir, 'messages'))).toBe(false);
+  });
+
+  it('includes the trusted provider account in send_message IPC', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'send_message',
+      { text: 'Account-scoped update.' },
+      { GANTRY_PROVIDER_ACCOUNT_ID: 'provider-account:slack:a' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const messageFiles = fs.readdirSync(path.join(fixture.ipcDir, 'messages'));
+    expect(messageFiles).toHaveLength(1);
+    const message = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'messages', messageFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(message.providerAccountId).toBe('provider-account:slack:a');
+    expect(message.context.providerAccountId).toBe('provider-account:slack:a');
   });
 
   it('defaults to first-party MCP tools when runner projection is missing', async () => {

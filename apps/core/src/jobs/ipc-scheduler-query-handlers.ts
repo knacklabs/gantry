@@ -14,10 +14,15 @@ import { resolveCanonicalAppSessionForOrigin } from '../application/jobs/job-man
 import { normalizeOptional } from '../application/jobs/job-management-access.js';
 import { appIdFromConversationJid } from '../shared/app-conversation-jid.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import type {
+  RuntimeEventFilter,
+  RuntimeEventId,
+} from '../domain/events/events.js';
+import { parseRuntimeEventType } from '../domain/events/runtime-event-types.js';
 
 const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
 const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
-const SCHEDULER_WAIT_POLL_MS = 1_000;
+const SCHEDULER_WAIT_FALLBACK_INTERVAL_MS = 1_000;
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -57,10 +62,6 @@ function normalizeSchedulerWaitTimeoutMs(value: unknown): number {
   );
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function schedulerEventFilters(data: TaskContext['data']): {
   jobId?: string;
   runId?: string;
@@ -83,6 +84,54 @@ function schedulerEventFilters(data: TaskContext['data']): {
         : undefined,
     limit: data.limit,
   };
+}
+
+async function schedulerRuntimeEventFilter(
+  context: TaskContext,
+  filters: ReturnType<typeof schedulerEventFilters>,
+): Promise<RuntimeEventFilter | undefined> {
+  const appId = await schedulerWaitAppId(context, filters);
+  if (!appId) return undefined;
+  const eventType = filters.eventType
+    ? parseRuntimeEventType(filters.eventType)
+    : undefined;
+  if (filters.eventType && !eventType) return undefined;
+  return {
+    appId: appId as RuntimeEventFilter['appId'],
+    ...(filters.sinceId !== undefined
+      ? { afterEventId: filters.sinceId as RuntimeEventId }
+      : {}),
+    ...(filters.jobId ? { jobId: filters.jobId as never } : {}),
+    ...(filters.runId ? { runId: filters.runId as never } : {}),
+    ...(eventType ? { eventTypes: [eventType] } : {}),
+    limit: 1,
+  };
+}
+
+async function schedulerWaitAppId(
+  context: TaskContext,
+  filters: ReturnType<typeof schedulerEventFilters>,
+): Promise<string | undefined> {
+  const explicitAppId = toTrimmedString(context.data.appId, { maxLen: 128 });
+  if (explicitAppId) return explicitAppId;
+  const originAppId = appIdFromConversationJid(
+    schedulerAccessFromContext(context).originConversationJid,
+  );
+  if (originAppId) return originAppId;
+  if (filters.jobId) {
+    const job = await context.deps.opsRepository.getJobById(filters.jobId);
+    const executionAppId = job?.execution_context
+      ? appIdFromConversationJid(job.execution_context.conversationJid)
+      : null;
+    if (executionAppId) return executionAppId;
+    if (job?.session_id) {
+      const session = await context.deps
+        .getJobControl?.()
+        ?.getAppSessionById(job.session_id);
+      if (session?.appId) return session.appId;
+    }
+  }
+  return resolveMetadataAppId(context);
 }
 
 const schedulerGetJobHandler: TaskHandler = async (context) => {
@@ -273,12 +322,26 @@ const schedulerWaitForEventsHandler: TaskHandler = async (context) => {
   const filters = schedulerEventFilters(data);
   const timeoutMs = normalizeSchedulerWaitTimeoutMs(data.timeoutMs);
   const deadline = currentTimeMs() + timeoutMs;
+  let subscription:
+    | ReturnType<NonNullable<TaskContext['deps']['subscribeRuntimeEvents']>>
+    | undefined;
   try {
-    while (true) {
-      const result = await makeJobService(context).listJobEvents({
-        access: schedulerAccessFromContext(context),
+    const service = makeJobService(context);
+    const access = schedulerAccessFromContext(context);
+    const listEvents = () =>
+      service.listJobEvents({
+        access,
         ...filters,
       });
+    const subscriptionFilter = await schedulerRuntimeEventFilter(
+      context,
+      filters,
+    );
+    subscription = subscriptionFilter
+      ? context.deps.subscribeRuntimeEvents?.(subscriptionFilter)
+      : undefined;
+    while (true) {
+      const result = await listEvents();
       if (result.events.length > 0 || currentTimeMs() >= deadline) {
         acceptData(
           `Listed ${result.events.length} scheduler event(s).`,
@@ -287,7 +350,16 @@ const schedulerWaitForEventsHandler: TaskHandler = async (context) => {
         return;
       }
       const remainingMs = Math.max(0, deadline - currentTimeMs());
-      await delay(Math.min(SCHEDULER_WAIT_POLL_MS, remainingMs));
+      if (subscription) {
+        await subscription.next({ timeoutMs: remainingMs });
+      } else {
+        await new Promise((resolve) =>
+          setTimeout(
+            resolve,
+            Math.min(remainingMs, SCHEDULER_WAIT_FALLBACK_INTERVAL_MS),
+          ),
+        );
+      }
     }
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
@@ -302,6 +374,8 @@ const schedulerWaitForEventsHandler: TaskHandler = async (context) => {
       'scheduler_wait_for_events failed unexpectedly',
     );
     reject(mapped.message, mapped.code);
+  } finally {
+    subscription?.close();
   }
 };
 

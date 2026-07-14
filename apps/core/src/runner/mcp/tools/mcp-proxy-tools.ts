@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { nowIso } from '../../../shared/time/datetime.js';
@@ -14,6 +15,7 @@ import {
   jobRunLeaseFencingVersion,
   jobRunLeaseToken,
   lockedAccessPreset,
+  providerAccountId,
   TASKS_DIR,
   threadId,
 } from '../context.js';
@@ -212,14 +214,7 @@ export function registerMcpProxyTools(server: McpServer): void {
           isError: true,
         };
       }
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: formatMcpCallToolResponse(response.data),
-          },
-        ],
-      };
+      return modelVisibleMcpCallResult(response.data);
     },
   );
 
@@ -243,6 +238,7 @@ export function registerMcpProxyTools(server: McpServer): void {
       writeIpcFile(TASKS_DIR, {
         type: 'async_mcp_call',
         taskId,
+        ...(providerAccountId ? { providerAccountId } : {}),
         runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
         ...(jobId ? { jobId } : {}),
         ...(jobRunId ? { runId: jobRunId } : {}),
@@ -285,4 +281,23 @@ export function registerMcpProxyTools(server: McpServer): void {
       };
     },
   );
+}
+
+function modelVisibleMcpCallResult(data: unknown): CallToolResult {
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    Array.isArray(data) ||
+    !Array.isArray((data as Record<string, unknown>).content)
+  ) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: formatMcpCallToolResponse(data),
+        },
+      ],
+    };
+  }
+  return data as CallToolResult;
 }

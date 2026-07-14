@@ -5,10 +5,11 @@ import { hasRuntimeCredentialConfigured } from '@core/cli/runtime-credential-che
 function settingsWithRef(ref: string) {
   return {
     providers: {
-      telegram: { defaultConnection: 'telegram_default' },
+      telegram: { enabled: true },
     },
-    providerConnections: {
+    providerAccounts: {
       telegram_default: {
+        provider: 'telegram',
         runtimeSecretRefs: { bot_token: ref },
       },
     },
@@ -55,6 +56,35 @@ describe('runtime credential readiness', () => {
         providerId: 'telegram',
         envKey: 'TELEGRAM_BOT_TOKEN',
         unresolvedRuntimeSecretProviderIds: new Set(['telegram']),
+      }),
+    ).toBe(false);
+  });
+
+  it('does not use raw env as a fallback when a provider account lacks the ref', () => {
+    expect(
+      hasRuntimeCredentialConfigured({
+        settings: {
+          providerAccounts: {
+            telegram_default: {
+              provider: 'telegram',
+              runtimeSecretRefs: {},
+            },
+          },
+        },
+        env: { TELEGRAM_BOT_TOKEN: 'token' },
+        providerId: 'telegram',
+        envKey: 'TELEGRAM_BOT_TOKEN',
+      }),
+    ).toBe(false);
+  });
+
+  it('does not use raw env as a fallback before provider accounts exist', () => {
+    expect(
+      hasRuntimeCredentialConfigured({
+        settings: { providerAccounts: {} },
+        env: { TELEGRAM_BOT_TOKEN: 'token' },
+        providerId: 'telegram',
+        envKey: 'TELEGRAM_BOT_TOKEN',
       }),
     ).toBe(false);
   });

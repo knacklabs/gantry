@@ -126,15 +126,21 @@ function gantryMcpAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
   asyncTaskToolsEnabled?: boolean;
+  memoryReviewerIsControlApprover?: boolean;
 }): string[] {
   const selectedNames = new Set(
     selectedGantryMcpToolNames(input.configuredTools ?? [], {
       excludeAuthorityTools: input.hideAuthorityTools === true,
       asyncTaskToolsEnabled: input.asyncTaskToolsEnabled === true,
+      memoryReviewerIsControlApprover:
+        input.memoryReviewerIsControlApprover === true,
     }),
   );
   const defaultAllowedNames = [
     ...BASELINE_GANTRY_MCP_TOOL_NAMES,
+    ...(input.memoryReviewerIsControlApprover === true
+      ? ['memory_review_pending', 'memory_review_decision']
+      : []),
     ...(input.asyncTaskToolsEnabled === true
       ? ASYNC_TASK_GANTRY_MCP_TOOL_NAMES
       : []),
@@ -152,6 +158,7 @@ function defaultAllowedTools(input: {
   configuredTools?: readonly string[];
   hideAuthorityTools?: boolean;
   asyncTaskToolsEnabled?: boolean;
+  memoryReviewerIsControlApprover?: boolean;
 }): string[] {
   return [...SAFE_NATIVE_SDK_TOOLS, ...gantryMcpAllowedTools(input)];
 }
@@ -209,12 +216,16 @@ const sdkToolsProvider: AgentCapabilityProvider = {
                 configuredTools: ctx.configuredAllowedTools,
                 hideAuthorityTools: ctx.hideAuthorityTools,
                 asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
+                memoryReviewerIsControlApprover:
+                  ctx.memoryReviewerIsControlApprover,
               }),
             ]
           : defaultAllowedTools({
               configuredTools: ctx.configuredAllowedTools,
               hideAuthorityTools: ctx.hideAuthorityTools,
               asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled,
+              memoryReviewerIsControlApprover:
+                ctx.memoryReviewerIsControlApprover,
             }),
       availableTools: baseAvailableTools,
       disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
@@ -286,6 +297,8 @@ const gantryMcpProvider: AgentCapabilityProvider = {
         selectedGantryMcpToolNames(ctx.configuredAllowedTools ?? [], {
           excludeAuthorityTools: ctx.hideAuthorityTools === true,
           asyncTaskToolsEnabled: ctx.asyncTaskToolsEnabled === true,
+          memoryReviewerIsControlApprover:
+            ctx.memoryReviewerIsControlApprover === true,
         }),
       ),
       ...(ctx.asyncTaskToolsEnabled

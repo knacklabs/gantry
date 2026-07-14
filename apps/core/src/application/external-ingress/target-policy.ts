@@ -33,12 +33,26 @@ export function assertTargetAllowed(
   }
   if (target.kind === 'conversation_message') {
     const conversationId = readOptionalString(target, 'conversationId');
-    if (conversationId && allows(policy.conversationIds, conversationId)) {
+    if (!conversationId || !allows(policy.conversationIds, conversationId)) {
+      throw new ApplicationError(
+        'FORBIDDEN',
+        'Ingress is not allowed to invoke this conversation target',
+      );
+    }
+    const agentId = readOptionalString(target, 'agentId');
+    if (!agentId) {
+      if (policy.allowedAgentIds.size > 0) {
+        throw new ApplicationError(
+          'FORBIDDEN',
+          'Ingress is not allowed to invoke this conversation agent target',
+        );
+      }
       return;
     }
+    if (allows(policy.allowedAgentIds, agentId)) return;
     throw new ApplicationError(
       'FORBIDDEN',
-      'Ingress is not allowed to invoke this conversation target',
+      'Ingress is not allowed to invoke this conversation agent target',
     );
   }
   if (target.kind === 'job_trigger') {
@@ -171,6 +185,7 @@ function validateTargetPolicy(value: unknown): void {
     'allowedTargetKinds',
     'sessionIds',
     'conversationIds',
+    'allowedAgentIds',
     'jobIds',
     'templateIds',
   ]);
@@ -190,6 +205,7 @@ function validateTargetPolicy(value: unknown): void {
   ]);
   validatePolicySet(policy.sessionIds, 'sessionIds');
   validatePolicySet(policy.conversationIds, 'conversationIds');
+  validatePolicySet(policy.allowedAgentIds, 'allowedAgentIds');
   validatePolicySet(policy.jobIds, 'jobIds');
   validatePolicySet(policy.templateIds, 'templateIds');
 }
@@ -308,6 +324,7 @@ function readTargetPolicy(metadata: unknown): {
   targetKinds: Set<string>;
   sessionIds: Set<string>;
   conversationIds: Set<string>;
+  allowedAgentIds: Set<string>;
   jobIds: Set<string>;
   templateIds: Set<string>;
 } {
@@ -325,6 +342,7 @@ function readTargetPolicy(metadata: unknown): {
     targetKinds: readPolicySet(policy.allowedTargetKinds),
     sessionIds: readPolicySet(policy.sessionIds),
     conversationIds: readPolicySet(policy.conversationIds),
+    allowedAgentIds: readPolicySet(policy.allowedAgentIds),
     jobIds: readPolicySet(policy.jobIds),
     templateIds: readPolicySet(policy.templateIds),
   };

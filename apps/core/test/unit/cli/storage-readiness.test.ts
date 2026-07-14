@@ -126,8 +126,16 @@ describe('inspectRuntimeSecretReadiness', () => {
     const runtimeHome = createRuntimeHome();
     const settings = loadRuntimeSettings(runtimeHome);
     settings.providers.slack.enabled = true;
-    settings.providers.slack.defaultConnection = 'slack_default';
-    settings.providerConnections.slack_default = {
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
+      accessPreset: 'full',
+    };
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
       provider: 'slack',
       label: 'Slack Default',
       runtimeSecretRefs: {
@@ -157,11 +165,36 @@ describe('inspectRuntimeSecretReadiness', () => {
       status: 'fail',
       message: 'Runtime secret preflight failed.',
       details: [
-        'providers.slack.bot_token runtime secret ref gantry-secret:SLACK_BOT_TOKEN did not resolve.',
-        'providers.slack.app_token runtime secret ref gantry-secret:SLACK_APP_TOKEN did not resolve.',
+        'provider_accounts.slack_default.provider slack runtime_secret_refs.bot_token runtime secret ref gantry-secret:SLACK_BOT_TOKEN did not resolve.',
+        'provider_accounts.slack_default.provider slack runtime_secret_refs.app_token runtime secret ref gantry-secret:SLACK_APP_TOKEN did not resolve.',
       ],
     });
     expect(assertMigrationsCurrent).toHaveBeenCalled();
     expect(close).toHaveBeenCalled();
+  });
+
+  it('skips disabled provider account runtime secret refs', async () => {
+    const runtimeHome = createRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.providers.slack.enabled = true;
+    settings.providerAccounts.slack_default = {
+      agentId: 'main_agent',
+      provider: 'slack',
+      label: 'Slack Default',
+      status: 'disabled',
+      runtimeSecretRefs: {
+        bot_token: 'gantry-secret:SLACK_BOT_TOKEN',
+      },
+    };
+
+    const { inspectRuntimeSecretReadiness } =
+      await import('@core/adapters/storage/postgres/storage-readiness.js');
+
+    const result = await inspectRuntimeSecretReadiness(runtimeHome, settings);
+
+    expect(result).toEqual({
+      status: 'pass',
+      message: 'No storage-backed runtime secret refs require validation.',
+    });
   });
 });

@@ -1,5 +1,6 @@
-export type ProviderConnectionInput = {
+export type ProviderAccountInput = {
   appId: string;
+  agentId: string;
   providerId: string;
   label: string;
   config?: Record<string, unknown>;
@@ -9,7 +10,7 @@ export type ProviderConnectionInput = {
   metadata?: Record<string, unknown>;
 };
 
-export type ProviderConnectionPatch = {
+export type ProviderAccountPatch = {
   label?: string;
   status?: 'active' | 'inactive' | 'disabled' | 'archived';
   config?: Record<string, unknown>;
@@ -26,15 +27,17 @@ export type ConversationDiscoveryInput = {
   providerMetadata?: Record<string, unknown>;
 };
 
-export type AgentConversationBindingInput = {
-  providerConnectionId?: string;
+export type ConversationInstallInput = {
+  providerAccountId?: string;
   threadId?: string;
   displayName?: string;
-  triggerMode?: 'always' | 'mention' | 'keyword' | 'manual' | 'webhook';
-  triggerPattern?: string | null;
-  requiresTrigger?: boolean;
   memoryScope?: 'user' | 'conversation' | 'agent' | 'app';
   memorySubject?: Record<string, unknown>;
+  routeConfig?: {
+    trigger?: string;
+    requiresTrigger?: boolean;
+    agentConfig?: Record<string, unknown>;
+  };
   workspaceSnapshotId?: string | null;
   permissionPolicyIds?: string[];
   status?: 'active' | 'disabled';

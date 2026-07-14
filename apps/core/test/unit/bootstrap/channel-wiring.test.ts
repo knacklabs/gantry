@@ -16,14 +16,16 @@ const runtimeStoreMock = vi.hoisted(() => ({
   },
   repositories: {
     agents: {},
-    providerConnections: {
-      getProviderConnection: vi.fn(async () => null),
-      saveAgentConversationBinding: vi.fn(async () => undefined),
-      listAgentConversationBindings: vi.fn(async () => []),
-      listAgentConversationBindingsByConversation: vi.fn(async () => []),
+    providerAccounts: {
+      getProviderAccount: vi.fn(async () => null),
+      saveConversationInstall: vi.fn(async () => undefined),
+      listConversationInstalls: vi.fn(async () => []),
+      listConversationInstallsByConversation: vi.fn(async () => []),
+      getConversationInstall: vi.fn(async () => null),
     },
     conversations: {
       getConversation: vi.fn(async () => null),
+      getConversationByExternalRef: vi.fn(async () => null),
       listConversationApprovers: vi.fn(async () => []),
       listParticipantExternalUserIds: vi.fn(async () => []),
     },
@@ -47,6 +49,7 @@ import { ChannelAdapter } from '@core/channels/channel-provider.js';
 import { Provider } from '@core/channels/provider-registry.js';
 import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
+import { hydrateChannelConversationContext } from '@core/app/bootstrap/channel-wiring-conversation-context.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
 import {
   createAgentTodoRenderer,
@@ -57,7 +60,12 @@ import { PERMISSION_APPROVAL_TIMEOUT_MS } from '@core/config/index.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '@core/domain/messages/durable-delivery.js';
-import { RICH_INTERACTION_NATIVE_FALLBACK_TEXT } from '@core/domain/types.js';
+import {
+  RICH_INTERACTION_NATIVE_FALLBACK_TEXT,
+  type PermissionApprovalRequest,
+  type UserQuestionRequest,
+} from '@core/domain/types.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 function makeRuntimeSettings(enabled: {
   telegram: boolean;
@@ -72,6 +80,31 @@ function makeRuntimeSettings(enabled: {
     providers: {
       telegram: { enabled: enabled.telegram },
       slack: { enabled: enabled.slack },
+    },
+    providerAccounts: {
+      ...(enabled.telegram
+        ? {
+            telegram_default: {
+              agentId: 'agent:main_agent',
+              provider: 'telegram',
+              label: 'Telegram',
+              runtimeSecretRefs: { bot_token: 'env:TELEGRAM_BOT_TOKEN' },
+            },
+          }
+        : {}),
+      ...(enabled.slack
+        ? {
+            slack_default: {
+              agentId: 'agent:main_agent',
+              provider: 'slack',
+              label: 'Slack',
+              runtimeSecretRefs: {
+                bot_token: 'env:SLACK_BOT_TOKEN',
+                app_token: 'env:SLACK_APP_TOKEN',
+              },
+            },
+          }
+        : {}),
     },
     memory: {
       enabled: true,
@@ -278,6 +311,38 @@ describe('createChannelWiring', () => {
     );
   });
 
+  it('keeps the resolved provider account on rich interaction fallback sends', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const renderer = createRichInteractionRenderer({
+      findBoundChannel: () => ({}),
+      asRichInteractionSurface: () => undefined,
+      sendMessage,
+      logger: { error: vi.fn() },
+    });
+
+    await renderer(
+      'tg:team',
+      {
+        requestId: 'rich-3',
+        sourceAgentFolder: 'team',
+        targetJid: 'tg:team',
+        providerAccountId: 'telegram_default',
+        descriptor: {
+          id: 'status',
+          title: 'Status',
+          fallbackText: 'Status: blocked',
+        },
+      },
+      { providerAccountId: 'telegram_override' },
+    );
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:team',
+      `${RICH_INTERACTION_NATIVE_FALLBACK_TEXT}\n\nStatus: blocked`,
+      { providerAccountId: 'telegram_override' },
+    );
+  });
+
   it('skips disabled channels in runtime settings', async () => {
     const app = makeApp();
     const info = vi.fn();
@@ -416,6 +481,228 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('derives provider account and agent context for same-channel approval checks', async () => {
+    runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
+      {
+        id: 'conversation:app:D123',
+        appId: 'default',
+        providerAccountId: 'app_default',
+        kind: 'direct',
+        status: 'active',
+      },
+    );
+    runtimeStoreMock.repositories.providerAccounts.getProviderAccount.mockResolvedValue(
+      {
+        id: 'app_default',
+        appId: 'default',
+        providerId: 'app',
+      },
+    );
+    runtimeStoreMock.repositories.providerAccounts.getConversationInstall.mockResolvedValue(
+      { status: 'active' },
+    );
+    runtimeStoreMock.repositories.conversations.listConversationApprovers.mockResolvedValue(
+      [{ externalUserId: 'UADMIN' }],
+    );
+    runtimeStoreMock.repositories.conversations.listParticipantExternalUserIds.mockResolvedValue(
+      ['UADMIN'],
+    );
+    const wiring = createChannelWiring(
+      makeApp({
+        'app:D123': {
+          name: 'Main Agent DM',
+          folder: 'main_agent',
+          agentId: 'agent:main_agent',
+          providerAccountId: 'app_default',
+        },
+      }),
+    );
+
+    await expect(
+      wiring.isControlApproverAllowed({
+        conversationJid: 'app:D123',
+        userId: 'UADMIN',
+        sourceAgentFolder: 'main_agent',
+        decisionPolicy: 'same_channel',
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it('carries approval thread context into conversation install lookup', async () => {
+    runtimeStoreMock.repositories.providerAccounts.getConversationInstall.mockClear();
+    runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
+      {
+        id: 'conversation:app:D123',
+        appId: 'default',
+        providerAccountId: 'app_default',
+        kind: 'direct',
+        status: 'active',
+      },
+    );
+    runtimeStoreMock.repositories.providerAccounts.getProviderAccount.mockResolvedValue(
+      {
+        id: 'app_default',
+        appId: 'default',
+        providerId: 'app',
+      },
+    );
+    runtimeStoreMock.repositories.providerAccounts.getConversationInstall.mockResolvedValue(
+      { status: 'active' },
+    );
+    runtimeStoreMock.repositories.conversations.listConversationApprovers.mockResolvedValue(
+      [{ externalUserId: 'UADMIN' }],
+    );
+    runtimeStoreMock.repositories.conversations.listParticipantExternalUserIds.mockResolvedValue(
+      ['UADMIN'],
+    );
+    const wiring = createChannelWiring(
+      makeApp({
+        [makeAgentThreadQueueKey(
+          'app:D123',
+          'agent:main_agent',
+          'thread-1',
+          'app_default',
+        )]: {
+          name: 'Thread Install',
+          folder: 'main_agent',
+          agentId: 'agent:main_agent',
+          providerAccountId: 'app_default',
+          threadId: 'thread-1',
+        },
+      }),
+    );
+
+    await expect(
+      wiring.isControlApproverAllowed({
+        conversationJid: 'app:D123',
+        threadId: 'thread-1',
+        userId: 'UADMIN',
+        sourceAgentFolder: 'main_agent',
+        decisionPolicy: 'same_channel',
+      }),
+    ).resolves.toBe(true);
+    expect(
+      runtimeStoreMock.repositories.providerAccounts.getConversationInstall,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread:app_default:app:D123:thread-1',
+      }),
+    );
+  });
+
+  it('fails closed when same-channel approval context cannot be resolved', async () => {
+    runtimeStoreMock.repositories.providerAccounts.getConversationInstall.mockClear();
+    const wiring = createChannelWiring(makeApp());
+
+    await expect(
+      wiring.isControlApproverAllowed({
+        conversationJid: 'app:D404',
+        userId: 'UADMIN',
+        sourceAgentFolder: 'main_agent',
+        decisionPolicy: 'same_channel',
+      }),
+    ).resolves.toBe(false);
+    expect(
+      runtimeStoreMock.repositories.providerAccounts.getConversationInstall,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('starts one channel adapter per active Provider Account', async () => {
+    const app = makeApp();
+    const create = vi
+      .fn()
+      .mockImplementation(() => makeChannel({ name: 'slack' }));
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [makeProvider('slack', create)],
+    });
+
+    await wiring.connectEnabledChannels(settings, { providerInbound: true });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls.map(([opts]) => opts.providerAccountId)).toEqual([
+      'slack_alpha',
+      'slack_beta',
+    ]);
+    expect(create.mock.calls.map(([opts]) => opts.agentId)).toEqual([
+      'agent:alpha',
+      'agent:beta',
+    ]);
+  });
+
+  it('starts internal app channel under the canonical control Provider Account', async () => {
+    const create = vi.fn(() =>
+      makeChannel({
+        name: 'app',
+        ownsJid: vi.fn((jid: string) => jid.startsWith('app:')),
+      }),
+    );
+    const wiring = createChannelWiring(makeApp(), {
+      providerIds: [
+        makeProvider('app', create, {
+          internal: true,
+          jidPrefix: 'app:',
+          isEnabled: () => true,
+        }),
+      ],
+    });
+    const settings = makeRuntimeSettings({ telegram: false, slack: false });
+    settings.providerAccounts = {};
+
+    await wiring.connectEnabledChannels(settings, { providerInbound: true });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerAccountId: 'control:default',
+        agentId: 'agent:main_agent',
+      }),
+    );
+    expect(wiring.hasConnectedChannels()).toBe(true);
+    expect(
+      wiring.hasChannel('app:conversation', {
+        providerAccountId: 'control:default',
+      }),
+    ).toBe(true);
+  });
+
+  it('skips disabled Provider Accounts', async () => {
+    const app = makeApp();
+    const create = vi.fn(() => makeChannel({ name: 'slack' }));
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        status: 'disabled',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [makeProvider('slack', create)],
+      logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+    });
+
+    await wiring.connectEnabledChannels(settings);
+
+    expect(create).not.toHaveBeenCalled();
+    expect(wiring.hasConnectedChannels()).toBe(false);
+  });
+
   it('uses a singleton provider inbound lease in fleet mode', async () => {
     runtimeLeaseMock.tryAcquire.mockClear();
     const app = makeApp();
@@ -439,7 +726,7 @@ describe('createChannelWiring', () => {
     await wiring.connectEnabledChannels(settings, { providerInbound: true });
 
     expect(runtimeLeaseMock.tryAcquire).toHaveBeenCalledWith(
-      'runtime:provider-inbound:telegram:default',
+      'runtime:provider-inbound:telegram:telegram_default',
     );
     expect(channel.connect).toHaveBeenCalledWith({
       inbound: true,
@@ -506,7 +793,11 @@ describe('createChannelWiring', () => {
 
   it('drops disallowed inbound sender before persistence', async () => {
     const app = makeApp({
-      'tg:123': { name: 'Main', folder: 'main' },
+      'tg:123': {
+        name: 'Main',
+        folder: 'main',
+        providerAccountId: 'telegram_default',
+      },
     });
     const storeMessage = vi.fn(async () => {});
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
@@ -545,7 +836,11 @@ describe('createChannelWiring', () => {
 
   it('stores normal inbound messages', async () => {
     const app = makeApp({
-      'tg:123': { name: 'Main', folder: 'main' },
+      'tg:123': {
+        name: 'Main',
+        folder: 'main',
+        providerAccountId: 'telegram_default',
+      },
     });
     const storeMessage = vi.fn(async () => {});
     let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
@@ -576,7 +871,11 @@ describe('createChannelWiring', () => {
 
     await onMessage?.('tg:123', msg);
 
-    expect(storeMessage).toHaveBeenCalledWith(msg);
+    expect(storeMessage).toHaveBeenCalledWith({
+      ...msg,
+      agentId: 'agent:main_agent',
+      providerAccountId: 'telegram_default',
+    });
   });
 
   it('stores inbound messages with durable live admission when supported', async () => {
@@ -584,6 +883,7 @@ describe('createChannelWiring', () => {
       'tg:123': {
         name: 'Main',
         folder: 'main_agent',
+        providerAccountId: 'telegram_default',
         trigger: '@Main',
         added_at: '2026-01-01T00:00:00.000Z',
         requiresTrigger: false,
@@ -625,15 +925,919 @@ describe('createChannelWiring', () => {
     await onMessage?.('tg:123', msg);
 
     expect(storeMessage).not.toHaveBeenCalled();
-    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(msg, {
-      appId: 'app-one',
-      agentId: 'main_agent',
-      triggerDecision: {
-        source: 'channel_persistence',
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      {
+        ...msg,
+        agentId: 'agent:main_agent',
+        providerAccountId: 'telegram_default',
+      },
+      {
+        appId: 'app-one',
+        agentId: 'agent:main_agent',
+        providerAccountId: 'telegram_default',
+        triggerDecision: {
+          source: 'channel_persistence',
+          requiresTrigger: false,
+          conversationKind: 'channel',
+        },
+      },
+    );
+  });
+
+  it('fans one inbound provider message out to each selected agent route', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey('tg:123', 'agent:alpha')]: {
+        name: 'Alpha',
+        folder: 'alpha',
+        providerAccountId: 'telegram_default',
+        trigger: '@Alpha',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey('tg:123', 'agent:beta')]: {
+        name: 'Beta',
+        folder: 'beta',
+        providerAccountId: 'telegram_default',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: true,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
+
+    const wiring = createChannelWiring(app, {
+      appId: 'app-one' as never,
+      providerIds: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
+      opsRepository: {
+        storeMessage: vi.fn(),
+        storeMessageWithLiveAdmission,
+      } as any,
+      shouldDropMessage: vi.fn(() => false),
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const msg = {
+      id: 'm-live-admission',
+      chat_jid: 'tg:123',
+      sender: 'user-1',
+      sender_name: 'User',
+      content: 'normal message',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+
+    await onMessage?.('tg:123', msg);
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledTimes(2);
+    expect(
+      storeMessageWithLiveAdmission.mock.calls.map((call) => call[1]),
+    ).toEqual([
+      expect.objectContaining({ agentId: 'agent:alpha' }),
+      expect.objectContaining({ agentId: 'agent:beta' }),
+    ]);
+  });
+
+  it('routes inbound provider messages only to the matching Provider Account', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:alpha')]: {
+        name: 'Alpha',
+        folder: 'alpha',
+        providerAccountId: 'slack_alpha',
+        agentId: 'agent:alpha',
+        trigger: '@Alpha',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:beta')]: {
+        name: 'Beta',
+        folder: 'beta',
+        providerAccountId: 'slack_beta',
+        agentId: 'agent:beta',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
         requiresTrigger: false,
         conversationKind: 'channel',
       },
     });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      appId: 'app-one' as never,
+      providerIds: [
+        makeProvider('slack', (opts: any) => {
+          if (opts.providerAccountId === 'slack_alpha')
+            onMessage = opts.onMessage;
+          return makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+          });
+        }),
+      ],
+      opsRepository: {
+        storeMessage: vi.fn(),
+        storeMessageWithLiveAdmission,
+      } as any,
+      shouldDropMessage: vi.fn(() => false),
+    });
+
+    await wiring.connectEnabledChannels(settings);
+    await onMessage?.('sl:C123', {
+      id: 'm-account',
+      chat_jid: 'sl:C123',
+      sender: 'U1',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledOnce();
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: 'slack_alpha' }),
+      expect.objectContaining({
+        agentId: 'agent:alpha',
+        providerAccountId: 'slack_alpha',
+      }),
+    );
+  });
+
+  it('does not match key-scoped routes from a different Provider Account when the route payload is unscoped', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:beta',
+        undefined,
+        'slack_beta',
+      )]: {
+        name: 'Beta',
+        folder: 'beta',
+        agentId: 'agent:beta',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+      } as any,
+      ops: () =>
+        ({
+          storeMessage: vi.fn(),
+          storeChatMetadata: vi.fn(),
+          storeMessageWithLiveAdmission,
+        }) as any,
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+    });
+
+    await handlers.onMessage('sl:C123', {
+      id: 'm-account-key-mismatch',
+      chat_jid: 'sl:C123',
+      providerAccountId: 'slack_alpha',
+      sender: 'U1',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+  });
+
+  it('does not match stale unscoped routes when inbound message has a Provider Account', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey('sl:C123', 'agent:beta')]: {
+        name: 'Beta',
+        folder: 'beta',
+        agentId: 'agent:beta',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+      } as any,
+      ops: () =>
+        ({
+          storeMessage: vi.fn(),
+          storeChatMetadata: vi.fn(),
+          storeMessageWithLiveAdmission,
+        }) as any,
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+    });
+
+    await handlers.onMessage('sl:C123', {
+      id: 'm-account-unscoped-route',
+      chat_jid: 'sl:C123',
+      providerAccountId: 'slack_alpha',
+      sender: 'U1',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a whole-conversation route for the message Provider Account before thread route precedence', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:alpha',
+        undefined,
+        'slack_alpha',
+      )]: {
+        name: 'Alpha',
+        folder: 'alpha',
+        providerAccountId: 'slack_alpha',
+        agentId: 'agent:alpha',
+        trigger: '@Alpha',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey('sl:C123', 'agent:beta', 'T1', 'slack_beta')]: {
+        name: 'Beta Thread',
+        folder: 'beta',
+        providerAccountId: 'slack_beta',
+        agentId: 'agent:beta',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+      } as any,
+      ops: () =>
+        ({
+          storeMessage: vi.fn(),
+          storeChatMetadata: vi.fn(),
+          storeMessageWithLiveAdmission,
+        }) as any,
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+    });
+
+    await handlers.onMessage('sl:C123', {
+      id: 'm-account-thread-fallback',
+      chat_jid: 'sl:C123',
+      providerAccountId: 'slack_alpha',
+      thread_id: 'T1',
+      sender: 'U1',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledOnce();
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        agentId: 'agent:alpha',
+        providerAccountId: 'slack_alpha',
+      }),
+    );
+  });
+
+  it('passes Provider Account id into channel context hydration lookup', async () => {
+    const hydrateConversationContext = vi.fn(async () => ({
+      providerId: 'slack',
+      attempted: true,
+      skipped: false,
+      messages: [],
+    }));
+    const findBoundChannel = vi.fn(() => ({ hydrateConversationContext }));
+
+    await hydrateChannelConversationContext(
+      {
+        conversationJid: 'sl:C123',
+        providerAccountId: 'slack_beta',
+        threadId: 'T1',
+        limit: 10,
+      },
+      findBoundChannel,
+      () => 'slack',
+    );
+
+    expect(findBoundChannel).toHaveBeenCalledWith('sl:C123', 'slack_beta');
+  });
+
+  it('routes IPC approval prompts through the run route Provider Account', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:alpha',
+        undefined,
+        'slack_alpha',
+      )]: {
+        name: 'Alpha',
+        folder: 'alpha',
+        providerAccountId: 'slack_alpha',
+        agentId: 'agent:alpha',
+        trigger: '@Alpha',
+        added_at: '2026-01-01T00:00:00.000Z',
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:beta',
+        undefined,
+        'slack_beta',
+      )]: {
+        name: 'Beta',
+        folder: 'beta',
+        providerAccountId: 'slack_beta',
+        agentId: 'agent:beta',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
+        conversationKind: 'channel',
+      },
+    });
+    const alphaApproval = vi.fn(async () => ({ approved: true }));
+    const betaApproval = vi.fn(async () => ({ approved: false }));
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider('slack', (opts: any) =>
+          makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+            requestPermissionApproval:
+              opts.providerAccountId === 'slack_alpha'
+                ? alphaApproval
+                : betaApproval,
+          }),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(settings);
+
+    await expect(
+      wiring.requestPermissionApproval({
+        requestId: 'req-alpha',
+        sourceAgentFolder: 'alpha',
+        targetJid: 'sl:C123',
+        toolName: 'danger-tool',
+      }),
+    ).resolves.toEqual({ approved: true });
+    expect(alphaApproval).toHaveBeenCalledOnce();
+    expect(betaApproval).not.toHaveBeenCalled();
+  });
+
+  it('routes live UX methods through the requested Provider Account', async () => {
+    const app = makeApp();
+    const alpha = {
+      resetStreaming: vi.fn(),
+      setTyping: vi.fn(async () => undefined),
+      addReaction: vi.fn(async () => undefined),
+      renderAgentTodo: vi.fn(async () => true),
+      renderRichInteraction: vi.fn(async () => true),
+    };
+    const beta = {
+      resetStreaming: vi.fn(),
+      setTyping: vi.fn(async () => undefined),
+      addReaction: vi.fn(async () => undefined),
+      renderAgentTodo: vi.fn(async () => true),
+      renderRichInteraction: vi.fn(async () => true),
+    };
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider('slack', (opts: any) =>
+          makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+            ...(opts.providerAccountId === 'slack_alpha' ? alpha : beta),
+          }),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(settings);
+
+    const account = { providerAccountId: 'slack_beta' };
+    wiring.resetStreaming('sl:C123', account);
+    await wiring.setTyping('sl:C123', true, account);
+    await wiring.addReaction('sl:C123', 'm-1', 'eyes', account);
+    await wiring.renderAgentTodo(
+      'sl:C123',
+      { summary: null, items: [{ id: '1', title: 'Work', status: 'pending' }] },
+      account,
+    );
+    await wiring.renderRichInteraction(
+      'sl:C123',
+      {
+        requestId: 'rich-beta',
+        sourceAgentFolder: 'beta',
+        providerAccountId: 'slack_beta',
+        targetJid: 'sl:C123',
+        descriptor: {
+          id: 'status',
+          title: 'Status',
+          fallbackText: 'ready',
+          rich: { kind: 'status', fallbackText: 'ready', payload: {} },
+        },
+      },
+      account,
+    );
+
+    expect(alpha.setTyping).not.toHaveBeenCalled();
+    expect(alpha.resetStreaming).not.toHaveBeenCalled();
+    expect(alpha.addReaction).not.toHaveBeenCalled();
+    expect(alpha.renderAgentTodo).not.toHaveBeenCalled();
+    expect(alpha.renderRichInteraction).not.toHaveBeenCalled();
+    expect(beta.resetStreaming).toHaveBeenCalledWith('sl:C123');
+    expect(beta.setTyping).toHaveBeenCalledWith('sl:C123', true);
+    expect(beta.addReaction).toHaveBeenCalledWith('sl:C123', 'm-1', 'eyes');
+    expect(beta.renderAgentTodo).toHaveBeenCalledOnce();
+    expect(beta.renderRichInteraction).toHaveBeenCalledOnce();
+  });
+
+  it('routes IPC user questions through the run route Provider Account', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:alpha',
+        undefined,
+        'slack_alpha',
+      )]: {
+        name: 'Alpha',
+        folder: 'alpha',
+        providerAccountId: 'slack_alpha',
+        agentId: 'agent:alpha',
+        trigger: '@Alpha',
+        added_at: '2026-01-01T00:00:00.000Z',
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey(
+        'sl:C123',
+        'agent:beta',
+        undefined,
+        'slack_beta',
+      )]: {
+        name: 'Beta',
+        folder: 'beta',
+        providerAccountId: 'slack_beta',
+        agentId: 'agent:beta',
+        trigger: '@Beta',
+        added_at: '2026-01-01T00:00:00.000Z',
+        conversationKind: 'channel',
+      },
+    });
+    const alphaQuestion = vi.fn(async () => ({
+      requestId: 'q-alpha',
+      answers: { Choice: 'A' },
+    }));
+    const betaQuestion = vi.fn(async () => ({
+      requestId: 'q-alpha',
+      answers: { Choice: 'B' },
+    }));
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider('slack', (opts: any) =>
+          makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+            requestUserAnswer:
+              opts.providerAccountId === 'slack_alpha'
+                ? alphaQuestion
+                : betaQuestion,
+          }),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(settings);
+
+    await expect(
+      wiring.requestUserAnswer({
+        requestId: 'q-alpha',
+        sourceAgentFolder: 'alpha',
+        targetJid: 'sl:C123',
+        questions: [],
+      }),
+    ).resolves.toEqual({ requestId: 'q-alpha', answers: { Choice: 'A' } });
+    expect(alphaQuestion).toHaveBeenCalledOnce();
+    expect(betaQuestion).not.toHaveBeenCalled();
+  });
+
+  it('routes permission approvals through explicit Provider Account request context', async () => {
+    const app = makeApp({});
+    const alphaApproval = vi.fn(async () => ({ approved: true }));
+    const betaApproval = vi.fn(async () => ({ approved: false }));
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider('slack', (opts: any) =>
+          makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+            requestPermissionApproval:
+              opts.providerAccountId === 'slack_alpha'
+                ? alphaApproval
+                : betaApproval,
+          }),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(settings);
+
+    await expect(
+      wiring.requestPermissionApproval({
+        requestId: 'req-alpha-explicit',
+        sourceAgentFolder: 'alpha',
+        providerAccountId: 'slack_alpha',
+        targetJid: 'sl:C123',
+        toolName: 'danger-tool',
+      }),
+    ).resolves.toEqual({ approved: true });
+    expect(alphaApproval).toHaveBeenCalledOnce();
+    expect(betaApproval).not.toHaveBeenCalled();
+  });
+
+  it('routes shared-inbound prompts through the callback-capable Provider Account channel', async () => {
+    const app = makeApp({});
+    const callbackApproval = vi.fn(
+      async (_jid: string, request: PermissionApprovalRequest) => ({
+        approved: request.providerAccountId === 'slack_beta',
+      }),
+    );
+    const callbackQuestion = vi.fn(
+      async (_jid: string, request: UserQuestionRequest) => ({
+        requestId: request.requestId,
+        answers: { Account: request.providerAccountId ?? 'missing' },
+      }),
+    );
+    const outboundOnlyApproval = vi.fn(async () => ({ approved: false }));
+    const outboundOnlyQuestion = vi.fn(async () => ({
+      requestId: 'unused',
+      answers: {},
+    }));
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: { app_token: 'same-app', bot_token: 'same-bot' },
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: { bot_token: 'same-bot', app_token: 'same-app' },
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider('slack', (opts: any) =>
+          makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+            requestPermissionApproval:
+              opts.providerAccountId === 'slack_alpha'
+                ? callbackApproval
+                : outboundOnlyApproval,
+            requestUserAnswer:
+              opts.providerAccountId === 'slack_alpha'
+                ? callbackQuestion
+                : outboundOnlyQuestion,
+          }),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(settings);
+
+    await expect(
+      wiring.requestPermissionApproval({
+        requestId: 'req-beta-shared',
+        sourceAgentFolder: 'beta',
+        providerAccountId: 'slack_beta',
+        targetJid: 'sl:C123',
+        toolName: 'danger-tool',
+      }),
+    ).resolves.toEqual({ approved: true });
+    await expect(
+      wiring.requestUserAnswer({
+        requestId: 'q-beta-shared',
+        sourceAgentFolder: 'beta',
+        providerAccountId: 'slack_beta',
+        targetJid: 'sl:C123',
+        questions: [],
+      }),
+    ).resolves.toEqual({
+      requestId: 'q-beta-shared',
+      answers: { Account: 'slack_beta' },
+    });
+    expect(callbackApproval).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ providerAccountId: 'slack_beta' }),
+    );
+    expect(callbackQuestion).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({ providerAccountId: 'slack_beta' }),
+    );
+    expect(outboundOnlyApproval).not.toHaveBeenCalled();
+    expect(outboundOnlyQuestion).not.toHaveBeenCalled();
+  });
+
+  it('does not fan top-level messages into thread-only agent routes', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey('tg:123', 'agent:topic', 'topic-1')]: {
+        name: 'Topic',
+        folder: 'topic',
+        trigger: '@Topic',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessage = vi.fn(async () => {});
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
+
+    const wiring = createChannelWiring(app, {
+      appId: 'app-one' as never,
+      providerIds: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
+      opsRepository: {
+        storeMessage,
+        storeMessageWithLiveAdmission,
+      } as any,
+      shouldDropMessage: vi.fn(() => false),
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await onMessage?.('tg:123', {
+      id: 'm-top-level',
+      chat_jid: 'tg:123',
+      sender: 'user-1',
+      sender_name: 'User',
+      content: 'normal message',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(storeMessage).not.toHaveBeenCalled();
+    expect(storeMessageWithLiveAdmission).not.toHaveBeenCalled();
+  });
+
+  it('fans threaded provider messages only to exact thread routes', async () => {
+    const app = makeApp({
+      [makeAgentThreadQueueKey('tg:123', 'agent:whole')]: {
+        name: 'Whole',
+        folder: 'whole',
+        providerAccountId: 'telegram_default',
+        trigger: '@Whole',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey('tg:123', 'agent:topic', 'topic-1')]: {
+        name: 'Topic',
+        folder: 'topic',
+        providerAccountId: 'telegram_default',
+        trigger: '@Topic',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: true,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
+
+    const wiring = createChannelWiring(app, {
+      appId: 'app-one' as never,
+      providerIds: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
+      opsRepository: {
+        storeMessage: vi.fn(),
+        storeMessageWithLiveAdmission,
+      } as any,
+      shouldDropMessage: vi.fn(() => false),
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await onMessage?.('tg:123', {
+      id: 'm-threaded',
+      chat_jid: 'tg:123',
+      sender: 'user-1',
+      sender_name: 'User',
+      content: 'normal message',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      thread_id: 'topic-1',
+    });
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledTimes(1);
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        agentId: 'agent:topic',
+        triggerDecision: expect.objectContaining({ requiresTrigger: true }),
+      }),
+    );
+  });
+
+  it('deduplicates legacy bare and agent-qualified routes for the same agent', async () => {
+    const app = makeApp({
+      'tg:123': {
+        name: 'Legacy Alpha',
+        folder: 'alpha',
+        providerAccountId: 'telegram_default',
+        trigger: '@Legacy',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      },
+      [makeAgentThreadQueueKey('tg:123', 'agent:alpha')]: {
+        name: 'Alpha',
+        folder: 'alpha',
+        providerAccountId: 'telegram_default',
+        trigger: '@Alpha',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: true,
+        conversationKind: 'channel',
+      },
+    });
+    const storeMessageWithLiveAdmission = vi.fn(async () => undefined);
+    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
+
+    const wiring = createChannelWiring(app, {
+      appId: 'app-one' as never,
+      providerIds: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
+      opsRepository: {
+        storeMessage: vi.fn(),
+        storeMessageWithLiveAdmission,
+      } as any,
+      shouldDropMessage: vi.fn(() => false),
+    });
+
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await onMessage?.('tg:123', {
+      id: 'm-live-admission',
+      chat_jid: 'tg:123',
+      sender: 'user-1',
+      sender_name: 'User',
+      content: 'normal message',
+      timestamp: '2026-01-01T00:00:00.000Z',
+    });
+
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledTimes(1);
+    expect(storeMessageWithLiveAdmission).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        agentId: 'agent:alpha',
+        triggerDecision: expect.objectContaining({ requiresTrigger: true }),
+      }),
+    );
   });
 
   it('waits for queue capacity when message persistence queue is full', async () => {
@@ -725,6 +1929,90 @@ describe('createChannelWiring', () => {
     expect(outbound.sendMessage).toHaveBeenCalledWith('tg:123', '*done*');
   });
 
+  it('does not fall back across Provider Accounts for outbound delivery', async () => {
+    const app = makeApp();
+    const alpha = makeChannel({
+      name: 'slack',
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => undefined),
+    });
+    const beta = makeChannel({
+      name: 'slack',
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => undefined),
+    });
+    const create = vi.fn().mockReturnValueOnce(alpha).mockReturnValueOnce(beta);
+    const settings = makeRuntimeSettings({ telegram: false, slack: true });
+    settings.providerAccounts = {
+      slack_alpha: {
+        agentId: 'agent:alpha',
+        provider: 'slack',
+        label: 'Alpha Slack',
+        runtimeSecretRefs: {},
+      },
+      slack_beta: {
+        agentId: 'agent:beta',
+        provider: 'slack',
+        label: 'Beta Slack',
+        runtimeSecretRefs: {},
+      },
+    };
+    const wiring = createChannelWiring(app, {
+      providerIds: [makeProvider('slack', create)],
+    });
+    await wiring.connectEnabledChannels(settings);
+
+    await wiring.sendMessage('sl:C123', 'done', {
+      durability: 'best_effort',
+      messageOptions: { providerAccountId: 'slack_beta' },
+    });
+    await wiring.sendMessage('sl:C123', 'ambiguous', {
+      durability: 'best_effort',
+    });
+
+    expect(alpha.sendMessage).not.toHaveBeenCalled();
+    expect(beta.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('passes the resolved Provider Account into durable outbound attempts', async () => {
+    const app = makeApp();
+    const outbound = makeChannel({
+      name: 'slack',
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => undefined),
+    });
+    const durableFactory = vi.fn(async () => ({
+      settleSent: vi.fn(async () => undefined),
+      settleFailed: vi.fn(async () => undefined),
+      settlePartiallyDelivered: vi.fn(async () => undefined),
+    }));
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+    });
+    wiring.setDurableOutboundAttemptFactory(durableFactory);
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await wiring.sendMessage('sl:C123', 'done', {
+      durability: 'required',
+      messageOptions: { threadId: '171.123' },
+    });
+
+    expect(durableFactory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'sl:C123',
+        threadId: '171.123',
+        providerAccountId: 'slack_default',
+      }),
+    );
+  });
+
   it('records outbound final messages as pending and then sent', async () => {
     const app = makeApp();
     const storeMessage = vi.fn(async () => {});
@@ -748,7 +2036,10 @@ describe('createChannelWiring', () => {
 
     await wiring.sendMessage('sl:C123', 'done', {
       durability: 'best_effort',
-      messageOptions: { threadId: '1700.1' },
+      messageOptions: {
+        threadId: '1700.1',
+        providerAccountId: 'slack_default',
+      },
     });
 
     expect(storeMessage).toHaveBeenCalledTimes(2);
@@ -758,6 +2049,7 @@ describe('createChannelWiring', () => {
         chat_jid: 'sl:C123',
         content: 'done',
         thread_id: '1700.1',
+        providerAccountId: 'slack_default',
         delivery_status: 'pending',
         is_bot_message: true,
       }),
@@ -766,9 +2058,52 @@ describe('createChannelWiring', () => {
       2,
       expect.objectContaining({
         chat_jid: 'sl:C123',
+        providerAccountId: 'slack_default',
         external_message_id: '171.123',
         delivery_status: 'sent',
         delivered_at: expect.any(String),
+      }),
+    );
+  });
+
+  it('records outbound messages with the resolved Provider Account when omitted by caller', async () => {
+    const storeMessage = vi.fn(async () => {});
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => ({ externalMessageId: '171.123' })),
+    });
+    const wiring = createChannelWiring(makeApp(), {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      opsRepository: { storeMessage } as any,
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await wiring.sendMessage('sl:C123', 'done', {
+      durability: 'best_effort',
+    });
+
+    expect(storeMessage).toHaveBeenCalledTimes(2);
+    expect(storeMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        providerAccountId: 'slack_default',
+        delivery_status: 'pending',
+      }),
+    );
+    expect(storeMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        providerAccountId: 'slack_default',
+        delivery_status: 'sent',
       }),
     );
   });
@@ -808,8 +2143,8 @@ describe('createChannelWiring', () => {
         actor: 'agent',
         responseMode: 'none',
         payload: expect.objectContaining({
-          conversationId: 'conversation:sl:C123',
-          threadId: 'thread:sl:C123:1700.1',
+          conversationId: 'conversation:slack_default:sl:C123',
+          threadId: 'thread:slack_default:sl:C123:1700.1',
           direction: 'outbound',
           deliveryStatus: 'sent',
           externalMessageId: '171.123',
@@ -1675,16 +3010,20 @@ describe('createChannelWiring', () => {
       {
         id: 'conversation:app:D123',
         appId: 'default',
-        providerConnectionId: 'app_default',
+        providerAccountId: 'app_default',
         kind: 'direct',
+        status: 'active',
       },
     );
-    runtimeStoreMock.repositories.providerConnections.getProviderConnection.mockResolvedValue(
+    runtimeStoreMock.repositories.providerAccounts.getProviderAccount.mockResolvedValue(
       {
         id: 'app_default',
         appId: 'default',
         providerId: 'app',
       },
+    );
+    runtimeStoreMock.repositories.providerAccounts.getConversationInstall.mockResolvedValue(
+      { status: 'active' },
     );
     runtimeStoreMock.repositories.conversations.listConversationApprovers.mockResolvedValue(
       [{ externalUserId: 'UADMIN' }],
@@ -1711,6 +3050,8 @@ describe('createChannelWiring', () => {
     await expect(
       isControlApproverAllowed?.({
         providerId: 'app',
+        providerAccountId: 'app_default',
+        agentId: 'agent:main_agent',
         conversationJid: 'app:D123',
         userId: 'UADMIN',
         sourceAgentFolder: 'app:D123',
@@ -1719,6 +3060,8 @@ describe('createChannelWiring', () => {
     await expect(
       isControlApproverAllowed?.({
         providerId: 'app',
+        providerAccountId: 'app_default',
+        agentId: 'agent:main_agent',
         conversationJid: 'app:D123',
         userId: 'U1',
         sourceAgentFolder: 'app:D123',
@@ -2054,6 +3397,50 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
 
     expect(app.registerGroup).not.toHaveBeenCalled();
     expect(storeMessage).not.toHaveBeenCalled();
+  });
+
+  it('passes provider account context through chat metadata persistence', async () => {
+    const storeChatMetadata = vi.fn(async () => undefined);
+    const handlers = createChannelPersistenceHandlers({
+      app: makeApp({}),
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage: vi.fn() } as any,
+      },
+      ops: () => ({ storeMessage: vi.fn(), storeChatMetadata }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+    });
+
+    await handlers.onChatMetadata(
+      'sl:C123',
+      '2026-05-01T00:00:00.000Z',
+      'sales',
+      'slack',
+      true,
+      { providerAccountId: 'slack_alpha' },
+    );
+
+    expect(storeChatMetadata).toHaveBeenCalledWith(
+      'sl:C123',
+      '2026-05-01T00:00:00.000Z',
+      'sales',
+      'slack',
+      true,
+      { providerAccountId: 'slack_alpha' },
+    );
   });
 
   it('persists configured direct conversations through the normal route policy', async () => {

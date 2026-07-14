@@ -72,18 +72,18 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
     input: Parameters<ProviderConversationDiscoveryPort['discover']>[0],
   ) {
     const providerId = normalizeProviderId(
-      String(input.providerConnection.providerId),
+      String(input.providerAccount.providerId),
     );
     if (!providerId) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `Unknown provider: ${input.providerConnection.providerId}`,
+        `Unknown provider: ${input.providerAccount.providerId}`,
       );
     }
     if (providerId === 'app') return [];
     if (providerId === 'telegram') {
       const token = await this.resolveSecret(
-        input.providerConnection.runtimeSecretRefs,
+        input.providerAccount.runtimeSecretRefs,
         ['bot_token'],
       );
       const result = await listTelegramRecentChats({
@@ -118,7 +118,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
     }
     if (providerId === 'slack') {
       const botToken = await this.resolveSecret(
-        input.providerConnection.runtimeSecretRefs,
+        input.providerAccount.runtimeSecretRefs,
         ['bot_token'],
       );
       const result = await listSlackRecentChats({
@@ -152,15 +152,15 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
       const result = await this.teamsDiscoveryClient.listChannels({
         credentials: {
           clientId: await this.resolveExactSecret(
-            input.providerConnection.runtimeSecretRefs,
+            input.providerAccount.runtimeSecretRefs,
             'client_id',
           ),
           clientSecret: await this.resolveExactSecret(
-            input.providerConnection.runtimeSecretRefs,
+            input.providerAccount.runtimeSecretRefs,
             'client_secret',
           ),
           tenantId: await this.resolveExactSecret(
-            input.providerConnection.runtimeSecretRefs,
+            input.providerAccount.runtimeSecretRefs,
             'tenant_id',
           ),
         },
@@ -196,11 +196,11 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
       const result = await this.discordDiscoveryClient.listChannels({
         credentials: {
           botToken: await this.resolveExactSecret(
-            input.providerConnection.runtimeSecretRefs,
+            input.providerAccount.runtimeSecretRefs,
             'bot_token',
           ),
           applicationId: await this.resolveExactSecret(
-            input.providerConnection.runtimeSecretRefs,
+            input.providerAccount.runtimeSecretRefs,
             'application_id',
           ),
         },
@@ -272,7 +272,7 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
     if (value) return value;
     throw new ApplicationError(
       'INVALID_REQUEST',
-      `provider connection references ${key}, but it is not configured`,
+      `provider account references ${key}, but it is not configured`,
     );
   }
 }

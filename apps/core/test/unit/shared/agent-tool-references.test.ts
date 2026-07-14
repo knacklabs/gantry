@@ -70,7 +70,7 @@ describe('agent tool references', () => {
     });
     expect(validateReadableAgentToolRule('Task')).toEqual({
       ok: false,
-      reason: expect.stringContaining('AgentDelegation'),
+      reason: providerNativeToolRejectionReason('Task'),
     });
     expect(validateReadableAgentToolRule('TodoWrite')).toEqual({
       ok: false,

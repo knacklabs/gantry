@@ -1,6 +1,6 @@
 import type { GantryExternalNotificationAdaptiveCardInput } from './types.js';
 import { signExternalCardAction } from './signing.js';
-import { asRecord, readOptionalString } from '../../shared/helpers.js';
+import { readOptionalString } from '../../shared/helpers.js';
 
 export function buildExternalNotificationAdaptiveCard(
   input: GantryExternalNotificationAdaptiveCardInput,

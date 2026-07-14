@@ -167,6 +167,18 @@ export interface MemoryReviewRecord extends NormalizedMemorySubject {
   decidedAt?: string | null;
 }
 
+export interface BlockedDreamDecision extends NormalizedMemorySubject {
+  id: string;
+  runId: string;
+  itemId?: string | null;
+  candidateId?: string | null;
+  rationale: string;
+  kind?: string | null;
+  key?: string | null;
+  value?: string | null;
+  createdAt: string;
+}
+
 export interface MemoryReviewPage {
   reviews: MemoryReviewRecord[];
   reviewPage?: MemoryReviewDisplayPage;

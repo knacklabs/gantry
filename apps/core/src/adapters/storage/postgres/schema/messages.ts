@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { appsPostgres } from './apps.js';
-import { providerConnectionsPostgres } from './providers.js';
+import { providerAccountsPostgres } from './providers.js';
 import {
   conversationsPostgres,
   conversationThreadsPostgres,
@@ -25,9 +25,9 @@ export const messagesPostgres = pgTable(
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     providerId: text('provider').notNull(),
-    providerConnectionId: text('provider_connection_id')
+    providerAccountId: text('provider_account_id')
       .notNull()
-      .references(() => providerConnectionsPostgres.id, {
+      .references(() => providerAccountsPostgres.id, {
         onDelete: 'cascade',
       }),
     conversationId: text('conversation_id')
@@ -73,9 +73,9 @@ export const messagesPostgres = pgTable(
     redeliveryUnique: uniqueIndex('idx_messages_external_redelivery_unique')
       .on(
         table.providerId,
-        table.providerConnectionId,
+        table.providerAccountId,
         table.conversationId,
-        table.threadId,
+        sql`COALESCE(${table.threadId}, '')`,
         table.externalMessageId,
       )
       .where(sql`${table.externalMessageId} IS NOT NULL`),

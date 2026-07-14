@@ -5,15 +5,21 @@ import {
   resolveExecutionContext,
   resolveExecutionMemoryContext,
 } from '@core/jobs/execution-context.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 import type { Job, ConversationRoute } from '@core/domain/types.js';
 
-function group(folder: string, name: string): ConversationRoute {
+function group(
+  folder: string,
+  name: string,
+  providerAccountId?: string,
+): ConversationRoute {
   return {
     folder,
     name,
     trigger: '',
     requiresTrigger: false,
     conversationKind: 'channel',
+    providerAccountId,
   } as ConversationRoute;
 }
 
@@ -98,6 +104,158 @@ describe('resolveExecutionContext', () => {
       threadId: 'topic-2771',
       stopAliasJids: ['chat-a'],
     });
+  });
+
+  it('resolves a provider conversation through the unique agent-qualified route', () => {
+    const routeKey = makeAgentThreadQueueKey('sl:C123', 'agent:main_agent');
+    const groups = {
+      [routeKey]: group('main_agent', 'Main Agent'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'main_agent',
+        execution_context: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          workspaceKey: 'main_agent',
+        },
+        notification_routes: [
+          { conversationJid: 'sl:C123', threadId: null, label: 'primary' },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved).toMatchObject({
+      group: groups[routeKey],
+      executionJid: 'sl:C123',
+      threadId: null,
+      stopAliasJids: ['sl:C123'],
+    });
+  });
+
+  it('uses execution_context agentId to select the provider conversation route', () => {
+    const alphaRouteKey = makeAgentThreadQueueKey('sl:C123', 'agent:alpha');
+    const betaRouteKey = makeAgentThreadQueueKey('sl:C123', 'agent:beta');
+    const groups = {
+      [alphaRouteKey]: group('alpha', 'Alpha'),
+      [betaRouteKey]: group('beta', 'Beta'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'alpha',
+        execution_context: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          workspaceKey: 'alpha',
+          agentId: 'agent:beta',
+        } as Job['execution_context'],
+        notification_routes: [
+          { conversationJid: 'sl:C123', threadId: null, label: 'primary' },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved?.group).toBe(groups[betaRouteKey]);
+  });
+
+  it('derives the route agent from the job workspace key', () => {
+    const groups = {
+      [makeAgentThreadQueueKey('sl:C123', 'agent:alpha')]: group(
+        'alpha',
+        'Alpha',
+      ),
+      [makeAgentThreadQueueKey('sl:C123', 'agent:beta')]: group('beta', 'Beta'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'alpha',
+        execution_context: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          workspaceKey: 'alpha',
+        },
+        notification_routes: [
+          { conversationJid: 'sl:C123', threadId: null, label: 'primary' },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved?.group).toBe(
+      groups[makeAgentThreadQueueKey('sl:C123', 'agent:alpha')],
+    );
+  });
+
+  it('uses the notification route provider account to select execution route', () => {
+    const alphaKey = makeAgentThreadQueueKey(
+      'sl:C123',
+      'agent:alpha',
+      null,
+      'acct-a',
+    );
+    const betaKey = makeAgentThreadQueueKey(
+      'sl:C123',
+      'agent:alpha',
+      null,
+      'acct-b',
+    );
+    const groups = {
+      [alphaKey]: group('alpha', 'Alpha A', 'acct-a'),
+      [betaKey]: group('alpha', 'Alpha B', 'acct-b'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: 'alpha',
+        execution_context: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+          workspaceKey: 'alpha',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'sl:C123',
+            threadId: null,
+            providerAccountId: 'acct-b',
+            label: 'primary',
+          },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved?.group).toBe(groups[betaKey]);
+  });
+
+  it('returns null for ambiguous provider conversation routes without a job agent', () => {
+    const groups = {
+      [makeAgentThreadQueueKey('sl:C123', 'agent:alpha')]: group(
+        'alpha',
+        'Alpha',
+      ),
+      [makeAgentThreadQueueKey('sl:C123', 'agent:beta')]: group('beta', 'Beta'),
+    };
+
+    const resolved = resolveExecutionContext(
+      job({
+        workspace_key: '',
+        execution_context: {
+          conversationJid: 'sl:C123',
+          threadId: null,
+        } as Job['execution_context'],
+        notification_routes: [
+          { conversationJid: 'sl:C123', threadId: null, label: 'primary' },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved).toBeNull();
   });
 
   it('returns null without canonical execution context', () => {

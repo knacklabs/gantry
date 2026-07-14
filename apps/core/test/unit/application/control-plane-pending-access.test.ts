@@ -21,7 +21,7 @@ function settings(): BuilderInput['settings'] {
     conversations: { conv: {} },
     bindings: { binding: { agent: 'agent', conversation: 'conv' } },
     providers: { telegram: { enabled: true } },
-    providerConnections: { telegram_default: { provider: 'telegram' } },
+    providerAccounts: { telegram_default: { provider: 'telegram' } },
     memory: { enabled: false },
   } as unknown as BuilderInput['settings'];
 }

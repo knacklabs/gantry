@@ -82,7 +82,7 @@ export type ControlPlaneNextAction =
       params?: Record<string, string>;
     }
   | {
-      kind: 'missing_conversation_binding';
+      kind: 'missing_conversation_install';
       label: string;
       params?: Record<string, string>;
     }
@@ -316,9 +316,9 @@ export function selectControlPlaneNextAction(input: {
   }
   if (input.conversationsTotal === 0 || input.conversationsReady === 0) {
     return {
-      kind: 'missing_conversation_binding',
+      kind: 'missing_conversation_install',
       label:
-        'Run `gantry agent add <chat-jid>` to bind an agent to a conversation.',
+        'Run `gantry conversation install --agent <agent-id> --conversation <conversation-id>` to install an agent in a conversation.',
     };
   }
   if (input.accessNeedsApprovalCount > 0) {

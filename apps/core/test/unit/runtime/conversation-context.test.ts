@@ -65,6 +65,7 @@ describe('buildConversationContextPacket', () => {
       'grp:1',
       current,
       30,
+      { providerAccountId: undefined },
     );
     expect(packet.recentChannelContext.map((message) => message.id)).toEqual(
       expectedRecent.map((message) => message.id),
@@ -131,6 +132,7 @@ describe('buildConversationContextPacket', () => {
 
     const packet = await buildConversationContextPacket({
       conversationJid: 'grp:1',
+      providerAccountId: 'acct-1',
       activeThreadId: 'thread-1',
       latestMessage: current,
       currentMessages: [current],
@@ -141,12 +143,14 @@ describe('buildConversationContextPacket', () => {
       'grp:1',
       'thread-1',
       11,
+      { providerAccountId: 'acct-1' },
     );
     expect(repository.getLatestThreadMessages).toHaveBeenCalledWith(
       'grp:1',
       'thread-1',
       current,
       50,
+      { providerAccountId: 'acct-1' },
     );
     expect(packet.activeThreadContext.map((message) => message.id)).toEqual([
       'root',
@@ -238,6 +242,7 @@ describe('buildConversationContextPacket', () => {
       'thread-1',
       current,
       50,
+      { providerAccountId: undefined },
     );
     expect(packet.activeThreadContext).toHaveLength(49);
     expect(packet.activeThreadContext.map((message) => message.id)).toEqual(

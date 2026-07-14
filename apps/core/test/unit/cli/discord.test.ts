@@ -134,7 +134,7 @@ describe('cli discord helpers', () => {
     );
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.providers.discord.enabled).toBe(false);
-    expect(settings.providerConnections.discord_default).toMatchObject({
+    expect(settings.providerAccounts.discord_default).toMatchObject({
       provider: 'discord',
       runtimeSecretRefs: {
         bot_token: 'gantry-secret:DISCORD_BOT_TOKEN',

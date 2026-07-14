@@ -3,6 +3,10 @@ import { CreateSessionRequestSchema } from '@gantry/contracts';
 import type { ZodIssue } from 'zod';
 
 import type { RuntimeEvent } from '../../../domain/events/events.js';
+import type {
+  AgentControlOverrides,
+  AgentControlThinking,
+} from '../../../domain/types.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { resolveAppScopeAppId } from '../app-identity.js';
 import { isValidControlId } from '../../../shared/control-id.js';
@@ -39,6 +43,69 @@ function formatSessionRequestIssue(issue: ZodIssue): string {
   }
   const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
   return `${path}${issue.message}`;
+}
+
+function isJsonSchemaObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const SESSION_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+function parseSessionThinking(value: unknown): AgentControlThinking | string {
+  if (value === 'off' || value === 'on') return { mode: value };
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'thinking must be off, on, or an object';
+  }
+  const record = value as Record<string, unknown>;
+  const unsupported = Object.keys(record).find(
+    (key) => key !== 'mode' && key !== 'budget_tokens',
+  );
+  if (unsupported) return `thinking.${unsupported} is not supported`;
+  if (record.mode !== 'off' && record.mode !== 'on') {
+    return 'thinking.mode must be off or on';
+  }
+  if (record.mode === 'off' && record.budget_tokens !== undefined) {
+    return 'thinking.budget_tokens requires thinking.mode on';
+  }
+  if (
+    record.budget_tokens !== undefined &&
+    (typeof record.budget_tokens !== 'number' ||
+      !Number.isInteger(record.budget_tokens) ||
+      record.budget_tokens <= 0)
+  ) {
+    return 'thinking.budget_tokens must be a positive integer';
+  }
+  return record.budget_tokens === undefined
+    ? { mode: record.mode }
+    : { mode: 'on', budgetTokens: record.budget_tokens as number };
+}
+
+function parseSessionAgentControls(
+  body: Record<string, unknown>,
+): AgentControlOverrides | string {
+  const controls: AgentControlOverrides = {};
+  if (body.effort !== undefined) {
+    if (!SESSION_EFFORTS.includes(body.effort as never)) {
+      return `effort must be one of ${SESSION_EFFORTS.join(', ')}`;
+    }
+    controls.effort = body.effort as AgentControlOverrides['effort'];
+  }
+  if (body.thinking !== undefined) {
+    const thinking = parseSessionThinking(body.thinking);
+    if (typeof thinking === 'string') return thinking;
+    controls.thinking = thinking;
+  }
+  if (body.max_output_tokens !== undefined) {
+    if (
+      typeof body.max_output_tokens !== 'number' ||
+      !Number.isInteger(body.max_output_tokens) ||
+      body.max_output_tokens <= 0
+    ) {
+      return 'max_output_tokens must be a positive integer';
+    }
+    controls.maxOutputTokens = body.max_output_tokens;
+  }
+  return controls;
 }
 
 export async function handleSessionRoutes(
@@ -161,6 +228,23 @@ export async function handleSessionRoutes(
     ]);
     if (!auth) return true;
     const body = (await readJson(req)) as Record<string, unknown>;
+    if (
+      body.response_schema !== undefined &&
+      !isJsonSchemaObject(body.response_schema)
+    ) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'response_schema must be a JSON Schema object',
+      );
+      return true;
+    }
+    const agentControls = parseSessionAgentControls(body);
+    if (typeof agentControls === 'string') {
+      sendError(res, 400, 'INVALID_REQUEST', agentControls);
+      return true;
+    }
     try {
       const accepted = await acceptMessageForControl(ctx, {
         appId: auth.appId,
@@ -174,6 +258,11 @@ export async function handleSessionRoutes(
           typeof body.correlationId === 'string' ? body.correlationId : null,
         responseMode: body.responseMode,
         webhookId: typeof body.webhookId === 'string' ? body.webhookId : null,
+        responseSchema: body.response_schema as
+          | Record<string, unknown>
+          | undefined,
+        agentControls:
+          Object.keys(agentControls).length > 0 ? agentControls : undefined,
       });
       sendJson(res, 202, {
         accepted: true,

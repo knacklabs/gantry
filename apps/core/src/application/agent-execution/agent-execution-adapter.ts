@@ -159,6 +159,7 @@ export interface PreparedAgentExecution {
 export interface AgentExecutionAdapter {
   readonly id: AgentExecutionProviderId;
   isMissingProviderSessionError?(error: string | undefined): boolean;
+  sessionCompactionPrompt?(): string | undefined;
   prepare(
     input: AgentExecutionAdapterPrepareInput,
   ): Promise<PreparedAgentExecution>;

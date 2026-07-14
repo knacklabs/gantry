@@ -14,7 +14,7 @@ admin update flows, rejects unsupported keys and duplicate YAML keys, and does
 not require Postgres, provider credentials, or runtime preflight checks.
 
 The current file is confusing because it mixes `agent` and `agents`, separates
-`conversations` from `bindings`, exposes empty defaults, and uses opaque skill
+`conversations` from `conversation_installs`, exposes empty defaults, and uses opaque skill
 UUIDs that do not help users recognize or manage skills.
 
 ## Target Shape
@@ -78,6 +78,10 @@ broker internals unless the user changed them from defaults. Binding timestamps
 are advanced state; keep them out of common examples and only preserve them
 where omitting the value would mutate live desired state.
 
+Conversation entries may render `brain_harvest: true` when an admin opts that
+conversation into company brain channel harvest. The default is off and should
+not render as `false`; the opt-in itself is the user/admin disclosure decision.
+
 `permissions.yolo_mode` is rendered only when the user changes it from shipped
 defaults. `denylist` and `denylist_paths` are user additions; the effective
 runtime policy always merges them with the shipped command and path defaults
@@ -103,10 +107,10 @@ Supported settings roots:
 | `defaults`             | User/admin editable                     | Compact defaults for display name, chat model, and job model defaults.                                                                       |
 | `agent`                | User/admin editable, verbose form       | Verbose global agent defaults after compact normalization.                                                                                   |
 | `agents`               | Mixed                                   | Identity/model/persona fields are user/admin editable; `sources` and `capabilities` may also be written by approved source/capability flows. |
-| `providers`            | User/admin editable                     | Provider enablement and compact runtime-secret env references.                                                                               |
-| `provider_connections` | User/admin editable, advanced form      | Explicit provider connection records for multi-connection or imported state.                                                                 |
-| `conversations`        | User/admin editable                     | External conversation id, kind, display name, approvers, sender policy, trigger, bound agent, and optional model override.                   |
-| `bindings`             | User/admin editable, advanced form      | Explicit route bindings when compact conversation ownership is not enough.                                                                   |
+| `providers`            | User/admin editable                     | Provider enablement metadata.                                                                                                                |
+| `provider_accounts`    | User/admin editable, advanced form      | Explicit Provider Account records with agent ownership and runtime-secret refs.                                                              |
+| `conversations`        | User/admin editable                     | External conversation id, kind, display name, approvers, sender policy, installed agents, and optional model override.                       |
+| `conversation_installs` | User/admin editable, advanced form      | Explicit Conversation Install records when compact conversation ownership is not enough.                                                     |
 | `memory`               | User/admin editable                     | Memory, embeddings, dreaming, LLM model aliases, and maintenance knobs.                                                                      |
 | `permissions`          | User/admin editable                     | YOLO-mode additions and egress denylist.                                                                                                     |
 | `browser`              | User/admin editable                     | Browser usage policy and per-site limits.                                                                                                    |
@@ -156,7 +160,7 @@ Document these rules:
   - `agents.<agent>.model` overrides the default for that agent.
   - `agents.<agent>.jobs.one_time_model` and
     `agents.<agent>.jobs.recurring_model` override only job runs.
-  - `conversations.<conversation>.model` overrides only that binding when
+  - `conversations.<conversation>.model` overrides only that install when
     supported.
 - To reset a value back to inheritance, delete the override line.
 - CLI commands that clear a setting must remove the compact setting from YAML,
@@ -227,8 +231,8 @@ space allows, while artifact refs remain debug detail.
   Gantry is still early-stage, so the implementation should make one clean cut
   to the compact format.
 - Collapse singular `agent` into `defaults` and actual agents under `agents`.
-- Collapse common one-agent bindings into `conversations.<id>.agent`.
-- Preserve an advanced form for multiple provider connections or multiple
+- Collapse common one-agent installs into `conversations.<id>.installed_agents`.
+- Preserve an advanced form for multiple Provider Accounts or multiple
   agents in one conversation, but render it only when needed.
 - Treat deleted overrides as inherited values during reconcile.
 - Keep raw secrets out of settings; env key references are still allowed.
@@ -241,7 +245,7 @@ space allows, while artifact refs remain debug detail.
 - Unit: clearing model/job overrides deletes YAML keys and restores inheritance.
 - Unit: unknown skill aliases fail with suggestions.
 - Integration: export current local state to compact settings and reconcile to
-  the same conversations, approvers, bindings, and capabilities.
+  the same conversations, approvers, installs, and capabilities.
 - CLI: list effective settings with source labels and clear overrides by
   deleting keys.
 - Doctor: report effective values, inherited source, stale v1 settings, unknown

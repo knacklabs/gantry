@@ -28,6 +28,7 @@ export interface ConversationContextPacket {
 
 export async function buildConversationContextPacket(input: {
   conversationJid: string;
+  providerAccountId?: string | null;
   activeThreadId?: string | null;
   latestMessage: NewMessage;
   currentMessages: NewMessage[];
@@ -45,10 +46,12 @@ export async function buildConversationContextPacket(input: {
       input.conversationJid,
       input.latestMessage,
       CHANNEL_CONTEXT_LIMIT,
+      { providerAccountId: input.providerAccountId },
     );
   const threadSelectionPromise = activeThreadId
     ? selectThreadContext({
         conversationJid: input.conversationJid,
+        providerAccountId: input.providerAccountId,
         threadId: activeThreadId,
         latestMessage: input.latestMessage,
         currentMessages,
@@ -86,6 +89,7 @@ export async function buildConversationContextPacket(input: {
 
 function selectThreadContext(input: {
   conversationJid: string;
+  providerAccountId?: string | null;
   threadId: string;
   latestMessage: NewMessage;
   currentMessages: NewMessage[];
@@ -99,12 +103,14 @@ function selectThreadContext(input: {
       input.conversationJid,
       input.threadId,
       THREAD_LONG_FIRST_REPLIES + 1,
+      { providerAccountId: input.providerAccountId },
     ),
     input.repository.getLatestThreadMessages(
       input.conversationJid,
       input.threadId,
       input.latestMessage,
       THREAD_CONTEXT_LIMIT,
+      { providerAccountId: input.providerAccountId },
     ),
   ]).then(([firstMessages, latestMessages]) => {
     const boundedFirstMessages = firstMessages.filter((message) =>

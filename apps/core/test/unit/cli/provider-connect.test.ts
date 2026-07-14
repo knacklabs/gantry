@@ -50,10 +50,20 @@ describe('runProviderConnectCommand', () => {
       await import('@core/cli/provider-connect.js');
     const runtimeHome = makeRuntimeHome();
 
-    const code = await runConnect(runtimeHome, 'teams');
+    const code = await runConnect(
+      runtimeHome,
+      'teams',
+      'research_bot',
+      'Research Bot',
+    );
 
     expect(code).toBe(0);
-    expect(runTeamsConnectCommand).toHaveBeenCalledWith(runtimeHome);
+    expect(runTeamsConnectCommand).toHaveBeenCalledWith(
+      runtimeHome,
+      undefined,
+      'research_bot',
+      'Research Bot',
+    );
   });
 
   it('dispatches Discord connect through its built-in setup command', async () => {

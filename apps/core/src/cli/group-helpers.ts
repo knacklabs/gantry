@@ -20,6 +20,7 @@ import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
 import { providerForJid } from '../channels/provider-registry.js';
+import { parseAgentThreadQueueKey } from '../shared/thread-queue-key.js';
 
 export { formatAgentHarnessLine } from './group-engine.js';
 
@@ -61,8 +62,7 @@ export function findConversationIdForAgent(
     if (binding.agent !== agentId) continue;
     const conversation = settings.conversations[binding.conversation];
     if (!conversation) continue;
-    const connection =
-      settings.providerConnections[conversation.providerConnection];
+    const connection = settings.providerAccounts[conversation.providerAccount];
     if (connection?.provider === providerId) return binding.conversation;
   }
   return null;
@@ -75,8 +75,8 @@ export function conversationIdsForProvider(
   return Object.entries(settings.conversations)
     .filter(
       ([, conversation]) =>
-        settings.providerConnections[conversation.providerConnection]
-          ?.provider === providerId,
+        settings.providerAccounts[conversation.providerAccount]?.provider ===
+        providerId,
     )
     .map(([conversationId]) => conversationId);
 }
@@ -104,17 +104,23 @@ export async function pruneAgentSenderPolicyOverride(
       const conversation = settings.conversations[binding.conversation];
       if (!conversation) continue;
       const connection =
-        settings.providerConnections[conversation.providerConnection];
+        settings.providerAccounts[conversation.providerAccount];
       if (connection?.provider !== channel) continue;
       if (!agentBinding?.jid && conversation.externalId !== externalId) {
         continue;
       }
       delete settings.bindings[bindingId];
       delete settings.agents[folder]?.bindings[bindingId];
-      const stillReferenced = Object.values(settings.bindings).some(
-        (candidate) => candidate.conversation === binding.conversation,
-      );
-      if (!stillReferenced) {
+      const installKey =
+        binding.installKey ??
+        Object.entries(conversation.installedAgents).find(
+          ([, install]) =>
+            install.agentId === folder &&
+            (install.threadId ?? '') === (binding.threadId ?? ''),
+        )?.[0] ??
+        folder;
+      delete conversation.installedAgents[installKey];
+      if (Object.keys(conversation.installedAgents).length === 0) {
         delete settings.conversations[binding.conversation];
       }
       pruned = true;
@@ -263,6 +269,26 @@ function resolveGroup(
   };
 }
 
+function resolveBareJidRoute(
+  groups: Record<string, ConversationRoute>,
+  rawSelector: string,
+  bareJid: string,
+): { found: { jid: string; group: ConversationRoute } | null; error?: string } {
+  const matches = Object.entries(groups).filter(
+    ([jid]) =>
+      jid !== bareJid && parseAgentThreadQueueKey(jid).chatJid === bareJid,
+  );
+  if (matches.length === 0) return { found: null };
+  if (matches.length > 1) {
+    return {
+      found: null,
+      error: `Selector "${rawSelector}" is ambiguous: conversation "${bareJid}" has multiple agent routes. Use the folder/agent selector.`,
+    };
+  }
+  const [jid, group] = matches[0]!;
+  return { found: { jid, group } };
+}
+
 export function resolveGroupSelector(
   groups: Record<string, ConversationRoute>,
   rawSelector: string,
@@ -298,6 +324,12 @@ export function resolveGroupSelector(
 
   if (folderMatch) return { found: folderMatch };
   if (telegramMatch) return { found: telegramMatch };
+  const bareJid = normalizeGroupAddSelector(selector);
+  const bareRouteMatch = bareJid
+    ? resolveBareJidRoute(groups, selector, bareJid)
+    : { found: null };
+  if (bareRouteMatch.error) return bareRouteMatch;
+  if (bareRouteMatch.found) return { found: bareRouteMatch.found };
   return { found: null };
 }
 

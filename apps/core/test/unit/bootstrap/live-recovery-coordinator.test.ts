@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   LIVE_RECOVERY_COORDINATOR_LEASE_KEY,
+  liveTurnScopeForQueue,
   routeScopeActiveLiveTurnAdmission,
   routeScopeActiveLiveTurnAdmissionFromCursor,
   startLiveRecoveryCoordinatorLeaseAcquisition,
 } from '@core/app/bootstrap/live-recovery-coordinator.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
+import { makeAgentThreadQueueKey } from '@core/shared/thread-queue-key.js';
 
 interface ScheduledTimer {
   fn: () => void;
@@ -306,6 +308,99 @@ describe('live-turn host lease acquisition', () => {
     await manager.stop();
   });
 
+  it('resolves live-turn scope from the exact thread route', async () => {
+    const getAgentTurnContext = vi.fn(async () => ({
+      appId: 'default',
+      agentSessionId: 'session-thread',
+    }));
+
+    await expect(
+      liveTurnScopeForQueue({
+        app: {
+          getConversationRoutes: () => ({
+            [makeAgentThreadQueueKey('sl:C123', 'agent:alpha')]: {
+              folder: 'alpha',
+              conversationKind: 'channel',
+            },
+            [makeAgentThreadQueueKey('sl:C123', 'agent:alpha', 'T1')]: {
+              folder: 'alpha',
+              conversationKind: 'dm',
+            },
+          }),
+        },
+        opsRepository: { getAgentTurnContext },
+        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        queueJid: makeAgentThreadQueueKey('sl:C123', 'agent:alpha', 'T1'),
+      }),
+    ).resolves.toEqual({
+      appId: 'default',
+      agentSessionId: 'session-thread',
+      conversationId: 'sl:C123',
+      threadId: 'T1',
+    });
+    expect(getAgentTurnContext).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationKind: 'dm' }),
+    );
+  });
+
+  it('scopes recovered live-turn lookup to the provider account', async () => {
+    const queueJid = makeAgentThreadQueueKey(
+      'sl:C123',
+      'agent:alpha',
+      null,
+      'slack-workspace-2',
+    );
+    const getAgentTurnContext = vi.fn(async () => ({
+      appId: 'default',
+      agentSessionId: 'session-workspace-2',
+    }));
+
+    await expect(
+      liveTurnScopeForQueue({
+        app: {
+          getConversationRoutes: () => ({
+            [queueJid]: {
+              folder: 'alpha',
+              conversationKind: 'channel',
+            },
+          }),
+        },
+        opsRepository: { getAgentTurnContext },
+        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        queueJid,
+      }),
+    ).resolves.toEqual({
+      appId: 'default',
+      agentSessionId: 'session-workspace-2',
+      conversationId: 'sl:C123',
+      threadId: null,
+    });
+    expect(getAgentTurnContext).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAccountId: 'slack-workspace-2' }),
+    );
+  });
+
+  it('does not resolve a thread route for a top-level live-turn queue', async () => {
+    const getAgentTurnContext = vi.fn();
+
+    await expect(
+      liveTurnScopeForQueue({
+        app: {
+          getConversationRoutes: () => ({
+            [makeAgentThreadQueueKey('sl:C123', 'agent:alpha', 'T1')]: {
+              folder: 'alpha',
+              conversationKind: 'channel',
+            },
+          }),
+        },
+        opsRepository: { getAgentTurnContext },
+        executionAdapter: { id: 'anthropic:claude-agent-sdk' },
+        queueJid: makeAgentThreadQueueKey('sl:C123', 'agent:alpha'),
+      }),
+    ).resolves.toBeNull();
+    expect(getAgentTurnContext).not.toHaveBeenCalled();
+  });
+
   it('routes scope-active pending messages to the owning live turn', async () => {
     const completeSessionAgentRun = vi.fn(async () => undefined);
     const onRouted = vi.fn(async () => undefined);
@@ -377,7 +472,12 @@ describe('live-turn host lease acquisition', () => {
           conversationId: 'chat-1',
           threadId: null,
         },
-        queueJid: 'chat-1',
+        queueJid: makeAgentThreadQueueKey(
+          'chat-1',
+          'agent:alpha',
+          undefined,
+          'slack_beta',
+        ),
         liveRunId: 'run-active',
         chatJid: 'chat-1',
         threadId: null,
@@ -393,6 +493,91 @@ describe('live-turn host lease acquisition', () => {
     ).resolves.toBe(true);
 
     expect(routeMessage).toHaveBeenCalledOnce();
+    expect(enqueueMessageCheck).toHaveBeenCalledWith(
+      makeAgentThreadQueueKey('chat-1', 'agent:alpha', undefined, 'slack_beta'),
+    );
+    expect(getMessagesSince).toHaveBeenCalledWith(
+      'chat-1',
+      '2024-01-01T00:00:00.000Z::0',
+      1,
+      { threadId: null, providerAccountId: 'slack_beta' },
+    );
+  });
+
+  it('routes only earlier replay messages before an active /compact', async () => {
+    const routeMessage = vi.fn(async () => 'queued_to_owner' as const);
+    const isActiveControlMessage = vi.fn(
+      (message) => message.content === '/compact',
+    );
+    const handleActiveControlMessage = vi.fn(async () => false);
+    const setAgentCursor = vi.fn();
+    const saveState = vi.fn();
+    const enqueueMessageCheck = vi.fn();
+    const messages = [
+      {
+        id: 1,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: 'normal first',
+        timestamp: '2024-01-01T00:00:01.000Z',
+        is_from_me: false,
+        message_id: 'msg-1',
+        reply_to_message_id: null,
+        reply_to_content: null,
+        sender_name: 'Ravi',
+      },
+      {
+        id: 2,
+        chat_jid: 'chat-1',
+        sender: 'user-1',
+        content: '/compact',
+        timestamp: '2024-01-01T00:00:02.000Z',
+        is_from_me: true,
+        message_id: 'msg-2',
+        reply_to_message_id: null,
+        reply_to_content: null,
+        sender_name: 'Ravi',
+      },
+    ];
+
+    await expect(
+      routeScopeActiveLiveTurnAdmissionFromCursor({
+        scope: {
+          appId: 'app:test',
+          agentSessionId: 'session-1',
+          conversationId: 'chat-1',
+          threadId: null,
+        },
+        queueJid: 'chat-1',
+        liveRunId: 'run-active',
+        chatJid: 'chat-1',
+        threadId: null,
+        replayCursor: '2024-01-01T00:00:00.000Z::0',
+        messageFetchPageSize: 10,
+        timezone: 'UTC',
+        getMessagesSince: vi.fn(async () => messages),
+        setAgentCursor,
+        saveState,
+        enqueueMessageCheck,
+        isActiveControlMessage,
+        handleActiveControlMessage,
+        routeMessage,
+      }),
+    ).resolves.toBe(true);
+
+    expect(handleActiveControlMessage).toHaveBeenCalledOnce();
+    expect(handleActiveControlMessage).toHaveBeenCalledWith(messages[0]);
+    expect(isActiveControlMessage).toHaveBeenCalledWith(messages[1]);
+    expect(routeMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('normal first'),
+      }),
+    );
+    expect(routeMessage.mock.calls[0][0].text).not.toContain('/compact');
+    expect(setAgentCursor).toHaveBeenCalledWith(
+      'chat-1',
+      JSON.stringify({ timestamp: '2024-01-01T00:00:01.000Z', id: 1 }),
+    );
     expect(enqueueMessageCheck).toHaveBeenCalledWith('chat-1');
   });
 });

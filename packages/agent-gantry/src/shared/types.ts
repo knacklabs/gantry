@@ -598,7 +598,8 @@ export interface AnthropicStructuredModelTaskPolicy {
 
 export interface AnthropicStructuredModelConfig {
   readonly provider: 'anthropic';
-  readonly apiKey?: string | null;
+  readonly gantryBaseUrl?: string | null;
+  readonly gantryApiKey?: string | null;
   readonly model?: string | null;
   readonly defaultModel?: string | null;
   readonly taskModels?: Record<string, string | null | undefined>;
@@ -613,7 +614,6 @@ export interface AnthropicStructuredModelConfig {
   readonly retryMaxDelayMs?: number;
   readonly temperature?: number;
   readonly maxTokens?: number;
-  readonly apiVersion?: string;
 }
 
 export type GantryStructuredModelConfig =

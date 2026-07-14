@@ -1,4 +1,16 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const runtimeHomes: string[] = [];
+
+function makeRuntimeHome(): string {
+  const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-writer-'));
+  runtimeHomes.push(runtimeHome);
+  return runtimeHome;
+}
 
 describe('writeDesiredRuntimeSettings', () => {
   afterEach(() => {
@@ -6,6 +18,9 @@ describe('writeDesiredRuntimeSettings', () => {
     vi.doUnmock('@core/config/settings/restart-sync.js');
     vi.doUnmock('@core/config/settings/runtime-settings.js');
     vi.doUnmock('@core/config/settings/settings-import-service.js');
+    for (const runtimeHome of runtimeHomes.splice(0)) {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
   });
 
   it('propagates import failures instead of writing invalid YAML fallback', async () => {
@@ -96,7 +111,7 @@ describe('writeDesiredRuntimeSettings', () => {
         appId: 'app:test' as never,
         createdBy: 'control-api:test',
       }),
-    ).resolves.toEqual({ reconciled: true });
+    ).resolves.toEqual({ reconciled: true, restartRequired: [] });
     expect(importWorkstationSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'app:test',
@@ -113,6 +128,50 @@ describe('writeDesiredRuntimeSettings', () => {
         runtime: expect.objectContaining({ deploymentMode: 'fleet' }),
       }),
     });
+  });
+
+  it('returns restart-required classes for memory settings changes', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const { loadRuntimeSettings } =
+      await import('@core/config/settings/runtime-settings.js');
+    const {
+      configureDesiredSettingsStorageProvider,
+      writeDesiredRuntimeSettings,
+    } = await import('@core/config/settings/desired-settings-writer.js');
+    configureDesiredSettingsStorageProvider(undefined);
+    const previousSettings = loadRuntimeSettings(runtimeHome);
+    const settings = structuredClone(previousSettings);
+    settings.memory.dreaming.enabled = !settings.memory.dreaming.enabled;
+
+    await expect(
+      writeDesiredRuntimeSettings({
+        runtimeHome,
+        settings,
+        previousSettings,
+      }),
+    ).resolves.toEqual({ reconciled: false, restartRequired: ['memory'] });
+  });
+
+  it('returns no restart-required classes for agent name changes', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const { loadRuntimeSettings } =
+      await import('@core/config/settings/runtime-settings.js');
+    const {
+      configureDesiredSettingsStorageProvider,
+      writeDesiredRuntimeSettings,
+    } = await import('@core/config/settings/desired-settings-writer.js');
+    configureDesiredSettingsStorageProvider(undefined);
+    const previousSettings = loadRuntimeSettings(runtimeHome);
+    const settings = structuredClone(previousSettings);
+    settings.agent.name = 'Renamed Agent';
+
+    await expect(
+      writeDesiredRuntimeSettings({
+        runtimeHome,
+        settings,
+        previousSettings,
+      }),
+    ).resolves.toEqual({ reconciled: false, restartRequired: [] });
   });
 
   it('defaults settings revisions to the default app for CLI callers', async () => {

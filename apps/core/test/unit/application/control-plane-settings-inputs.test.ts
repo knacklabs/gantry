@@ -8,34 +8,34 @@ import {
 } from '@core/application/control-plane/control-plane-settings-inputs.js';
 
 describe('controlPlaneProviderInputs', () => {
-  it('marks a provider enabled in settings with a matching connection as ready', () => {
+  it('marks a provider enabled in settings with a matching account as ready', () => {
     const view: ControlPlaneSettingsInputView = {
       providers: { telegram: { enabled: true } },
-      providerConnections: { telegram_default: { provider: 'telegram' } },
+      providerAccounts: { telegram_default: { provider: 'telegram' } },
     };
     expect(controlPlaneProviderInputs(view)).toEqual([
       { id: 'telegram', label: 'telegram', ready: true },
     ]);
   });
 
-  it('marks a provider with a connection but undefined in settings as ready', () => {
+  it('marks a provider with an account but undefined in settings as ready', () => {
     // providers[id] === undefined satisfies the ready predicate, and the
-    // connection is included via connectionProviders.
+    // account is included via accountProviders.
     const view: ControlPlaneSettingsInputView = {
       providers: {},
-      providerConnections: { slack_default: { provider: 'slack' } },
+      providerAccounts: { slack_default: { provider: 'slack' } },
     };
     expect(controlPlaneProviderInputs(view)).toEqual([
       { id: 'slack', label: 'slack', ready: true },
     ]);
   });
 
-  it('includes a provider enabled in settings without a connection as not ready', () => {
-    // Enabled satisfies the filter, but ready is false because no connection
-    // exists (connectionProviders.has(id) is false).
+  it('includes a provider enabled in settings without an account as not ready', () => {
+    // Enabled satisfies the filter, but ready is false because no account
+    // exists (accountProviders.has(id) is false).
     const view: ControlPlaneSettingsInputView = {
       providers: { telegram: { enabled: true } },
-      providerConnections: {},
+      providerAccounts: {},
     };
     expect(controlPlaneProviderInputs(view)).toEqual([
       { id: 'telegram', label: 'telegram', ready: false },
@@ -45,7 +45,7 @@ describe('controlPlaneProviderInputs', () => {
   it('excludes a provider present but not enabled and without a connection', () => {
     const view: ControlPlaneSettingsInputView = {
       providers: { telegram: { enabled: false } },
-      providerConnections: {},
+      providerAccounts: {},
     };
     expect(controlPlaneProviderInputs(view)).toEqual([]);
   });

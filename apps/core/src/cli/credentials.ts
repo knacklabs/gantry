@@ -18,7 +18,10 @@ import {
   DEFAULT_SETUP_MODEL_ALIAS,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
-import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
+import {
+  ensureRuntimeSettings,
+  type RuntimeSettings,
+} from '../config/settings/runtime-settings.js';
 
 const DEFAULT_APP_ID = 'default' as AppId;
 
@@ -80,11 +83,14 @@ async function withCredentialServices<T>(
     model: ModelCredentialService;
     capability: CapabilitySecretService;
   }) => Promise<T>,
+  options: { runtimeSettings?: RuntimeSettings } = {},
 ): Promise<T> {
   process.env.GANTRY_HOME = runtimeHome;
   const { createStorageRuntime } =
     await import('../adapters/storage/postgres/factory.js');
-  const storage = createStorageRuntime();
+  const storage = createStorageRuntime(undefined, {
+    runtimeSettings: options.runtimeSettings,
+  });
   try {
     await storage.service.assertMigrationsCurrent();
     return await fn({
@@ -121,6 +127,71 @@ export async function storeModelCredentialInput(input: {
   );
 }
 
+export type ModelCredentialVerificationPromptResult =
+  | { type: 'verified' }
+  | { type: 'skip'; reason: string }
+  | { type: 'reenter' }
+  | { type: 'back' }
+  | { type: 'resume' }
+  | { type: 'cancel' };
+
+export async function verifyModelCredentialInputWithPrompt(input: {
+  providerId: string;
+  authMode: string;
+  payload: ModelCredentialPayload;
+  allowBackResume?: boolean;
+}): Promise<ModelCredentialVerificationPromptResult> {
+  const provider = getModelProviderDefinition(input.providerId);
+  const label = provider?.label ?? input.providerId;
+  const spinner = p.spinner();
+  spinner.start(`Verifying ${label} key...`);
+  // Lazy import keeps the capability-secret path free of the channel/config
+  // import chain the live verifier drags in.
+  const { verifyModelProviderCredentialLive } =
+    await import('./model-credential-verify.js');
+  const result = await verifyModelProviderCredentialLive({
+    providerId: input.providerId,
+    authMode: input.authMode,
+    payload: input.payload,
+  });
+  if ('ok' in result && result.ok) {
+    spinner.stop(`${label} key verified.`);
+    return { type: 'verified' };
+  }
+  if ('skipped' in result) {
+    spinner.stop(`${label} key live verification skipped.`);
+    return { type: 'skip', reason: result.reason };
+  }
+
+  spinner.stop(`${label} key verification failed.`);
+  p.log.error(result.message);
+  const selection = await p.select({
+    message: 'Credential verification failed.',
+    options: [
+      { value: 'reenter', label: 'Re-enter key' },
+      {
+        value: 'store_anyway',
+        label: 'Store anyway',
+        hint: 'Skip live verification.',
+      },
+      ...(input.allowBackResume
+        ? [
+            { value: 'back', label: 'Back' },
+            { value: 'resume', label: 'Resume Later' },
+          ]
+        : [{ value: 'cancel', label: 'Cancel' }]),
+    ],
+  });
+  if (p.isCancel(selection)) return { type: 'cancel' };
+  if (selection === 'store_anyway') {
+    return { type: 'skip', reason: 'live verification skipped by operator' };
+  }
+  if (selection === 'reenter') return { type: 'reenter' };
+  if (selection === 'back') return { type: 'back' };
+  if (selection === 'resume') return { type: 'resume' };
+  return { type: 'cancel' };
+}
+
 export async function listReadyModelCredentialProviders(
   runtimeHome: string,
 ): Promise<Set<string>> {
@@ -137,15 +208,19 @@ export async function storeRuntimeSecretInput(input: {
   name: string;
   value: string;
   actor?: string;
+  runtimeSettings?: RuntimeSettings;
 }): Promise<void> {
   const name = normalizeCapabilitySecretName(input.name);
-  await withCredentialServices(input.runtimeHome, ({ capability }) =>
-    capability.set({
-      appId: DEFAULT_APP_ID,
-      name,
-      value: input.value,
-      actor: input.actor ?? 'cli',
-    }),
+  await withCredentialServices(
+    input.runtimeHome,
+    ({ capability }) =>
+      capability.set({
+        appId: DEFAULT_APP_ID,
+        name,
+        value: input.value,
+        actor: input.actor ?? 'cli',
+      }),
+    { runtimeSettings: input.runtimeSettings },
   );
 }
 
@@ -192,51 +267,89 @@ async function runModelCredentialCommand(
   if (action === 'set' || action === 'rotate') {
     const providerId = normalizeModelCredentialProvider(provider);
     if (action === 'rotate') {
-      const rows = await withCredentialServices(runtimeHome, ({ model }) =>
-        model.list({ appId: DEFAULT_APP_ID }),
+      const existing = await withCredentialServices(runtimeHome, ({ model }) =>
+        model.getActiveCredential({
+          appId: DEFAULT_APP_ID,
+          providerId,
+        }),
       );
-      const existing = rows.find((row) => row.providerId === providerId);
-      if (!existing?.configured || !existing.authMode) {
+      if (!existing) {
         p.log.error(
           `${providerId} model credential must be active before rotation. Run \`gantry credentials model set ${providerId}\`.`,
         );
         return 1;
       }
-      const credentialInput = await promptModelCredentialPayload(providerId, {
-        authMode: existing.authMode,
-        partial: true,
-      });
+      while (true) {
+        const credentialInput = await promptModelCredentialPayload(providerId, {
+          authMode: existing.authMode,
+          partial: true,
+        });
+        if (!credentialInput) {
+          p.outro('Credential unchanged.');
+          return 1;
+        }
+        const verification = await verifyModelCredentialInputWithPrompt({
+          providerId,
+          authMode: existing.authMode,
+          payload: { ...existing.payload, ...credentialInput.payload },
+        });
+        if (verification.type === 'reenter') continue;
+        if (verification.type === 'cancel') {
+          p.outro('Credential unchanged.');
+          return 1;
+        }
+        await withCredentialServices(runtimeHome, ({ model }) =>
+          model.rotate({
+            appId: DEFAULT_APP_ID,
+            providerId,
+            payload: credentialInput.payload,
+            actor: 'cli',
+          }),
+        );
+        if (verification.type === 'skip') {
+          p.log.warn(
+            `Rotated ${providerId} model credential without live verification: ${verification.reason}`,
+          );
+        } else {
+          p.log.success(`Rotated ${providerId} model credential.`);
+        }
+        return 0;
+      }
+    }
+    while (true) {
+      const credentialInput = await promptModelCredentialPayload(providerId);
       if (!credentialInput) {
         p.outro('Credential unchanged.');
         return 1;
       }
+      const verification = await verifyModelCredentialInputWithPrompt({
+        providerId,
+        authMode: credentialInput.authMode,
+        payload: credentialInput.payload,
+      });
+      if (verification.type === 'reenter') continue;
+      if (verification.type === 'cancel') {
+        p.outro('Credential unchanged.');
+        return 1;
+      }
       await withCredentialServices(runtimeHome, ({ model }) =>
-        model.rotate({
+        model.set({
           appId: DEFAULT_APP_ID,
           providerId,
+          authMode: credentialInput.authMode,
           payload: credentialInput.payload,
           actor: 'cli',
         }),
       );
-      p.log.success(`Rotated ${providerId} model credential.`);
+      if (verification.type === 'skip') {
+        p.log.warn(
+          `Stored ${providerId} model credential without live verification: ${verification.reason}`,
+        );
+      } else {
+        p.log.success(`Stored ${providerId} model credential.`);
+      }
       return 0;
     }
-    const credentialInput = await promptModelCredentialPayload(providerId);
-    if (!credentialInput) {
-      p.outro('Credential unchanged.');
-      return 1;
-    }
-    await withCredentialServices(runtimeHome, ({ model }) =>
-      model.set({
-        appId: DEFAULT_APP_ID,
-        providerId,
-        authMode: credentialInput.authMode,
-        payload: credentialInput.payload,
-        actor: 'cli',
-      }),
-    );
-    p.log.success(`Stored ${providerId} model credential.`);
-    return 0;
   }
 
   if (action === 'disable') {

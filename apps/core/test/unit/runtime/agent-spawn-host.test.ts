@@ -4,10 +4,16 @@ import type { AgentCredentialBroker } from '@core/domain/ports/agent-credential-
 import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
 
 vi.mock('@core/config/index.js', () => ({
+  AGENT_TIMEOUT: 30_000,
+  DATA_DIR: '/tmp/gantry-agent-spawn-host-test',
+  IDLE_TIMEOUT: 30_000,
   getCredentialBrokerRuntimeConfig: () => ({
     mode: 'gantry',
     gatewayBindHost: '127.0.0.1',
   }),
+  getEffectiveModelConfig: vi.fn(),
+  getRuntimeSettingsForConfig: vi.fn(),
+  getSelectedAgentHarness: vi.fn(),
 }));
 
 describe('getHostRuntimeCredentialEnv', () => {

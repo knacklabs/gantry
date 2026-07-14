@@ -25,6 +25,7 @@ export async function buildGroupTurnConversationContext(input: {
   repository: GroupProcessingRepository;
   agentFolder: string;
   chatJid: string;
+  providerAccountId?: string | null;
   activeThreadId: string | null | undefined;
   latestMessage: NewMessage;
   currentMessages: NewMessage[];
@@ -32,6 +33,7 @@ export async function buildGroupTurnConversationContext(input: {
 }) {
   let conversationContext = await buildConversationContextPacket({
     conversationJid: input.chatJid,
+    providerAccountId: input.providerAccountId,
     activeThreadId: input.activeThreadId,
     latestMessage: input.latestMessage,
     currentMessages: input.currentMessages,
@@ -42,6 +44,9 @@ export async function buildGroupTurnConversationContext(input: {
         hydrate: input.deps.channelRuntime.hydrateConversationContext,
         request: {
           conversationJid: input.chatJid,
+          ...(input.providerAccountId
+            ? { providerAccountId: input.providerAccountId }
+            : {}),
           threadId: input.activeThreadId,
           latestMessage: input.latestMessage,
           limits: CONVERSATION_CONTEXT_LIMITS,
@@ -49,7 +54,10 @@ export async function buildGroupTurnConversationContext(input: {
         providerId: input.latestMessage.provider,
       })
     : undefined;
-  const rawHydratedMessages = hydration?.messages ?? [];
+  const rawHydratedMessages = stampProviderAccountOnHydratedMessages({
+    providerAccountId: input.providerAccountId,
+    messages: hydration?.messages ?? [],
+  });
   const hydratedMessages = filterHydratedMessagesForPersistence({
     chatJid: input.chatJid,
     agentFolder: input.agentFolder,
@@ -95,6 +103,7 @@ export async function buildGroupTurnConversationContext(input: {
   if (hydratedMessages.length > 0) {
     conversationContext = await buildConversationContextPacket({
       conversationJid: input.chatJid,
+      providerAccountId: input.providerAccountId,
       activeThreadId: input.activeThreadId,
       latestMessage: input.latestMessage,
       currentMessages: input.currentMessages,
@@ -187,6 +196,19 @@ function shouldHydrateConversationContext(
     );
   }
   return !context.metadata.recentChannelWindowComplete;
+}
+
+function stampProviderAccountOnHydratedMessages(input: {
+  providerAccountId?: string | null;
+  messages: NewMessage[];
+}): NewMessage[] {
+  if (!input.providerAccountId || input.messages.length === 0) {
+    return input.messages;
+  }
+  return input.messages.map((message) => ({
+    ...message,
+    providerAccountId: input.providerAccountId || undefined,
+  }));
 }
 
 function filterHydratedMessagesForPersistence(input: {

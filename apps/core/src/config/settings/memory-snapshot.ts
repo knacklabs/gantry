@@ -13,6 +13,7 @@ export interface RuntimeMemorySettingsSnapshot {
   backfillProviderBatchMinItems?: number;
   dreamingEnabled?: boolean;
   dreamingCron?: string;
+  dreamingAlerts?: boolean;
   dreamingEmbeddingsEnabled?: boolean;
   dreamingEmbeddingProvider?: string;
   dreamingEmbeddingModel?: string;
@@ -253,6 +254,10 @@ export function parseRuntimeMemorySnapshotFromRoot(
       'memory.dreaming.enabled',
     ),
     dreamingCron: parseOptionalString(dreaming.cron),
+    dreamingAlerts: parseOptionalBoolean(
+      dreaming.alerts,
+      'memory.dreaming.alerts',
+    ),
     dreamingEmbeddingsEnabled: parseOptionalBoolean(
       dreamingEmbeddings.enabled,
       'memory.dreaming.embeddings.enabled',
@@ -280,29 +285,6 @@ export function parseRuntimeMemorySnapshotFromRoot(
 export function parseRuntimeStorageSnapshotFromRoot(
   root: Record<string, unknown>,
 ): RuntimeStorageSettingsSnapshot {
-  const supportedRootKeys = new Set([
-    'defaults',
-    'desired_state',
-    'providers',
-    'provider_connections',
-    'conversations',
-    'bindings',
-    'agents',
-    'storage',
-    'agent',
-    'model_access',
-    'memory',
-    'runtime',
-    'browser',
-    'permissions',
-  ]);
-  for (const key of Object.keys(root)) {
-    if (!supportedRootKeys.has(key)) {
-      throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, model_access, memory, runtime, browser, and permissions.`,
-      );
-    }
-  }
   const storageRaw = root.storage;
   if (storageRaw === undefined) return {};
   if (
