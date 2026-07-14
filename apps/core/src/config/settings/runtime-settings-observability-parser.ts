@@ -14,9 +14,10 @@ function parseSampleRate(raw: unknown, fallback: number): number {
   // The minimal settings YAML parser types decimal scalars as strings
   // (repo-wide decimal coercion breaks decimal-looking string ids such as
   // channel thread timestamps), so this field coerces numeric strings locally.
+  const trimmed = typeof raw === 'string' ? raw.trim() : undefined;
   const value =
-    typeof raw === 'string' && /^-?[0-9]+(?:\.[0-9]+)?$/.test(raw.trim())
-      ? Number(raw.trim())
+    trimmed !== undefined && trimmed !== '' && Number.isFinite(Number(trimmed))
+      ? Number(trimmed)
       : raw;
   if (
     typeof value !== 'number' ||

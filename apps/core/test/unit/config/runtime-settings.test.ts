@@ -844,6 +844,13 @@ quoted_decimal: "0.5"
     expect(parseRuntimeSettings(yaml).observability).toEqual(
       settings.observability,
     );
+
+    // Tiny rates render in scientific notation; the parser must round-trip.
+    settings.observability.tracing.sampleRate = 1e-7;
+    const tinyYaml = renderRuntimeSettingsYaml(settings);
+    expect(
+      parseRuntimeSettings(tinyYaml).observability.tracing.sampleRate,
+    ).toBe(1e-7);
   });
 
   it('defaults model_families to empty and omits the block when empty', () => {

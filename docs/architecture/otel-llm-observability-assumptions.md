@@ -51,6 +51,13 @@ _(Backfilled by the orchestrator — stage launched before the ledger rule; rows
 | C.7 | Cleanup revocation is fail-open | Autoreview r4 (P2): a rejecting `revoke()` in `finally` replaces the pending return value | `finally` revocation wrapped in catch+warn | Materialization errors masked by revocation errors | fixed |
 | C.8 | Buffered-follow-up turn spans are best-effort in v1 | Autoreview r4 (P2 ×2): rotation runs behind the host output chain (narrow misparent race) and the follow-up prompt lives runner-side (rotated span has no input) | Rotated spans carry `gantry.continuation: true`; race + missing input accepted for the buffered-follow-up edge case | Occasional misparented first LLM call and input-less continuation traces | ok — revisit path: synchronous frame hook in `agent-spawn-process.ts` + follow-up prompt plumbing |
 
+## Stage E — Closeout (branch-wide review + verification)
+
+| # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |
+| --- | --- | --- | --- | --- | --- |
+| E.1 | Renderer number formatting and parser coercion agree | Branch autoreview (P2): `sampleRate: 1e-7` renders in scientific notation; the fixed-decimal regex rejected it → revision round-trip/startup failure | Coercion accepts any finite `Number()`-parseable string; round-trip test with `1e-7` added | Accepted settings revisions could brick startup | fixed |
+| E.2 | `agent-runner-ipc` failures were main's, not ours | 44 spawned-runner tests red — `bfe906c59` (PR #215, main) added a `runtime-env-command` import without extending the fixture copy list | Drive-by one-line copy-list fix committed on this branch | — | fixed (verified import landed on main pre-branch) |
+
 ## Stage D — Gateway wiring + integration tests
 
 | # | Assumption | Missing info that forced it | Choice taken | Impact if wrong | Validated |
