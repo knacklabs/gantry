@@ -1595,15 +1595,18 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
 
       await expect(processGroupMessages('group1@g.us')).resolves.toBe(true);
-      expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      const usageEvent = publishRuntimeEvent.mock.calls
+        .map(([event]) => event)
+        .find((event) => event.eventType === RUNTIME_EVENT_TYPES.MODEL_USAGE);
+      expect(usageEvent).toEqual(
         expect.objectContaining({
           eventType: RUNTIME_EVENT_TYPES.MODEL_USAGE,
-          payload: {
+          payload: expect.objectContaining({
             usage,
             usageEventId: 'usage-event-1',
             modelAlias: 'sonnet',
             providerId: 'test-provider',
-          },
+          }),
         }),
       );
     });
@@ -1639,7 +1642,11 @@ describe('createGroupProcessor', () => {
     it('delivers output when normalized model usage publication fails', async () => {
       const publishRuntimeEvent = vi
         .fn()
-        .mockRejectedValue(new Error('usage event insert failed'));
+        .mockImplementation(async (event) => {
+          if (event.eventType === RUNTIME_EVENT_TYPES.MODEL_USAGE) {
+            throw new Error('usage event insert failed');
+          }
+        });
       const { deps, channel } = setupHappyPath({
         agentOutput: {
           status: 'success',
