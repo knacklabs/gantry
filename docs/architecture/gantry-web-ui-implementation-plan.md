@@ -256,7 +256,8 @@ approved external identity mode exists. OIDC and fleet SSO are deferred.
 - React Hook Form with Zod-backed contract validation.
 - `assistant-ui` only for chat composition and message presentation.
 - CSS Modules with CSS custom-property tokens.
-- Vitest, Testing Library, MSW, Playwright, and axe-core.
+- Automated UI test tooling is deferred. Do not add Vitest, Testing Library,
+  MSW, Playwright, axe-core, or a frontend test harness in this initiative.
 
 No state library is added for server data. Local UI state stays in component or
 route state until a demonstrated cross-route need exists.
@@ -279,7 +280,6 @@ apps/web/
       api/                # typed client, query keys, error normalization
       auth/               # session bootstrap, CSRF, logout
       events/             # app/session SSE, cursor, reconnect, dispatch
-    test/                 # MSW handlers, fixtures, render utilities
   package.json
   vite.config.ts
 ```
@@ -427,8 +427,8 @@ Dependencies: none beyond current Control API and contracts.
 
 Deliver:
 
-- `apps/web` workspace, router, shell, tokens, themes, primitives, and test
-  harness.
+- `apps/web` workspace, router, shell, tokens, themes, and primitives. UI test
+  harness work is deferred.
 - Browser pairing/session/CSRF contracts, application service, Postgres schema,
   Control API routes, CLI pairing command, and audit events.
 - Typed browser API client, normalized errors, Query provider, app-scoped
@@ -437,7 +437,8 @@ Deliver:
   routes, and fail-closed non-loopback behavior.
 
 Accept when pairing, refresh, logout, CSRF rejection, expired session, REST
-snapshot, SSE replay, reconnect, and direct route refresh pass in browser tests.
+snapshot, SSE replay, reconnect, and direct route refresh pass through manual
+local verification.
 Cleanup: search for browser API-key storage, duplicate auth middleware, and
 tracked build output.
 
@@ -524,17 +525,24 @@ scheduler engines.
 
 Dependencies: all shipped product phases.
 
-Deliver mobile and tablet refinements, keyboard audit, axe fixes, dark-theme
-visual QA, event-load performance, security review, browser-session cleanup,
+Deliver mobile and tablet refinements, manual keyboard audit, dark-theme visual
+QA, event-load performance, security review, browser-session cleanup,
 production packaging, docs, and rollout controls.
 
-Accept when desktop and mobile Playwright suites pass in both themes, no page
-overflows or overlaps, reconnect tests pass under forced network loss, no secret
-appears in browser storage or responses, and full Gantry gates pass. Cleanup:
+Accept when desktop and mobile manual checks pass in both themes, no page
+overflows or overlaps, forced reconnect works, no secret appears in browser
+storage or responses, and applicable Gantry gates pass. Cleanup:
 search for prototype code, temporary mocks, stale route names, and deferred
 feature flags without owners.
 
 ## Test And Verification Strategy
+
+Automated UI testing is deferred by product decision. Do not add a frontend
+test harness, testing dependencies, test scripts, fixtures, mock server,
+browser runner, or accessibility runner in the current UI initiative. Use
+manual acceptance checks, cleanup searches, builds, and applicable repository
+structural gates. The coverage and command table below are future scope only;
+they must not be implemented or run until testing is explicitly approved.
 
 - Unit: reducers/event dispatch, query keys, form schemas, permission-aware
   actions, token/theme behavior, and rich descriptor rendering.
@@ -614,19 +622,19 @@ Database-backed checks use a disposable Postgres instance with the required
 
 ## Surface Impact Matrix
 
-| Surface                      | Classification      | Implementation effect                                                                                                                        |
-| ---------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime behavior             | Changed             | Serve `/ui`, authenticate browser sessions, and project app-scoped SSE without making events command authority.                              |
-| `settings.yaml`              | Changed             | Add non-secret `ui.enabled` and session TTL; all writes use desired-state revision sync.                                                     |
-| Postgres/runtime projection  | Changed             | Add browser security state and later people/workflow state; reuse `runtime_events`.                                                          |
-| Control API                  | Changed             | Add browser auth, app events, session list, interactions, permissions, activity, people, and workflow routes through application services.   |
-| SDK/contracts                | Changed             | Add browser-safe contracts and OpenAPI shapes. The Node SDK remains server-only.                                                             |
-| CLI                          | Changed             | Add local pairing and report UI URL/readiness without becoming a second admin implementation.                                                |
-| Gantry MCP tools/admin skill | Unchanged by design | The Web UI is an owner/admin adapter; existing MCP tools keep agent-requested reviewed flows and do not gain authority merely for UI parity. |
-| Channel/provider adapters    | Unchanged by design | Slack and other adapters retain provider transport and rendering ownership; the UI consumes canonical state and events.                      |
-| Docs/prompts                 | Changed             | Add setup, security, architecture, and operator guidance as phases ship; agent prompts do not describe UI internals.                         |
-| Audit/events                 | Changed             | Audit browser auth and mutations and add typed events where new people/workflow lifecycle changes require them.                              |
-| Tests/verification           | Changed             | Add frontend, contract, Postgres, SSE, E2E, accessibility, security, and packaging coverage.                                                 |
+| Surface                      | Classification      | Implementation effect                                                                                                                                   |
+| ---------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime behavior             | Changed             | Serve `/ui`, authenticate browser sessions, and project app-scoped SSE without making events command authority.                                         |
+| `settings.yaml`              | Changed             | Add non-secret `ui.enabled` and session TTL; all writes use desired-state revision sync.                                                                |
+| Postgres/runtime projection  | Changed             | Add browser security state and later people/workflow state; reuse `runtime_events`.                                                                     |
+| Control API                  | Changed             | Add browser auth, app events, session list, interactions, permissions, activity, people, and workflow routes through application services.              |
+| SDK/contracts                | Changed             | Add browser-safe contracts and OpenAPI shapes. The Node SDK remains server-only.                                                                        |
+| CLI                          | Changed             | Add local pairing and report UI URL/readiness without becoming a second admin implementation.                                                           |
+| Gantry MCP tools/admin skill | Unchanged by design | The Web UI is an owner/admin adapter; existing MCP tools keep agent-requested reviewed flows and do not gain authority merely for UI parity.            |
+| Channel/provider adapters    | Unchanged by design | Slack and other adapters retain provider transport and rendering ownership; the UI consumes canonical state and events.                                 |
+| Docs/prompts                 | Changed             | Add setup, security, architecture, and operator guidance as phases ship; agent prompts do not describe UI internals.                                    |
+| Audit/events                 | Changed             | Audit browser auth and mutations and add typed events where new people/workflow lifecycle changes require them.                                         |
+| Tests/verification           | Deferred            | User requested no automated UI tests, harness, or testing dependencies for now; use manual checks, cleanup searches, builds, and structural gates only. |
 
 Enterprise SSO is deferred because the first release is explicitly local and
 loopback-only. It requires a separate fleet identity, session, and deployment

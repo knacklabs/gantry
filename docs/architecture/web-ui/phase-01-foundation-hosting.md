@@ -24,7 +24,8 @@ SAML, and non-loopback UI hosting.
 ## Steps
 
 1. Add Vite/React workspace, router, tokens, primitives, shared compositions,
-   tests, and untracked `dist` output.
+   and untracked `dist` output. Do not add a frontend test harness or testing
+   dependencies in this phase.
 2. Build and serve the SPA under `/ui` with UI-only history fallback; Vite uses
    `5173` and proxies `/v1` to loopback Control API `3939`.
 3. Add browser-safe pairing/session/error/event contracts; browser never imports

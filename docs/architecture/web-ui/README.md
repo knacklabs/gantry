@@ -29,6 +29,10 @@ not contradict it.
   exposure are deferred.
 - Desired-state writes use `SettingsDesiredStateService`, revision concurrency,
   projection reconciliation, and `settings.yaml` synchronization.
+- Automated UI testing is deferred. The test commands listed in individual
+  phase documents are future scope only and must not be added, run, or reported
+  as evidence until the user explicitly approves test work. Current phase
+  evidence is manual acceptance, cleanup searches, builds, and structural gates.
 
 ## Route Ownership
 
