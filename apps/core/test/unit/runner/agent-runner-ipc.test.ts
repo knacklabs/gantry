@@ -202,6 +202,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'canonical-json.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/runtime-env-command.ts'),
+    path.join(sharedDir, 'runtime-env-command.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/no-proxy.ts'),
     path.join(sharedDir, 'no-proxy.ts'),
   );
