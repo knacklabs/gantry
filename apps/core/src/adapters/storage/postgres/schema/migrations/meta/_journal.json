@@ -813,6 +813,13 @@
       "when": 1784000003000,
       "tag": "0105_person_merge_audit_result",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1784000004000,
+      "tag": "0106_identity_isolation_and_participant_identity",
+      "breakpoints": true
     }
   ]
 }

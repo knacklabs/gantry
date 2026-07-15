@@ -397,7 +397,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
       parameters: [
         query('appId', 'App id. Defaults to API key app.'),
         query('agentId', 'Agent id filter.'),
-        query('userId', 'User id filter.'),
+        query('personId', 'Canonical person id filter.'),
         query('groupId', 'Group id filter.'),
         query('channelId', 'Channel id filter.'),
         query('threadId', 'Thread id filter.'),
@@ -460,7 +460,7 @@ export const extendedOpenApiRouteDocs: RouteDoc[] = [
         ids.memory,
         query('appId', 'App id. Defaults to API key app.'),
         query('agentId', 'Agent id filter.'),
-        query('userId', 'User id filter.'),
+        query('personId', 'Canonical person id filter.'),
         query('groupId', 'Group id filter.'),
         query('channelId', 'Channel id filter.'),
         query('threadId', 'Thread id filter.'),

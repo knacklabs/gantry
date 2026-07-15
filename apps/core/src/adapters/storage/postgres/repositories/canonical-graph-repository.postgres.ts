@@ -423,8 +423,13 @@ export class PostgresCanonicalGraphRepository {
     const externalUserId = input.externalUserId.trim();
     if (!externalUserId) return null;
     const providerAccountId = input.providerAccountId.trim();
-    const safeUser = externalUserId.replace(/[^a-zA-Z0-9._:-]/g, '_');
-    const participantId = `participant:${input.conversationId}:${safeUser}`;
+    const participantId = stableId('participant', [
+      CANONICAL_APP_ID,
+      input.conversationId,
+      input.providerId,
+      providerAccountId,
+      externalUserId,
+    ]);
     const now = input.timestamp || currentIso();
     const aliasKey = {
       appId: CANONICAL_APP_ID,
@@ -517,6 +522,8 @@ export class PostgresCanonicalGraphRepository {
         id: participantId,
         appId: CANONICAL_APP_ID,
         conversationId: input.conversationId,
+        provider: input.providerId,
+        providerAccountId,
         userId: participantUserId,
         externalUserId,
         role: 'member',
@@ -525,7 +532,13 @@ export class PostgresCanonicalGraphRepository {
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: pgSchema.conversationParticipantsPostgres.id,
+        target: [
+          pgSchema.conversationParticipantsPostgres.appId,
+          pgSchema.conversationParticipantsPostgres.conversationId,
+          pgSchema.conversationParticipantsPostgres.provider,
+          pgSchema.conversationParticipantsPostgres.providerAccountId,
+          pgSchema.conversationParticipantsPostgres.externalUserId,
+        ],
         set: {
           userId: participantUserId,
           externalUserId,

@@ -3,6 +3,7 @@ import {
   integer,
   index,
   jsonb,
+  foreignKey,
   pgTable,
   text,
   timestamp,
@@ -40,6 +41,10 @@ export const usersPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    appScopedIdentity: uniqueIndex('uniq_users_app_id_id').on(
+      table.appId,
+      table.id,
+    ),
     peoplePageIdx: index('idx_users_app_updated_id').on(
       table.appId,
       table.updatedAt.desc(),
@@ -55,9 +60,7 @@ export const userAliasesPostgres = pgTable(
     appId: text('app_id')
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
-    userId: text('user_id')
-      .notNull()
-      .references(() => usersPostgres.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
     provider: text('provider').notNull(),
     providerAccountId: text('provider_account_id'),
     externalUserId: text('external_user_id').notNull(),
@@ -86,6 +89,11 @@ export const userAliasesPostgres = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    appScopedPerson: foreignKey({
+      name: 'user_aliases_app_user_fk',
+      columns: [table.appId, table.userId],
+      foreignColumns: [usersPostgres.appId, usersPostgres.id],
+    }),
     personUpdatedIdx: index('idx_user_aliases_app_user_updated').on(
       table.appId,
       table.userId,

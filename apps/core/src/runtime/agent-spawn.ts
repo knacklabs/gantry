@@ -533,6 +533,7 @@ async function spawnAgentWithContext(
           )
         : undefined,
       memoryIpcAuthToken: computeMemoryIpcAuthToken(group.folder, {
+        appId: runnerAppId,
         chatJid: input.chatJid,
         userId: input.memoryUserId,
         defaultScope: input.memoryDefaultScope || 'group',

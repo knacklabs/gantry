@@ -30,7 +30,6 @@ export type MemoryContext = {
   appId?: string;
   agentId?: string;
   personId?: string;
-  userId?: string;
   groupId?: string;
   channelId?: string;
   threadId?: string;

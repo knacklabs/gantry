@@ -71,6 +71,9 @@ describe('ipc auth token', () => {
       }),
     );
     expect(
+      computeMemoryIpcAuthToken('team-alpha', { appId: 'app-one' }),
+    ).not.toBe(computeMemoryIpcAuthToken('team-alpha', { appId: 'app-two' }));
+    expect(
       computeMemoryIpcAuthToken('team-alpha', {
         userId: 'u-1',
         defaultScope: 'user',

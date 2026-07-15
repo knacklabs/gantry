@@ -3308,7 +3308,7 @@ export interface components {
             id: string;
             appId: string;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
             channelId?: string;
             threadId?: string;
@@ -3335,7 +3335,7 @@ export interface components {
         MemorySaveRequest: {
             appId?: string;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
             channelId?: string;
             threadId?: string;
@@ -3351,13 +3351,13 @@ export interface components {
             query: string;
             limit?: number;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
         };
         MemoryDreamingTriggerRequest: {
             appId?: string;
             agentId?: string;
-            userId?: string;
+            personId?: string;
             groupId?: string;
             channelId?: string;
             threadId?: string;
@@ -7097,8 +7097,8 @@ export interface operations {
                 appId?: string;
                 /** @description Agent id filter. */
                 agentId?: string;
-                /** @description User id filter. */
-                userId?: string;
+                /** @description Canonical person id filter. */
+                personId?: string;
                 /** @description Group id filter. */
                 groupId?: string;
                 /** @description Channel id filter. */
@@ -7203,8 +7203,8 @@ export interface operations {
                 appId?: string;
                 /** @description Agent id filter. */
                 agentId?: string;
-                /** @description User id filter. */
-                userId?: string;
+                /** @description Canonical person id filter. */
+                personId?: string;
                 /** @description Group id filter. */
                 groupId?: string;
                 /** @description Channel id filter. */

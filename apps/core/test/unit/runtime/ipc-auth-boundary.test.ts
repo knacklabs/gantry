@@ -109,6 +109,7 @@ function signedMemoryPayload(
   payload: Record<string, unknown>,
   sourceAgentFolder = 'team',
   input: {
+    appId?: string;
     chatJid?: string;
     userId?: string;
     defaultScope?: 'user' | 'group';
@@ -116,7 +117,10 @@ function signedMemoryPayload(
     allowedActions?: readonly string[];
   } = {},
 ): Record<string, unknown> {
-  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, input);
+  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, {
+    appId: input.appId || 'default',
+    ...input,
+  });
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -670,6 +674,7 @@ describe('validateIpcAuthRequest', () => {
       action: 'memory_search',
       payload: { query: 'travel' },
       context: {
+        appId: 'default',
         userId: 'u-1',
         defaultScope: 'user',
         allowedActions: ['memory_search'],
@@ -680,6 +685,7 @@ describe('validateIpcAuthRequest', () => {
     expect(
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
+          appId: 'default',
           userId: 'u-1',
           defaultScope: 'user',
           allowedActions: ['memory_search'],
@@ -698,6 +704,7 @@ describe('validateIpcAuthRequest', () => {
     expect(() =>
       parseMemoryIpcRequest(
         signedMemoryPayload(payload, 'team', {
+          appId: 'default',
           userId: 'u-2',
           defaultScope: 'user',
           allowedActions: ['memory_search'],
@@ -715,6 +722,7 @@ describe('validateIpcAuthRequest', () => {
       action: 'memory_patch',
       payload: { id: 'mem-1', expected_version: 1 },
       context: {
+        appId: 'default',
         chatJid: 'tg:team',
         defaultScope: 'group',
         allowedActions: ['memory_search', 'memory_save'],

@@ -243,6 +243,7 @@ describe('people control routes', () => {
         provider: 'slack',
         createIfMissing: false,
       }),
+      expect.any(Function),
     );
     expect(runtimeEvents.publish).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -298,6 +299,7 @@ describe('people control routes', () => {
         providerAccountId: 'providerAccount-slack',
         createIfMissing: true,
       }),
+      expect.any(Function),
     );
   });
 
@@ -322,6 +324,7 @@ describe('people control routes', () => {
     expect(res.statusCode).toBe(200);
     expect(fakeRepository.resolveIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'telegram' }),
+      expect.any(Function),
     );
     expect(runtimeEvents.publish).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -368,6 +371,7 @@ describe('people control routes', () => {
         externalUserId: '+15551234567',
         evidenceType: 'phone',
       }),
+      expect.any(Function),
     );
     expect(fakeRepository.resolveIdentity).toHaveBeenNthCalledWith(
       2,
@@ -376,6 +380,7 @@ describe('people control routes', () => {
         externalUserId: 'sdk-user-1',
         evidenceType: 'web_user',
       }),
+      expect.any(Function),
     );
   });
 
@@ -461,27 +466,35 @@ describe('people control routes', () => {
   });
 
   it('publishes alias admin events without raw alias values', async () => {
-    fakeRepository.addAlias.mockResolvedValue({
-      id: 'alias-1',
-      appId: 'app-one',
-      personId: 'person-1',
-      provider: 'slack',
-      providerAccountId: 'providerAccount-slack',
-      externalUserId: 'U123',
-      verificationStatus: 'verified',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-01T00:00:00.000Z',
+    fakeRepository.addAlias.mockImplementation(async (_input, factory) => {
+      const alias = {
+        id: 'alias-1',
+        appId: 'app-one',
+        personId: 'person-1',
+        provider: 'slack',
+        providerAccountId: 'providerAccount-slack',
+        externalUserId: 'U123',
+        verificationStatus: 'verified',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      };
+      await runtimeEvents.publish(factory(alias));
+      return alias;
     });
-    fakeRepository.retireAlias.mockResolvedValue({
-      id: 'alias-1',
-      appId: 'app-one',
-      personId: 'person-1',
-      provider: 'slack',
-      providerAccountId: 'providerAccount-slack',
-      externalUserId: 'U123',
-      verificationStatus: 'retired',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      updatedAt: '2026-01-02T00:00:00.000Z',
+    fakeRepository.retireAlias.mockImplementation(async (_input, factory) => {
+      const alias = {
+        id: 'alias-1',
+        appId: 'app-one',
+        personId: 'person-1',
+        provider: 'slack',
+        providerAccountId: 'providerAccount-slack',
+        externalUserId: 'U123',
+        verificationStatus: 'retired',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      };
+      await runtimeEvents.publish(factory(alias));
+      return alias;
     });
 
     const add = await call({
@@ -510,7 +523,7 @@ describe('people control routes', () => {
           personId: 'person-1',
           aliasId: 'alias-1',
           provider: 'slack',
-          providerAccountId: 'providerAccount-slack',
+          providerConnectionId: 'providerAccount-slack',
         }),
       }),
     );
@@ -521,7 +534,7 @@ describe('people control routes', () => {
           personId: 'person-1',
           aliasId: 'alias-1',
           provider: 'slack',
-          providerAccountId: 'providerAccount-slack',
+          providerConnectionId: 'providerAccount-slack',
         }),
       }),
     );

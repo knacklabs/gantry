@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { ApplicationError } from '../../../../application/common/application-error.js';
 import {
   and,
   asc,
@@ -14,7 +15,6 @@ import {
 } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
-import { ApplicationError } from '../../../../application/common/application-error.js';
 import {
   type AddPersonAliasInput,
   type AliasVerificationStatus,
@@ -30,6 +30,15 @@ import {
   type PersonListRepositoryPage,
   type RetirePersonAliasInput,
 } from '../../../../application/identity/person-identity-service.js';
+import {
+  assertAliasCanResolve,
+  assertAliasOwnership,
+  assertAliasTargetIsActive,
+  assertDetailLimit,
+  assertMergeConflicts,
+  assertMergeablePeople,
+  assertRetiredAliasCanBeRebound,
+} from '../../../../application/identity/person-identity-policy.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -51,6 +60,7 @@ import {
   findMemoryMergeConflicts,
   PERSON_MERGE_DETAIL_LIMIT,
 } from './person-identity-merge-conflicts.postgres.js';
+import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 type Executor = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -58,10 +68,16 @@ type UserRow = typeof pgSchema.usersPostgres.$inferSelect;
 type AliasRow = typeof pgSchema.userAliasesPostgres.$inferSelect;
 
 export class PostgresPersonIdentityRepository implements PersonIdentityRepository {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly runtimeEvents = new PostgresRuntimeEventRepository(db),
+  ) {}
 
   async resolveIdentity(
     input: IdentityResolveInput,
+    auditEventFactory?: (
+      result: IdentityResolveResult,
+    ) => import('../../../../domain/events/events.js').RuntimeEventPublishInput,
   ): Promise<IdentityResolveResult> {
     const alias = await this.findActiveAlias(this.db, input);
     if (alias) {
@@ -75,10 +91,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       };
     }
     if (await this.findRetiredAlias(this.db, input)) {
-      throw new ApplicationError(
-        'CONFLICT',
-        'Alias is retired and cannot resolve active personal memory.',
-      );
+      assertAliasCanResolve(true);
     }
     if (input.createIfMissing === false) {
       return {
@@ -101,10 +114,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         };
       }
       if (await this.findRetiredAlias(tx, input)) {
-        throw new ApplicationError(
-          'CONFLICT',
-          'Alias is retired and cannot resolve active personal memory.',
-        );
+        assertAliasCanResolve(true);
       }
       await ensureApp(tx, input.appId);
       const timestamp = nowIso();
@@ -138,13 +148,20 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         actor: 'identity:resolve',
         timestamp,
       });
-      return {
+      const result: IdentityResolveResult = {
         status: 'created',
         personId,
         memoryHydrationEligible: true,
         createdAlias: alias,
         verificationStatus: alias.verificationStatus,
       };
+      if (auditEventFactory) {
+        await this.runtimeEvents.appendRuntimeEventWithExecutor(
+          tx,
+          auditEventFactory(result),
+        );
+      }
+      return result;
     });
   }
 
@@ -172,7 +189,12 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     return rows[0] ? this.hydratePerson(rows[0]) : null;
   }
 
-  async addAlias(input: AddPersonAliasInput): Promise<PersonAliasRecord> {
+  async addAlias(
+    input: AddPersonAliasInput,
+    auditEventFactory?: (
+      alias: PersonAliasRecord,
+    ) => import('../../../../domain/events/events.js').RuntimeEventPublishInput,
+  ): Promise<PersonAliasRecord> {
     return await this.db.transaction(async (tx) => {
       const person = await this.getPersonForUpdate(
         tx,
@@ -185,20 +207,10 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           'Person is not accessible to this app.',
         );
       }
-      if (person.status !== 'active') {
-        throw new ApplicationError(
-          'CONFLICT',
-          'Aliases cannot be added to an inactive person.',
-        );
-      }
+      assertAliasTargetIsActive(person.status);
       await lockPersonAliasKey(tx, input);
       const duplicate = await this.findActiveAlias(tx, input);
-      if (duplicate && duplicate.userId !== input.personId) {
-        throw new ApplicationError(
-          'CONFLICT',
-          'Alias already belongs to another person.',
-        );
-      }
+      assertAliasOwnership(duplicate?.userId, input.personId);
       const verifiedAlias = {
         ...input,
         verificationStatus: 'verified' as const,
@@ -208,46 +220,67 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         },
         timestamp: nowIso(),
       };
+      let alias: PersonAliasRecord;
       if (duplicate) {
-        return duplicate.verificationStatus === 'verified'
-          ? toAlias(duplicate)
-          : this.insertAlias(tx, { ...verifiedAlias, aliasId: duplicate.id });
+        alias =
+          duplicate.verificationStatus === 'verified'
+            ? toAlias(duplicate)
+            : await this.insertAlias(tx, {
+                ...verifiedAlias,
+                aliasId: duplicate.id,
+              });
+      } else {
+        const retired = await this.findRetiredAlias(tx, input);
+        assertRetiredAliasCanBeRebound(retired?.userId, input.personId);
+        alias = await this.insertAlias(tx, {
+          ...verifiedAlias,
+          aliasId: retired?.id,
+        });
       }
-      const retired = await this.findRetiredAlias(tx, input);
-      if (retired && retired.userId !== input.personId) {
-        throw new ApplicationError(
-          'CONFLICT',
-          'Retired alias belongs to another person and cannot be rebound.',
+      if (auditEventFactory) {
+        await this.runtimeEvents.appendRuntimeEventWithExecutor(
+          tx,
+          auditEventFactory(alias),
         );
       }
-      return this.insertAlias(tx, {
-        ...verifiedAlias,
-        aliasId: retired?.id,
-      });
+      return alias;
     });
   }
 
   async retireAlias(
     input: RetirePersonAliasInput,
+    auditEventFactory?: (
+      alias: PersonAliasRecord,
+    ) => import('../../../../domain/events/events.js').RuntimeEventPublishInput,
   ): Promise<PersonAliasRecord | null> {
-    const timestamp = nowIso();
-    const [row] = await this.db
-      .update(pgSchema.userAliasesPostgres)
-      .set({
-        verificationStatus: 'retired',
-        retiredAt: timestamp,
-        retiredBy: input.actor,
-        updatedAt: timestamp,
-      })
-      .where(
-        and(
-          eq(pgSchema.userAliasesPostgres.appId, input.appId),
-          eq(pgSchema.userAliasesPostgres.userId, input.personId),
-          eq(pgSchema.userAliasesPostgres.id, input.aliasId),
-        ),
-      )
-      .returning();
-    return row ? toAlias(row) : null;
+    return this.db.transaction(async (tx) => {
+      const timestamp = nowIso();
+      const [row] = await tx
+        .update(pgSchema.userAliasesPostgres)
+        .set({
+          verificationStatus: 'retired',
+          retiredAt: timestamp,
+          retiredBy: input.actor,
+          updatedAt: timestamp,
+        })
+        .where(
+          and(
+            eq(pgSchema.userAliasesPostgres.appId, input.appId),
+            eq(pgSchema.userAliasesPostgres.userId, input.personId),
+            eq(pgSchema.userAliasesPostgres.id, input.aliasId),
+          ),
+        )
+        .returning();
+      if (!row) return null;
+      const alias = toAlias(row);
+      if (auditEventFactory) {
+        await this.runtimeEvents.appendRuntimeEventWithExecutor(
+          tx,
+          auditEventFactory(alias),
+        );
+      }
+      return alias;
+    });
   }
 
   async previewMerge(input: PersonMergeInput): Promise<PersonMergePreview> {
@@ -294,30 +327,16 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         input.targetPersonId,
         input.sourcePersonId,
       );
-      this.assertPeopleMergeable(
-        people,
-        input.targetPersonId,
-        input.sourcePersonId,
-      );
+      assertMergeablePeople(people, input.targetPersonId, input.sourcePersonId);
       const preview = await this.buildMergePreview(tx, input);
       const aliasConflicts = preview.conflicts.filter(
         (conflict) => conflict.type === 'alias',
       );
-      if (aliasConflicts.length > 0) {
-        throw new ApplicationError(
-          'CONFLICT',
-          'Merge has alias conflicts. Resolve aliases before applying the merge.',
-        );
-      }
-      if (
-        preview.conflicts.length > 0 &&
-        conflictResolution === 'fail_on_conflict'
-      ) {
-        throw new ApplicationError(
-          'CONFLICT',
-          'Merge has personal memory conflicts. Run preview and choose a conflictResolution.',
-        );
-      }
+      assertMergeConflicts(
+        aliasConflicts.length,
+        preview.conflicts.length - aliasConflicts.length,
+        conflictResolution,
+      );
       const timestamp = nowIso();
       await tx
         .update(pgSchema.userAliasesPostgres)
@@ -573,7 +592,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
           inArray(pgSchema.usersPostgres.id, [targetPersonId, sourcePersonId]),
         ),
       );
-    this.assertPeopleMergeable(rows, targetPersonId, sourcePersonId);
+    assertMergeablePeople(rows, targetPersonId, sourcePersonId);
   }
 
   private async lockPeopleForMerge(
@@ -595,31 +614,6 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
       .for('update');
   }
 
-  private assertPeopleMergeable(
-    rows: UserRow[],
-    targetPersonId: string,
-    sourcePersonId: string,
-  ): void {
-    if (targetPersonId === sourcePersonId) {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'sourcePersonId must differ from target personId',
-      );
-    }
-    if (rows.length !== 2) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'Person is not accessible to this app.',
-      );
-    }
-    if (rows.some((row) => row.status !== 'active')) {
-      throw new ApplicationError(
-        'CONFLICT',
-        'Source and target people must both be active and unmerged.',
-      );
-    }
-  }
-
   private async buildMergePreview(
     executor: Executor,
     input: PersonMergeInput,
@@ -636,12 +630,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
         )
         .limit(PERSON_MERGE_DETAIL_LIMIT + 1)
     ).map(toAlias);
-    if (aliases.length > PERSON_MERGE_DETAIL_LIMIT) {
-      throw new ApplicationError(
-        'CONFLICT',
-        `Person merge exceeds the ${PERSON_MERGE_DETAIL_LIMIT} alias detail limit.`,
-      );
-    }
+    assertDetailLimit('alias', aliases.length, PERSON_MERGE_DETAIL_LIMIT);
     const [sourceMemoryCount] = await executor
       .select({ count: count() })
       .from(pgSchema.memoryItemsPostgres)
@@ -676,12 +665,7 @@ export class PostgresPersonIdentityRepository implements PersonIdentityRepositor
     }
     const conflicts = await findMemoryMergeConflicts(executor, input);
     conflicts.push(...(await findAliasMergeConflicts(executor, input)));
-    if (conflicts.length > PERSON_MERGE_DETAIL_LIMIT) {
-      throw new ApplicationError(
-        'CONFLICT',
-        `Person merge exceeds the ${PERSON_MERGE_DETAIL_LIMIT} conflict detail limit.`,
-      );
-    }
+    assertDetailLimit('conflict', conflicts.length, PERSON_MERGE_DETAIL_LIMIT);
     return {
       summary: 'Merge preview only. No data changed.',
       sourcePersonId: input.sourcePersonId,

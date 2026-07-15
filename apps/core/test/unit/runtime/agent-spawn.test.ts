@@ -1254,6 +1254,7 @@ describe('agent-spawn timeout behavior', () => {
       env.GANTRY_MEMORY_IPC_ACTIONS_JSON,
     ) as string[];
     const runnerContext = {
+      appId: env.GANTRY_APP_ID,
       chatJid: env.GANTRY_CHAT_JID,
       threadId: env.GANTRY_THREAD_ID,
       userId: env.GANTRY_MEMORY_USER_ID,
@@ -1376,6 +1377,7 @@ describe('agent-spawn timeout behavior', () => {
           action: 'memory_review_pending',
           payload: { limit: 10 },
           context: {
+            appId: env.GANTRY_APP_ID,
             chatJid: env.GANTRY_CHAT_JID,
             threadId: env.GANTRY_THREAD_ID,
             userId: env.GANTRY_MEMORY_USER_ID,

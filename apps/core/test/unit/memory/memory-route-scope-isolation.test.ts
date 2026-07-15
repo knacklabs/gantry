@@ -44,6 +44,7 @@ function profileFor(family: string, route: string): MemoryLlmModelProfile {
 describe('memory route scope isolation', () => {
   it('resolves identical subjects regardless of memory model family', () => {
     const context = {
+      appId: 'default',
       chatJid: 'sl:C999',
       userId: 'sl:U999',
       defaultScope: 'group' as const,
@@ -64,6 +65,7 @@ describe('memory route scope isolation', () => {
       resolveTrustedMemorySubject(
         'team-folder',
         {
+          appId: 'default',
           chatJid: 'sl:C999',
           userId: 'person:one',
           defaultScope: 'group',
@@ -75,6 +77,7 @@ describe('memory route scope isolation', () => {
       resolveTrustedMemorySubject(
         'dm-folder',
         {
+          appId: 'default',
           chatJid: 'sl:D999',
           userId: 'person:one',
           defaultScope: 'user',
@@ -94,7 +97,11 @@ describe('memory route scope isolation', () => {
       openai: openai.client,
     });
 
-    const context = { chatJid: 'tg:-100123', userId: 'tg:42' };
+    const context = {
+      appId: 'default',
+      chatJid: 'tg:-100123',
+      userId: 'tg:42',
+    };
     const subjectBefore = resolveTrustedMemorySubject('dm-folder', context);
 
     await router.query({

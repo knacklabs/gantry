@@ -670,6 +670,58 @@ and intentionally outside this feature's source scope.
 | Audit/events                 | Changed              | Identity resolution, alias admin actions, hydration decisions, startup diagnostics, runtime forwarding, and model-gateway audit events avoid raw provider ids in FK columns and keep provider route context in payload fields.                                                       |
 | Tests/verification           | Changed              | Unit, integration, and smoke coverage were expanded around identity resolution, group-vs-DM memory policy, provider-account alias lookup, Slack route projection, event persistence safety, and SDK typing.                                                                          |
 
+## Post-Approval Hardening Decisions
+
+The moderator review identified seven release-blocking concerns. These were
+implemented as bounded follow-up changes rather than changing the approved
+DM/group memory policy:
+
+1. **Authenticated app through memory IPC:** the host now includes `appId` in
+   the signed memory IPC token and parsed trusted context. Every memory search,
+   save, patch, review, and procedure operation uses that context. Missing app
+   context is rejected; the default app is no longer a memory IPC fallback.
+2. **Collision-resistant participants:** participant ids now hash the exact
+   tuple `appId`, conversation id, provider, provider connection id, and
+   external user id. PostgreSQL also enforces uniqueness over that tuple, with
+   external user ids required for participant rows.
+3. **Atomic identity audit evidence:** newly created identities and alias
+   link/retire mutations write their runtime event in the same transaction as
+   the identity mutation through the existing event outbox. Existing live-turn
+   event publication remains best-effort so an audit transport failure cannot
+   turn a successful live resolve into a failed turn.
+4. **Database app isolation:** `users` has a composite `(app_id, id)` identity
+   and aliases reference it with a composite foreign key. Application checks
+   remain in place as an additional boundary.
+5. **Public person id cutover:** public memory contracts, OpenAPI schemas, SDK
+   types, generated SDK types, routes, and examples expose `personId`, not the
+   legacy public `userId`. Internal database columns and runtime actor fields
+   remain unchanged where they are implementation details.
+6. **Application-owned identity policy:** alias ownership, inactive-person
+   rules, retired-alias rebinding, merge conflict rules, and merge detail
+   limits now live in the application identity policy module. The PostgreSQL
+   repository retains query, lock, mapping, and transaction responsibilities.
+7. **Bounded landing:** these hardening changes are limited to app-scoped
+   memory IPC, participant identity constraints, identity transaction/outbox
+   behavior, public memory contracts, and identity policy ownership. Existing
+   Slack routing, gateway audit, diagnostics, and baseline IPC repairs remain
+   separate historical commits and are not expanded here.
+
+These decisions preserve the core product contract: DMs hydrate conversation
+memory plus the resolved person's personal memory; groups and channels hydrate
+conversation/group memory only, even though sender identity may still be
+resolved for evidence and future identity administration.
+
+## Verification After Hardening
+
+- `npm run typecheck` passes.
+- `npm run format:check` passes.
+- SDK generated OpenAPI types are current.
+- Focused IPC, identity API, agent-spawn, memory-scope, and People API tests
+  pass: 149 tests.
+- `npm run build` completes the runtime, contracts, SDK, and migration build.
+  The optional Next.js example workspace remains blocked by its pre-existing
+  missing `react` and `next` dependencies.
+
 ## Bottom Line
 
 This work makes Gantry's identity model explicit:

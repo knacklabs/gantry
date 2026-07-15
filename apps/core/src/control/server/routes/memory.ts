@@ -124,7 +124,6 @@ function searchInputFromQuery(url: URL, appId: string): AppMemorySearchInput {
     appId,
     agentId: url.searchParams.get('agentId') || undefined,
     personId: url.searchParams.get('personId') || undefined,
-    userId: url.searchParams.get('userId') || undefined,
     groupId: url.searchParams.get('groupId') || undefined,
     channelId: url.searchParams.get('channelId') || undefined,
     threadId: url.searchParams.get('threadId') || undefined,
@@ -166,6 +165,11 @@ function validateDirectSaveKind(
   return false;
 }
 
+function toPublicMemoryItem<T extends { userId?: string | null }>(item: T) {
+  const { userId, ...publicItem } = item;
+  return userId ? { ...publicItem, personId: userId } : publicItem;
+}
+
 export async function handleMemoryRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -193,7 +197,7 @@ export async function handleMemoryRoutes(
       appId,
       isAdminWrite: auth.scopes.has('memory:admin'),
     });
-    sendJson(res, 201, { memory: saved });
+    sendJson(res, 201, { memory: toPublicMemoryItem(saved) });
     return true;
   }
 
@@ -203,7 +207,7 @@ export async function handleMemoryRoutes(
     const appId = url.searchParams.get('appId') || auth.appId;
     if (!assertAppAccess(res, appId, auth)) return true;
     const memories = await service.list(searchInputFromQuery(url, appId));
-    sendJson(res, 200, { memories });
+    sendJson(res, 200, { memories: memories.map(toPublicMemoryItem) });
     return true;
   }
 
@@ -217,7 +221,12 @@ export async function handleMemoryRoutes(
       ...(body as unknown as AppMemorySearchInput),
       appId,
     });
-    sendJson(res, 200, { results });
+    sendJson(res, 200, {
+      results: results.map((result) => ({
+        ...result,
+        item: toPublicMemoryItem(result.item),
+      })),
+    });
     return true;
   }
 
@@ -391,7 +400,7 @@ export async function handleMemoryRoutes(
       appId,
       isAdminWrite: auth.scopes.has('memory:admin'),
     });
-    sendJson(res, 200, { memory });
+    sendJson(res, 200, { memory: toPublicMemoryItem(memory) });
     return true;
   }
 
@@ -409,7 +418,6 @@ export async function handleMemoryRoutes(
       appId,
       agentId: url.searchParams.get('agentId') || undefined,
       personId: url.searchParams.get('personId') || undefined,
-      userId: url.searchParams.get('userId') || undefined,
       groupId: url.searchParams.get('groupId') || undefined,
       channelId: url.searchParams.get('channelId') || undefined,
       threadId: url.searchParams.get('threadId') || undefined,

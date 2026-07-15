@@ -19,10 +19,7 @@ import {
   writePrivateFileSync,
 } from '../shared/private-fs.js';
 import { resolveWorkspaceIpcPath } from '../platform/workspace-folder.js';
-import {
-  DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForWorkspaceFolder,
-} from './app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from './app-memory-boundaries.js';
 import {
   resolveScopedMemorySubject,
   canonicalConversationIdForMemory,
@@ -62,6 +59,7 @@ import { incrementOperationalError } from '../shared/operational-error-counters.
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 interface TrustedMemoryContext {
+  appId: string;
   threadId?: string;
   chatJid?: string;
   userId?: string;
@@ -180,12 +178,15 @@ export function resolveTrustedMemorySubject(
   context: TrustedMemoryContext | undefined,
   scope?: SaveMemoryInput['scope'] | SaveProcedureInput['scope'],
 ) {
+  if (!context?.appId?.trim()) {
+    throw new Error('memory IPC context.appId is required');
+  }
   const defaultScope = context?.defaultScope === 'user' ? 'user' : 'group';
   if (scope && scope !== defaultScope) {
     throw new Error('memory scope must match the trusted conversation scope');
   }
   return resolveScopedMemorySubject({
-    appId: DEFAULT_MEMORY_APP_ID,
+    appId: context.appId,
     agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
     groupId: sourceAgentFolder,
     conversationId: canonicalConversationIdForMemory(context?.chatJid),
@@ -362,7 +363,7 @@ export async function processMemoryRequest(
           getMemory().patch({
             ...subject,
             id: input.id,
-            appId: DEFAULT_MEMORY_APP_ID,
+            appId: subject.appId,
             agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
@@ -573,7 +574,7 @@ export async function processMemoryRequest(
           getMemory().patch({
             ...subject,
             id: input.id,
-            appId: DEFAULT_MEMORY_APP_ID,
+            appId: subject.appId,
             agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,

@@ -1065,7 +1065,6 @@ client.memory.save({
   appId?,
   agentId?,
   personId?,
-  userId?,
   groupId?,
   channelId?,
   subjectType?, // user | group | channel | common
@@ -1082,7 +1081,6 @@ client.memory.search({
   appId?,
   agentId?,
   personId?,
-  userId?,
   groupId?,
   channelId?,
   query?,
@@ -1091,7 +1089,7 @@ client.memory.search({
   subjectTypes?,
 })
 
-client.memory.list({ appId?, agentId?, personId?, userId?, groupId?, channelId? })
+client.memory.list({ appId?, agentId?, personId?, groupId?, channelId? })
 client.memory.patch(memoryId, { appId?, agentId?, expectedVersion?, key?, value?, why?, confidence?, isPinned? })
 client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })

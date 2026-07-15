@@ -61,6 +61,7 @@ export interface ParsedMemoryIpcRequest {
   deadlineAtMs?: number;
   allowedActions: readonly MemoryIpcAction[];
   context?: {
+    appId: string;
     threadId?: string;
     chatJid?: string;
     userId?: string;
@@ -262,6 +263,7 @@ export function parseMemoryIpcRequest(
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
   const {
     authThreadId: threadId,
+    appId,
     chatJid,
     responseKeyId,
     userId,
@@ -269,6 +271,9 @@ export function parseMemoryIpcRequest(
     reviewerIsControlApprover,
     allowedActions,
   } = validateMemoryIpcAuthRequest(raw, sourceAgentFolder, 'memory IPC');
+  if (!appId) {
+    throw new Error('memory IPC context.appId is required');
+  }
   if (!responseKeyId) {
     throw new Error('memory IPC responseKeyId is required');
   }
@@ -299,13 +304,15 @@ export function parseMemoryIpcRequest(
     allowedActions,
     ...(responseKeyId ? { responseKeyId } : {}),
     ...(Number.isFinite(deadlineAtMs) ? { deadlineAtMs } : {}),
-    ...(threadId ||
+    ...(appId ||
+    threadId ||
     chatJid ||
     userId ||
     defaultScope ||
     reviewerIsControlApprover
       ? {
           context: {
+            appId,
             ...(threadId ? { threadId } : {}),
             ...(chatJid ? { chatJid } : {}),
             ...(userId ? { userId } : {}),

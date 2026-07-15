@@ -10,11 +10,11 @@ Every memory record has:
 - `appId`: the application or personal runtime namespace.
 - `agentId`: the agent/runtime owner for the memory.
 - one subject: `user`, `group`, `channel`, or `common`.
-- optional subject ids: `userId`, `groupId`, `channelId`.
+- optional subject ids: `personId`, `groupId`, `channelId`.
 
 Boundary names are provider-neutral:
 
-- `userId` is the human actor when the provider exposes one.
+- `personId` is the canonical human identity when the provider exposes one.
 - `groupId` is the logical Gantry/app group or configured agent group. It is not
   limited to Telegram groups.
 - `channelId` is the external conversation where the bot is present: Telegram
@@ -41,7 +41,7 @@ channelId=<Telegram/Slack/Teams/app conversation id>
 
 This `appId=default` value is the runtime's internal default memory app id.
 SDK applications should pass stable external ids for `appId`, `agentId`,
-`userId`, `groupId`, and `channelId`. Two apps never share memory
+`personId`, `groupId`, and `channelId`. Two apps never share memory
 unless the host explicitly writes separate records into both apps.
 
 ## Storage
@@ -270,7 +270,7 @@ chooses the scope from the inbound chat jid and the bound provider:
 flowchart LR
   In[Inbound message<br/>chatJid] --> IsGroup["Provider.isGroupJid(jid)?"]
   IsGroup -- yes --> Conv["MemorySubject = conversation<br/>subjectId = chatJid<br/>memoryDefaultScope = 'group'"]
-  IsGroup -- no --> User["MemorySubject = user<br/>subjectId = userId<br/>memoryDefaultScope = 'user'"]
+  IsGroup -- no --> User["MemorySubject = user<br/>subjectId = personId<br/>memoryDefaultScope = 'user'"]
   Conv --> Items[(memory_items<br/>unique by appId, agentId,<br/>subjectType, subjectId, kind, key)]
   User --> Items
 ```

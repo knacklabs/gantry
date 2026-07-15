@@ -1,4 +1,5 @@
 import { ApplicationError } from '../common/application-error.js';
+import type { RuntimeEventPublishInput } from '../../domain/events/events.js';
 
 export type AliasVerificationStatus = 'verified' | 'unverified' | 'retired';
 export type IdentityEvidenceType =
@@ -152,14 +153,25 @@ export interface PersonMergeInput {
 }
 
 export interface PersonIdentityRepository {
-  resolveIdentity(input: IdentityResolveInput): Promise<IdentityResolveResult>;
+  resolveIdentity(
+    input: IdentityResolveInput,
+    auditEventFactory?: (
+      result: IdentityResolveResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<IdentityResolveResult>;
   listPeople(
     appId: string,
     input: PersonListRepositoryInput,
   ): Promise<PersonListRepositoryPage>;
   getPerson(appId: string, personId: string): Promise<PersonRecord | null>;
-  addAlias(input: AddPersonAliasInput): Promise<PersonAliasRecord>;
-  retireAlias(input: RetirePersonAliasInput): Promise<PersonAliasRecord | null>;
+  addAlias(
+    input: AddPersonAliasInput,
+    auditEventFactory?: (alias: PersonAliasRecord) => RuntimeEventPublishInput,
+  ): Promise<PersonAliasRecord>;
+  retireAlias(
+    input: RetirePersonAliasInput,
+    auditEventFactory?: (alias: PersonAliasRecord) => RuntimeEventPublishInput,
+  ): Promise<PersonAliasRecord | null>;
   previewMerge(input: PersonMergeInput): Promise<PersonMergePreview>;
   mergePeople(input: PersonMergeInput): Promise<PersonMergeApplyResult>;
 }
@@ -172,12 +184,20 @@ export class PersonIdentityService {
     ) => provider.trim().toLowerCase(),
   ) {}
 
-  async resolve(input: IdentityResolveInput): Promise<IdentityResolveResult> {
+  async resolve(
+    input: IdentityResolveInput,
+    auditEventFactory?: (
+      result: IdentityResolveResult,
+    ) => RuntimeEventPublishInput,
+  ): Promise<IdentityResolveResult> {
     const normalized = this.normalizeAliasInput(input);
-    return this.repository.resolveIdentity({
-      ...normalized,
-      createIfMissing: input.createIfMissing !== false,
-    });
+    return this.repository.resolveIdentity(
+      {
+        ...normalized,
+        createIfMissing: input.createIfMissing !== false,
+      },
+      auditEventFactory,
+    );
   }
 
   async listPeople(
@@ -219,12 +239,21 @@ export class PersonIdentityService {
     return person;
   }
 
-  async addAlias(input: AddPersonAliasInput): Promise<PersonAliasRecord> {
-    return this.repository.addAlias(this.normalizeAliasInput(input));
+  async addAlias(
+    input: AddPersonAliasInput,
+    auditEventFactory?: (alias: PersonAliasRecord) => RuntimeEventPublishInput,
+  ): Promise<PersonAliasRecord> {
+    return this.repository.addAlias(
+      this.normalizeAliasInput(input),
+      auditEventFactory,
+    );
   }
 
-  async retireAlias(input: RetirePersonAliasInput): Promise<PersonAliasRecord> {
-    const alias = await this.repository.retireAlias(input);
+  async retireAlias(
+    input: RetirePersonAliasInput,
+    auditEventFactory?: (alias: PersonAliasRecord) => RuntimeEventPublishInput,
+  ): Promise<PersonAliasRecord> {
+    const alias = await this.repository.retireAlias(input, auditEventFactory);
     if (!alias) {
       throw new ApplicationError(
         'FORBIDDEN',

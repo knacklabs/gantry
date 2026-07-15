@@ -13,8 +13,9 @@ import {
   getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import {
-  publishIdentityAliasLinkedEvent,
-  publishIdentityAliasRetiredEvent,
+  identityAliasLinkedEvent,
+  identityAliasRetiredEvent,
+  identityResolvedEvent,
   publishIdentityResolvedEvent,
 } from '../../../application/identity/identity-runtime-events.js';
 import {
@@ -137,28 +138,45 @@ export async function handlePeopleRoutes(
     const canReadAliasDetails =
       hasScope(auth, 'people:read') || hasScope(auth, 'people:admin');
     try {
-      const result = await service().resolve({
-        ...parsed.data,
-        appId,
-        createIfMissing:
-          parsed.data.createIfMissing === true ? canCreate : false,
-      });
-      await publishIdentityResolvedEvent(
-        (event) => getRuntimeEventExchange().publish(event),
+      const provider =
+        normalizeProviderId(parsed.data.provider) ||
+        parsed.data.provider.trim().toLowerCase();
+      const result = await service().resolve(
         {
+          ...parsed.data,
           appId,
-          source: 'control_api',
-          provider:
-            normalizeProviderId(parsed.data.provider) ||
-            parsed.data.provider.trim().toLowerCase(),
-          providerAccountId: parsed.data.providerAccountId,
-          evidenceType: parsed.data.evidenceType,
-          status: result.status,
-          personId: result.personId,
-          verificationStatus: result.verificationStatus,
-          memoryHydrationEligible: result.memoryHydrationEligible,
+          createIfMissing:
+            parsed.data.createIfMissing === true ? canCreate : false,
         },
+        (resolved) =>
+          identityResolvedEvent({
+            appId,
+            source: 'control_api',
+            provider,
+            providerAccountId: parsed.data.providerAccountId,
+            evidenceType: parsed.data.evidenceType,
+            status: resolved.status,
+            personId: resolved.personId,
+            verificationStatus: resolved.verificationStatus,
+            memoryHydrationEligible: resolved.memoryHydrationEligible,
+          }),
       );
+      if (result.status !== 'created') {
+        await publishIdentityResolvedEvent(
+          (event) => getRuntimeEventExchange().publish(event),
+          {
+            appId,
+            source: 'control_api',
+            provider,
+            providerAccountId: parsed.data.providerAccountId,
+            evidenceType: parsed.data.evidenceType,
+            status: result.status,
+            personId: result.personId,
+            verificationStatus: result.verificationStatus,
+            memoryHydrationEligible: result.memoryHydrationEligible,
+          },
+        );
+      }
       sendJson(
         res,
         200,
@@ -238,23 +256,23 @@ export async function handlePeopleRoutes(
     const appId = readAppId(body, auth.appId);
     if (!assertPeopleAppAccess(res, appId, auth)) return true;
     try {
-      const created = await service().addAlias({
-        ...parsed.data,
-        appId,
-        personId: alias.personId,
-        actor: auth.kid,
-      });
-      await publishIdentityAliasLinkedEvent(
-        (event) => getRuntimeEventExchange().publish(event),
+      const created = await service().addAlias(
         {
+          ...parsed.data,
           appId,
-          personId: created.personId,
-          aliasId: created.id,
-          provider: created.provider,
-          providerAccountId: created.providerAccountId,
-          verificationStatus: created.verificationStatus,
+          personId: alias.personId,
           actor: auth.kid,
         },
+        (result) =>
+          identityAliasLinkedEvent({
+            appId,
+            personId: result.personId,
+            aliasId: result.id,
+            provider: result.provider,
+            providerAccountId: result.providerAccountId,
+            verificationStatus: result.verificationStatus,
+            actor: auth.kid,
+          }),
       );
       sendJson(res, 201, { alias: created });
     } catch (error) {
@@ -269,23 +287,23 @@ export async function handlePeopleRoutes(
     const appId = url.searchParams.get('appId') || auth.appId;
     if (!assertPeopleAppAccess(res, appId, auth)) return true;
     try {
-      const retired = await service().retireAlias({
-        appId,
-        personId: alias.personId,
-        aliasId: alias.aliasId,
-        actor: auth.kid,
-      });
-      await publishIdentityAliasRetiredEvent(
-        (event) => getRuntimeEventExchange().publish(event),
+      const retired = await service().retireAlias(
         {
           appId,
-          personId: retired.personId,
-          aliasId: retired.id,
-          provider: retired.provider,
-          providerAccountId: retired.providerAccountId,
-          verificationStatus: retired.verificationStatus,
+          personId: alias.personId,
+          aliasId: alias.aliasId,
           actor: auth.kid,
         },
+        (result) =>
+          identityAliasRetiredEvent({
+            appId,
+            personId: result.personId,
+            aliasId: result.id,
+            provider: result.provider,
+            providerAccountId: result.providerAccountId,
+            verificationStatus: result.verificationStatus,
+            actor: auth.kid,
+          }),
       );
       sendJson(res, 200, { alias: retired });
     } catch (error) {

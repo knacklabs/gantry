@@ -71,10 +71,12 @@ export const conversationParticipantsPostgres = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversationsPostgres.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull().default(''),
+    providerAccountId: text('provider_account_id').notNull().default(''),
     userId: text('user_id').references(() => usersPostgres.id, {
       onDelete: 'cascade',
     }),
-    externalUserId: text('external_user_id'),
+    externalUserId: text('external_user_id').notNull(),
     role: text('role').notNull().default('member'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -88,6 +90,13 @@ export const conversationParticipantsPostgres = pgTable(
     conversationIdx: index('idx_conversation_participants_conversation').on(
       table.conversationId,
       table.userId,
+    ),
+    identityUnique: uniqueIndex('uniq_conversation_participants_identity').on(
+      table.appId,
+      table.conversationId,
+      table.provider,
+      table.providerAccountId,
+      table.externalUserId,
     ),
   }),
 );
